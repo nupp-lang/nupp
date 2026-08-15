@@ -569,6 +569,9 @@ record state.Checker
     --- Annotations: see nupp.compiler.check.annotate.
     marks: any
 
+    --- Fixed-width establishment facts: see nupp.compiler.check.fixed_width.
+    fixedWidth: any
+
     -- The walk itself, for the families that recur into it.
 
     --- Checks one statement, dispatching on its kind.

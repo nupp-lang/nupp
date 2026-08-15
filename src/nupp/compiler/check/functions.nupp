@@ -567,6 +567,9 @@ function functions.install(c: state.Checker): state.StatHandlers
                 local pt = p.constDomainTok and T.functionConst or p.type and c.resolveType(
                     p.type
                 ) or (expectedParams and expectedParams[#params + 1]) or T.any
+                if p.type then
+                    c.fixedWidth.storageOnly(p.type, pt, "a parameter")
+                end
                 params[#params + 1] = pt
                 paramNames[#params] = p.name.text
                 local mode = inferredModes[sourceIndex] or "borrows"
@@ -591,6 +594,8 @@ function functions.install(c: state.Checker): state.StatHandlers
                     pt.tag == "affine" and pt or T.affine(pt)
                 ) or (mode == "borrows" or mode == "exclusive") and T.borrowed(pt) or pt
                 c.bindVar(p.name.text, bound, p.type ~= nil, p.name, "parameter")
+                c.fixedWidth.mark(c.scope.vars[p.name.text], pt)
+                c.fixedWidth.trust(c.scope.vars[p.name.text], pt)
                 if mode == "exclusive" then
                     -- The body owns the caller's sole view for this call. It may
                     -- forward that capability to another exclusive call, provided
@@ -641,6 +646,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             annotated = {}
             for j, resultT in ipairs(retPack.head) do
                 annotated[j], rets[j] = resultT, resultT
+                c.fixedWidth.storageOnly(body.rets and body.rets[j] or body.returnPack, resultT, "a function result")
             end
         else
             rets[1] = T.any

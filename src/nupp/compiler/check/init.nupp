@@ -33,6 +33,7 @@ local nosuspendMod = require("nupp.compiler.check.nosuspend")
 local effectregionsMod = require("nupp.compiler.check.effectregions")
 local analysis = require("nupp.compiler.analysis")
 local narrow = require("nupp.compiler.check.narrow")
+local fixedWidthCheck = require("nupp.compiler.check.fixed_width")
 local calls = require("nupp.compiler.check.calls")
 local expr = require("nupp.compiler.check.expr")
 local declare = require("nupp.compiler.check.declare")
@@ -924,6 +925,7 @@ function checkMod.check(
             return c.typeFunctionEvaluator(helper, arguments, c.comptimeFunctions)
         end
     }
+    c.fixedWidth = fixedWidthCheck.install(c)
     resolve.install(c)
     local ownershipKind = own.ownershipKind
 

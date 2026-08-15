@@ -989,9 +989,21 @@ Reports: `NUPP2203`, `NUPP2101`, `NUPP2502`, `NUPP2514`, `NUPP2602`, `NUPP2619`,
 
 ### Fixed-width scalar arithmetic
 
-Ordinary `+`, `*`, and a `float` annotation retain LuaJIT's existing numeric
-meaning. Code that requires one explicitly sized operation calls
-`nupp.math.i32`, `nupp.math.u32`, or `nupp.math.f32` instead.
+`float`, `int32`, and `uint32` are unboxed refinements of Lua numbers. They
+widen to `number` without code, while entering one requires evidence: an exact
+literal, a reified load, an explicit conversion, or another established
+fixed-width value. The erased assertion `as` changes a static claim but does
+not establish it.
+
+The establishing conversions are `nupp.math.f32.narrow(number)`,
+`nupp.math.i32.wrap(integer)`, and `nupp.math.u32.wrap(integer)`. `narrow`
+performs one binary32 store/load without changing a NaN payload; `f32.round`
+retains its canonical-NaN contract.
+
+Ordinary arithmetic still has LuaJIT's numeric meaning and produces `number`.
+Code that requires an explicitly sized operation calls `nupp.math.i32`,
+`nupp.math.u32`, or `nupp.math.f32`; its fixed-width inputs must already be
+established.
 
 The integer namespaces wrap modulo 2^32; shift counts are masked by 31 and
 signedness is stated by the operation. The binary32 namespace rounds every
@@ -1003,19 +1015,30 @@ Calls use Lua numbers in canonical ranges rather than allocating scalar cdata.
 Aliasing a standard member preserves its intrinsic identity; shadowing its
 spelling is an ordinary call.
 
+`int8`, `int16`, `uint8`, and `uint16` are storage-only names. They may describe
+struct fields, C arrays and pointers, cdefs, and standard span elements, but
+not ordinary locals, parameters, results, record fields, or unrelated generic
+arguments. Loading signed narrow storage yields `int32`; loading unsigned
+narrow storage yields `uint32`. A real struct, C-array, span, or cdef store may
+narrow a wider numeric source because the physical store performs that
+conversion; a table-backed record write may not.
+
 ```nupp
 local m = {}
 
 function m.step(flags: uint32, distance: number, inverseTime: number): (uint32, float)
     local rotated = nupp.math.u32.rotateLeft(flags, 7)
-    local speed = nupp.math.f32.mul(distance, inverseTime)
+    local d = nupp.math.f32.narrow(distance)
+    local dt = nupp.math.f32.narrow(inverseTime)
+    local speed = nupp.math.f32.mul(d, dt)
     return rotated, speed
 end
 
 return m
 ```
 
-Reports: `NUPP2001`, `NUPP2004`. `nupp explain <code>` says more.
+Reports: `NUPP2001`, `NUPP2004`, `NUPP2011`, `NUPP2012`. `nupp explain <code>`
+says more.
 
 ### Checked span views
 
@@ -1679,7 +1702,6 @@ says more.
  exhaustiveness                  NUPP2107  correctness  warning
  string-pointer                  NUPP2501  suspicious   warning
  jit-callback                    NUPP2502  suspicious   warning
- lossy-narrowing                 NUPP2503  suspicious   warning
  customary-operator              NUPP2504  style        warning
  loop-invariant-closure          NUPP2505  suspicious   warning
  undocumented-raise              NUPP2506  suspicious   warning
@@ -1706,6 +1728,8 @@ says more.
 - **NUPP2006**: A call's arguments are not arranged in a way it can be given.
 - **NUPP2009**: A property view does not grant the requested access.
 - **NUPP2010**: A complete value pack does not fit the required sequence.
+- **NUPP2011**: A fixed-width value was claimed without being established.
+- **NUPP2012**: A physical storage width was used as an ordinary value type.
 - **NUPP2101**: A type name cannot be resolved.
 - **NUPP2106**: An exported declaration needs a type annotation.
 - **NUPP2107**: A dispatch leaves members of a closed set unhandled.

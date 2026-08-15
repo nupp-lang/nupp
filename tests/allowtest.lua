@@ -229,15 +229,15 @@ end
 function M.severalCodesAtOnce()
    local src = table.concat({
       COLOR,
-      "@allow(NUPP2107, NUPP2503)",
+      "@allow(NUPP2107, NUPP2504)",
       "do",
-      "    local x: number = 5",
-      "    local small: int32 = x",
+      CHAIN,
+      "    local both = true && true",
       "end",
    }, "\n")
    assertEq(diagsOf(src, {strict = true}), "")
-   assertEq(diagsOf((src:gsub("@allow%(NUPP2107, NUPP2503%)",
-      "@allow(NUPP2107)")), {strict = true}), "NUPP2503")
+   assertEq(diagsOf((src:gsub("@allow%(NUPP2107, NUPP2504%)",
+      "@allow(NUPP2107)")), {strict = true}), "NUPP2504")
 end
 
 function M.itReachesNestedStatements()
@@ -254,31 +254,40 @@ end
 
 function M.strictLintsAreWarnings()
    local strict = {strict = true}
-   local d = checkOf("local x: number = 5\nlocal small: int32 = x", strict)
-   assertEq(d[1].code, "NUPP2503")
+   local d = checkOf("local a = true\nlocal both = a && a", strict)
+   assertEq(d[1].code, "NUPP2504")
    assertEq(d[1].severity, "warning")
    assertEq(diagsOf(table.concat({
-      "local x: number = 5",
-      "@allow(NUPP2503)",
-      "local small: int32 = x",
+      "local a = true",
+      "@allow(NUPP2504)",
+      "local both = a && a",
    }, "\n"), strict), "")
 end
 
-function M.lossyNarrowingOffersAnExplicitCast()
+function M.fixedWidthMigrationFixesAreComplete()
    local strict = {strict = true}
    local source = table.concat({
       "local type Small = int32",
       "local wide: number = 5",
-      "local small: Small = wide + 1",
+      "local small: Small = wide",
    }, "\n")
    local diagnostics = checkOf(source, strict)
    local fixes = diagnostics[1] and diagnostics[1].fixes
-   assertEq(fixes and #fixes or 0, 1, "one explicit narrowing fix")
-   assertEq(fixes[1].title, "cast to `Small`")
+   assertEq(fixes and #fixes or 0, 1, "a number can only widen the destination")
+   assertEq(fixes[1].title, "change the type to `number`")
    local rewritten = applyFix(source, fixes[1])
-   assert(rewritten:find("local small: Small = (wide + 1) as Small", 1, true),
-      "the complete initializer is parenthesized: " .. rewritten)
-   assertEq(diagsOf(rewritten, strict), "", "the explicit cast discharges the lint")
+   assertEq(diagsOf(rewritten, strict), "", "the widening fix checks")
+
+   source = source:gsub("wide: number", "wide: integer")
+   diagnostics = checkOf(source, strict)
+   fixes = diagnostics[1] and diagnostics[1].fixes
+   assertEq(fixes and #fixes or 0, 2, "an integer can wrap or widen")
+   assertEq(fixes[1].title, "convert with `nupp.math.i32.wrap`")
+   assertEq(fixes[2].title, "change the type to `integer`")
+   rewritten = applyFix(source, fixes[1])
+   assert(rewritten:find("nupp.math.i32.wrap(wide)", 1, true),
+      "the conversion encloses the complete initializer: " .. rewritten)
+   assertEq(diagsOf(rewritten, strict), "", "the conversion establishes the value")
 end
 
 function M.strictUnknownNamesOfferSafeSpellingFixes()

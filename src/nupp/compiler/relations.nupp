@@ -12,6 +12,7 @@ The doctrine is structural for shape and nominal for provenance. It is gradual:
 
 local T = require("nupp.compiler.types")
 local members = require("nupp.compiler.members")
+local fixedWidth = require("nupp.compiler.fixed_width")
 
 local relations = {}
 
@@ -71,7 +72,14 @@ local function runtimeCategory(t: Type): string?
     if tag == "number" or tag == "integer" or CDATA_NUM[tag] then
         return "number"
     end
-    if tag == "array" or tag == "map" or tag == "tuple" or tag == "shape" or tag == "table" or tag == "metatable" or tag == "typeobject" then
+    if tag == "array"
+        or tag == "map"
+        or tag == "tuple"
+        or tag == "shape"
+        or tag == "table"
+        or tag == "metatable"
+        or tag == "typeobject"
+    then
         return "table"
     end
     if tag == "func" then
@@ -679,16 +687,25 @@ local function check(a: Type, b: Type): boolean, string?
         end
     end
 
+    -- A numeric literal may enter a fixed-width value refinement only when the value
+    -- already belongs to it. This is membership, not contextual conversion: 0.5 is a
+    -- float value and 0.1 is not.
+    if atag == "literal" and type(
+        a.constant
+    ) == "number" and fixedWidth.isValue(b) and fixedWidth.literalFits(a.constant, b) then
+        return true
+    end
+
     -- numeric widening
     local widensFrom = WIDENS[atag]
     if widensFrom and widensFrom[btag] then
         return true
     end
 
-    -- cdata numeric slots (float, sized ints) accept any numeric value — storing a Lua
-    -- number into them converts, as in C. `integer` and `number` remain strict against
-    -- each other.
-    if CDATA_NUM[btag] and (atag == "number" or atag == "integer" or widensFrom) then
+    -- Boxed 64-bit cdata and layout-only narrow slots keep their established FFI
+    -- conversion relation. The three unboxed value refinements are deliberately
+    -- excluded: they consume the checker fact handled at value boundaries.
+    if CDATA_NUM[btag] and not fixedWidth.isValue(b) and (atag == "number" or atag == "integer" or widensFrom) then
         return true
     end
 

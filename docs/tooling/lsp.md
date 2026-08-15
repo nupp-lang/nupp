@@ -100,7 +100,10 @@ token carrying the diagnostic rather than only at its first byte.
 | Title | From |
 | --- | --- |
 | change to `name` | A misspelling, within edit distance |
-| cast to `Name` | Intended lossy narrowing |
+| convert with `nupp.math.f32.narrow` | Establish a binary32 value |
+| convert with `nupp.math.i32.wrap` | Establish a signed 32-bit integer |
+| convert with `nupp.math.u32.wrap` | Establish an unsigned 32-bit integer |
+| change the type to `number` / `integer` | Preserve an unestablished Lua value |
 | `require("module")` | NUPP2120, one fix per candidate |
 | use bound.name | The module is already required |
 | require("m") and use m.name | It is not required yet |

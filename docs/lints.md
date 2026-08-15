@@ -42,7 +42,6 @@ Every lint has a name and a stable code:
 | `exhaustiveness` | `NUPP2107` | correctness | warning |
 | string-pointer | `NUPP2501` | suspicious | warning |
 | jit-callback | `NUPP2502` | suspicious | warning |
-| lossy-narrowing | `NUPP2503` | suspicious | warning |
 | customary-operator | `NUPP2504` | style | warning |
 | loop-invariant-closure | `NUPP2505` | suspicious | warning |
 | undocumented-raise | `NUPP2506` | suspicious | warning |
@@ -63,13 +62,9 @@ survives renaming and what tooling keys on. Either is accepted everywhere.
 marking any the project has moved. The text table has no code column;
 `nupp lints --json` carries `code`, `default` and `moved` as well.
 
-`lossy-narrowing` is checked only in a strict file, meaning a `.nupp` one or any
-file under `--strict`. Moving its level does not raise a file's floor by itself.
-
 ## Built-in lints
 
-These outputs were captured from `nupp check --no-color`; the
-`lossy-narrowing` example also uses `--strict`.
+These outputs were captured from `nupp check --no-color`.
 
 ### `missing-require`
 
@@ -174,24 +169,6 @@ src/jit-boundary.nupp:4:5: warning: NUPP2514 jit-boundary: a variadic FFI call c
  4 |     printf("%d", value)
    |     ^~~~~~
 help: move the call into a function disabled with jit.off, or remove @jit from this function
-```
-:::
-
-### `lossy-narrowing`
-
-Strict checking asks for an explicit cast when a value may not fit the narrower
-integer type.
-
-::: code-group
-```nupp [src/lossy-narrowing.nupp]
-local value: number = 5
-local narrow: int32 = value
-```
-
-```text [nupp check --strict output]
-src/lossy-narrowing.nupp:2:23: warning: NUPP2503 lossy-narrowing: number does not fit every int32; cast if the narrowing is intended
- 2 | local narrow: int32 = value
-   |                       ^~~~~
 ```
 :::
 

@@ -107,6 +107,7 @@ local narrowing = require("nupp.compiler.narrowing")
 local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
 local state = require("nupp.compiler.check.state")
+local fixedWidth = require("nupp.compiler.fixed_width")
 
 local isA = relations.isA
 local subtract = narrowing.subtract
@@ -372,7 +373,12 @@ function operators.install(c: state.Checker): state.ExprHandlers
                 return c.applyContract(mm, {t}, {operand}, node, "__unm")
             end
             c.numericOperand(t, node, op)
-            return t == T.any and T.number or t
+            if t.tag == "literal" and type(t.constant) == "number" then
+                local value = -(t.constant as number)
+                c.fixedWidth.markLiteral(node, value)
+                return T.literal(value, t.base)
+            end
+            return (t == T.any or fixedWidth.isValue(t)) and T.number or t
         elseif op == "~" then
             c.numericOperand(t, node, op)
             return T.integer
@@ -451,6 +457,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
             c.numericOperand(lt, lhs, op)
             c.numericOperand(rt, rhs, op)
             if op == "/" or op == "^" then
+                return T.number
+            end
+            if fixedWidth.isValue(lt) or fixedWidth.isValue(rt) then
                 return T.number
             end
             if isA(lt, T.integer) and isA(rt, T.integer) and lt ~= T.any and rt ~= T.any then

@@ -1,5 +1,6 @@
 local span = require("nupp.span")
 local system = {}
+local TENTH = nupp.math.f32.narrow(0.1)
 
 local struct State
     x: float
@@ -11,7 +12,7 @@ local function advance(value: float, scale: float): (float, uint32)
     local flags: uint32 = 0
     noalloc do
         noraise do
-            position = nupp.math.f32.fma(value, scale, 0.1)
+            position = nupp.math.f32.fma(value, scale, TENTH)
             flags = nupp.math.u32.rotateLeft(nupp.math.u32.add(flags, 1), 3)
         end
     end

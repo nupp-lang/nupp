@@ -264,7 +264,7 @@ local function xxh64(input: string, seed: uint64): uint64
     h = bxor(h, rshift(h, 29))
     h = h * P3
 
-    return bxor(h, rshift(h, 32))
+    return ffi.cast<uint64>(bxor(h, rshift(h, 32)))
 end
 
 --- Sixteen hex digits of a `uint64`, high half first.

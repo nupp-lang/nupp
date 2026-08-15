@@ -25,12 +25,27 @@ for _, family in ipairs({"i32", "u32"}) do
     end
 end
 PATHS["nupp.math.i32.shiftRightArithmetic"] = "i32.shiftRightArithmetic"
+PATHS["nupp.math.i32.wrap"] = "i32.wrap"
 PATHS["nupp.math.i32.fromU32"] = "i32.fromU32"
 PATHS["nupp.math.i32.toU32"] = "i32.toU32"
 PATHS["nupp.math.u32.shiftRightLogical"] = "u32.shiftRightLogical"
+PATHS["nupp.math.u32.wrap"] = "u32.wrap"
 PATHS["nupp.math.u32.fromI32"] = "u32.fromI32"
 PATHS["nupp.math.u32.toI32"] = "u32.toI32"
-for _, operation in ipairs({"round", "add", "sub", "mul", "div", "sqrt", "min", "max", "fma", "fromBits", "toBits",}) do
+for _, operation in ipairs({
+    "narrow",
+    "round",
+    "add",
+    "sub",
+    "mul",
+    "div",
+    "sqrt",
+    "min",
+    "max",
+    "fma",
+    "fromBits",
+    "toBits",
+}) do
     PATHS["nupp.math.f32." .. operation] = "f32." .. operation
 end
 
@@ -62,7 +77,10 @@ function scalar.fold(identity: string, args: {number}): scalar.Folded?
         return nil
     end
     local a, b = args[1], args[2]
-    if operation == "add" then
+    if operation == "wrap" then
+        local out = bit.tobit(a)
+        return family == "u32" and u32(out) or out
+    elseif operation == "add" then
         local out = bit.tobit(a + b)
         return family == "u32" and u32(out) or out
     elseif operation == "sub" then

@@ -105,11 +105,11 @@ function control.install(c: state.Checker): state.StatHandlers
     -- A type constructor cannot in general prove the exact bound of the handle it
     -- builds. The closed evaluator validates the generated type against the declared
     -- bound at the type-function call boundary, so a broad `type` result is sound here.
-    local function returnIsA(got, expected)
+    local function returnFits(got, expected, expr)
         if (c.comptimeFunctionDepth or 0) > 0 and got == T.type_ and expected.tag == "typeHandle" then
-            return true, nil
+            return true, nil, false
         end
-        return isA(got, expected)
+        return c.fixedWidth.fits(got, expected, expr)
     end
 
     local own, facts = c.own, c.facts
@@ -176,6 +176,19 @@ function control.install(c: state.Checker): state.StatHandlers
             end
 
             return nil
+        end
+
+        local function fixedExpression(result: integer)
+            local exprs = stat.exprs or {}
+            if result < #exprs then
+                return exprs[result]
+            end
+            local expanded = exprs[#exprs]
+            if expanded then
+                expanded.fixedWidthResultIndex = result - #exprs + 1
+            end
+
+            return expanded
         end
 
         local function partitionFieldsOf(returned)
@@ -357,7 +370,7 @@ function control.install(c: state.Checker): state.StatHandlers
             for j, rt in ipairs(annotated) do
                 local got = ts[j] or T.nil_
                 local expected = rt
-                local expr = stat.exprs and stat.exprs[j]
+                local expr = fixedExpression(j)
                 local freshConstruction = expr and (
                     expr.kind == "newExpr" or expr.kind == "call" and expr.recordConstruct ~= nil
                 )
@@ -369,8 +382,8 @@ function control.install(c: state.Checker): state.StatHandlers
                     expected = ownReturns[j]
                     got = rawType(got)
                 end
-                local ok, why = returnIsA(got, expected)
-                if not ok then
+                local ok, why, reported = returnFits(got, expected, expr or stat)
+                if not ok and not reported then
                     c.diag("NUPP2002", stat.exprs and stat.exprs[j] or stat, ("return %d: %s"):format(j, why))
                 end
             end
@@ -378,7 +391,10 @@ function control.install(c: state.Checker): state.StatHandlers
                 c.diag("NUPP2002", stat, ("too many return values (expected %d, got %d)"):format(#annotated, #ts))
             end
         end
-        if annotatedPack and annotatedPack.id ~= returnedPack.id then
+        -- Equal static packs may still differ in fixed-width establishment evidence.
+        -- The fact is intentionally not part of the interned type identity, so returns
+        -- must consume it even when both packs print identically.
+        if annotatedPack then
             if annotatedPack.alternatives then
                 local ok, why = packIsA(returnedPack, annotatedPack)
                 if not ok then
@@ -392,7 +408,7 @@ function control.install(c: state.Checker): state.StatHandlers
             end
             for j, expected in ipairs(annotatedPack.head) do
                 local got = T.packAt(returnedPack, j) or T.nil_
-                local expr = stat.exprs and stat.exprs[j]
+                local expr = fixedExpression(j)
                 local freshConstruction = expr and (
                     expr.kind == "newExpr" or expr.kind == "call" and expr.recordConstruct ~= nil
                 )
@@ -400,8 +416,8 @@ function control.install(c: state.Checker): state.StatHandlers
                     expected = ownReturns[j]
                     got = rawType(got)
                 end
-                local ok, why = returnIsA(got, expected)
-                if not ok then
+                local ok, why, reported = returnFits(got, expected, expr or stat)
+                if not ok and not reported then
                     c.diag("NUPP2002", stat.exprs and stat.exprs[j] or stat, ("return %d: %s"):format(j, why))
                 end
             end
@@ -413,8 +429,9 @@ function control.install(c: state.Checker): state.StatHandlers
                 )
             elseif annotatedPack.tail and annotatedPack.tail.kind == "homogeneous" then
                 for j = #annotatedPack.head + 1, #returnedPack.head do
-                    local ok, why = returnIsA(returnedPack.head[j], annotatedPack.tail.type)
-                    if not ok then
+                    local expr = fixedExpression(j)
+                    local ok, why, reported = returnFits(returnedPack.head[j], annotatedPack.tail.type, expr or stat)
+                    if not ok and not reported then
                         c.diag("NUPP2002", stat, ("return %d: %s"):format(j, why))
                     end
                 end

@@ -66,15 +66,11 @@ you want the Lua behavior. Both are supported positions.
 
 ## Strict floor
 
-Strict adds exactly three things:
+Strict adds exactly two things:
 
 - **NUPP2105**: unknown variable, for a name no project file answers to.
 - **NUPP2106**: an exported declaration needs a type annotation, so nothing
   untyped crosses a module boundary.
-- **NUPP2503**: the `lossy-narrowing` lint, on a narrow integer annotation
-  initialized from a wider numeric type. This lint is unreachable without
-  strict mode.
-
 Everything else is checked identically either way.
 
 Which files hold that floor is decided by their extension, so a file says what
@@ -168,9 +164,10 @@ For where a declaration lives and how modules see it, read
 
 - **NUPP2001**: a value does not fit the type it is bound to.
 - **NUPP2004**: the field does not exist on that type.
+- **NUPP2011**: a fixed-width value was claimed without being established.
+- **NUPP2012**: a physical storage width was used as an ordinary value type.
 - **NUPP2105**: an unknown variable, in a strict file only.
 - **NUPP2106**: an exported declaration needs a type annotation.
-- **NUPP2503**: the `lossy-narrowing` lint, in a strict file only.
 
 ## Next
 

@@ -92,7 +92,7 @@ end
 function M.normalOptimizationLevelsContainNoHotReloadMetadata()
    local source = table.concat({
       "cdef function hot_plain(value: int32): int32",
-      "local function f(n: int32): int32 return hot_plain(n) + 1 end",
+      "local function f(n: int32): int32 return nupp.math.i32.add(hot_plain(n), 1) end",
       "return f",
    }, "\n")
    for level = 0, 2 do
@@ -919,7 +919,7 @@ function M.headerWatchPathsCollapseDuplicateSpellingsButKeepConsumers()
       ["main.nupp"] = table.concat({
          "local first = cheader('api.h')",
          "local second = cheader('./api.h')",
-         "local function value(): integer return first.hot_duplicate() + second.hot_duplicate() end",
+         "local function value(): number return first.hot_duplicate() + second.hot_duplicate() end",
          "return value",
       }, "\n"),
    })

@@ -62,9 +62,10 @@ help: compare the call with the declared parameter list
 NUPP2107 warning 4:5+2
 every branch returns, so this handles "blue" | "green" | "red" and leaves "blue", "green" unhandled
 help: add branches for "blue", "green" or add an else clause
-NUPP2503 warning 10:22+4
-number does not fit every int32; cast if the narrowing is intended
-fix: cast to `int32`]]
+NUPP2011 error 10:22+4
+number is not established as int32
+help: first produce an integer, or widen the destination type
+fix: change the type to `number`]]
 
 -- The checker threads its context through a local named `c`, so `c.result` and
 -- its neighbours are ordinary expressions in code and a rename artifact inside a

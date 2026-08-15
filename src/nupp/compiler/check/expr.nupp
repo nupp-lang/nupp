@@ -32,6 +32,7 @@ local materializeIR = require("nupp.compiler.materialize.ir") as {
     render: function(any): (string?, any)
 }
 local stable = require("nupp.compiler.build.cache").stable
+local fixedWidth = require("nupp.compiler.fixed_width")
 
 local expr = {}
 
@@ -298,6 +299,7 @@ function expr.install(c: state.Checker): nil
             local base = numberLiteralType(literal.text)
             local value = tonumber((literal.text:gsub("_", "")))
             if value and (base == T.integer or base == T.number) then
+                c.fixedWidth.markLiteral(node, value)
                 return T.literal(value, base)
             end
             return base
@@ -482,6 +484,7 @@ function expr.install(c: state.Checker): nil
                 -- and the second report adds nothing to the first.
                 entry.unassigned = nil
             end
+            c.fixedWidth.copyBinding(node, entry)
             return capturedType or (entry and entry.t or T.any) -- unknown names are any unless --strict
         elseif kind == "paren" then
             local inner = node.expr
@@ -490,6 +493,7 @@ function expr.install(c: state.Checker): nil
                 c.checkPackDiscard(inner.valuePack, 2, node)
             end
             node.immutablePath = inner and inner.immutablePath or false
+            c.fixedWidth.copy(node, inner)
             return out
         elseif kind == "comptimeExpr" then
             return comptimeType(node)
@@ -524,6 +528,7 @@ function expr.install(c: state.Checker): nil
             end
             local result = c.infer(call)
             node.partitionFields = call.partitionFields
+            c.fixedWidth.copy(node, call)
             return result
         elseif kind == "unsafeOwnershipExpr" then
             local value = node.expr
@@ -571,6 +576,7 @@ function expr.install(c: state.Checker): nil
             c.applyFacts(facts.f)
             local ft = c.infer(ifFalse)
             c.popScope()
+            c.fixedWidth.intersect(node, ifTrue, ifFalse)
             return T.union({tt, ft})
         elseif kind == "castExpr" then
             local cast = node.expr
@@ -579,6 +585,10 @@ function expr.install(c: state.Checker): nil
             end
             local source = c.infer(cast)
             local target = c.resolveType(node.type)
+            c.fixedWidth.storageOnly(node.type, target, "a cast result")
+            node.fixedWidthEstablished = nil
+            node.fixedWidthTrusted = nil
+            node.fixedWidthCallableUntrusted = target.tag == "func" and true or nil
             if c.ownershipKind(target) then
                 if c.ownershipKind(target) == "pinned" and c.ownershipKind(source) ~= "pinned" then
                     c.diag("NUPP2604", node, "a Pinned<T> value must be constructed with pin(pointer, anchor)")
@@ -622,8 +632,9 @@ function expr.install(c: state.Checker): nil
                     -- this pairing is settled the other way and the test would spend a
                     -- metatable lookup to say false. The only pairing answered so: `as`
                     -- stays the way to override what the checker decided.
-                elseif (rawType(present).tag == "metatable" or rawType(present).tag == "typeobject")
-                    and target.tag == "nominal" then
+                elseif (
+                    rawType(present).tag == "metatable" or rawType(present).tag == "typeobject"
+                ) and target.tag == "nominal" then
                     node.refutedStatically = true
                 end
             end
@@ -631,6 +642,9 @@ function expr.install(c: state.Checker): nil
         elseif kind == "funcExpr" then
             local body = node.body as cst.Funcbody
             local inferred = body and c.checkFuncbody(body) or T.any
+            if body and not body.returnPack then
+                node.fixedWidthCallableUntrusted = true
+            end
             local captures = body and body.borrowCaptures or {}
             if #captures > 0 then
                 local roots = {}
@@ -675,7 +689,12 @@ function expr.install(c: state.Checker): nil
                         params[#params + 1] = pt
                         paramNames[#params] = pname and pname.text or ""
                         if pname then
+                            if p.type then
+                                c.fixedWidth.storageOnly(p.type, pt, "a parameter")
+                            end
                             c.bindVar(pname.text, pt, p.type ~= nil, pname, "parameter")
+                            c.fixedWidth.mark(c.scope.vars[pname.text], pt)
+                            c.fixedWidth.trust(c.scope.vars[pname.text], pt)
                         end
                     end
                 end
@@ -690,6 +709,12 @@ function expr.install(c: state.Checker): nil
                 local first = c.infer(node.expr)
                 retPack = node.expr.valuePack or T.pack({first})
                 rets = retPack.head
+                for index, result in ipairs(rets) do
+                    node.expr.fixedWidthResultIndex = index
+                    if fixedWidth.isValue(result) and not c.fixedWidth.established(node.expr, result) then
+                        node.fixedWidthCallableUntrusted = true
+                    end
+                end
             else
                 c.retStack[#c.retStack + 1] = false
                 c.retPackStack[#c.retPackStack + 1] = false
@@ -698,6 +723,7 @@ function expr.install(c: state.Checker): nil
                 c.retPackStack[#c.retPackStack] = nil
                 rets = {T.any}
                 retPack = T.pack({}, {kind = "unknown", type = T.any})
+                node.fixedWidthCallableUntrusted = true
             end
             c.loops.setReturning(wasReturning)
             c.loops.finish(loopClosure, node)
@@ -864,13 +890,34 @@ function expr.install(c: state.Checker): nil
         -- this call is dropped before this one asks. An incremental recheck reaches the
         -- same node with its dependencies moved underneath it.
         node.valuePack = nil
+        node.fixedWidthEstablished = nil
+        node.fixedWidthTrusted = nil
+        node.fixedWidthResultEstablished = nil
+        node.fixedWidthResultTrusted = nil
+        node.fixedWidthUntrustedResult = nil
         local first = inferExpr(node)
+        if fixedWidth.isValue(first) and not node.fixedWidthUntrustedResult then
+            c.fixedWidth.mark(node, first)
+        end
+        if not node.fixedWidthUntrustedResult then
+            c.fixedWidth.trust(node, first)
+        end
         -- A reader that wants every value an expanding expression produces finds them
         -- on the node. Some paths through a call answer with one type and publish
         -- nothing — an unresolvable method, an intrinsic, a resolved `require` — and
         -- without a pack of their own the reader would take whichever call ran last
         -- while the arguments were inferred, which is one of this call's own arguments.
         node.valuePack = node.valuePack or T.pack({first})
+        for index, result in ipairs(node.valuePack.head or {}) do
+            if fixedWidth.isValue(result) and not node.fixedWidthUntrustedResult then
+                node.fixedWidthResultEstablished = node.fixedWidthResultEstablished or {}
+                node.fixedWidthResultEstablished[index] = {[T.unwrapOwnership(result).tag] = true}
+            end
+            if fixedWidth.requiresTrust(result) and not node.fixedWidthUntrustedResult then
+                node.fixedWidthResultTrusted = node.fixedWidthResultTrusted or {}
+                node.fixedWidthResultTrusted[index] = true
+            end
+        end
 
         return first
     end
@@ -886,6 +933,9 @@ function expr.install(c: state.Checker): nil
             return inferred
         elseif node.kind == "funcExpr" and node.body then
             local inferred = c.apply.checkFuncbodyExpected(node.body, expected)
+            if not node.body.returnPack then
+                node.fixedWidthCallableUntrusted = true
+            end
             local captures = (node.body as cst.Funcbody).borrowCaptures or {}
             if #captures > 0 then
                 local roots = {}

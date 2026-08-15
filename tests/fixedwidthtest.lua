@@ -25,6 +25,21 @@ local function library()
 end
 
 local M = {}
+local checkedTree
+
+local function diagnosticsFor(source)
+   local result = parser.parse(source, "fixed-width-diagnostic.nupp")
+   assertEq(#result.errors, 0, "diagnostic syntax")
+   return check.check(result, "fixed-width-diagnostic.nupp", envMod.new(HERE .. "/.."))
+end
+
+local function errorCodes(source)
+   local codes = {}
+   for _, diagnostic in ipairs(diagnosticsFor(source)) do
+      if diagnostic.severity == "error" then codes[#codes + 1] = diagnostic.code end
+   end
+   return table.concat(codes, ",")
+end
 
 function M.surfaceHasFixedStaticResults()
    local source = [[
@@ -44,6 +59,144 @@ return si, ui, shifted, compared, rounded, floatBits
          error(diagnostic.code .. ": " .. diagnostic.msg, 2)
       end
    end
+end
+
+function M.valueRefinementsRequireEstablishment()
+   assertEq(errorCodes([[
+local input: number = 0.1
+local exact: float = 0.5
+local decimal: float = 0.1
+local claimed = input as float
+local copied: float = claimed
+local function returnsFloat(): float
+    return input
+end
+return exact, decimal, copied, returnsFloat
+]]), "NUPP2011,NUPP2011,NUPP2011", "unestablished values")
+
+   checkedTree([[
+local input: number = 0.1
+local f: float = nupp.math.f32.narrow(input)
+local i: int32 = nupp.math.i32.wrap(2147483648)
+local u: uint32 = nupp.math.u32.wrap(-1)
+local wide: number = f + f
+return f, i, u, wide
+]])
+end
+
+function M.storageOnlyWidthsStayAtPhysicalBoundaries()
+   assertEq(errorCodes([[
+local record Bad
+    byte: uint8
+end
+local function bad(value: int16): uint8
+    local slot: int8 = 1
+    return slot
+end
+return Bad, bad
+]]), "NUPP2012,NUPP2012,NUPP2012,NUPP2012", "storage-only value positions")
+
+   checkedTree([[
+local span = require("nupp.span")
+local struct Bytes
+    signed: int8
+    unsigned: uint16
+    value: float
+end
+cdef function byte_identity(value: uint8): int8
+local function read(values: span.Span<uint8>, bytes: Bytes, input: number): (uint32, int32)
+    bytes.signed = input
+    bytes.unsigned = input
+    bytes.value = input
+    local signed: int32 = bytes.signed
+    local unsigned: uint32 = values:get(1)
+    return unsigned, byte_identity(input)
+end
+return read
+]])
+end
+
+function M.recordFactsDoNotSurviveGradualErasure()
+   assertEq(errorCodes([[
+local record Reading
+    value: float
+end
+local function bad(reading: Reading): float
+    local erased: any = reading
+    local forged = erased as Reading
+    return forged.value
+end
+return bad
+]]), "NUPP2011", "erased record trust")
+
+   checkedTree([[
+local record Reading
+    value: float
+end
+local function keep(reading: Reading): float
+    reading.value = nupp.math.f32.narrow(0.1)
+    return reading.value
+end
+return keep
+]])
+end
+
+function M.foreignCallableAssertionsDoNotEstablishResults()
+   assertEq(errorCodes([[
+local raw: any = function(): number return 0.1 end
+local claimed = raw as function(): float
+local value: float = claimed()
+return value
+]]), "NUPP2011", "erased callable result")
+end
+
+function M.contextualFunctionResultsConsumeFacts()
+   assertEq(errorCodes([[
+local input: number = 0.1
+local f: function(): float = || -> input as float
+local value: float = f()
+return value
+]]), "NUPP2011", "contextual short function result")
+
+   assertEq(errorCodes([[
+local input: number = 0.1
+local f: function(): float = function()
+    return input as float
+end
+local value: float = f()
+return value
+]]), "NUPP2011", "contextual function result")
+end
+
+function M.fixedWidthFactsFollowEveryCallResult()
+   checkedTree([[
+local function pair(): (float, uint32)
+    return 0.5, 7
+end
+local a: float, b: uint32 = pair()
+a, b = pair()
+local function forward(): (float, uint32)
+    return pair()
+end
+return a, b, forward
+]])
+end
+
+function M.conversionsReturnUnboxedLuaNumbers()
+   local m = library()
+   assertEq(m.i32.wrap(2147483648), -2147483648)
+   assertEq(m.u32.wrap(-1), 4294967295)
+   assertEq(type(m.f32.narrow(0.1)), "number")
+   assertEq(type(m.i32.wrap(1)), "number")
+   assertEq(type(m.u32.wrap(1)), "number")
+
+   local holder = ffi.new("union {float f;uint32_t u;}[1]")
+   holder[0].u = 0x7fc01234
+   local payload = tonumber(holder[0].f)
+   holder[0].f = m.f32.narrow(payload)
+   assertEq(tonumber(holder[0].u), 0x7fc01234, "narrow keeps a NaN payload")
+   holder[0].f = m.f32.round(payload)
+   assertEq(tonumber(holder[0].u), 0x7fc00000, "round canonicalizes a NaN")
 end
 
 
@@ -179,7 +332,7 @@ function M.binary32HolderIsStableWithTheJitOnAndOff()
    assertEq(traced, interpreted, "module holder has identical JIT semantics")
 end
 
-local function checkedTree(source)
+checkedTree = function(source)
    local result = parser.parse(source, "fixed-intrinsic.nupp")
    assertEq(#result.errors, 0, "intrinsic syntax")
    local diagnostics = check.check(result, "fixed-intrinsic.nupp", envMod.new(HERE .. "/.."))

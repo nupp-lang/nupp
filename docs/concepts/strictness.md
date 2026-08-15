@@ -37,12 +37,10 @@ is `NUPP1006` rather than a silently ignored comment, because the extension has
 already settled that the file is Lua and an annotation written into it would
 govern nothing.
 
-## Strict adds three things
+## Strict adds two things
 
 An unknown variable is an error rather than a global read. An exported
 declaration needs an annotation, so nothing untyped crosses a module boundary.
-And narrowing a wider numeric into a small sized type raises the
-`lossy-narrowing` lint, which asks for an explicit `as`.
 
 That is the whole difference. The typed syntax, the checker, and the generated
 Lua are identical either way.
@@ -72,7 +70,6 @@ gone, and what remains is what you would have written by hand.
 - **NUPP1006**: the typed layer appears in a `.lua` file, which is plain Lua.
 - **NUPP2105**: an unknown variable, in a strict file only.
 - **NUPP2106**: an exported declaration needs a type annotation.
-- **NUPP2503**: the `lossy-narrowing` lint, in a strict file only.
 
 ## Next
 

@@ -261,6 +261,28 @@ local ENTRIES: {any} = {
         docs = "docs/type-system/packs.md#pack-compatibility",
     },
     {
+        code = "NUPP2011",
+        summary = "A fixed-width value was claimed without being established",
+        rule = "`float`, `int32`, and `uint32` are checked refinements of Lua "
+        .. "numbers. A fitting literal, a checked refined source, a reified load, "
+        .. "or the explicit conversion establishes the claim; an erased `as` does not.",
+        wrong = "local input: number = 0.1\nlocal value: float = input as float\nreturn value\n",
+        right = "local input: number = 0.1\nlocal value: float = nupp.math.f32.narrow(input)\nreturn value\n",
+        related = {"NUPP2001", "NUPP2002", "NUPP2006", "NUPP2012"},
+        docs = "docs/reference.md#fixed-width-scalar-arithmetic",
+    },
+    {
+        code = "NUPP2012",
+        summary = "A physical storage width was used as an ordinary value type",
+        rule = "`int8`, `int16`, `uint8`, and `uint16` describe physical layout. "
+        .. "Use them for struct fields, C arrays and pointers, cdefs, or span elements; "
+        .. "use `int32` or `uint32` for locals, parameters, results, and record fields.",
+        wrong = "local byte: uint8 = 1\nreturn byte\n",
+        right = "local byte: uint32 = 1\nreturn byte\n",
+        related = {"NUPP2011", "NUPP2201", "NUPP2203"},
+        docs = "docs/reference.md#fixed-width-scalar-arithmetic",
+    },
+    {
         code = "NUPP2101",
         summary = "A type name cannot be resolved",
         rule = "A type name must be a built-in, a declaration visible in this "

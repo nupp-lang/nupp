@@ -125,15 +125,14 @@ function M.cFunctionPointersDecodeAsCallbackTypes()
       "a pointer to a function reads as one: " .. rendered)
 end
 
-function M.lossyNarrowingIsAStrictModeLint()
+function M.fixedWidthClaimsRequireEstablishmentInEveryMode()
    local src = "local x: number = 5\nlocal small: int32 = x"
-   -- silent by default, since LuaJIT has always truncated here
-   assertEq(diagsOf(src), "")
+   assertEq(diagsOf(src), "NUPP2011")
    local result = parser.parse(src, "test.g.nupp")
    local diags = check.check(result, "test.g.nupp", env, {strict = true})
    assertEq(#diags, 1, "reported under --strict")
-   assertEq(diags[1].code, "NUPP2503")
-   -- a wider target is not a narrowing
+   assertEq(diags[1].code, "NUPP2011")
+   -- A wider target needs no establishment fact.
    local wide = parser.parse("local x: number = 5\nlocal big: number = x", "test")
    assertEq(#check.check(wide, "test", env, {strict = true}), 0)
 end

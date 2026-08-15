@@ -187,19 +187,21 @@ function M.actionsAndJsonDiagnosticsAreMachineReadable()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.manifestStrictnessAndSpellingFixesReachLanguageActions()
+function M.refinementAndSpellingFixesReachLanguageActions()
    local dir = tempProject({
       ["nupp.lua"] = 'return {include = {"."}, strict = true}\n',
-      ["main.nupp"] = "local wide: number = 5\n"
-         .. "local small: int32 = wide + 1\n",
+      ["main.nupp"] = "local wide: integer = 5\n"
+         .. "local small: int32 = wide\n",
       ["field.nupp"] = "local p: {horizontal: number} = {horizontal = 1}\n"
          .. "print(p.horizonal)\n",
    })
    local narrowing = json.decode(capture(dir,
       "lsp actions --json --only quickfix main.nupp 2 22"))
-   assert(#narrowing.actions == 1, "manifest strict lint reaches the LSP")
-   assert(narrowing.actions[1].title == "cast to `int32`",
-      "strict lint exposes its fix")
+   assert(#narrowing.actions == 2, "refinement error reaches the LSP")
+   assert(narrowing.actions[1].title == "convert with `nupp.math.i32.wrap`",
+      "the establishing conversion is offered")
+   assert(narrowing.actions[2].title == "change the type to `integer`",
+      "the identity-preserving widening is offered")
 
    local spelling = json.decode(capture(dir,
       "lsp actions --json --only quickfix field.nupp 2 9"))

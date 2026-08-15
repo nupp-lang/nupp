@@ -1,8 +1,8 @@
 # Fixed-width names as checked refinements
 
-> **Status: proposed, not implemented.** Nothing here is built. Claims about
-> current behavior were checked against generated output before this plan was
-> written.
+> **Status: implemented.** The checked refinements, storage projection,
+> establishment facts, explicit conversions, diagnostics, and physical-store
+> boundary described here are part of the compiler and standard library.
 >
 > This is a consistency fix, not a new arithmetic model. `integer` is already a
 > checked refinement of `number` with no representation or operator promotion

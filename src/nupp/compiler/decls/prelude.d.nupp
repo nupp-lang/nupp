@@ -1923,22 +1923,22 @@ record nupp.io
         --- Reads one unsigned byte.
         --- @param self this reader
         --- @return the value
-        readUint8: function(self: ScalarReader): uint8
+        readUint8: function(self: ScalarReader): uint32
 
         --- Reads one signed byte.
         --- @param self this reader
         --- @return the value
-        readInt8: function(self: ScalarReader): int8
+        readInt8: function(self: ScalarReader): int32
 
         --- Reads an unsigned 16-bit integer.
         --- @param self this reader
         --- @return the value
-        readUint16: function(self: ScalarReader): uint16
+        readUint16: function(self: ScalarReader): uint32
 
         --- Reads a signed 16-bit integer.
         --- @param self this reader
         --- @return the value
-        readInt16: function(self: ScalarReader): int16
+        readInt16: function(self: ScalarReader): int32
 
         --- Reads an unsigned 32-bit integer.
         --- @param self this reader
@@ -1998,25 +1998,25 @@ record nupp.io
         --- @param self this writer
         --- @param value the value to write
         --- @return this writer
-        writeUint8: function(self: ScalarWriter, value: uint8): ScalarWriter
+        writeUint8: function(self: ScalarWriter, value: uint32): ScalarWriter
 
         --- Writes one signed byte.
         --- @param self this writer
         --- @param value the value to write
         --- @return this writer
-        writeInt8: function(self: ScalarWriter, value: int8): ScalarWriter
+        writeInt8: function(self: ScalarWriter, value: int32): ScalarWriter
 
         --- Writes an unsigned 16-bit integer.
         --- @param self this writer
         --- @param value the value to write
         --- @return this writer
-        writeUint16: function(self: ScalarWriter, value: uint16): ScalarWriter
+        writeUint16: function(self: ScalarWriter, value: uint32): ScalarWriter
 
         --- Writes a signed 16-bit integer.
         --- @param self this writer
         --- @param value the value to write
         --- @return this writer
-        writeInt16: function(self: ScalarWriter, value: int16): ScalarWriter
+        writeInt16: function(self: ScalarWriter, value: int32): ScalarWriter
 
         --- Writes an unsigned 32-bit integer.
         --- @param self this writer
@@ -2939,6 +2939,7 @@ end
 --- Explicit wrapping signed 32-bit arithmetic and bit operations.
 --- @internal
 record nupp.I32MathLibrary
+    wrap: nosuspend function(value: integer): int32
     add: nosuspend function(a: int32, b: int32): int32
     sub: nosuspend function(a: int32, b: int32): int32
     mul: nosuspend function(a: int32, b: int32): int32
@@ -2959,6 +2960,7 @@ end
 --- Explicit wrapping unsigned 32-bit arithmetic and bit operations.
 --- @internal
 record nupp.U32MathLibrary
+    wrap: nosuspend function(value: integer): uint32
     add: nosuspend function(a: uint32, b: uint32): uint32
     sub: nosuspend function(a: uint32, b: uint32): uint32
     mul: nosuspend function(a: uint32, b: uint32): uint32
@@ -2980,17 +2982,18 @@ end
 --- nearest, ties-to-even; NaNs use the canonical quiet payload 0x7fc00000.
 --- @internal
 record nupp.F32MathLibrary
+    narrow: nosuspend function(value: number): float
     round: nosuspend function(value: number): float
-    add: nosuspend function(a: number, b: number): float
-    sub: nosuspend function(a: number, b: number): float
-    mul: nosuspend function(a: number, b: number): float
-    div: nosuspend function(a: number, b: number): float
-    sqrt: nosuspend function(value: number): float
-    min: nosuspend function(a: number, b: number): float
-    max: nosuspend function(a: number, b: number): float
-    fma: nosuspend function(a: number, b: number, c: number): float
+    add: nosuspend function(a: float, b: float): float
+    sub: nosuspend function(a: float, b: float): float
+    mul: nosuspend function(a: float, b: float): float
+    div: nosuspend function(a: float, b: float): float
+    sqrt: nosuspend function(value: float): float
+    min: nosuspend function(a: float, b: float): float
+    max: nosuspend function(a: float, b: float): float
+    fma: nosuspend function(a: float, b: float, c: float): float
     fromBits: nosuspend function(bits: uint32): float
-    toBits: nosuspend function(value: number): uint32
+    toBits: nosuspend function(value: float): uint32
 end
 
 --- @internal

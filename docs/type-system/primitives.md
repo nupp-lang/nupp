@@ -15,17 +15,17 @@ These names, and only these, resolve as bare builtin types:
 | `table` | Any table shape; gradual in both directions |
 | `thread` | A coroutine |
 | `userdata` | Userdata |
-| `float` | A C float; widens to number |
+| `float` | An established binary32 Lua number; widens to `number` |
 | `cdata` | Any cdata value |
 | `cstring` | const char * |
 | `voidptr` | void * |
-| `int8` | Sized C integers, signed and unsigned |
-| `int16` |  |
-| `int32` |  |
+| `int8` | Signed physical storage; loads as `int32` |
+| `int16` | Signed physical storage; loads as `int32` |
+| `int32` | An established signed 32-bit Lua integer |
 | `int64` |  |
-| `uint8` |  |
-| `uint16` |  |
-| `uint32` |  |
+| `uint8` | Unsigned physical storage; loads as `uint32` |
+| `uint16` | Unsigned physical storage; loads as `uint32` |
+| `uint32` | An established unsigned 32-bit Lua integer |
 | `uint64` |  |
 
 `metatable<T>`, `ctype<T>`, `carray<T>`, `Owned<T>`, `Borrowed<T>`, and
@@ -175,18 +175,31 @@ local x: number = 1
 local y: integer = x -- NUPP2001: number is not a integer
 ```
 
-The sized C integers behave differently. Any numeric source is accepted into a
-`float` or a sized-integer slot, as in C:
+`float`, `int32`, and `uint32` are also value refinements. They remain ordinary
+unboxed Lua numbers, but entering one requires evidence that the value belongs
+to its set. Exact literals, physical loads, refined parameters and results, and
+the explicit conversions establish that evidence:
 
 ```nupp
-local z: int32 = x -- accepted
+local x: number = 1
+local half: float = 0.5
+local rounded: float = nupp.math.f32.narrow(x)
+local whole: integer = 1
+local signed: int32 = nupp.math.i32.wrap(whole)
+local unsigned: uint32 = nupp.math.u32.wrap(whole)
 ```
 
-So `number → integer` is refused while `number → int32` is allowed. The sized
-types are a C boundary, where truncation is the expected arithmetic; `integer`
-is a claim about a Lua value. In a strict file, meaning a `.nupp` one or any
-file under `--strict`, narrowing a wider numeric into a small sized type raises
-the `lossy-narrowing` lint, and the suggested fix is an explicit `as`.
+The erased assertion `as` may claim one of these types but does not establish
+it. Ordinary arithmetic over them keeps LuaJIT's numeric semantics and produces
+`number`; use the `nupp.math.f32`, `nupp.math.i32`, and `nupp.math.u32`
+operations when a particular width is part of the calculation.
+
+`int8`, `int16`, `uint8`, and `uint16` are storage-only. They may describe
+struct fields, C arrays and pointers, cdefs, and standard spans, but not locals,
+parameters, results, records, or unrelated generic arguments. Signed narrow
+loads produce `int32`; unsigned narrow loads produce `uint32`. Stores at those
+physical boundaries accept wider numeric inputs because the store itself
+performs the narrowing.
 
 Literals type as you would expect: `1` is an `integer` literal, `1.5` and `1e3`
 are `number`, `1LL` is `int64`, `1ULL` is `uint64`, `0xff` is `integer`.

@@ -1472,6 +1472,9 @@ function declare.install(
                         end
                     end
                     local ft = c.resolveType(e.type)
+                    if stat.declKind ~= "struct" then
+                        c.fixedWidth.storageOnly(e.type, ft, ("the %q table-backed field"):format(e.name.text))
+                    end
                     if e.defaultValue then
                         if stat.declKind == "interface" or stat.isAnnotationDefinition then
                             c.diag(
@@ -1490,8 +1493,13 @@ function declare.install(
                             end
                             local actual = c.infer(e.defaultValue)
                             if constant then
-                                local ok, why = isA(actual, ft)
-                                if not ok then
+                                local ok, why, reported = c.fixedWidth.fits(
+                                    actual,
+                                    ft,
+                                    e.defaultValue,
+                                    stat.declKind == "struct"
+                                )
+                                if not ok and not reported then
                                     c.diag(
                                         "NUPP2202",
                                         e.defaultValue,

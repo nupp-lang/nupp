@@ -79,7 +79,9 @@ end
 --- Set bits in one word.
 local function popcount(word: integer): integer
     unsafe do
-        return POPCOUNT_HALF[band(word, HALF_MASK)] + POPCOUNT_HALF[band(rshift(word, HALF_SHIFT), HALF_MASK)]
+        return (
+            POPCOUNT_HALF[band(word, HALF_MASK)] + POPCOUNT_HALF[band(rshift(word, HALF_SHIFT), HALF_MASK)]
+        ) as integer
     end
 end
 
@@ -91,7 +93,7 @@ local function lowestBit(word: integer): integer
             return CTZ_HALF[half]
         end
 
-        return HALF_SHIFT + CTZ_HALF[band(rshift(word, HALF_SHIFT), HALF_MASK)]
+        return (HALF_SHIFT + CTZ_HALF[band(rshift(word, HALF_SHIFT), HALF_MASK)]) as integer
     end
 end
 

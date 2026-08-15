@@ -16,6 +16,7 @@ local T = require("nupp.compiler.types")
 local generics = require("nupp.compiler.generics")
 local consteval = require("nupp.compiler.consteval")
 local relations = require("nupp.compiler.relations")
+local fixedWidth = require("nupp.compiler.fixed_width")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
 
@@ -361,6 +362,44 @@ function resolve.install(c: state.Checker): nil
             end
         end
         c.validateTypeBounds(t.typeParams, t.typeBounds, map, node)
+
+        local origin = (t.origin or t) as T.Nominal
+        local storageGeneric = origin.moduleName == "nupp.span" and (
+            origin.name == "Span"
+            or origin.name == "FixedSpan"
+            or origin.name == "WriteSpan"
+            or origin.name == "FixedWriteSpan"
+            or origin.name == "WriteSplit"
+        )
+        if not storageGeneric then
+            local typePosition = 1
+            for position, kind in ipairs(t.paramKinds or {}) do
+                if kind == "type" then
+                    local tv = t.typeParams and t.typeParams[typePosition]
+                    local argument = tv and map[tv] or nil
+                    if argument and fixedWidth.isStorageOnly(argument) then
+                        c.fixedWidth.storageOnly(
+                            node.typeArgs[position] or node,
+                            argument,
+                            "a general-purpose generic argument"
+                        )
+                    end
+                    typePosition = typePosition + 1
+                end
+            end
+            if #(t.paramKinds or {}) == 0 then
+                for position, tv in ipairs(t.typeParams or {}) do
+                    local argument = map[tv]
+                    if argument and fixedWidth.isStorageOnly(argument) then
+                        c.fixedWidth.storageOnly(
+                            node.typeArgs[position] or node,
+                            argument,
+                            "a general-purpose generic argument"
+                        )
+                    end
+                end
+            end
+        end
 
         return instantiateNominal(t, map)
     end

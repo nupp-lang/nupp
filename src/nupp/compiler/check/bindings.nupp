@@ -13,6 +13,7 @@ the module's own table — what publishes a member of it.
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.relations")
 local cst = require("nupp.compiler.cst")
+local fixedWidth = require("nupp.compiler.fixed_width")
 local state = require("nupp.compiler.check.state")
 
 local isA = relations.isA
@@ -50,33 +51,29 @@ function bindings.install(c: state.Checker): state.StatHandlers
         for index, typeNode in ipairs(stat.types or {}) do
             local annotation = c.resolveType(typeNode)
             annotations[index] = annotation
+            c.fixedWidth.storageOnly(typeNode, annotation, "a local value")
             local initializer = initializers[index]
             if initializer and initializer.kind == "comptimeExpr" then
                 initializer.materializationExpected = annotation
             end
         end
         local inferred = inferList(stat.exprs, #stat.names)
+        local initializerCount = #initializers
         for j, nameTok in ipairs(stat.names) do
             local ann = annotations[j]
-            if c.opts and c.opts.strict and ann and inferred[j] then
-                local NARROW = {int8 = 1, uint8 = 1, int16 = 2, uint16 = 2, int32 = 4, uint32 = 4,}
-                local width = NARROW[ann.tag]
-                local from = inferred[j].tag
-                if width and (from == "number" or from == "integer" or from == "int64" or from == "uint64") then
-                    c.diag(
-                        "NUPP2503",
-                        initializers[j] or stat,
-                        (
-                            "%s does not fit every %s; cast if the narrowing " .. "is intended"
-                        ):format(T.tostring(inferred[j]), T.tostring(ann)),
-                        c.edits.castFix(initializers[j], stat.types[j])
-                    )
-                end
-            end
             local init = inferred[j]
             if ann and init then
-                local ok, why = isA(init, ann)
-                if not ok then
+                local initializer = initializers[
+                    j
+                ] or initializerCount > 0 and j >= initializerCount and initializers[initializerCount] or nil
+                if initializer and j >= initializerCount then
+                    initializer.fixedWidthResultIndex = j - initializerCount + 1
+                end
+                if initializer then
+                    initializer.fixedWidthTargetTypeNode = stat.types[j]
+                end
+                local ok, why, reported = c.fixedWidth.fits(init, ann, initializer or stat)
+                if not ok and not reported then
                     c.diag("NUPP2001", initializers[j] or stat, ("cannot initialize %s: %s"):format(nameTok.text, why))
                 end
                 -- The annotation is the target here, so it says whose metatable this is
@@ -138,7 +135,17 @@ function bindings.install(c: state.Checker): state.StatHandlers
             end
             c.bindVar(nameTok.text, bound, ann ~= nil, nameTok, nil, stat.isConst)
             local boundEntry = c.scope.vars[nameTok.text]
-            local initNode = initializers[j]
+            local initNode = initializers[
+                j
+            ] or initializerCount > 0 and j >= initializerCount and initializers[initializerCount] or nil
+            local fixedResultIndex = initNode and j >= initializerCount and j - initializerCount + 1 or nil
+            if initNode and fixedResultIndex then
+                initNode.fixedWidthResultIndex = fixedResultIndex
+            end
+            if boundEntry then
+                boundEntry.annotationNode = stat.types and stat.types[j] or nil
+                c.fixedWidth.setBinding(boundEntry, initNode, fixedResultIndex)
+            end
             if boundEntry and initNode and (initNode.kind == "funcExpr" or initNode.kind == "shortfn") then
                 local functionBody = initNode.body or initNode
                 functionBody.jitDefinition = boundEntry.definition
@@ -529,7 +536,8 @@ function bindings.install(c: state.Checker): state.StatHandlers
     end
 
     handlers.assignStmt = function(stat: cst.AssignStmt)
-        local values = stat.exprs
+        local values = stat.exprs or {}
+        local valueCount = #values
         local inferred = inferList(stat.exprs, #stat.targets)
         for _, target in ipairs(stat.targets) do
             local key = pathKey(target)
@@ -540,7 +548,11 @@ function bindings.install(c: state.Checker): state.StatHandlers
         end
         for j, target in ipairs(stat.targets) do
             local et = inferred[j]
-            local written = values[j]
+            local written = values[j] or valueCount > 0 and j >= valueCount and values[valueCount] or nil
+            local fixedResultIndex = written and j >= valueCount and j - valueCount + 1 or nil
+            if written and fixedResultIndex then
+                written.fixedWidthResultIndex = fixedResultIndex
+            end
             local wasConstModuleField = constModuleField(target)
             if wasConstModuleField then
                 c.diag("NUPP2008", target, "cannot assign to const module field")
@@ -596,8 +608,11 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     c.diag("NUPP2008", target, ("cannot assign to const variable %s"):format(targetName))
                 elseif entry and entry.ann and et then
                     local declared = entry.decl or entry.t
-                    local ok, why = isA(et, declared)
-                    if not ok then
+                    if written then
+                        written.fixedWidthTargetTypeNode = entry.annotationNode
+                    end
+                    local ok, why, reported = c.fixedWidth.fits(et, declared, written or stat)
+                    if not ok and not reported then
                         c.diag("NUPP2001", written or stat, ("cannot assign to %s: %s"):format(targetName, why))
                     end
                     c.checkMetatableLiteral(written, et, declared)
@@ -628,6 +643,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     entryState.t, entryState.ownership, entryState.moved = et, incomingKind, false
                 elseif et and ownershipKind(et) == "borrowed" and written then
                     c.diag("NUPP2603", written, "borrowed value cannot escape through assignment")
+                end
+                if entry then
+                    c.fixedWidth.setBinding(entry, written, fixedResultIndex)
                 end
             elseif not wasConstModuleField then
                 target.writeContext = true
@@ -697,8 +715,13 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     -- value answers to.
                     c.checkMetamethodValue(written or stat, target.metamethodName, et, tt, target.metamethodReceiver)
                 elseif et and tt and tt ~= T.any and not removing and not contractWrite then
-                    local ok, why = isA(et, tt)
-                    if not ok then
+                    local ok, why, reported = c.fixedWidth.fits(
+                        et,
+                        tt,
+                        written or stat,
+                        target.fixedWidthPhysicalStore == true
+                    )
+                    if not ok and not reported then
                         c.diag("NUPP2001", written or stat, ("cannot assign: %s"):format(why))
                     end
                     c.checkMetatableLiteral(written, et, tt)
@@ -750,7 +773,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             return
         end
         assignTarget.writeContext = true
-        c.infer(assignTarget) -- compound assignment needs both capabilities
+        local writeT = c.infer(assignTarget) -- compound assignment needs both capabilities
         assignTarget.writeContext = nil
         local valueT = c.infer(value)
         local targetTok = assignTarget.kind == "name" and assignTarget.token or nil
@@ -763,6 +786,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             end
         end
         local op = opTok.kind:sub(1, -2) -- drop the '='
+        local operandsFit = true
         if op == "??" then
             if targetTok then
                 local entry = c.lookupEntry(targetTok.text)
@@ -786,8 +810,44 @@ function bindings.install(c: state.Checker): state.StatHandlers
             concatenable(targetT, assignTarget)
             concatenable(valueT, value)
         else
-            c.numericOperand(targetT, assignTarget, op)
-            c.numericOperand(valueT, value, op)
+            local targetFits = c.numericOperand(targetT, assignTarget, op)
+            local valueFits = c.numericOperand(valueT, value, op)
+            operandsFit = targetFits and valueFits
+        end
+        -- A compound assignment stores the operator's result back through the same
+        -- capability. Ordinary fixed-width values therefore reject arithmetic's
+        -- widened `number`; a real C slot accepts it because that store narrows.
+        local resultT = T.number
+        if op == ".." then
+            resultT = T.string
+        elseif op == "??" then
+            resultT = valueT
+        elseif op == "&" or op == "|" or op == "~" or op == "<<" or op == ">>" or op == "~>>" then
+            resultT = T.integer
+        elseif not fixedWidth.isValue(
+            targetT
+        ) and not fixedWidth.isValue(
+            valueT
+        ) and targetT ~= T.any and valueT ~= T.any and isA(
+            targetT,
+            T.integer
+        ) and isA(valueT, T.integer) and op ~= "/" and op ~= "^" then
+            resultT = T.integer
+        end
+        if targetTok then
+            local entry = c.lookupEntry(targetTok.text)
+            writeT = entry and (entry.decl or entry.t) or targetT
+        end
+        if writeT and op ~= "??" and operandsFit then
+            local ok, why, reported = c.fixedWidth.fits(
+                resultT,
+                writeT,
+                stat,
+                assignTarget.fixedWidthPhysicalStore == true
+            )
+            if not ok and not reported then
+                c.diag("NUPP2001", stat, ("cannot assign compound result: %s"):format(why))
+            end
         end
     end
 

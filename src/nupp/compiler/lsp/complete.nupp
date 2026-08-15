@@ -205,7 +205,7 @@ function complete.membersOf(t: T.Type?, fromModule: string?): {[string]: complet
         end
         return members
     end
-    if (t as T.Nominal).tag == "metatable" then
+    if (t as T.Nominal).tag == "metatable" or (t as T.Nominal).tag == "typeobject" then
         local owner = (t as T.Metatable).of
         if owner.tag == "nominal" then
             local nominal = owner as T.Nominal

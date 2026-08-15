@@ -430,8 +430,8 @@ With no files, checks the default target from nupp.lua.
 A file's extension decides the floor it is held to, with `.nupp` strict and
 `.g.nupp`, `.d.nupp` and `.lua` gradual. `--strict` overrides that, holding
 every file to the strict floor whatever it is called: unknown-variable errors,
-annotations required on module exports, and the `lossy-narrowing` lint.
-`--target` cannot be combined with explicit files.
+and annotations required on module exports. `--target` cannot be combined with
+explicit files.
 
 A clean project writes nothing and exits 0. With `local shout: number =
 greet("world")` added to `src/greet.nupp`:
@@ -785,7 +785,6 @@ jit-boundary                    suspicious   warning  an FFI boundary cannot saf
 jit-callback                    suspicious   warning  a C callback left on the JIT
 jit-loop-closure                performance  off      a loop builds a function and so never compiles
 loop-invariant-closure          suspicious   warning  a loop builds the same function every iteration
-lossy-narrowing                 suspicious   warning  lossy integer narrowing
 missing-require                 correctness  error    a project module is used without being required
 positional-record-construction  style        warning  a record built by field order rather than by naming its fields
 reifiable-record                performance  off      a record whose fields would all live in C memory

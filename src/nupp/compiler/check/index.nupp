@@ -15,6 +15,7 @@ local relations = require("nupp.compiler.relations")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
 local scalarIntrinsics = require("nupp.compiler.scalar_intrinsics")
+local fixedWidth = require("nupp.compiler.fixed_width")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
@@ -78,6 +79,7 @@ function index.install(c: state.Checker): state.ExprHandlers
             return T.any
         end
         local memberName = member.text
+        node.fixedWidthUntrusted = nil
         -- the name it is dotted off, when the object is a plain name
         local holderName = ""
         if target.kind == "name" then
@@ -111,10 +113,16 @@ function index.install(c: state.Checker): state.ExprHandlers
             end
             local narrowed = key and c.lookupNarrowed(key)
             if narrowed then
-                c.infer(target) -- keep definitions and side effects
+                local narrowedObject = c.infer(target) -- keep definitions and side effects
+                c.fixedWidth.mark(node, narrowed)
+                c.fixedWidth.trust(node, narrowed)
                 if holderName == c.moduleLocal then
                     local definition = c.moduleFieldDefs[memberName]
                     c.markToken(member, definition, narrowed, definition and definition.kind or "function")
+                else
+                    local _, definition, definitions = c.fieldType(rawType(narrowedObject), memberName)
+                    c.markToken(member, definition, narrowed, "property")
+                    member.additionalDefinitions = definitions
                 end
                 return narrowed
             end
@@ -230,6 +238,18 @@ function index.install(c: state.Checker): state.ExprHandlers
         local ft, fieldDef, fieldDefs
         if writing then
             ft, fieldDef, fieldDefs = c.fieldWriteType(base, memberName)
+            local physicalOwner = base
+            while physicalOwner.tag == "ptr" do
+                physicalOwner = rawType(physicalOwner.elem)
+            end
+            if physicalOwner.tag == "nominal"
+                and physicalOwner.declKind == "struct"
+                and physicalOwner.writeFieldDefs
+                and physicalOwner.writeFieldDefs[
+                memberName
+            ] then
+                node.fixedWidthPhysicalStore = true
+            end
             local after = c.fieldType(base, memberName)
             if not after then
                 node.postWriteType = false
@@ -397,6 +417,16 @@ function index.install(c: state.Checker): state.ExprHandlers
         member.additionalDefinitions = fieldDefs
         local out = kind == "safeIndex" and T.optional(ft) or ft
         node.resolvedType = out
+        if not writing and fixedWidth.isValue(out) then
+            if not (base.tag == "nominal" and base.declKind == "record") or target.fixedWidthTrusted == true then
+                c.fixedWidth.mark(node, out)
+            else
+                node.fixedWidthUntrusted = true
+            end
+        end
+        if not writing and fixedWidth.requiresTrust(out) and target.fixedWidthTrusted == true then
+            c.fixedWidth.trust(node, out)
+        end
         node.immutablePath = kind == "dotIndex" and target.immutablePath == true and c.fieldWriteType(
             base,
             memberName
@@ -459,7 +489,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                 if mt == T.any or mt == T.table_ then
                     outs[#outs + 1] = T.any
                 elseif mt.tag == "array" or mt.tag == "carray" then
-                    outs[#outs + 1] = mt.elem
+                    outs[#outs + 1] = mt.tag == "carray" and not writing and fixedWidth.loaded(mt.elem) or mt.elem
                 elseif mt.tag == "map" then
                     if writing and mt.writeValue then
                         outs[#outs + 1] = mt.writeValue
@@ -503,7 +533,8 @@ function index.install(c: state.Checker): state.ExprHandlers
                 local mt = rawType(member)
                 local keyType, valueType, optional = nil, nil, false
                 if mt.tag == "array" or mt.tag == "carray" then
-                    keyType, valueType = T.integer, mt.elem
+                    keyType = T.integer
+                    valueType = mt.tag == "carray" and not writing and fixedWidth.loaded(mt.elem) or mt.elem
                 elseif mt.tag == "tuple" then
                     keyType, valueType = T.integer, T.union(mt.elems)
                 elseif mt.tag == "map" then
@@ -542,7 +573,13 @@ function index.install(c: state.Checker): state.ExprHandlers
                 c.diag("NUPP2004", key, ("carray index must be numeric, got %s"):format(T.tostring(it)))
             end
             -- zero-based, and always present: no optional here
-            return ot.elem
+            if writing then
+                node.fixedWidthPhysicalStore = true
+                return ot.elem
+            end
+            local loaded = fixedWidth.loaded(ot.elem)
+            c.fixedWidth.mark(node, loaded)
+            return loaded
         end
         if ot.tag == "nominal" and ot.arrayOf then
             if not (it == T.any or isA(it, T.integer)) then

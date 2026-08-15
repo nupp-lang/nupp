@@ -14,6 +14,7 @@ local lexer = require("nupp.compiler.lexer")
 local members = require("nupp.compiler.members")
 local relations = require("nupp.compiler.relations")
 local generics = require("nupp.compiler.generics")
+local fixedWidth = require("nupp.compiler.fixed_width")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
 
@@ -77,6 +78,26 @@ local dropSelf = generics.dropSelf
 
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
+
+local function spanElement(t: Type): Type?
+    if t.tag ~= "nominal" then
+        return nil
+    end
+    local owner = t as T.Nominal
+    local origin = (owner.origin or owner) as T.Nominal
+    if origin.moduleName ~= "nupp.span" then
+        return nil
+    end
+    if origin.name ~= "Span"
+        and origin.name ~= "FixedSpan"
+        and origin.name ~= "WriteSpan"
+        and origin.name ~= "FixedWriteSpan"
+    then
+        return nil
+    end
+
+    return owner.typeArgs and owner.typeArgs[1] or nil
+end
 
 local function callableMembers(t: Type): {T.Func}?
     if t.tag ~= "intersection" then
@@ -416,6 +437,19 @@ function calls.install(c: state.Checker): calls.Ops
             elseif t.tag == "typevar" and t.bound and t.bound.tag == "nominal" then
                 ft = specializeSelf(t.bound, ft, t)
             end
+            -- Struct fields are physical slots. Their declaration keeps the ABI
+            -- width, while reading one exposes the value obtained after the FFI load.
+            -- Methods and record fields keep their ordinary declared type.
+            local owner = t.tag == "nominal" and t or t.tag == "typevar" and t.bound or nil
+            if owner and owner.tag == "nominal" and owner.declKind == "struct" and owner.fieldDefs and owner.fieldDefs[
+                name
+            ] then
+                ft = fixedWidth.loaded(ft)
+            end
+            local element = owner and spanElement(owner) or nil
+            if element and name == "get" then
+                ft = T.withFirstResult(ft, fixedWidth.loaded(element))
+            end
             return ft, entry.definition, entry.definitions
         end
         -- Only a miss needs the indexer, and composing one across alternatives is what
@@ -744,9 +778,9 @@ function calls.install(c: state.Checker): calls.Ops
         -- table is for, so the wrapper comes off before asking what is being called.
         -- Reaching a `metatable<R>` any other way -- a hand-built one under an
         -- annotation -- is not a declaration and is left alone.
-        if (calleeT.tag == "metatable" or calleeT.tag == "typeobject")
-            and calleeT.of.tag == "nominal"
-            and calleeT.of.declKind == "record" then
+        if (
+            calleeT.tag == "metatable" or calleeT.tag == "typeobject"
+        ) and calleeT.of.tag == "nominal" and calleeT.of.declKind == "record" then
             calleeT = calleeT.of
             node.signatureType = calleeT
         end
@@ -940,6 +974,7 @@ function calls.install(c: state.Checker): calls.Ops
             if isRecord then
                 -- tell the generator to stamp the metatable
                 node.recordConstruct = declared
+                c.fixedWidth.trust(node, calleeT)
             end
 
             -- One field, however it was named: by a label the call wrote or by the
@@ -1002,8 +1037,10 @@ function calls.install(c: state.Checker): calls.Ops
                     unify(ft, vt, genericMap)
                 end
                 local expected = genericMap and substType(ft, genericMap) or ft
-                local ok, why = isA(borrowedRoot and not storesCapability and rawType(vt) or vt, expected)
-                if not ok then
+                local checked = borrowedRoot and not storesCapability and rawType(vt) or vt
+                local physical = calleeT.declKind == "struct"
+                local ok, why, reported = c.fixedWidth.fits(checked, expected, value, physical)
+                if not ok and not reported then
                     c.diag("NUPP2202", site, ("%s: %s"):format(label, why))
                 end
             end
@@ -1819,13 +1856,24 @@ function calls.install(c: state.Checker): calls.Ops
                     argNodes[j].passPinnedPointer = true
                 end
             end
-            local ok, why
+            local ok, why, reported
             if constInferenceFailed then
                 ok = true
             else
-                ok, why = isA(actualForCheck, tailSlot and (varargType or T.any) or params[j])
+                local expected = tailSlot and (varargType or T.any) or params[j]
+                local physical = node.cdefCall == true
+                    or node.fixedWidthPhysicalParameters ~= nil
+                    and node.fixedWidthPhysicalParameters[
+                    j
+                ] == true
+                ok, why, reported = c.fixedWidth.fits(
+                    actualForCheck,
+                    expected,
+                    cst.isToken(argNodes[j]) and node or argNodes[j],
+                    physical
+                )
             end
-            if not ok then
+            if not ok and not reported then
                 c.diag(
                     "NUPP2006",
                     cst.isToken(argNodes[j]) and node or argNodes[j],

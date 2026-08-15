@@ -37,6 +37,12 @@ type fixits.Edits = {
     --- Makes a narrowing explicit around a complete initializer.
     castFix: function(expr: any, target: any): {any}?,
 
+    --- Establishes one fixed-width value around a complete expression.
+    refinementFix: function(expr: any, target: any): {any}?,
+
+    --- Replaces a complete type annotation with one primitive name.
+    typeFix: function(target: any, replacement: string): any?,
+
     --- An edit adding a require where this file keeps them.
     requireEdit: function(name: string, moduleName: string): any?,
 
@@ -172,6 +178,36 @@ function fixits.new(result: state.Parse, env: state.Env?): fixits.Edits
                 newText = ") as " .. name
             })
         }
+    end
+
+    function self.refinementFix(expr: any, target: any): {any}?
+        local fixedWidth = require("nupp.compiler.fixed_width")
+        local first, last = cst.firstToken(expr), cst.lastToken(expr)
+        local path = target and fixedWidth.conversionPath(target) or nil
+        if not first or not last or not path then
+            return nil
+        end
+
+        return {
+            self.fix(("convert with `%s`"):format(path), self.insertBefore(first, path .. "("), {
+                offset = last.offset + #last.text,
+                length = 0,
+                newText = ")"
+            })
+        }
+    end
+
+    function self.typeFix(target: any, replacement: string): any?
+        local first, last = cst.firstToken(target), cst.lastToken(target)
+        if not first or not last then
+            return nil
+        end
+
+        return self.fix(("change the type to `%s`"):format(replacement), {
+            offset = first.offset,
+            length = last.offset + #last.text - first.offset,
+            newText = replacement,
+        })
     end
 
     --- The top-level `local <name> = require("<module>")` statements, in source order,

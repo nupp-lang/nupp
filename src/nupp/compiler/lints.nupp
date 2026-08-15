@@ -62,13 +62,6 @@ lints.all = {
         summary = "a C callback left on the JIT"
     ),
     new lints.Lint(
-        name = "lossy-narrowing",
-        code = "NUPP2503",
-        category = "suspicious",
-        level = "warning",
-        summary = "lossy integer narrowing"
-    ),
-    new lints.Lint(
         name = "customary-operator",
         code = "NUPP2504",
         category = "style",

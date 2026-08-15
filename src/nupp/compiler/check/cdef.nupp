@@ -17,6 +17,7 @@ owning output slot, or `out p: T* borrows (source)` on a borrowed one -- and
 local T = require("nupp.compiler.types")
 local generics = require("nupp.compiler.generics")
 local cabi = require("nupp.compiler.cabi")
+local fixedWidth = require("nupp.compiler.fixed_width")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
 
@@ -357,6 +358,10 @@ function cdef.install(
             true
         )
         stat.physicalSignatureType = cdefType
+        if rets[1] and fixedWidth.isPhysical(rets[1]) then
+            rets[1] = fixedWidth.loaded(rets[1])
+            cdefType = T.withFirstResult(cdefType, rets[1])
+        end
         local byPhysicalName = {}
         for index, name in ipairs(paramNames) do
             byPhysicalName[name] = index

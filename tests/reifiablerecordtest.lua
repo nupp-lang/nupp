@@ -133,7 +133,7 @@ local record Point
         self.y = y
     end
 
-    function sum(self): float
+    function sum(self): number
         return self.x + self.y
     end
 end

@@ -24,6 +24,20 @@ local cst = {}
 --- These belong to no one kind, so they are declared once and included by every node
 --- rather than repeated on each.
 interface cst.Hints
+    --- Checker-only evidence for fixed-width refinements and physical boundaries.
+    fixedWidthEstablished: any
+
+    fixedWidthResultEstablished: any
+    fixedWidthResultTrusted: any
+    fixedWidthResultIndex: integer?
+    fixedWidthTrusted: boolean?
+    fixedWidthUntrusted: boolean?
+    fixedWidthCallableUntrusted: boolean?
+    fixedWidthUntrustedResult: boolean?
+    fixedWidthTargetTypeNode: any
+    fixedWidthPhysicalStore: boolean?
+    fixedWidthPhysicalParameters: any
+
     --- Semantic cleanup entries activated in this lexical block. The checker owns the
     --- entries; code generation consumes them without rediscovering ownership from
     --- syntax or payload types.
