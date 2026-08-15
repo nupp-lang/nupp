@@ -198,7 +198,7 @@ function derive.install(c: state.Checker): derive.Ops
                     c.diag(
                         "NUPP2809",
                         arg.expr or arg,
-                        ("%s is not an exported @comptime derive provider"):format(spelling or "this expression")
+                        ("%s is not an exported comptime derive provider"):format(spelling or "this expression")
                     )
                 else
                     arg.deriveProvider = provider

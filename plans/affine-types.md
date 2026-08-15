@@ -366,8 +366,7 @@ complete the currently undocumented unary `nupp.types.owned(T)` builder as a pub
 affine builder. Extend comptime parameters with the existing const-function domain:
 
 ```nupp
-@comptime
-local function MakeOwner(T: type, const cleanup: function): type
+local comptime function MakeOwner(T: type, const cleanup: function): type
     return nupp.types.affine(T, cleanup)
 end
 ```

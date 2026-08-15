@@ -75,7 +75,7 @@ local record Point
     x: number
     y: number
 end
-@comptime local function keyed(info: nupp.reflect.Info): nupp.reflect.FieldCodecBlueprint
+local comptime function keyed(info: nupp.reflect.Info): nupp.reflect.FieldCodecBlueprint
     return nupp.reflect.fieldCodec(info)
 end
 const Codec: nupp.reflect.FieldCodec<Point> = comptime do
@@ -99,22 +99,22 @@ local record User
     @wire(name = "user_id")
     id: integer
 end
-@comptime local function argumentName(value: nupp.reflect.AnnotationArgument): string
+local comptime function argumentName(value: nupp.reflect.AnnotationArgument): string
     return value.name
 end
-@comptime local function annotationName(value: nupp.reflect.Annotation): string
+local comptime function annotationName(value: nupp.reflect.Annotation): string
     return value.name .. ":" .. argumentName(value.arguments[1])
 end
-@comptime local function entryName(value: nupp.reflect.Entry): string
+local comptime function entryName(value: nupp.reflect.Entry): string
     return value.name as string
 end
-@comptime local function nodeName(value: nupp.reflect.Node): string
+local comptime function nodeName(value: nupp.reflect.Node): string
     return entryName((value.fields as {nupp.reflect.Entry})[1])
 end
-@comptime local function fieldName(value: nupp.reflect.Field): string
+local comptime function fieldName(value: nupp.reflect.Field): string
     return value.name .. ":" .. annotationName(value.annotations[1])
 end
-@comptime local function summarize(value: nupp.reflect.Info): string
+local comptime function summarize(value: nupp.reflect.Info): string
     return nodeName(value.types[value.root]) .. ":" .. fieldName(value.fields[1])
 end
 return comptime do return summarize(nupp.reflect(User)) end
@@ -124,7 +124,7 @@ end
 
 function M.removesTheOldAmbientAndFieldcodecNames()
    local ambient = errorsOf([[
-@comptime local function old(info: TypeInfo): string return info.name end
+local comptime function old(info: TypeInfo): string return info.name end
 return "unused"
 ]])
    assertEq(ambient[1], "NUPP2101", "TypeInfo is no longer ambient")
@@ -145,7 +145,7 @@ local record Pair
     left: string
     right: integer
 end
-@comptime local function summarize(info: nupp.reflect.Info): string
+local comptime function summarize(info: nupp.reflect.Info): string
     local names = {}
     for index, field in ipairs(info.fields) do
         names[index] = field.name .. ":" .. field.kind
@@ -178,7 +178,7 @@ local record User
     nickname: string?
 end
 
-@comptime local function summarize(info: nupp.reflect.Info): string
+local comptime function summarize(info: nupp.reflect.Info): string
     local recordName = info.annotations[1].arguments[1].value
     local idName = info.fields[1].annotations[1].arguments[1].value
     local omitted = info.fields[2].annotations[1].arguments[1].value

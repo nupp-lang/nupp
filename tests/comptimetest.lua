@@ -630,7 +630,7 @@ end
 
 function M.boundsComptimeHelperRecursion()
    local codes, diags = errorsOf([[
-@comptime local function descend(value: number): number
+local comptime function descend(value: number): number
     if value == 0 then return 0 end
     return descend(value - 1)
 end
@@ -681,10 +681,10 @@ end
 
 function M.callsTypedComptimeHelpersAndErasesThem()
    local src = [[
-@comptime local function double(value: integer): integer
+local comptime function double(value: integer): integer
     return value * 2
 end
-@comptime local function addDouble(left: integer, right: integer): integer
+local comptime function addDouble(left: integer, right: integer): integer
     return left + double(right)
 end
 const ANSWER: integer = comptime do
@@ -702,7 +702,7 @@ end
 
 function M.recursesWithinTheSharedEvaluationBudget()
    local src = [[
-@comptime local function factorial(value: number): number
+local comptime function factorial(value: number): number
     if value <= 1 then return 1 end
     return value * factorial(value - 1)
 end
@@ -713,7 +713,7 @@ end
 
 function M.keepsComptimeHelpersOutOfRuntimeValues()
    local codes = errorsOf([[
-@comptime local function answer(): integer return 42 end
+local comptime function answer(): integer return 42 end
 local escaped = answer
 return escaped()
 ]])
@@ -722,7 +722,7 @@ end
 
 function M.reportsAComptimeCallStack()
    local _, diags = compile([[
-@comptime local function explode(value: integer): integer
+local comptime function explode(value: integer): integer
     return error("builder failed")
 end
 return comptime do return explode(1) end

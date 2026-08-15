@@ -204,7 +204,6 @@ local BUILTINS = {
     {name = "deprecated", arguments = "typed", targets = {"declaration", "field", "c-declaration"}, builtin = true,},
     {name = "syntax", arguments = "typed", targets = {"local-binding"}, builtin = true,},
     {name = "jit", arguments = "none", targets = {"function"},},
-    {name = "comptime", arguments = "none", targets = {"local-function", "function"},},
 }
 
 function annotations.new(withBuiltins: boolean?): annotations.Registry

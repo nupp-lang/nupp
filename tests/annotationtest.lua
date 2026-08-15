@@ -257,14 +257,15 @@ end
 
 function M.reservedAnnotationsAreNotSilentlyErased()
     assertEq(diagsOf("@jit local function f() end"), "")
-    assertEq(diagsOf("@comptime const function f() end"), "")
+    assertEq(diagsOf("@comptime const function f() end"), "NUPP2111")
+    assertEq(diagsOf("const comptime function f() end"), "")
 end
 
 function M.attachmentTargetsAreChecked()
     assertEq(diagsOf("@jit local x = 1"), "NUPP2112")
     -- Named functions are a valid attachment target because exported helpers use
     -- `function M.f()`. A bare global is rejected by the comptime declaration rule.
-    assertEq(diagsOf("@comptime function f() end"), "NUPP2411")
+    assertEq(diagsOf("comptime function f() end"), "NUPP2411")
 end
 
 function M.argumentContractsAreChecked()

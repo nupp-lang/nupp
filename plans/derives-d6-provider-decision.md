@@ -17,7 +17,7 @@ proving that it solves the first problem the public API is meant to solve.
 
 The removed prototype used a one-shot Lua process, a JSON descriptor and a
 single semantic Debug operation. It is retained here only as design history;
-the current tests exercise exported Nupp `@comptime` providers directly.
+the current tests exercise exported Nupp `comptime function` providers directly.
 
 The version-one prototype descriptor contains only:
 

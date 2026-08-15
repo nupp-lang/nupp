@@ -241,8 +241,9 @@ local nupp: {
     --- @namespace
     peg: nupp.peg,
 
-    --- Compiler-only type inspection and construction inside `@comptime` functions.
-    --- Kept gradual until the bootstrap compiler admits compiler-only handle types.
+    --- Compiler-only type inspection and construction inside `comptime function`
+    --- declarations. Kept gradual until the bootstrap compiler admits compiler-only
+    --- handle types.
     types: any,
 
     --- Compiler-only derive inspection and closed forwarding recipes.
@@ -337,7 +338,7 @@ end
 ---
 --- #### Write a package provider
 ---
---- A provider is an exported, nongeneric `@comptime` function whose signature names the
+--- A provider is an exported, nongeneric `comptime function` whose signature names the
 --- one interface it implements. `Info` describes the owner, `implement` returns the
 --- recipe, and a consumer applies the resolved export rather than a runtime function
 --- value. Applying it also claims that interface.
@@ -353,8 +354,7 @@ end
 ---     return "name=" .. value
 --- end
 ---
---- @comptime
---- function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Named>
+--- comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Named>
 ---     local field = info.fields[1]
 ---     if not field or field.name ~= "name" then
 ---         return nupp.derive.error("Named needs a first field named name", info.reference)
@@ -403,7 +403,7 @@ record nupp.derive
     --- A comptime-only provider symbol accepted by `@derive`.
     ---
     --- A shipped provider is one of the three values below; a package provider is the
-    --- `@comptime` function a module exports. Neither survives into the program.
+    --- `comptime function` a module exports. Neither survives into the program.
     record Provider
     end
 
@@ -524,7 +524,7 @@ record nupp.derive
         readonly reference: Reference
     end
 
-    --- The immutable semantic view passed to an `@comptime` provider.
+    --- The immutable semantic view passed to a `comptime function` provider.
     ---
     --- One `Info` describes one owner for one provider, and is built before any
     --- provider's output is merged, so two providers on the same declaration see the
@@ -3021,8 +3021,7 @@ local _VERSION: string
 -- argument. A broad string deliberately retains the ordinary variadic fallback.
 
 --- @local
-@comptime
-local function __NuppFormatArguments(Format: type, Debug: type): typepack
+local comptime function __NuppFormatArguments(Format: type, Debug: type): typepack
     local info = nupp.types.describe(Format)
     if info.kind ~= "literal" or type(info.value) ~= "string" then
         return nupp.types.pack({}, nupp.types.any)
@@ -3123,8 +3122,7 @@ end
 -- decide each string API's result contract.
 
 --- @local
-@comptime
-local function __NuppMatchResults(Pattern: type): typepack
+local comptime function __NuppMatchResults(Pattern: type): typepack
     local info = nupp.types.describe(Pattern)
     if info.kind ~= "literal" or type(info.value) ~= "string" then
         return nupp.types.pack({nupp.types.optional(nupp.types.string)})
@@ -3157,8 +3155,7 @@ local function __NuppMatchResults(Pattern: type): typepack
 end
 
 --- @local
-@comptime
-local function __NuppFindResults(Pattern: type, Plain: type): typepack
+local comptime function __NuppFindResults(Pattern: type, Plain: type): typepack
     local plain = nupp.types.describe(Plain)
     local endpoints = {nupp.types.optional(nupp.types.integer), nupp.types.optional(nupp.types.integer)}
     if plain.kind == "literal" and plain.value == true then
@@ -3188,8 +3185,7 @@ local function __NuppFindResults(Pattern: type, Plain: type): typepack
 end
 
 --- @local
-@comptime
-local function __NuppGmatchResults(Pattern: type): typepack
+local comptime function __NuppGmatchResults(Pattern: type): typepack
     local results = {nupp.types.string}
     local info = nupp.types.describe(Pattern)
     local parse = nupp.types.patternCaptures
@@ -3215,8 +3211,7 @@ local function __NuppGmatchResults(Pattern: type): typepack
 end
 
 --- @local
-@comptime
-local function __NuppGsubResults(Pattern: type): typepack
+local comptime function __NuppGsubResults(Pattern: type): typepack
     local info = nupp.types.describe(Pattern)
     local parse = nupp.types.patternCaptures
     if info.kind == "literal" and type(info.value) == "string" and parse then

@@ -429,7 +429,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         local deriveIntrinsic = callee and cst.textOf(callee):gsub("%s+", ""):match("^nupp%.derive%.[%w_]+$")
         if deriveIntrinsic and (c.comptimeFunctionDepth or 0) == 0 then
-            c.diag("NUPP2809", node, "nupp.derive builders are available only inside an `@comptime` provider")
+            c.diag("NUPP2809", node, "nupp.derive builders are available only inside a comptime provider")
             return T.any
         end
         -- Resolve the standard-library binding rather than trusting the spelling, so a

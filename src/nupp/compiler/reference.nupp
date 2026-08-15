@@ -315,7 +315,7 @@ iterates finite literal keys and may remap them with `as`.
 Backtick template types concatenate finite string literal sets. Const parameters,
 associated-type projections, and `unpackof` remain direct finite operators.
 
-Algorithms use ordinary Nupp in an `@comptime` function. Parameters and results
+Algorithms use ordinary Nupp in a `comptime function`. Parameters and results
 may be compiler-only `type` or `typepack` handles. `nupp.types` inspects immutable
 type semantics and constructs validated structural results; it cannot create a
 record, interface, name, method, or other declaration. Calls use parentheses in
@@ -326,8 +326,7 @@ local m = {}
 
 local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
 
-@comptime
-local function DeepElement(T: type): type
+local comptime function DeepElement(T: type): type
     while nupp.types.kind(T) == "array" do
         T = nupp.types.elements(T)[1]
     end
@@ -1527,9 +1526,9 @@ Determinism excludes platform-varying libm functions and table-address
 worker with step, call-depth, time, memory, result, and protocol limits, so a
 crash or oversized result fails only that block.
 
-File-private `@comptime` helpers are normally typed, share the caller's budgets,
-may inspect `nupp.reflect.Info`, and erase from runtime output. They are callable only by
-comptime code and are not yet generic, variadic, or cross-module.
+`comptime function` declares a reusable compile-only callable; `comptime do ... end`
+evaluates one expression. Helpers share the caller's budgets, may inspect
+`nupp.reflect.Info`, and erase from runtime output. They are not yet generic or variadic.
 
 Comptime produces data, never declarations or source. `nupp build --json`
 reports materialization identities, fingerprints, sizes, runtime features, and
@@ -1538,8 +1537,7 @@ ABI versions; manifest caches retain the canonical blueprint and lowering.
         example = [=[
 local m = {}
 
-@comptime
-local function step(acc: integer): integer
+local comptime function step(acc: integer): integer
     return acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
 end
 

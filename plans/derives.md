@@ -1008,8 +1008,7 @@ without adding it to the language:
 
 ```nupp
 @deriveProvider(name = "RedactedDebug")
-@comptime
-local function deriveRedactedDebug(info: nupp.reflect.Info): nupp.DeriveResult
+local comptime function deriveRedactedDebug(info: nupp.reflect.Info): nupp.DeriveResult
     -- Return checked semantic additions, never source or syntax.
 end
 

@@ -2,7 +2,7 @@
 
 ## Decision
 
-Nupp will admit compiler-only `type` and `typepack` values to `@comptime`
+Nupp will admit compiler-only `type` and `typepack` values in comptime
 functions. A comptime function whose result is `type` or `typepack` may be
 called in type position. It receives compile-time values and immutable handles
 to resolved types, runs ordinary Nupp, and returns a validated structural type
@@ -65,7 +65,7 @@ it does not broaden type functions or let them manufacture declarations.
 ## Why replace type-level inference
 
 The current language has two ways to write a compile-time algorithm. Value
-algorithms use ordinary Nupp in `comptime do` or an `@comptime` helper. Type
+algorithms use ordinary Nupp in `comptime do` or a `comptime function` helper. Type
 algorithms use a separate expression language made of `match`, `infer`,
 template decomposition, tuple reconstruction, and guarded alias recursion.
 
@@ -103,8 +103,7 @@ recursion.
 The target model is close to a compile-time type function:
 
 ```nupp
-@comptime
-local function Binary(source: string): type
+local comptime function Binary(source: string): type
     local elements: {type} = {}
     for index = 1, #source do
         local digit = source:sub(index, index)
@@ -182,7 +181,7 @@ table, or accepted by a non-comptime function.
 
 They are legal in:
 
-- parameters and results of `@comptime` functions;
+- parameters and results of comptime functions;
 - locals and tables reachable only during comptime evaluation;
 - the return value of a type-position comptime call; and
 - the closed `nupp.types` inspection and construction API.
@@ -197,11 +196,10 @@ report the escape at the return. Do not silently stringify or erase it.
 
 ### Type functions
 
-An `@comptime` function returning `type` or `typepack` is a type function:
+A `comptime function` returning `type` or `typepack` is a type function:
 
 ```nupp
-@comptime
-local function Optional(T: type): type
+local comptime function Optional(T: type): type
     return nupp.types.union({T, nupp.types.nil_})
 end
 
@@ -212,8 +210,7 @@ local type MaybeName = Optional(string)
 type returned by the function satisfies `Bound`:
 
 ```nupp
-@comptime
-local function ReadView(T: type): type<{readonly [string]: unknown}>
+local comptime function ReadView(T: type): type<{readonly [string]: unknown}>
     -- Return a structural type satisfying the written bound.
 end
 ```
@@ -226,7 +223,7 @@ function body.
 
 The declaration is checked once as ordinary Nupp. Its parameter annotations
 describe which call arguments are types, packs, or compile-time values. The
-body may call other reachable `@comptime` helpers and uses the same step and
+body may call other reachable `comptime function` helpers and uses the same step and
 call-depth budgets as an ordinary comptime block.
 
 A call in type position uses ordinary parentheses. Angle brackets remain
@@ -237,7 +234,7 @@ Box<string>       -- instantiate a generic declaration
 Optional(string)  -- execute or defer a comptime type function
 ```
 
-The callee must resolve unambiguously to an `@comptime` function whose result
+The callee must resolve unambiguously to a `comptime function` whose result
 is `type` or `typepack`. A runtime function, an overload with an undecidable
 result, or a value-producing comptime function reports at the callee. Type
 functions are not implicitly invoked merely because their name appears in type
@@ -249,8 +246,7 @@ type. For `typepack`, it is parsed as a pack. For `string`, `boolean`, or exact
 unambiguous without putting checker objects in expression scope:
 
 ```nupp
-@comptime
-local function ArrayOf(T: type, count: integer): type
+local comptime function ArrayOf(T: type, count: integer): type
     return nupp.types.carray(T, count)
 end
 
@@ -393,7 +389,7 @@ Nupp retains symbolic declaration checking and defers only the type answer.
 ### Recursive computation
 
 Recursion belongs to ordinary comptime calls, not to type aliases. A type
-function may use a loop, call a recursive `@comptime` helper, or call itself
+function may use a loop, call a recursive `comptime function` helper, or call itself
 with concrete arguments. The evaluator's call-depth and step limits are the
 authoritative termination rule.
 
@@ -417,8 +413,7 @@ construction boundary rather than owning a one-off inference escape.
 Conceptually:
 
 ```nupp
-@comptime
-local function PegCaptures(grammar: string): typepack
+local comptime function PegCaptures(grammar: string): typepack
     return nupp.peg.captureTypes(grammar)
 end
 ```
@@ -438,8 +433,7 @@ Replace `__NuppFormatBuild`, `__NuppFormatError`, and
 handle so that it can distinguish a literal-string type from broad `string`:
 
 ```nupp
-@comptime
-local function FormatArguments(Format: type): typepack
+local comptime function FormatArguments(Format: type): typepack
     local info = nupp.types.describe(Format)
     if info.kind ~= "literal" then
         return nupp.types.pack({}, nupp.types.any)
@@ -462,8 +456,7 @@ the sole gate.
 Replace recursive `DeepElement<T>` with a loop over immutable type handles:
 
 ```nupp
-@comptime
-local function DeepElement(T: type): type
+local comptime function DeepElement(T: type): type
     while nupp.types.kind(T) == "array" do
         T = nupp.types.elements(T)[1]
     end
@@ -557,18 +550,18 @@ as non-progressing alias recursion.
 
 ### Declaration checking
 
-Extend `@comptime` checking to admit `type` and `typepack` parameter and return
+Extend `comptime function` checking to admit `type` and `typepack` parameter and return
 annotations. A type function is checked before it is callable. The checker
 records a closed program descriptor containing its source, signature, reachable
 helper sources, source locations, and dependency fingerprints.
 
-Current `@comptime` helpers are file-private, non-generic, and non-variadic.
+Current `comptime function` helpers are file-private, non-generic, and non-variadic.
 Those restrictions are acceptable for the first closed-call prototype. Before
 an exported generic signature may contain a type-function call, its program
 descriptor and helper closure must be representable in the module interface.
 
 Cross-module type functions are part of the completed surface, not an inferred
-runtime export. `@comptime function api.Name(...): type` publishes a
+runtime export. `comptime function api.Name(...): type` publishes a
 compiler-only function descriptor in the module interface and emits no field in
 the runtime module table. A private type function captured by an exported alias
 is sealed into that alias's interface dependency even when consumers cannot
@@ -684,8 +677,7 @@ rather than changing an answer.
 An exported type may contain an open type-function call:
 
 ```nupp
-@comptime
-function api.EventName(Name: type): type
+comptime function api.EventName(Name: type): type
     -- ...
 end
 
@@ -738,7 +730,7 @@ Inputs must be inferred from ordinary covariant positions or written explicitly.
   function.
 - Hover on an open call shows the function signature and symbolic arguments,
   not a guessed result.
-- Go-to-definition on the callee reaches the `@comptime` function.
+- Go-to-definition on the callee reaches the `comptime function` declaration.
 - Generated members use the application as their primary provenance and the
   builder call as related information when retained by the envelope.
 - Completion inside a type function includes only comptime values, helpers,
@@ -783,7 +775,7 @@ The migration guide gives direct recipes:
 | --- | --- |
 | `match T when {infer Item}` | inspect `kind(T)` and `elements(T)` |
 | template `infer` segments | ordinary `string.find`, `match`, and `sub` |
-| recursive alias | loop or recursive `@comptime` helper |
+| recursive alias | loop or recursive `comptime function` helper |
 | tuple reconstruction | `nupp.types.tuple` or `nupp.types.pack` |
 | `function(infer A...): infer R...` | `parameters(F)` and `results(F)` |
 | `typeerror<Message>` in a match | `nupp.types.error(message)` in the type function |
@@ -886,7 +878,7 @@ row of CT0's coverage matrix, but source cannot yet call a type function.
 
 ### CT2: closed private type functions
 
-- Admit `type` and `typepack` in `@comptime` signatures.
+- Admit `type` and `typepack` in `comptime function` signatures.
 - Settle their status as contextual compiler-only type names, including the
   public names of keyword-shaped `nupp.types` members.
 - Parse ordinary calls in type position.

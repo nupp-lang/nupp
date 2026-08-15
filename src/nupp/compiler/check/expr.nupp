@@ -345,8 +345,8 @@ function expr.install(c: state.Checker): nil
             if entry and entry.definition and entry.definition.comptimeFunction and (
                 c.comptimeDepth or 0
             ) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
-                c.diag("NUPP2415", node, ("@comptime function %q has no runtime value"):format(nameText), nil, {
-                    help = "call it from a comptime block or another @comptime function"
+                c.diag("NUPP2415", node, ("comptime function %q has no runtime value"):format(nameText), nil, {
+                    help = "call it from a comptime block or another comptime function"
                 })
             end
             node.immutablePath = entry and entry.constant == true or false

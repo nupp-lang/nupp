@@ -166,8 +166,7 @@ status and borrow contracts are independent of the affine facility.
 Closed comptime type functions have the same authority as declarations:
 
 ```nupp
-@comptime
-local function MakeOwner(
+local comptime function MakeOwner(
     T: type,
     const cleanup: function
 ): type

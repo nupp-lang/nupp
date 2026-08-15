@@ -4,7 +4,7 @@
 
 This design is implemented. It replaces the rejected D6 one-operation
 prototype with a semantic boundary: a user-defined derive
-is an exported `@comptime` function which inspects one written declaration and
+is an exported `comptime function` which inspects one written declaration and
 returns a closed, versioned recipe. The compiler validates and applies that
 recipe. Complicated runtime behavior stays in ordinary exported Nupp functions;
 the recipe generates only checked forwarding members.
@@ -45,7 +45,7 @@ written declaration
 immutable semantic Info
         |
         v
-@comptime provider ---------------------+
+comptime provider ---------------------+
         |                               |
         v                               |
 closed DeriveResult                     | compile time
@@ -121,8 +121,7 @@ function M.renderRecord(names: {string}, values: {string}): string
     return "{" .. table.concat(parts, ", ") .. "}"
 end
 
-@comptime
-function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
+comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
     if info.kind ~= "record" then
         return nupp.derive.error("Inspect can be derived only for records")
     end
@@ -210,7 +209,7 @@ Compiler-shipped providers are ordinary resolved provider symbols:
 @derive(nupp.derive.Debug, nupp.derive.Default)
 ```
 
-A user-defined argument is a resolved exported `@comptime` provider symbol:
+A user-defined argument is a resolved exported `comptime function` provider symbol:
 
 ```nupp
 @derive(inspect.derive)

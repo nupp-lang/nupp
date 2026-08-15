@@ -34,8 +34,7 @@ function M.renderRecord(names: {string}, values: {string}): string
     return "{" .. table.concat(parts, ", ") .. "}"
 end
 
-@comptime
-function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
+comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
     if info.kind ~= "record" then
         return nupp.derive.error("Inspect can be derived only for records", info.reference)
     end

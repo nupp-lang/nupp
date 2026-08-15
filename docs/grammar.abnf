@@ -284,9 +284,11 @@ effectregionstat = (%s"noalloc" / %s"noraise") "do" block "end"
 ; Typed declaration visibility is contextual [CS-5]. `local` is file-private,
 ; no modifier exports from the module, and `global` enters the project globals.
 stat           =/ typedeclstat
-localstat      = "local" ("function" Name funcbody
+stat           =/ comptimefuncstat
+comptimefuncstat = %s"comptime" "function" funcname funcbody
+localstat      = "local" ([%s"comptime"] "function" Name funcbody
                           / bindlist ["=" explist])
-conststat      = %s"const" ("function" Name funcbody
+conststat      = %s"const" ([%s"comptime"] "function" Name funcbody
                              / bindlist ["=" explist])
 bindlist       = bindname *("," bindname)
 bindname       = Name [":" type]
@@ -417,7 +419,7 @@ primtype       = ["const"] primtype              ; read-only view [CS-15]
                / functype
                / "(" type ")"
 typename       = Name *("." Name) ["<" typearg *("," typearg) ">"]
-                 ["(" [type *("," type)] ")"] ; checked @comptime type call [CS-24]
+                 ["(" [type *("," type)] ")"] ; checked comptime type call [CS-24]
 typearg        = type / typepack                 ; packs only where accepted [CS-21]
 tabletype      = "{" tablebody "}"
 tablebody      = mappedfield
@@ -645,7 +647,7 @@ packunion      = typepack 1*("|" typepack)
 ;   return type that itself intersects a function is parenthesized.
 ;
 ; [CS-24] Type-function calls. Parentheses after a name in type position call a
-;   checked `@comptime` function whose result is `type` or `typepack`. Its
+;   checked `comptime function` whose result is `type` or `typepack`. Its
 ;   checked parameter kinds decide whether each syntactic argument denotes a
 ;   type, pack, or compile-time scalar. Angle brackets remain generic
 ;   declaration application.

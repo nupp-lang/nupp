@@ -328,7 +328,7 @@ function M.comptimeHoverAndCompletionExposeOnlyEvaluatorState()
    local uri = "file://" .. path
    local source = table.concat({
       "local runtimeOnly = {secret = 1}",
-      "@comptime local function helper(value: integer): integer",
+      "local comptime function helper(value: integer): integer",
       "   return value + 1",
       "end",
       "const RESULT = comptime do",

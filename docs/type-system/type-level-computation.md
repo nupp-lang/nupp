@@ -1,14 +1,13 @@
 # Comptime types
 
 Nupp has one general compile-time programming language: ordinary Nupp inside
-`@comptime` functions. A comptime function may accept compiler-only `type` and
+`comptime function` declarations. A comptime function may accept compiler-only `type` and
 `typepack` handles and return a structural type or value pack. Calling such a
 function in type position executes it while the program is checked and emits no
 runtime function or data.
 
 ```nupp:playground
-@comptime
-local function Optional(T: type): type
+local comptime function Optional(T: type): type
     return nupp.types.optional(T)
 end
 
@@ -40,8 +39,7 @@ such as `literal`, `optional`, `array`, `tuple`, `map`, `shape`, `union`,
 validated handles.
 
 ```nupp
-@comptime
-local function DeepElement(T: type): type
+local comptime function DeepElement(T: type): type
     while nupp.types.kind(T) == "array" do
         T = nupp.types.elements(T)[1]
     end
@@ -66,8 +64,7 @@ term. Generic substitution executes it as soon as inference makes every argument
 concrete.
 
 ```nupp
-@comptime
-local function Arguments(Kind: type): typepack
+local comptime function Arguments(Kind: type): typepack
     local info = nupp.types.describe(Kind)
     if info.kind == "literal" and info.value == "pair" then
         return nupp.types.pack({nupp.types.string, nupp.types.number})

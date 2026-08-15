@@ -339,10 +339,9 @@ local type Events<T> = {
 --                                                     ^^^^^^^^ storage.type.function.nupp
 }
 
-@comptime
--- <- storage.modifier.directive.nupp
-local function First(T: type): type
---    ^^^^^^^^ storage.type.function.nupp
+local comptime function First(T: type): type
+--    ^^^^^^^^ storage.modifier.directive.nupp
+--             ^^^^^^^^ storage.type.function.nupp
    local elements = nupp.types.elements(T)
    return elements[1]
 end

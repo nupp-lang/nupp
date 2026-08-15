@@ -631,10 +631,10 @@ local ENTRIES: {any} = {
         summary = "A recursive type alias is not supported",
         rule = "Type aliases describe finite type expressions and cannot refer to "
         .. "themselves, directly or mutually. Write an ordinary recursive "
-        .. "@comptime helper that returns type or typepack when the computation "
+        .. "comptime function that returns type or typepack when the computation "
         .. "needs control flow.",
         wrong = "local type Loop<T> = Loop<T>\nreturn Loop\n",
-        right = "@comptime\nlocal function DeepElement(T: type): type\n"
+        right = "local comptime function DeepElement(T: type): type\n"
         .. "    while nupp.types.kind(T) == 'array' do\n"
         .. "        T = nupp.types.elements(T)[1]\n"
         .. "    end\n"
@@ -720,7 +720,7 @@ local ENTRIES: {any} = {
     {
         code = "NUPP2801",
         summary = "A derive provider name is unknown or duplicated",
-        rule = "Each @derive argument names one resolved exported @comptime provider, and "
+        rule = "Each @derive argument names one resolved exported comptime provider, and "
         .. "an identity may occur only once across every derive "
         .. "annotation on the record.",
         related = {"NUPP2113", "NUPP2802"},
@@ -773,7 +773,7 @@ local ENTRIES: {any} = {
     {
         code = "NUPP2809",
         summary = "A comptime derive provider declaration or reference is invalid",
-        rule = "A public derive provider is an exported, nongeneric @comptime function "
+        rule = "A public derive provider is an exported, nongeneric comptime function "
         .. "with the exact shape function(nupp.derive.Info): nupp.derive.Result<I>, where "
         .. "I is one existing interface. @derive must name that resolved export.",
         related = {"NUPP2411", "NUPP2801"},

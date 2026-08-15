@@ -12,6 +12,7 @@ local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.relations")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
+local comptimeFunction = require("nupp.compiler.check.comptime_function")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
@@ -1084,7 +1085,7 @@ function functions.install(c: state.Checker): state.StatHandlers
 
     local handlers = {}
 
-    handlers.localFuncStmt = function(stat: cst.LocalFuncStmt)
+    local function checkLocalFuncStmt(stat: cst.LocalFuncStmt)
         local nameTok, body = stat.name, stat.body
         if not nameTok or not body then
             return
@@ -1125,7 +1126,15 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.raises.check(stat, body)
     end
 
-    handlers.funcStmt = function(stat: cst.FuncStmt)
+    handlers.localFuncStmt = function(stat: cst.LocalFuncStmt)
+        if stat.comptimeTok then
+            comptimeFunction.checkLocal(c, stat, checkLocalFuncStmt)
+        else
+            checkLocalFuncStmt(stat)
+        end
+    end
+
+    local function checkFuncStmt(stat: cst.FuncStmt)
         local fname, body = stat.name, stat.body
         if not fname or fname.kind ~= "funcname" or not body then
             return
@@ -1289,6 +1298,14 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         if not fname.method and #fname == 1 and fname.base then
             c.bindVar(fname.base.text, ft) -- global function: best-effort bind
+        end
+    end
+
+    handlers.funcStmt = function(stat: cst.FuncStmt)
+        if stat.comptimeTok then
+            comptimeFunction.checkQualified(c, stat, checkFuncStmt)
+        else
+            checkFuncStmt(stat)
         end
     end
 

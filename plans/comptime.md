@@ -191,11 +191,11 @@ smallest ones are exactly the ones folding has taken.
 ### Comptime functions
 
 Reusable helpers arrive after expression blocks. A function annotated with
-`@comptime` is typechecked like a normal function, is callable only while
+`comptime function` is typechecked like a normal function, is callable only while
 evaluating comptime code, and emits no runtime declaration.
 
 ```lua
-@comptime local function step(acc: integer): integer
+local comptime function step(acc: integer): integer
     return acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
 end
 
@@ -233,12 +233,11 @@ Type-driven helpers do not have to wait for generic comptime functions. A helper
 can take a `nupp.reflect.Info` as an ordinary value:
 
 ```lua
-@comptime local function schema(info: nupp.reflect.Info): Schema
+local comptime function schema(info: nupp.reflect.Info): Schema
 ```
 
 which is the reflection-consuming shape most of the interesting cases want, and
-needs nothing from the generic system. Generic comptime functions — `@comptime
-function f<T>(...)` — remain deferred until generic constraints can state what
+needs nothing from the generic system. Generic comptime functions — `comptime function f<T>(...)` — remain deferred until generic constraints can state what
 operations on a type parameter are valid. Separating the two matters because the
 first is reachable in C3 and the second is not.
 
@@ -810,7 +809,7 @@ which is the purpose of selecting a target rather than measuring the host.
 
 ### C3: reusable comptime functions
 
-- Give `@comptime` a checked function-declaration meaning.
+- Give `comptime function` a checked function-declaration meaning.
 - Erase comptime functions from runtime output.
 - Add comptime call stacks, recursion limits, and direct-call checking.
 - Support helpers taking a `nupp.reflect.Info` parameter, which is the reflection-driven

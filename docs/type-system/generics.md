@@ -49,8 +49,7 @@ correlation, and ownership rules.
 A computed tuple or array can supply a pack tail with `unpackof`:
 
 ```nupp
-@comptime
-local function Arguments(Kind: type): typepack
+local comptime function Arguments(Kind: type): typepack
     local info = nupp.types.describe(Kind)
     if info.kind == "literal" and info.value == "pair" then
         return nupp.types.pack({nupp.types.string, nupp.types.number})
@@ -83,8 +82,7 @@ A comptime type function can instead construct and inspect complete packs.
 diagnostic:
 
 ```nupp
-@comptime
-local function Checked(T: type): typepack
+local comptime function Checked(T: type): typepack
     if T == nupp.types.string then
         return nupp.types.pack({T})
     end

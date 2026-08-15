@@ -7,8 +7,7 @@ Nupp, and nothing of the work survives into the program.
 ```nupp:playground
 local m = {}
 
-@comptime
-local function step(acc: integer): integer
+local comptime function step(acc: integer): integer
     return acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
 end
 
@@ -41,18 +40,22 @@ not in the program at all.
 
 ## Type functions
 
-An `@comptime` function may accept compiler-only `type` values and return a
-`type`. Calling it with ordinary parentheses in type position constructs a
-structural type during checking:
+Any function that is available only during compilation is declared with the
+`comptime` modifier. A `comptime function` may accept compiler-only `type`
+values and return a `type`. Calling it with ordinary parentheses in type
+position constructs a structural type during checking:
 
 ```nupp
-@comptime
-local function Optional(T: type): type
+local comptime function Optional(T: type): type
     return nupp.types.optional(T)
 end
 
 local value: Optional(string) = nil
 ```
+
+`comptime function` declares a reusable compile-time-only callable;
+`comptime do ... end` evaluates one scoped expression inside otherwise runtime
+code. Compile-time-only declarations are erased and have no runtime value.
 
 The opaque handles have no runtime representation and are illegal in ordinary
 function signatures or values. `nupp.types` supplies immutable inspection and

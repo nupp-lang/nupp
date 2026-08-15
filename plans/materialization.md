@@ -295,7 +295,7 @@ contracts and the evaluator dispatches the resolved compiler-owned operation
 directly. It does not enable general Lua metamethod dispatch at comptime, and
 ordinary quoted tables with metatables remain NUPP2413.
 
-Reusable `@comptime` functions may accept and return opaque values. File-local
+Reusable comptime functions may accept and return opaque values. File-local
 helpers are enough for the first implementation; cross-module comptime helpers
 later transport the same provider and schema identities in their checked
 interface.

@@ -2,8 +2,7 @@
 -- This tiny DSL expands a binary string into exact integer digit types:
 -- Binary("1101") becomes the pack (1, 1, 0, 1) while the file is checked.
 
-@comptime
-local function Binary(Source: string): typepack
+local comptime function Binary(Source: string): typepack
     local digits = {}
     for index = 1, #Source do
         local digit = Source:sub(index, index)

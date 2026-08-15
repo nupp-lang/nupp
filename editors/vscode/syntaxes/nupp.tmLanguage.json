@@ -392,14 +392,6 @@
           }
         },
         {
-          "comment": "@comptime annotates a declaration; unlike a bare comptime block it follows @.",
-          "name": "storage.modifier.directive.nupp",
-          "match": "(@)(comptime)\\b",
-          "captures": {
-            "2": { "name": "storage.modifier.directive.nupp" }
-          }
-        },
-        {
           "match": "(@)([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "punctuation.definition.annotation.nupp" },

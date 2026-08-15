@@ -10,8 +10,7 @@ match can fail.
 
 local type __LpegEmpty = {never}
 
-@comptime
-local function __LpegMatch(Captures: type): typepack
+local comptime function __LpegMatch(Captures: type): typepack
     local info = nupp.types.describe(Captures)
     if info.kind == "array" then
         if nupp.types.kind(info.element) == "never" then

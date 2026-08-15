@@ -8,8 +8,7 @@ function M.value(): string
     return "value"
 end
 
-@comptime
-function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>
+comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>
     info.fields[1] = info.fields[1]
 
     return nupp.derive.implement{

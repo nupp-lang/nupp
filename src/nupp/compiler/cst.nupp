@@ -188,9 +188,6 @@ interface cst.Hints
     --- A file-private helper that exists only in the comptime evaluator.
     comptimeFunction: boolean?
 
-    --- The annotation wrapper for an erased comptime helper.
-    eraseComptimeFunction: boolean?
-
     --- A complete `@effects` contract, normalized by the checker.
     effectContract: any
 
@@ -757,13 +754,17 @@ record cst.FuncStmt is cst.Hints
     --- Names the production this node stands for.
     kind: 'funcStmt'
 
+    --- The contextual `comptime` declaration modifier, when this function exists only
+    --- for compile-time evaluation.
+    comptimeTok: lexer.Token?
+
     --- The `funcname` naming what it attaches to.
     name: cst.Node?
 
     --- The parameters, returns and block.
     body: cst.Node?
 
-    --- Compiler-only @comptime metadata; none of it reaches generated Lua.
+    --- Compiler-only function metadata; none of it reaches generated Lua.
     comptimeFunction: boolean?
 
     comptimeName: string?
@@ -785,7 +786,8 @@ record cst.Funcname is cst.Hints
     method: lexer.Token?
 end
 
---- `local function f(...) ... end`, and its `const` spelling.
+--- `local function f(...) ... end`, its `const` spelling, and their compile-time-only
+--- `comptime` forms.
 record cst.LocalFuncStmt is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -794,6 +796,9 @@ record cst.LocalFuncStmt is cst.Hints
 
     --- Whether it was written `const`.
     isConst: boolean?
+
+    --- The contextual `comptime` declaration modifier, when present.
+    comptimeTok: lexer.Token?
 
     --- The name it binds.
     name: lexer.Token?
@@ -2008,7 +2013,7 @@ record cst.Tname is cst.Hints
     cdefSuccess: string?
 end
 
---- A closed or deferred `@comptime` function call in type position.
+--- A closed or deferred `comptime function` call in type position.
 record cst.Ttypecall is cst.Hints
     {cst.Node | lexer.Token}
 

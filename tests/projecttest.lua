@@ -1331,12 +1331,10 @@ end
 function M.exportedComptimeTypeFunctionsInvalidateAndPersistSafely()
    local optional = table.concat({
       "local M = {}",
-      "@comptime",
-      "local function AddNil(T: type): type",
+      "local comptime function AddNil(T: type): type",
       "   return nupp.types.optional(T)",
       "end",
-      "@comptime",
-      "function M.Maybe(T: type): type",
+      "comptime function M.Maybe(T: type): type",
       "   return AddNil(T)",
       "end",
       "return M",

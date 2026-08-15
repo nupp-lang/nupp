@@ -125,7 +125,7 @@ migration cannot begin until those numbers are recorded here.
 The compiler now has opaque evaluator `type` and `typepack` handles, a
 versioned `TypeBlueprint` graph with parent-side validation, structural
 builders and inspectors, permitted references back to existing nominal inputs,
-and no nominal allocator. Closed private `@comptime` functions can be called
+and no nominal allocator. Closed private comptime functions can be called
 with ordinary parentheses in type position. Type and const arguments execute
 ordinary evaluator control flow, authored `nupp.types.error` failures report
 NUPP2420, invalid applications report NUPP2421, and successful queries are

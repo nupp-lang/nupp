@@ -4,8 +4,7 @@ local format = {}
 
 --- Computes the arguments consumed by a literal Lua format string. A broad string
 --- produces an open `any` pack. `%?` is reserved for compiler-lowered formatting APIs.
-@comptime
-function format.StringFormatSyntax(Format: type): typepack
+comptime function format.StringFormatSyntax(Format: type): typepack
     local info = nupp.types.describe(Format)
     if info.kind ~= "literal" or type(info.value) ~= "string" then
         return nupp.types.pack({}, nupp.types.any)

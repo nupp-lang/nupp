@@ -93,8 +93,8 @@ tuple construction:
 local type Prepend<Value, Values> = {Value, unpackof Values}
 ```
 
-Algorithms that inspect or transform a complete pack use an `@comptime`
-function with `typepack` parameters and the `nupp.types` pack API.
+Algorithms that inspect or transform a complete pack use a `comptime function`
+with `typepack` parameters and the `nupp.types` pack API.
 
 ## Coroutine protocols
 

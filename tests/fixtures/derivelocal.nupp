@@ -16,8 +16,7 @@ function M.genericLabel(): string
     return "generic"
 end
 
-@comptime
-function M.deriveNamed(info: nupp.derive.Info): nupp.derive.Result<M.Named>
+comptime function M.deriveNamed(info: nupp.derive.Info): nupp.derive.Result<M.Named>
     local field = info.fields[1]
     if not field or field.name ~= "name" then
         return nupp.derive.error("Named requires a first field named name", info.reference)
@@ -33,8 +32,7 @@ function M.deriveNamed(info: nupp.derive.Info): nupp.derive.Result<M.Named>
     }
 end
 
-@comptime
-function M.deriveLabelled(info: nupp.derive.Info): nupp.derive.Result<M.Labelled>
+comptime function M.deriveLabelled(info: nupp.derive.Info): nupp.derive.Result<M.Labelled>
     return nupp.derive.implement{
         methods = {label = nupp.derive.forward{helper = nupp.derive.helper(M, "genericLabel"), arguments = {},},},
     }

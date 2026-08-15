@@ -4371,6 +4371,9 @@ function gen.generate(
             emitDepth.fn = emitDepth.fn - 1
 
         elseif kind == "localFuncStmt" then
+            if x.comptimeFunction or x.comptimeTok then
+                return
+            end
             local dispatch = pluck.hotDispatch
             local planned = dispatch and dispatch.byNode[x] or nil
             if dispatch and planned then
@@ -4384,6 +4387,9 @@ function gen.generate(
             end
 
         elseif kind == "funcStmt" then
+            if x.comptimeFunction or x.comptimeTok then
+                return
+            end
             local dispatch = pluck.hotDispatch
             local planned = dispatch and dispatch.byNode[x] or nil
             if dispatch and planned then
@@ -4403,9 +4409,6 @@ function gen.generate(
             end
 
         elseif kind == "pragmaStmt" then
-            if x.eraseComptimeFunction then
-                return
-            end
             for _, registration in ipairs(x.cleanupRegistrations or {}) do
                 if not registration.after then
                     local cleanup = registration.cleanup

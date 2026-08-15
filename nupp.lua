@@ -211,8 +211,7 @@ end]],
                         details = "A comptime function can inspect and construct types with "
                            .. "normal branches, loops, and recursion. Its result participates in "
                            .. "inference and narrowing, then the whole function erases.",
-                        code = [[@comptime
-local function Optional(T: type): type
+                        code = [[local comptime function Optional(T: type): type
     return nupp.types.optional(T)
 end
 

@@ -4,8 +4,7 @@ interface M.Contract
     value: function(self): string
 end
 
-@comptime
-function M.bad(info: string): nupp.derive.Result<M.Contract>
+comptime function M.bad(info: string): nupp.derive.Result<M.Contract>
     return nupp.derive.implement{methods = {}}
 end
 

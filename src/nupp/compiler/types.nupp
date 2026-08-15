@@ -1055,7 +1055,7 @@ types.uint8 = prim("uint8")
 types.uint16 = prim("uint16")
 types.uint32 = prim("uint32")
 types.uint64 = prim("uint64")
--- Compiler-only handles admitted only while checking and evaluating `@comptime`
+-- Compiler-only handles admitted only while checking and evaluating `comptime function`
 -- functions. They have no runtime value or code-generation representation.
 types.type_ = prim("type")
 types.typepack = prim("typepack")

@@ -2460,8 +2460,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             local globalTok = advance()
             return parseTypedecl(globalTok, "global")
 
-        elseif kind == "function" then
+        elseif kind == "function" or kind == "name" and cur().text == "comptime" and tokens[
+            i + 1
+        ] and tokens[i + 1].kind == "function" then
             local n = new cst.FuncStmt(kind = "funcStmt")
+            if kind == "name" then
+                n.comptimeTok = add(n, advance())
+                n.comptimeTok.contextualOp = true
+            end
             add(n, advance())
             local fn = new cst.Funcname(kind = "funcname")
             fn.base = add(fn, expectName("after 'function'"))
@@ -2547,12 +2553,25 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             -- retain their ordinary identifier meanings.
             local isConst = kind == "name"
             local loctok = advance()
-            if cur().kind == "function" then
+            if cur().kind == "function" or cur().kind == "name" and cur().text == "comptime" and tokens[
+                i + 1
+            ] and tokens[i + 1].kind == "function" then
                 local n = new cst.LocalFuncStmt(kind = "localFuncStmt")
                 n.isConst = isConst
                 add(n, loctok)
+                if cur().kind == "name" then
+                    n.comptimeTok = add(n, advance())
+                    n.comptimeTok.contextualOp = true
+                end
                 add(n, advance())
-                n.name = add(n, expectName(isConst and "after 'const function'" or "after 'local function'"))
+                n.name = add(
+                    n,
+                    expectName(
+                        isConst and (
+                            n.comptimeTok and "after 'const comptime function'" or "after 'const function'"
+                        ) or (n.comptimeTok and "after 'local comptime function'" or "after 'local function'")
+                    )
+                )
                 n.body = add(n, parseFuncbody())
                 return n
             end

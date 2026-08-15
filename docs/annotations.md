@@ -199,12 +199,11 @@ annotated directly.
 | `@deprecated` | Implemented | Optional reason and replacement | declaration, field |
 | `@syntax` | Implemented | One syntax name | local binding |
 | `@jit` | Implemented | None | function |
-| `@comptime` | Implemented | None | local-function |
 
 `@jit` requires the annotated function to avoid trace-unsafe FFI boundaries.
 Variadic C calls and Lua callbacks passed to C report `NUPP2707` unless the
-relevant function is disabled with `jit.off`. `@comptime` marks a file-private
-helper that may only be called during compile-time evaluation.
+relevant function is disabled with `jit.off`. Compile-time-only helpers use the
+`comptime function` declaration modifier rather than an annotation.
 
 `@syntax("name")` is editor metadata for a local or const binding. It accepts
 any literal syntax name and does not change the binding's type. The bundled VS

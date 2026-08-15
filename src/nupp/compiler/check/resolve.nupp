@@ -472,7 +472,7 @@ function resolve.install(c: state.Checker): nil
                 helperDefinition = helper and helper.definition or nil
             end
             if not helper then
-                c.diag("NUPP2421", callee or node, "a type-position call must name a checked @comptime function")
+                c.diag("NUPP2421", callee or node, "a type-position call must name a checked comptime function")
                 return T.any
             end
             if calleeToken then
@@ -593,7 +593,7 @@ function resolve.install(c: state.Checker): nil
                 c.diag(
                     "NUPP2421",
                     body and body.rets and body.rets[1] or body or node,
-                    "a type-position @comptime function must return type or typepack"
+                    "a type-position comptime function must return type or typepack"
                 )
                 return T.any
             end

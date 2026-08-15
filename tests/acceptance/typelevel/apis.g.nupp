@@ -3,8 +3,7 @@
 
 local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
 
-@comptime
-local function RouteParameters(path: string): type
+local comptime function RouteParameters(path: string): type
     local fields = {}
     local cursor = 1
     while cursor <= #path do
@@ -21,8 +20,7 @@ local function RouteParameters(path: string): type
     return nupp.types.shape(fields)
 end
 
-@comptime
-local function DeepElement(value: type): type
+local comptime function DeepElement(value: type): type
     while nupp.types.kind(value) == "array" do
         value = nupp.types.elements(value)[1]
     end

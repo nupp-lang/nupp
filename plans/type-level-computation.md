@@ -69,7 +69,7 @@ Comptime therefore cannot implement any part of this feature:
 - `nupp.reflect(T)` serializes facts the checker has already established into a
   comptime-only value. `keyof T` must establish a type while the checker is
   still resolving one.
-- `@comptime` helpers run ordinary checked functions over closed values. A
+- `comptime function` helpers run ordinary checked functions over closed values. A
   type-level `match` reduces open terms containing symbolic binders.
 - C4 moves comptime behind a cancellable worker. A type reducer is synchronous
   inside assignability, inference, member lookup, hover, and completion; it

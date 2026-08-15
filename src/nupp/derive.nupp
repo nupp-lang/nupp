@@ -12,8 +12,7 @@ record derive.Entry
     codec: nupp.reflect.FieldCodec<any>
 end
 
-@comptime
-local function option(items, annotationName: string, name: string): any
+local comptime function option(items, annotationName: string, name: string): any
     for _, item in ipairs(items) do
         if item.name == annotationName then
             for index, argument in ipairs(item.arguments) do
@@ -27,15 +26,13 @@ local function option(items, annotationName: string, name: string): any
     return nil
 end
 
-@comptime
-local function detail(T: type): any
+local comptime function detail(T: type): any
     local value = nupp.types.describe(T)
     value.kind = value.sourceKind or value.kind
     return value
 end
 
-@comptime
-local function optional(T: type): type?
+local comptime function optional(T: type): type?
     local value = detail(T)
     if value.kind ~= "union" then
         return nil
@@ -54,8 +51,7 @@ local function optional(T: type): type?
     return nil
 end
 
-@comptime
-local function debugSpec(T: type, contract: type): any
+local comptime function debugSpec(T: type, contract: type): any
     local inner = optional(T)
     if inner ~= nil then
         return {kind = "optional", value = debugSpec(inner, contract)}
@@ -109,8 +105,7 @@ local function debugSpec(T: type, contract: type): any
     return nil
 end
 
-@comptime
-local function jsonSpec(T: type, contract: type): any
+local comptime function jsonSpec(T: type, contract: type): any
     local inner = optional(T)
     if inner ~= nil then
         local value = jsonSpec(inner, contract)
@@ -255,8 +250,7 @@ function derive.fieldCodec(entry: derive.Entry): nupp.reflect.FieldCodec<any>
     return entry.codec
 end
 
-@comptime
-function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
+comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
     if info.kind ~= "record" then
         return nupp.derive.error("Debug can be derived only for records", info.reference, "NUPP2803")
     end
@@ -294,8 +288,7 @@ function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
     }
 end
 
-@comptime
-function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.data.json.JSONEncodable>
+comptime function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.data.json.JSONEncodable>
     if info.kind ~= "record" then
         return nupp.derive.error("JSON can be derived only for records", info.reference, "NUPP2806")
     end

@@ -2433,7 +2433,6 @@ local BUILTINS = {
 { name = "deprecated" , arguments = "typed" , targets = { "declaration" , "field" , "c-declaration" } , builtin = true , } ,
 { name = "syntax" , arguments = "typed" , targets = { "local-binding" } , builtin = true , } ,
 { name = "jit" , arguments = "none" , targets = { "function" } , } ,
-{ name = "comptime" , arguments = "none" , targets = { "local-function" , "function" } , } ,
 }
 
 function annotations . new ( withBuiltins )
@@ -15855,7 +15854,7 @@ argTable = callArgs . table
 end
 local deriveIntrinsic = callee and cst . textOf ( callee ) : gsub ( "%s+" , "" ) : match ( "^nupp%.derive%.[%w_]+$" )
 if deriveIntrinsic and ( c . comptimeFunctionDepth or 0 ) == 0 then
-c . diag ( "NUPP2809" , node , "nupp.derive builders are available only inside an `@comptime` provider" )
+c . diag ( "NUPP2809" , node , "nupp.derive builders are available only inside a comptime provider" )
 return T . any
 end
 
@@ -19848,6 +19847,190 @@ end
 return cdef
 
 end
+package.preload["nupp.compiler.check.comptime_function"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+
+local cst = require ( "nupp.compiler.cst" )
+local hash = require ( "nupp.compiler.build.hash" )
+local T = require ( "nupp.compiler.types" )
+local state = require ( "nupp.compiler.check.state" )
+
+local comptimeFunction = { }
+
+
+
+
+
+
+local function check ( c , helper , checkOrdinary )
+local body = helper . body
+if body . generics then
+c . diag ( "NUPP2411" , body . generics , "generic comptime functions are not yet available" )
+end
+for _ , rawParam in ipairs ( body . params or { } ) do
+local param = rawParam
+if param . namedVararg or not param . name then
+c . diag ( "NUPP2411" , rawParam , "comptime functions cannot be variadic" )
+end
+end
+
+helper . comptimeFunction = true
+local owner , member = nil , nil
+if helper . kind == "funcStmt" then
+owner , member = c . funcOwner ( helper . name )
+end
+local helperName = helper . kind == "localFuncStmt" and helper . name or member
+if not helperName then
+c . diag ( "NUPP2411" , helper . name , "comptime functions must be local or direct module members" )
+checkOrdinary ( helper )
+return
+end
+
+local markedName = helperName
+markedName . comptimeFunction = true
+helper . comptimeName = markedName . text
+local helperKey = owner and owner .. "." .. markedName . text or markedName . text
+if helper . kind == "funcStmt" and owner ~= c . moduleLocal then
+c . diag ( "NUPP2411" , helper . name , "an exported comptime function must be a direct member of this module" )
+end
+
+c . comptimeFunctions [ helperKey ] = helper
+c . comptimeFunctionDepth = c . comptimeFunctionDepth + 1
+checkOrdinary ( helper )
+c . comptimeFunctionDepth = c . comptimeFunctionDepth - 1
+
+if helper . kind ~= "funcStmt" or owner ~= c . moduleLocal or not helper . comptimeSignature then
+return
+end
+
+local sealedProgram = require (
+"nupp.compiler.comptime"
+) . sealTypeFunction ( helper , c . comptimeFunctions , helper . comptimeSignature , helper . comptimeDefinition )
+local deriveNamespace = c . env and c . env . globalTypes and c . env . globalTypes [ "nupp.derive" ]
+local infoType = deriveNamespace and deriveNamespace . nestedTypes and deriveNamespace . nestedTypes . Info
+local resultType = deriveNamespace and deriveNamespace . nestedTypes and deriveNamespace . nestedTypes . Result
+local signature = helper . comptimeSignature
+local answer = signature and signature . rets and signature . rets [ 1 ]
+local answerBase = answer and ( answer . origin or answer ) or nil
+if answerBase == resultType then
+local contract = answer . typeArgs and answer . typeArgs [ 1 ] or nil
+local hasContract = contract and contract . tag == "nominal" and contract . declKind == "interface"
+local isUnconstrained = contract == T . any
+if # signature . params ~= 1 or signature . params [
+1
+] ~= infoType or # signature . rets ~= 1 or signature . vararg or not ( hasContract or isUnconstrained ) then
+c . diag (
+"NUPP2809" ,
+helper . name ,
+"a derive provider must have signature function(nupp.derive.Info): nupp.derive.Result<I>" ,
+nil ,
+{ help = "I must be one existing interface, or any for self-declared members" }
+)
+else
+sealedProgram . bodyFingerprint = sealedProgram . identity
+sealedProgram . identity = hash . sha256 (
+table . concat (
+{
+"nupp.derive.provider.v1" ,
+c . result . moduleName or "<chunk>" ,
+markedName . text ,
+sealedProgram . bodyFingerprint ,
+} ,
+"\0"
+)
+)
+sealedProgram . deriveProvider = true
+sealedProgram . deriveInterface = hasContract and contract or nil
+sealedProgram . deriveInterfaceIdentity = hasContract and contract . id or nil
+sealedProgram . providerModule = c . result . moduleName
+sealedProgram . providerModuleLocal = c . moduleLocal
+sealedProgram . runtimeHelpers = { }
+for runtimeName , runtimeType in pairs ( c . moduleFields or { } ) do
+if runtimeType and runtimeType . tag == "func" then
+local moduleName = c . result . moduleName or c . moduleLocal or "<chunk>"
+local descriptor = { module = moduleName , member = runtimeName , }
+sealedProgram . runtimeHelpers [ moduleName .. "." .. runtimeName ] = descriptor
+if c . moduleLocal then
+sealedProgram . runtimeHelpers [ c . moduleLocal .. "." .. runtimeName ] = descriptor
+end
+end
+end
+
+local function scanRuntimeHelpers ( value )
+if type ( value ) ~= "table" or cst . isToken ( value ) then
+return
+end
+if value . kind == "call"
+and value . obj
+and cst . textOf ( value . obj ) : gsub ( "%s+" , "" ) == "nupp.derive.helper" then
+local arguments = value . args and value . args . exprs or { }
+local modulePath = arguments [ 1 ] and c . pathKey ( arguments [ 1 ] ) or nil
+local memberText = arguments [
+2
+] and arguments [ 2 ] . kind == "string" and arguments [ 2 ] . token and arguments [ 2 ] . token . text or nil
+local memberName = memberText and (
+memberText : match ( '^"(.*)"$' ) or memberText : match ( "^'(.*)'$" )
+) or nil
+local first = modulePath and modulePath : match ( "^[^.]+" ) or nil
+local holder = first and c . lookupEntry ( first ) or nil
+local moduleName = holder and holder . requiredModule or (
+first == c . moduleLocal and c . result . moduleName or nil
+)
+local helperType
+if moduleName == c . result . moduleName then
+helperType = c . moduleFields and c . moduleFields [ memberName ]
+else
+local moduleType = moduleName and c . env and c . env . resolveModule and c . env . resolveModule (
+c . env ,
+moduleName
+) or nil
+helperType = moduleType and c . fieldType ( moduleType , memberName ) or nil
+end
+if modulePath and moduleName and memberName and helperType and helperType . tag == "func" then
+local descriptor = { module = moduleName , member = memberName }
+sealedProgram . runtimeHelpers [ modulePath .. "." .. memberName ] = descriptor
+sealedProgram . runtimeHelpers [ moduleName .. "." .. memberName ] = descriptor
+else
+c . diag ( "NUPP2809" , value , "nupp.derive.helper must name an exported runtime function" )
+end
+end
+for _ , child in ipairs ( value ) do
+scanRuntimeHelpers ( child )
+end
+end
+
+scanRuntimeHelpers ( helper . body )
+end
+end
+c . moduleExports . comptimeFunctions [ markedName . text ] = sealedProgram
+end
+
+function comptimeFunction . checkLocal (
+c ,
+helper ,
+checkOrdinary
+)
+check ( c , helper , checkOrdinary )
+end
+
+function comptimeFunction . checkQualified (
+c ,
+helper ,
+checkOrdinary
+)
+check ( c , helper , checkOrdinary )
+end
+
+return comptimeFunction
+
+end
 package.preload["nupp.compiler.check.control"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
@@ -23108,7 +23291,7 @@ if not provider then
 c . diag (
 "NUPP2809" ,
 arg . expr or arg ,
-( "%s is not an exported @comptime derive provider" ) : format ( spelling or "this expression" )
+( "%s is not an exported comptime derive provider" ) : format ( spelling or "this expression" )
 )
 else
 arg . deriveProvider = provider
@@ -25245,8 +25428,8 @@ local capturedType = nil
 if entry and entry . definition and entry . definition . comptimeFunction and (
 c . comptimeDepth or 0
 ) == 0 and ( c . comptimeFunctionDepth or 0 ) == 0 then
-c . diag ( "NUPP2415" , node , ( "@comptime function %q has no runtime value" ) : format ( nameText ) , nil , {
-help = "call it from a comptime block or another @comptime function"
+c . diag ( "NUPP2415" , node , ( "comptime function %q has no runtime value" ) : format ( nameText ) , nil , {
+help = "call it from a comptime block or another comptime function"
 } )
 end
 node . immutablePath = entry and entry . constant == true or false
@@ -26663,6 +26846,7 @@ local T = require ( "nupp.compiler.types" )
 local relations = require ( "nupp.compiler.relations" )
 local cst = require ( "nupp.compiler.cst" )
 local state = require ( "nupp.compiler.check.state" )
+local comptimeFunction = require ( "nupp.compiler.check.comptime_function" )
 
 local isA = relations . isA
 local rawType = T . unwrapOwnership
@@ -27735,7 +27919,7 @@ c . inferredParameterModes = inferredParameterModes
 
 local handlers = { }
 
-handlers . localFuncStmt = function ( stat )
+local function checkLocalFuncStmt ( stat )
 local nameTok , body = stat . name , stat . body
 if not nameTok or not body then
 return
@@ -27776,7 +27960,15 @@ c . unused . declared ( nameTok , c . scope . vars [ nameTok . text ] , "functio
 c . raises . check ( stat , body )
 end
 
-handlers . funcStmt = function ( stat )
+handlers . localFuncStmt = function ( stat )
+if stat . comptimeTok then
+comptimeFunction . checkLocal ( c , stat , checkLocalFuncStmt )
+else
+checkLocalFuncStmt ( stat )
+end
+end
+
+local function checkFuncStmt ( stat )
 local fname , body = stat . name , stat . body
 if not fname or fname . kind ~= "funcname" or not body then
 return
@@ -27940,6 +28132,14 @@ end
 end
 if not fname . method and # fname == 1 and fname . base then
 c . bindVar ( fname . base . text , ft )
+end
+end
+
+handlers . funcStmt = function ( stat )
+if stat . comptimeTok then
+comptimeFunction . checkQualified ( c , stat , checkFuncStmt )
+else
+checkFuncStmt ( stat )
 end
 end
 
@@ -31263,8 +31463,6 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppD
 
 local cst = require ( "nupp.compiler.cst" )
 local lints = require ( "nupp.compiler.lints" )
-local hash = require ( "nupp.compiler.build.hash" )
-local T = require ( "nupp.compiler.types" )
 local state = require ( "nupp.compiler.check.state" )
 
 local pragma = { }
@@ -31427,174 +31625,6 @@ c . checkStat ( stat . stat )
 end
 if valid and target and targetKind == "recordDecl" then
 defineAnnotation ( stat , target )
-end
-return
-
-elseif written == "comptime" then
-if valid and target and (
-target . kind == "localFuncStmt" or target . kind == "funcStmt"
-) and target . name and target . body then
-local helper = target
-local body = helper . body
-if body . generics then
-c . diag ( "NUPP2411" , body . generics , "generic @comptime functions are not yet available" )
-end
-for _ , rawParam in ipairs ( body . params or { } ) do
-local param = rawParam
-if param . namedVararg or not param . name then
-c . diag ( "NUPP2411" , rawParam , "@comptime functions cannot be variadic" )
-end
-end
-helper . comptimeFunction = true
-local owner , member = nil , nil
-if target . kind == "funcStmt" then
-owner , member = c . funcOwner ( helper . name )
-end
-local helperName = target . kind == "localFuncStmt" and helper . name or member
-if not helperName then
-c . diag ( "NUPP2411" , helper . name , "@comptime functions must be local or direct module members" )
-c . checkStat ( helper )
-return
-end
-local markedName = helperName
-markedName . comptimeFunction = true
-helper . comptimeName = markedName . text
-stat . eraseComptimeFunction = true
-local helperKey = owner and owner .. "." .. markedName . text or markedName . text
-if target . kind == "funcStmt" and owner ~= c . moduleLocal then
-c . diag (
-"NUPP2411" ,
-helper . name ,
-"an exported @comptime function must be a direct member of this module"
-)
-end
-c . comptimeFunctions [ helperKey ] = helper
-c . comptimeFunctionDepth = c . comptimeFunctionDepth + 1
-c . checkStat ( helper )
-c . comptimeFunctionDepth = c . comptimeFunctionDepth - 1
-if target . kind == "funcStmt" and owner == c . moduleLocal and helper . comptimeSignature then
-local sealedProgram = require (
-"nupp.compiler.comptime"
-) . sealTypeFunction ( helper , c . comptimeFunctions , helper . comptimeSignature , helper . comptimeDefinition )
-local deriveNamespace = c . env and c . env . globalTypes and c . env . globalTypes [ "nupp.derive" ]
-local infoType = deriveNamespace
-and deriveNamespace . nestedTypes
-and deriveNamespace . nestedTypes . Info
-local resultType = deriveNamespace
-and deriveNamespace . nestedTypes
-and deriveNamespace . nestedTypes . Result
-local signature = helper . comptimeSignature
-local answer = signature and signature . rets and signature . rets [ 1 ]
-local answerBase = answer and ( answer . origin or answer ) or nil
-if answerBase == resultType then
-local contract = answer . typeArgs and answer . typeArgs [ 1 ] or nil
-local hasContract = contract and contract . tag == "nominal" and contract . declKind == "interface"
-local isUnconstrained = contract == T . any
-if # signature . params ~= 1 or signature . params [
-1
-] ~= infoType or # signature . rets ~= 1 or signature . vararg or not (
-hasContract or isUnconstrained
-) then
-c . diag (
-"NUPP2809" ,
-helper . name ,
-"a derive provider must have signature function(nupp.derive.Info): nupp.derive.Result<I>" ,
-nil ,
-{ help = "I must be one existing interface, or any for self-declared members" }
-)
-else
-sealedProgram . bodyFingerprint = sealedProgram . identity
-sealedProgram . identity = hash . sha256 (
-table . concat (
-{
-"nupp.derive.provider.v1" ,
-c . result . moduleName or "<chunk>" ,
-markedName . text ,
-sealedProgram . bodyFingerprint ,
-} ,
-"\0"
-)
-)
-sealedProgram . deriveProvider = true
-sealedProgram . deriveInterface = hasContract and contract or nil
-sealedProgram . deriveInterfaceIdentity = hasContract and contract . id or nil
-sealedProgram . providerModule = c . result . moduleName
-sealedProgram . providerModuleLocal = c . moduleLocal
-sealedProgram . runtimeHelpers = { }
-for runtimeName , runtimeType in pairs ( c . moduleFields or { } ) do
-if runtimeType and runtimeType . tag == "func" then
-local moduleName = c . result . moduleName or c . moduleLocal or "<chunk>"
-local descriptor = { module = moduleName , member = runtimeName , }
-sealedProgram . runtimeHelpers [ moduleName .. "." .. runtimeName ] = descriptor
-if c . moduleLocal then
-sealedProgram . runtimeHelpers [ c . moduleLocal .. "." .. runtimeName ] = descriptor
-end
-end
-end
-local function scanRuntimeHelpers ( value )
-if type ( value ) ~= "table" or cst . isToken ( value ) then
-return
-end
-if value . kind == "call"
-and value . obj
-and cst . textOf ( value . obj ) : gsub ( "%s+" , "" ) == "nupp.derive.helper" then
-local arguments = value . args and value . args . exprs or { }
-local modulePath = arguments [ 1 ] and c . pathKey ( arguments [ 1 ] ) or nil
-local memberText = arguments [
-2
-] and arguments [
-2
-] . kind == "string" and arguments [ 2 ] . token and arguments [ 2 ] . token . text or nil
-local memberName = memberText and (
-memberText : match ( '^"(.*)"$' ) or memberText : match ( "^'(.*)'$" )
-) or nil
-local first = modulePath and modulePath : match ( "^[^.]+" ) or nil
-local holder = first and c . lookupEntry ( first ) or nil
-local moduleName = holder and holder . requiredModule or (
-first == c . moduleLocal and c . result . moduleName or nil
-)
-local helperType
-if moduleName == c . result . moduleName then
-helperType = c . moduleFields and c . moduleFields [ memberName ]
-else
-local moduleType = moduleName
-and c . env
-and c . env . resolveModule
-and c . env . resolveModule (
-c . env ,
-moduleName
-) or nil
-helperType = moduleType and c . fieldType ( moduleType , memberName ) or nil
-end
-if modulePath
-and moduleName
-and memberName
-and helperType
-and helperType . tag == "func"
-then
-local descriptor = { module = moduleName , member = memberName }
-sealedProgram . runtimeHelpers [ modulePath .. "." .. memberName ] = descriptor
-sealedProgram . runtimeHelpers [ moduleName .. "." .. memberName ] = descriptor
-else
-c . diag (
-"NUPP2809" ,
-value ,
-"nupp.derive.helper must name an exported runtime function"
-)
-end
-end
-for _ , child in ipairs ( value ) do
-scanRuntimeHelpers ( child )
-end
-end
-
-scanRuntimeHelpers ( helper . body )
-end
-end
-c . moduleExports . comptimeFunctions [ markedName . text ] = sealedProgram
-end
-elseif stat . stat then
-c . checkStat ( stat . stat )
 end
 return
 
@@ -32199,7 +32229,7 @@ helperType = helper and helper . signature or nil
 helperDefinition = helper and helper . definition or nil
 end
 if not helper then
-c . diag ( "NUPP2421" , callee or node , "a type-position call must name a checked @comptime function" )
+c . diag ( "NUPP2421" , callee or node , "a type-position call must name a checked comptime function" )
 return T . any
 end
 if calleeToken then
@@ -32320,7 +32350,7 @@ if declared ~= T . type_ and declared ~= T . typepack and declared . tag ~= "typ
 c . diag (
 "NUPP2421" ,
 body and body . rets and body . rets [ 1 ] or body or node ,
-"a type-position @comptime function must return type or typepack"
+"a type-position comptime function must return type or typepack"
 )
 return T . any
 end
@@ -40879,7 +40909,14 @@ local token = node and node . name
 if token then
 local source = cst . textOf ( node )
 if node . kind == "funcStmt" then
-source = source : gsub ( "^([%s]*)function%s+[%w_%.]+" , "%1local function " .. name , 1 )
+local replaced
+source , replaced = source : gsub ( "comptime%s+function%s+[%w_%.]+" , "local function " .. name , 1 )
+if replaced == 0 then
+source = source : gsub ( "function%s+[%w_%.]+" , "local function " .. name , 1 )
+end
+elseif node . kind == "localFuncStmt" then
+source = source : gsub ( "local%s+comptime%s+function" , "local function" , 1 )
+source = source : gsub ( "const%s+comptime%s+function" , "const function" , 1 )
 end
 serialized [ name ] = { source = source , line = token . line , column = token . col , }
 end
@@ -41384,7 +41421,7 @@ fail (
 "NUPP2412" ,
 node ,
 (
-"@comptime function %s expects %d argument%s, got %d"
+"comptime function %s expects %d argument%s, got %d"
 ) : format ( helper . name , # params , # params == 1 and "" or "s" , args . n )
 )
 end
@@ -41392,7 +41429,7 @@ if state . callDepth >= MAX_CALL_DEPTH then
 fail (
 "NUPP2412" ,
 node ,
-( "@comptime call depth exceeded %d frames" ) : format ( MAX_CALL_DEPTH ) ,
+( "comptime call depth exceeded %d frames" ) : format ( MAX_CALL_DEPTH ) ,
 "make the recursion shallower or move the unbounded work to run time"
 )
 end
@@ -41425,7 +41462,7 @@ end
 error ( err , 0 )
 end
 if not returned then
-fail ( "NUPP2412" , node , ( "@comptime function %s completed without returning" ) : format ( helper . name ) )
+fail ( "NUPP2412" , node , ( "comptime function %s completed without returning" ) : format ( helper . name ) )
 end
 
 return { n = 1 , result }
@@ -44577,9 +44614,6 @@ local cst = { }
 
 
 
-
-
-
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -44858,6 +44892,10 @@ cst.FuncStmt = {} cst.FuncStmt.__index = cst.FuncStmt
 
 
 
+
+
+
+
 cst.Funcname = {} cst.Funcname.__index = cst.Funcname
 
 
@@ -44872,7 +44910,11 @@ cst.Funcname = {} cst.Funcname.__index = cst.Funcname
 
 
 
+
 cst.LocalFuncStmt = {} cst.LocalFuncStmt.__index = cst.LocalFuncStmt
+
+
+
 
 
 
@@ -55831,10 +55873,10 @@ code = "NUPP2133" ,
 summary = "A recursive type alias is not supported" ,
 rule = "Type aliases describe finite type expressions and cannot refer to "
 .. "themselves, directly or mutually. Write an ordinary recursive "
-.. "@comptime helper that returns type or typepack when the computation "
+.. "comptime function that returns type or typepack when the computation "
 .. "needs control flow." ,
 wrong = "local type Loop<T> = Loop<T>\nreturn Loop\n" ,
-right = "@comptime\nlocal function DeepElement(T: type): type\n"
+right = "local comptime function DeepElement(T: type): type\n"
 .. "    while nupp.types.kind(T) == 'array' do\n"
 .. "        T = nupp.types.elements(T)[1]\n"
 .. "    end\n"
@@ -55920,7 +55962,7 @@ docs = "docs/reference.md#owned-resources" ,
 {
 code = "NUPP2801" ,
 summary = "A derive provider name is unknown or duplicated" ,
-rule = "Each @derive argument names one resolved exported @comptime provider, and "
+rule = "Each @derive argument names one resolved exported comptime provider, and "
 .. "an identity may occur only once across every derive "
 .. "annotation on the record." ,
 related = { "NUPP2113" , "NUPP2802" } ,
@@ -55973,7 +56015,7 @@ docs = "docs/derives.md" ,
 {
 code = "NUPP2809" ,
 summary = "A comptime derive provider declaration or reference is invalid" ,
-rule = "A public derive provider is an exported, nongeneric @comptime function "
+rule = "A public derive provider is an exported, nongeneric comptime function "
 .. "with the exact shape function(nupp.derive.Info): nupp.derive.Result<I>, where "
 .. "I is one existing interface. @derive must name that resolved export." ,
 related = { "NUPP2411" , "NUPP2801" } ,
@@ -63131,6 +63173,9 @@ end
 emitDepth . fn = emitDepth . fn - 1
 
 elseif kind == "localFuncStmt" then
+if x . comptimeFunction or x . comptimeTok then
+return
+end
 local dispatch = pluck . hotDispatch
 local planned = dispatch and dispatch . byNode [ x ] or nil
 if dispatch and planned then
@@ -63144,6 +63189,9 @@ e ( ( ";%s[%q]=%s" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . 
 end
 
 elseif kind == "funcStmt" then
+if x . comptimeFunction or x . comptimeTok then
+return
+end
 local dispatch = pluck . hotDispatch
 local planned = dispatch and dispatch . byNode [ x ] or nil
 if dispatch and planned then
@@ -63163,9 +63211,6 @@ end
 end
 
 elseif kind == "pragmaStmt" then
-if x . eraseComptimeFunction then
-return
-end
 for _ , registration in ipairs ( x . cleanupRegistrations or { } ) do
 if not registration . after then
 local cleanup = registration . cleanup
@@ -73885,8 +73930,15 @@ elseif kind == "unsafeStmt" then
 mark ( node . unsafeTok , keywordType )
 elseif kind == "noSuspendStmt" then
 mark ( node . keywordTok , keywordType )
-elseif ( kind == "localStmt" or kind == "localFuncStmt" ) and node . isConst then
+elseif kind == "localFuncStmt" and node . isConst then
 mark ( node [ 1 ] , keywordType )
+if node . comptimeTok then
+mark ( node . comptimeTok , keywordType )
+end
+elseif kind == "localStmt" and node . isConst then
+mark ( node [ 1 ] , keywordType )
+elseif ( kind == "localFuncStmt" or kind == "funcStmt" ) and node . comptimeTok then
+mark ( node . comptimeTok , keywordType )
 elseif kind == "continueStmt" then
 mark ( node [ 1 ] , keywordType )
 elseif kind == "labelStmt" or kind == "gotoStmt" then
@@ -85804,8 +85856,14 @@ elseif kind == "name" and cur ( ) . text == "global" and startsTypedecl ( i + 1 
 local globalTok = advance ( )
 return parseTypedecl ( globalTok , "global" )
 
-elseif kind == "function" then
+elseif kind == "function" or kind == "name" and cur ( ) . text == "comptime" and tokens [
+i + 1
+] and tokens [ i + 1 ] . kind == "function" then
 local n = setmetatable({ kind =  "funcStmt" }, cst.FuncStmt)
+if kind == "name" then
+n . comptimeTok = add ( n , advance ( ) )
+n . comptimeTok . contextualOp = true
+end
 add ( n , advance ( ) )
 local fn = setmetatable({ kind =  "funcname" }, cst.Funcname)
 fn . base = add ( fn , expectName ( "after 'function'" ) )
@@ -85891,12 +85949,25 @@ i + 1
 
 local isConst = kind == "name"
 local loctok = advance ( )
-if cur ( ) . kind == "function" then
+if cur ( ) . kind == "function" or cur ( ) . kind == "name" and cur ( ) . text == "comptime" and tokens [
+i + 1
+] and tokens [ i + 1 ] . kind == "function" then
 local n = setmetatable({ kind =  "localFuncStmt" }, cst.LocalFuncStmt)
 n . isConst = isConst
 add ( n , loctok )
+if cur ( ) . kind == "name" then
+n . comptimeTok = add ( n , advance ( ) )
+n . comptimeTok . contextualOp = true
+end
 add ( n , advance ( ) )
-n . name = add ( n , expectName ( isConst and "after 'const function'" or "after 'local function'" ) )
+n . name = add (
+n ,
+expectName (
+isConst and (
+n . comptimeTok and "after 'const comptime function'" or "after 'const function'"
+) or ( n . comptimeTok and "after 'local comptime function'" or "after 'local function'" )
+)
+)
 n . body = add ( n , parseFuncbody ( ) )
 return n
 end
@@ -87273,7 +87344,7 @@ iterates finite literal keys and may remap them with `as`.
 Backtick template types concatenate finite string literal sets. Const parameters,
 associated-type projections, and `unpackof` remain direct finite operators.
 
-Algorithms use ordinary Nupp in an `@comptime` function. Parameters and results
+Algorithms use ordinary Nupp in a `comptime function`. Parameters and results
 may be compiler-only `type` or `typepack` handles. `nupp.types` inspects immutable
 type semantics and constructs validated structural results; it cannot create a
 record, interface, name, method, or other declaration. Calls use parentheses in
@@ -87284,8 +87355,7 @@ local m = {}
 
 local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
 
-@comptime
-local function DeepElement(T: type): type
+local comptime function DeepElement(T: type): type
     while nupp.types.kind(T) == "array" do
         T = nupp.types.elements(T)[1]
     end
@@ -88485,9 +88555,9 @@ Determinism excludes platform-varying libm functions and table-address
 worker with step, call-depth, time, memory, result, and protocol limits, so a
 crash or oversized result fails only that block.
 
-File-private `@comptime` helpers are normally typed, share the caller's budgets,
-may inspect `nupp.reflect.Info`, and erase from runtime output. They are callable only by
-comptime code and are not yet generic, variadic, or cross-module.
+`comptime function` declares a reusable compile-only callable; `comptime do ... end`
+evaluates one expression. Helpers share the caller's budgets, may inspect
+`nupp.reflect.Info`, and erase from runtime output. They are not yet generic or variadic.
 
 Comptime produces data, never declarations or source. `nupp build --json`
 reports materialization identities, fingerprints, sizes, runtime features, and
@@ -88496,8 +88566,7 @@ ABI versions; manifest caches retain the canonical blueprint and lowering.
 [=[
 local m = {}
 
-@comptime
-local function step(acc: integer): integer
+local comptime function step(acc: integer): integer
     return acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
 end
 
@@ -96200,11 +96269,6 @@ derive.Entry = {} derive.Entry.__index = derive.Entry
 
 
 
-
-
-
-
-
 function derive . debug ( value , entry )
 return _G . nupp . __derive . debug ( value , entry . schema . data . debug )
 end
@@ -96340,8 +96404,6 @@ end
 
 
 
-
-
 return derive
 
 end
@@ -96349,7 +96411,6 @@ package.preload["nupp.format"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 local format = { }
-
 
 
 
@@ -103286,8 +103347,7 @@ match can fail.
 
 local type __LpegEmpty = {never}
 
-@comptime
-local function __LpegMatch(Captures: type): typepack
+local comptime function __LpegMatch(Captures: type): typepack
     local info = nupp.types.describe(Captures)
     if info.kind == "array" then
         if nupp.types.kind(info.element) == "never" then
@@ -103622,8 +103682,9 @@ local nupp: {
     --- @namespace
     peg: nupp.peg,
 
-    --- Compiler-only type inspection and construction inside `@comptime` functions.
-    --- Kept gradual until the bootstrap compiler admits compiler-only handle types.
+    --- Compiler-only type inspection and construction inside `comptime function`
+    --- declarations. Kept gradual until the bootstrap compiler admits compiler-only
+    --- handle types.
     types: any,
 
     --- Compiler-only derive inspection and closed forwarding recipes.
@@ -103718,7 +103779,7 @@ end
 ---
 --- #### Write a package provider
 ---
---- A provider is an exported, nongeneric `@comptime` function whose signature names the
+--- A provider is an exported, nongeneric `comptime function` whose signature names the
 --- one interface it implements. `Info` describes the owner, `implement` returns the
 --- recipe, and a consumer applies the resolved export rather than a runtime function
 --- value. Applying it also claims that interface.
@@ -103734,8 +103795,7 @@ end
 ---     return "name=" .. value
 --- end
 ---
---- @comptime
---- function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Named>
+--- comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Named>
 ---     local field = info.fields[1]
 ---     if not field or field.name ~= "name" then
 ---         return nupp.derive.error("Named needs a first field named name", info.reference)
@@ -103784,7 +103844,7 @@ record nupp.derive
     --- A comptime-only provider symbol accepted by `@derive`.
     ---
     --- A shipped provider is one of the three values below; a package provider is the
-    --- `@comptime` function a module exports. Neither survives into the program.
+    --- `comptime function` a module exports. Neither survives into the program.
     record Provider
     end
 
@@ -103905,7 +103965,7 @@ record nupp.derive
         readonly reference: Reference
     end
 
-    --- The immutable semantic view passed to an `@comptime` provider.
+    --- The immutable semantic view passed to a `comptime function` provider.
     ---
     --- One `Info` describes one owner for one provider, and is built before any
     --- provider's output is merged, so two providers on the same declaration see the
@@ -106402,8 +106462,7 @@ local _VERSION: string
 -- argument. A broad string deliberately retains the ordinary variadic fallback.
 
 --- @local
-@comptime
-local function __NuppFormatArguments(Format: type, Debug: type): typepack
+local comptime function __NuppFormatArguments(Format: type, Debug: type): typepack
     local info = nupp.types.describe(Format)
     if info.kind ~= "literal" or type(info.value) ~= "string" then
         return nupp.types.pack({}, nupp.types.any)
@@ -106504,8 +106563,7 @@ end
 -- decide each string API's result contract.
 
 --- @local
-@comptime
-local function __NuppMatchResults(Pattern: type): typepack
+local comptime function __NuppMatchResults(Pattern: type): typepack
     local info = nupp.types.describe(Pattern)
     if info.kind ~= "literal" or type(info.value) ~= "string" then
         return nupp.types.pack({nupp.types.optional(nupp.types.string)})
@@ -106538,8 +106596,7 @@ local function __NuppMatchResults(Pattern: type): typepack
 end
 
 --- @local
-@comptime
-local function __NuppFindResults(Pattern: type, Plain: type): typepack
+local comptime function __NuppFindResults(Pattern: type, Plain: type): typepack
     local plain = nupp.types.describe(Plain)
     local endpoints = {nupp.types.optional(nupp.types.integer), nupp.types.optional(nupp.types.integer)}
     if plain.kind == "literal" and plain.value == true then
@@ -106569,8 +106626,7 @@ local function __NuppFindResults(Pattern: type, Plain: type): typepack
 end
 
 --- @local
-@comptime
-local function __NuppGmatchResults(Pattern: type): typepack
+local comptime function __NuppGmatchResults(Pattern: type): typepack
     local results = {nupp.types.string}
     local info = nupp.types.describe(Pattern)
     local parse = nupp.types.patternCaptures
@@ -106596,8 +106652,7 @@ local function __NuppGmatchResults(Pattern: type): typepack
 end
 
 --- @local
-@comptime
-local function __NuppGsubResults(Pattern: type): typepack
+local comptime function __NuppGsubResults(Pattern: type): typepack
     local info = nupp.types.describe(Pattern)
     local parse = nupp.types.patternCaptures
     if info.kind == "literal" and type(info.value) == "string" and parse then
@@ -107967,8 +108022,7 @@ record derive.Entry
     codec: nupp.reflect.FieldCodec<any>
 end
 
-@comptime
-local function option(items, annotationName: string, name: string): any
+local comptime function option(items, annotationName: string, name: string): any
     for _, item in ipairs(items) do
         if item.name == annotationName then
             for index, argument in ipairs(item.arguments) do
@@ -107982,15 +108036,13 @@ local function option(items, annotationName: string, name: string): any
     return nil
 end
 
-@comptime
-local function detail(T: type): any
+local comptime function detail(T: type): any
     local value = nupp.types.describe(T)
     value.kind = value.sourceKind or value.kind
     return value
 end
 
-@comptime
-local function optional(T: type): type?
+local comptime function optional(T: type): type?
     local value = detail(T)
     if value.kind ~= "union" then
         return nil
@@ -108009,8 +108061,7 @@ local function optional(T: type): type?
     return nil
 end
 
-@comptime
-local function debugSpec(T: type, contract: type): any
+local comptime function debugSpec(T: type, contract: type): any
     local inner = optional(T)
     if inner ~= nil then
         return {kind = "optional", value = debugSpec(inner, contract)}
@@ -108064,8 +108115,7 @@ local function debugSpec(T: type, contract: type): any
     return nil
 end
 
-@comptime
-local function jsonSpec(T: type, contract: type): any
+local comptime function jsonSpec(T: type, contract: type): any
     local inner = optional(T)
     if inner ~= nil then
         local value = jsonSpec(inner, contract)
@@ -108210,8 +108260,7 @@ function derive.fieldCodec(entry: derive.Entry): nupp.reflect.FieldCodec<any>
     return entry.codec
 end
 
-@comptime
-function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
+comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
     if info.kind ~= "record" then
         return nupp.derive.error("Debug can be derived only for records", info.reference, "NUPP2803")
     end
@@ -108249,8 +108298,7 @@ function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
     }
 end
 
-@comptime
-function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.data.json.JSONEncodable>
+comptime function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.data.json.JSONEncodable>
     if info.kind ~= "record" then
         return nupp.derive.error("JSON can be derived only for records", info.reference, "NUPP2806")
     end
