@@ -72,7 +72,7 @@ local function substCleanup(cleanup: T.Cleanup, map: Bindings, unmapped: string)
         local term = substConst(cleanup.constTerm, map)
         return T.constFunctionCleanup(
             term,
-            cleanup.name,
+            term.tag == "constLiteral" and nil or cleanup.name,
             cleanup.functionType and substWith(cleanup.functionType, map, unmapped) or nil
         )
     elseif cleanup.kind == "field" and cleanup.cleanup then

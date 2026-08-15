@@ -933,15 +933,17 @@ return m
         title = "Affine resources",
         codes = {"NUPP2603", "NUPP2615"},
         body = [=[
-`affine type Name<...> = Representation terminal cleanup end` declares a
-transparent affine type. Its identity is the representation plus the const-function
-identity of its terminal; it allocates no wrapper. The terminal must be exactly a
+`affine(Representation[, cleanup])` constructs a transparent affine type, normally
+named with an ordinary alias such as `type HeldLock = affine(LockToken, unlock)`.
+Its identity is the representation plus the const-function identity of its cleanup;
+it allocates no wrapper. The cleanup must be exactly a
 `nosuspend function(takes Representation): nil`, and may raise.
 
 `Drop`, `Owned<T, cleanup>`, and `Transfer<T>` are ordinary prelude declarations.
-The default `Owned<T>` terminal calls the structural `Drop.drop` member. An explicit
+The default `Owned<T>` cleanup calls the structural `Drop.drop` member. An explicit
 cleanup is used for C pointers or a representation with several possible policies.
-`Transfer<T>` deliberately has no terminal and can only be forwarded or released.
+`Transfer<T>` is `affine(T)`: it deliberately has no cleanup and can only be
+forwarded or released.
 
 A known affine local is destroyed at scope exit. `drop owner` invokes its selected
 terminal immediately. `unsafe adopt raw as SomeAffine` introduces an asserted fresh

@@ -858,9 +858,7 @@ local AFFINE_TYPES = table.concat({
    "end",
    "local function closeA(takes value: Resource): nil end",
    "local function closeB(takes value: Resource): nil end",
-   "local affine type Owner<T, const cleanup: function> = T",
-   "   terminal cleanup",
-   "end",
+   "local type Owner<T, const cleanup: function> = affine(T, cleanup)",
 }, "\n")
 
 function M.usersCanDeclareGenericAffineTypes()
@@ -877,9 +875,7 @@ end
 function M.transparentAffineAliasesWithTheSameTerminalInterchange()
    clean(AFFINE_TYPES .. table.concat({
       "",
-      "local affine type Other<T, const cleanup: function> = T",
-      "   terminal cleanup",
-      "end",
+      "local type Other<T, const cleanup: function> = affine(T, cleanup)",
       "local function rename(takes value: Owner<Resource, closeA>): Other<Resource, closeA>",
       "   return value",
       "end",
@@ -897,7 +893,7 @@ end
 
 function M.terminalLessAffineTypesAreExplicitAndCannotBeDropped()
    assertEq(codes(table.concat({
-      "local affine type Forward<T> = T end",
+      "local type Forward<T> = affine(T)",
       "local function make(): Forward<integer> return 1 end",
       "local value = make()",
       "drop value",
@@ -916,11 +912,11 @@ function M.comptimeCanConstructAffineTypesFromFunctionIdentity()
    }, "\n"))
 end
 
-function M.affineDeclarationsAddNoRuntimeRepresentation()
+function M.affineConstructorAddsNoRuntimeRepresentation()
    local source = table.concat({
       "local calls = 0",
       "local function close(takes value: integer): nil calls = calls + value end",
-      "local affine type Counter = integer terminal close end",
+      "local type Counter = affine(integer, close)",
       "local function make(): Counter return 2 end",
       "local value = make()",
       "drop value",
@@ -931,7 +927,7 @@ function M.affineDeclarationsAddNoRuntimeRepresentation()
    assertEq(#found, 0, found[1] and found[1].msg or "check")
    local lua, emitted = gen.generate(parsed, "affine-erasure")
    assertEq(#emitted, 0, "code generation diagnostics")
-   assert(not lua:find("Counter = {}", 1, true), "affine declaration allocated a runtime type")
+   assert(not lua:find("Counter = {}", 1, true), "affine constructor allocated a runtime type")
    local chunk = assert(loadstring(lua))
    assertEq(chunk(), 2)
 end

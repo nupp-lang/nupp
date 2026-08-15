@@ -9,5 +9,4 @@ end
 
 -- Referencing the implementation as an ordinary terminal publishes it through the
 -- same declaration-token bridge used by package terminals. The alias erases.
-local affine type __NuppDropDefaultRegistration<T is Drop> = T terminal __nuppDropDefault
-end
+local type __NuppDropDefaultRegistration<T is Drop> = affine(T, __nuppDropDefault)

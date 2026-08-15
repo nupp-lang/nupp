@@ -323,13 +323,6 @@ record types.GenericAlias
     constParams: {types.ConstVar}
     paramKinds: {string}
     paramDefaults: {any}
-
-    --- A transparent affine alias wraps its materialized body with this symbolic
-    --- const-function terminal. `nil` with `affine == true` is deliberately
-    --- transfer-only.
-    affine: boolean?
-
-    affineTerminal: types.ConstTerm?
 end
 
 --- A function.
@@ -1854,9 +1847,7 @@ function types.genericAlias(
     packParams: {types.PackVar}?,
     constParams: {types.ConstVar}?,
     paramKinds: {string}?,
-    paramDefaults: {any}?,
-    affine: boolean?,
-    affineTerminal: types.ConstTerm?
+    paramDefaults: {any}?
 ): types.Type
     local parts = {"alias(" .. name, body.id}
     for _, tv in ipairs(typeParams or {}) do
@@ -1867,9 +1858,6 @@ function types.genericAlias(
     end
     for _, cv in ipairs(constParams or {}) do
         parts[#parts + 1] = cv.id
-    end
-    if affine then
-        parts[#parts + 1] = "affine:" .. (affineTerminal and affineTerminal.id or "transfer")
     end
     local key = table.concat(parts, "|") .. ")"
 
@@ -1889,9 +1877,7 @@ function types.genericAlias(
             packParams = packParams or {},
             constParams = constParams or {},
             paramKinds = paramKinds or {},
-            paramDefaults = paramDefaults or {},
-            affine = affine == true,
-            affineTerminal = affineTerminal
+            paramDefaults = paramDefaults or {}
         )
     )
 end

@@ -19,9 +19,7 @@ local function unlock(takes held: LockToken): nil
     held.mutex.locked = false -- Runs once when the guard is consumed.
 end
 
-local affine type HeldLock = LockToken
-    terminal unlock
-end
+local type HeldLock = affine(LockToken, unlock)
 
 local function lock(borrows mutex: Mutex): HeldLock borrows (mutex)
     assert(not mutex.locked)
@@ -51,12 +49,10 @@ prelude and in user packages.
 ## Declaring affine types
 
 ```nupp
-[local|global] affine type Name<T, const cleanup: function> = T
-    terminal cleanup
-end
+[local|global] type Name<T, const cleanup: function> = affine(T, cleanup)
 ```
 
-The declaration has one representation and zero or one terminal. It introduces
+`affine` takes one representation and an optional cleanup. It introduces
 no constructor, table, wrapper, tag, vtable, or runtime cleanup slot. Two affine
 declarations with the same canonical representation and terminal are the same
 type. Equal function signatures are insufficient: different terminal
@@ -65,11 +61,11 @@ declarations remain different identities.
 A declaration without `terminal` is deliberately transfer-only:
 
 ```nupp
-local affine type MustForward<T> = T end
+local type MustForward<T> = affine(T)
 ```
 
-Missing or invalid terminal syntax is an error; terminal absence is never
-inferred from failed resolution.
+The optional cleanup is explicit: `affine(T)` is transfer-only, while an invalid
+cleanup name or signature is an error.
 
 ## Prelude policy
 
@@ -84,15 +80,12 @@ local function dropDefault<T is Drop>(takes value: T): nil
     value:drop()
 end
 
-global affine type Owned<
+global type Owned<
     T,
     const cleanup: function = dropDefault
-> = T
-    terminal cleanup
-end
+> = affine(T, cleanup)
 
-global affine type Transfer<T> = T
-end
+global type Transfer<T> = affine(T)
 ```
 
 These names have no compiler privilege. `Owned<File>` applies the generic

@@ -295,8 +295,6 @@ bindname       = Name [":" type]
 
 typedeclstat   = ["local" / "global"] typedecl
 typedecl       = "type" declname [generics] "=" type
-               / "affine" "type" declname [generics] "=" type
-                 ["terminal" typename] "end"
                / ["sealed"] "interface" declname [generics] [contracts]
                  [refinement] recordbody "end"
                / ("record" / "struct") declname [generics] [contracts] [refinement]
@@ -420,6 +418,8 @@ primtype       = ["const"] primtype              ; read-only view [CS-15]
                / "(" type ")"
 typename       = Name *("." Name) ["<" typearg *("," typearg) ">"]
                  ["(" [type *("," type)] ")"] ; checked comptime type call [CS-24]
+; `affine(Representation [, Cleanup])` is the built-in affine type constructor.
+; Its cleanup, when present, is a named function identity rather than a value.
 typearg        = type / typepack                 ; packs only where accepted [CS-21]
 tabletype      = "{" tablebody "}"
 tablebody      = mappedfield

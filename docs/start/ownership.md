@@ -130,12 +130,9 @@ borrow, or discharge checking.
 Packages have the same facility as the prelude:
 
 ```nupp
-local affine type Locked<T, const unlock: function> = T
-    terminal unlock
-end
+local type Locked<T, const unlock: function> = affine(T, unlock)
 
-local affine type MustForward<T> = T
-end
+local type MustForward<T> = affine(T)
 ```
 
 An affine type's static identity is its representation plus the exact terminal

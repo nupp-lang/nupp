@@ -247,8 +247,8 @@ A declaration that never comes back, because it raises, exits, or loops forever,
 says so with `never` as its return type, not an annotation; see
 [primitives](type-system/primitives.md#never-the-bottom-type).
 
-Automatic lexical cleanup works over every public `affine type`. `Owned<T>`
-uses structural `Drop`; an explicit terminal belongs to that affine type, so
+Automatic lexical cleanup works over every public `affine(...)` type. `Owned<T>`
+uses structural `Drop`; an explicit cleanup belongs to that affine type, so
 different policies over the same runtime representation remain distinct static
 types.
 

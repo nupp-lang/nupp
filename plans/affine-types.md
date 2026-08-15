@@ -3,8 +3,8 @@
 ## Decision
 
 Nupp will make affinity a public type-system facility and define ownership policy
-with ordinary Nupp declarations in the prelude. The compiler will understand an
-`affine type` declaration, affine introduction and consumption, and automatic
+with ordinary Nupp declarations in the prelude. The compiler will understand the
+`affine(Representation[, cleanup])` type constructor, affine introduction and consumption, and automatic
 lexical destruction. It will not recognize `Owned`, `Drop`, or `Transfer` by name.
 
 The target prelude is:
@@ -18,15 +18,12 @@ local function dropDefault<T is Drop>(takes value: T): nil
     value:drop()
 end
 
-global affine type Owned<
+global type Owned<
     T,
     const cleanup: function = dropDefault
-> = T
-    terminal cleanup
-end
+> = affine(T, cleanup)
 
-global affine type Transfer<T> = T
-end
+global type Transfer<T> = affine(T)
 ```
 
 This gives the existing useful spelling without a built-in constructor:
@@ -71,18 +68,14 @@ An affine declaration has a generic clause, one representation type, and zero or
 terminal:
 
 ```nupp
-[local|global] affine type Name<...> = Representation
-    [terminal FunctionConst]
-end
+[local|global] type Name<...> = affine(Representation [, FunctionConst])
 ```
 
 Module-qualified declarations use the same ownership and visibility rules as records,
 interfaces, and aliases:
 
 ```nupp
-affine type resources.Handle<T, const cleanup: function> = T
-    terminal cleanup
-end
+type resources.Handle<T, const cleanup: function> = affine(T, cleanup)
 ```
 
 Every generic facility already admitted on a type declaration is admitted here,
@@ -110,12 +103,9 @@ structurally compatible function.
 This is a general facility. A package has exactly the prelude's authority:
 
 ```nupp
-affine type Locked<T, const unlock: function> = T
-    terminal unlock
-end
+type Locked<T, const unlock: function> = affine(T, unlock)
 
-affine type MustForward<T> = T
-end
+type MustForward<T> = affine(T)
 ```
 
 No parser, resolver, checker, generator, documentation, or LSP path may branch on the
@@ -472,7 +462,7 @@ always written `Transfer<T>`.
 
 ## Tooling and documentation
 
-The language reference and generated grammar must describe `affine type`, `terminal`,
+The language reference and generated grammar must describe `affine(...)`, cleanup identity,
 `drop`, unsafe adoption/release, `Drop`, `Owned`, and `Transfer` as separate layers:
 
 - affinity and consumption are language semantics;

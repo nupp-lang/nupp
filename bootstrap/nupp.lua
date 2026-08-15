@@ -32079,16 +32079,16 @@ node ,
 reductionError
 )
 end
-if t . affine then
-local term = t . affineTerminal and map [
-t . affineTerminal
-] and generics . materializeConst ( t . affineTerminal , map ) or nil
-local cleanup = term and ( functionConstCleanups [ term . id ] or T . constFunctionCleanup ( term ) ) or nil
-local affine = T . affine ( reduced , cleanup and { cleanup } or nil , t . affineTerminal == nil )
-if cleanup and term and term . tag == "constLiteral" then
-c . own . validateCleanups ( affine , { cleanup } , node , "NUPP2615" )
+if reduced . tag == "affine" and not reduced . transferOnly then
+local cleanups = { }
+for position , cleanup in ipairs ( reduced . cleanups ) do
+local term = cleanup . constTerm
+cleanups [ position ] = term and (
+functionConstCleanups [ term . id ] or T . constFunctionCleanup ( term )
+) or cleanup
 end
-return affine
+reduced = T . affine ( reduced . inner , cleanups )
+c . own . validateCleanups ( reduced , cleanups , node , "NUPP2615" )
 end
 return reduced
 end
@@ -32220,6 +32220,42 @@ calleeToken = child
 end
 end
 local name = table . concat ( calleeParts , "." )
+if name == "affine" then
+local argumentCount = # ( node . arguments or { } )
+if argumentCount ~= 1 and argumentCount ~= 2 then
+c . diag (
+"NUPP2421" ,
+node ,
+( "affine expects a representation and optional cleanup, got %d arguments" ) : format ( argumentCount )
+)
+return T . any
+end
+local representation = c . resolveType ( node . arguments [ 1 ] )
+if argumentCount == 1 then
+local result = T . affine ( representation , nil , true )
+node . resolvedType = result
+return result
+end
+local terminal = constArgument (
+node . arguments [ 2 ] ,
+{ name = "cleanup" , domain = "function" } ,
+node . arguments [ 2 ]
+)
+if not terminal then
+return T . any
+end
+local cleanup = functionConstCleanups [ terminal . id ] or T . constFunctionCleanup ( terminal )
+local resolvingAlias = next ( c . resolvingAlias ) ~= nil
+if terminal . tag == "constLiteral" and not resolvingAlias then
+cleanup = c . own . resolveCleanups ( { cleanup } , node , node ) [ 1 ]
+end
+local result = T . affine ( representation , { cleanup } )
+if terminal . tag == "constLiteral" and not resolvingAlias then
+c . own . validateCleanups ( result , { cleanup } , node , "NUPP2615" )
+end
+node . resolvedType = result
+return result
+end
 local helper = name ~= "" and c . comptimeFunctions [ name ] or nil
 local helperType , helperDefinition = nil , nil
 if helper then
@@ -33274,11 +33310,6 @@ decl . generics ,
 end
 c . resolvingAlias [ name ] = true
 local body = c . resolveType ( waiting . node )
-local terminal = decl and decl . affine and decl . terminal and constArgument (
-decl . terminal ,
-{ name = "terminal" , domain = "function" } ,
-decl . terminal
-) or nil
 c . resolvingAlias [ name ] = nil
 if decl and decl . generics then
 c . popScope ( )
@@ -33290,25 +33321,15 @@ typeBounds ,
 packParams ,
 constParams ,
 paramKinds ,
-paramDefaults ,
-decl . affine ,
-terminal
+paramDefaults
 )
-elseif decl and decl . affine then
-local cleanup = terminal and ( functionConstCleanups [ terminal . id ] or T . constFunctionCleanup ( terminal ) ) or nil
-if cleanup then
-cleanup = c . own . resolveCleanups ( { cleanup } , decl , decl ) [ 1 ]
-end
-t = T . affine ( body , cleanup and { cleanup } or nil , terminal == nil )
-if cleanup and terminal and terminal . tag == "constLiteral" then
-c . own . validateCleanups ( t , { cleanup } , decl . terminal or decl , "NUPP2615" )
-end
 else
 t = body
+if t . tag == "affine" and not t . transferOnly then
+local cleanups = c . own . resolveCleanups ( t . cleanups , decl , decl )
+t = T . affine ( t . inner , cleanups )
+c . own . validateCleanups ( t , cleanups , decl , "NUPP2615" )
 end
-if decl and decl . affine and decl . generics and terminal then
-local cleanup = functionConstCleanups [ terminal . id ] or T . constFunctionCleanup ( terminal )
-c . own . resolveCleanups ( { cleanup } , decl , decl )
 end
 c . scope = saved
 owner . pending [ name ] = nil
@@ -63815,7 +63836,7 @@ if cleanup . kind == "function" and cleanup . constTerm then
 local term = substConst ( cleanup . constTerm , map )
 return T . constFunctionCleanup (
 term ,
-cleanup . name ,
+term . tag == "constLiteral" and nil or cleanup . name ,
 cleanup . functionType and substWith ( cleanup . functionType , map , unmapped ) or nil
 )
 elseif cleanup . kind == "field" and cleanup . cleanup then
@@ -83806,13 +83827,6 @@ if kw and kw . kind == "sealed" then
 at = at + 1
 kw = tokens [ at ]
 end
-if kw and kw . kind == "name" and kw . text == "affine" then
-at = at + 1
-kw = tokens [ at ]
-if not kw or kw . kind ~= "name" or kw . text ~= "type" then
-return false
-end
-end
 if not kw or kw . kind ~= "name" or not TYPEDECL_KW [ kw . text ] then
 return false
 end
@@ -85558,15 +85572,8 @@ local sealedTok = nil
 if cur ( ) . kind == "sealed" then
 sealedTok = advance ( )
 end
-local affineTok = nil
-if cur ( ) . kind == "name" and cur ( ) . text == "affine" then
-affineTok = advance ( )
-end
 local kw = advance ( )
 local which = kw . text
-if affineTok and which ~= "type" then
-errAt ( affineTok , "'affine' may modify only a type declaration" , "NUPP1002" )
-end
 if sealedTok and which ~= "interface" then
 errAt ( sealedTok , "'sealed' may modify only an interface" , "NUPP1002" )
 end
@@ -85583,9 +85590,6 @@ end
 if sealedTok then
 add ( n , sealedTok )
 end
-if affineTok then
-add ( n , affineTok )
-end
 add ( n , kw )
 
 return n
@@ -85593,19 +85597,10 @@ end
 
 if which == "type" then
 local n = introduce ( setmetatable({ kind =  "typeAlias" }, cst.TypeAlias) )
-n . affine = affineTok ~= nil
-n . affineTok = affineTok
 parseDeclName ( n , "after '" .. which .. "'" )
 parseGenerics ( n )
 add ( n , expect ( "=" , "in " .. which .. " declaration" ) )
 n . value = add ( n , parseType ( ) )
-if affineTok then
-if cur ( ) . kind == "name" and cur ( ) . text == "terminal" then
-n . terminalTok = add ( n , advance ( ) )
-n . terminal = add ( n , parseType ( ) )
-end
-n . endTok = add ( n , expect ( "end" , "to close affine type declaration" ) )
-end
 return n
 else
 local n = introduce ( setmetatable({ kind =  "recordDecl" }, cst.RecordDecl) )
@@ -87999,15 +87994,17 @@ return m
 "Affine resources" ,  codes =
 { "NUPP2603" , "NUPP2615" } ,  body =
 [=[
-`affine type Name<...> = Representation terminal cleanup end` declares a
-transparent affine type. Its identity is the representation plus the const-function
-identity of its terminal; it allocates no wrapper. The terminal must be exactly a
+`affine(Representation[, cleanup])` constructs a transparent affine type, normally
+named with an ordinary alias such as `type HeldLock = affine(LockToken, unlock)`.
+Its identity is the representation plus the const-function identity of its cleanup;
+it allocates no wrapper. The cleanup must be exactly a
 `nosuspend function(takes Representation): nil`, and may raise.
 
 `Drop`, `Owned<T, cleanup>`, and `Transfer<T>` are ordinary prelude declarations.
-The default `Owned<T>` terminal calls the structural `Drop.drop` member. An explicit
+The default `Owned<T>` cleanup calls the structural `Drop.drop` member. An explicit
 cleanup is used for C pointers or a representation with several possible policies.
-`Transfer<T>` deliberately has no terminal and can only be forwarded or released.
+`Transfer<T>` is `affine(T)`: it deliberately has no cleanup and can only be
+forwarded or released.
 
 A known affine local is destroyed at scope exit. `drop owner` invokes its selected
 terminal immediately. `unsafe adopt raw as SomeAffine` introduces an asserted fresh
@@ -103573,12 +103570,10 @@ const __nuppDropDefault: nosuspend function<T is Drop>(takes value: T): nil
 
 --- A transparent affine owner. Its second argument is a declaration identity, so two
 --- cleanups with equal signatures still produce different ownership types.
-local affine type Owned<T, const cleanup: function = __nuppDropDefault> = T terminal cleanup
-end
+local type Owned<T, const cleanup: function = __nuppDropDefault> = affine(T, cleanup)
 
 --- A deliberately terminal-less affine value which must be transferred or released.
-local affine type Transfer<T> = T
-end
+local type Transfer<T> = affine(T)
 
 --- Writes every argument to standard output, converted with `tostring`, separated by
 --- tabs and followed by a newline.
@@ -107834,8 +107829,7 @@ end
 
 -- Referencing the implementation as an ordinary terminal publishes it through the
 -- same declaration-token bridge used by package terminals. The alias erases.
-local affine type __NuppDropDefaultRegistration<T is Drop> = T terminal __nuppDropDefault
-end
+local type __NuppDropDefaultRegistration<T is Drop> = affine(T, __nuppDropDefault)
 ]],
 ["/decls/processnative.d.nupp"] = [=[
 --[[

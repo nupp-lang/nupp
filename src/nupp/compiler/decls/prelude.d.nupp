@@ -33,12 +33,10 @@ const __nuppDropDefault: nosuspend function<T is Drop>(takes value: T): nil
 
 --- A transparent affine owner. Its second argument is a declaration identity, so two
 --- cleanups with equal signatures still produce different ownership types.
-local affine type Owned<T, const cleanup: function = __nuppDropDefault> = T terminal cleanup
-end
+local type Owned<T, const cleanup: function = __nuppDropDefault> = affine(T, cleanup)
 
 --- A deliberately terminal-less affine value which must be transferred or released.
-local affine type Transfer<T> = T
-end
+local type Transfer<T> = affine(T)
 
 --- Writes every argument to standard output, converted with `tostring`, separated by
 --- tabs and followed by a newline.

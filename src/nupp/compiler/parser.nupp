@@ -371,13 +371,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             at = at + 1
             kw = tokens[at]
         end
-        if kw and kw.kind == "name" and kw.text == "affine" then
-            at = at + 1
-            kw = tokens[at]
-            if not kw or kw.kind ~= "name" or kw.text ~= "type" then
-                return false
-            end
-        end
         if not kw or kw.kind ~= "name" or not TYPEDECL_KW[kw.text] then
             return false
         end
@@ -2168,15 +2161,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if cur().kind == "sealed" then
             sealedTok = advance()
         end
-        local affineTok = nil
-        if cur().kind == "name" and cur().text == "affine" then
-            affineTok = advance()
-        end
         local kw = advance() -- the contextual keyword (a name token)
         local which = kw.text
-        if affineTok and which ~= "type" then
-            errAt(affineTok, "'affine' may modify only a type declaration", "NUPP1002")
-        end
         if sealedTok and which ~= "interface" then
             errAt(sealedTok, "'sealed' may modify only an interface", "NUPP1002")
         end
@@ -2193,9 +2179,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if sealedTok then
                 add(n, sealedTok)
             end
-            if affineTok then
-                add(n, affineTok)
-            end
             add(n, kw)
 
             return n
@@ -2203,19 +2186,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
         if which == "type" then
             local n = introduce(new cst.TypeAlias(kind = "typeAlias"))
-            n.affine = affineTok ~= nil
-            n.affineTok = affineTok
             parseDeclName(n, "after '" .. which .. "'")
             parseGenerics(n)
             add(n, expect("=", "in " .. which .. " declaration"))
             n.value = add(n, parseType())
-            if affineTok then
-                if cur().kind == "name" and cur().text == "terminal" then
-                    n.terminalTok = add(n, advance())
-                    n.terminal = add(n, parseType())
-                end
-                n.endTok = add(n, expect("end", "to close affine type declaration"))
-            end
             return n
         else -- record / interface / struct
             local n = introduce(new cst.RecordDecl(kind = "recordDecl"))

@@ -1363,7 +1363,7 @@ function M.affineTerminalsMustTakeTheirResource()
    assertEq(codes(table.concat({
       "local record File end",
       "local function closeFile(borrows file: File): nil end",
-      "local affine type FileOwner = File terminal closeFile end",
+      "local type FileOwner = affine(File, closeFile)",
    }, "\n")), "NUPP2615")
 end
 
