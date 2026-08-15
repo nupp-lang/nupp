@@ -1,9 +1,52 @@
 # Ownership and affine types
 
-Nupp represents ownership with transparent affine types. An affine value may be
-consumed exactly once, moved into another affine location, or destroyed by the
-terminal function carried in its type. Affinity is a public language facility;
-ownership policy is ordinary Nupp source in the prelude and in user packages.
+An affine result turns a lock into a scope-bound guard: acquiring it creates one
+obligation to unlock, and every way out of the scope discharges it. The guard
+is transparent at runtime; the type system records the cleanup and keeps it
+rooted in the mutex while it is live.
+
+```nupp:playground
+local record Mutex
+    locked: boolean
+end
+
+-- Only `lock` creates this token; its terminal is the matching unlock.
+local record LockToken
+    mutex: Mutex
+end
+
+local function unlock(takes held: LockToken): nil
+    held.mutex.locked = false -- Runs once when the guard is consumed.
+end
+
+local affine type HeldLock = LockToken
+    terminal unlock
+end
+
+local function lock(borrows mutex: Mutex): HeldLock borrows (mutex)
+    assert(not mutex.locked)
+    mutex.locked = true
+    return new LockToken(mutex = mutex) -- Introduces the unlock obligation.
+end
+
+local function update(mutex: Mutex, write: boolean): nil
+    local held = lock(mutex) -- `mutex` cannot move while `held` is live.
+    if not write then
+        return -- Lexical destruction calls `unlock(held)` on this path too.
+    end
+
+    print("update while the lock is held")
+end -- Falling through also calls `unlock(held)`.
+
+local mutex = new Mutex(locked = false)
+update(mutex, false)
+assert(not mutex.locked)
+```
+
+An affine value may be consumed exactly once, moved into another affine
+location, or destroyed by the terminal function carried in its type. Affinity
+is a public language facility; ownership policy is ordinary Nupp source in the
+prelude and in user packages.
 
 ## Declaring affine types
 
