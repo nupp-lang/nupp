@@ -2,15 +2,15 @@
 
 ## Decision
 
-Nupp will make a nominal declaration's existing runtime identity a typed
-*witness* for that declaration. For a `record`, the witness is its declaration
-table, whose static type is already `metatable<T>` and whose instances already
-carry it. For a `struct`, it is the FFI ctype produced by its declaration. A
-runtime reflection operation accepts that witness and returns an immutable,
-versioned descriptor on demand.
+Nupp will make every record declaration a visible first-class nominal type
+object. The declaration value `User` has static type `Type<User>`; it is not a
+`User` instance and it is not merely the compiler's `metatable<User>` phantom.
+For a record the same runtime table remains the instance metatable, and for a
+struct the type object wraps or is its FFI ctype. A runtime intrinsic on the
+type object returns an immutable, versioned descriptor on demand.
 
 ```nupp
-local info = reflect(User)
+local info = User.reflect()
 local user, problem = json.decode(User, text)
 ```
 
@@ -19,7 +19,7 @@ second `TypeInfo<User>` argument. A generic parameter infers through the
 witness:
 
 ```nupp
-function read<T>(target: metatable<T>, text: string): T?
+function read<T>(target: Type<T>, text: string): T?
     local value, problem = json.decode(target, text)
     if problem ~= nil then return nil end
     return value
@@ -33,8 +33,8 @@ call site. The public spelling remains one `User` argument.
 
 Runtime reflection is distinct from the existing comptime-only
 `nupp.reflect(T)`. The surface spelling and namespace are chosen during R1 so
-the two cannot be confused in diagnostics or documentation; this plan calls
-the runtime operation `reflect(User)` for brevity.
+the two cannot be confused in diagnostics or documentation; this plan writes
+the runtime operation as `User.reflect()`.
 
 Descriptors hold declaration facts. Format-specific behavior is a sealed
 extension on the descriptor. `@derive(nupp.derive.JSON)` therefore produces a
@@ -43,7 +43,7 @@ separate bespoke registry. Its generated `toJSON` and `fromJSON` members are
 convenience wrappers over that extension.
 
 ```text
-record declaration table (User)
+visible Type<User> object (User)
               |
               +-- private TypeInfo<User>, only when required
                        |
@@ -55,14 +55,50 @@ record declaration table (User)
 The descriptor and every extension are immutable once a module is linked. No
 ordinary runtime code can attach, replace, or mutate one.
 
+### `Type<T>` is a user type, not an implementation detail
+
+The distinction is observable and useful in ordinary source:
+
+```nupp
+local record UserInfo
+    id: integer
+end
+
+local type: Type<UserInfo> = UserInfo
+local value: UserInfo = new UserInfo(id = 7)
+local fields = UserInfo.reflect().fields
+```
+
+`Type<UserInfo>` represents the nominal declaration as a value. `UserInfo`
+represents an instance. The declaration value is available in bindings,
+parameters, returns, arrays, maps, and generic arguments; it is not an
+invisible compiler token that only special intrinsics may receive. The compiler
+creates the `Type<T>` object for every record whether or not the program ever
+asks it to reflect. What remains lazy is the descriptor graph and every
+extension payload behind it.
+
+For source compatibility, a record's `Type<T>` object has a compiler-known
+record-only coercion to `metatable<T>` when it reaches `setmetatable` or an
+existing API that deliberately asks for an instance metatable. A manually
+constructed `metatable<T>` never gains the reverse coercion: it is not a
+nominal `Type<T>`, cannot call `.reflect()`, and cannot stand in for the
+declaration. Struct `Type<T>` objects have no metatable coercion.
+
 ## Why this shape
 
 Records already have an unambiguous runtime identity: `new User(...)` stamps
-`User` as the instance metatable. The declaration table is statically known as
-`metatable<User>` and generic code already accepts it as a type witness. JSON
-derives also already register a private derived entry against that same
-identity. Runtime reflection should reuse this fact rather than allocate a
-second wrapper or require `User, info` at every call.
+the `User` type object's table as the instance metatable. Tecs components and
+events use the same useful shape: a visible nominal container is passed to
+registration, construction, dispatch, and storage APIs, while instances retain
+their separate nominal type. Nupp should express that relationship directly as
+`User: Type<User>`, rather than hiding it behind `metatable<User>`.
+
+The record table therefore needs no second allocation to become a `Type<T>`
+object. The checker and prelude give it its real public nominal type, while the
+lowering keeps its existing Lua table/metatable behavior. JSON derives also
+already register a private derived entry against that same identity. Runtime
+reflection should reuse this fact rather than require `User, info` at every
+call.
 
 The current JSON derive is a useful narrow precursor. It makes a schema from
 the compiler's semantic type information, registers it under a derive key, and
@@ -84,6 +120,7 @@ Nupp declaration + annotations
 
 ## Goals
 
+- Give every record a user-visible declaration value of type `Type<T>`.
 - Let `json.decode(User, text)` infer `User` without an explicit descriptor.
 - Materialize runtime semantic reflection only for declarations that use it.
 - Keep the current immutable, graph-shaped semantic reflection as the one
@@ -100,7 +137,7 @@ Nupp declaration + annotations
 ## Non-goals
 
 - Reflection over arbitrary Lua tables, values typed `any`, or structural
-  shapes. Only a nominal Nupp witness has declared meaning.
+  shapes. Only a nominal `Type<T>` declaration value has declared meaning.
 - A universal `Serializable` interface or automatic serialization of every
   record or struct.
 - Treating C layout as a JSON schema. `layoutof(Struct)` remains the
@@ -117,19 +154,21 @@ Nupp declaration + annotations
 
 ### Identity and lookup
 
-For a record, `reflect(User)` looks up a compiler-private slot or weak side
-table keyed by the declaration metatable. Constructed values can make the same
-lookup through `getmetatable(value)`. The key is an opaque runtime sentinel,
-not a writable string member such as `__nuppTypeInfo`.
+For a record, `User.reflect()` looks up a compiler-private slot or weak side
+table keyed by the `Type<User>` object's declaration/metatable table.
+Constructed values can make the same lookup through `getmetatable(value)`. The
+key is an opaque runtime sentinel, not a writable string member such as
+`__nuppTypeInfo`.
 
 For a struct, the witness is its ctype. A descriptor may refer to the existing
 `layoutof` helper when layout information is explicitly requested, but semantic
 reflection itself remains target-independent.
 
-The compiler installs only the descriptor portions requested by reachable
-runtime reflection or extension uses. An ordinary record still emits only its
-existing declaration table and methods. An ordinary struct still emits only its
-ctype and metatype.
+Every record emits its visible `Type<T>` declaration object. The compiler
+installs only descriptor portions requested by reachable runtime reflection or
+extension uses. Thus an ordinary record adds no descriptor graph or reflection
+helper beyond its existing declaration table and methods; an ordinary struct
+adds no descriptor graph beyond its ctype and metatype.
 
 ### Descriptor content
 
@@ -156,12 +195,12 @@ No consumer may rely on a raw Lua table layout.
 
 ### Lifetime and cross-module behavior
 
-The descriptor owns no value instances. A module's declaration table/ctype is
-the identity and remains the registry key; descriptors may be weakly retained
-where module unloading makes that relevant. A derived entry cannot depend on
-module evaluation order for nested types: nested extension references are
-registered by stable nominal key and resolved once, or use a one-time lazy
-thunk with a deterministic "dependency is not loaded" failure.
+The descriptor owns no value instances. A module's `Type<T>` object is the
+identity and remains the registry key; descriptors may be weakly retained where
+module unloading makes that relevant. A derived entry cannot depend on module
+evaluation order for nested types: nested extension references are registered
+by stable nominal key and resolved once, or use a one-time lazy thunk with a
+deterministic "dependency is not loaded" failure.
 
 A complete project build knows every reachable use. It may arrange descriptor
 installation at the owner declaration, or install an equivalent immutable
@@ -277,7 +316,7 @@ reflected record, not a method table pretending to be all reflection.
 `json.encode(value)` resolves a compile-time `JSONCodec<T>` evidence value when
 `value` has a concrete static nominal type. `json.encodeAs(User, value)` is the
 escape hatch for a value erased to `any`. `json.decode(User, text)` always has
-its nominal witness directly. A value from an untyped Lua boundary is not
+its `Type<User>` witness directly. A value from an untyped Lua boundary is not
 accepted merely because it looks structurally similar to `User`.
 
 ### Decoder evolution
@@ -297,27 +336,32 @@ planner merely to obtain streaming decode.
 - Capture current derived JSON byte output, failure paths, decoder options,
   unknown-field behavior, defaults, cycles, maps, nested records, and tagged
   unions as compatibility fixtures.
-- Add a generated-output fixture showing that a record declaration table is
-  the identity passed to a generic `metatable<T>` parameter.
+- Add generated-output fixtures showing that every record declaration is a
+  `Type<T>` value, remains the runtime instance metatable, and coerces to
+  `metatable<T>` only where an existing metatable API requires it.
 
 Exit: current JSON behavior is a testable contract rather than an accidental
 property of `__nuppDeriveTypes`.
 
 ### R1: Runtime type witnesses and core descriptor materialization
 
-- Introduce the runtime reflection namespace/syntax and a sealed typed witness
-  surface for records; decide the corresponding struct witness surface.
+- Add the public `Type<T>` type and make every record declaration expression
+  have that type; retain its runtime table as the record instance metatable.
+- Add the `Type<T>.reflect()` intrinsic and decide the corresponding struct
+  type-object surface.
 - Define the frozen runtime descriptor graph, public projection, visibility
   rule, schema version, and canonical fingerprint.
 - Add a compiler-owned materializer from semantic reflection to a runtime
   descriptor, reusing graph encoding rather than serializing checker objects.
-- Lower a direct `reflect(User)` only where written; verify a program without
-  runtime reflection emits no descriptor helper or descriptor payload.
+- Lower a direct `User.reflect()` only where written; verify every record has
+  its cheap `Type<T>` object but a program without runtime reflection emits no
+  descriptor helper or descriptor payload.
 - Diagnose non-nominal witnesses, runtime values, and attempts to mutate a
   descriptor.
 
-Exit: `reflect(User)` has stable identity and field metadata; repeated calls
-return the same descriptor; no unrequested record gains runtime reflection.
+Exit: `User.reflect()` has stable identity and field metadata; repeated calls
+return the same descriptor; no record gains an unrequested descriptor graph or
+runtime reflection helper.
 
 ### R2: Extension registry and link contract
 
@@ -326,9 +370,10 @@ return the same descriptor; no unrequested record gains runtime reflection.
 - Define opaque extension keys, sealed extension recipes, duplicate/conflict
   diagnostics, extension fingerprinting, and module-interface transport.
 - Add generic hidden-evidence lowering for a function requiring an extension,
-  while preserving the one-witness source call.
-- Test direct calls, generic helpers, aliases, cross-module imports, recursive
-  record graphs, repeated module loads, and absent extension failures.
+  while preserving the one-`Type<T>`-witness source call.
+- Test direct calls, generic helpers, aliases, first-class storage of
+  `Type<T>` values, cross-module imports, recursive record graphs, repeated
+  module loads, and absent extension failures.
 
 Exit: an extension lookup is O(1), immutable, deterministic, and never relies
 on a user-writable string key or registration order.
@@ -390,8 +435,9 @@ compiler-owned without blocking useful built-in extensions.
 - Unit tests for descriptor graph encoding, identity, immutability, field
   visibility, recursive references, fingerprints, and absence from unused
   output.
-- Checker tests for witness inference through `metatable<T>`, invalid witnesses,
-  erased values, and extension conflicts.
+- Checker tests for the distinction between `Type<T>`, `T`, and
+  `metatable<T>`; first-class `Type<T>` bindings; invalid witnesses; erased
+  values; record-only metatable coercion; and extension conflicts.
 - Generated-code tests proving lazy descriptor/extension installation and no
   user-visible registry keys.
 - Cross-module and hot-reload tests for stable nominal identity, cache
@@ -406,9 +452,8 @@ compiler-owned without blocking useful built-in extensions.
 
 ## Open questions
 
-- Whether runtime and comptime reflection share the spelling `nupp.reflect`,
-  or runtime reflection receives a distinct namespace despite taking the same
-  nominal source name.
+- Whether `Type<T>.reflect()` is the only runtime reflection spelling or a
+  namespaced free-function alias is useful without duplicating diagnostics.
 - Whether a runtime descriptor exposes the full semantic graph immediately or
   lazily exposes typed projections behind opaque handles.
 - How an imported type's descriptor is installed in independently compiled
