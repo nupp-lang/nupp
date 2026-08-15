@@ -1172,7 +1172,7 @@ function declare.install(
             -- method can construct another instance, including through a qualified
             -- declaration name such as `module.Record`.
             if stat.declKind == "record" and not stat.isAnnotationDefinition then
-                c.bindDeclaredVar(stat, T.metatable(n))
+                c.bindDeclaredVar(stat, T.typeObject(n))
             end
             -- Every declaration has a private type scope: `self`, generic binders, and
             -- nested type names must not leak beside it.
@@ -1240,7 +1240,7 @@ function declare.install(
                         -- Reaching it through the owner reaches the same value the
                         -- owner's own name would, so a nested record is its table here
                         -- too rather than an instance of itself.
-                        local held = nestedKind == "record" and T.metatable(nested) or nested
+                        local held = nestedKind == "record" and T.typeObject(nested) or nested
                         n.byname[e.name.text] = held
                         n.writeByname[e.name.text] = held
                     end
@@ -1916,7 +1916,7 @@ function declare.install(
                             if nested.tag == "nominal" and (
                                 nested.declKind == "record" or nested.declKind == "struct"
                             ) then
-                                local held = nested.declKind == "record" and T.metatable(nested) or nested
+                                local held = nested.declKind == "record" and T.typeObject(nested) or nested
                                 n.byname[e.name.text] = held
                                 n.writeByname[e.name.text] = held
                                 n.fieldDefs[e.name.text] = c.definition(e.name, "property")

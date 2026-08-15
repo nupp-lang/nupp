@@ -330,7 +330,7 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
             out.element = intern(t.elem)
             out.count = t.count
             out.countTerm = intern(t.countTerm)
-        elseif tag == "ctype" or tag == "metatable" then
+        elseif tag == "ctype" or tag == "metatable" or tag == "typeobject" then
             out.of = intern(t.of)
         end
 

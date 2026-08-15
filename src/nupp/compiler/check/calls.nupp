@@ -353,9 +353,13 @@ function calls.install(c: state.Checker): calls.Ops
         end
         -- A declaration table exposes its statics first. Instance methods remain
         -- readable as plain functions from the table too, as in Lua's `R.method(r)`.
-        if t.tag == "metatable" then
+        if t.tag == "metatable" or t.tag == "typeobject" then
             local owner = rawType(t.of)
             if owner.tag == "nominal" then
+                if t.tag == "typeobject" and name == "reflect" then
+                    owner.runtimeReflectionNeeded = true
+                    return T.func({}, {T.any}, false)
+                end
                 local ft = owner.staticByname and owner.staticByname[name]
                 local definition = owner.staticFieldDefs and owner.staticFieldDefs[name]
                 if not ft then
@@ -452,7 +456,7 @@ function calls.install(c: state.Checker): calls.Ops
             return specializeSelf(bound, entry.writeType, t), entry.definition, entry.definitions
         end
 
-        if t.tag == "metatable" then
+        if t.tag == "metatable" or t.tag == "typeobject" then
             local owner = rawType(t.of)
             if owner.tag == "nominal" then
                 local ft = owner.staticWriteByname and owner.staticWriteByname[name]
@@ -552,7 +556,7 @@ function calls.install(c: state.Checker): calls.Ops
         t = rawType(t)
         -- The contracts a metatable carries are the ones its receiver declared; that is
         -- what makes it that receiver's metatable rather than a table.
-        if t.tag == "metatable" then
+        if t.tag == "metatable" or t.tag == "typeobject" then
             return ops.metamethodOf(t.of, name)
         end
         if t.tag == "typevar" and t.bound then
@@ -737,7 +741,9 @@ function calls.install(c: state.Checker): calls.Ops
         -- table is for, so the wrapper comes off before asking what is being called.
         -- Reaching a `metatable<R>` any other way -- a hand-built one under an
         -- annotation -- is not a declaration and is left alone.
-        if calleeT.tag == "metatable" and calleeT.of.tag == "nominal" and calleeT.of.declKind == "record" then
+        if (calleeT.tag == "metatable" or calleeT.tag == "typeobject")
+            and calleeT.of.tag == "nominal"
+            and calleeT.of.declKind == "record" then
             calleeT = calleeT.of
             node.signatureType = calleeT
         end

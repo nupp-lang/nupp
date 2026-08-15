@@ -845,6 +845,12 @@ function resolve.install(c: state.Checker): nil
             if name == "metatable" and node.typeArgs and node.typeArgs[1] then
                 return T.metatable(c.resolveType(node.typeArgs[1]))
             end
+            if name == "Type" and node.typeArgs and node.typeArgs[1] then
+                if #node.typeArgs ~= 1 then
+                    c.diag("NUPP2121", node, "Type<T> needs exactly one type argument")
+                end
+                return T.typeObject(c.resolveType(node.typeArgs[1]))
+            end
             if name == "thread" and node.typeArgs then
                 if #node.typeArgs ~= 4 then
                     c.diag("NUPP2121", node, "thread protocol needs start, resume, yield, and return packs")

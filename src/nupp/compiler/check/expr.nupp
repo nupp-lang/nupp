@@ -622,7 +622,8 @@ function expr.install(c: state.Checker): nil
                     -- this pairing is settled the other way and the test would spend a
                     -- metatable lookup to say false. The only pairing answered so: `as`
                     -- stays the way to override what the checker decided.
-                elseif rawType(present).tag == "metatable" and target.tag == "nominal" then
+                elseif (rawType(present).tag == "metatable" or rawType(present).tag == "typeobject")
+                    and target.tag == "nominal" then
                     node.refutedStatically = true
                 end
             end

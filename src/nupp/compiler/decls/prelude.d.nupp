@@ -1202,6 +1202,15 @@ record nupp.data
             toJSON: function(self): string
         end
 
+        --- Decodes JSON into the nominal record named by its one type witness.
+        decode: function<T>(type: Type<T>, text: string): (T?, string?)
+
+        --- Encodes a nominal record after explicitly supplying its type witness.
+        encodeAs: function<T>(type: Type<T>, value: T): string
+
+        --- Encodes a nominal record using the metatable its value already carries.
+        encode: function<T>(value: T): string
+
         --- One independently configured JSON encoder and decoder.
         interface JSON
             --- Encodes a Lua value as JSON text.

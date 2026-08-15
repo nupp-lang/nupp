@@ -287,6 +287,8 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
         return T.pinned(substWith(t.inner, map, unmapped))
     elseif tag == "metatable" then
         return T.metatable(substWith(t.of, map, unmapped))
+    elseif tag == "typeobject" then
+        return T.typeObject(substWith(t.of, map, unmapped))
     elseif tag == "protocolThread" then
         return T.protocolThread(
             substPackWith(t.startPack, map, unmapped),
@@ -1171,6 +1173,12 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
         if not err then
             out = T.metatable(inner)
         end
+    elseif t.tag == "typeobject" then
+        local inner
+        inner, err = normalize(t.of, memo, budget)
+        if not err then
+            out = T.typeObject(inner)
+        end
     elseif t.tag == "func" then
         -- A signature is a place a projection or a neutral operation can sit, so the
         -- evaluator goes through one. The packs are the authoritative sequences, and
@@ -1769,6 +1777,12 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
         -- receiver it describes is what binds T -- and what the bound is then checked
         -- against.
         if arg.tag == "metatable" then
+            generics.unify(param.of, arg.of, map)
+        elseif arg.tag == "typeobject" then
+            generics.unify(param.of, arg.of, map)
+        end
+    elseif tag == "typeobject" then
+        if arg.tag == "typeobject" then
             generics.unify(param.of, arg.of, map)
         end
     elseif tag == "map" then

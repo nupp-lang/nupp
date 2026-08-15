@@ -1368,7 +1368,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             ot = withoutNil(ot)
         end
         local rawReceiver = rawType(ot)
-        local staticOwner = rawReceiver.tag == "metatable" and rawType(rawReceiver.of) or nil
+        local staticOwner = (rawReceiver.tag == "metatable" or rawReceiver.tag == "typeobject")
+            and rawType(rawReceiver.of) or nil
         local static = staticOwner
             and staticOwner.tag == "nominal"
             and staticOwner.staticByname

@@ -71,7 +71,7 @@ local function runtimeCategory(t: Type): string?
     if tag == "number" or tag == "integer" or CDATA_NUM[tag] then
         return "number"
     end
-    if tag == "array" or tag == "map" or tag == "tuple" or tag == "shape" or tag == "table" or tag == "metatable" then
+    if tag == "array" or tag == "map" or tag == "tuple" or tag == "shape" or tag == "table" or tag == "metatable" or tag == "typeobject" then
         return "table"
     end
     if tag == "func" then
@@ -884,6 +884,7 @@ local function check(a: Type, b: Type): boolean, string?
             or atag == "tuple"
             or atag == "shape"
             or atag == "metatable"
+            or atag == "typeobject"
             or atag == "nominal"
         then
             return true
@@ -899,6 +900,7 @@ local function check(a: Type, b: Type): boolean, string?
             or btag == "tuple"
             or btag == "shape"
             or btag == "metatable"
+            or btag == "typeobject"
             or btag == "nominal"
         then
             return true
@@ -911,6 +913,9 @@ local function check(a: Type, b: Type): boolean, string?
         -- nothing here proves whose it is. Not loose about a nominal, though: an
         -- instance is a table too, and admitting it would put back the confusion
         -- between a declaration and something it built.
+        if atag == "typeobject" and a.of == b.of then
+            return true
+        end
         if atag == "shape" or atag == "map" or atag == "table" or atag == "metatable" then
             return true
         end

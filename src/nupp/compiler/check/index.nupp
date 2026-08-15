@@ -171,7 +171,7 @@ function index.install(c: state.Checker): state.ExprHandlers
             ) then
                 -- The same value the declaring module bound, so a record arrives as the
                 -- metatable its table is rather than as an instance of it.
-                local held = t.declKind == "struct" and t or T.metatable(t)
+                local held = t.declKind == "struct" and t or T.typeObject(t)
                 c.markToken(member, def, held, def and def.kind or "variable")
                 return held
             end
@@ -255,7 +255,7 @@ function index.install(c: state.Checker): state.ExprHandlers
             -- it. Asked before the index contract, which says what happens to the names
             -- the declaration does not have.
             local contract = c.metamethodOf(base, memberName)
-            if contract and base.tag == "metatable" then
+            if contract and (base.tag == "metatable" or base.tag == "typeobject") then
                 node.metamethodName = memberName
                 node.metamethodReceiver = base
                 c.markToken(member, nil, contract, "property")
@@ -309,7 +309,7 @@ function index.install(c: state.Checker): state.ExprHandlers
             })
             return T.any
         end
-        local staticOwner = base.tag == "metatable" and rawType(base.of) or nil
+        local staticOwner = (base.tag == "metatable" or base.tag == "typeobject") and rawType(base.of) or nil
         if not writing
             and staticOwner
             and staticOwner.tag == "nominal"

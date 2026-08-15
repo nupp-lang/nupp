@@ -493,6 +493,15 @@ record types.Metatable
     of: types.Type
 end
 
+--- A visible nominal declaration witness. Records use their existing declaration
+--- table at runtime, but its source type is deliberately distinct from both an
+--- instance and `metatable<T>`.
+record types.TypeObject
+    id: string
+    tag: 'typeobject'
+    of: types.Type
+end
+
 --- A type reached through another: `T.Item` is the associated type `Item` as whatever
 --- `T` answers it with.
 ---
@@ -654,6 +663,9 @@ record types.Nominal
     derivedContracts: {[any]: boolean}?
     deriveKey: string?
     deriveRecipe: any
+
+    --- Set when emitted runtime code needs this declaration's lazy descriptor.
+    runtimeReflectionNeeded: boolean?
 
     indexReadKey: types.Type?
     indexReadValue: types.Type?
@@ -839,6 +851,7 @@ type types.Type = types.Prim
     | types.PackResult
     | types.Neutral
     | types.Metatable
+    | types.TypeObject
     | types.Projection
     | types.Nominal
     | types.ProtocolThread
@@ -1065,7 +1078,7 @@ types.functionConst = prim("functionconst")
 -- in a union. Kept in step with the pair of gradual rules in `relations.isA`.
 local TABLE_SHAPED: {
     [string]: boolean
-} = {array = true, map = true, tuple = true, shape = true, metatable = true, nominal = true,}
+} = {array = true, map = true, tuple = true, shape = true, metatable = true, typeobject = true, nominal = true,}
 
 --- Name to type, for resolving an annotation that names a builtin.
 local builtins: {
@@ -2484,6 +2497,17 @@ function types.metatable(t: types.Type): types.Type
     return intern(internKey, new types.Metatable(tag = "metatable", of = t))
 end
 
+--- The first-class declaration witness `Type<T>`.
+function types.typeObject(t: types.Type): types.Type
+    local internKey = "Type(" .. t.id .. ")"
+    local existing = interned(internKey)
+    if existing then
+        return existing
+    end
+
+    return intern(internKey, new types.TypeObject(tag = "typeobject", of = t))
+end
+
 --- `of.name`, built and interned. It reduces nowhere: see `generics.normalize`.
 function types.projection(of: types.Type, name: string): types.Type
     local internKey = "!jproj(" .. of.id .. "," .. name .. ")"
@@ -2807,6 +2831,8 @@ function types.tostring(t: types.Type): string
         return "<" .. t.op .. ">"
     elseif tag == "metatable" then
         return "metatable<" .. types.tostring(t.of) .. ">"
+    elseif tag == "typeobject" then
+        return "Type<" .. types.tostring(t.of) .. ">"
     elseif tag == "projection" then
         return types.tostring(t.of) .. "." .. t.name
     elseif tag == "literal" then
