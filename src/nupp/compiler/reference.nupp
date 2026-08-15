@@ -1184,6 +1184,21 @@ It changes no runtime behavior.
 
 `@jit` enforces traceability: a variadic FFI call or Lua callback passed into C
 must live in a function disabled with `jit.off`, or it reports NUPP2707.
+
+`@aot` reserves a required whole-function ahead-of-time compilation contract.
+The current release checks its target and structural source subset but still
+emits the ordinary Lua body; production AOT artifact generation is not yet part
+of `nupp build`. A closure, table, interpolated string, vararg, `goto`, dynamic
+call, or unsafe operation inside one reports NUPP2903 at the construct. Stacking
+it with `@jit` promises one body to two compilers and reports NUPP2901, and a
+constructor or inline requirement is not a whole function to compile, so
+annotating one reports NUPP2902.
+
+`@aot(simd = true)` additionally promises that exactly one top-level numeric
+map loop has independent iterations and requires SIMD lowering when AOT
+compilation is enabled. It accepts only literal `true`: this is not a preference
+or lane-count knob. Removing either annotation changes the required compilation
+strategy, never the ordinary function's answer.
 ]=],
         example = [=[
 local m = {}

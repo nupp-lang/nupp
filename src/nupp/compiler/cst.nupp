@@ -76,6 +76,14 @@ interface cst.Hints
     jitDisabled: boolean?
     jitRequired: boolean?
 
+    --- `@aot` asks for this body to compile ahead of time rather than leaving it to
+    --- LuaJIT. Checking records it; the AOT subset pass consumes it.
+    aotRequired: boolean?
+
+    --- `@aot(simd = true)` asserts that one canonical map loop has independent
+    --- iterations and must receive a SIMD lowering in an AOT-required build.
+    simdRequired: boolean?
+
     --- Fixed C-array bound whose dynamic index code generation checks.
     carrayBound: integer?
 

@@ -1,0 +1,38 @@
+-- A lane-parallel kernel written as ordinary scalar Nupp.
+--
+-- Nothing here names a lane, a mask, or a vector. `simd = true` says the
+-- iterations are independent; the compiler decides how many run at once.
+local span = require("nupp.span")
+
+local struct Particle
+    x: float
+    y: float
+    vx: float
+    vy: float
+end
+
+@aot(simd = true)
+local function advance(
+    exclusive particles: span.WriteSpan<Particle>,
+    borrows source: span.Span<Particle>,
+    dt: float
+): nil
+    if particles.count ~= source.count then
+        error("length mismatch", 2)
+    end
+
+    for i = 1, particles.count do
+        local particle = particles:getMut(i)
+        local from = source:get(i)
+        local step = dt * 1.0
+        local nextX = from.x + from.vx * step
+        local nextY = from.y + from.vy * step
+        if nextY < 0.0 then
+            nextY = 0.0 - nextY
+        end
+        particle.x = nextX
+        particle.y = nextY
+    end
+end
+
+return {advance = advance, Particle = Particle,}

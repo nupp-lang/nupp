@@ -1,4 +1,4 @@
--- A test-only compiler for a deliberately small `@kernel` subset.
+-- A test-only compiler for a deliberately small `@aot` subset.
 --
 -- It consumes Nupp's real CST, validates an admitted whole-function shape,
 -- verifies a sealed typed IR, and emits private scalar C for Clang to optimize.
@@ -79,8 +79,8 @@ local function copyEnvironment(environment)
    return copied
 end
 
-local function parseKernel(source, filename)
-   local parsed = parser.parse(source, filename)
+local function parseKernel(source, filename, checked)
+   local parsed = checked or parser.parse(source, filename)
    if #parsed.errors > 0 then
       local diagnostics = {}
       for _, problem in ipairs(parsed.errors) do
@@ -104,8 +104,25 @@ local function parseKernel(source, filename)
       local applications, helperDecls, structDecls = {}, {}, {}
       for _, block in ipairs(parsed.root.blocks or {}) do
          for _, stat in ipairs(block.stats or {}) do
-            if stat.kind == "pragmaStmt" and stat.name and stat.name.text == "kernel" then
-               applications[#applications + 1] = stat
+            if stat.kind == "pragmaStmt" then
+               -- Annotations stack, so walk the whole chain rather than only
+               -- looking at the outermost one. `@aot` may be written above or
+               -- below `@relax`, and both orders mean the same thing.
+               local chain, cursor = {}, stat
+               while cursor and cursor.kind == "pragmaStmt" do
+                  chain[#chain + 1] = cursor
+                  cursor = cursor.stat
+               end
+               local isAot = false
+               for _, link in ipairs(chain) do
+                  if link.name and link.name.text == "aot" then isAot = true end
+               end
+               if checked then
+                  isAot = cursor and cursor.body and cursor.body.aotRequired == true
+               end
+               if isAot then
+                  applications[#applications + 1] = {chain = chain, tail = cursor, at = stat}
+               end
             elseif stat.kind == "localFuncStmt" and stat.name then
                helperDecls[stat.name.text] = stat
             elseif stat.kind == "recordDecl" and stat.declKind == "struct" and stat.name then
@@ -114,19 +131,49 @@ local function parseKernel(source, filename)
          end
       end
       if #applications == 0 then
-         reject(parsed.root, "no @kernel function was found")
+         reject(parsed.root, "no @aot function was found")
       elseif #applications > 1 then
-         reject(applications[2], "this spike accepts exactly one @kernel function")
+         reject(applications[2], "this spike accepts exactly one @aot function")
       end
 
-      local application = applications[1]
-      local fn = application.stat
+      local selected = applications[1]
+      local application = selected.at
+      local fn = selected.tail
       if not fn or fn.kind ~= "localFuncStmt" then
-         reject(fn or application, "@kernel must decorate a local function with a visible body")
+         reject(fn or application, "@aot must decorate a local function with a visible body")
       end
-      if application.open then reject(application, "@kernel takes no arguments") end
-
+      -- `@relax("fp-contract")` is the only relaxation this spike acts on. It
+      -- permits the backend to fuse a multiply and an add into one rounding,
+      -- which is faster and gives a different answer, so it is per function and
+      -- appears in the IR rather than being a build-wide compiler flag.
       local body = fn.body
+      local fpContract = body.relaxedGuarantees
+         and body.relaxedGuarantees["fp-contract"] == true or false
+      local wantsLanes = body.simdRequired == true
+      if not checked then
+         for _, link in ipairs(selected.chain) do
+            local written = link.name and link.name.text
+            if written == "aot" then
+               for _, arg in ipairs(link.annotationArgs or {}) do
+                  local name = arg.name and arg.name.text
+                  if name == "simd" then
+                     if arg.expr and arg.expr.kind == "trueExpr" then wantsLanes = true end
+                  else
+                     reject(link, "@aot takes simd = true or nothing")
+                  end
+               end
+            elseif written == "relax" then
+               for _, arg in ipairs(link.annotationArgs or {}) do
+                  local token = firstToken(arg.expr)
+                  local text = token and token.text or ""
+                  if text:sub(1, 1) == '"' or text:sub(1, 1) == "'" then
+                     text = text:sub(2, -2)
+                  end
+                  if text == "fp-contract" then fpContract = true end
+               end
+            end
+         end
+      end
       if not body or body.generics or body.varargParam or body.captureTakes or body.captureBorrows then
          reject(body or fn, "generic, variadic, and capturing kernels are not admitted")
       end
@@ -211,7 +258,7 @@ local function parseKernel(source, filename)
          elseif spelling == "float" or spelling == "number" or spelling == "integer" then
             if mode then reject(raw, "a uniform float parameter has no ownership mode") end
             param = {
-               kind = "uniform", name = name, type = "f64",
+               kind = "uniform", name = name, type = spelling == "float" and "f32" or "f64",
                sourceType = spelling, source = site(raw),
             }
          elseif spelling == "uint32" or spelling == "int32" then
@@ -468,10 +515,14 @@ local function parseKernel(source, filename)
             if not value then reject(node, "value " .. tostring(name) .. " is not available in native code") end
             local op = value.kind == "uniform" and "uniform"
                or value.kind == "helper_param" and "helper_param" or "local"
-            return {
+            local loaded = {
                op = op, name = name, type = value.type, cName = value.cName,
                mutable = value.mutable, source = site(node),
             }
+            if loaded.type == "f32" then
+               return {op = "widen_f32_f64", type = "f64", source = site(node), value = loaded}
+            end
+            return loaded
          elseif node.kind == "number" then
             local value = node.token and node.token.text or ""
             if not tonumber(value) then reject(node, "the kernel needs a finite decimal numeric literal") end
@@ -621,7 +672,8 @@ local function parseKernel(source, filename)
       local localSerial = 0
       local function sourceValueType(spelling)
          return spelling == "boolean" and "bool"
-            or (spelling == "number" or spelling == "float" or spelling == "integer") and "f64"
+            or (spelling == "number" or spelling == "integer") and "f64"
+            or spelling == "float" and "f32"
             or spelling == "uint32" and "u32"
             or spelling == "int32" and "i32" or nil
       end
@@ -630,6 +682,9 @@ local function parseKernel(source, filename)
          if value.type == targetType then return value end
          if targetType == "f64" and (value.type == "i32" or value.type == "u32") then
             return {op = "int_to_f64", value = value, type = "f64", source = site(at)}
+         end
+         if targetType == "f64" and value.type == "f32" then
+            return {op = "widen_f32_f64", value = value, type = "f64", source = site(at)}
          end
          if targetType == "f32" and value.type == "f64" then
             return {op = "narrow_f64_f32", value = value, type = "f32", source = site(at)}
@@ -788,6 +843,68 @@ local function parseKernel(source, filename)
                   )
                end
                statements[#statements + 1] = lowered
+            elseif stat.kind == "fornumStmt" then
+               -- A bounded nested loop with an integer induction variable. The
+               -- outer row loop already counts in an integer; a `while` over a
+               -- number local does the same job with a double, which is a worse
+               -- lowering of the same intent.
+               if stat.step then
+                  reject(stat, "a native nested for loop takes no explicit step")
+               end
+               local from = lowerExpression(stat.start, environment, index)
+               local to = lowerExpression(stat.stop, environment, index)
+               -- An integer literal bound stays an integer rather than being
+               -- written as a double for the emitter to cast back.
+               local function integral(bound)
+                  if bound.op == "constant" then
+                     local number = tonumber(bound.value)
+                     if number and number == math.floor(number) then
+                        return {op = "constant_i32", value = number, type = "i32",
+                           source = bound.source}
+                     end
+                  end
+                  if bound.type ~= "i32" and bound.type ~= "u32" and bound.type ~= "f64" then
+                     reject(stat, "native for bounds must be numeric")
+                  end
+
+                  return bound
+               end
+               from, to = integral(from), integral(to)
+               local name = stat.var and stat.var.text
+               if not name then reject(stat, "a native for loop needs an induction variable") end
+               if environment[name] then
+                  reject(stat, "native locals may not shadow " .. name)
+               end
+               localSerial = localSerial + 1
+               local binding = {
+                  kind = "local", name = name, type = "i32",
+                  cName = cIdentifier("v" .. tostring(localSerial), name), source = site(stat),
+               }
+               local inner = copyEnvironment(environment)
+               inner[name] = binding
+               statements[#statements + 1] = {
+                  op = "fornum", binding = binding, from = from, to = to,
+                  body = lowerBlock(stat.body and stat.body.stats or {}, inner),
+                  source = site(stat),
+               }
+            elseif stat.kind == "whileStmt" then
+               -- A nested loop the kernel controls itself, as distinct from the
+               -- outer row loop the prototype supplies. Nothing here bounds its
+               -- trip count: the condition is ordinary Nupp and termination is
+               -- the source's business, exactly as it is when the same function
+               -- runs as ordinary Nupp. That is a real difference from the outer
+               -- loop, whose bounds the IR carries and the verifier checks, and
+               -- it is why this is a spike rather than the production pass.
+               local condition = lowerExpression(stat.cond, environment, index)
+               if condition.type ~= "bool" then
+                  reject(stat.cond, "native loop conditions must be boolean")
+               end
+               statements[#statements + 1] = {
+                  op = "while",
+                  condition = condition,
+                  body = lowerBlock(stat.body and stat.body.stats or {}, copyEnvironment(environment)),
+                  source = site(stat),
+               }
             elseif stat.kind == "doStmt" then
                statements[#statements + 1] = {
                   op = "block",
@@ -817,6 +934,8 @@ local function parseKernel(source, filename)
          version = 3,
          name = fn.name.text,
          symbol = privateSymbol(fn.name.text),
+         fpContract = fpContract,
+         wantsLanes = wantsLanes,
          params = params,
          layouts = layouts,
          regions = regions,
@@ -842,6 +961,289 @@ local function parseKernel(source, filename)
    return ir, diagnostics
 end
 
+--[[
+Lane-parallel lowering.
+
+`@aot(simd = true)` says the admitted loop's iterations are independent. This pass takes
+the loop body that was already lowered, typed, and bound as scalar IR and
+rewrites it to run several iterations at once: a value that depends on the loop
+index becomes a vector, a value that does not stays scalar and broadcasts where
+it meets one, a conditional becomes a mask, and an assignment under a mask
+becomes a select so inactive lanes keep what they had.
+
+It runs on IR rather than on the tree because the front end has already settled
+what everything means. What is left is a choice about how many iterations to do
+at a time, which is exactly the kind of decision an IR pass should own.
+
+Four lanes of binary64. Ordinary Nupp arithmetic is binary64 and removing `@aot`
+may not change an answer, so the lanes are too; four of them is two NEON
+registers or one AVX2 register, which a body of eight live values can hold.
+Eight would be four registers each and would spill.
+
+The tail is a scalar epilogue over the same body rather than a masked final
+group, because a masked load still reads the addresses it masks off and the
+last element of a span may be the last byte of a page.
+]]
+
+local LANES = 4
+
+local function lanesVectorType(scalar)
+   if scalar == "f64" then return "f64x4" end
+   if scalar == "bool" then return "m64x4" end
+
+   return nil
+end
+
+--- Rewrites one lowered loop body to run `LANES` iterations at once.
+---
+--- @param ir the verified scalar IR
+--- @param reject how to report a construct this pass cannot represent
+local function vectorizeLoop(ir, reject)
+   local varyingLocals = {}
+   local refBindings = {}
+   local index = ir.loop.index
+
+   local function exprVarying(node)
+      if node == nil then return false end
+      local op = node.op
+      if op == "element_ref" or op == "load" then
+         return node.index == index
+      elseif op == "local" then
+         return varyingLocals[node.name] == true or refBindings[node.name] ~= nil
+      elseif op == "uniform" or op == "constant" or op == "constant_i32"
+         or op == "bool" or op == "helper_param" then
+         return false
+      elseif op == "field_load" then
+         return exprVarying(node.object)
+      elseif node.left or node.right then
+         return exprVarying(node.left) or exprVarying(node.right)
+      elseif node.value then
+         return exprVarying(node.value)
+      elseif node.args then
+         for _, arg in ipairs(node.args) do
+            if exprVarying(arg) then return true end
+         end
+         return false
+      end
+
+      return false
+   end
+
+   local function markBlock(statements)
+      for _, statement in ipairs(statements) do
+         if statement.op == "let" then
+            if exprVarying(statement.value) then varyingLocals[statement.name] = true end
+         elseif statement.op == "assign" then
+            for _, assignment in ipairs(statement.values) do
+               if assignment.target.kind == "local" and exprVarying(assignment.value) then
+                  varyingLocals[assignment.target.name] = true
+               end
+            end
+         elseif statement.op == "if" then
+            for _, clause in ipairs(statement.clauses) do markBlock(clause.body) end
+            if statement.elseBody then markBlock(statement.elseBody) end
+         elseif statement.op == "while" or statement.op == "block" then
+            markBlock(statement.body)
+         elseif statement.op == "fornum" then
+            markBlock(statement.body)
+         end
+      end
+   end
+   -- A local assigned a varying value inside a loop is varying on every
+   -- iteration, including the ones lowered before the assignment was seen, so
+   -- the marking runs to a fixed point.
+   local before
+   repeat
+      before = 0
+      for _ in pairs(varyingLocals) do before = before + 1 end
+      markBlock(ir.loop.statements)
+      local after = 0
+      for _ in pairs(varyingLocals) do after = after + 1 end
+   until after == before
+
+   -- `span:get(i)` binds a reference that field accesses later go through. The
+   -- reference itself has no lane-parallel form -- four elements are four
+   -- addresses -- but every use of it does, so the binding is remembered and
+   -- resolved at each use rather than emitted.
+   local function resolveRef(node)
+      if node == nil then return nil end
+      if node.op == "element_ref" then return node end
+      if node.op == "local" then return refBindings[node.name] end
+
+      return nil
+   end
+
+   local function splat(node)
+      if node.type == "f64" then
+         return {op = "vsplat64", args = {node}, type = "f64x4", source = node.source}
+      end
+      reject(nil, "a uniform " .. tostring(node.type) .. " cannot enter a lane-parallel expression")
+   end
+
+   local VECTOR_BINARY = {
+      add = "vadd64", sub = "vsub64", mul = "vmul64", div = "vdiv64",
+      lt = "vlt64", le = "vle64", gt = "vgt64", ge = "vge64",
+      eq = "veq64", ne = "vne64",
+   }
+   local COMPARISON = {vlt64 = true, vle64 = true, vgt64 = true, vge64 = true,
+      veq64 = true, vne64 = true}
+
+   --- Rewrites one expression, returning it unchanged when it is uniform.
+   local function rewriteExpr(node)
+      if not exprVarying(node) then return node, false end
+      local op = node.op
+      if op == "local" then
+         return {op = "local", name = node.name, cName = node.cName,
+            type = lanesVectorType(node.type) or reject(nil, "varying local of unsupported type"),
+            source = node.source}, true
+      elseif op == "field_load" then
+         local object = resolveRef(node.object)
+         if not object or object.index ~= index then
+            reject(nil, "a lane-parallel field load reads consecutive elements only")
+         end
+         local loaded = {
+            op = "vfield_load", span = object.span, layout = object.layout,
+            field = node.field, lanes = LANES, type = "f64x4", source = node.source,
+         }
+         return loaded, true
+      elseif op == "widen_f32_f64" or op == "int_to_f64" then
+         -- The lane load already produced binary64, so the scalar widening the
+         -- front end inserted has nothing left to do.
+         local inner = rewriteExpr(node.value)
+         return inner, true
+      elseif VECTOR_BINARY[op] then
+         local left = rewriteExpr(node.left)
+         local right = rewriteExpr(node.right)
+         if not exprVarying(node.left) then left = splat(node.left) end
+         if not exprVarying(node.right) then right = splat(node.right) end
+         local chosen = VECTOR_BINARY[op]
+         return {op = chosen, args = {left, right},
+            type = COMPARISON[chosen] and "m64x4" or "f64x4", source = node.source}, true
+      elseif op == "and" or op == "or" then
+         -- Lane-wise eager evaluation is not ordinary short-circuiting. Keep it
+         -- outside the admitted subset until the checked IR carries a verified
+         -- pure-and-total effect fact or the right side is lowered under a mask.
+         reject(nil, "a lane-parallel and/or needs mask-aware short-circuit lowering")
+      elseif op == "not" then
+         return {op = "vmnot", args = {rewriteExpr(node.value)}, type = "m64x4",
+            source = node.source}, true
+      elseif op == "neg" then
+         return {op = "vneg64", args = {rewriteExpr(node.value)}, type = "f64x4",
+            source = node.source}, true
+      elseif op == "math" then
+         local args = {}
+         for i, arg in ipairs(node.args) do
+            args[i] = exprVarying(arg) and rewriteExpr(arg) or splat(arg)
+         end
+         return {op = "vmath", intrinsic = node.intrinsic, args = args,
+            type = "f64x4", source = node.source}, true
+      elseif op == "helper_call" then
+         reject(nil, "a lane-parallel loop cannot call a helper yet")
+      elseif op == "numeric_cast" or op == "narrow_f64_f32" then
+         return rewriteExpr(node.value), true
+      end
+      reject(nil, "operation " .. tostring(op) .. " has no lane-parallel form")
+   end
+
+   --- Rewrites a block under an execution mask. `mask` is nil at the top level,
+   --- where every lane is active and no select is needed.
+   local function rewriteBlock(statements, mask)
+      local out = {}
+      for _, statement in ipairs(statements) do
+         if statement.op == "let" and statement.value.op == "element_ref"
+            and statement.value.index == index then
+            refBindings[statement.name] = statement.value
+         elseif statement.op == "let" then
+            local value = rewriteExpr(statement.value)
+            local varying = exprVarying(statement.value)
+            out[#out + 1] = {
+               op = "let", name = statement.name, cName = statement.cName,
+               value = varying and value or statement.value,
+               type = varying and value.type or statement.type,
+               source = statement.source,
+            }
+         elseif statement.op == "assign" then
+            local assignments = {}
+            for i, assignment in ipairs(statement.values) do
+               local target = assignment.target
+               local value = rewriteExpr(assignment.value)
+               if not exprVarying(assignment.value)
+                  and (target.kind == "field" or varyingLocals[target.name])
+               then
+                  value = splat(assignment.value)
+               end
+               if mask then
+                  -- An inactive lane keeps what it had, which is what makes a
+                  -- conditional a mask rather than a branch. A field target
+                  -- reads its own current lanes back for the same reason.
+                  local previous
+                  if target.kind == "local" then
+                     previous = {op = "local", name = target.name, cName = target.cName,
+                        type = value.type, source = statement.source}
+                  else
+                     local object = resolveRef(target.object)
+                     if not object or object.index ~= index then
+                        reject(nil, "a lane-parallel field store writes consecutive elements only")
+                     end
+                     previous = {op = "vfield_load", span = object.span,
+                        layout = target.layout, field = target.field, lanes = LANES,
+                        type = "f64x4", source = statement.source}
+                  end
+                  value = {op = "vselect", args = {mask, value, previous},
+                     type = value.type, source = statement.source}
+               end
+               if target.kind == "field" then
+                  local object = resolveRef(target.object)
+                  if not object or object.index ~= index then
+                     reject(nil, "a lane-parallel field store writes consecutive elements only")
+                  end
+                  assignments[i] = {
+                     target = {kind = "vfield", span = object.span,
+                        layout = target.layout, field = target.field,
+                        scalarType = target.type},
+                     value = value,
+                  }
+               else
+                  assignments[i] = {target = target, value = value}
+               end
+            end
+            out[#out + 1] = {op = "vassign", values = assignments, source = statement.source}
+         elseif statement.op == "store" then
+            reject(nil, "a lane-parallel loop stores through struct fields for now")
+         elseif statement.op == "if" then
+            if #statement.clauses ~= 1 or statement.elseBody then
+               reject(nil, "a lane-parallel conditional takes one clause and no else yet")
+            end
+            local clause = statement.clauses[1]
+            local condition = rewriteExpr(clause.condition)
+            if not exprVarying(clause.condition) then
+               reject(nil, "a uniform condition in a lane-parallel loop is not lowered yet")
+            end
+            local combined = condition
+            if mask then
+               combined = {op = "vmand", args = {mask, condition}, type = "m64x4",
+                  source = statement.source}
+            end
+            local inner = rewriteBlock(clause.body, combined)
+            for _, produced in ipairs(inner) do out[#out + 1] = produced end
+         elseif statement.op == "block" then
+            local inner = rewriteBlock(statement.body, mask)
+            for _, produced in ipairs(inner) do out[#out + 1] = produced end
+         elseif statement.op == "while" or statement.op == "fornum" then
+            reject(nil, "a loop inside a lane-parallel loop is not lowered yet")
+         elseif statement.op == "break" or statement.op == "continue" then
+            reject(nil, "break and continue in a lane-parallel loop are not lowered yet")
+         else
+            reject(nil, "statement " .. tostring(statement.op) .. " has no lane-parallel form")
+         end
+      end
+
+      return out
+   end
+
+   return {lanes = LANES, statements = rewriteBlock(ir.loop.statements, nil)}
+end
+
 local function verifyIR(ir)
    assert(ir.version == 3, "unknown native C IR version")
    assert(ir.symbol == privateSymbol(ir.name), "private symbol does not match function identity")
@@ -864,7 +1266,7 @@ local function verifyIR(ir)
       assert(param.kind == "write_span" or param.kind == "read_span" or param.kind == "uniform",
          "unknown IR parameter kind")
       if param.kind == "uniform" then
-         assert((param.type == "f64" or param.type == "i32" or param.type == "u32")
+         assert((param.type == "f64" or param.type == "f32" or param.type == "i32" or param.type == "u32")
             and not param.region, "invalid IR uniform")
       else
          local structName = param.type:match("^struct:(.+)$")
@@ -973,6 +1375,8 @@ local function verifyIR(ir)
             and node.type == byName[node.name].type, "invalid uniform")
       elseif node.op == "local" or node.op == "helper_param" then
          assert(values[node.name] == node.type, "invalid local value")
+      elseif node.op == "constant_i32" then
+         assert(node.type == "i32", "integer constant type")
       elseif node.op == "constant" then
          assert(node.type == "f64" and tonumber(node.value), "invalid constant")
       elseif node.op == "bool" then
@@ -1104,6 +1508,21 @@ local function verifyIR(ir)
                verifyBlock(clause.body, values)
             end
             if statement.elseBody then verifyBlock(statement.elseBody, values) end
+         elseif statement.op == "fornum" then
+            for _, bound in ipairs({statement.from, statement.to}) do
+               assert(bound.type == "i32" or bound.type == "u32" or bound.type == "f64",
+                  "non-numeric for bound")
+               verifyExpr(bound, values)
+            end
+            assert(statement.binding.type == "i32", "for induction variable type")
+            local inner = {}
+            for k, v in pairs(values) do inner[k] = v end
+            inner[statement.binding.name] = "i32"
+            verifyBlock(statement.body, inner)
+         elseif statement.op == "while" then
+            assert(statement.condition.type == "bool", "non-boolean loop condition")
+            verifyExpr(statement.condition, values)
+            verifyBlock(statement.body, values)
          elseif statement.op == "block" then
             verifyBlock(statement.body, values)
          else
@@ -1122,13 +1541,116 @@ local function verifyIR(ir)
          assert(stored[output], "scalar IR output is never stored")
       end
    end
+   if ir.lanes then
+      assert(ir.wantsLanes and ir.lanes.lanes == LANES, "invalid lane width or missing SIMD contract")
+
+      local laneMath = {
+         sqrt = true, abs = true, floor = true, ceil = true, min = true, max = true,
+         sin = true, cos = true, tan = true, asin = true, acos = true, atan = true,
+         atan2 = true, sinh = true, cosh = true, tanh = true, exp = true, log = true,
+         pow = true, fmod = true, deg = true, rad = true,
+      }
+      local laneBinary = {
+         vadd64 = "f64x4", vsub64 = "f64x4", vmul64 = "f64x4", vdiv64 = "f64x4",
+         vlt64 = "m64x4", vle64 = "m64x4", vgt64 = "m64x4", vge64 = "m64x4",
+         veq64 = "m64x4", vne64 = "m64x4",
+      }
+
+      local function verifyLaneExpr(node, values)
+         assert(node and node.type, "untyped lane expression")
+         if node.type ~= "f64x4" and node.type ~= "m64x4" then
+            verifyExpr(node, values)
+         elseif node.op == "local" then
+            assert(values[node.name] == node.type, "invalid lane local")
+         elseif node.op == "vsplat64" then
+            assert(node.type == "f64x4" and #node.args == 1 and node.args[1].type == "f64",
+               "invalid lane splat")
+            verifyExpr(node.args[1], values)
+         elseif node.op == "vfield_load" then
+            local root = byName[node.span]
+            local layout = layouts[node.layout]
+            assert(root and root.type == "struct:" .. tostring(node.layout)
+               and layout and layout.fieldTypes[node.field] == "f32"
+               and node.lanes == LANES and node.type == "f64x4",
+               "invalid lane field load")
+         elseif laneBinary[node.op] then
+            assert(#node.args == 2 and node.type == laneBinary[node.op]
+               and node.args[1].type == "f64x4" and node.args[2].type == "f64x4",
+               "invalid lane binary operation")
+            verifyLaneExpr(node.args[1], values)
+            verifyLaneExpr(node.args[2], values)
+         elseif node.op == "vmand" or node.op == "vmor" then
+            assert(node.type == "m64x4" and #node.args == 2
+               and node.args[1].type == "m64x4" and node.args[2].type == "m64x4",
+               "invalid lane mask operation")
+            verifyLaneExpr(node.args[1], values)
+            verifyLaneExpr(node.args[2], values)
+         elseif node.op == "vmnot" then
+            assert(node.type == "m64x4" and #node.args == 1 and node.args[1].type == "m64x4",
+               "invalid lane mask negation")
+            verifyLaneExpr(node.args[1], values)
+         elseif node.op == "vneg64" then
+            assert(node.type == "f64x4" and #node.args == 1 and node.args[1].type == "f64x4",
+               "invalid lane negation")
+            verifyLaneExpr(node.args[1], values)
+         elseif node.op == "vselect" then
+            assert(#node.args == 3 and node.args[1].type == "m64x4"
+               and node.args[2].type == node.type and node.args[3].type == node.type,
+               "invalid lane select")
+            verifyLaneExpr(node.args[1], values)
+            verifyLaneExpr(node.args[2], values)
+            verifyLaneExpr(node.args[3], values)
+         elseif node.op == "vmath" then
+            assert(node.type == "f64x4" and laneMath[node.intrinsic], "invalid lane math operation")
+            for _, arg in ipairs(node.args) do
+               assert(arg.type == "f64x4", "invalid lane math argument")
+               verifyLaneExpr(arg, values)
+            end
+         else
+            error("unknown lane expression opcode " .. tostring(node.op))
+         end
+      end
+
+      local laneValues = copyEnvironment(uniforms)
+      for _, statement in ipairs(ir.lanes.statements) do
+         if statement.op == "let" then
+            assert(not laneValues[statement.name] and statement.type == statement.value.type,
+               "invalid lane local declaration")
+            verifyLaneExpr(statement.value, laneValues)
+            laneValues[statement.name] = statement.type
+         elseif statement.op == "vassign" then
+            for _, assignment in ipairs(statement.values) do
+               local target = assignment.target
+               verifyLaneExpr(assignment.value, laneValues)
+               if target.kind == "local" then
+                  assert(laneValues[target.name] == assignment.value.type,
+                     "invalid lane local assignment")
+               else
+                  local root = byName[target.span]
+                  local layout = layouts[target.layout]
+                  assert(target.kind == "vfield" and root and root.kind == "write_span"
+                     and root.type == "struct:" .. tostring(target.layout)
+                     and layout and layout.fieldTypes[target.field] == target.scalarType
+                     and target.scalarType == "f32" and assignment.value.type == "f64x4",
+                     "invalid lane field assignment")
+               end
+            end
+         else
+            error("unknown lane statement opcode " .. tostring(statement.op))
+         end
+      end
+   end
    return ir
 end
 
 compiler.verifyIR = verifyIR
 
 local function irLines(ir)
-   local lines = {"native-c-ir 3", "function " .. ir.name, "symbol " .. ir.symbol, "layouts"}
+   local lines = {"native-c-ir 3", "function " .. ir.name, "symbol " .. ir.symbol}
+   -- The contract is part of what the IR means, not a build setting, because it
+   -- decides what the function answers rather than only how fast it gets there.
+   if ir.fpContract then lines[#lines + 1] = "contract fp-contract(fused)" end
+   lines[#lines + 1] = "layouts"
    for _, layout in ipairs(ir.layouts or {}) do
       local fields = {}
       for _, field in ipairs(layout.fields) do fields[#fields + 1] = field.name .. ":" .. field.type end
@@ -1179,9 +1701,14 @@ local function irLines(ir)
       if node.op == "load" then return "load:" .. node.type .. " " .. node.span .. "[" .. node.index .. "]" end
       if node.op == "element_ref" then return "element_ref:" .. node.layout .. " " .. node.span .. "[" .. node.index .. "]" end
       if node.op == "field_load" then return "field:" .. node.type .. " " .. expression(node.object) .. "." .. node.field end
+      if node.op == "vfield_load" then
+         return "vfield:" .. node.type .. " " .. node.span .. "[i..i+"
+            .. tostring(node.lanes - 1) .. "]." .. node.field
+      end
       if node.op == "uniform" or node.op == "local" or node.op == "helper_param" then
          return node.op .. ":" .. node.type .. " " .. node.name
       end
+      if node.op == "constant_i32" then return "constant:i32 " .. node.value end
       if node.op == "constant" then return "constant:f64 " .. node.value end
       if node.op == "bool" then return "bool " .. tostring(node.value) end
       if node.op == "widen_f32_f64" or node.op == "narrow_f64_f32"
@@ -1195,10 +1722,21 @@ local function irLines(ir)
          for _, arg in ipairs(node.args) do args[#args + 1] = expression(arg) end
          return "math." .. node.intrinsic .. "(" .. table.concat(args, ", ") .. ")"
       end
+      if node.op == "vmath" then
+         local args = {}
+         for _, arg in ipairs(node.args) do args[#args + 1] = expression(arg) end
+         return "vmath." .. node.intrinsic .. ":" .. node.type
+            .. "(" .. table.concat(args, ", ") .. ")"
+      end
       if node.op == "helper_call" then
          local args = {}
          for _, arg in ipairs(node.args) do args[#args + 1] = expression(arg) end
          return "call " .. node.helper .. "(" .. table.concat(args, ", ") .. ")"
+      end
+      if node.args then
+         local args = {}
+         for _, arg in ipairs(node.args) do args[#args + 1] = expression(arg) end
+         return node.op .. ":" .. node.type .. "(" .. table.concat(args, ", ") .. ")"
       end
       return node.op .. "(" .. expression(node.left) .. ", " .. expression(node.right) .. ")"
    end
@@ -1221,6 +1759,14 @@ local function irLines(ir)
                   or expression(assignment.target.object) .. "." .. assignment.target.field
                lines[#lines + 1] = prefix .. "set " .. target .. " = " .. expression(assignment.value)
             end
+         elseif statement.op == "vassign" then
+            for _, assignment in ipairs(statement.values) do
+               local target = assignment.target.kind == "local" and assignment.target.name
+                  or assignment.target.span .. "[i..i+" .. tostring(LANES - 1)
+                     .. "]." .. assignment.target.field
+               lines[#lines + 1] = prefix .. "vset " .. target .. " = "
+                  .. expression(assignment.value)
+            end
          elseif statement.op == "if" then
             for i, clause in ipairs(statement.clauses) do
                lines[#lines + 1] = prefix .. (i == 1 and "if " or "elseif ")
@@ -1232,6 +1778,15 @@ local function irLines(ir)
                block(statement.elseBody, depth + 1)
             end
             lines[#lines + 1] = prefix .. "end"
+         elseif statement.op == "fornum" then
+            lines[#lines + 1] = prefix .. "for " .. statement.binding.name .. " = "
+               .. expression(statement.from) .. " .. " .. expression(statement.to)
+            block(statement.body, depth + 1)
+            lines[#lines + 1] = prefix .. "end"
+         elseif statement.op == "while" then
+            lines[#lines + 1] = prefix .. "while " .. expression(statement.condition)
+            block(statement.body, depth + 1)
+            lines[#lines + 1] = prefix .. "end"
          elseif statement.op == "block" then
             lines[#lines + 1] = prefix .. "block"
             block(statement.body, depth + 1)
@@ -1241,6 +1796,10 @@ local function irLines(ir)
       end
    end
    block(ir.loop.statements, 1)
+   if ir.lanes then
+      lines[#lines + 1] = "simd lanes(" .. tostring(ir.lanes.lanes) .. ")"
+      block(ir.lanes.statements, 1)
+   end
    return table.concat(lines, "\n") .. "\n"
 end
 
@@ -1255,6 +1814,49 @@ local cBinary = {
 }
 
 local function renderExpr(node)
+   local LANE_BINARY = {vadd64 = " + ", vsub64 = " - ", vmul64 = " * ", vdiv64 = " / ",
+      vlt64 = " < ", vle64 = " <= ", vgt64 = " > ", vge64 = " >= ", veq64 = " == ",
+      vne64 = " != ", vmand = " & ", vmor = " | "}
+   if LANE_BINARY[node.op] then
+      return "(" .. renderExpr(node.args[1]) .. LANE_BINARY[node.op]
+         .. renderExpr(node.args[2]) .. ")"
+   end
+   if node.op == "vsplat64" then
+      return "ks_splat64(" .. renderExpr(node.args[1]) .. ")"
+   end
+   if node.op == "vmnot" then
+      return "(~" .. renderExpr(node.args[1]) .. ")"
+   end
+   if node.op == "vneg64" then
+      return "(-" .. renderExpr(node.args[1]) .. ")"
+   end
+   if node.op == "vselect" then
+      return "ks_sel64(" .. renderExpr(node.args[1]) .. ", " .. renderExpr(node.args[2])
+         .. ", " .. renderExpr(node.args[3]) .. ")"
+   end
+   if node.op == "vfield_load" then
+      local parts = {}
+      for lane = 0, node.lanes - 1 do
+         parts[#parts + 1] = "p_" .. node.span .. "[i + " .. lane .. "]." .. node.field
+      end
+      return "((ks_f64x4){" .. table.concat(parts, ", ") .. "})"
+   end
+   if node.op == "vmath" then
+      -- One scalar call per lane, rendered through the ordinary math path so the
+      -- lane-parallel form cannot drift from the scalar one. Clang recognizes
+      -- the shape and uses a vector library call where it has one.
+      local parts = {}
+      for lane = 0, 3 do
+         local args = {}
+         for i, arg in ipairs(node.args) do
+            args[i] = {op = "raw", text = renderExpr(arg) .. "[" .. lane .. "]"}
+         end
+         parts[#parts + 1] = renderExpr({op = "math", intrinsic = node.intrinsic, args = args})
+      end
+
+      return "((ks_f64x4){" .. table.concat(parts, ", ") .. "})"
+   end
+   if node.op == "raw" then return node.text end
    if node.op == "narrow_f64_f32" then return "(float)(" .. renderExpr(node.value) .. ")" end
    if node.op == "widen_f32_f64" then return "((double)" .. renderExpr(node.value) .. ")" end
    if node.op == "int_to_f64" then return "((double)" .. renderExpr(node.value) .. ")" end
@@ -1266,6 +1868,7 @@ local function renderExpr(node)
    if node.op == "field_load" then return "(" .. renderExpr(node.object) .. "->" .. node.field .. ")" end
    if node.op == "uniform" then return cIdentifier("p", node.name) end
    if node.op == "local" or node.op == "helper_param" then return node.cName end
+   if node.op == "constant_i32" then return "INT32_C(" .. tostring(math.floor(tonumber(node.value))) .. ")" end
    if node.op == "constant" then return doubleLiteral(node.value) end
    if node.op == "bool" then return node.value and "true" or "false" end
    if node.op == "neg" then return "(-(" .. renderExpr(node.value) .. "))" end
@@ -1323,6 +1926,8 @@ local function cType(typeName)
    if typeName == "f32" then return "float" end
    if typeName == "i32" then return "int32_t" end
    if typeName == "u32" then return "uint32_t" end
+   if typeName == "f64x4" then return "ks_f64x4" end
+   if typeName == "m64x4" then return "ks_m64x4" end
    local layout = typeName:match("^ref:(.+)$")
    if layout then return "Ks" .. layout .. " *" end
    error("unknown C type " .. tostring(typeName))
@@ -1372,9 +1977,18 @@ local function renderC(ir)
       end
       emit("")
    end
-   emit("static inline uint32_t nupp_u32(double value) { return (uint32_t)value; }")
-   emit("static inline uint32_t nupp_u32_i32(int32_t value) { return (uint32_t)value; }")
-   emit("static inline uint32_t nupp_u32_u32(uint32_t value) { return value; }")
+   -- Marked unused for the same reason the helpers below are: the prelude is
+   -- emitted whole, so a kernel with no bit operation never calls these, and
+   -- -Werror would fail a correct program for a conversion it did not need.
+   emit("typedef double ks_f64x4 __attribute__((vector_size(32)));")
+   emit("typedef long long ks_m64x4 __attribute__((vector_size(32)));")
+   emit("static inline __attribute__((unused)) ks_f64x4 ks_splat64(double v)"
+      .. " { return (ks_f64x4){v, v, v, v}; }")
+   emit("static inline __attribute__((unused)) ks_f64x4 ks_sel64(ks_m64x4 m, ks_f64x4 a, ks_f64x4 b)"
+      .. " { return (ks_f64x4)((m & (ks_m64x4)a) | (~m & (ks_m64x4)b)); }")
+   emit("static inline __attribute__((unused)) uint32_t nupp_u32(double value) { return (uint32_t)value; }")
+   emit("static inline __attribute__((unused)) uint32_t nupp_u32_i32(int32_t value) { return (uint32_t)value; }")
+   emit("static inline __attribute__((unused)) uint32_t nupp_u32_u32(uint32_t value) { return value; }")
    emit("#define nupp_u32(value) _Generic((value), int32_t: nupp_u32_i32, uint32_t: nupp_u32_u32, default: nupp_u32)(value)")
    emit("static inline __attribute__((unused)) int32_t nupp_arshift(uint32_t value, uint32_t shift) {")
    emit("    if (shift == 0u) return (int32_t)value;")
@@ -1482,6 +2096,35 @@ local function renderC(ir)
                renderBlock(statement.elseBody, depth + 1)
                emit(prefix .. "}")
             end
+         elseif statement.op == "vassign" then
+            for _, assignment in ipairs(statement.values) do
+               local target = assignment.target
+               if target.kind == "vfield" then
+                  -- Consecutive elements, one lane each. Clang turns the group
+                  -- into an interleaving store where the target has one.
+                  local rendered = renderExpr(assignment.value)
+                  emit(prefix .. "{")
+                  emit(prefix .. "    ks_f64x4 lanes = " .. rendered .. ";")
+                  for lane = 0, 3 do
+                     emit(prefix .. "    p_" .. target.span .. "[i + " .. lane .. "]."
+                        .. target.field .. " = (" .. cType(target.scalarType)
+                        .. ")lanes[" .. lane .. "];")
+                  end
+                  emit(prefix .. "}")
+               else
+                  emit(prefix .. target.cName .. " = " .. renderExpr(assignment.value) .. ";")
+               end
+            end
+         elseif statement.op == "fornum" then
+            local v = statement.binding.cName
+            emit(prefix .. "for (int32_t " .. v .. " = " .. renderExpr(statement.from)
+               .. "; " .. v .. " <= (int32_t)" .. renderExpr(statement.to) .. "; ++" .. v .. ") {")
+            renderBlock(statement.body, depth + 1)
+            emit(prefix .. "}")
+         elseif statement.op == "while" then
+            emit(prefix .. "while (" .. renderExpr(statement.condition) .. ") {")
+            renderBlock(statement.body, depth + 1)
+            emit(prefix .. "}")
          elseif statement.op == "block" then
             emit(prefix .. "{")
             renderBlock(statement.body, depth + 1)
@@ -1496,6 +2139,13 @@ local function renderC(ir)
    local function implementation(symbol, forced)
       emit("__attribute__((noinline))")
       emit("void " .. symbol .. "(" .. params .. ") {")
+      -- Scoped to this function rather than set as a build flag, so a relaxation
+      -- one function asked for cannot silently change another one's answers.
+      if ir.fpContract then
+         emit("#if defined(__clang__)")
+         emit("#pragma clang fp contract(fast)")
+         emit("#endif")
+      end
       if ir.rangeGuard then
          emit("    (void)count;")
          emit("    size_t i = (size_t)(p_" .. ir.rangeGuard.first .. " - 1.0);")
@@ -1508,6 +2158,19 @@ local function renderC(ir)
          emit("#if defined(__clang__)")
          emit("#pragma clang loop vectorize(disable) interleave(disable)")
          emit("#endif")
+      end
+      -- The forced-scalar body stays scalar: it is the oracle the lane-parallel
+      -- one is diffed against, so it must not share its lowering.
+      if ir.lanes and not forced then
+         -- Whole groups run several iterations at once; the remainder runs the
+         -- same body one iteration at a time. A masked final group would still
+         -- read the addresses it masked off, and the last element of a span may
+         -- be the last byte of a page.
+         emit("    size_t groups = (end > i) ? ((end - i) / " .. ir.lanes.lanes
+            .. ") * " .. ir.lanes.lanes .. " + i : i;")
+         emit("    for (; i < groups; i += " .. ir.lanes.lanes .. ") {")
+         renderBlock(ir.lanes.statements, 2)
+         emit("    }")
       end
       emit("    for (; i < end; ++i) {")
       renderBlock(ir.loop.statements, 2)
@@ -1560,7 +2223,8 @@ local function renderBinding(ir)
       elseif param.kind == "read_span" then
          physicalParams[#physicalParams + 1] = "borrows " .. param.name .. ": voidptr"
       else
-         local abiType = param.type == "f64" and "number" or param.type == "u32" and "uint32" or "int32"
+         local abiType = param.type == "f64" and "number" or param.type == "f32" and "float"
+            or param.type == "u32" and "uint32" or "int32"
          physicalParams[#physicalParams + 1] = param.name .. ": " .. abiType
       end
    end
@@ -1622,10 +2286,28 @@ local function renderBinding(ir)
    return table.concat(lines, "\n") .. "\n"
 end
 
-function compiler.compile(source, filename)
-   local ir, diagnostics = parseKernel(source, filename)
+function compiler.compile(source, filename, checked)
+   local ir, diagnostics = parseKernel(source, filename, checked)
    if not ir then return nil, diagnostics end
    verifyIR(ir)
+   -- The lane-parallel pass runs on verified scalar IR: what it rewrites has
+   -- already been proved to mean something, so a refusal here is only ever
+   -- about lowering it several iterations at a time.
+   if ir.wantsLanes then
+      local refusals = {}
+      local ok, problem = pcall(function()
+         ir.lanes = vectorizeLoop(ir, function(_, message)
+            refusals[#refusals + 1] = diagnostic(filename, ir.loop.source, message)
+            error(STOP, 0)
+         end)
+      end)
+      if not ok then
+         if problem ~= STOP then error(problem, 0) end
+
+         return nil, refusals
+      end
+      verifyIR(ir)
+   end
    return {
       ir = ir,
       irText = irLines(ir),

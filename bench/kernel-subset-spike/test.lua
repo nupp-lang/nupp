@@ -60,6 +60,39 @@ do
    assert(not ok and tostring(problem):find("alias matrix", 1, true), "IR accepted an incomplete alias matrix")
 end
 
+local laneSource = read(here .. "lanedemo.nupp")
+local lane = assert(compiler.compile(laneSource, "lanedemo.nupp"))
+assert(lane.irText:find("uniform dt:f32", 1, true),
+   "refined float parameter lost its established private ABI")
+assert(lane.irText:find("simd lanes(4)", 1, true), "SIMD contract produced no lane IR")
+assert(lane.irText:find("let step:f64", 1, true),
+   "uniform local disappeared from lane IR")
+assert(lane.c:find("size_t groups", 1, true), "lane C lost its whole-group loop")
+assert(lane.c:find("for (; i < end; ++i)", 1, true), "lane C lost its scalar epilogue")
+assert(not lane.c:find("ks_f32x8", 1, true), "removed explicit-vector path remains in C")
+
+do
+   local target
+   for _, statement in ipairs(lane.ir.lanes.statements) do
+      if statement.op == "vassign" then
+         for _, assignment in ipairs(statement.values) do
+            if assignment.target.kind == "vfield" then
+               target = assignment.target
+               break
+            end
+         end
+      end
+      if target then break end
+   end
+   assert(target, "lane fixture contains no field store")
+   local span = target.span
+   target.span = "source"
+   local ok, problem = pcall(compiler.verifyIR, lane.ir)
+   target.span = span
+   assert(not ok and tostring(problem):find("lane field assignment", 1, true),
+      "IR accepted a lane store through a shared span")
+end
+
 local function rejected(label, changed, expected)
    local artifacts, diagnostics = compiler.compile(changed, label .. ".nupp")
    assert(not artifacts, label .. " unexpectedly compiled")
@@ -79,7 +112,12 @@ rejected(
    assert(source:gsub("return x %* scale, y %* scale", "return scalePair(x, y, scale), y", 1)),
    "recursive native helpers are not admitted"
 )
-rejected("missing-kernel", assert(source:gsub("@kernel", "@ordinary", 1)), "no @kernel function was found")
+rejected("missing-kernel", assert(source:gsub("@aot", "@ordinary", 1)), "no @aot function was found")
+rejected(
+   "lane-short-circuit",
+   assert(laneSource:gsub("nextY < 0%.0", "nextY < 0.0 and from.x > 0.0", 1)),
+   "mask-aware short-circuit"
+)
 
 local unaryMath = {"abs", "floor", "ceil", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "exp", "log", "deg", "rad"}
 for _, name in ipairs(unaryMath) do

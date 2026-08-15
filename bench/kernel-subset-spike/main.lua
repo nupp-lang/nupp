@@ -11,8 +11,8 @@ local spans = require("nupp.span")
 local ordinary = require("kernels")
 
 ffi.cdef[[
-void ks_advance_forced_scalar(void *, const void *, double, double, double, uint32_t, size_t);
-void ks_advance(void *, const void *, double, double, double, uint32_t, size_t);
+void ks_advance_forced_scalar(void *, const void *, double, double, float, uint32_t, size_t);
+void ks_advance(void *, const void *, double, double, float, uint32_t, size_t);
 ]]
 
 local suffix = ffi.os == "OSX" and ".dylib" or ".so"
@@ -159,7 +159,7 @@ for _, count in ipairs(counts) do
       {"ordinary LuaJIT", function() rawAdvance(rawTransforms, rawMotions, 1, count, dt, mask); return rawTransforms[0].x end},
       {"forced scalar C", function() lib.ks_advance_forced_scalar(scalarTransforms, scalarMotions, 1, count, dt, mask, count); return scalarTransforms[0].x end},
       {"Clang auto C", function() lib.ks_advance(clangTransforms, clangMotions, 1, count, dt, mask, count); return clangTransforms[0].x end},
-      {"checked @kernel C", function() checked.advance(checkedWriter, checkedReadable, 1, count, dt, mask); return checkedTransforms[0].x end},
+      {"checked @aot C", function() checked.advance(checkedWriter, checkedReadable, 1, count, dt, mask); return checkedTransforms[0].x end},
    }
    for _, path in ipairs(paths) do
       local seconds = measure(path[2], passes)

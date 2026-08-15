@@ -1,105 +1,140 @@
-# Checked native-C Tecs subset spike
+# Checked AOT-to-C subset spike
 
-This spike compiles a Tecs-shaped function written as ordinary Nupp into a
-verified AOT IR and private scalar C. Clang chooses unrolling, vector width,
-instruction selection, register allocation, and tail handling. `@kernel` is a
-test-only annotation; the production design calls the contract `@aot`.
+This directory tests one implementation seam: an ordinary Nupp function is
+checked, lowered to a sealed AOT IR, verified, and emitted as private C. The
+same body remains the ordinary Nupp implementation and differential oracle.
 
-The source remains the semantic implementation. Turning AOT compilation off
-builds that same function through the ordinary Nupp backend. Enabling AOT
-compilation makes every unsupported annotated construct a build error.
+This is not yet `nupp build` AOT support. The public checker recognizes `@aot`
+and records its semantic facts, while the generator and Clang orchestration
+still live under `bench/`. The generator runs the normal checker in its own
+process and lowers that same annotated CST; it does not re-decide `@aot`,
+`simd`, floating-point relaxation, or fixed-width establishment from spelling.
 
-## Build modes
+## One SIMD source model
+
+The selected source surface is scalar Nupp:
+
+```nupp
+@aot(simd = true)
+local function advance(
+    exclusive output: span.WriteSpan<Particle>,
+    borrows input: span.Span<Particle>,
+    dt: float
+): nil
+    if output.count ~= input.count then
+        error("length mismatch", 2)
+    end
+
+    for i = 1, output.count do
+        local target = output:getMut(i)
+        local source = input:get(i)
+        target.x = source.x + source.vx * dt
+    end
+end
+```
+
+`simd = true` is a requirement, not a hint or lane-count setting. It accepts
+only literal `true`, requires exactly one top-level numeric map loop, and says
+its iterations are independent. The spike either produces verified lane IR or
+reports why it cannot. Explicit `F32x8`, `I32x8`, mask helpers, and hand-unrolled
+lane structs were removed; compiler-internal vectors are the only vector values.
+
+The current pass handles straight-line binary64 arithmetic, comparisons, and a
+single masked `if` over consecutive struct fields. It chooses four binary64
+lanes on this experimental backend. A scalar epilogue handles the remainder so
+no masked load can cross the end of a span. Nested loops, `break`, `continue`,
+helpers, `else`, uniform conditions, and short-circuit `and`/`or` currently
+refuse. Short-circuiting stays out until it has mask-aware evaluation or a
+verified pure-and-total effect fact.
+
+Both the scalar IR and the rewritten lane IR are verified before C emission.
+The lane verifier checks vector types and arities, writable roots, layouts,
+field types, masks, selects, and the fixed group width. Tests deliberately
+corrupt a lane store to prove the verifier rejects it.
+
+## Running it
+
+The Tecs-shaped scalar AOT workload supports four build modes:
 
 ```sh
-# Required native host library plus the ordinary oracle.
+# Required host library, checked wrapper, and ordinary oracle.
 bench/kernel-subset-spike/build.sh
 
-# No C generation or C compiler. The annotation erases normally.
+# Ordinary Nupp only; no C generator or C compiler.
 NUPP_NATIVE_MODE=off bench/kernel-subset-spike/build.sh
 
-# Produce verified private C without compiling it.
+# Verify and emit private C without compiling it.
 NUPP_NATIVE_MODE=emit-c bench/kernel-subset-spike/build.sh
 
-# Produce an object with a selected target compiler and sysroot.
+# Compile an object with a caller-selected target compiler and sysroot.
 NUPP_NATIVE_MODE=object \
 NUPP_NATIVE_CC=aarch64-none-elf-clang \
 NUPP_NATIVE_CFLAGS="--sysroot=/path/to/sdk" \
 bench/kernel-subset-spike/build.sh
 ```
 
-`object` never executes target-built code. A console build can feed the C to
-its vendor compiler, while a console configuration with AOT compilation
-disabled retains the ordinary Nupp implementation. This spike does not pretend
-to know any console SDK's linker or packaging rules.
-
-After the required host build:
+Run its differential and crossover driver after the host build:
 
 ```sh
 luajit bench/kernel-subset-spike/test.lua
 luajit bench/kernel-subset-spike/main.lua
 ```
 
-## Implemented Tecs-shaped subset
+Run the scalar-source SIMD differential separately:
 
-The one annotated function may currently use:
+```sh
+bench/kernel-subset-spike/simd.sh
+```
 
-- readable `exclusive WriteSpan<T>` values and a checked `getMut(i)` element
-  reference whose lifetime is tied to the writer;
-- one or more shared `Span<T>` inputs and multiple disjoint writable columns;
-- flat Nupp `struct` elements containing `float`, `int32`, and `uint32` fields;
-- generated size and per-field offset checks before the native body is exposed;
-- full-span loops or an inclusive `[first,last]` range with an ordinary Nupp
-  range guard, including the empty `1..0` range;
-- `float`, `number`, `integer`, `int32`, and `uint32` uniforms;
-- mutable locals, simultaneous multiple assignment, struct field assignment,
-  branches, scoped blocks, `break`, and `continue`;
-- `+`, `-`, `*`, `/`, `%`, `^`, comparisons, booleans, unary operations, and
-  LuaJIT-compatible 32-bit bit/shift operations;
-- pure statically resolved helpers with one or several scalar results; and
-- closed `math` lowering for `sqrt`, `abs`, `floor`, `ceil`, `min`, `max`,
-  trigonometric and hyperbolic functions, `atan2`, `exp`, `log`, `pow`, `fmod`,
-  `deg`, and `rad`.
+It compares ordinary Nupp, forced-scalar C, and required-SIMD C byte-for-byte
+at counts 0, 1, 3, 4, 5, 7, 8, 33, and 1000. Those counts exercise no complete
+group, exact groups, and every relevant scalar tail. Inputs include decimals
+that are not exactly binary32. The `float` uniform is first established by a
+physical float load, so the ordinary and private ABIs receive the same value.
 
-The example is normal Nupp. It declares `Transform2D` and `Motion`, projects a
-writable and readable component column, updates only a requested archetype row
-range, calls a two-result helper, mutates locals, writes several fields, and
-uses integer flags. There is no C-shaped expression API in the source.
+The compute-bound scalar workload remains available:
 
-## Safety and semantics
+```sh
+bench/kernel-subset-spike/mandelbrot.sh
+luajit bench/kernel-subset-spike/mandelbrot_main.lua
+```
 
-Every span has an explicit IR region. Every pair containing a writable span is
-proved disjoint; shared inputs may alias. Generated C uses `restrict` only for
-the proved writable regions.
+It compares one generated optimized C body and its deliberately de-vectorized
+scalar oracle against a Lua binary64 implementation. The forced-scalar row is
+an oracle, not the baseline for claiming that generated intrinsics beat normal
+optimized C. The driver reports its binary64 checksum only; historical
+binary32 explicit-vector checksums are not comparable to it.
 
-Float storage loads widen to binary64, ordinary arithmetic stays binary64, and
-stores narrow once. Fixed-width integer storage and bit operations have
-explicit conversions; shifts mask their count to five bits as LuaJIT does.
-The C build disables contraction and fast math.
+## Checked boundary
 
-Correctness compares all `Transform2D` bytes across ordinary Nupp, an
-equivalent raw LuaJIT loop, forced-scalar C, and optimized C for zero through
-33 rows, partial ranges, and a larger nontrivial range. It also exercises
-length and range failures. The forced-scalar and optimized functions come from
-the same verified IR.
+The scalar subset currently covers:
 
-The generated wrapper validates the range and all span lengths, projects typed
-span pointers once, and calls C once per archetype range. Nupp structs currently
-have no name usable in a `cdef` signature, so compiler-owned glue uses private
-`void*` ABI slots after verifying the Nupp and C layouts. User source never sees
-that erasure. Giving reified Nupp structs a private generated C spelling remains
-a compiler feature needed before production.
+- shared and exclusive spans with explicit IR regions;
+- a complete alias matrix, with `restrict` only for proved writable regions;
+- flat reified structs containing `float`, `int32`, and `uint32` fields;
+- full-span or guarded inclusive-range iteration;
+- ordinary binary64 arithmetic with explicit storage widening and narrowing;
+- established `float`, `int32`, and `uint32` parameters using matching private
+  C ABI slots;
+- mutable locals, simultaneous assignment, branches, nested scalar loops,
+  selected pure helpers, and a closed math set; and
+- generated layout-size and field-offset checks before exposing the wrapper.
 
-## Remaining boundary
+Generated C is a backend representation, not the safety boundary. Every span
+access, region relationship, scalar conversion, and lane operation must already
+exist in verified IR. C compilation uses contraction and fast math only when an
+explicit source relaxation permits them.
 
-This is still a spike, not the production pass. It verifies structured mutable
-slots rather than a full SSA graph, handles flat structs rather than nested
-structs/fixed arrays, accepts one annotated function, and has no status-return
-model for failures inside the loop. It does not yet implement native module
-call graphs, reductions, stencils, target artifact validation, hot reload,
-code-size budgets, inspection commands, or a target SDK registry.
+## Remaining production work
 
-Allocation, Lua tables, strings, dynamic calls, closures, metamethods,
-coroutines, arbitrary FFI, and owned resources remain outside the subset.
-Closed transcendental calls are semantically supported but commonly inhibit
-auto-vectorization; their availability is not a SIMD promise.
+The spike accepts one annotated local function and emits one private translation
+unit. It does not yet provide build policy in `nupp.lua`, module AOT summaries,
+incremental hashes, production artifact validation, status-return failures,
+target dispatch, inspection commands, hot reload, reductions, stencils, or
+verified mask stacks and lane retirement.
+
+Most importantly, ordinary `nupp build` still emits the Lua body. Moving this
+IR and emitter under `src/`, consuming the full checked ownership/effect graph,
+and making `aot=require` or `aot=emit-c` real build policies are the next
+integration boundary. Until then, this directory is evidence for that design,
+not a claim that native lowering has landed.

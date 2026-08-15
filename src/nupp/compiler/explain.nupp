@@ -1058,6 +1058,60 @@ ENTRIES[#ENTRIES + 1] = {
     docs = "docs/lints.md",
 }
 
+ENTRIES[
+    #ENTRIES + 1
+] = {
+    code = "NUPP2901",
+    summary = "One function is promised to two compilers",
+    rule = "`@jit` promises a function compiles as a LuaJIT trace. `@aot` reserves "
+    .. "that body for ahead-of-time compilation. Stacking them asks two compilers "
+    .. "for the same code, so one of the two has to go: keep `@aot` when the function "
+    .. "should compile ahead of time, and `@jit` when it should trace.",
+    wrong = "@jit\n@aot\nlocal function hot(scale: number): number\n    return scale * 2.0\nend\n",
+    right = "@aot\nlocal function hot(scale: number): number\n    return scale * 2.0\nend\n",
+    related = {"NUPP2707", "NUPP2902"},
+    docs = "plans/aot-functions.md",
+}
+
+ENTRIES[
+    #ENTRIES + 1
+] = {
+    code = "NUPP2902",
+    summary = "`@aot` is attached to something that is not a whole function",
+    rule = "`@aot` compiles one complete function and puts a wrapper in front of the "
+    .. "function value callers see. A constructor and an inline interface requirement "
+    .. "are neither: the compiler generates code around both, and neither is a value "
+    .. "the wrapper can stand in front of. Move the work into an ordinary function and "
+    .. "annotate that, then call it from the constructor or the requirement.",
+    wrong = "local record Point\n    x: number\n    @aot\n    constructor(self, x: number)\n"
+    .. "        self.x = x\n    end\nend\n",
+    right = "@aot\nlocal function scaled(x: number): number\n    return x * 2.0\nend\n\n"
+    .. "local record Point\n    x: number\n    constructor(self, x: number)\n"
+    .. "        self.x = scaled(x)\n    end\nend\n",
+    related = {"NUPP2901", "NUPP2903"},
+    docs = "plans/aot-functions.md",
+}
+
+ENTRIES[
+    #ENTRIES + 1
+] = {
+    code = "NUPP2903",
+    summary = "An `@aot` body contains a construct with no AOT IR representation",
+    rule = "The body of an `@aot` function is ordinary Nupp, but only the part of it "
+    .. "the AOT IR can represent. The IR has no closure, table, interpolated string, "
+    .. "vararg, `goto`, dynamic call, or unsafe operation, so a body containing one "
+    .. "cannot compile ahead of time and says so here rather than failing in a "
+    .. "backend. Rewrite the body without it, or remove `@aot` and let the function "
+    .. "run as ordinary Nupp.",
+    wrong = "@aot\nlocal function total(scale: number): number\n"
+    .. "    local function double(x: number): number\n        return x * 2.0\n    end\n\n"
+    .. "    return double(scale)\nend\n",
+    right = "local function double(x: number): number\n    return x * 2.0\nend\n\n"
+    .. "@aot\nlocal function total(scale: number): number\n    return double(scale)\nend\n",
+    related = {"NUPP2901", "NUPP2902"},
+    docs = "plans/aot-functions.md",
+}
+
 local byCode: {[string]: any} = {}
 for _, entry in ipairs(ENTRIES) do
     byCode[entry.code] = entry

@@ -1,12 +1,31 @@
 # Portable SIMD vectors
 
-Status: competing scope for `@aot`, not selected
+Status: decision record; public explicit vectors deferred, scalar-source
+`@aot(simd = true)` selected
 
-## Decision to make
+## Decision
 
-Decide whether Nupp should expose ordinary portable vector values and compile
-the functions that use them transparently, or initially confine unboxed vector
-values to the explicit [`@aot`](aot-functions.md) function boundary.
+Use scalar ordinary Nupp under `@aot(simd = true)` for the initial SIMD
+surface. The annotation asserts that exactly one top-level numeric map loop has
+independent iterations and requires the compiler to lower it with a
+target-chosen width. Bare `@aot` remains useful for scalar native work.
+
+Do not ship boxed portable vectors or AOT-only explicit vector values beside
+it. Both create a second way to express the same bulk map work, while the boxed
+form also introduces runtime representation and escape rules. The explicit
+`F32x8`/`I32x8` experiment was removed after making this decision; its results
+remain below as evidence, not as an implementation to maintain.
+
+Cross-lane movement and algorithms that use a fixed-width register as their
+data structure are outside the initial 80% slice. They can reopen a separate
+language proposal only with an independently compelling workload.
+
+## Alternatives evaluated
+
+This record evaluated whether Nupp should expose ordinary portable vector
+values and compile the functions that use them transparently, or keep vector
+values private to the compiler behind an [`@aot`](aot-functions.md) function
+boundary. The decision above closes that choice for the initial implementation.
 
 The proposal is deliberately stronger than a vector-shaped library over FFI.
 A vector operation has a complete scalar meaning in ordinary generated Lua,
@@ -30,7 +49,7 @@ promises about fallback, boxing, and whether the boundary is written or
 inferred. Those promises should not both become public before the comparison in
 this plan has been measured.
 
-## Goal
+## Rejected candidate goal
 
 Let ordinary Nupp express portable data-parallel computation with explicit
 vectors, masks, loads, stores, shuffles, and reductions. On supported x86-64
@@ -564,7 +583,11 @@ Performance diagnostics must be factual. Report an observed box, fallback,
 unsupported operation, AOT transition, or scalarized instruction. Do not
 warn merely because a function is small or a branch looks unpredictable.
 
-## Delivery
+## Rejected candidate delivery sketch
+
+The V0-V5 sequence below records how the portable-vector alternative would
+have had to prove itself. It is not an implementation plan and none of these
+slices should land alongside scalar-source SIMD.
 
 ### V0: Semantic and mechanism spike
 
@@ -767,47 +790,96 @@ The fallback is not expected to beat a scalar LuaJIT loop. Its gate is
 correctness and bounded allocation. Tooling must prevent its accidental use
 from masquerading as successful SIMD.
 
-## Decision gate against explicit-only `@aot`
+## Decision outcome
 
-Run one implementation spike, one public-API review, and the performance matrix
-before selecting a language direction. Prefer portable vectors when all of the
-following hold:
+Portable vectors did not clear the gate. Their ordinary fallback needs boxing,
+escape rules, and predictable inferred outlining before it can honestly promise
+the Java-like model. AOT-only explicit vectors avoid boxing but still create a
+second spelling for the same map-oriented work. The spike showed that scalar
+source can instead lower through private vector and mask IR while preserving a
+single ordinary implementation. That is the selected direction.
 
-- the ordinary fallback makes vector values genuinely usable outside AOT
-  regions rather than nominally legal but operationally incomplete;
-- full-function inference is predictable on representative code and decline
-  reasons are understandable;
-- boxing and outlining rules preserve existing errors, ownership, and hot
-  reload without general deoptimization;
-- generated SIMD meets the same one-call and throughput gates as an explicit
-  AOT function;
-- preferred species stays out of public type identity and module fingerprints;
-- implementation cost is concentrated in reusable IR/backend work rather than
-  a growing imitation of LuaJIT.
+### Lane-parallel loops, and why a width cannot be written
 
-Prefer explicit-only `@aot` when any of these instead proves true:
+The selected option declares the loop lane-parallel and keeps the body scalar.
+`@aot(simd = true)` asserts that its one admitted loop's iterations are
+independent -- a claim the
+compiler cannot infer and the programmer can -- and the body stays ordinary
+Nupp. A conditional becomes a mask, a `break` retires a lane, and the loop ends
+when no lane is live. Nothing in the source names a lane, a mask, or a species.
 
-- reliable performance needs restrictions that are surprising in an ordinary
-  function but clear at an annotated boundary;
-- common vector programs fall back or box without an obvious source-level
-  reason;
-- preserving arbitrary Lua semantics around inferred regions requires
-  deoptimization machinery comparable to changing LuaJIT;
-- the scalar fallback is too allocation-heavy to be an honest general API;
-- species-erased values make diagnostics, generics, or cross-module calls
-  materially worse than fixed AOT-local vectors;
-- explicit AOT functions fuse work or control code size substantially better.
+Measured against the explicit-vector kernel in the AOT spike, this would delete
+every public operation that kernel uses: the loads and stores become ordinary
+span access, the splats become literals, the lane-wise arithmetic becomes
+operators, the comparisons become an `if`, the mask combinators become `and`
+and `or`, and the horizontal `any` becomes the loop's own exit. They remain IR
+opcodes. They stop being language.
 
-Do not decide from the existing NEON result alone. It proves that one generated
-AOT loop can match Clang, not that transparent AOT-region discovery,
-boxing, fallback, and portable species can carry the Java-like language model.
+What it does not cover is cross-lane movement, algorithms where a fixed-width
+register is the data structure rather than a batch of independent items, and
+some reductions. Those are deliberately deferred rather than used to land a
+second SIMD surface before the map-oriented one proves insufficient.
 
-If portable vectors win, `@aot` remains a checked performance contract: it
-requires compilation and turns a transparent-lowering decline into a
-diagnostic, but does not enable syntax, change results, grant relaxed
-arithmetic, or create another sublanguage.
+It is a setting on `@aot` rather than an annotation of its own, written
+`@aot(simd = true)`, because it is meaningless without required compilation:
+with the annotation removed the body is ordinary Nupp that runs one iteration
+at a time, and a separate marker would promise a shape nothing checks.
 
-If explicit-only `@aot` wins, retain the scalar vector model only if it is
-independently useful; otherwise keep vector values AOT-local and say so
-plainly. Do not ship two almost-identical APIs whose difference is whether an
-optimizer happened to see them.
+It is a requirement, not a hint. A construct the pass cannot run lane-wise is a
+build error naming the construct, on the same rule that makes `@aot` itself
+refuse rather than fall back. Silently running a `simd` loop one iteration at a
+time would be the performance equivalent of the silent fallback the AOT design
+already rejects.
+
+`and` and `or` remain outside the initial lane subset. Eagerly evaluating both
+sides would not preserve ordinary short-circuit semantics. They may enter only
+after the IR either carries a verified pure-and-total effect fact or lowers the
+right side under the left side's mask.
+
+The width, though, cannot be part of the annotation. Ordinary Nupp arithmetic
+is binary64, and removing `@aot` may not change an answer, so a lane-parallel
+loop over ordinary source computes in binary64 lanes. Eight of those is 64
+bytes, or four NEON registers per live value; the spike's Mandelbrot holds
+roughly eight such values and would spill a 32-register file. The same loop in
+binary32 fits in one AVX2 register or two NEON ones.
+
+So the width follows the widest lane type the loop actually uses and the target.
+`simd = true` takes no width: it states that iterations are independent and the
+compiler chooses how many run at once. A fixed user-written width would be a
+different language feature and is not part of this decision.
+
+### Measured: source shape does not substitute for vector values
+
+The Mandelbrot kernel in the AOT spike states the case for explicit vectors as
+a measurement rather than an argument. Its inner loop is a serial dependency
+chain, so one pixel at a time is latency-bound, and Clang emits only scalar
+`d`-register arithmetic for it. Two source rewrites were measured on an M1
+against that baseline, neither needing a compiler change:
+
+- Carrying four pixels per element, each lane masked by its own branch, gives
+  the pipeline four independent chains and measures **2.27x** for identical
+  escape counts. That is occupancy, not SIMD; the generated code stays scalar.
+- Replacing each lane's branch with an arithmetic select, so all four lanes run
+  straight-line identical work over adjacent fields, is the shape Clang's SLP
+  vectorizer is meant to fuse. It measured **0.89x** -- slower -- and did not
+  vectorize.
+
+The second rewrite was also **wrong**, which is the more useful half of the
+result. An escaped lane still evaluates its next iterate, that iterate
+overflows to infinity, and `0.0 * (inf - z)` is NaN, so a frozen lane's state
+is destroyed: two pixel groups out of 196,608 disagreed with the scalar oracle.
+Masking by multiplication is not masking. A correct masked lane needs a select
+that never lets the inactive value reach the live one, which is a vector
+operation with defined masked semantics rather than an arithmetic idiom.
+
+So the first 2-3x is available from loop restructuring and belongs to whatever
+eventually performs that transformation, while the remaining width is not
+reachable by writing scalar source more cleverly. That is evidence that the
+compiler needs real private vector masks, not that users need public vector
+values, and it argues against expecting a backend auto-vectorizer to discover
+data-dependent lane masking on its own.
+
+The decision is scalar-source `@aot(simd = true)`. It requires compilation and
+turns a lane-lowering decline into a diagnostic, but does not enable vector
+syntax, change results, grant relaxed arithmetic, or create another
+sublanguage. Compiler-internal vector values cannot escape into ordinary Nupp.

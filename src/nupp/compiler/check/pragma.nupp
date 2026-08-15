@@ -38,6 +38,11 @@ function pragma.install(c: state.Checker): state.StatHandlers
         frames = true,
         ["gc-timing"] = true,
         ["table-order"] = true,
+        -- Unlike the others, this one changes answers rather than only what is
+        -- observable about how they were reached. It permits a backend to fuse
+        -- `a * b + c` into one rounding, which is faster and gives a different
+        -- result, so it is opt-in per function and never inferred.
+        ["fp-contract"] = true,
     }
 
     local function effectContract(application)
@@ -180,10 +185,52 @@ function pragma.install(c: state.Checker): state.StatHandlers
 
         elseif written == "jit" then
             if valid and targetBody then
+                if targetBody.aotRequired then
+                    c.diag("NUPP2901", annotationName, "@jit and @aot name different compilers for one body")
+                end
                 targetBody.jitRequired = true
             end
             if stat.stat then
                 c.checkStat(stat.stat)
+            end
+            return
+
+        elseif written == "aot" then
+            -- `@aot` is a whole-function compilation contract, so it needs a visible
+            -- body it alone owns. A constructor and an inline interface requirement
+            -- both carry bodies the compiler generates around, and neither is a
+            -- function value the AOT wrapper can stand in front of.
+            if valid and (targetKind == "constructorDecl" or targetKind == "inlineMethod") then
+                c.diag(
+                    "NUPP2902",
+                    annotationName,
+                    (
+                        "@aot cannot compile %s"
+                    ):format(targetKind == "constructorDecl" and "a constructor" or "an inline interface requirement")
+                )
+            elseif valid and targetBody then
+                if targetBody.jitRequired then
+                    c.diag("NUPP2901", annotationName, "@aot and @jit name different compilers for one body")
+                end
+                targetBody.aotRequired = true
+                -- `simd = true` says the function's one canonical map loop has
+                -- independent iterations and requires a SIMD lowering. The width
+                -- remains a target decision; inability to vectorize is a refusal,
+                -- never permission to run this AOT body scalar.
+                local values = (stat as any).annotationValues
+                local simd = values and values.simd
+                if simd and simd.expr and simd.expr.kind == "trueExpr" then
+                    targetBody.simdRequired = true
+                end
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            -- After the body is checked, so the subset walk reports against a tree the
+            -- ordinary rules have already accepted. An `@aot` body that is not valid
+            -- Nupp is not an AOT problem.
+            if valid and targetBody and targetBody.aotRequired then
+                c.aot.body(targetBody, targetBody.simdRequired == true)
             end
             return
 
@@ -236,7 +283,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
                         "NUPP2112",
                         arg,
                         "@relax names function-identity, load-order, error-site, "
-                        .. "frames, gc-timing, or table-order"
+                        .. "frames, gc-timing, table-order, or fp-contract"
                     )
                 else
                     relaxed[value] = true

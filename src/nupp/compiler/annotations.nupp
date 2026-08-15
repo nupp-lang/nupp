@@ -204,6 +204,7 @@ local BUILTINS = {
     {name = "deprecated", arguments = "typed", targets = {"declaration", "field", "c-declaration"}, builtin = true,},
     {name = "syntax", arguments = "typed", targets = {"local-binding"}, builtin = true,},
     {name = "jit", arguments = "none", targets = {"function"},},
+    {name = "aot", arguments = "typed", targets = {"function"}, builtin = true,},
 }
 
 function annotations.new(withBuiltins: boolean?): annotations.Registry
@@ -263,6 +264,10 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
         omitEmpty = member("omitEmpty", optional(typesApi.boolean), true),
     }
     json.memberOrder = {"unknown", "name", "omit", "omitEmpty"}
+
+    local aot = registry:get("aot")
+    aot.members = {simd = member("simd", optional(typesApi.literal(true, typesApi.boolean)), true),}
+    aot.memberOrder = {"simd"}
 
     local debug = registry:get("debug")
     debug.members = {

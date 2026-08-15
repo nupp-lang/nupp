@@ -191,6 +191,9 @@ record state.Checker
     --- The `nosuspend` region check, which judges after inference settles.
     nosuspend: any
 
+    --- The `@aot` source subset walk, run on a body once it has been checked.
+    aot: any
+
     --- Allocation- and raising-free region checks, judged after effect inference.
     effectRegions: any
 

@@ -206,6 +206,23 @@ function declare.install(
     -- metamethod, a nested declaration), and a record holding one is not a candidate.
     local STRUCT_ENTRY = {fieldDecl = true, inlineMethod = true, constructorDecl = true,}
 
+    --- Refuses `@aot` on a record member.
+    ---
+    --- A member's annotations never reach the pragma statement handler, so the rule
+    --- that `@aot` needs a whole function it alone owns is stated here as well. A
+    --- constructor and an inline requirement both carry a body the compiler generates
+    --- around, and neither is a function value a wrapper can stand in front of.
+    ---
+    --- @param entry the record member
+    --- @param what the member, named as the diagnostic will say it
+    local function refuseAot(entry: any, what: string): nil
+        for _, application in ipairs(entry.annotations or {}) do
+            if application.name and application.name.text == "aot" then
+                c.diag("NUPP2902", application.name, ("@aot cannot compile %s"):format(what))
+            end
+        end
+    end
+
     --- Says when a record's fields would all fit in C memory, so `struct` is available.
     ---
     --- The judgement is deliberately one-directional. Reification is the largest
@@ -1781,8 +1798,10 @@ function declare.install(
                         c.markToken(e.name, c.definition(e.name, "method"), mt, "method")
                     end
                 elseif e.kind == "constructorDecl" then
+                    refuseAot(e, "a constructor")
                     checkConstructor(e, n, stat)
                 elseif e.kind == "inlineMethod" then
+                    refuseAot(e, "an inline interface requirement")
                     local isOverride = false
                     for _, application in ipairs(e.annotations or {}) do
                         local definition2, valid = validateAnnotation(application, e, stat)

@@ -1,10 +1,5 @@
 local span = require("nupp.span")
 
--- Test-only spelling: the production design currently calls this `@aot`.
-@annotation(targets = {"function"})
-record kernel
-end
-
 local struct Transform2D
     x: float
     y: float
@@ -24,7 +19,7 @@ local function scalePair(x: number, y: number, scale: number): (number, number)
     return x * scale, y * scale
 end
 
-@kernel
+@aot
 local function advance(
     exclusive transforms: span.WriteSpan<Transform2D>,
     borrows motions: span.Span<Motion>,

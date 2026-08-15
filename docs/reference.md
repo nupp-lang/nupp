@@ -1104,6 +1104,21 @@ It changes no runtime behavior.
 `@jit` enforces traceability: a variadic FFI call or Lua callback passed into C
 must live in a function disabled with `jit.off`, or it reports NUPP2707.
 
+`@aot` reserves a required whole-function ahead-of-time compilation contract.
+The current release checks its target and structural source subset but still
+emits the ordinary Lua body; production AOT artifact generation is not yet part
+of `nupp build`. A closure, table, interpolated string, vararg, `goto`, dynamic
+call, or unsafe operation inside one reports NUPP2903 at the construct. Stacking
+it with `@jit` promises one body to two compilers and reports NUPP2901, and a
+constructor or inline requirement is not a whole function to compile, so
+annotating one reports NUPP2902.
+
+`@aot(simd = true)` additionally promises that exactly one top-level numeric
+map loop has independent iterations and requires SIMD lowering when AOT
+compilation is enabled. It accepts only literal `true`: this is not a preference
+or lane-count knob. Removing either annotation changes the required compilation
+strategy, never the ordinary function's answer.
+
 ```nupp
 local m = {}
 
@@ -1790,6 +1805,10 @@ says more.
 - **NUPP2811**: A derive recipe declares an invalid generated member.
 - **NUPP2812**: A forwarding argument does not exist on the generated method.
 - **NUPP2813**: A runtime forwarding helper does not satisfy the generated call.
+- **NUPP2901**: One function is promised to two compilers.
+- **NUPP2902**: `@aot` is attached to something that is not a whole function.
+- **NUPP2903**: An `@aot` body contains a construct with no AOT IR
+  representation.
 - **NUPP3001**: `is` has nothing to test against this type.
 - **NUPP3005**: Generated code that a Lua VM will not load.
 

@@ -1,6 +1,7 @@
 # Checked AOT functions
 
-Status: planned; supersedes the `@kernel` and `@native` spellings
+Status: annotation and scalar-source SIMD prototype implemented; production
+lowering remains planned; supersedes the `@kernel` and `@native` spellings
 
 ## Decision
 
@@ -62,7 +63,7 @@ The feature provides a safe native boundary for:
 
 - arithmetic over spans and reified structs;
 - component-column, image, audio, geometry, matrix, codec, and checksum loops;
-- explicit portable vector and mask operations if that design is selected;
+- scalar-source map loops that explicitly require SIMD lowering;
 - small statically resolved helper graphs;
 - scalar native work that does not benefit from SIMD.
 
@@ -168,26 +169,31 @@ The checked native-kernel spike remains valuable evidence and a performance
 baseline. Its `countedBy` wrapper proves the desired one-call ABI; its C and
 DynASM bodies do not become the safety model for `@aot`.
 
-### Portable vectors
+### SIMD source model
 
-The [portable-vector plan](portable-vectors.md) asks whether vectors and masks
-should have complete boxed Lua semantics and trigger transparent AOT
-compilation in otherwise ordinary functions. `@aot` asks a narrower question:
-where can Nupp promise one complete AOT compilation unit?
+The [portable-vector decision record](portable-vectors.md) compared boxed
+ordinary vectors, explicit vectors confined to AOT, and scalar-source lane
+parallelism. The initial surface is one ordinary scalar body with an optional
+required setting:
 
-They can share vector types, AOT IR, target lowering, dispatch, caches, and
-inspection. The public choices remain distinct:
+```nupp
+@aot(simd = true)
+local function advance(...): nil
+    for i = 1, count do
+        -- ordinary scalar Nupp
+    end
+end
+```
 
-1. Vector values work everywhere, while `@aot` optionally turns fallback
-   into a compile-time error for one function.
-2. Vector values begin inside `@aot`, avoiding boxed escape until the
-   ordinary-value model proves worthwhile.
-3. Scalar `@aot` lands without public explicit vectors and initially relies
-   on backend auto-vectorization.
+Bare `@aot` promises compilation but not SIMD. `simd = true` additionally says
+the function has exactly one top-level numeric map loop whose iterations are
+independent and which must receive a SIMD lowering. It takes no lane count. A
+backend refusal is a build error, not permission to run that AOT body scalar.
 
-The first mechanism spike must compare all three. Do not make `@aot` mean
-“SIMD function”; doing so would exclude useful scalar AOT work and make the
-annotation's name dishonest.
+No explicit vector or mask value type lands with this surface. The experiment
+showed those values would create a second spelling and escape model for work the
+Tecs-oriented slice expresses as an ordinary map loop. Cross-lane algorithms
+remain deferred until they independently justify another language feature.
 
 ### Embedded C
 
@@ -214,7 +220,7 @@ The first subset admits:
 - reified Nupp structs containing admitted fields;
 - `Span<T>`, `WriteSpan<T>`, and fixed variants over admitted elements;
 - fixed C arrays whose layout is known for the selected target;
-- vector, mask, and species values if the portable-vector surface is selected;
+- compiler-internal vector and mask values produced only by a verified SIMD pass;
 - private compiler status and multiple-result slots at the wrapper boundary.
 
 It declines:
@@ -396,7 +402,18 @@ For each admitted operation, the AOT IR states:
 - whether one fused rounding was explicitly requested.
 
 Default floating expressions are not reassociated and `a * b + c` is not
-contracted implicitly. `nupp.math.f32.fma` requests one fused binary32
+contracted implicitly. That rule has a measured price. On an Apple M1,
+the spike's Mandelbrot kernel runs 2.38x faster when Clang is allowed to
+contract (60.9 ms to 25.6 ms), and the escape counts change: a checksum over
+46.4 million iterations moves by roughly 37,000. Go makes the opposite choice
+and fuses by default on arm64 while not fusing on amd64, so the same Go program
+gives two different answers on two targets and is 2.38x faster on one of them.
+
+Keeping contraction off is what makes an AOT function's result a property of the
+source rather than of the target that happened to compile it, which is the whole
+claim in this section. But the cost is large enough that `fma` as an explicit
+operation, and a separately named opt-in contract for code that wants fusion,
+are worth more than a footnote. `nupp.math.f32.fma` requests one fused binary32
 operation. Reductions state their lane order. No backend uses `-ffast-math` or
 an equivalent flag under the default contract.
 
@@ -545,7 +562,7 @@ Initial optimization is deliberately restrained:
 - common load elimination only under proven immutable or exclusive regions;
 - bounded helper inlining under the `frames` contract;
 - target-independent strength reduction with identical numeric behavior;
-- explicit vector compare/select and FMA fusion;
+- compiler-internal vector compare/select and FMA fusion;
 - no floating reassociation or speculative deoptimization.
 
 ## Backend decision
@@ -817,7 +834,8 @@ Nothing public lands if N0 cannot keep AOT IR independent of its backend.
 
 ### N1: Annotation and checker contract
 
-Reserve `@aot` as a no-argument function annotation. Implement target
+Reserve `@aot` as a function annotation taking only the optional literal
+`simd = true`. Implement target
 validation, mutual exclusion with `@jit`, admitted types and effects, helper
 graph checking, deterministic AOT IR, verification, diagnostics, formatting,
 reference generation, documentation, semantic tokens, completion, hover,
@@ -881,8 +899,8 @@ sequences.
 ### N4: AOT helper graphs and optimization
 
 Add statically resolved AOT-to-AOT calls, bounded inlining, loop
-optimization, alias-aware load elimination, and target auto-vectorization or
-explicit vector lowering. Preserve observable guarantee checks for frames,
+optimization, alias-aware load elimination, and required scalar-source SIMD
+lowering. Preserve observable guarantee checks for frames,
 errors, and numeric transformations.
 
 #### N4 exit criteria
@@ -891,20 +909,20 @@ errors, and numeric transformations.
   correctly.
 - Inlining and specialization have per-function and process limits.
 - An implementation edit invalidates only the cache edges that consumed it.
-- Inspection distinguishes scalar, auto-vectorized, and explicit-vector code.
+- Inspection distinguishes scalar, opportunistically auto-vectorized, and
+  required SIMD code.
 - Optimization level zero remains a correct minimally transformed oracle.
 
-### N5: Decide portable vector scope
+### N5: Widen scalar-source SIMD
 
-Use the shared implementation to run the decision gate in
-[portable-vectors.md](portable-vectors.md). Compare vectors confined to
-`@aot`, vectors with boxed ordinary semantics, and scalar source relying on
-auto-vectorization.
+Keep vector and mask temporaries compiler-internal. Extend
+`@aot(simd = true)` from straight-line map loops to verified mask stacks, lane
+retirement, selected reductions, helpers, and inner loops. Each extension must
+preserve scalar Nupp evaluation and pass the lane-IR verifier before emission.
 
-If boxed portable vectors win, `@aot` remains the explicit compilation
-contract: it turns a transparent-lowering decline into a diagnostic. If they do
-not, keep vector temporaries AOT-only and say so plainly. Do not ship two
-lookalike vector APIs whose difference is accidental boxing.
+Do not add public explicit vectors alongside this surface. Reconsider them only
+for a cross-lane workload that scalar map semantics cannot express and whose
+benefit justifies a distinct language feature.
 
 ### N6: Carefully widen the subset
 
@@ -996,7 +1014,7 @@ The first complete release has:
 - whole-function compilation or a source-local build diagnostic, never silent
   fallback;
 - span- and ownership-preserving wrappers with one physical call;
-- scalar AArch64 and x86-64 plus the vector tiers selected by the N5 decision;
+- scalar AArch64 and x86-64 plus the SIMD tiers widened through N5;
 - deterministic caching, target dispatch, W^X, worker safety, hot reload, and
   source-attributed inspection;
 - differential correctness and performance gates on both supported

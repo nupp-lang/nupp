@@ -166,10 +166,9 @@ end
 function M.theReferenceFitsInAPrompt()
    local markdown = reference.markdown()
    -- Canonical C export, fixed-width refinements and arithmetic, span witnesses,
-   -- and checked effect regions are independent public surfaces and each needs
-   -- enough text to state its semantic boundary. Keep the ceiling close to their
-   -- actual addition rather than deleting executable reference examples.
-   assert(#markdown < 72000,
+   -- checked effect regions, and the `@aot` compilation contract are independent
+   -- public surfaces. Each needs enough text to state its semantic boundary.
+   assert(#markdown < 73000,
       ("the reference has grown to %d bytes, past what it promises to be")
       :format(#markdown))
 end

@@ -58,24 +58,20 @@ work makes sense in.
       widening `poll` closes this. The slot vectors, `debug.upvaluejoin` and the
       loaded patch chunk stay `any` by nature; the results and the manifests are
       where the typing is worth having.
-- [ ] **Investigate `@aot` compilation for Nupp-authored tight loops.** This
-      is a separate project from checked external kernels and
-      `countedBy(count)`. Define the restricted whole-function contract over
-      ordinary Nupp structs, `Span<T>`, and `WriteSpan<T>`; lower it through a
-      checked AOT IR; and compare an invisible AOT C/Clang backend with
-      direct machine-code generation. The user-facing model must require no
-      `cdef`, duplicated C struct, or handwritten C. Specify layout validation,
-      alias assumptions, CPU dispatch, caching, diagnostics for rejected
-      operations, and performance gates before choosing a backend. The full
-      design and its comparison with portable vectors are in
-      [aot-functions.md](aot-functions.md). AOT v1 preserves current numeric
-      semantics: struct fields specify storage width while ordinary operators
-      use LuaJIT numbers. The
-      [fixed-width refinement plan](fixed-width-refinements.md) may make
-      `float`, `int32`, and `uint32` honest value subsets without changing those
-      operators. AOT consumes its establishment facts if that plan lands; it
-      does not invent them, round only in an AOT wrapper, promote operators, or
-      add a parallel `f32`/`i32`/`u32` type tower.
+- [ ] **Integrate checked `@aot` lowering for Nupp-authored tight loops.** The
+      annotation, fixed-width establishment facts, structural subset checker,
+      and scalar-source `@aot(simd = true)` contract exist. The spike under
+      `bench/kernel-subset-spike` consumes the normal checker's annotated CST,
+      lowers and verifies scalar and lane IR, emits private C, and differentially
+      checks ordinary Nupp, forced-scalar C, and SIMD C. Production `nupp build`
+      still emits the ordinary Lua body. Move that IR and C backend under
+      `src/`; consume the complete checked ownership, alias, effect, layout, and
+      numeric facts; then add build policy, target compilation and dispatch,
+      cache and artifact validation, inspection, and diagnostics. The public
+      surface stays ordinary scalar Nupp: do not add explicit vector values or
+      a second numeric operator tower. The full delivery plan is
+      [aot-functions.md](aot-functions.md), and the rejected alternatives are
+      recorded in [portable-vectors.md](portable-vectors.md).
 
 ## Dialect interop (`import-tl`)
 
