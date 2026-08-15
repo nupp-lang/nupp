@@ -1203,10 +1203,10 @@ record nupp.data
         end
 
         --- Decodes JSON into the nominal record named by its one type witness.
-        decode: function<T>(type: Type<T>, text: string): (T?, string?)
+        decode: function<T>(type: metatable<T>, text: string): (T?, string?)
 
         --- Encodes a nominal record after explicitly supplying its type witness.
-        encodeAs: function<T>(type: Type<T>, value: T): string
+        encodeAs: function<T>(type: metatable<T>, value: T): string
 
         --- Encodes a nominal record using the metatable its value already carries.
         encode: function<T>(value: T): string

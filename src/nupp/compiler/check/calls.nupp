@@ -356,15 +356,18 @@ function calls.install(c: state.Checker): calls.Ops
         if t.tag == "metatable" or t.tag == "typeobject" then
             local owner = rawType(t.of)
             if owner.tag == "nominal" then
-                if t.tag == "typeobject" and name == "reflect" then
-                    owner.runtimeReflectionNeeded = true
-                    return T.func({}, {T.any}, false)
-                end
                 local ft = owner.staticByname and owner.staticByname[name]
                 local definition = owner.staticFieldDefs and owner.staticFieldDefs[name]
                 if not ft then
                     ft = owner.byname and owner.byname[name]
                     definition = owner.fieldDefs and owner.fieldDefs[name]
+                end
+                -- A declaration can already have a member called `reflect` (the
+                -- compiler's provider table is one example). Keep that member
+                -- visible; otherwise the type witness supplies the intrinsic.
+                if t.tag == "typeobject" and name == "reflect" and not ft then
+                    owner.runtimeReflectionNeeded = true
+                    return T.func({}, {T.any}, false)
                 end
                 return ft and specializeSelf(owner, ft, owner) or nil, definition
             end
