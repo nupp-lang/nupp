@@ -1289,12 +1289,21 @@ record nupp.data
         end
 
         --- Decodes JSON into the nominal record named by its one type witness.
+        --- @param type the record's type witness, naming what to decode into
+        --- @param text the JSON document to decode
+        --- @return the decoded record, or nil when the document does not fit it
+        --- @return why it did not fit, when unsuccessful
         decode: function<T>(type: Type<T>, text: string): (T?, string?)
 
         --- Encodes a nominal record after explicitly supplying its type witness.
+        --- @param type the record's type witness
+        --- @param value the record to encode
+        --- @return the encoded JSON document
         encodeAs: function<T>(type: Type<T>, value: T): string
 
         --- Encodes a nominal record using the metatable its value already carries.
+        --- @param value the record to encode
+        --- @return the encoded JSON document
         encode: function<T>(value: T): string
 
         --- One independently configured JSON encoder and decoder.

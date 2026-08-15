@@ -37,7 +37,6 @@ local cst = require("nupp.compiler.cst")
 local predicate = require("nupp.compiler.predicate")
 local stdlib = require("nupp.compiler.stdlib")
 local cabi = require("nupp.compiler.cabi")
-local reflection = require("nupp.compiler.reflection")
 
 local gen = {}
 
@@ -2478,6 +2477,12 @@ function gen.generate(
             local jsonDerive = x.deriveRecipe and x.deriveRecipe.data and x.deriveRecipe.data.json
             if nominal and (nominal.runtimeReflectionNeeded or jsonDerive) then
                 needRuntimeEffect("stdlib.reflection")
+                -- Required here rather than beside the other modules: `emit` is one
+                -- function and it was one name short of the sixty upvalues a Lua
+                -- closure can hold, which coverage instrumentation then pushed it
+                -- over. A record needing reflection is rare and `require` is cached,
+                -- so the lookup costs nothing the emitter notices.
+                local reflection = require("nupp.compiler.reflection")
                 local descriptor = reflection.describe(nominal, runtimeName)
                 e(";_G.nupp.__reflect.register(" .. runtimeName .. "," .. pluck.renderData(descriptor) .. ")")
             end
