@@ -336,6 +336,11 @@ end
 record types.Func
     id: string
     tag: 'func'
+
+    --- Whether this callable has no runtime representation and may only be reached
+    --- while checking or evaluating comptime code.
+    comptimeOnly: boolean?
+
     params: {types.Type}
     rets: {types.Type}
 
@@ -1303,7 +1308,8 @@ local function pushUnionMember(
                 prior.foreign,
                 prior.constParams,
                 prior.paramKinds,
-                prior.partitionResults
+                prior.partitionResults,
+                prior.comptimeOnly
             )
             seen[prior] = nil
             seen[merged] = true
@@ -1948,7 +1954,8 @@ function types.func(
     foreign: boolean?,
     constParams: {types.ConstVar}?,
     paramKinds: {string}?,
-    partitionResults: {[integer]: {[string]: string}}?
+    partitionResults: {[integer]: {[string]: string}}?,
+    comptimeOnly: boolean?
 ): types.Type
     -- A single declared result of `never` is a promise the call never comes back, the
     -- same promise `noreturn` records; deriving it here means a signature only has to
@@ -2070,6 +2077,9 @@ function types.func(
     if foreign then
         key = key .. "|foreign"
     end
+    if comptimeOnly then
+        key = key .. "|comptime"
+    end
     local unlabeledId = key
     if paramNames then
         key = key .. "|names(" .. table.concat(names, ",") .. ")"
@@ -2109,7 +2119,8 @@ function types.func(
             constParams = constParams,
             paramKinds = paramKinds,
             yieldPack = yieldPack,
-            resumePack = resumePack
+            resumePack = resumePack,
+            comptimeOnly = comptimeOnly or nil
         )
     )
 end
@@ -2160,7 +2171,8 @@ function types.withYields(ft: types.Type, mayYield: boolean): types.Type
         fn.foreign,
         fn.constParams,
         fn.paramKinds,
-        fn.partitionResults
+        fn.partitionResults,
+        fn.comptimeOnly
     )
 end
 
@@ -2199,7 +2211,8 @@ function types.foreignFunction(ft: types.Type): types.Type
         true,
         fn.constParams,
         fn.paramKinds,
-        fn.partitionResults
+        fn.partitionResults,
+        fn.comptimeOnly
     )
 end
 
@@ -2240,7 +2253,8 @@ function types.withFirstResult(ft: types.Type, first: types.Type): types.Type
         fn.foreign,
         fn.constParams,
         fn.paramKinds,
-        fn.partitionResults
+        fn.partitionResults,
+        fn.comptimeOnly
     )
 end
 
@@ -2278,7 +2292,8 @@ function types.withPartitionResults(ft: types.Type, partitionResults: {[integer]
         fn.foreign,
         fn.constParams,
         fn.paramKinds,
-        partitionResults
+        partitionResults,
+        fn.comptimeOnly
     )
 end
 

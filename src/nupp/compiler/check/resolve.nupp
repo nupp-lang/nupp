@@ -598,12 +598,16 @@ function resolve.install(c: state.Checker): nil
                 return T.any
             end
             if open then
-                local identity = require(
-                    "nupp.compiler.comptime"
-                ).typeFunctionProgram(helper, c.comptimeFunctions).identity
-                local term = T.comptimeCall(
-                    identity,
+                local comptime = require("nupp.compiler.comptime")
+                local sealedProgram = comptime.sealTypeFunction(
                     helper,
+                    c.comptimeFunctions,
+                    helperType,
+                    helperDefinition
+                )
+                local term = T.comptimeCall(
+                    sealedProgram.identity,
+                    sealedProgram,
                     deferredArguments,
                     declared.tag == "typeHandle" and declared.bound or T.unknown,
                     declared == T.typepack
@@ -923,7 +927,9 @@ function resolve.install(c: state.Checker): nil
                 end
                 if (
                     t == T.type_ or t == T.typepack or t.tag == "typeHandle"
-                ) and (c.comptimeDepth or 0) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
+                ) and not (
+                    node as any
+                ).comptimeOnly and (c.comptimeDepth or 0) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
                     c.diag(
                         "NUPP2421",
                         node,
@@ -1275,6 +1281,9 @@ function resolve.install(c: state.Checker): nil
             end
             return T.shape(fields, indexer)
         elseif kind == "tfunc" then
+            if node.comptimeOnly then
+                c.comptimeFunctionDepth = c.comptimeFunctionDepth + 1
+            end
             local params, rets, paramModes, paramNames = {}, {}, {}, {}
             local vararg = false
             local varargType = nil
@@ -1292,7 +1301,11 @@ function resolve.install(c: state.Checker): nil
             for _, p in ipairs(node.params) do
                 if p.kind == "tfuncParam" then
                     local first = p[1]
-                    if p.pack then
+                    if p.constDomainTok then
+                        params[#params + 1] = T.functionConst
+                        paramModes[#params] = "plain"
+                        paramNames[#params] = p.name and p.name.text or ""
+                    elseif p.pack then
                         local pp = c.resolvePack(p.type)
                         paramPackTail = pp.tail
                         vararg = true
@@ -1417,8 +1430,13 @@ function resolve.install(c: state.Checker): nil
                 next(preservesResults) and preservesResults or nil,
                 nil,
                 constParams,
-                paramKinds
+                paramKinds,
+                nil,
+                node.comptimeOnly
             )
+            if node.comptimeOnly then
+                c.comptimeFunctionDepth = c.comptimeFunctionDepth - 1
+            end
             if node.captureBorrows then
                 return T.borrowed(callable)
             end

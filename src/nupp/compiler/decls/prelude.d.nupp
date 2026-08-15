@@ -242,9 +242,95 @@ local nupp: {
     peg: nupp.peg,
 
     --- Compiler-only type inspection and construction inside `comptime function`
-    --- declarations. Kept gradual until the bootstrap compiler admits compiler-only
-    --- handle types.
-    types: any,
+    --- declarations. Every member is an ordinary checked compile-time value; none has
+    --- a runtime representation.
+    types: {
+        readonly any: comptime type,
+        readonly unknown: comptime type,
+        readonly never: comptime type,
+        readonly nil_: comptime type,
+        readonly boolean: comptime type,
+        readonly string: comptime type,
+        readonly number: comptime type,
+        readonly integer: comptime type,
+        readonly table_: comptime type,
+        readonly thread: comptime type,
+        readonly userdata: comptime type,
+        readonly float: comptime type,
+        readonly cdata: comptime type,
+        readonly cstring: comptime type,
+        readonly voidptr: comptime type,
+        readonly int8: comptime type,
+        readonly int16: comptime type,
+        readonly int32: comptime type,
+        readonly int64: comptime type,
+        readonly uint8: comptime type,
+        readonly uint16: comptime type,
+        readonly uint32: comptime type,
+        readonly uint64: comptime type,
+
+        readonly literal: comptime function(value: string | boolean | integer): type,
+        readonly array: comptime function(element: type): type,
+        readonly tuple: comptime function(elements: {type}): type,
+        readonly union: comptime function(members: {type}): type,
+        readonly intersection: comptime function(members: {type}): type,
+        readonly optional: comptime function(inner: type): type,
+        readonly pointer: comptime function(inner: type): type,
+        readonly constof: comptime function(inner: type): type,
+        readonly borrowed: comptime function(inner: type): type,
+        readonly pinned: comptime function(inner: type): type,
+        readonly affine: comptime function(representation: type): type
+        & comptime function(representation: type, const terminal: function): type,
+        readonly carray: comptime function(element: type, count: integer?): type,
+        readonly indexer: comptime function(readKey: type?, readValue: type?, writeKey: type?, writeValue: type?): type,
+        readonly map: comptime function(readKey: type, readValue: type, writeKey: type?, writeValue: type?): type,
+        readonly shape: comptime function(fields: {{
+            name: string,
+            read: type?,
+            write: type?
+        }}, indexer: type?): type,
+        readonly pack: comptime function(head: {type}, tail: type?, modes: {string}?): typepack,
+        readonly function_: comptime function(parameters: typepack, results: typepack): type,
+        readonly parameters: comptime function(callable: type): typepack,
+        readonly results: comptime function(callable: type): typepack,
+        readonly kind: comptime function(value: type | typepack): string,
+        readonly describe: comptime function(value: type | typepack): {
+            readonly kind: string,
+            readonly sourceKind: string?,
+            readonly name: string?,
+            readonly value: (string | boolean | integer)?,
+            readonly element: type?,
+            readonly members: {type}?,
+            readonly fields: {{
+                name: string,
+                read: type?,
+                write: type?
+            }}?,
+            readonly indexer: type?,
+            readonly readKey: type?,
+            readonly readValue: type?,
+            readonly writeKey: type?,
+            readonly writeValue: type?,
+            readonly nominal: boolean?,
+            readonly head: {type}?,
+            readonly tail: type?,
+            readonly modes: {string}?,
+            readonly count: integer?,
+            readonly parameters: typepack?,
+            readonly results: typepack?
+        },
+        readonly elements: comptime function(value: type): {type},
+        readonly fields: comptime function(value: type): {{
+            name: string,
+            read: type?,
+            write: type?
+        }},
+        readonly readKeys: comptime function(value: type): {type},
+        readonly writeKeys: comptime function(value: type): {type},
+        readonly readAt: comptime function(value: type, key: type): type,
+        readonly writeAt: comptime function(value: type, key: type): type,
+        readonly error: comptime function(message: string): never
+    },
 
     --- Compiler-only derive inspection and closed forwarding recipes.
     derive: nupp.derive,
@@ -3032,31 +3118,14 @@ local _VERSION: string
 --- @local
 local comptime function __NuppFormatArguments(Format: type, Debug: type): typepack
     local info = nupp.types.describe(Format)
-    if info.kind ~= "literal" or type(info.value) ~= "string" then
+    local value = info.value
+    if info.kind ~= "literal" then
         return nupp.types.pack({}, nupp.types.any)
     end
-    -- The current compiler supplies a PEG-backed parser here. The fallback keeps the
-    -- preceding compiler able to bootstrap this declaration before it learns that
-    -- comptime operation.
-    local parse = nupp.types.formatArguments
-    if parse then
-        local parsed = parse(info.value)
-        if parsed.error then
-            return nupp.types.error(parsed.error)
-        end
-        local arguments = {}
-        for _, kind in ipairs(parsed.arguments) do
-            if kind == "number" then
-                arguments[#arguments + 1] = nupp.types.number
-            elseif kind == "debug" then
-                arguments[#arguments + 1] = Debug
-            else
-                arguments[#arguments + 1] = nupp.types.any
-            end
-        end
-        return nupp.types.pack(arguments)
+    if type(value) ~= "string" then
+        return nupp.types.pack({}, nupp.types.any)
     end
-    local format = info.value
+    local format = value as string
     local arguments = {}
     local index = 1
     while index <= #format do
@@ -3075,19 +3144,19 @@ local comptime function __NuppFormatArguments(Format: type, Debug: type): typepa
                     current = format:sub(index, index)
                 end
                 if current == "%" then
-                    return nupp.types.error(
+                    nupp.types.error(
                         'invalid string.format directive starting at "%' .. seen .. format:sub(index) .. '"'
                     )
                 end
 
                 local width = 0
-                while current ~= "" and current:find("[0-9]") do
+                while current ~= "" and string.find("0123456789", current, 1, true) do
                     width = width + 1
                     seen = seen .. current
                     index = index + 1
                     current = format:sub(index, index)
                     if width > 2 then
-                        return nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
+                        nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
                     end
                 end
 
@@ -3096,13 +3165,13 @@ local comptime function __NuppFormatArguments(Format: type, Debug: type): typepa
                     index = index + 1
                     current = format:sub(index, index)
                     local precision = 0
-                    while current ~= "" and current:find("[0-9]") do
+                    while current ~= "" and string.find("0123456789", current, 1, true) do
                         precision = precision + 1
                         seen = seen .. current
                         index = index + 1
                         current = format:sub(index, index)
                         if precision > 2 then
-                            return nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
+                            nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
                         end
                     end
                 end
@@ -3114,7 +3183,7 @@ local comptime function __NuppFormatArguments(Format: type, Debug: type): typepa
                 elseif string.find("pqs", current, 1, true) then
                     arguments[#arguments + 1] = nupp.types.any
                 else
-                    return nupp.types.error(
+                    nupp.types.error(
                         'invalid string.format directive starting at "%' .. seen .. format:sub(index) .. '"'
                     )
                 end
@@ -3127,22 +3196,112 @@ local comptime function __NuppFormatArguments(Format: type, Debug: type): typepa
 end
 
 -- Literal Lua patterns carry their capture shape through ordinary prelude type
--- functions. The compiler supplies the PEG-backed parser, but these declarations
--- decide each string API's result contract.
+-- functions. This scanner is compile-time Nupp code; the type provider contributes
+-- only type inspection and construction.
+
+--- @local
+local comptime function __NuppPatternClassEnd(source: string, opening: number): any
+    local index = opening + 1
+    if source:sub(index, index) == "^" then
+        index = index + 1
+    end
+    if source:sub(index, index) == "]" then
+        index = index + 1
+    end
+    while index <= #source do
+        local current = source:sub(index, index)
+        if current == "%" then
+            if index == #source then
+                return {next = index, error = "malformed pattern"}
+            end
+            index = index + 2
+        elseif current == "]" then
+            return {next = index + 1}
+        else
+            index = index + 1
+        end
+    end
+
+    return {next = index, error = "malformed pattern"}
+end
+
+--- @local
+local comptime function __NuppPatternCaptures(source: string): any
+    local captures = {}
+    local depth = 0
+    local index = 1
+    while index <= #source do
+        local current = source:sub(index, index)
+        if current == "(" then
+            if source:sub(index + 1, index + 1) == ")" then
+                captures[#captures + 1] = "position"
+                index = index + 2
+            else
+                captures[#captures + 1] = "string"
+                depth = depth + 1
+                if depth > 32 then
+                    return {error = "too many captures"}
+                end
+                index = index + 1
+            end
+        elseif current == ")" then
+            if depth == 0 then
+                return {error = "unexpected ')'"}
+            end
+            depth = depth - 1
+            index = index + 1
+        elseif current == "%" then
+            local escaped = source:sub(index + 1, index + 1)
+            if escaped == "" then
+                return {error = "malformed pattern"}
+            elseif escaped == "b" then
+                if index + 3 > #source then
+                    return {error = "malformed pattern"}
+                end
+                index = index + 4
+            elseif escaped == "f" then
+                if source:sub(index + 2, index + 2) ~= "[" then
+                    return {error = "malformed pattern"}
+                end
+                local parsedClass = __NuppPatternClassEnd(source, index + 2)
+                index = parsedClass.next
+                if parsedClass.error then
+                    return {error = parsedClass.error}
+                end
+            else
+                index = index + 2
+            end
+        elseif current == "[" then
+            local parsedClass = __NuppPatternClassEnd(source, index)
+            index = parsedClass.next
+            if parsedClass.error then
+                return {error = parsedClass.error}
+            end
+        else
+            index = index + 1
+        end
+    end
+    if depth ~= 0 then
+        return {error = "unfinished capture"}
+    end
+
+    return {captures = captures}
+end
 
 --- @local
 local comptime function __NuppMatchResults(Pattern: type): typepack
     local info = nupp.types.describe(Pattern)
-    if info.kind ~= "literal" or type(info.value) ~= "string" then
+    local value = info.value
+    if info.kind ~= "literal" then
         return nupp.types.pack({nupp.types.optional(nupp.types.string)})
     end
-    local parse = nupp.types.patternCaptures
-    if not parse then
+    if type(value) ~= "string" then
         return nupp.types.pack({nupp.types.optional(nupp.types.string)})
     end
-    local parsed = parse(info.value)
+    local pattern = value as string
+    local parsed = __NuppPatternCaptures(pattern)
     if parsed.error then
-        return nupp.types.error("invalid Lua pattern: " .. parsed.error)
+        nupp.types.error("invalid Lua pattern: " .. parsed.error)
     end
     local results = {}
     if #parsed.captures == 0 then
@@ -3171,16 +3330,17 @@ local comptime function __NuppFindResults(Pattern: type, Plain: type): typepack
         return nupp.types.pack(endpoints)
     end
     local info = nupp.types.describe(Pattern)
-    if info.kind ~= "literal" or type(info.value) ~= "string" then
+    local value = info.value
+    if info.kind ~= "literal" then
         return nupp.types.pack(endpoints)
     end
-    local parse = nupp.types.patternCaptures
-    if not parse then
+    if type(value) ~= "string" then
         return nupp.types.pack(endpoints)
     end
-    local parsed = parse(info.value)
+    local pattern = value as string
+    local parsed = __NuppPatternCaptures(pattern)
     if parsed.error then
-        return nupp.types.error("invalid Lua pattern: " .. parsed.error)
+        nupp.types.error("invalid Lua pattern: " .. parsed.error)
     end
     for _, kind in ipairs(parsed.captures) do
         if kind == "position" then
@@ -3197,11 +3357,12 @@ end
 local comptime function __NuppGmatchResults(Pattern: type): typepack
     local results = {nupp.types.string}
     local info = nupp.types.describe(Pattern)
-    local parse = nupp.types.patternCaptures
-    if info.kind == "literal" and type(info.value) == "string" and parse then
-        local parsed = parse(info.value)
+    local value = info.value
+    if info.kind == "literal" and type(value) == "string" then
+        local pattern = value as string
+        local parsed = __NuppPatternCaptures(pattern)
         if parsed.error then
-            return nupp.types.error("invalid Lua pattern: " .. parsed.error)
+            nupp.types.error("invalid Lua pattern: " .. parsed.error)
         end
         if #parsed.captures > 0 then
             results = {}
@@ -3222,11 +3383,12 @@ end
 --- @local
 local comptime function __NuppGsubResults(Pattern: type): typepack
     local info = nupp.types.describe(Pattern)
-    local parse = nupp.types.patternCaptures
-    if info.kind == "literal" and type(info.value) == "string" and parse then
-        local parsed = parse(info.value)
+    local value = info.value
+    if info.kind == "literal" and type(value) == "string" then
+        local pattern = value as string
+        local parsed = __NuppPatternCaptures(pattern)
         if parsed.error then
-            return nupp.types.error("invalid Lua pattern: " .. parsed.error)
+            nupp.types.error("invalid Lua pattern: " .. parsed.error)
         end
     end
 

@@ -33,6 +33,36 @@ local type Type = T.Type
 --- A node of the tree being checked.
 local type Node = cst.Node
 
+--- Whether a projected value belongs exclusively to the compile-time evaluator.
+local function compilerOnlyValue(t: Type): boolean
+    if t == T.type_ or t == T.typepack or t == T.functionConst or t.tag == "typeHandle" then
+        return true
+    end
+    if t.tag == "func" then
+        if t.comptimeOnly then
+            return true
+        end
+        for _, parameter in ipairs(t.params) do
+            if compilerOnlyValue(parameter) then
+                return true
+            end
+        end
+        for _, result in ipairs(t.rets) do
+            if compilerOnlyValue(result) then
+                return true
+            end
+        end
+    elseif t.tag == "intersection" or t.tag == "union" then
+        for _, member in ipairs(t.members) do
+            if compilerOnlyValue(member) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 --- Installs the index expressions on one run.
 ---
 --- @param c the run's state
@@ -356,6 +386,12 @@ function index.install(c: state.Checker): state.ExprHandlers
                 end
             end
             ft = T.affine(rawType(ft), exact)
+        end
+        if not writing and compilerOnlyValue(
+            ft
+        ) and (c.comptimeDepth or 0) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
+            c.diag("NUPP2421", member, ("compiler-only member %q is available only inside comptime"):format(memberName))
+            return T.any
         end
         c.markToken(member, fieldDef, ft, "property")
         member.additionalDefinitions = fieldDefs

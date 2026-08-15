@@ -245,9 +245,11 @@ associated-type projections, and `unpackof` remain direct finite operators.
 
 Algorithms use ordinary Nupp in a `comptime function`. Parameters and results
 may be compiler-only `type` or `typepack` handles. `nupp.types` inspects immutable
-type semantics and constructs validated structural results; it cannot create a
-record, interface, name, method, or other declaration. Calls use parentheses in
-type position and erase completely from generated Lua.
+semantics and constructs structural types, never declarations. Calls use
+parentheses in type position and erase completely from generated Lua.
+
+Compile-only members use `comptime type` or `comptime function(...)`;
+projecting one outside comptime code is **NUPP2421**.
 
 ```nupp
 local m = {}
@@ -271,7 +273,8 @@ print(callback, deep)
 return m
 ```
 
-Reports: `NUPP2130`, `NUPP2132`, `NUPP2133`. `nupp explain <code>` says more.
+Reports: `NUPP2130`, `NUPP2132`, `NUPP2133`, `NUPP2421`. `nupp explain <code>`
+says more.
 
 ### Type packs and variadic generics
 

@@ -306,7 +306,7 @@ return m
 
     new reference.Section(
         title = "Type-level computation",
-        codes = {"NUPP2130", "NUPP2132", "NUPP2133"},
+        codes = {"NUPP2130", "NUPP2132", "NUPP2133", "NUPP2421"},
         body = [=[
 `keyof T` and `writekeyof T` enumerate readable and writable keys. `T.[K]` and
 `writeof T.[K]` project their value types. A readonly or writeonly mapped shape
@@ -317,9 +317,11 @@ associated-type projections, and `unpackof` remain direct finite operators.
 
 Algorithms use ordinary Nupp in a `comptime function`. Parameters and results
 may be compiler-only `type` or `typepack` handles. `nupp.types` inspects immutable
-type semantics and constructs validated structural results; it cannot create a
-record, interface, name, method, or other declaration. Calls use parentheses in
-type position and erase completely from generated Lua.
+semantics and constructs structural types, never declarations. Calls use
+parentheses in type position and erase completely from generated Lua.
+
+Compile-only members use `comptime type` or `comptime function(...)`;
+projecting one outside comptime code is **NUPP2421**.
 ]=],
         example = [=[
 local m = {}

@@ -278,7 +278,7 @@ typeFingerprint = function(
             ","
         ) .. ")" .. (
             #partitions > 0 and "!partition(" .. table.concat(partitions, ",") .. ")" or ""
-        ) .. (t.noYield and "!noyield" or "")
+        ) .. (t.noYield and "!noyield" or "") .. (t.comptimeOnly and "!comptime" or "")
     elseif tag == "array" or tag == "ptr" then
         value = tag .. "(" .. typeFingerprint(t.elem, active, binders) .. ")"
     elseif tag == "carray" then

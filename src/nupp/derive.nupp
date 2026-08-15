@@ -28,7 +28,15 @@ end
 
 local comptime function detail(T: type): any
     local value = nupp.types.describe(T)
-    value.kind = value.sourceKind or value.kind
+    if value.sourceKind then
+        local normalized = {}
+        for key, item in pairs(value) do
+            normalized[key] = item
+        end
+        normalized.kind = value.sourceKind
+        return normalized
+    end
+
     return value
 end
 

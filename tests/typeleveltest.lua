@@ -506,28 +506,16 @@ function M.stringFormatSyntaxIsReusableByUserFormattingWrappers()
    }, "\n"))
 end
 
-function M.luaFormatParserUsesThePegRuntime()
+function M.luaDebugFormatLoweringUsesThePegRuntime()
    local luaFormat = require("nupp.compiler.LuaFormat")
-   local kinds, why = luaFormat.argumentKinds("%-+#09.2f %q %% %d %?")
+   local parsed, why = luaFormat.analyze("%-+#09.2f %q %% %d %?")
    assertEq(why, nil)
-   assertEq(table.concat(kinds or {}, ","), "number,any,number,debug")
-   local parsed = assert(luaFormat.analyze("100%%: %? %04d"))
-   assertEq(parsed.format, "100%%: %s %04d")
-   assertEq(parsed.debugArguments[1], true)
-   assertEq(parsed.debugArguments[2], false)
-   local missing, invalid = luaFormat.argumentKinds("%..f")
+   assertEq(parsed and parsed.format, "%-+#09.2f %q %% %d %s")
+   assertEq(parsed and parsed.debugArguments[1], false)
+   assertEq(parsed and parsed.debugArguments[4], true)
+   local missing, invalid = luaFormat.analyze("%..f")
    assertEq(missing, nil)
    assertEq(invalid, 'invalid string.format directive starting at "%..f"')
-end
-
-function M.luaPatternParserUsesThePegRuntime()
-   local luaPattern = require("nupp.compiler.LuaPattern")
-   local captures, why = luaPattern.captureKinds("([a-z]+)()")
-   assertEq(why, nil)
-   assertEq(table.concat(captures or {}, ","), "string,position")
-   local missing, invalid = luaPattern.captureKinds("[abc")
-   assertEq(missing, nil)
-   assertEq(invalid, "malformed pattern")
 end
 
 function M.luaPatternsDeriveLiteralCaptureResults()
@@ -553,8 +541,43 @@ function M.luaPatternsDeriveLiteralCaptureResults()
       "NUPP2006", "invalid Lua pattern: malformed pattern")
    oneDiagnostic("local bad = string.gmatch('name', '%')\nprint(bad)",
       "NUPP2006", "invalid Lua pattern: malformed pattern")
+   oneDiagnostic("local bad = string.match('name', '%b(')\nprint(bad)",
+      "NUPP2006", "invalid Lua pattern: malformed pattern")
+   oneDiagnostic("local bad = string.match('name', '%fabc')\nprint(bad)",
+      "NUPP2006", "invalid Lua pattern: malformed pattern")
+   oneDiagnostic("local bad = string.match('name', ')')\nprint(bad)",
+      "NUPP2006", "invalid Lua pattern: unexpected ')'")
+   oneDiagnostic("local bad = string.match('name', '(')\nprint(bad)",
+      "NUPP2006", "invalid Lua pattern: unfinished capture")
    oneDiagnostic("local bad = string.gsub('name', '[abc', '#')\nprint(bad)",
       "NUPP2006", "invalid Lua pattern: malformed pattern")
+end
+
+function M.comptimeTypeLibraryDoesNotLeakIntoRuntimeCode()
+   clean(table.concat({
+      "local type TypeLibrary = {",
+      "   readonly string: comptime type,",
+      "   readonly optional: comptime function(value: type): type,",
+      "}",
+      "local comptime function Maybe(T: type): type",
+      "   return nupp.types.optional(T)",
+      "end",
+      "local value: Maybe(string) = nil",
+      "return value",
+   }, "\n"))
+   oneDiagnostic("local leaked = nupp.types.string\nreturn leaked",
+      "NUPP2421", 'compiler-only member "string" is available only inside comptime')
+   oneDiagnostic("local leaked = nupp.types.optional\nreturn leaked",
+      "NUPP2421", 'compiler-only member "optional" is available only inside comptime')
+   oneDiagnostic("local leaked = nupp.types.error\nreturn leaked",
+      "NUPP2421", 'compiler-only member "error" is available only inside comptime')
+   oneDiagnostic(table.concat({
+      "local type ScalarLibrary = {readonly step: comptime function(integer): integer}",
+      "local library: ScalarLibrary = nil as any",
+      "local leaked = library.step",
+      "return leaked",
+   }, "\n"), "NUPP2421",
+      'compiler-only member "step" is available only inside comptime')
 end
 
 function M.templateConstructionAndOneSegmentExtractionAreFinite()

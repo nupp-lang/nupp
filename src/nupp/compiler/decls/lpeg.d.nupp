@@ -13,13 +13,17 @@ local type __LpegEmpty = {never}
 local comptime function __LpegMatch(Captures: type): typepack
     local info = nupp.types.describe(Captures)
     if info.kind == "array" then
-        if nupp.types.kind(info.element) == "never" then
+        local element = info.element
+        if element == nil then
+            return nupp.types.pack({}, nupp.types.any)
+        end
+        if nupp.types.kind(element) == "never" then
             return nupp.types.pack({nupp.types.optional(nupp.types.integer)})
         end
-        return nupp.types.pack({}, nupp.types.optional(info.element))
+        return nupp.types.pack({}, nupp.types.optional(element))
     elseif info.kind == "tuple" then
         local optional = {}
-        for _, capture in ipairs(info.members) do
+        for _, capture in ipairs(info.members or {}) do
             optional[#optional + 1] = nupp.types.optional(capture)
         end
         return nupp.types.pack(optional)

@@ -114,6 +114,9 @@ function comptime.typeFunctionProgram(helper: any, helpers: any): any
 end
 
 function comptime.sealTypeFunction(helper: any, helpers: any, signature: any, definition: any): any
+    if helper and helper.sealedTypeFunction then
+        return helper
+    end
     local program = comptime.typeFunctionProgram(helper, helpers)
     local mainName = helper and (helper.comptimeName or helper.name and helper.name.text) or ""
     local serialized = {}

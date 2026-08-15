@@ -1,21 +1,18 @@
 --[[
-LuaJIT format-directive analysis, parsed by Nupp's own PEG implementation.
-
-The returned tags are deliberately plain data so comptime type functions can decide
-which type each directive consumes without a `string.format` checker special case.
+Compiler lowering for the `%?` debug-format extension, parsed by Nupp's own PEG
+implementation. Ordinary comptime Nupp in the prelude decides argument types; this
+module only rewrites `%?` to the runtime `%s` operation.
 ]]
 
 local stdlib = require("nupp.compiler.stdlib")
 
 local record Analysis
-    arguments: {string}
     format: string
     debugArguments: {boolean}
 end
 
 local record luaFormat
     analyze: function(string): (Analysis?, string?)
-    argumentKinds: function(string): ({string}?, string?)
 end
 
 local matcher: any
@@ -53,7 +50,6 @@ function luaFormat.analyze(format: string): (Analysis?, string?)
         return nil, "invalid string.format directive"
     end
 
-    local kinds = {}
     local debugArguments = {}
     for _, token in ipairs(tokens) do
         if type(token) ~= "table" then
@@ -67,9 +63,6 @@ function luaFormat.analyze(format: string): (Analysis?, string?)
             return nil, 'invalid string.format directive starting at "%' .. flags .. width .. precision:sub(1, 4) .. '"'
         end
         local debug = conversion == "?"
-        kinds[
-            #kinds + 1
-        ] = debug and "debug" or string.find("aAcdiouxXeEfgG", conversion, 1, true) and "number" or "any"
         debugArguments[#debugArguments + 1] = debug
     end
 
@@ -94,13 +87,7 @@ function luaFormat.analyze(format: string): (Analysis?, string?)
         end
     end
 
-    return new Analysis(arguments = kinds, format = table.concat(pieces), debugArguments = debugArguments), nil
-end
-
-function luaFormat.argumentKinds(format: string): ({string}?, string?)
-    local analysis, why = luaFormat.analyze(format)
-
-    return analysis and analysis.arguments or nil, why
+    return new Analysis(format = table.concat(pieces), debugArguments = debugArguments), nil
 end
 
 return luaFormat

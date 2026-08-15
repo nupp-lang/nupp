@@ -6,21 +6,77 @@ local format = {}
 --- produces an open `any` pack. `%?` is reserved for compiler-lowered formatting APIs.
 comptime function format.StringFormatSyntax(Format: type): typepack
     local info = nupp.types.describe(Format)
-    if info.kind ~= "literal" or type(info.value) ~= "string" then
+    local value = info.value
+    if info.kind ~= "literal" then
         return nupp.types.pack({}, nupp.types.any)
     end
-    local parsed = nupp.types.formatArguments(info.value)
-    if parsed.error then
-        return nupp.types.error(parsed.error)
+    if type(value) ~= "string" then
+        return nupp.types.pack({}, nupp.types.any)
     end
+    local source = value as string
     local arguments = {}
-    for _, kind in ipairs(parsed.arguments) do
-        if kind == "number" then
-            arguments[#arguments + 1] = nupp.types.number
-        elseif kind == "debug" then
-            return nupp.types.error("%? is available only to compiler-lowered formatting APIs")
+    local index = 1
+    while index <= #source do
+        if source:sub(index, index) ~= "%" then
+            index = index + 1
         else
-            arguments[#arguments + 1] = nupp.types.any
+            index = index + 1
+            local seen = ""
+            local current = source:sub(index, index)
+            if current == "%" then
+                index = index + 1
+            else
+                while current ~= "" and string.find("-+ #0", current, 1, true) do
+                    seen = seen .. current
+                    index = index + 1
+                    current = source:sub(index, index)
+                end
+                if current == "%" then
+                    nupp.types.error(
+                        'invalid string.format directive starting at "%' .. seen .. source:sub(index) .. '"'
+                    )
+                end
+
+                local width = 0
+                while current ~= "" and string.find("0123456789", current, 1, true) do
+                    width = width + 1
+                    seen = seen .. current
+                    index = index + 1
+                    current = source:sub(index, index)
+                    if width > 2 then
+                        nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
+                    end
+                end
+
+                if current == "." then
+                    seen = seen .. current
+                    index = index + 1
+                    current = source:sub(index, index)
+                    local precision = 0
+                    while current ~= "" and string.find("0123456789", current, 1, true) do
+                        precision = precision + 1
+                        seen = seen .. current
+                        index = index + 1
+                        current = source:sub(index, index)
+                        if precision > 2 then
+                            nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
+                        end
+                    end
+                end
+
+                if string.find("aAcdiouxXeEfgG", current, 1, true) then
+                    arguments[#arguments + 1] = nupp.types.number
+                elseif current == "?" then
+                    nupp.types.error("%? is available only to compiler-lowered formatting APIs")
+                elseif string.find("pqs", current, 1, true) then
+                    arguments[#arguments + 1] = nupp.types.any
+                else
+                    nupp.types.error(
+                        'invalid string.format directive starting at "%' .. seen .. source:sub(index) .. '"'
+                    )
+                end
+                index = index + 1
+            end
         end
     end
 

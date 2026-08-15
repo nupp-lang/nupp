@@ -102,6 +102,16 @@ end
 --- @param c the run's state
 --- @return the statement kinds this family answers
 function control.install(c: state.Checker): state.StatHandlers
+    -- A type constructor cannot in general prove the exact bound of the handle it
+    -- builds. The closed evaluator validates the generated type against the declared
+    -- bound at the type-function call boundary, so a broad `type` result is sound here.
+    local function returnIsA(got, expected)
+        if (c.comptimeFunctionDepth or 0) > 0 and got == T.type_ and expected.tag == "typeHandle" then
+            return true, nil
+        end
+        return isA(got, expected)
+    end
+
     local own, facts = c.own, c.facts
     local mergeFacts, snapshotNarrowed = facts.mergeFacts, facts.snapshotNarrowed
     local provenanceOwners = own.provenanceOwners
@@ -359,7 +369,7 @@ function control.install(c: state.Checker): state.StatHandlers
                     expected = ownReturns[j]
                     got = rawType(got)
                 end
-                local ok, why = isA(got, expected)
+                local ok, why = returnIsA(got, expected)
                 if not ok then
                     c.diag("NUPP2002", stat.exprs and stat.exprs[j] or stat, ("return %d: %s"):format(j, why))
                 end
@@ -390,7 +400,7 @@ function control.install(c: state.Checker): state.StatHandlers
                     expected = ownReturns[j]
                     got = rawType(got)
                 end
-                local ok, why = isA(got, expected)
+                local ok, why = returnIsA(got, expected)
                 if not ok then
                     c.diag("NUPP2002", stat.exprs and stat.exprs[j] or stat, ("return %d: %s"):format(j, why))
                 end
@@ -403,7 +413,7 @@ function control.install(c: state.Checker): state.StatHandlers
                 )
             elseif annotatedPack.tail and annotatedPack.tail.kind == "homogeneous" then
                 for j = #annotatedPack.head + 1, #returnedPack.head do
-                    local ok, why = isA(returnedPack.head[j], annotatedPack.tail.type)
+                    local ok, why = returnIsA(returnedPack.head[j], annotatedPack.tail.type)
                     if not ok then
                         c.diag("NUPP2002", stat, ("return %d: %s"):format(j, why))
                     end

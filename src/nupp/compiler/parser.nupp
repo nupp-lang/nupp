@@ -536,6 +536,16 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             table.insert(inner, 1, keyword)
             return inner
         end
+        if kind == "name" and cur().text == "comptime" and tokens[
+            i + 1
+        ] and (tokens[i + 1].kind == "function" or tokens[i + 1].kind == "name" and tokens[i + 1].text == "type") then
+            local keyword = advance()
+            keyword.contextualOp = true
+            local inner = parseTypePrimary()
+            inner.comptimeOnly = true
+            table.insert(inner, 1, keyword)
+            return inner
+        end
         if kind == "name" and cur().text == "const" and startsType(tokens[i + 1]) then
             local n = new cst.Tconst(kind = "tconst")
             add(n, advance())
@@ -748,6 +758,26 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if cur().kind ~= ")" then
                 repeat
                     local p = new cst.TfuncParam(kind = "tfuncParam")
+                    local isFunctionConst = cur().kind == "name" and cur().text == "const" and tokens[
+                        i + 1
+                    ] and tokens[
+                        i + 1
+                    ].kind == "name" and tokens[
+                        i + 2
+                    ] and tokens[i + 2].kind == ":" and tokens[i + 3] and tokens[i + 3].kind == "function"
+                    if isFunctionConst then
+                        p.constTok = add(p, advance())
+                        p.constTok.contextualOp = true
+                        p.name = add(p, advance())
+                        annotationColon(p, "after const function parameter")
+                        p.constDomainTok = add(p, advance())
+                        n.params[#n.params + 1] = add(n, p)
+                        if cur().kind ~= "," then
+                            break
+                        end
+                        add(n, advance())
+                        goto continue_type_parameter
+                    end
                     if cur().kind == "name" and (
                         cur().text == "takes"
                         or cur().text == "borrows"
@@ -812,6 +842,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                         break
                     end
                     add(n, advance())
+                    ::continue_type_parameter::
                 until false
             end
             add(n, expect(")", "to close function type parameters"))
@@ -926,12 +957,26 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- A type intersection. `&` binds more tightly than `|`.
     local function parseIntersection(stopAtFunctionMember: boolean?): Node
         local t = parsePosttype()
-        if cur().kind ~= "&" or (stopAtFunctionMember and tokens[i + 1] and tokens[i + 1].kind == "function") then
+        local function nextIsFunctionMember(): boolean
+            return tokens[
+                i + 1
+            ] and (
+                tokens[
+                    i + 1
+                ].kind == "function" or tokens[
+                    i + 1
+                ].kind == "name" and tokens[
+                    i + 1
+                ].text == "comptime" and tokens[i + 2] and tokens[i + 2].kind == "function"
+            ) or false
+        end
+
+        if cur().kind ~= "&" or stopAtFunctionMember and nextIsFunctionMember() then
             return t
         end
         local n = new cst.Tintersection(kind = "tintersection")
         n.types = {add(n, t)}
-        while cur().kind == "&" and not (stopAtFunctionMember and tokens[i + 1] and tokens[i + 1].kind == "function") do
+        while cur().kind == "&" and not (stopAtFunctionMember and nextIsFunctionMember()) do
             add(n, advance())
             n.types[#n.types + 1] = add(n, parsePosttype())
         end

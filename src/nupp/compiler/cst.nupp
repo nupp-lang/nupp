@@ -2146,6 +2146,10 @@ record cst.Tfunc is cst.Hints
     --- aliasing, and substitution like everything else a type says.
     noSuspend: boolean?
 
+    --- Written `comptime function(...)`: the callable exists only while evaluating
+    --- compile-time code and may mention compiler-only handle types.
+    comptimeOnly: boolean?
+
     --- Its generic parameters, when it has any.
     generics: cst.Node?
 
@@ -2176,6 +2180,11 @@ record cst.TfuncParam is cst.Hints
 
     --- Its ownership mode, when one was written.
     modeTok: lexer.Token?
+
+    --- The `const` and `function` tokens of a const-function identity parameter.
+    constTok: lexer.Token?
+
+    constDomainTok: lexer.Token?
 
     --- Its name, when it was named.
     name: lexer.Token?
