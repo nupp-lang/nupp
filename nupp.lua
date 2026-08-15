@@ -525,7 +525,7 @@ nupp lsp            # start the language server]],
                },
                {
                   path = "concepts/reflection",
-                  title = "Semantic reflection",
+                  title = "Reflection",
                   source = "docs/concepts/reflection.md",
                },
                {

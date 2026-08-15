@@ -41,3 +41,12 @@ a setting changes only that codec.
 
 Part of the [`nupp.data`](data.md) namespace, which also holds UUIDs, hashes
 and checksums.
+
+## Derived records
+
+For a record deriving `nupp.derive.JSON`, `encode(value)` discovers the record's
+type witness from the value. `encodeAs(Record, value)` and
+`decode(Record, text)` accept the visible record name directly. The derived
+schema, lazy codec allocation, and generated `toJSON`/`fromJSON` members are
+documented once in [Reflection](concepts/reflection.md#json-through-a-type-witness)
+and [Declaration derives](derives.md#json).

@@ -358,6 +358,12 @@ disabled, depth 128, and invalid numbers disabled. Generated validation checks
 the raw value before the record is returned, so mutating `nupp.data.json` or
 another JSON instance cannot alter a derived codec.
 
+The JSON decoder and field codec are allocated lazily as a runtime reflection
+extension. Use `nupp.data.json.encode`, `encodeAs(User, value)`, and
+`decode(User, text)` when a type-witness API fits better than generated members;
+the witness and allocation model are documented in
+[Reflection](concepts/reflection.md#runtime-reflection).
+
 ## Relationship to comptime
 
 Comptime evaluates closed value-producing programs after normal type checking.
@@ -370,4 +376,5 @@ generation.
 
 - [records.md](type-system/records.md): declaration-owned construction defaults.
 - [annotations.md](annotations.md): the field annotations each provider reads.
-- [reflection.md](concepts/reflection.md): the descriptor a generator reads instead.
+- [Reflection](concepts/reflection.md): the comptime descriptor and runtime
+  type witness this page builds on.

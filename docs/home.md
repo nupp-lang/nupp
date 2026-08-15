@@ -34,5 +34,7 @@ For looking something up rather than learning it:
   server, documentation generator, and profiler.
 - [The `nupp` standard library](stdlib.md): JSON, UTF-8, buffers, readers,
   writers, paths, URIs, identifiers, hashes, checksums, math and vectors.
+- [Reflection](concepts/reflection.md): comptime semantic descriptors, runtime
+  type witnesses, lazy descriptors, and JSON's extension-backed codec.
 - [The language reference](reference.md): every construct and the codes that
   report getting it wrong, generated from the compiler.

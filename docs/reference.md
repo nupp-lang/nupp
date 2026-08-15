@@ -1610,7 +1610,11 @@ return m
 Reports: `NUPP2414`, `NUPP2415`, `NUPP2416`, `NUPP2417`. `nupp explain <code>`
 says more.
 
-### Semantic reflection and field codecs
+### Reflection and field codecs
+
+`docs/concepts/reflection.md` is the canonical guide to this feature: it
+connects the comptime descriptor here to `Type<R>`, lazy `R.reflect()` runtime
+descriptors, extensions, and type-witness JSON APIs.
 
 `nupp.reflect(T)` resolves `T` in a type position and creates an immutable,
 target-independent semantic descriptor for comptime. Schema 3 represents the

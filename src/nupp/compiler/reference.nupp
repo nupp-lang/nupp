@@ -1721,9 +1721,13 @@ return m
     ),
 
     new reference.Section(
-        title = "Semantic reflection and field codecs",
+        title = "Reflection and field codecs",
         codes = {"NUPP2414", "NUPP2415", "NUPP2416", "NUPP2418"},
         body = [=[
+`docs/concepts/reflection.md` is the canonical guide to this feature: it
+connects the comptime descriptor here to `Type<R>`, lazy `R.reflect()` runtime
+descriptors, extensions, and type-witness JSON APIs.
+
 `nupp.reflect(T)` resolves `T` in a type position and creates an immutable,
 target-independent semantic descriptor for comptime. Schema 3 represents the
 possibly recursive type as an acyclic indexed graph: `root` selects a node in

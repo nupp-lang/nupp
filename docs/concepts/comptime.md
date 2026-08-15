@@ -97,24 +97,9 @@ One of those materializes only when the block directly initializes a declaration
 whose type the provider owns. An inferred binding, or an opaque value hidden
 inside an ordinary table, is **NUPP2414**.
 
-```nupp
-local m = {}
-
-local record Position
-    x: number
-    y: number
-end
-
-const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
-    return nupp.reflect.fieldCodec(nupp.reflect(Position))
-end
-
-function m.encode(position: Position): {[string]: any}
-    return PositionCodec:encode(position)
-end
-
-return m
-```
+Reflection's `FieldCodec` is the canonical example; its descriptor shape,
+read-only rules, and materialization boundary live on
+[Reflection](reflection.md#comptime-reflection).
 
 ## Diagnostics
 
@@ -134,7 +119,7 @@ return m
 
 ## Next
 
-- [Semantic reflection](reflection.md): the descriptor a comptime block reads
+- [Reflection](reflection.md): the descriptor a comptime block reads
   to generate code from a declaration.
 - [Type system overview](../type-system/overview.md): the finite type operators
   that remain direct language syntax.
