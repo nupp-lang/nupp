@@ -462,10 +462,10 @@ instances receive the default; mutable tables are fresh each time. Defaults
 satisfy constructor completeness. Types have no implicit zero default, and
 interfaces reject field defaults.
 
-The declaration name is also the runtime table stamped as each instance's
-metatable, so it holds `metatable<Point>` rather than `Point`. It may be passed
-to `setmetatable` or receive a metamethod; an instance may not. A function that
-wants a declaration rather than an instance takes `metatable<P>`.
+The declaration name is also its visible `Type<Point>` witness, rather than a
+`Point` instance. It may receive a metamethod; an instance may not. A function
+that wants a declaration rather than an instance takes `Type<P>`. The explicit
+`metatable<P>` type remains for tables passed to Lua's metatable functions.
 
 One explicit type per field: grouped names are rejected.
 
@@ -1612,9 +1612,7 @@ says more.
 
 ### Reflection and field codecs
 
-`docs/concepts/reflection.md` is the canonical guide to this feature: it
-connects the comptime descriptor here to `Type<R>`, lazy `R.reflect()` runtime
-descriptors, extensions, and type-witness JSON APIs.
+See `docs/concepts/reflection.md` for runtime reflection and type witnesses.
 
 `nupp.reflect(T)` resolves `T` in a type position and creates an immutable,
 target-independent semantic descriptor for comptime. Schema 3 represents the

@@ -55,7 +55,7 @@ OnSpawn.init = function(instance: OnSpawn, entity: integer)
     instance.entity = entity
 end
 
-local function newEvent<E is Event>(event: metatable<E>)
+local function newEvent<E is Event>(event: Type<E>)
     local id = 1
     local instanceMt = {__index = event}
 
@@ -75,9 +75,9 @@ own body: the metatable it builds is a `metatable<E>`, and `E`'s bound says what
 `__call` has to be. Putting the contract on the concrete record instead leaves
 the registrar unchecked and only its call sites held to anything.
 
-The parameter is `metatable<E>`, not `E`. What `newEvent(OnSpawn)` passes is the
-record's own runtime table, which is not an instance of the record. The body
-calls `setmetatable` on it, which is the giveaway. Writing `event: E` claims to
+The parameter is `Type<E>`, not `E`. What `newEvent(OnSpawn)` passes is the
+record's own visible type witness, which is not an instance of the record. The
+body calls `setmetatable` on its runtime table. Writing `event: E` claims to
 take an instance and would be a different function.
 
 Records retain their existing runtime namespace table. `new R(...)` stamps that
@@ -278,23 +278,24 @@ setmetatable(task, mt)
 local current: metatable<Task>? = getmetatable(task)
 ```
 
-It is also the type a record's own name holds. `new Task(...)` stamps that table
-on the instances it builds, so the table *is* their metatable and says so:
+It is not the type a record name holds: a record name is `Type<Task>`. A record
+does use that runtime table as the metatable of its instances, but crossing into
+the explicit Lua metatable API requires an explicit assertion:
 
 ```nupp
 local record Task
 end
 
-local mt: metatable<Task> = Task
+local witness: Type<Task> = Task
 local instance: table = {}
 
-setmetatable(instance, Task)
+setmetatable(instance, witness as metatable<Task>)
 ```
 
-That is what separates the declaration's table from an instance of it. `Task`
-may stand wherever a `metatable<Task>` is wanted and nowhere an instance is; a
-value built by `new Task(...)` is the reverse. Reaching a member through the
-table reaches the record's, so `Task.make(...)`, `Task.field = ...` and the
+That explicit assertion separates the declaration witness from a metatable
+value. `Task` may stand where `Type<Task>` is wanted and nowhere an instance is;
+a value built by `new Task(...)` is the reverse. Reaching a member through the
+witness reaches the record's, so `Task.make(...)`, `Task.field = ...` and the
 metamethods installed on it all resolve.
 
 Direct metatable literals reject unknown double-underscore keys, catching

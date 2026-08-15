@@ -41,13 +41,11 @@ local record User
 end
 
 local witness: Type<User> = User
-local legacy: metatable<User> = User
 local value: User = new User(id = 7)
 local first = User.reflect()
 local second = User.reflect()
 return {
     witness = witness == User,
-    legacy = legacy == User,
     distinct = User ~= value,
     cached = first == second,
     name = first.name,
@@ -55,7 +53,6 @@ return {
 }
 ]])
    assertEq(result.witness, true, "Type<T> witness")
-   assertEq(result.legacy, true, "Type<T> metatable coercion")
    assertEq(result.distinct, true, "type is not an instance")
    assertEq(result.cached, true, "reflect cache")
    assertEq(result.name, "User", "descriptor name")

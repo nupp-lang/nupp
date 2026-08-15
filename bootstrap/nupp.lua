@@ -16793,7 +16793,8 @@ if node . safeObj then
 ot = withoutNil ( ot )
 end
 local rawReceiver = rawType ( ot )
-local staticOwner = rawReceiver . tag == "metatable" and rawType ( rawReceiver . of ) or nil
+local staticOwner = ( rawReceiver . tag == "metatable" or rawReceiver . tag == "typeobject" )
+and rawType ( rawReceiver . of ) or nil
 local static = staticOwner
 and staticOwner . tag == "nominal"
 and staticOwner . staticByname
@@ -17432,7 +17433,7 @@ return c . fieldType ( t . elem , name )
 end
 
 
-if t . tag == "metatable" then
+if t . tag == "metatable" or t . tag == "typeobject" then
 local owner = rawType ( t . of )
 if owner . tag == "nominal" then
 local ft = owner . staticByname and owner . staticByname [ name ]
@@ -17440,6 +17441,13 @@ local definition = owner . staticFieldDefs and owner . staticFieldDefs [ name ]
 if not ft then
 ft = owner . byname and owner . byname [ name ]
 definition = owner . fieldDefs and owner . fieldDefs [ name ]
+end
+
+
+
+if t . tag == "typeobject" and name == "reflect" and not ft then
+owner . runtimeReflectionNeeded = true
+return T . func ( { } , { T . any } , false )
 end
 return ft and specializeSelf ( owner , ft , owner ) or nil , definition
 end
@@ -17531,7 +17539,7 @@ end
 return specializeSelf ( bound , entry . writeType , t ) , entry . definition , entry . definitions
 end
 
-if t . tag == "metatable" then
+if t . tag == "metatable" or t . tag == "typeobject" then
 local owner = rawType ( t . of )
 if owner . tag == "nominal" then
 local ft = owner . staticWriteByname and owner . staticWriteByname [ name ]
@@ -17631,7 +17639,7 @@ function ops . metamethodOf ( t , name )
 t = rawType ( t )
 
 
-if t . tag == "metatable" then
+if t . tag == "metatable" or t . tag == "typeobject" then
 return ops . metamethodOf ( t . of , name )
 end
 if t . tag == "typevar" and t . bound then
@@ -17816,7 +17824,9 @@ end
 
 
 
-if calleeT . tag == "metatable" and calleeT . of . tag == "nominal" and calleeT . of . declKind == "record" then
+if ( calleeT . tag == "metatable" or calleeT . tag == "typeobject" )
+and calleeT . of . tag == "nominal"
+and calleeT . of . declKind == "record" then
 calleeT = calleeT . of
 node . signatureType = calleeT
 end
@@ -22111,7 +22121,7 @@ c . bindDeclaredType ( stat , n )
 
 
 if stat . declKind == "record" and not stat . isAnnotationDefinition then
-c . bindDeclaredVar ( stat , T . metatable ( n ) )
+c . bindDeclaredVar ( stat , T . typeObject ( n ) )
 end
 
 
@@ -22179,7 +22189,7 @@ if nestedKind == "record" or nestedKind == "struct" then
 
 
 
-local held = nestedKind == "record" and T . metatable ( nested ) or nested
+local held = nestedKind == "record" and T . typeObject ( nested ) or nested
 n . byname [ e . name . text ] = held
 n . writeByname [ e . name . text ] = held
 end
@@ -22855,7 +22865,7 @@ n . nestedTypes [ e . name . text ] = nested
 if nested . tag == "nominal" and (
 nested . declKind == "record" or nested . declKind == "struct"
 ) then
-local held = nested . declKind == "record" and T . metatable ( nested ) or nested
+local held = nested . declKind == "record" and T . typeObject ( nested ) or nested
 n . byname [ e . name . text ] = held
 n . writeByname [ e . name . text ] = held
 n . fieldDefs [ e . name . text ] = c . definition ( e . name , "property" )
@@ -25705,7 +25715,8 @@ node . provenNeedsNil = admitsNil
 
 
 
-elseif rawType ( present ) . tag == "metatable" and target . tag == "nominal" then
+elseif ( rawType ( present ) . tag == "metatable" or rawType ( present ) . tag == "typeobject" )
+and target . tag == "nominal" then
 node . refutedStatically = true
 end
 end
@@ -28323,7 +28334,7 @@ t . declKind == "record" or t . declKind == "struct" or t . declKind == "interfa
 ) then
 
 
-local held = t . declKind == "struct" and t or T . metatable ( t )
+local held = t . declKind == "struct" and t or T . typeObject ( t )
 c . markToken ( member , def , held , def and def . kind or "variable" )
 return held
 end
@@ -28407,7 +28418,7 @@ end
 
 
 local contract = c . metamethodOf ( base , memberName )
-if contract and base . tag == "metatable" then
+if contract and ( base . tag == "metatable" or base . tag == "typeobject" ) then
 node . metamethodName = memberName
 node . metamethodReceiver = base
 c . markToken ( member , nil , contract , "property" )
@@ -28461,7 +28472,7 @@ contracted and "use the suggested contract spelling" or "use the suggested field
 } )
 return T . any
 end
-local staticOwner = base . tag == "metatable" and rawType ( base . of ) or nil
+local staticOwner = ( base . tag == "metatable" or base . tag == "typeobject" ) and rawType ( base . of ) or nil
 if not writing
 and staticOwner
 and staticOwner . tag == "nominal"
@@ -32601,6 +32612,12 @@ return T . typeHandle ( c . resolveType ( node . typeArgs [ 1 ] ) )
 end
 if name == "metatable" and node . typeArgs and node . typeArgs [ 1 ] then
 return T . metatable ( c . resolveType ( node . typeArgs [ 1 ] ) )
+end
+if name == "Type" and node . typeArgs and node . typeArgs [ 1 ] then
+if # node . typeArgs ~= 1 then
+c . diag ( "NUPP2121" , node , "Type<T> needs exactly one type argument" )
+end
+return T . typeObject ( c . resolveType ( node . typeArgs [ 1 ] ) )
 end
 if name == "thread" and node . typeArgs then
 if # node . typeArgs ~= 4 then
@@ -58839,6 +58856,7 @@ local cst = require ( "nupp.compiler.cst" )
 local predicate = require ( "nupp.compiler.predicate" )
 local stdlib = require ( "nupp.compiler.stdlib" )
 local cabi = require ( "nupp.compiler.cabi" )
+local reflection = require ( "nupp.compiler.reflection" )
 
 local gen = { }
 
@@ -61275,6 +61293,13 @@ local attached = x . recordRuntimeName or path
 local storage = attached and "" or x . visibility == "global" and "" or "const "
 local expr = ( "%s%s = {} %s.__index = %s" ) : format ( storage , runtimeName , runtimeName , runtimeName )
 e ( expr , line )
+local nominal = x . resolvedType
+local jsonDerive = x . deriveRecipe and x . deriveRecipe . data and x . deriveRecipe . data . json
+if nominal and ( nominal . runtimeReflectionNeeded or jsonDerive ) then
+needRuntimeEffect ( "stdlib.reflection" )
+local descriptor = reflection . describe ( nominal , runtimeName )
+e ( ";_G.nupp.__reflect.register(" .. runtimeName .. "," .. pluck . renderData ( descriptor ) .. ")" )
+end
 for _ , entry in ipairs ( x . entries or { } ) do
 if entry . kind == "recordDecl" and entry . declKind == "record" then
 entry . recordRuntimeName = runtimeName .. "." .. entry . name . text
@@ -64005,6 +64030,8 @@ elseif tag == "pinned" then
 return T . pinned ( substWith ( t . inner , map , unmapped ) )
 elseif tag == "metatable" then
 return T . metatable ( substWith ( t . of , map , unmapped ) )
+elseif tag == "typeobject" then
+return T . typeObject ( substWith ( t . of , map , unmapped ) )
 elseif tag == "protocolThread" then
 return T . protocolThread (
 substPackWith ( t . startPack , map , unmapped ) ,
@@ -64889,6 +64916,12 @@ inner , err = normalize ( t . of , memo , budget )
 if not err then
 out = T . metatable ( inner )
 end
+elseif t . tag == "typeobject" then
+local inner
+inner , err = normalize ( t . of , memo , budget )
+if not err then
+out = T . typeObject ( inner )
+end
 elseif t . tag == "func" then
 
 
@@ -65487,6 +65520,12 @@ elseif tag == "metatable" then
 
 
 if arg . tag == "metatable" then
+generics . unify ( param . of , arg . of , map )
+elseif arg . tag == "typeobject" then
+generics . unify ( param . of , arg . of , map )
+end
+elseif tag == "typeobject" then
+if arg . tag == "typeobject" then
 generics . unify ( param . of , arg . of , map )
 end
 elseif tag == "map" then
@@ -87566,10 +87605,10 @@ instances receive the default; mutable tables are fresh each time. Defaults
 satisfy constructor completeness. Types have no implicit zero default, and
 interfaces reject field defaults.
 
-The declaration name is also the runtime table stamped as each instance's
-metatable, so it holds `metatable<Point>` rather than `Point`. It may be passed
-to `setmetatable` or receive a metamethod; an instance may not. A function that
-wants a declaration rather than an instance takes `metatable<P>`.
+The declaration name is also its visible `Type<Point>` witness, rather than a
+`Point` instance. It may receive a metamethod; an instance may not. A function
+that wants a declaration rather than an instance takes `Type<P>`. The explicit
+`metatable<P>` type remains for tables passed to Lua's metatable functions.
 
 One explicit type per field: grouped names are rejected.
 ]=] ,  example =
@@ -88750,9 +88789,11 @@ return m
 , setmetatable({ title =
 
 
-"Semantic reflection and field codecs" ,  codes =
+"Reflection and field codecs" ,  codes =
 { "NUPP2414" , "NUPP2415" , "NUPP2416" , "NUPP2418" } ,  body =
 [=[
+See `docs/concepts/reflection.md` for runtime reflection and type witnesses.
+
 `nupp.reflect(T)` resolves `T` in a type position and creates an immutable,
 target-independent semantic descriptor for comptime. Schema 3 represents the
 possibly recursive type as an acyclic indexed graph: `root` selects a node in
@@ -89484,7 +89525,7 @@ elseif tag == "carray" then
 out . element = intern ( t . elem )
 out . count = t . count
 out . countTerm = intern ( t . countTerm )
-elseif tag == "ctype" or tag == "metatable" then
+elseif tag == "ctype" or tag == "metatable" or tag == "typeobject" then
 out . of = intern ( t . of )
 end
 
@@ -89607,7 +89648,7 @@ end
 if tag == "number" or tag == "integer" or CDATA_NUM [ tag ] then
 return "number"
 end
-if tag == "array" or tag == "map" or tag == "tuple" or tag == "shape" or tag == "table" or tag == "metatable" then
+if tag == "array" or tag == "map" or tag == "tuple" or tag == "shape" or tag == "table" or tag == "metatable" or tag == "typeobject" then
 return "table"
 end
 if tag == "func" then
@@ -90420,6 +90461,7 @@ or atag == "map"
 or atag == "tuple"
 or atag == "shape"
 or atag == "metatable"
+or atag == "typeobject"
 or atag == "nominal"
 then
 return true
@@ -90435,6 +90477,7 @@ or btag == "map"
 or btag == "tuple"
 or btag == "shape"
 or btag == "metatable"
+or btag == "typeobject"
 or btag == "nominal"
 then
 return true
@@ -91731,6 +91774,24 @@ __nuppFieldCodec.keyed=__nuppKeyedCodec;
 ]=]
 )
 
+
+
+
+local REFLECTION = compact (
+[=[
+local __nuppReflect=rawget(__nupp,"__reflect")or{};rawset(__nupp,"__reflect",__nuppReflect)
+local __nuppReflectionBlueprints=__nuppReflect.blueprints or setmetatable({},{__mode="k"});__nuppReflect.blueprints=__nuppReflectionBlueprints
+local __nuppReflectionInfos=__nuppReflect.infos or setmetatable({},{__mode="k"});__nuppReflect.infos=__nuppReflectionInfos
+local __nuppReflectionStates=__nuppReflect.states or setmetatable({},{__mode="k"});__nuppReflect.states=__nuppReflectionStates
+local __nuppReflectionInfo={}
+function __nuppReflectionInfo:extension(extension)local state=__nuppReflectionStates[self];if not state then error("nupp: foreign reflection descriptor",2)end;local cached=state.extensions[extension];if cached then if cached.state=="ready"then return cached.value end;if cached.state=="failed"then error(cached.error,2)end;error("nupp: recursive extension initialization",2)end;cached={state="initializing"};state.extensions[extension]=cached;local ok,value=pcall(extension.build,self);if not ok then cached.state="failed";cached.error=tostring(value);error(cached.error,2)end;cached.state="ready";cached.value=value;return value end
+__nuppReflectionInfo.__index=function(info,key)if key=="extension"then return __nuppReflectionInfo.extension end;local state=__nuppReflectionStates[info];if key=="type"then return state and state.type end;return state and state.blueprint[key]end
+__nuppReflectionInfo.__newindex=function()error("nupp: reflection descriptors are immutable",2)end
+function __nuppReflect.register(typeObject,blueprint)__nuppReflectionBlueprints[typeObject]=blueprint;rawset(typeObject,"reflect",function()local prior=__nuppReflectionInfos[typeObject];if prior then return prior end;local declared=__nuppReflectionBlueprints[typeObject];if not declared then error("nupp: type has no reflection blueprint",2)end;local info=setmetatable({},__nuppReflectionInfo);__nuppReflectionInfos[typeObject]=info;__nuppReflectionStates[info]={type=typeObject,blueprint=declared,extensions={}};return info end);return typeObject end
+__nuppReflect.json=__nuppReflect.json or {version="nupp-json-extension-v1"}
+]=]
+)
+
 local DERIVES = compact (
 [=[
 local __nuppDerive=rawget(__nupp,"__derive")or{};rawset(__nupp,"__derive",__nuppDerive)
@@ -91764,18 +91825,27 @@ local __nuppDecodeValue
 local function __nuppDecodeObject(value,entry,path)
 if type(value)~="table"then return false,nil,path..": expected object"end;local schema=entry.schema;local known={};local out={};for _,field in ipairs(schema.fields)do if not field.omit then local key=field.jsonName or field.name;known[key]=true;local raw=rawget(value,key);if raw==nil then if field.default then local ok,result=pcall(__nuppDefaultValue,field.default);if not ok then return false,nil,path.."."..key..": "..tostring(result)end;if result~=nil then out[field.name]=result end elseif field.jsonType and field.jsonType.kind=="optional"then else return false,nil,path.."."..key..": required field is absent"end else local ok,result,err=__nuppDecodeValue(raw,field.jsonType,entry,path.."."..key);if not ok then return false,nil,err end;if result~=nil then out[field.name]=result end end elseif field.default then local result=__nuppDefaultValue(field.default);if result~=nil then out[field.name]=result end end end;if schema.unknown~="ignore"then for key in pairs(value)do if not known[key]then return false,nil,path..": unknown field "..string.format("%q",tostring(key))end end end;return true,setmetatable(out,entry.mt),nil end
 __nuppDecodeValue=function(value,spec,entry,path)
-local kind=spec and spec.kind;if kind=="optional"then if value==entry.decoder.NULL then return true,nil,nil end;return __nuppDecodeValue(value,spec.value,entry,path)elseif value==entry.decoder.NULL then return false,nil,path..": null is not allowed"elseif kind=="union"then if type(value)~="table"then return false,nil,path..": expected discriminated object"end;local tag=rawget(value,spec.jsonTag);local selected=spec.choices[tag];if not selected then return false,nil,path.."."..spec.jsonTag..": unknown discriminant"end;return __nuppDecodeValue(value,selected,entry,path)elseif kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];if not nested then return false,nil,path..": derived JSON dependency is not loaded"end;return __nuppDecodeObject(value,nested,path)elseif kind=="string"then return type(value)=="string",value,type(value)=="string"and nil or path..": expected string"elseif kind=="boolean"then return type(value)=="boolean",value,type(value)=="boolean"and nil or path..": expected boolean"elseif kind=="literal"then return value==spec.value,value,value==spec.value and nil or path..": literal value does not match"elseif kind=="number"or kind=="float"or kind=="integer"then if type(value)~="number"or not __nuppFinite(value)then return false,nil,path..": expected finite number"end;if kind=="integer"and(value%1~=0 or spec.minimum and value<spec.minimum or spec.maximum and value>spec.maximum)then return false,nil,path..": expected integer in range"end;return true,value,nil end
+local kind=spec and spec.kind;if kind=="optional"then if value==entry.decoder.NULL then return true,nil,nil end;return __nuppDecodeValue(value,spec.value,entry,path)elseif value==entry.decoder.NULL then return false,nil,path..": null is not allowed"elseif kind=="union"then if type(value)~="table"then return false,nil,path..": expected discriminated object"end;local tag=rawget(value,spec.jsonTag);local selected=spec.choices[tag];if not selected then return false,nil,path.."."..spec.jsonTag..": unknown discriminant"end;return __nuppDecodeValue(value,selected,entry,path)elseif kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];if not nested then return false,nil,path..": derived JSON dependency is not loaded"end;__nuppDerive.jsonCodec(nested);return __nuppDecodeObject(value,nested,path)elseif kind=="string"then return type(value)=="string",value,type(value)=="string"and nil or path..": expected string"elseif kind=="boolean"then return type(value)=="boolean",value,type(value)=="boolean"and nil or path..": expected boolean"elseif kind=="literal"then return value==spec.value,value,value==spec.value and nil or path..": literal value does not match"elseif kind=="number"or kind=="float"or kind=="integer"then if type(value)~="number"or not __nuppFinite(value)then return false,nil,path..": expected finite number"end;if kind=="integer"and(value%1~=0 or spec.minimum and value<spec.minimum or spec.maximum and value>spec.maximum)then return false,nil,path..": expected integer in range"end;return true,value,nil end
 if type(value)~="table"then return false,nil,path..": expected table"end;if kind=="array"then local out={};local count=#value;for key in pairs(value)do if type(key)~="number"or key%1~=0 or key<1 or key>count then return false,nil,path..": expected dense array"end end;for i=1,count do local ok,result,err=__nuppDecodeValue(value[i],spec.value,entry,path.."["..i.."]");if not ok then return false,nil,err end;out[i]=result end;return true,out,nil elseif kind=="tuple"then if#value~=#spec.items then return false,nil,path..": tuple length does not match"end;local out={};for i,item in ipairs(spec.items)do local ok,result,err=__nuppDecodeValue(value[i],item,entry,path.."["..i.."]");if not ok then return false,nil,err end;out[i]=result end;return true,out,nil elseif kind=="map"then local out={};for key,item in pairs(value)do if type(key)~="string"then return false,nil,path..": expected string map key"end;local ok,result,err=__nuppDecodeValue(item,spec.value,entry,path.."."..key);if not ok then return false,nil,err end;out[key]=result end;return true,out,nil elseif kind=="shape"then local fake={schema={fields=spec.fields,unknown=spec.unknown or"reject"},mt=nil,decoder=entry.decoder};local ok,result,err=__nuppDecodeObject(value,fake,path);if ok then setmetatable(result,nil)end;return ok,result,err end;return false,nil,path..": unsupported JSON value"end
 function __nuppDerive.register(key,mt,schema)
 local entry={key=key,mt=mt,schema=schema};rawset(mt,"__nuppDeriveKey",key);local json=schema.data and schema.data.json;if json then schema.fields=json.fields;schema.unknown=json.unknown;local decoder=__nuppData.json.newJSON();decoder.decodeArrayWithArrayMt(false);decoder.decodeMaxDepth(128);decoder.decodeInvalidNumbers(false);entry.decoder=decoder;local codec={fingerprint="derive-json-v1|emit=1|decode=cjson|arraymt=false|maxdepth=128|invalid=false|schema="..schema.fingerprint};function codec:encode(value)local out={};for _,field in ipairs(schema.fields)do if not field.omit then local item=rawget(value,field.name);local empty=item==nil or item==""or item==false or type(item)=="table"and next(item)==nil;if item~=nil and not(field.omitEmpty and empty)then out[field.jsonName or field.name]=item end end end;return out end;function codec:decode(value)local ok,result,err=__nuppDecodeObject(value,entry,"$");if ok then return result,nil end;return nil,err end;entry.codec=codec end;__nuppDeriveTypes[key]=entry;return entry end
 function __nuppDerive.toJSON(value,entry)local buf=__nuppBufferNew();__nuppWriteObject(value,entry.schema.fields,entry.schema.unknown,buf,{active={},depth=0},"$");return buf:tostring()end
 function __nuppDerive.fromJSON(text,entry)local ok,value=pcall(entry.decoder.decodeJSON,text);if not ok then return nil,tostring(value)end;local valid,result,err=__nuppDecodeObject(value,entry,"$");if not valid then return nil,err end;return result,nil end
 function __nuppDerive.fieldCodec(entry)return entry.codec end
+function __nuppDerive.jsonCodec(entry)local codec=entry.codec;if codec then return codec end;local schema=entry.schema;local json=schema.data and schema.data.json;if not json then error("nupp: JSON was not derived for this type",3)end;schema.fields=json.fields;schema.unknown=json.unknown;local decoder=__nuppData.json.newJSON();decoder.decodeArrayWithArrayMt(false);decoder.decodeMaxDepth(128);decoder.decodeInvalidNumbers(false);entry.decoder=decoder;codec={fingerprint="derive-json-v1|emit=1|decode=cjson|arraymt=false|maxdepth=128|schema="..schema.fingerprint};function codec:encode(value)local out={};for _,field in ipairs(schema.fields)do if not field.omit then local item=rawget(value,field.name);local empty=item==nil or item==""or item==false or type(item)=="table"and next(item)==nil;if item~=nil and not(field.omitEmpty and empty)then out[field.jsonName or field.name]=item end end end;return out end;function codec:decode(value)local ok,result,err=__nuppDecodeObject(value,entry,"$");if ok then return result,nil end;return nil,err end;entry.codec=codec;return codec end
+function __nuppDerive.register(key,mt,schema)local entry={key=key,mt=mt,schema=schema};rawset(mt,"__nuppDeriveKey",key);local json=schema.data and schema.data.json;if json then schema.fields=json.fields;schema.unknown=json.unknown end;__nuppDeriveTypes[key]=entry;return entry end
+local __nuppDeriveReflect=rawget(__nupp,"__reflect")
+if __nuppDeriveReflect then __nuppDeriveReflect.json.build=function(info)local mt=info.type;local entry=mt and __nuppDeriveTypes[rawget(mt,"__nuppDeriveKey")];if not entry then error("nupp: JSON was not derived for this type",2)end;return __nuppDerive.jsonCodec(entry)end end
+local function __nuppDerivedJSON(entry)return entry.mt:reflect():extension(__nuppDeriveReflect.json)end
+function __nuppDerive.toJSON(value,entry)__nuppDerivedJSON(entry);local buf=__nuppBufferNew();__nuppWriteObject(value,entry.schema.fields,entry.schema.unknown,buf,{active={},depth=0},"$");return buf:tostring()end
+function __nuppDerive.fromJSON(text,entry)local codec=__nuppDerivedJSON(entry);local ok,value=pcall(entry.decoder.decodeJSON,text);if not ok then return nil,tostring(value)end;local result,err=codec:decode(value);if not result then return nil,err end;return result,nil end
+function __nuppDerive.fieldCodec(entry)return __nuppDerivedJSON(entry)end
+if __nuppDeriveReflect then local function __nuppJSONEntry(typeObject)local entry=typeObject and __nuppDeriveTypes[rawget(typeObject,"__nuppDeriveKey")];if not entry then error("nupp: JSON was not derived for this type",3)end;return entry end;local __nuppJSONAPI=__nuppData.json;__nuppJSONAPI.decode=function(typeObject,text)return __nuppDerive.fromJSON(text,__nuppJSONEntry(typeObject))end;__nuppJSONAPI.encodeAs=function(typeObject,value)return __nuppDerive.toJSON(value,__nuppJSONEntry(typeObject))end;__nuppJSONAPI.encode=function(value)local typeObject=getmetatable(value);return __nuppDerive.toJSON(value,__nuppJSONEntry(typeObject))end end
 local __nuppDeriveModule={
 debug=function(value,entry)return __nuppDerive.debug(value,entry.schema.data.debug)end,
 toJSON=function(value,entry)return __nuppDerive.toJSON(value,entry)end,
 fromJSON=function(text,entry)return __nuppDerive.fromJSON(text,entry)end,
-fieldCodec=function(entry)return entry.codec end,
+fieldCodec=function(entry)return __nuppDerive.fieldCodec(entry)end,
 }
 package.preload["nupp.derive"]=function()return __nuppDeriveModule end
 ]=]
@@ -92364,6 +92434,9 @@ out [ # out + 1 ] = PEG_COMPILE_NATIVE
 end
 if effects [ "stdlib.fieldcodec" ] then
 out [ # out + 1 ] = FIELDCODEC
+end
+if effects [ "stdlib.reflection" ] then
+out [ # out + 1 ] = REFLECTION
 end
 if effects [ "stdlib.derives" ] then
 out [ # out + 1 ] = DERIVES
@@ -93564,6 +93637,15 @@ types.Metatable = {} types.Metatable.__index = types.Metatable
 
 
 
+types.TypeObject = {} types.TypeObject.__index = types.TypeObject
+
+
+
+
+
+
+
+
 
 
 
@@ -93690,6 +93772,10 @@ types.AssociatedLookup = {} types.AssociatedLookup.__index = types.AssociatedLoo
 
 
 types.Nominal = {} types.Nominal.__index = types.Nominal
+
+
+
+
 
 
 
@@ -94133,7 +94219,7 @@ types . functionConst = prim ( "functionconst" )
 
 local TABLE_SHAPED
 
-= { array = true , map = true , tuple = true , shape = true , metatable = true , nominal = true , }
+= { array = true , map = true , tuple = true , shape = true , metatable = true , typeobject = true , nominal = true , }
 
 
 local builtins
@@ -95553,6 +95639,17 @@ return intern ( internKey , setmetatable({ tag =  "metatable" ,  of =  t }, type
 end
 
 
+function types . typeObject ( t )
+local internKey = "Type(" .. t . id .. ")"
+local existing = interned ( internKey )
+if existing then
+return existing
+end
+
+return intern ( internKey , setmetatable({ tag =  "typeobject" ,  of =  t }, types.TypeObject) )
+end
+
+
 function types . projection ( of , name )
 local internKey = "!jproj(" .. of . id .. "," .. name .. ")"
 
@@ -95875,6 +95972,8 @@ end
 return "<" .. t . op .. ">"
 elseif tag == "metatable" then
 return "metatable<" .. types . tostring ( t . of ) .. ">"
+elseif tag == "typeobject" then
+return "Type<" .. types . tostring ( t . of ) .. ">"
 elseif tag == "projection" then
 return types . tostring ( t . of ) .. "." .. t . name
 elseif tag == "literal" then
@@ -104642,6 +104741,15 @@ record nupp.data
         interface JSONEncodable
             toJSON: function(self): string
         end
+
+        --- Decodes JSON into the nominal record named by its one type witness.
+        decode: function<T>(type: Type<T>, text: string): (T?, string?)
+
+        --- Encodes a nominal record after explicitly supplying its type witness.
+        encodeAs: function<T>(type: Type<T>, value: T): string
+
+        --- Encodes a nominal record using the metatable its value already carries.
+        encode: function<T>(value: T): string
 
         --- One independently configured JSON encoder and decoder.
         interface JSON

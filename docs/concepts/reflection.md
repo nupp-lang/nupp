@@ -14,9 +14,9 @@ Both describe declarations, not object layout. Use `nupp.sizeof`, `nupp.alignof`
 ## Type witnesses
 
 Every record has a visible nominal type value. Its declaration name is a
-`Type<Record>`, distinct from both an instance (`Record`) and the legacy
-`metatable<Record>` view. It is still the record's ordinary runtime table, so
-constructors, static members, and method dispatch keep their Lua behaviour.
+`Type<Record>`, distinct from an instance (`Record`). It is still the record's
+ordinary runtime table, so constructors, static members, and method dispatch
+keep their Lua behaviour.
 
 ```nupp
 local record User
@@ -31,9 +31,8 @@ assert(witness == User)
 assert(User ~= user)
 ```
 
-`Type<T>` flows to `metatable<T>` where an older API expects that view. The
-reverse is not true: a metatable is not proof that a caller holds the named type
-witness.
+`metatable<T>` remains for explicit Lua metatable construction, but a record
+name is never one. An API that accepts a declared record takes `Type<T>`.
 
 ## Runtime reflection
 
@@ -97,11 +96,11 @@ assert(problem == nil)
 assert(restored and restored.id == 7)
 ```
 
-`encode` takes the witness from the value's record metatable. `encodeAs` and
-`decode` take it explicitly, which is useful at an API boundary or before a
-value exists. The JSON options, wire format, and validation rules are documented
-in [Declaration derives](../derives.md#json); the generic cjson-compatible API
-is documented in [JSON](../json.md).
+`encode` discovers the record declaration from the value. `encodeAs` and
+`decode` take its `Type<T>` witness explicitly, which is useful at an API
+boundary or before a value exists. The JSON options, wire format, and validation
+rules are documented in [Declaration derives](../derives.md#json); the generic
+cjson-compatible API is documented in [JSON](../json.md).
 
 ## Comptime reflection
 

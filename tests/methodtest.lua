@@ -463,7 +463,7 @@ function M.instancesAreRecognisedThroughTheirPrototype()
       "OnSpawn.init = function(instance: OnSpawn, entity: integer)",
       "   instance.entity = entity",
       "end",
-      "local function newEvent<E is Event>(event: metatable<E>)",
+      "local function newEvent<E is Event>(event: Type<E>)",
       "   local instanceMt = {__index = event}",
       "   setmetatable(event, {__call = function(_self: E, ...: any): E",
       "      local instance = setmetatable({eventId = 7}, instanceMt) as E",
@@ -964,14 +964,16 @@ end
 function M.aRecordsTableIsNotAnInstanceOfIt()
    local foo = "local record Foo\n   v: integer\nend\n"
    assertClean(foo .. table.concat({
-      "local mt: metatable<Foo> = Foo",
+      "local witness: Type<Foo> = Foo",
       "local instance: Foo = new Foo(v = 1)",
-      "return {mt, instance}",
+      "return {witness, instance}",
    }, "\n"))
    -- the table is not an instance
    assertEq(diagsOf(foo .. "local wrong: Foo = Foo\nreturn wrong"),
       "NUPP2001:4")
-   -- and an instance is not the table
+   -- and neither a type witness nor an instance is a metatable value
+   assertEq(diagsOf(foo .. "local wrong: metatable<Foo> = Foo\nreturn wrong"),
+      "NUPP2001:4")
    assertEq(diagsOf(foo .. table.concat({
       "local instance = new Foo(v = 1)",
       "local wrong: metatable<Foo> = instance",
@@ -1034,7 +1036,7 @@ end
 -- A record's runtime table is the metatable its instances carry, so it is a
 -- `metatable<R>` and the oldest way to write a class in Lua checks. Reaching a
 -- member through the wrapper reaches the record's.
-function M.aRecordsTableSatisfiesItsOwnMetatableType()
+function M.aRecordsTableHasItsOwnTypeWitness()
    local foo = table.concat({
       "local record Foo",
       "   v: integer",
@@ -1045,23 +1047,22 @@ function M.aRecordsTableSatisfiesItsOwnMetatableType()
    }, "\n")
    assertClean(foo .. table.concat({
       "",
-      "local raw: table = {v = 1}",
-      "local mt: metatable<Foo> = Foo",
-      "setmetatable(raw, Foo)",
-      "return mt",
+      "local witness: Type<Foo> = Foo",
+      "return witness",
    }, "\n"))
-   -- and the members are reached through it
+   -- and the members are reached through the witness
    assertClean(foo .. table.concat({
       "",
-      "local mt: metatable<Foo> = Foo",
-      "local f: function(self: Foo): integer = mt.double",
+      "local witness: Type<Foo> = Foo",
+      "local f: function(self: Foo): integer = witness.double",
       "return f",
    }, "\n"))
    assertEq(diagsOf(foo .. table.concat({
       "",
-      "local mt: metatable<Foo> = Foo",
-      "return mt.nosuch",
+      "local witness: Type<Foo> = Foo",
+      "return witness.nosuch",
    }, "\n")), "NUPP2004:8")
+   assertEq(diagsOf(foo .. "\nlocal raw: table = {}\nsetmetatable(raw, Foo)"), "NUPP2006:8")
 end
 
 -- A record's runtime table is the metatable its instances carry, so writing a
@@ -1171,14 +1172,14 @@ function M.aBoundedReceiverCarriesItsContractIntoTheRegistrar()
    }, "\n")
    assertEq(diagsOf(event .. table.concat({
       "",
-      "local function newEvent<E is Event>(event: metatable<E>)",
+      "local function newEvent<E is Event>(event: Type<E>)",
       "   setmetatable(event, {__call = 'not callable'})",
       "end",
       "return newEvent",
    }, "\n")), "NUPP2123:9")
    assertClean(event .. table.concat({
       "",
-      "local function newEvent<E is Event>(event: metatable<E>)",
+      "local function newEvent<E is Event>(event: Type<E>)",
       "   local instanceMt = {__index = event}",
       "   setmetatable(event, {__call = function(_self: E, ...: any): E",
       "      return setmetatable({eventId = 7}, instanceMt) as E",

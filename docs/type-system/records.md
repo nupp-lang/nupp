@@ -58,18 +58,19 @@ table all answer `false`.
 
 ### Names hold their table
 
-`Point` is a type and also a value: the runtime table above. That table is the
-metatable its instances carry, so the value has the type of one.
+`Point` is a type and also a value: the runtime table above. Its value is the
+declaration's visible `Type<Point>` witness.
 
 ```nupp
-local mt: metatable<Point> = Point
+local witness: Type<Point> = Point
 local p: Point = new Point(x = 3, y = 4)
 ```
 
-Neither stands where the other is wanted. `Point` may be passed to
-`setmetatable`, held under a `metatable<Point>` annotation, and written to when
-a [metamethod contract](../metamethods.md) is installed; `p` may not. `p` may be
-read for its fields and passed where a `Point` is wanted; `Point` may not.
+Neither stands where the other is wanted. `Point` may be written to when a
+[metamethod contract](../metamethods.md) is installed; `p` may not. `p` may be
+read for its fields and passed where a `Point` is wanted; `Point` may not. A
+record name is not implicitly a `metatable<Point>`: that type remains for an
+explicit table passed to Lua's metatable functions.
 `Point is Point` is answered without running, because a declaration's own table
 is never one of the values it stamps.
 
@@ -78,7 +79,7 @@ Reaching a member through the table reaches the record's, so `Point.length`,
 function that takes a declaration's table rather than an instance says so:
 
 ```nupp
-local function register<P is Shape>(shape: metatable<P>)
+local function register<P is Shape>(shape: Type<P>)
 ```
 
 Construction is by name. A record has no positional form, because field order

@@ -913,9 +913,6 @@ local function check(a: Type, b: Type): boolean, string?
         -- nothing here proves whose it is. Not loose about a nominal, though: an
         -- instance is a table too, and admitting it would put back the confusion
         -- between a declaration and something it built.
-        if atag == "typeobject" and a.of == b.of then
-            return true
-        end
         if atag == "shape" or atag == "map" or atag == "table" or atag == "metatable" then
             return true
         end
