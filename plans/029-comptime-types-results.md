@@ -1,6 +1,6 @@
 # Comptime type-function implementation results
 
-This is the living evidence record for [`comptime-types.md`](comptime-types.md).
+This is the living evidence record for [`comptime-types.md`](028-comptime-types.md).
 Counts and timings are from the implementation worktree on 2026-08-11 unless a
 later entry says otherwise.
 
@@ -102,7 +102,7 @@ a derive augments one written declaration through `DeriveResult`.
   focused language suite, about 0.5 seconds for a fresh LSP inspection, about
   14 seconds per self-host pass after an exported type edit, and 0.3 seconds
   for an unchanged build in
-  [`type-level-computation-results.md`](type-level-computation-results.md).
+  [`type-level-computation-results.md`](020-type-level-computation-results.md).
 
 These are replacement baselines, not historical decoration. CT5 must explain
 any regression in exact answers, diagnostics, warm incremental behavior or LSP

@@ -24,7 +24,7 @@ language proposal only with an independently compelling workload.
 
 This record evaluated whether Nupp should expose ordinary portable vector
 values and compile the functions that use them transparently, or keep vector
-values private to the compiler behind an [`@aot`](aot-functions.md) function
+values private to the compiler behind an [`@aot`](038-aot-functions.md) function
 boundary. The decision above closes that choice for the initial implementation.
 
 The proposal is deliberately stronger than a vector-shaped library over FFI.
@@ -144,7 +144,7 @@ its answer is correct.
 
 The exact scalar lane operations shared by the fallback and future vector IR
 are planned independently in
-[Independent foundations for AOT lowering](aot-independent-foundations.md#track-n-explicit-fixed-width-scalar-arithmetic).
+[Independent foundations for AOT lowering](041-aot-independent-foundations.md#track-n-explicit-fixed-width-scalar-arithmetic).
 Portable vectors must consume that contract rather than define a second set of
 rounding, overflow, shift, or conversion rules.
 

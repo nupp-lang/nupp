@@ -1,6 +1,6 @@
 -- Baselines for S2, captured before the handler exists.
 --
--- `plans/suspension.md` makes tecs performance an acceptance criterion rather than a
+-- `plans/018-suspension.md` makes tecs performance an acceptance criterion rather than a
 -- hope: a measurable regression in ready operations, frame pumping, task resumption or
 -- cooperative parks fails the milestone. A criterion needs a number, and a number
 -- captured after the change is not a baseline, it is a result. So this runs first.

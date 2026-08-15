@@ -1,7 +1,7 @@
 -- What building a string a piece at a time costs, against string.buffer.
 -- Run: luajit bench/concat.lua
 --
--- Evidence for concat lowering (plans/optimizations.md, Allocation). It is not
+-- Evidence for concat lowering (plans/014-optimizations.md, Allocation). It is not
 -- yet a pass, and this file is what says the pass is worth writing and what
 -- shape it has to take.
 --

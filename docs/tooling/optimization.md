@@ -4,7 +4,7 @@ Nupp leaves ordinary hot-path optimization to LuaJIT. Its own passes target
 startup work and facts available only to the checker. The catalog stays small:
 a pass lands only with a LuaJIT-enabled benchmark and a static proof that it
 preserves behavior. The longer design catalog is in
-[`plans/optimizations.md`](../../plans/optimizations.md).
+[`plans/014-optimizations.md`](../../plans/014-optimizations.md).
 
 ```bash
 nupp build -O1

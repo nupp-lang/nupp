@@ -167,7 +167,7 @@ by-value containment did the same. Both are NUPP2201 now, with the repair named.
 
 Separately, and not fixed here: **a struct cannot point at itself either**, for
 the same reason at one remove — an anonymous ctype cannot refer to itself, so
-every linked list is unreachable. Recorded in plans/todo.md, and pinned by tests
+every linked list is unreachable. Recorded in plans/019-todo.md, and pinned by tests
 that should invert when it is fixed.
 
 ## Milestones

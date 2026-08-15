@@ -21,7 +21,7 @@ Nothing in the caller-facing half mentions a file descriptor, a HANDLE, errno,
 or a signal number. A caller that has to know which platform it is on has been
 handed a leak.
 
-See `plans/suspension.md`, S5.
+See `plans/018-suspension.md`, S5.
 ]]
 
 local processtypes = {}

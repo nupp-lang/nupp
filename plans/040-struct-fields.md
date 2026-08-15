@@ -424,7 +424,7 @@ layout, so they have to be closed explicitly rather than by being hidden.
 This is new syntax, so it lands in two steps: a release that implements `flag`,
 `derived`, `associated` and `pool` without using them in the compiler's own
 source, then a bootstrap refresh, and only then may `lexer.Tok` be written this
-way. See `plans/downloaded-bootstrap.md`. The token migration is therefore at
+way. See `plans/027-downloaded-bootstrap.md`. The token migration is therefore at
 least one release behind the feature, and planning it any other way produces a
 compiler that cannot compile itself.
 

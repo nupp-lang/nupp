@@ -50,7 +50,7 @@ only source-visible opt-in to protected cleanup. That made the cost of emulating
 compile error.
 
 This proposal starts from the implemented baseline in
-[ownership-hardening.md](ownership-hardening.md). Automatic destruction
+[ownership-hardening.md](015-ownership-hardening.md). Automatic destruction
 requires the compiler to know, for every value slot:
 
 - whether an obligation is live, moved, discharged, retained, or opaque;
@@ -124,7 +124,7 @@ protocol transitions rather than for the ordinary case.
 
 Stage labels in this file use the `AD-` prefix. References such as `OH-S5`
 mean the correspondingly numbered section of
-[ownership-hardening.md](ownership-hardening.md). This avoids treating two
+[ownership-hardening.md](015-ownership-hardening.md). This avoids treating two
 different plans' bare `S2` labels as the same milestone.
 
 The hardening plan is marked implemented on current `main`, so these are
@@ -633,7 +633,7 @@ At the end of `AD-S3`, ordinary automatic destruction may become the default.
 
 - Update the reference, ownership guide, `with` guide, diagnostics, and LSP
   actions.
-- Mark the opposite decision in [with.md](with.md) as superseded rather than
+- Mark the opposite decision in [with.md](023-with.md) as superseded rather than
   leaving two authoritative answers.
 - Document the distinction between destruction and successful finalization.
 - Update examples so ordinary ownership uses `local`, `with` demonstrates an

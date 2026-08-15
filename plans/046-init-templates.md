@@ -49,7 +49,7 @@ runs `nupp build` is the user's deliberate act, and this plan does not pretend
 to have removed that — it only declines to perform it on their behalf.
 
 Fetching is `git`, not HTTP. The released compiler has no HTTP/TLS provider —
-`plans/cross-target-binaries.md` builds its whole acquisition story around
+`plans/043-cross-target-binaries.md` builds its whole acquisition story around
 that — and `nupp.compiler.build.deps` already clones pinned git dependencies.
 A template fetch is the same shell-out to the same tool, so `nupp init` adds
 no new network surface to the compiler.

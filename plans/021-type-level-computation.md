@@ -57,7 +57,7 @@ grammar and proven known while checking may bind one. Runtime results,
 
 ## Why this is not comptime
 
-The boundary in [the comptime plan](comptime.md#generic-system-interaction) is
+The boundary in [the comptime plan](003-comptime.md#generic-system-interaction) is
 the governing rule:
 
 > A comptime request must be closed after normal name and type resolution. It

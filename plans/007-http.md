@@ -1,7 +1,7 @@
 # HTTP client: a design record
 
-Status: proposed. [Suspension](suspension.md), concurrent suspension drivers, buffers,
-byte views, readers, writers, [files](files.md), paths and URIs have landed. One small
+Status: proposed. [Suspension](018-suspension.md), concurrent suspension drivers, buffers,
+byte views, readers, writers, [files](006-files.md), paths and URIs have landed. One small
 waitable-source extension described below, the HTTP provider and its performance
 benchmarks have not.
 

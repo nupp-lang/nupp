@@ -1,4 +1,4 @@
--- L4 of plans/layout.md: the thing tecs actually does on its hot side.
+-- L4 of plans/010-layout.md: the thing tecs actually does on its hot side.
 --
 -- `internal/snapshot.tl` writes a whole archetype column as one `putcdata` of
 -- `structSize * count` bytes and reads it back into the column's memory. The only

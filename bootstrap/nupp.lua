@@ -35345,7 +35345,7 @@ detail = [[Manifest target options cannot be combined with explicit source files
 Use 'nupp tasks' to discover target names and configuration.
 
 The level is part of the build key, so changing it rebuilds rather than
-mixing artifacts compiled at two different levels. See plans/optimizations.md.
+mixing artifacts compiled at two different levels. See plans/014-optimizations.md.
 
 --json reports the same diagnostics as 'nupp check --json' alongside what the
 build wrote, so one call answers both what went wrong and what landed. It also
@@ -41847,7 +41847,7 @@ fail (
 "NUPP2411" ,
 node ,
 ( "%s.%s is unavailable at comptime" ) : format ( library , field ) ,
-"the comptime library surface is an allowlist; see plans/comptime.md"
+"the comptime library surface is an allowlist; see plans/003-comptime.md"
 )
 end
 end
@@ -55390,7 +55390,7 @@ summary = "An optimizer remark" ,
 rule = "Not a problem. A pass saying what it rewrote, or what it looked "
 .. "at and declined to rewrite. Always a note, and never fails a "
 .. "build." ,
-docs = "plans/optimizations.md"
+docs = "plans/014-optimizations.md"
 } ,
 }
 
@@ -109617,7 +109617,7 @@ deadline forever, which is precisely the case a deadline is for.
 **A killed child is not immediately reapable.** Terminating takes as long as it
 takes, so closing waits for the exit rather than reaping something still dying.
 
-See `plans/suspension.md`, S5.
+See `plans/018-suspension.md`, S5.
 ]]
 
 local suspension = require("nupp.suspension")
@@ -110931,7 +110931,7 @@ Nothing in the caller-facing half mentions a file descriptor, a HANDLE, errno,
 or a signal number. A caller that has to know which platform it is on has been
 handed a leak.
 
-See `plans/suspension.md`, S5.
+See `plans/018-suspension.md`, S5.
 ]]
 
 local processtypes = {}
@@ -112810,7 +112810,7 @@ that matters is the *ready* path -- an await whose subscription completes during
 the call, which is most of the cost of waiting even when waiting really happens.
 That path allocates no park and never wakes a handler.
 
-See `plans/suspension.md`.
+See `plans/018-suspension.md`.
 ]]
 
 local suspension = {}

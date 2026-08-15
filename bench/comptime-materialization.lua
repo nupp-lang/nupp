@@ -4,7 +4,7 @@
 --   LUA_CPATH='./.rocks/lib/lua/5.1/?.so;;' luajit bench/comptime-materialization.lua
 --
 -- This file deliberately records its thresholds before any result is checked
--- into plans/materialization-m0.md. The reference column is a small flat
+-- into plans/011-materialization-m0.md. The reference column is a small flat
 -- parsing machine in the shape M4 originally proposed. The specialized column
 -- is handwritten Lua in the shape M6 would emit. This is a historical lowering
 -- spike, not the shipped Nupp matcher architecture; LPeg 1.1 is its independent
@@ -19,7 +19,7 @@ local FIRST_MATCH_N = 300
 local WARM_N = 300000
 local ALLOCATION_N = 3000
 
--- Frozen M0 gates. Changing one after plans/materialization-m0.md records a
+-- Frozen M0 gates. Changing one after plans/011-materialization-m0.md records a
 -- result is a new benchmark decision, not a way to turn a failure green.
 local REFERENCE_MIN_MATCHES_PER_SECOND = {
    identifier = 200000,

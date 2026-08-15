@@ -1,0 +1,615 @@
+# Lua ownership capabilities
+
+## Decision
+
+Nupp will finish its ownership model as garbage collection plus opt-in affine
+capabilities. Ordinary Lua values remain freely aliased, mutable, and collected.
+Only values that carry a cleanup obligation, a rooted view, an exclusive region,
+or a pinned anchor participate in ownership checking.
+
+The core Nupp-to-Nupp type and contract vocabulary is:
+
+```nupp
+affine(T, cleanup)
+affine(T)
+
+takes value: T
+borrows value: T
+exclusive value: T
+
+T borrows (source)
+T preserves source
+
+borrows (capture)
+takes (capture)
+scoped callback
+```
+
+`affine(T, cleanup)` carries one exact cleanup-function identity.
+`affine(T)` is deliberately transfer-only. `takes`, `borrows`, and `exclusive`
+describe what a call does for its duration. `borrows (source)` records the roots
+and region from which a result, field, or closure capture was derived.
+`preserves source` transports the source's complete capability through a generic
+result. `scoped` gives a callback a fresh nonescaping invocation scope.
+
+The language will not expose named lifetimes, lifetime parameters, a reference-type
+lattice, or read-only shared references. Relationships name ordinary values, and the
+checker carries their roots invisibly.
+
+This plan supersedes the public-policy layer of
+[`042-affine-types.md`](042-affine-types.md), which retains `Owned`, `Transfer`, and
+the prelude `Drop` policy for compatibility. The affine constructor, function
+identity, cleanup contract, origin proof, automatic destruction, and erased runtime
+representation from that plan remain in force. This plan also supersedes any
+remaining name-based or wrapper-based ownership representation in
+[`034-ownership-in-types.md`](034-ownership-in-types.md),
+[`035-cleanup-registration.md`](035-cleanup-registration.md), and
+[`015-ownership-hardening.md`](015-ownership-hardening.md).
+
+## Goals
+
+- Keep normal Lua programming outside the ownership system.
+- Give every checked resource one statically accountable cleanup obligation.
+- Prevent a view from outliving or invalidating any value that roots it.
+- Allow exclusive child regions and provably disjoint sibling regions.
+- Carry capabilities through arbitrary generic records, tuples, unions, packs,
+  closures, and function values.
+- Infer relationships inside private implementations while making public contracts
+  explicit and stable.
+- Make safe libraries express ownership without compiler recognition of their names.
+- Keep checked Nupp-to-Nupp paths erased and allocation-free.
+- Refuse an implicit loss of ownership facts at untyped and foreign boundaries.
+
+## Non-goals
+
+- Reclaim ordinary tables without the Lua garbage collector.
+- Make a shared borrow read-only.
+- Prove all dynamic indexes or arithmetic ranges disjoint.
+- Make arbitrary raw pointers safe without a root and bounds.
+- Introduce a general concurrency capability lattice. A future parallel object model
+  may add an isolated-transfer capability when a concrete worker use case requires it.
+- Preserve source compatibility with `Owned`, `Transfer`, `Drop`, `Borrowed<T>`, or
+  `Pinned<T>`.
+
+## Why this model
+
+Rust's ownership model gets its reach from making references, mutation, and lifetime
+parameters part of nearly every API. Importing that model whole would make ordinary
+Lua tables participate in borrow checking, turn shared access into read-only access,
+and expose named lifetime plumbing in generic code that otherwise needs none of it.
+That is the wrong default for a language whose ordinary values are garbage-collected
+and freely aliased.
+
+Reference counting and tracing already solve memory reachability, but do not prove
+that a file closes once, a lock guard unlocks once, or a native view dies before its
+backing allocation. Pure region or arena systems make bulk allocation simple but do
+not cover independent handles, partial moves, or views into externally managed
+storage. Uniqueness and isolated-object systems make transfer simple by restricting
+the entire reachable object graph, which is a poor fit for Lua's shared table graphs.
+Actor-capability systems solve a broader concurrency problem and would require a
+runtime and object-model commitment that these resource proofs do not need.
+
+Opt-in affine capabilities take the useful intersection: GC answers ordinary object
+lifetime, exact cleanup identities answer resource obligations, hidden root sets
+answer view lifetime, and regions answer invalidating access. The checker pays that
+complexity only where an API introduces one of those facts. This is as strong as the
+Rust subset Nupp needs for local resources and FFI views, while retaining Lua
+mutation and omitting general reference-lifetime types. If future safe concurrency
+needs isolated transfer, add that capability from a demonstrated worker API rather
+than forcing it into the base ownership model now.
+
+## Remove the policy aliases
+
+Delete `Owned`, `Transfer`, and `Drop` from the global prelude. They are not distinct
+language mechanisms:
+
+```nupp
+type Owned<T, const cleanup: function> = affine(T, cleanup)
+type Transfer<T> = affine(T)
+```
+
+Keeping those names makes an alias look like a second ownership kind and makes APIs
+appear to choose between `Owned` and some other affine type. Packages instead publish
+the resource policy they mean:
+
+```nupp
+local record FileHandle
+    descriptor: integer
+end
+
+local function closeFile(takes file: FileHandle): nil
+    close(file.descriptor)
+end
+
+global type File = affine(FileHandle, closeFile)
+```
+
+A generic structural cleanup helper may live in an ordinary library, but it is not a
+global prelude type and the compiler does not know its name. `drop value` remains
+language syntax: it invokes the cleanup identity carried by the value's affine type,
+not a method selected by a `Drop` marker.
+
+Migrate every standard-library signature from `Owned<T>` or `Transfer<T>` to a named
+resource type or a direct `affine(...)` application. Public resource aliases should
+normally hide a private representation so callers name `File`, `Reader`, `Writer`, or
+`LockGuard`, not a generic ownership wrapper.
+
+Delete `Borrowed<T>` from the user-visible type namespace. A borrow is a property of a
+particular flow value, not a wrapper around its payload type. Two values of type
+`ByteView` may have different roots without becoming different nominal or generic
+types.
+
+## One canonical capability
+
+Every value tracked by the checker has one capability value:
+
+```text
+Capability {
+    obligation: none
+              | cleanup(function identity)
+              | transfer-only
+              | aggregate(cleanup plan)
+    roots: set<flow identity>
+    access: ordinary | shared | exclusive
+    region: none | Region(root, path-or-range)
+    anchor: none | pinned(flow identity)
+}
+```
+
+This is flow data associated with a value or place. It is not another runtime object,
+not part of ordinary nominal identity, and not syntax users instantiate directly.
+
+The type `affine(T, cleanup)` contributes the cleanup obligation. Aggregate records,
+tuples, and closures compose the obligations of their live components into a cleanup
+plan. `borrows (source)` contributes roots and a region. Borrowing an existing borrow
+flattens to its ultimate live roots while retaining the intermediate affine owner
+when consuming that intermediate value would invalidate the result. `exclusive`
+contributes exclusive access for the call and for any result derived from it.
+`pin(value, root)` contributes a strong anchor.
+
+Make this capability the only answer used by:
+
+- move and use-after-move checking;
+- lexical destruction and explicit `drop`;
+- call argument modes;
+- result provenance;
+- partial field moves;
+- closure capture;
+- suspension checks;
+- C retain/release contracts;
+- pinning;
+- region overlap;
+- reflection and diagnostics; and
+- generic substitution.
+
+Remove parallel truth stored in ownership wrapper tags, `affineResource`, borrowed
+flags, exclusive booleans, span method names, or nominal declaration history. Type
+wrappers may remain as interned implementation details only when they are a canonical
+input to the capability calculation; checker decisions must query `Capability`.
+
+## Affine identity and cleanup
+
+Affine type identity remains:
+
+```text
+affine(canonical representation, cleanup declaration identity | transfer-only)
+```
+
+The alias name adds no identity. Equal cleanup signatures are insufficient; the same
+function declaration must be named. A closed cleanup must be exactly compatible with:
+
+```nupp
+nosuspend function(takes Representation): nil
+```
+
+An open generic affine type carries the symbolic const-function identity until
+substitution closes it. Validation then uses the ordinary function checker. No
+resolver, checker, generator, LSP path, or documentation path may recognize a
+resource alias by spelling.
+
+Cleanup remains erased from each runtime value. Direct checked calls lower to the
+resolved cleanup function or registry entry already selected by the type. Aggregate
+cleanup attempts every independent obligation, preserves the first failure, and
+attaches later failures as suppressed errors.
+
+## Shared access remains Lua-like
+
+`borrows` means shared, nonconsuming, call-scoped access. It does not mean `const`.
+Ordinary Lua table mutation remains valid through a shared borrow when it cannot
+invalidate a tracked view or move an affine component.
+
+Require `exclusive` when an operation may:
+
+- resize, replace, or free storage behind a live view;
+- move, replace, or destroy an affine field;
+- create a mutable child region;
+- mutate identity-bearing state used by a provenance proof; or
+- require sole access for a declared native contract.
+
+This deliberately differs from a model in which every shared reference is read-only.
+It preserves Lua's normal aliasing behavior while statically controlling operations
+that can make another alias invalid.
+
+## General place and region algebra
+
+Replace span-specific overlap rules with a general region model over places. A region
+has a root and a path made from field, tuple-slot, dereference, index, or checked-range
+segments.
+
+Distinct fixed fields and tuple slots are disjoint:
+
+```nupp
+exclusive pair.left
+exclusive pair.right
+```
+
+A parent overlaps every descendant:
+
+```nupp
+exclusive pair
+exclusive pair.left
+```
+
+Two dynamic indexes overlap unless the checker has a dominating proof that their
+exact integer values differ. Two checked ranges are disjoint only when their bounds
+proof establishes non-overlap. Unknown pointer arithmetic overlaps its entire rooted
+allocation.
+
+An exclusive parameter lends the caller's sole region to the callee. A result written
+`T borrows (source)` becomes an exclusive child when any selected source parameter is
+exclusive. The parent becomes usable again after the child's last use or destruction.
+A shared child blocks exclusive parent access but permits other compatible shared
+access. An exclusive child blocks both shared and exclusive overlap.
+
+Library code may create disjoint siblings only through one audited region-splitting
+primitive. The primitive is recognized by stable intrinsic identity, not by a method
+name such as `splitAt`, and validates any runtime bounds before publishing the child
+regions. `nupp.span` implements slicing and splitting with that primitive; user types
+can safely wrap it without receiving compiler privileges by name.
+
+## Capability-preserving generics
+
+Generalize `preserves` from a scalar result relation into capability substitution over
+the whole result shape:
+
+```nupp
+local function forward<T>(value: T): T preserves value
+    return value
+end
+
+local function swap<A, B>(
+    left: A,
+    right: B
+): (B preserves right, A preserves left)
+    return right, left
+end
+
+local record Box<T>
+    value: T
+end
+
+local function box<T>(value: T): Box<T> preserves value
+    return new Box(value = value)
+end
+```
+
+`preserves source` copies the source's entire capability into the annotated result:
+obligation, roots, access, region, and anchor. It does not mean merely "same static
+type." The body must prove that every other capability it received was discharged or
+returned elsewhere.
+
+Capability substitution must recurse through:
+
+- generic records and structs;
+- tuple elements and multiple-result packs;
+- optionals, unions, and intersections;
+- mapped and projected types;
+- nested fields;
+- closures and callable records;
+- function parameters and results; and
+- imported module summaries.
+
+Projection recovers the corresponding component capability. Moving `box.value` moves
+only that component and updates the box's remaining aggregate cleanup plan. Joining
+branches unions possible roots and conservatively joins access and region state; it
+must never erase an obligation to make the join fit.
+
+`preserves` names one source for each result. A relation that might select from
+several inputs uses `borrows (left, right)` when the result is a view and returns each
+possible affine owner as a distinct result alternative when ownership itself differs.
+Do not invent an ambiguous multi-source ownership merge.
+
+## Higher-order calls and closures
+
+Every invocation of a `scoped` callback receives a fresh hidden scope. Values rooted
+in that invocation may be used by the callback and by nested scoped calls, but may not
+appear in:
+
+- the callback result unless the callable contract relates that result to an outer
+  root;
+- a retained callback;
+- a global or longer-lived field;
+- a coroutine that may outlive the invocation; or
+- an `any` or untyped boundary.
+
+Function types may state their own value relationships:
+
+```nupp
+function(borrows source: Buffer): ByteView borrows (source)
+```
+
+Those relationships survive storage in records, generic substitution, overload
+selection, imports, and nested callable results. Function assignability performs the
+safe parameter/result variance checks over hidden root sets and access modes. A
+caller may shorten a borrow; it may not lengthen one or turn shared access into
+exclusive access.
+
+Closure captures use the same relationship machinery as function results. The forms
+`borrows (capture)` and `takes (capture)` remain because they state an escaping
+relationship at the closure boundary. A `takes` closure remains affine and
+single-shot; dropping it destroys its still-live captures without running the body.
+
+## Inference and public contracts
+
+Infer ownership inside private functions and local closures:
+
+- a parameter only observed during the call is `borrows`;
+- a parameter used by an invalidating operation is `exclusive`;
+- a parameter consumed, retained in an affine aggregate, or moved into a returned
+  value is `takes`;
+- result roots are inferred from returned expressions;
+- direct generic forwarding infers `preserves`; and
+- borrows end at their last use, including branch-sensitive last use.
+
+Explicit spelling remains legal on private code and is checked against the body.
+
+Require explicit modes and result relationships on:
+
+- exported functions and methods;
+- interface and callable-record members;
+- bodyless declarations;
+- public record fields that retain a view;
+- callbacks accepted beyond the immediate expression; and
+- `cdef` declarations.
+
+The inferred private contract must be available to optimization and diagnostics but
+must not silently become a package ABI. A code action may write the inferred public
+contract when a declaration is exported.
+
+## Pinning
+
+Replace the special generic spelling `Pinned<T>` with the type constructor:
+
+```nupp
+pinned(T)
+```
+
+`pin(pointer, root)` produces a pinned capability over `pointer`, strongly anchored
+in `root`. Pinning does not itself select a cleanup policy. If the pinned handle must
+also be affine, an ordinary alias states both policies through its representation and
+cleanup rather than teaching the compiler a combined name.
+
+A pinned value may cross a declared C `retains` call. The matching `releases`
+contract updates the retained state. Moving or destroying the root is rejected while
+any pin or foreign retention remains live.
+
+Delete `Pinned<T>` and any name-based pointer-shape branch after migration. The
+lowercase constructor is a compiler primitive for the same reason as `affine`: it
+creates a capability descriptor, not a library nominal.
+
+## Foreign contracts
+
+Restrict `retains` and `releases` to `cdef` parameter grammar and documentation. They
+must not appear as ordinary Nupp function parameter modes. Ordinary Nupp APIs express
+storage by taking an affine value, borrowing a value, or accepting a `scoped`
+callback.
+
+A borrowed C output continues to name its roots:
+
+```nupp
+cdef function find(
+    borrows owner: Handle,
+    out view: Item* borrows (owner)
+): Success<int32, 0>
+```
+
+Raw pointer indexing, pointer arithmetic without a checked region, and reconstructing
+provenance remain `unsafe`. Bounds and lifetime are separate proofs: a root does not
+prove an index valid, and a checked count does not keep storage alive.
+
+## Untyped and dynamic boundaries
+
+Do not implicitly erase a nontrivial capability into `.lua`, `any`, reflection data,
+hot-reload storage, or opaque foreign memory.
+
+At such a boundary the programmer must choose one of three operations:
+
+1. keep the value inside a checked wrapper whose interface preserves the capability;
+2. use an explicit generation-checked dynamic handle; or
+3. use `unsafe release`/`unsafe adopt` and accept responsibility for the proof.
+
+A dynamic handle stores an owner generation and a stable handle identity. Cleanup or
+invalidation advances the generation; checked recovery rejects a stale handle before
+dereference. This runtime cost exists only at the selected dynamic boundary. Direct
+checked code continues to carry no lifetime token, generation word, or ownership box.
+
+Passing an ordinary rootless, obligation-free value through `any` remains unchanged.
+The checker diagnoses only capabilities whose erasure could lose cleanup, provenance,
+exclusive access, pinning, or retained-state facts.
+
+## Suspension and cancellation
+
+Apply the canonical capability query at every suspension point. A borrow may cross a
+handled suspension only when its roots remain live in the suspended frame and the
+handler's cancellation path discharges every obligation. An exclusive region may not
+cross an unknown suspension that could reenter overlapping code. Raw suspension
+cannot cross cleanup, pin, or retained-state obligations.
+
+This replaces parallel checks for owned values, affine fields, closures, pinned
+pointers, and borrowed views with one capability traversal. The cancellation cleanup
+order and suppressed-error behavior remain those specified by
+[`018-suspension.md`](018-suspension.md).
+
+## Diagnostics and tooling
+
+Diagnostics should describe the concrete capability conflict:
+
+- which value owns the cleanup obligation;
+- which result or field retains which root;
+- the two overlapping region paths or ranges;
+- the last use that keeps a borrow live;
+- which generic component preserved an obligation;
+- which callback scope a value attempted to escape; and
+- which dynamic boundary would erase the proof.
+
+Every diagnostic carries related locations for the root, derivation, conflicting use,
+and cleanup when those locations exist. Avoid messages that expose internal wrapper
+tags or describe every capability as `Owned`.
+
+Hover shows the ordinary type first and capability detail second. For example:
+
+```text
+ByteView
+borrows buffer; shared region buffer.bytes
+```
+
+Go-to-definition on an affine cleanup reaches the exact function declaration.
+References and rename treat that function identity semantically. Inlay hints may show
+inferred private `takes`, `exclusive`, `borrows`, and result relationships, but remain
+off by default. Code actions can make an inferred contract explicit.
+
+Reflection reports capability kind, cleanup identity, roots when statically named,
+access, pinning, and aggregate shape without inventing a runtime wrapper. Generated
+documentation uses the same public vocabulary as source.
+
+## Implementation order
+
+### C0 — Inventory and freeze behavior
+
+- Inventory every ownership flag, wrapper tag, name check, span special case, dynamic
+  escape, and diagnostic.
+- Add characterization tests for existing affine cleanup, field moves, borrows,
+  exclusive span regions, callbacks, pins, C retention, and suspension.
+- Record generated Lua and C ABI baselines so the refactor cannot add wrappers.
+
+### C1 — Canonical capability query
+
+- Introduce the immutable capability value and one checker query over a type plus flow
+  state.
+- Translate existing affine, borrowed, exclusive, pinned, aggregate, and closure state
+  into it without changing public behavior.
+- Migrate consumers one subsystem at a time and delete the parallel answer after each
+  migration.
+
+### C2 — Remove policy aliases
+
+- Add concrete standard-library resource aliases.
+- Migrate all `Owned`, `Transfer`, and global `Drop` uses.
+- Remove those prelude declarations and their documentation.
+- Remove `Borrowed<T>` from the public namespace.
+- Keep compatibility out of the compiler; packages that want aliases define them.
+
+### C3 — Compositional preservation
+
+- Extend capability substitution through aggregates, packs, unions, closures, and
+  module summaries.
+- Implement component projection and partial moves from generic aggregates.
+- Generalize `preserves` checking and diagnostics.
+- Add cross-module and incremental-cache tests for every shape.
+
+### C4 — General regions
+
+- Replace span-specific roots and method checks with place paths.
+- Implement field, tuple, pointer, index, and checked-range overlap.
+- Add the audited region-splitting intrinsic and migrate `nupp.span`.
+- Delete all compiler branches on `Span`, `WriteSpan`, `getMut`, `slice`, or `splitAt`
+  spellings.
+
+### C5 — Higher-order relationships
+
+- Give each scoped invocation a fresh hidden root.
+- Preserve function-type parameter/result relationships through storage, generics,
+  imports, and overloads.
+- Complete safe variance and borrow-shortening rules.
+- Cover nested callbacks, returned closures, and coroutine capture.
+
+### C6 — Inference and contract writing
+
+- Infer private parameter modes, result roots, preservation, and last use.
+- Require explicit public and foreign contracts.
+- Add semantic tokens, hover details, inlay hints, and contract-writing code actions.
+
+### C7 — Pinning and foreign cleanup
+
+- Add `pinned(T)` and migrate `Pinned<T>`.
+- Rebase pin and retain/release checking on the canonical capability.
+- Restrict retain/release syntax and docs to `cdef`.
+- Verify retained roots, release balance, C outputs, and ABI erasure.
+
+### C8 — Dynamic boundaries
+
+- Reject implicit capability erasure through `any` and untyped modules.
+- Add generation-checked dynamic handles.
+- Integrate hot reload, reflection, and foreign storage.
+- Keep explicit unsafe release/adoption available for audited code.
+
+### C9 — Suspension, documentation, and deletion
+
+- Replace suspension-specific ownership walks with the capability traversal.
+- Update the language reference, grammar, ownership guide, migration guide, and all
+  examples.
+- Delete superseded wrapper types, flags, special cases, compatibility code, and dead
+  diagnostics.
+- Run the full suite, fixpoint, generated-reference verification, and C ABI checks.
+
+Each stage lands with its own migration and deletion. Do not leave two semantic
+ownership representations alive until the final stage.
+
+## Verification matrix
+
+Focused checker tests must prove:
+
+- ordinary tables remain freely aliased and mutable;
+- affine values move once and clean up exactly once on every path;
+- transfer-only values cannot be silently discarded or dropped;
+- aliases with equal representation and cleanup identity interchange;
+- aliases with different cleanup identities do not;
+- shared roots block invalidation but not ordinary compatible mutation;
+- exclusive parent, child, sibling, and dynamic-index overlap is correct;
+- generic boxes, tuples, unions, packs, and closures preserve capabilities;
+- partial moves update aggregate cleanup plans;
+- scoped callback values cannot escape directly or inside a generic aggregate;
+- callable relationships survive assignment, import, and overload selection;
+- private inference agrees with an equivalent explicit signature;
+- public declarations missing a relationship receive one actionable diagnostic;
+- pinning and C retain/release balance roots;
+- suspension and cancellation preserve or discharge every capability;
+- untyped erasure is rejected unless wrapped, generation-checked, or unsafe; and
+- stale dynamic handles fail before dereference.
+
+Generation tests must prove that checked capabilities add no per-value wrapper,
+hidden dictionary, lifetime token, generation word, closure, or metatable. The only
+new runtime state is an explicitly requested dynamic handle. Benchmarks cover call
+overhead, loop access through shared and exclusive regions, generic aggregate moves,
+and cleanup-heavy unwinding.
+
+Fixpoint must pass after every compiler-representation stage. Reflection snapshots,
+module fingerprints, LSP fixtures, documentation links, and bootstrap output are part
+of the acceptance surface.
+
+## Completion criteria
+
+This plan is complete when:
+
+- the global prelude contains no `Owned`, `Transfer`, or ownership-policy `Drop`;
+- source uses `affine(...)`, value relationships, and concrete resource names;
+- one capability query answers every ownership subsystem;
+- generic aggregates preserve and project complete capabilities;
+- arbitrary place regions replace span-name special cases;
+- higher-order relationships remain safe across storage and module boundaries;
+- private code receives useful inference and public code carries explicit contracts;
+- pinning uses `pinned(T)` and foreign-only retain/release contracts;
+- dynamic boundaries cannot silently erase a live capability;
+- shared Lua mutation remains available when it cannot invalidate a proof;
+- generated checked code and C ABI remain representation-compatible; and
+- the full suite, fixpoint, bootstrap, documentation, and performance gates pass.

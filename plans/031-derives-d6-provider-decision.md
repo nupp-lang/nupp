@@ -3,7 +3,7 @@
 ## Decision
 
 This historical rejection was superseded by
-[`comptime-derive-recipes.md`](comptime-derive-recipes.md). The rejected JSON
+[`comptime-derive-recipes.md`](033-comptime-derive-recipes.md). The rejected JSON
 prototype was removed after the sealed comptime provider boundary landed.
 
 D6 did not find evidence for token, AST, or CST macros, mutable compiler
@@ -81,7 +81,7 @@ closed semantic recipe. A need for arbitrary source, token, AST, CST or lowering
 construction is grounds to reject that provider, not to widen the derive system.
 
 The proposed successor architecture is
-[`comptime-derive-recipes.md`](comptime-derive-recipes.md). It keeps this
+[`comptime-derive-recipes.md`](033-comptime-derive-recipes.md). It keeps this
 decision's rejection of the prototype ABI, supplies runtime forwarding as the
 missing closed operation, and requires a new external proving corpus before any
 public provider surface lands. More powerful parsed-source or syntax facilities

@@ -56,9 +56,9 @@ end
 ```
 
 This plan supersedes the built-in-`Owned` and inherited-`@drop` decisions in
-[`ownership-in-types.md`](ownership-in-types.md),
-[`cleanup-registration.md`](cleanup-registration.md), and the corresponding parts
-of [`automatic-destruction.md`](automatic-destruction.md). Const function identity,
+[`ownership-in-types.md`](034-ownership-in-types.md),
+[`cleanup-registration.md`](035-cleanup-registration.md), and the corresponding parts
+of [`automatic-destruction.md`](002-automatic-destruction.md). Const function identity,
 `takes`, automatic destruction, borrow checking, pinned values, and cleanup failure
 aggregation remain in force except where this plan generalizes their implementation.
 

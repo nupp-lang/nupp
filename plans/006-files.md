@@ -1,7 +1,7 @@
 # Files: a design record
 
 Status: proposed. The waiting half is built: S0 through S4 of
-[suspension](suspension.md) have landed, so a library may perform `suspend`,
+[suspension](018-suspension.md) have landed, so a library may perform `suspend`,
 a host may install a handler, a `nosuspend` region is checked, and a handled
 suspension may cross a live resource obligation. S5, `nupp.io.Process`, has
 not, and is not a prerequisite. This is its easier twin and should land
@@ -123,7 +123,7 @@ waiting work, because listing a directory never needed to wait.
   `tecs.assets`, where content addressing already lives. `nupp.io.files` is
   concrete over the filesystem, and a platform without one does not get it.
 - **File watching.** It wants the same readiness source and is listed in
-  [suspension](suspension.md#what-nupp-gets) as its own consumer. It is a
+  [suspension](018-suspension.md#what-nupp-gets) as its own consumer. It is a
   separate namespace with a separate native lane.
 - **Sockets, pipes and HTTP.** The `Reader`/`Writer` contracts are the shared
   part; the rest is not this document.
@@ -266,7 +266,7 @@ What that call does then depends on nothing the library knows:
 ```
 
 The early return is not an optimization.
-[suspension.md](suspension.md#cost-model) measures the ready path, an await
+[suspension.md](018-suspension.md#cost-model) measures the ready path, an await
 that resumes during its own subscription, at about 414ns and 560 bytes, and
 records that a real park costs only about 100ns and 45 bytes beyond it. The
 apparatus, not the waiting, is most of the cost of a wait. A read whose worker
@@ -452,7 +452,7 @@ The pump is chosen per wait rather than once. Under a handler it is
 `nuppFsPoll`, which must not block a frame; with no handler it is `nuppFsWait`,
 because the built-in blocking path drives sources in a loop and would otherwise
 spin. `suspension.handled()` distinguishes them, which answers the deadline-hint
-open question in [suspension.md](suspension.md#open-questions) with "not yet".
+open question in [suspension.md](018-suspension.md#open-questions) with "not yet".
 
 Exit test met: one program reads a file unchanged under no handler and under a
 test handler that drives the pump and is told `file transfer`; a read inside
@@ -574,7 +574,7 @@ No range is reserved. The rules this namespace needs are already enforced:
 
 ## Next
 
-- [plans/suspension.md](suspension.md): the effect, the handler, and the S5
+- [plans/018-suspension.md](018-suspension.md): the effect, the handler, and the S5
   process library this shares a platform layer's worth of lessons with.
 - [docs/io.md](../docs/io.md): the buffer, reader and writer contracts this
   namespace implements.

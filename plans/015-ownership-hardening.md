@@ -3,7 +3,7 @@
 Status: implemented, except that the resource `with` construct this plan was
 written around was removed. An ordinary owner is destroyed at its lexical scope
 boundary instead, so `do ... end` is the cleanup boundary everywhere `with`
-appears below. See [automatic-destruction.md](automatic-destruction.md).
+appears below. See [automatic-destruction.md](002-automatic-destruction.md).
 
 The proof-closure kernels, safe boundary abstractions, diagnostics, audit
 surface, and regression gates below landed together. The
@@ -14,16 +14,16 @@ The detailed records for existing features remain authoritative for their
 feature-specific shape; this plan adds the stronger cross-cutting completion
 criteria they must all satisfy:
 
-- [with.md](with.md) for the resource-scope design this was written around,
+- [with.md](023-with.md) for the resource-scope design this was written around,
   which records a construct that was removed;
-- [automatic-destruction.md](automatic-destruction.md) for the lexical
+- [automatic-destruction.md](002-automatic-destruction.md) for the lexical
   boundary that replaced it;
-- [type-packs.md](type-packs.md) for affine value sequences and correlated
+- [type-packs.md](022-type-packs.md) for affine value sequences and correlated
   results;
-- [intersections.md](intersections.md) for overload selection and effect
+- [intersections.md](009-intersections.md) for overload selection and effect
   application;
-- [suspension.md](suspension.md) for handled suspension and cancellation; and
-- [workers.md](workers.md) for isolated worker ownership.
+- [suspension.md](018-suspension.md) for handled suspension and cancellation; and
+- [workers.md](024-workers.md) for isolated worker ownership.
 
 This plan owns the cross-cutting invariants, closes the gaps between those
 features, and supplies one ordered completion gate.
@@ -636,7 +636,7 @@ Exit criteria:
 
 ## S7: Closure capture
 
-Status: implemented. [Closure capture](closure-capture.md) is the authoritative
+Status: implemented. [Closure capture](026-closure-capture.md) is the authoritative
 design record.
 
 An ordinary closure borrows every captured ownership value. It remains
@@ -680,7 +680,7 @@ Exit criteria, completed:
 
 ## S8: Suspension and structured concurrency
 
-Finish the ownership portion of [suspension.md](suspension.md). The checker
+Finish the ownership portion of [suspension.md](018-suspension.md). The checker
 already has a lexical `handle suspension` region; make it load-bearing.
 
 Required rules:

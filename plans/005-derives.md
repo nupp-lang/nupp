@@ -1,7 +1,7 @@
 # Derives
 
 > **Status: superseded and implemented by
-> [comptime-derive-recipes.md](comptime-derive-recipes.md).** `Debug`,
+> [comptime-derive-recipes.md](033-comptime-derive-recipes.md).** `Debug`,
 > `Default`, and `JSON` are compiler-shipped comptime providers using
 > the same sealed evaluation and closed result boundary as package providers.
 
@@ -41,9 +41,9 @@ source declaration
 Comptime calculates a closed recipe, but the derive phase is still the only
 phase allowed to attach the resulting value
 or forwarding member to a declaration. Widening `comptime` to return source or
-declarations remains excluded by [comptime.md](comptime.md), and widening a
+declarations remains excluded by [comptime.md](003-comptime.md), and widening a
 materializer to emit declarations remains excluded by
-[materialization.md](materialization.md).
+[materialization.md](012-materialization.md).
 
 ## Why this boundary
 
@@ -752,7 +752,7 @@ types do not change.
 
 ## Associated types
 
-The derive phase does not block on [associated-types.md](associated-types.md).
+The derive phase does not block on [associated-types.md](001-associated-types.md).
 
 - `Debug` has a fixed `string` result.
 - `Default` has the concrete owning record as its result.
@@ -1021,7 +1021,7 @@ local record Credentials
 end
 ```
 
-The [D6 decision](derives-d6-provider-decision.md) rejects a public provider ABI
+The [D6 decision](031-derives-d6-provider-decision.md) rejects a public provider ABI
 for now. The external Tecs redacted-Debug prototype passed immutable versioned
 descriptors and closed semantic results through a one-shot process, but its
 accepted operation duplicates `@debug(redact = true)`. The identified way to
@@ -1031,7 +1031,7 @@ external differential corpus. The prototype protocol is a test artifact, not a
 compatibility promise.
 
 The proposed successor design is
-[`comptime-derive-recipes.md`](comptime-derive-recipes.md). It retains the D6
+[`comptime-derive-recipes.md`](033-comptime-derive-recipes.md). It retains the D6
 rejection, makes checked runtime forwarding the durable escape hatch, and sets
 an external-workload gate before `@derive(provider)` can become public. It also
 defines more powerful parsed-source or syntax facilities as separate,
@@ -1045,7 +1045,7 @@ constrained result operations proven by external workloads. It cannot expose the
 compiler's CST, type objects, mutable member tables or runtime-expression IR.
 
 Any such proposal must consume the `nupp.types` handles and type-blueprint
-vocabulary defined by [`comptime-types.md`](comptime-types.md), rather than grow
+vocabulary defined by [`comptime-types.md`](028-comptime-types.md), rather than grow
 a parallel signature language. It may augment its one written owner but cannot
 generate a record, interface, nested nominal declaration, import, or module
 member.
@@ -1299,7 +1299,7 @@ derives rebuilds itself byte-identically.
 - The public proposal is rejected for now because the accepted operation
   duplicates the built-in field-redaction policy and the first unmet operation,
   a package helper call, has no proven semantic or trust contract. See the
-  [decision](derives-d6-provider-decision.md).
+  [decision](031-derives-d6-provider-decision.md).
 - Any reconsideration must use CT1's semantic type handles and CT4's sealed
   worker, module identity and cache protocol; it must not invent a second
   envelope or execution path.

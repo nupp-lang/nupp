@@ -1,7 +1,7 @@
 # Closure capture: a design record
 
 Status: implemented. This record amends
-[ownership hardening](ownership-hardening.md): ordinary captures now borrow
+[ownership hardening](015-ownership-hardening.md): ordinary captures now borrow
 their sources with tracked provenance, while `takes (...)` creates an affine
 callable that owns and discharges the named captures.
 
@@ -186,7 +186,7 @@ it belongs in the formatter's golden tests on the day the grammar lands.
 ### What it unlocks
 
 `Buffer`, `ByteView`, `Reader` and `Writer` can carry `@drop` on `close`, which
-makes them Closeable in the sense [files](files.md) already gives `File` and
+makes them Closeable in the sense [files](006-files.md) already gives `File` and
 `TemporaryPath`, without rewriting the code that uses them. The blocking case
 today is the HTTP upload loop, which captures a scratch buffer:
 

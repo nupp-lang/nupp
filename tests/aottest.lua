@@ -7,7 +7,7 @@
 -- promised, it refuses a member that is not a whole function, and it names every
 -- construct the AOT IR has no representation for.
 --
--- See plans/aot-functions.md.
+-- See plans/038-aot-functions.md.
 local parser = require("nupp.compiler.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.env")

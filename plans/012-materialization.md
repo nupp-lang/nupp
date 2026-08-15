@@ -120,7 +120,7 @@ The initial and acceptance cases are:
   typed encoder/decoder or field projection. The real acceptance workload is
   the keyed codec `fieldcodec.tl` builds through `load()` at run time from a
   table component's declared `fields`. It is not a C-layout codec and does not
-  replace the struct size and fingerprint work in `plans/layout.md`.
+  replace the struct size and fingerprint work in `plans/010-layout.md`.
 
 Other plausible providers include finite state machines, declarative command
 parsers, binary layouts and protocol validators. None is admitted merely
@@ -130,7 +130,7 @@ because the framework can host it; each owes the evidence and contract in
 A materializer returns a value with a fixed, already declared interface. A
 derive remains different: it adds methods, interfaces or constants to a
 declaration; that phase is specified separately in
-[derives.md](derives.md). A module generator remains different too: it adds
+[derives.md](005-derives.md). A module generator remains different too: it adds
 names another module can import. Neither is reached by widening the
 materializer emission IR. They may reuse reflection, fingerprints and
 provenance later, but retain their separate phases and proposals.
@@ -633,7 +633,7 @@ pattern-table dispatch and an extra Lua call per match while retaining the same
 The second provider consumes immutable `nupp.reflect.Info` rather than a PEG graph. Its
 acceptance case is the keyed table-component codec `fieldcodec.tl` builds with
 runtime `load()` from each component's declared `fields`, as described in
-`plans/layout.md`.
+`plans/010-layout.md`.
 
 The first reachable slice need not design a serialization framework. It can
 materialize one narrow, typed field projection or keyed codec whose semantics

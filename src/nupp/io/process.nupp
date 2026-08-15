@@ -29,7 +29,7 @@ deadline forever, which is precisely the case a deadline is for.
 **A killed child is not immediately reapable.** Terminating takes as long as it
 takes, so closing waits for the exit rather than reaping something still dying.
 
-See `plans/suspension.md`, S5.
+See `plans/018-suspension.md`, S5.
 ]]
 
 local suspension = require("nupp.suspension")

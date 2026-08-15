@@ -37,7 +37,7 @@ visible locally and which do not form a second general-purpose control-flow
 language.
 
 This plan supersedes the matching, inference, and recursive-alias portions of
-[`type-level-computation.md`](type-level-computation.md). Its const-parameter,
+[`type-level-computation.md`](021-type-level-computation.md). Its const-parameter,
 member, mapped-shape, and pack decisions remain in force until a separate
 decision removes them.
 
@@ -54,11 +54,11 @@ that needs new records or interfaces uses a source generator which writes a
 reviewable `.g.nupp` file, following `importc`'s existing rule that generated
 declarations are committed, hand-editable source and never a black box. A
 derive may augment one explicitly written declaration through the constrained
-semantic plan in [`derives.md`](derives.md), but it does not create that
+semantic plan in [`derives.md`](005-derives.md), but it does not create that
 declaration or any nested nominal declaration.
 
 The proposed bridge from ordinary comptime to declaration augmentation is
-[`comptime-derive-recipes.md`](comptime-derive-recipes.md). A provider returns a
+[`comptime-derive-recipes.md`](033-comptime-derive-recipes.md). A provider returns a
 closed semantic recipe and forwards runtime behavior to ordinary Nupp helpers;
 it does not broaden type functions or let them manufacture declarations.
 
@@ -828,7 +828,7 @@ range based on whether evaluation or result validation failed.
 - Compare exact types and diagnostics with the current recursive aliases and
   record self-host build and LSP-keystroke latency.
 - Record the accepted T5 recursion measurements from
-  [`type-level-computation-results.md`](type-level-computation-results.md) as
+  [`type-level-computation-results.md`](020-type-level-computation-results.md) as
   counter-evidence which this replacement must beat in total complexity and
   interactive behavior.
 

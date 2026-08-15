@@ -68,7 +68,7 @@ pass-throughs are deferred; see [Open questions](#open-questions).
 - Reject raw coroutine suspension while cleanup or borrowing obligations are
   live, because a raw coroutine may never resume.
 
-  The qualifier is load-bearing and [suspension.md](suspension.md) proposes
+  The qualifier is load-bearing and [suspension.md](018-suspension.md) proposes
   acting on it. A *handled* suspension transfers the continuation and its
   cancellation to a handler that owns them until return or cancellation; a raw
   yield has nobody. Handler shutdown must cancel and drive every park through

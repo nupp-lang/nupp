@@ -168,7 +168,7 @@ Each entry is tagged with where its win lands:
   What survives is the two halves that do not require the compiler to
   guess. `reifiable-record` (NUPP2509) says a declaration is one keyword
   from reifying and offers the edit, so the author decides; and layout
-  reflection (plans/layout.md) makes the reified form usable at the
+  reflection (plans/010-layout.md) makes the reified form usable at the
   boundaries reification breaks. Between them the win is available and
   nobody is surprised by it.
 
@@ -361,7 +361,7 @@ an unexplained absence.
   model, and nupp deliberately does not have one. `layoutof(T)` already answers
   this question, and answers it *at run time* through the FFI, because sizes,
   offsets and padding belong to the running platform rather than the compiling
-  one (`check/ffi.nupp`, and plans/layout.md). Folding them would bake the build
+  one (`check/ffi.nupp`, and plans/010-layout.md). Folding them would bake the build
   host's ABI into generated Lua that is portable source.
 
   So the item is not cheap-and-deferred; it is a target layout model plus the
@@ -556,7 +556,7 @@ avoid.
 Every `cold`-tagged item needs "this binding never changes," and
 inferring that across a program is defeated by a single `load`,
 `setfenv`, or write through `_G`. `const` already exists and means the
-binding cannot be reassigned (plans/comptime.md, §Decision). Bodyless
+binding cannot be reassigned (plans/003-comptime.md, §Decision). Bodyless
 declaration surfaces use `const` for the exceptional guarantee a visible
 implementation cannot establish itself: a declared host function such as
 `math.max` has stable identity by contract rather than by whole-program
@@ -771,12 +771,12 @@ and wants §A query API onto the analysis.
    The win is still available; it is reached by telling the author rather
    than by guessing. `reifiable-record` (NUPP2509) reports a declaration
    one keyword from reifying and carries the edit, so an editor can apply
-   it, and layout reflection (plans/layout.md) makes the reified form
+   it, and layout reflection (plans/010-layout.md) makes the reified form
    usable where reification currently breaks it. Those two are the work.
 
 6. NYI rewriting and call-site monomorphization. Largest likely effect on
    real programs, and still unmeasurable: it wants the tecs `FFIStorage`
-   port (plans/todo.md) to have something to measure against.
+   port (plans/019-todo.md) to have something to measure against.
 7. Declared module immutability.
 8. The IR, and the rest of the `core` catalog behind it.
 9. The `cold` catalog, only where a benchmark justifies it. Nothing in it

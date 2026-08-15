@@ -6,7 +6,7 @@
 produces values that the compiler normally quotes as ordinary source literals.
 It does not expose the CST or AST, paste source text, or generate declarations.
 A compiler-owned opaque result may instead be serialized as a runtime value by
-the closed, type-directed [materialization](materialization.md) layer. Comptime
+the closed, type-directed [materialization](012-materialization.md) layer. Comptime
 still produces a value and never chooses or observes what source represents it.
 
 The type system remains independent:
@@ -59,7 +59,7 @@ and §Evaluation environment hands it frozen copies of the pure libraries, so th
 function it calls is the real one by construction. That buys back a class of
 cases folding provably cannot have, and is a second reason for C1 independent of
 the table generation that motivated it. §What folding will not absorb in
-[optimizations.md](optimizations.md) lists five such extensions; three of them —
+[optimizations.md](014-optimizations.md) lists five such extensions; three of them —
 pure library calls, interpolation, and reads of a `const` table — are cases a
 block would simply have. The other two are not comptime's to rescue: one is
 unreachable in any phase, and the layout intrinsics required the separate model
@@ -114,7 +114,7 @@ Materialization does not change this list. It emits an expression that
 constructs one explicitly typed runtime value; it cannot add a declaration or
 module, and it does not implicitly specialize an existing runtime function.
 Its provider set is closed and compiler-owned. See
-[materialization.md](materialization.md) for the boundary and its PEG and
+[materialization.md](012-materialization.md) for the boundary and its PEG and
 type-directed-codec proving cases.
 
 Comptime does not generate declarations. Compiler-owned derives, or a future
@@ -149,7 +149,7 @@ constrained declaration IR — structural generation under a checked contract,
 not source text and not an AST. `@soa` belongs in the same category.
 
 The compiler-owned phase and its first `Debug`, `Default`, and `JSON`
-providers are specified in [derives.md](derives.md). What this plan owes that
+providers are specified in [derives.md](005-derives.md). What this plan owes that
 phase is the semantic reflection model in §Semantic reflection, which is why
 that section is written to be consumed by something other than a comptime
 block.
@@ -360,13 +360,13 @@ result family to accepted explicit runtime types. This is not subtyping or a
 general conversion; the checker makes the expression's runtime type exactly
 the written expected type only when that relation succeeds. The formal rules
 and no-slot/factory distinction are specified in
-[materialization.md](materialization.md#the-materialization-relation).
+[materialization.md](012-materialization.md#the-materialization-relation).
 
 This is not a general escape from quotability. User types cannot register a
 provider; a block cannot return source, syntax, declarations or a runtime
 binding; and removing the explicit runtime type produces a diagnostic rather
 than inferred code generation. The complete phase, cache, provenance and
-admission rules are specified in [materialization.md](materialization.md).
+admission rules are specified in [materialization.md](012-materialization.md).
 
 A captured constant table is likewise a canonical snapshot of its initializer,
 not a reference to runtime table state. `const M.config = {...}` gives the block
@@ -486,7 +486,7 @@ had to exist first, and have landed:
    reflected field in another module invalidates the dependents that folded its
    layout. Without it this is a miscompile, not a stale answer — and
    §Cross-module optimization breaks incremental cutoff in
-   [optimizations.md](optimizations.md) says the same thing from the other side.
+   [optimizations.md](014-optimizations.md) says the same thing from the other side.
 
 §Incremental query design keys evaluation on the target triple and ABI/layout
 version. Keyed declaration dependencies invalidate a layout reader when a
@@ -546,7 +546,7 @@ program's binding is not involved.
 That is why the same list disqualifies `tostring` from interpolation folding and
 qualifies it here. It is one of two routes to the same class of results — the
 other being to declare the pure standard-library surface immutable, which is
-§Immutability must be declared in [optimizations.md](optimizations.md) and is a
+§Immutability must be declared in [optimizations.md](014-optimizations.md) and is a
 language policy decision rather than an evaluator one. The two are worth keeping
 distinct: the declaration reaches ordinary runtime code and costs a policy, and
 comptime reaches only code written inside a block and costs an evaluator.
@@ -612,7 +612,7 @@ surrounding runtime context. The synthetic node carries an origin link for
 diagnostics and LSP hover.
 
 A compiler-owned opaque result follows the separate
-[materialization](materialization.md) path. The checker requires a directly
+[materialization](012-materialization.md) path. The checker requires a directly
 declared expected runtime type, selects a provider by resolved identity, and
 validates the finalized blueprint's result and action-slot relation. It does
 not construct a synthetic function or declaration during checking. Check and
@@ -707,7 +707,7 @@ name and type resolution. It cannot depend on an unresolved type parameter or
 on a runtime generic argument. This keeps module interfaces independent of the
 set of call-site instantiations.
 
-[Type-level computation](type-level-computation.md) is the separate proposal
+[Type-level computation](021-type-level-computation.md) is the separate proposal
 for reducing an open type to another type during that resolution. It shares
 semantic member facts and fingerprints with reflection, but no evaluator,
 worker, environment, recursion budget, or result protocol with comptime.
@@ -859,7 +859,7 @@ Every milestone extends these invariants:
 
 ## What starting this should wait for
 
-`plans/optimizations.md` requires a benchmark before a pass is built rather than
+`plans/014-optimizations.md` requires a benchmark before a pass is built rather than
 after, and the rule has already paid: the FFI group sat in a priority slot,
 tagged as a real win, until `bench/ffi-hoisting.lua` measured 1.00x and removed
 it. The equivalent discipline here is that comptime should be started against a
@@ -881,7 +881,7 @@ approves everything:
   model rather than evidence for extending the general evaluator surface.
 
 Two nearby pieces of work shrink the residue further and should be checked
-before the estimate is trusted. [layout.md](layout.md) answers field names,
+before the estimate is trusted. [layout.md](010-layout.md) answers field names,
 offsets and sizes at run time, which covers much of what `nupp.reflect` was for
 without any evaluator; and `import-c` already brings a C header's constants
 across, which is one of the usual reasons a systems language grows comptime.

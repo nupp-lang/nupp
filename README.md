@@ -16,7 +16,7 @@ cleanup obligation, `takes` calls move it, borrows cannot escape, and
 `retains`/`releases` C calls. Raw-pointer reconstruction is confined to
 explicit `unsafe do` blocks. See [docs/ownership.md](docs/ownership.md). A
 trace-aware checker (types that know what the JIT will compile) is on the
-roadmap ([plans/todo.md](plans/todo.md)).
+roadmap ([plans/019-todo.md](plans/019-todo.md)).
 
 A file's extension says which floor it is held to, so it is visible where the
 file is rather than in a setting that governs everything at once: `.nupp` is

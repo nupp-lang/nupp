@@ -467,7 +467,7 @@ its `suspend` call does.
 
 This is the highest-risk decision in this document. It trades a static
 guarantee for a contract, which §There is no deoptimization in
-[optimizations.md](optimizations.md) warns about in a different context. The
+[optimizations.md](014-optimizations.md) warns about in a different context. The
 argument for taking the trade is that the alternative is not safety but
 uselessness: a suspension that may not cross a scope holding an owner cannot
 be used by a
@@ -656,7 +656,7 @@ replace.
 A feature justified only by another project's needs is a feature Nupp should
 not build. Four uses inside this repository, in the order they would pay:
 
-- **The comptime worker.** `plans/comptime.md` C4 wants evaluation out of
+- **The comptime worker.** `plans/003-comptime.md` C4 wants evaluation out of
   process so a hang, a crash, or a memory blowup cannot take the language
   server with it. That needs spawn-with-kill and a wait that does not block the
   LSP's loop — which is this feature plus §Porting.
@@ -674,7 +674,7 @@ notice.
 
 ## Diagnostics
 
-Reserve NUPP27xx. The range is free; `plans/comptime.md` records what happens
+Reserve NUPP27xx. The range is free; `plans/003-comptime.md` records what happens
 when a range is reserved without checking.
 
 - `NUPP2701`: a suspending call inside a `nosuspend` region

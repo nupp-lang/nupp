@@ -11,7 +11,7 @@ checked body and names what the IR could not have taken, so a programmer hears
 It is deliberately structural. A construct declined here is declined because it
 has no representation at all -- a closure, a table, varargs, `goto` -- and that
 is visible in the tree without asking what anything's type is. The value-level
-subset in `plans/aot-functions.md` is the other half and belongs with the IR,
+subset in `plans/038-aot-functions.md` is the other half and belongs with the IR,
 which is where a type is actually needed to say that some `number` is admitted
 and some `any` is not. Reporting the structural half here keeps that later pass
 from having to re-explain constructs it never saw.
@@ -28,7 +28,7 @@ Each declined construct reports once and the walk does not descend into it. A
 closure containing three tables is one problem with one fix, and listing the
 tables inside a function that cannot be there at all is noise.
 
-See `plans/aot-functions.md`.
+See `plans/038-aot-functions.md`.
 ]]
 
 local cst = require("nupp.compiler.cst")

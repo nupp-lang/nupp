@@ -1718,7 +1718,7 @@ pub mod files {
 /// Nupp.
 ///
 /// Spawning goes through `std::process::Command` rather than a hand-rolled
-/// `posix_spawn`, and that is a deliberate departure from what `plans/suspension.md`
+/// `posix_spawn`, and that is a deliberate departure from what `plans/018-suspension.md`
 /// first asked for rather than a way of meeting it. `Command` promises nothing about
 /// how it starts a child: it uses `posix_spawn` where it can and a fork path where it
 /// cannot, and which of those it picks is a standard-library detail that may change.

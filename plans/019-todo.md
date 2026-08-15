@@ -26,7 +26,7 @@ work makes sense in.
   - [ ] strict JSON numbers and explicit empty array/object semantics are set
         per call site on the Nupp side, not in the host
   - [ ] cross-target stub selection and shipped per-platform stubs
-        ([plan](cross-target-binaries.md)); a binary target still has no target
+        ([plan](043-cross-target-binaries.md)); a binary target still has no target
         list or cross-build selection
 - [ ] **The `nupp-cargo` helper is a manifest provider now, and what is left of
       it is two promises it does not keep.** `kind = "cargo"` builds a crate's
@@ -73,8 +73,8 @@ work makes sense in.
       cache and artifact validation, inspection, and diagnostics. The public
       surface stays ordinary scalar Nupp: do not add explicit vector values or
       a second numeric operator tower. The full delivery plan is
-      [aot-functions.md](aot-functions.md), and the rejected alternatives are
-      recorded in [portable-vectors.md](portable-vectors.md).
+      [aot-functions.md](038-aot-functions.md), and the rejected alternatives are
+      recorded in [portable-vectors.md](037-portable-vectors.md).
 
 ## Dialect interop (`import-tl`)
 
@@ -182,13 +182,13 @@ work makes sense in.
 - [ ] **Buffer adoption.** Port tecs `Buffer`, `ByteView`, `WriteRange`,
       compression, process-I/O, mapped-buffer, and pointer-plus-length call
       sites to Nupp's bounds-carrying spans and buffer implementation.
-- [ ] **HTTP adoption** ([design](http.md)): Tecs keeps its ECS policy and
+- [ ] **HTTP adoption** ([design](007-http.md)): Tecs keeps its ECS policy and
       SDL-owned loop, installs its existing suspension adapter per task, polls
       Nupp without sleeping before and between scheduler rounds, and deletes
       its per-client transport pump and private upload scheduler after
       adoption. A close/count-only facade registry may remain for Teal
       lifecycle compatibility.
-- [ ] **Files adoption** ([design](files.md)): `nupp.io.files`, its native
+- [ ] **Files adoption** ([design](006-files.md)): `nupp.io.files`, its native
       provider, bounded request lane, suspension integration, and compiler
       adoption have landed. The remaining project is tecs adoption: delete
       `io/files`, `internal/fileasync`, `platform/storagebackend` and its

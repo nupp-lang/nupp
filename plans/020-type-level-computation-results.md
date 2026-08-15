@@ -1,7 +1,7 @@
 # Finite type-level computation results
 
 This records the T4 acceptance decision for
-[`type-level-computation.md`](type-level-computation.md). Measurements are from
+[`type-level-computation.md`](021-type-level-computation.md). Measurements are from
 the self-hosted compiler on the implementation worktree on 2026-08-10.
 
 ## Accepted workloads

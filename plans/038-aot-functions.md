@@ -171,7 +171,7 @@ DynASM bodies do not become the safety model for `@aot`.
 
 ### SIMD source model
 
-The [portable-vector decision record](portable-vectors.md) compared boxed
+The [portable-vector decision record](037-portable-vectors.md) compared boxed
 ordinary vectors, explicit vectors confined to AOT, and scalar-source lane
 parallelism. The initial surface is one ordinary scalar body with an optional
 required setting:
@@ -275,7 +275,7 @@ growth and cross-module invalidation visible.
 ### Tecs 80% slice
 
 The ordinary language facilities this slice should consume are planned in
-[Independent foundations for AOT lowering](aot-independent-foundations.md).
+[Independent foundations for AOT lowering](041-aot-independent-foundations.md).
 They land and are accepted without `@aot`; this plan owns only their later
 consumption by AOT verification and lowering.
 
@@ -466,7 +466,7 @@ arithmetic and must not be presented as such.
 
 ### Checked refinements before AOT
 
-The proposed [fixed-width refinement plan](fixed-width-refinements.md) makes
+The proposed [fixed-width refinement plan](045-fixed-width-refinements.md) makes
 `float`, `int32`, and `uint32` honest unboxed value refinements without changing
 operator semantics. Arithmetic still widens to `number`; an internal dataflow
 fact records whether a reified load, conversion, intrinsic, literal, or checked
