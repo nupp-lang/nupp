@@ -920,6 +920,17 @@ Keep vector and mask temporaries compiler-internal. Extend
 retirement, selected reductions, helpers, and inner loops. Each extension must
 preserve scalar Nupp evaluation and pass the lane-IR verifier before emission.
 
+The experimental C spike now proves the control-flow slice: it lowers nested
+conditionals, pure-and-total short-circuit boolean expressions, data-dependent
+inner `while` loops, and per-lane `break`/`continue`. It maintains distinct live
+and currently-executing masks, materializes each branch mask before executing
+the branch, and uses a horizontal `any` only for loop termination. Ordinary
+Nupp, forced-scalar C, and four-lane binary64 C agree exactly, including scalar
+tails. This is evidence for the production IR design, not completion of N5:
+the implementation still has to move under `src/` and consume the complete
+checked fact graph. Selected reductions, helper graphs, nested numeric loops,
+and uniform inner loops remain open.
+
 Do not add public explicit vectors alongside this surface. Reconsider them only
 for a cross-lane workload that scalar map semantics cannot express and whose
 benefit justifies a distinct language feature.

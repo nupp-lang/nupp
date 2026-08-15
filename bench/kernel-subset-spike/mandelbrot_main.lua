@@ -10,6 +10,10 @@ local ffi = require("ffi")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
 local OUT = here .. "build/mandelbrot/"
+package.path = OUT .. "fallback/?.lua;" .. OUT .. "fallback/?/init.lua;" .. package.path
+
+local ordinary = require("mandelbrot")
+local spans = require("nupp.span")
 
 ffi.cdef [[
 typedef struct { int32_t iterations; uint32_t escaped; } KsEscape;
@@ -70,15 +74,46 @@ end
 
 local optimized = ffi.new("KsEscape[?]", count)
 local scalar = ffi.new("KsEscape[?]", count)
+local fallback = ffi.new("KsEscape[?]", count)
 lib.ks_mandelbrot(optimized, points, 1, count, MAX_ITERATIONS, count)
 lib.ks_mandelbrot_forced_scalar(scalar, points, 1, count, MAX_ITERATIONS, count)
+local fallbackWriter = spans.writeCarray(fallback, count)
+ordinary.mandelbrot(fallbackWriter, spans.fromCarray(points, count), 1, count, MAX_ITERATIONS)
+fallbackWriter:commit()
 
 for index = 0, count - 1 do
    local wantIterations, wantEscaped = reference(points[index].re, points[index].im)
-   for label, got in pairs({optimized = optimized[index], scalar = scalar[index]}) do
+   for label, got in pairs({
+      optimized = optimized[index], scalar = scalar[index], fallback = fallback[index],
+   }) do
       if got.iterations ~= wantIterations or got.escaped ~= wantEscaped then
          error(("%s pixel %d: want %d/%d, got %d/%d"):format(
             label, index, wantIterations, wantEscaped, got.iterations, got.escaped))
+      end
+   end
+end
+
+-- Exercise every whole-group/tail shape independently of the display size.
+-- The source points come from the same initialized prefix, while each output
+-- starts fresh so a missed or overrun lane cannot hide behind an earlier call.
+for _, prefix in ipairs({0, 1, 3, 4, 5, 7, 8, 33}) do
+   if prefix <= count then
+      local capacity = math.max(1, prefix)
+      local expected = ffi.new("KsEscape[?]", capacity)
+      local forced = ffi.new("KsEscape[?]", capacity)
+      local lanes = ffi.new("KsEscape[?]", capacity)
+      local writer = spans.writeCarray(expected, prefix)
+      ordinary.mandelbrot(writer, spans.fromCarray(points, prefix), 1, prefix, MAX_ITERATIONS)
+      writer:commit()
+      lib.ks_mandelbrot_forced_scalar(forced, points, 1, prefix, MAX_ITERATIONS, prefix)
+      lib.ks_mandelbrot(lanes, points, 1, prefix, MAX_ITERATIONS, prefix)
+      for index = 0, prefix - 1 do
+         assert(forced[index].iterations == expected[index].iterations
+            and forced[index].escaped == expected[index].escaped,
+            "forced scalar tail differs at count " .. prefix)
+         assert(lanes[index].iterations == expected[index].iterations
+            and lanes[index].escaped == expected[index].escaped,
+            "SPMD tail differs at count " .. prefix)
       end
    end
 end
@@ -88,7 +123,7 @@ for index = 0, count - 1 do
 end
 io.write(("mandelbrot: %dx%d, %d max iterations, checksum %d\n")
    :format(WIDTH, HEIGHT, MAX_ITERATIONS, checksum))
-io.write(("%d pixels agree with the Lua oracle, both bodies\n\n"):format(count))
+io.write(("%d pixels agree across ordinary Nupp, scalar C, and SPMD C\n\n"):format(count))
 if os.getenv("MANDELBROT_QUIET") then
    local function bench(name, run)
       for _ = 1, 3 do run() end
@@ -103,8 +138,11 @@ if os.getenv("MANDELBROT_QUIET") then
          :format(name, elapsed * 1e9, count / elapsed / 1e6))
    end
 
-   bench("scalar", function()
+   bench("SPMD f64x4", function()
       lib.ks_mandelbrot(optimized, points, 1, count, MAX_ITERATIONS, count)
+   end)
+   bench("scalar C", function()
+      lib.ks_mandelbrot_forced_scalar(scalar, points, 1, count, MAX_ITERATIONS, count)
    end)
    bench("LuaJIT", function()
       local total = 0
@@ -147,7 +185,7 @@ local function timed(name, run)
       :format(name, elapsed * 1000, count / elapsed / 1e6))
 end
 
-timed("AOT-compiled C", function()
+timed("AOT SPMD f64x4", function()
    lib.ks_mandelbrot(optimized, points, 1, count, MAX_ITERATIONS, count)
 end)
 timed("forced-scalar C", function()

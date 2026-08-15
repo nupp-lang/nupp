@@ -39,18 +39,24 @@ its iterations are independent. The spike either produces verified lane IR or
 reports why it cannot. Explicit `F32x8`, `I32x8`, mask helpers, and hand-unrolled
 lane structs were removed; compiler-internal vectors are the only vector values.
 
-The current pass handles straight-line binary64 arithmetic, comparisons, and a
-single masked `if` over consecutive struct fields. It chooses four binary64
-lanes on this experimental backend. A scalar epilogue handles the remainder so
-no masked load can cross the end of a span. Nested loops, `break`, `continue`,
-helpers, `else`, uniform conditions, and short-circuit `and`/`or` currently
-refuse. Short-circuiting stays out until it has mask-aware evaluation or a
-verified pure-and-total effect fact.
+The current pass handles binary64 arithmetic, comparisons, nested masked
+conditionals, and data-dependent inner `while` loops over consecutive struct
+fields. It turns `break` and `continue` into per-lane retirement, ends a loop
+when no lane remains live, and admits short-circuit `and`/`or` only with an
+explicit verified pure-and-total effect fact. Branch masks are captured before
+their bodies execute, so changing a condition operand cannot change which
+lanes execute later statements in that branch.
+
+It chooses four binary64 lanes on this experimental backend. Physical
+`float`, `int32`, and `uint32` fields widen to binary64 lane values for ordinary
+Nupp arithmetic and narrow independently at stores. A scalar epilogue handles
+the remainder so no vector load can cross the end of a span. Nested numeric
+`for` loops, uniform inner loops, and helper calls currently refuse.
 
 Both the scalar IR and the rewritten lane IR are verified before C emission.
 The lane verifier checks vector types and arities, writable roots, layouts,
-field types, masks, selects, and the fixed group width. Tests deliberately
-corrupt a lane store to prove the verifier rejects it.
+field types, masks, selects, loop masks, lane exits, and the fixed group width.
+Tests deliberately corrupt lane IR to prove the verifier rejects it.
 
 ## Running it
 
@@ -99,11 +105,14 @@ bench/kernel-subset-spike/mandelbrot.sh
 luajit bench/kernel-subset-spike/mandelbrot_main.lua
 ```
 
-It compares one generated optimized C body and its deliberately de-vectorized
-scalar oracle against a Lua binary64 implementation. The forced-scalar row is
-an oracle, not the baseline for claiming that generated intrinsics beat normal
-optimized C. The driver reports its binary64 checksum only; historical
-binary32 explicit-vector checksums are not comparable to it.
+It compares the ordinary annotated Nupp body, one generated SPMD C body, its
+deliberately de-vectorized scalar C oracle, and a handwritten Lua recurrence.
+It also exercises every relevant tail shape. On the current Apple arm64
+measurement at 1024x768 and 256 iterations, the four-lane binary64 body runs at
+about 72 MPix/s versus 35 MPix/s for forced-scalar C. That row establishes the
+lane rewrite's value; it does not claim to beat whatever a normal optimizing C
+compiler could infer from the scalar body. Historical binary32 eight-lane
+results and checksums are not comparable to this ordinary-Nupp program.
 
 ## Checked boundary
 
@@ -130,8 +139,8 @@ explicit source relaxation permits them.
 The spike accepts one annotated local function and emits one private translation
 unit. It does not yet provide build policy in `nupp.lua`, module AOT summaries,
 incremental hashes, production artifact validation, status-return failures,
-target dispatch, inspection commands, hot reload, reductions, stencils, or
-verified mask stacks and lane retirement.
+target dispatch, inspection commands, hot reload, reductions, stencils,
+helper graphs, or nested numeric-loop lowering.
 
 Most importantly, ordinary `nupp build` still emits the Lua body. Moving this
 IR and emitter under `src/`, consuming the full checked ownership/effect graph,

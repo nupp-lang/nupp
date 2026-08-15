@@ -1002,6 +1002,7 @@ local function vectorizeLoop(ir, reject)
    local varyingLocals = {}
    local refBindings = {}
    local index = ir.loop.index
+   local internalSerial = 0
 
    local function exprVarying(node)
       if node == nil then return false end
@@ -1029,23 +1030,34 @@ local function vectorizeLoop(ir, reject)
       return false
    end
 
-   local function markBlock(statements)
+   local function markBlock(statements, controlled)
       for _, statement in ipairs(statements) do
          if statement.op == "let" then
-            if exprVarying(statement.value) then varyingLocals[statement.name] = true end
+            if controlled or exprVarying(statement.value) then
+               varyingLocals[statement.name] = true
+            end
          elseif statement.op == "assign" then
             for _, assignment in ipairs(statement.values) do
-               if assignment.target.kind == "local" and exprVarying(assignment.value) then
+               if assignment.target.kind == "local"
+                  and (controlled or exprVarying(assignment.value))
+               then
                   varyingLocals[assignment.target.name] = true
                end
             end
          elseif statement.op == "if" then
-            for _, clause in ipairs(statement.clauses) do markBlock(clause.body) end
-            if statement.elseBody then markBlock(statement.elseBody) end
-         elseif statement.op == "while" or statement.op == "block" then
-            markBlock(statement.body)
+            local branchControlled = controlled
+            for _, clause in ipairs(statement.clauses) do
+               branchControlled = branchControlled or exprVarying(clause.condition)
+               markBlock(clause.body, branchControlled)
+            end
+            if statement.elseBody then markBlock(statement.elseBody, branchControlled) end
+         elseif statement.op == "while" then
+            markBlock(statement.body, controlled or exprVarying(statement.condition))
+         elseif statement.op == "block" then
+            markBlock(statement.body, controlled)
          elseif statement.op == "fornum" then
-            markBlock(statement.body)
+            markBlock(statement.body, controlled
+               or exprVarying(statement.from) or exprVarying(statement.to))
          end
       end
    end
@@ -1056,7 +1068,7 @@ local function vectorizeLoop(ir, reject)
    repeat
       before = 0
       for _ in pairs(varyingLocals) do before = before + 1 end
-      markBlock(ir.loop.statements)
+      markBlock(ir.loop.statements, false)
       local after = 0
       for _ in pairs(varyingLocals) do after = after + 1 end
    until after == before
@@ -1073,11 +1085,59 @@ local function vectorizeLoop(ir, reject)
       return nil
    end
 
-   local function splat(node)
-      if node.type == "f64" then
-         return {op = "vsplat64", args = {node}, type = "f64x4", source = node.source}
+   local function scalarAsF64(node)
+      if node.type == "f64" then return node end
+      if node.type == "f32" then
+         return {op = "widen_f32_f64", value = node, type = "f64", source = node.source}
       end
-      reject(nil, "a uniform " .. tostring(node.type) .. " cannot enter a lane-parallel expression")
+      if node.type == "i32" or node.type == "u32" then
+         return {op = "int_to_f64", value = node, type = "f64", source = node.source}
+      end
+      reject(nil, "a uniform " .. tostring(node.type) .. " cannot enter binary64 SIMD")
+   end
+
+   local function splat64(node)
+      return {op = "vsplat64", args = {scalarAsF64(node)}, type = "f64x4", source = node.source}
+   end
+
+   local function boolMask(node)
+      return {op = "vbool_splat", args = {node}, type = "m64x4", source = node.source}
+   end
+
+   local function maskLocal(binding, source)
+      return {op = "local", name = binding.name, cName = binding.cName,
+         type = "m64x4", source = source}
+   end
+
+   local function internalMask(label, source)
+      internalSerial = internalSerial + 1
+      return {
+         kind = "local", name = "$" .. label .. tostring(internalSerial),
+         cName = "lm" .. tostring(internalSerial) .. "_" .. label,
+         type = "m64x4", source = source,
+      }
+   end
+
+   local function maskAnd(left, right, source)
+      if not left then return right end
+      return {op = "vmand", args = {left, right}, type = "m64x4", source = source}
+   end
+
+   local function maskNot(value, source)
+      return {op = "vmnot", args = {value}, type = "m64x4", source = source}
+   end
+
+   local function activeMask(mask, loopContext, source)
+      if not loopContext then return mask end
+      local executing = maskLocal(loopContext.executing, source)
+      if not mask then return executing end
+      if mask.op == "local" and mask.name == loopContext.executing.name then
+         return mask
+      end
+      -- A branch mask records which lanes entered the branch. The executing
+      -- mask records which of those lanes have not since broken or continued.
+      -- Both facts are needed for every later statement in a nested block.
+      return maskAnd(mask, executing, source)
    end
 
    local VECTOR_BINARY = {
@@ -1088,8 +1148,84 @@ local function vectorizeLoop(ir, reject)
    local COMPARISON = {vlt64 = true, vle64 = true, vgt64 = true, vge64 = true,
       veq64 = true, vne64 = true}
 
+   local rewriteExpr
+
+   local function numericVector(node)
+      if exprVarying(node) then
+         local value = rewriteExpr(node)
+         if value.type ~= "f64x4" then
+            reject(nil, "a varying " .. tostring(node.type) .. " cannot enter binary64 SIMD")
+         end
+         return value
+      end
+      return splat64(node)
+   end
+
+   local function conditionMask(node)
+      if exprVarying(node) then
+         local value = rewriteExpr(node)
+         if value.type ~= "m64x4" then reject(nil, "a varying condition did not produce a mask") end
+         return value
+      end
+      return boolMask(node)
+   end
+
+   local function collectExprReads(node, reads)
+      if not node then return end
+      if node.op == "local" then reads[node.name] = true end
+      if node.value then collectExprReads(node.value, reads) end
+      if node.left then collectExprReads(node.left, reads) end
+      if node.right then collectExprReads(node.right, reads) end
+      for _, arg in ipairs(node.args or {}) do collectExprReads(arg, reads) end
+      if node.object then collectExprReads(node.object, reads) end
+   end
+
+   local collectStatementReads
+   collectStatementReads = function(statement, reads)
+      if statement.op == "let" then
+         collectExprReads(statement.value, reads)
+      elseif statement.op == "assign" then
+         for _, assignment in ipairs(statement.values) do
+            collectExprReads(assignment.value, reads)
+            collectExprReads(assignment.target.object, reads)
+         end
+      elseif statement.op == "store" then
+         collectExprReads(statement.value, reads)
+      elseif statement.op == "if" then
+         for _, clause in ipairs(statement.clauses) do
+            collectExprReads(clause.condition, reads)
+            for _, inner in ipairs(clause.body) do collectStatementReads(inner, reads) end
+         end
+         for _, inner in ipairs(statement.elseBody or {}) do collectStatementReads(inner, reads) end
+      elseif statement.op == "while" then
+         collectExprReads(statement.condition, reads)
+         for _, inner in ipairs(statement.body) do collectStatementReads(inner, reads) end
+      elseif statement.op == "fornum" then
+         collectExprReads(statement.from, reads)
+         collectExprReads(statement.to, reads)
+         for _, inner in ipairs(statement.body) do collectStatementReads(inner, reads) end
+      elseif statement.op == "block" then
+         for _, inner in ipairs(statement.body) do collectStatementReads(inner, reads) end
+      end
+   end
+
+   local function containsContinue(statements)
+      for _, statement in ipairs(statements) do
+         if statement.op == "continue" then return true end
+         if statement.op == "if" then
+            for _, clause in ipairs(statement.clauses) do
+               if containsContinue(clause.body) then return true end
+            end
+            if statement.elseBody and containsContinue(statement.elseBody) then return true end
+         elseif statement.body and containsContinue(statement.body) then
+            return true
+         end
+      end
+      return false
+   end
+
    --- Rewrites one expression, returning it unchanged when it is uniform.
-   local function rewriteExpr(node)
+   rewriteExpr = function(node)
       if not exprVarying(node) then return node, false end
       local op = node.op
       if op == "local" then
@@ -1101,9 +1237,11 @@ local function vectorizeLoop(ir, reject)
          if not object or object.index ~= index then
             reject(nil, "a lane-parallel field load reads consecutive elements only")
          end
+         local scalarType = node.type
          local loaded = {
             op = "vfield_load", span = object.span, layout = object.layout,
-            field = node.field, lanes = LANES, type = "f64x4", source = node.source,
+            field = node.field, lanes = LANES, scalarType = scalarType,
+            type = "f64x4", source = node.source,
          }
          return loaded, true
       elseif op == "widen_f32_f64" or op == "int_to_f64" then
@@ -1112,18 +1250,21 @@ local function vectorizeLoop(ir, reject)
          local inner = rewriteExpr(node.value)
          return inner, true
       elseif VECTOR_BINARY[op] then
-         local left = rewriteExpr(node.left)
-         local right = rewriteExpr(node.right)
-         if not exprVarying(node.left) then left = splat(node.left) end
-         if not exprVarying(node.right) then right = splat(node.right) end
+         local left = numericVector(node.left)
+         local right = numericVector(node.right)
          local chosen = VECTOR_BINARY[op]
          return {op = chosen, args = {left, right},
             type = COMPARISON[chosen] and "m64x4" or "f64x4", source = node.source}, true
       elseif op == "and" or op == "or" then
-         -- Lane-wise eager evaluation is not ordinary short-circuiting. Keep it
-         -- outside the admitted subset until the checked IR carries a verified
-         -- pure-and-total effect fact or the right side is lowered under a mask.
-         reject(nil, "a lane-parallel and/or needs mask-aware short-circuit lowering")
+         -- Every expression admitted by this spike is pure and total: span
+         -- bounds were proved before this pass, arithmetic does not trap, and
+         -- calls resolve to the closed math set. Record that fact in the opcode
+         -- rather than quietly treating arbitrary future expressions as eager.
+         return {
+            op = op == "and" and "vshort_and" or "vshort_or",
+            args = {conditionMask(node.left), conditionMask(node.right)},
+            type = "m64x4", effect = "pure_total", source = node.source,
+         }, true
       elseif op == "not" then
          return {op = "vmnot", args = {rewriteExpr(node.value)}, type = "m64x4",
             source = node.source}, true
@@ -1133,13 +1274,16 @@ local function vectorizeLoop(ir, reject)
       elseif op == "math" then
          local args = {}
          for i, arg in ipairs(node.args) do
-            args[i] = exprVarying(arg) and rewriteExpr(arg) or splat(arg)
+            args[i] = numericVector(arg)
          end
          return {op = "vmath", intrinsic = node.intrinsic, args = args,
             type = "f64x4", source = node.source}, true
       elseif op == "helper_call" then
          reject(nil, "a lane-parallel loop cannot call a helper yet")
       elseif op == "numeric_cast" or op == "narrow_f64_f32" then
+         -- Storage conversions remain attached to the scalar field target. The
+         -- vector value stays binary64 until each lane is stored, exactly like
+         -- ordinary Nupp widens a physical load and narrows a physical store.
          return rewriteExpr(node.value), true
       end
       reject(nil, "operation " .. tostring(op) .. " has no lane-parallel form")
@@ -1147,18 +1291,30 @@ local function vectorizeLoop(ir, reject)
 
    --- Rewrites a block under an execution mask. `mask` is nil at the top level,
    --- where every lane is active and no select is needed.
-   local function rewriteBlock(statements, mask)
+   local rewriteBlock
+   rewriteBlock = function(statements, mask, loopContext, following)
       local out = {}
-      for _, statement in ipairs(statements) do
+      local suffixReads = copyEnvironment(following or {})
+      local readsAfter = {}
+      for position = #statements, 1, -1 do
+         readsAfter[position] = copyEnvironment(suffixReads)
+         collectStatementReads(statements[position], suffixReads)
+      end
+      for position, statement in ipairs(statements) do
+         local statementMask = activeMask(mask, loopContext, statement.source)
          if statement.op == "let" and statement.value.op == "element_ref"
             and statement.value.index == index then
             refBindings[statement.name] = statement.value
          elseif statement.op == "let" then
-            local value = rewriteExpr(statement.value)
-            local varying = exprVarying(statement.value)
+            local varying = varyingLocals[statement.name] == true
+               or exprVarying(statement.value)
+            local value = varying and (
+               exprVarying(statement.value) and rewriteExpr(statement.value)
+               or splat64(statement.value)
+            ) or statement.value
             out[#out + 1] = {
                op = "let", name = statement.name, cName = statement.cName,
-               value = varying and value or statement.value,
+               value = value,
                type = varying and value.type or statement.type,
                source = statement.source,
             }
@@ -1166,13 +1322,31 @@ local function vectorizeLoop(ir, reject)
             local assignments = {}
             for i, assignment in ipairs(statement.values) do
                local target = assignment.target
-               local value = rewriteExpr(assignment.value)
+               local targetVarying = target.kind == "field"
+                  or varyingLocals[target.name] == true
+               local value = exprVarying(assignment.value)
+                  and rewriteExpr(assignment.value) or assignment.value
                if not exprVarying(assignment.value)
-                  and (target.kind == "field" or varyingLocals[target.name])
+                  and targetVarying
                then
-                  value = splat(assignment.value)
+                  value = splat64(assignment.value)
                end
-               if mask then
+               local assignmentMask = statementMask
+               if assignmentMask and target.kind == "local" and loopContext
+                  and mask and mask.op == "local"
+                  and mask.name == loopContext.executing.name
+                  and loopContext.speculate and not loopContext.observable[target.name]
+               then
+                  -- A retired lane may compute arbitrary pure lane-local state
+                  -- in the unconditional loop body when that state is dead after
+                  -- the loop. Branch masks remain load-bearing: speculating
+                  -- across a branch could change a still-live lane that did not
+                  -- take it. No lane crosses into another, and the value cannot
+                  -- be observed after retirement, so selecting the old value
+                  -- here would only add register pressure.
+                  assignmentMask = nil
+               end
+               if assignmentMask then
                   -- An inactive lane keeps what it had, which is what makes a
                   -- conditional a mask rather than a branch. A field target
                   -- reads its own current lanes back for the same reason.
@@ -1187,9 +1361,9 @@ local function vectorizeLoop(ir, reject)
                      end
                      previous = {op = "vfield_load", span = object.span,
                         layout = target.layout, field = target.field, lanes = LANES,
-                        type = "f64x4", source = statement.source}
+                        scalarType = target.type, type = "f64x4", source = statement.source}
                   end
-                  value = {op = "vselect", args = {mask, value, previous},
+                  value = {op = "vselect", args = {assignmentMask, value, previous},
                      type = value.type, source = statement.source}
                end
                if target.kind == "field" then
@@ -1211,28 +1385,71 @@ local function vectorizeLoop(ir, reject)
          elseif statement.op == "store" then
             reject(nil, "a lane-parallel loop stores through struct fields for now")
          elseif statement.op == "if" then
-            if #statement.clauses ~= 1 or statement.elseBody then
-               reject(nil, "a lane-parallel conditional takes one clause and no else yet")
+            local remaining = statementMask
+            for _, clause in ipairs(statement.clauses) do
+               local condition = conditionMask(clause.condition)
+               local branchValue = maskAnd(remaining, condition, clause.source)
+               local branch = internalMask("if", clause.source)
+               out[#out + 1] = {
+                  op = "let", name = branch.name, cName = branch.cName,
+                  value = branchValue, type = "m64x4", source = clause.source,
+               }
+               local branchMask = maskLocal(branch, clause.source)
+               local inner = rewriteBlock(
+                  clause.body, branchMask, loopContext, readsAfter[position]
+               )
+               for _, produced in ipairs(inner) do out[#out + 1] = produced end
+               remaining = maskAnd(
+                  remaining, maskNot(branchMask, clause.source), clause.source
+               )
             end
-            local clause = statement.clauses[1]
-            local condition = rewriteExpr(clause.condition)
-            if not exprVarying(clause.condition) then
-               reject(nil, "a uniform condition in a lane-parallel loop is not lowered yet")
+            if statement.elseBody then
+               local inner = rewriteBlock(
+                  statement.elseBody, remaining, loopContext, readsAfter[position]
+               )
+               for _, produced in ipairs(inner) do out[#out + 1] = produced end
             end
-            local combined = condition
-            if mask then
-               combined = {op = "vmand", args = {mask, condition}, type = "m64x4",
-                  source = statement.source}
-            end
-            local inner = rewriteBlock(clause.body, combined)
-            for _, produced in ipairs(inner) do out[#out + 1] = produced end
          elseif statement.op == "block" then
-            local inner = rewriteBlock(statement.body, mask)
+            local inner = rewriteBlock(
+               statement.body, statementMask, loopContext, readsAfter[position]
+            )
             for _, produced in ipairs(inner) do out[#out + 1] = produced end
-         elseif statement.op == "while" or statement.op == "fornum" then
-            reject(nil, "a loop inside a lane-parallel loop is not lowered yet")
+         elseif statement.op == "while" then
+            if not exprVarying(statement.condition) then
+               reject(nil, "a uniform inner while loop is not lane-controlled yet")
+            end
+            local live = internalMask("live", statement.source)
+            local executing = internalMask("exec", statement.source)
+            local condition = conditionMask(statement.condition)
+            local initial = maskAnd(statementMask, condition, statement.source)
+            local context = {
+               live = live, executing = executing, source = statement.source,
+               observable = readsAfter[position],
+               speculate = not containsContinue(statement.body),
+            }
+            local body = rewriteBlock(
+               statement.body,
+               maskLocal(executing, statement.source),
+               context,
+               nil
+            )
+            out[#out + 1] = {
+               op = "vwhile", live = live, executing = executing,
+               initial = initial, condition = condition, body = body,
+               source = statement.source,
+            }
+         elseif statement.op == "fornum" then
+            reject(nil, "a nested numeric loop is not lane-controlled yet")
          elseif statement.op == "break" or statement.op == "continue" then
-            reject(nil, "break and continue in a lane-parallel loop are not lowered yet")
+            if not loopContext then
+               reject(nil, statement.op .. " applies to the outer map loop and is not admitted")
+            end
+            out[#out + 1] = {
+               op = statement.op == "break" and "vbreak" or "vcontinue",
+               mask = statementMask,
+               live = loopContext.live, executing = loopContext.executing,
+               source = statement.source,
+            }
          else
             reject(nil, "statement " .. tostring(statement.op) .. " has no lane-parallel form")
          end
@@ -1241,7 +1458,7 @@ local function vectorizeLoop(ir, reject)
       return out
    end
 
-   return {lanes = LANES, statements = rewriteBlock(ir.loop.statements, nil)}
+   return {lanes = LANES, statements = rewriteBlock(ir.loop.statements, nil, nil, nil)}
 end
 
 local function verifyIR(ir)
@@ -1566,11 +1783,17 @@ local function verifyIR(ir)
             assert(node.type == "f64x4" and #node.args == 1 and node.args[1].type == "f64",
                "invalid lane splat")
             verifyExpr(node.args[1], values)
+         elseif node.op == "vbool_splat" then
+            assert(node.type == "m64x4" and #node.args == 1 and node.args[1].type == "bool",
+               "invalid boolean mask splat")
+            verifyExpr(node.args[1], values)
          elseif node.op == "vfield_load" then
             local root = byName[node.span]
             local layout = layouts[node.layout]
             assert(root and root.type == "struct:" .. tostring(node.layout)
-               and layout and layout.fieldTypes[node.field] == "f32"
+               and layout and layout.fieldTypes[node.field] == node.scalarType
+               and (node.scalarType == "f32" or node.scalarType == "i32"
+                  or node.scalarType == "u32")
                and node.lanes == LANES and node.type == "f64x4",
                "invalid lane field load")
          elseif laneBinary[node.op] then
@@ -1579,10 +1802,15 @@ local function verifyIR(ir)
                "invalid lane binary operation")
             verifyLaneExpr(node.args[1], values)
             verifyLaneExpr(node.args[2], values)
-         elseif node.op == "vmand" or node.op == "vmor" then
+         elseif node.op == "vmand" or node.op == "vmor"
+            or node.op == "vshort_and" or node.op == "vshort_or"
+         then
             assert(node.type == "m64x4" and #node.args == 2
                and node.args[1].type == "m64x4" and node.args[2].type == "m64x4",
                "invalid lane mask operation")
+            if node.op == "vshort_and" or node.op == "vshort_or" then
+               assert(node.effect == "pure_total", "short-circuit mask lost its effect proof")
+            end
             verifyLaneExpr(node.args[1], values)
             verifyLaneExpr(node.args[2], values)
          elseif node.op == "vmnot" then
@@ -1611,34 +1839,59 @@ local function verifyIR(ir)
          end
       end
 
-      local laneValues = copyEnvironment(uniforms)
-      for _, statement in ipairs(ir.lanes.statements) do
-         if statement.op == "let" then
-            assert(not laneValues[statement.name] and statement.type == statement.value.type,
-               "invalid lane local declaration")
-            verifyLaneExpr(statement.value, laneValues)
-            laneValues[statement.name] = statement.type
-         elseif statement.op == "vassign" then
-            for _, assignment in ipairs(statement.values) do
-               local target = assignment.target
-               verifyLaneExpr(assignment.value, laneValues)
-               if target.kind == "local" then
-                  assert(laneValues[target.name] == assignment.value.type,
-                     "invalid lane local assignment")
-               else
-                  local root = byName[target.span]
-                  local layout = layouts[target.layout]
-                  assert(target.kind == "vfield" and root and root.kind == "write_span"
-                     and root.type == "struct:" .. tostring(target.layout)
-                     and layout and layout.fieldTypes[target.field] == target.scalarType
-                     and target.scalarType == "f32" and assignment.value.type == "f64x4",
-                     "invalid lane field assignment")
+      local function verifyLaneBlock(statements, inherited, loopContext)
+         local laneValues = copyEnvironment(inherited)
+         for _, statement in ipairs(statements) do
+            if statement.op == "let" then
+               assert(not laneValues[statement.name] and statement.type == statement.value.type,
+                  "invalid lane local declaration")
+               verifyLaneExpr(statement.value, laneValues)
+               laneValues[statement.name] = statement.type
+            elseif statement.op == "vassign" then
+               for _, assignment in ipairs(statement.values) do
+                  local target = assignment.target
+                  verifyLaneExpr(assignment.value, laneValues)
+                  if target.kind == "local" then
+                     assert(laneValues[target.name] == assignment.value.type,
+                        "invalid lane local assignment")
+                  else
+                     local root = byName[target.span]
+                     local layout = layouts[target.layout]
+                     assert(target.kind == "vfield" and root and root.kind == "write_span"
+                        and root.type == "struct:" .. tostring(target.layout)
+                        and layout and layout.fieldTypes[target.field] == target.scalarType
+                        and (target.scalarType == "f32" or target.scalarType == "i32"
+                           or target.scalarType == "u32")
+                        and assignment.value.type == "f64x4",
+                        "invalid lane field assignment")
+                  end
                end
+            elseif statement.op == "vwhile" then
+               assert(statement.live.type == "m64x4" and statement.executing.type == "m64x4"
+                  and statement.live.name ~= statement.executing.name
+                  and not laneValues[statement.live.name]
+                  and not laneValues[statement.executing.name],
+                  "invalid lane-loop mask bindings")
+               verifyLaneExpr(statement.initial, laneValues)
+               verifyLaneExpr(statement.condition, laneValues)
+               assert(statement.initial.type == "m64x4" and statement.condition.type == "m64x4",
+                  "invalid lane-loop condition")
+               local inner = copyEnvironment(laneValues)
+               inner[statement.live.name] = "m64x4"
+               inner[statement.executing.name] = "m64x4"
+               verifyLaneBlock(statement.body, inner, statement)
+            elseif statement.op == "vbreak" or statement.op == "vcontinue" then
+               assert(loopContext and statement.live.name == loopContext.live.name
+                  and statement.executing.name == loopContext.executing.name,
+                  "lane loop control escaped its loop")
+               verifyLaneExpr(statement.mask, laneValues)
+               assert(statement.mask.type == "m64x4", "lane loop control needs a mask")
+            else
+               error("unknown lane statement opcode " .. tostring(statement.op))
             end
-         else
-            error("unknown lane statement opcode " .. tostring(statement.op))
          end
       end
+      verifyLaneBlock(ir.lanes.statements, uniforms, nil)
    end
    return ir
 end
@@ -1767,6 +2020,15 @@ local function irLines(ir)
                lines[#lines + 1] = prefix .. "vset " .. target .. " = "
                   .. expression(assignment.value)
             end
+         elseif statement.op == "vwhile" then
+            lines[#lines + 1] = prefix .. "vwhile any " .. statement.live.name
+               .. " = " .. expression(statement.initial)
+            lines[#lines + 1] = prefix .. "  executing " .. statement.executing.name
+            block(statement.body, depth + 1)
+            lines[#lines + 1] = prefix .. "  retest " .. expression(statement.condition)
+            lines[#lines + 1] = prefix .. "end"
+         elseif statement.op == "vbreak" or statement.op == "vcontinue" then
+            lines[#lines + 1] = prefix .. statement.op .. " " .. expression(statement.mask)
          elseif statement.op == "if" then
             for i, clause in ipairs(statement.clauses) do
                lines[#lines + 1] = prefix .. (i == 1 and "if " or "elseif ")
@@ -1816,13 +2078,17 @@ local cBinary = {
 local function renderExpr(node)
    local LANE_BINARY = {vadd64 = " + ", vsub64 = " - ", vmul64 = " * ", vdiv64 = " / ",
       vlt64 = " < ", vle64 = " <= ", vgt64 = " > ", vge64 = " >= ", veq64 = " == ",
-      vne64 = " != ", vmand = " & ", vmor = " | "}
+      vne64 = " != ", vmand = " & ", vmor = " | ",
+      vshort_and = " & ", vshort_or = " | "}
    if LANE_BINARY[node.op] then
       return "(" .. renderExpr(node.args[1]) .. LANE_BINARY[node.op]
          .. renderExpr(node.args[2]) .. ")"
    end
    if node.op == "vsplat64" then
       return "ks_splat64(" .. renderExpr(node.args[1]) .. ")"
+   end
+   if node.op == "vbool_splat" then
+      return "ks_bool_mask(" .. renderExpr(node.args[1]) .. ")"
    end
    if node.op == "vmnot" then
       return "(~" .. renderExpr(node.args[1]) .. ")"
@@ -1984,6 +2250,12 @@ local function renderC(ir)
    emit("typedef long long ks_m64x4 __attribute__((vector_size(32)));")
    emit("static inline __attribute__((unused)) ks_f64x4 ks_splat64(double v)"
       .. " { return (ks_f64x4){v, v, v, v}; }")
+   emit("static inline __attribute__((unused)) ks_m64x4 ks_mask_all(void)"
+      .. " { return (ks_m64x4){-1, -1, -1, -1}; }")
+   emit("static inline __attribute__((unused)) ks_m64x4 ks_bool_mask(bool v)"
+      .. " { return v ? ks_mask_all() : (ks_m64x4){0, 0, 0, 0}; }")
+   emit("static inline __attribute__((unused)) bool ks_any64(ks_m64x4 m)"
+      .. " { return (m[0] | m[1] | m[2] | m[3]) != 0; }")
    emit("static inline __attribute__((unused)) ks_f64x4 ks_sel64(ks_m64x4 m, ks_f64x4 a, ks_f64x4 b)"
       .. " { return (ks_f64x4)((m & (ks_m64x4)a) | (~m & (ks_m64x4)b)); }")
    emit("static inline __attribute__((unused)) uint32_t nupp_u32(double value) { return (uint32_t)value; }")
@@ -2115,6 +2387,23 @@ local function renderC(ir)
                   emit(prefix .. target.cName .. " = " .. renderExpr(assignment.value) .. ";")
                end
             end
+         elseif statement.op == "vwhile" then
+            emit(prefix .. "ks_m64x4 " .. statement.live.cName .. " = "
+               .. renderExpr(statement.initial) .. ";")
+            emit(prefix .. "while (ks_any64(" .. statement.live.cName .. ")) {")
+            emit(prefix .. "    ks_m64x4 " .. statement.executing.cName .. " = "
+               .. statement.live.cName .. ";")
+            renderBlock(statement.body, depth + 1)
+            emit(prefix .. "    " .. statement.live.cName .. " &= "
+               .. renderExpr(statement.condition) .. ";")
+            emit(prefix .. "}")
+         elseif statement.op == "vbreak" then
+            local mask = renderExpr(statement.mask)
+            emit(prefix .. statement.live.cName .. " &= ~(" .. mask .. ");")
+            emit(prefix .. statement.executing.cName .. " &= ~(" .. mask .. ");")
+         elseif statement.op == "vcontinue" then
+            emit(prefix .. statement.executing.cName .. " &= ~("
+               .. renderExpr(statement.mask) .. ");")
          elseif statement.op == "fornum" then
             local v = statement.binding.cName
             emit(prefix .. "for (int32_t " .. v .. " = " .. renderExpr(statement.from)

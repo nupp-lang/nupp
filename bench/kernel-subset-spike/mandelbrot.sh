@@ -6,13 +6,14 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-SPIKE="$ROOT/bench/kernel-subset-spike"
+cd "$ROOT"
+SPIKE="bench/kernel-subset-spike"
 SOURCE=${1:-mandelbrot}
 OUT="$SPIKE/build/$SOURCE"
 MODE=${NUPP_NATIVE_MODE:-require}
 
-"$ROOT/bin/nupp" build
-"$ROOT/bin/nupp" check "$SPIKE/$SOURCE.nupp"
+./bin/nupp build
+./bin/nupp check "$SPIKE/$SOURCE.nupp"
 
 mkdir -p "$OUT"
 "$SPIKE/generate.sh" "$SPIKE/$SOURCE.nupp" "$OUT"
@@ -32,5 +33,11 @@ MATH_LIB=${MATH_LIB:-}
 ${NUPP_NATIVE_CC:-clang} -std=c11 -O3 -ffp-contract=off -fno-fast-math \
     -Wall -Wextra -Werror -Wno-parentheses-equality -fPIC $SHARED_FLAGS \
     "$OUT/kernel.c" $MATH_LIB -o "$LIB"
+
+# Build the exact annotated body through the ordinary Lua path as the semantic
+# oracle. The generated C and ordinary module never come from separate source.
+./bin/nupp build -O2 -o "$OUT/fallback" "$SPIKE/$SOURCE.nupp"
+mkdir -p "$OUT/fallback/nupp"
+./bin/nupp build -O2 -o "$OUT/fallback/nupp" src/nupp/span.nupp
 
 echo "$LIB"

@@ -831,10 +831,12 @@ refuse rather than fall back. Silently running a `simd` loop one iteration at a
 time would be the performance equivalent of the silent fallback the AOT design
 already rejects.
 
-`and` and `or` remain outside the initial lane subset. Eagerly evaluating both
-sides would not preserve ordinary short-circuit semantics. They may enter only
-after the IR either carries a verified pure-and-total effect fact or lowers the
-right side under the left side's mask.
+`and` and `or` entered the experimental lane subset only after the IR gained a
+verified pure-and-total effect fact. The spike can therefore evaluate both
+lane masks without changing an admitted expression's observable behavior. A
+future effectful or partial expression must instead lower its right side under
+the left side's mask; the existing fact must never be inferred from syntax
+alone.
 
 The width, though, cannot be part of the annotation. Ordinary Nupp arithmetic
 is binary64, and removing `@aot` may not change an answer, so a lane-parallel
@@ -878,6 +880,14 @@ reachable by writing scalar source more cleverly. That is evidence that the
 compiler needs real private vector masks, not that users need public vector
 values, and it argues against expecting a backend auto-vectorizer to discover
 data-dependent lane masking on its own.
+
+The subsequent scalar-source pass now performs that transformation directly.
+On the same Apple arm64 host, the ordinary binary64 Mandelbrot body lowered to
+private four-lane values measures about 72 MPix/s versus 35 MPix/s for its
+forced-scalar C oracle at 1024x768 and 256 iterations. Ordinary Nupp,
+forced-scalar C, and SPMD C agree exactly. This roughly 2.05x result is the
+relevant measurement for the selected design; the earlier binary32 eight-lane
+explicit-vector result described a different numeric program.
 
 The decision is scalar-source `@aot(simd = true)`. It requires compilation and
 turns a lane-lowering decline into a diagnostic, but does not enable vector

@@ -29,6 +29,8 @@ local function advance(
         local nextY = from.y + from.vy * step
         if nextY < 0.0 then
             nextY = 0.0 - nextY
+            -- The branch mask must be captured before nextY changes.
+            nextX = nextX + 1.0
         end
         particle.x = nextX
         particle.y = nextY

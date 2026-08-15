@@ -63,8 +63,11 @@ work makes sense in.
       and scalar-source `@aot(simd = true)` contract exist. The spike under
       `bench/kernel-subset-spike` consumes the normal checker's annotated CST,
       lowers and verifies scalar and lane IR, emits private C, and differentially
-      checks ordinary Nupp, forced-scalar C, and SIMD C. Production `nupp build`
-      still emits the ordinary Lua body. Move that IR and C backend under
+      checks ordinary Nupp, forced-scalar C, and SIMD C. Its lane IR now proves
+      nested mask stacks, pure-and-total short-circuit expressions,
+      data-dependent inner `while` loops, per-lane `break`/`continue`, and exact
+      scalar tails. Production `nupp build` still emits the ordinary Lua body.
+      Move that IR and C backend under
       `src/`; consume the complete checked ownership, alias, effect, layout, and
       numeric facts; then add build policy, target compilation and dispatch,
       cache and artifact validation, inspection, and diagnostics. The public

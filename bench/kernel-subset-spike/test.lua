@@ -67,6 +67,8 @@ assert(lane.irText:find("uniform dt:f32", 1, true),
 assert(lane.irText:find("simd lanes(4)", 1, true), "SIMD contract produced no lane IR")
 assert(lane.irText:find("let step:f64", 1, true),
    "uniform local disappeared from lane IR")
+assert(lane.irText:find("let $if", 1, true),
+   "lane branch did not capture its mask before mutating condition state")
 assert(lane.c:find("size_t groups", 1, true), "lane C lost its whole-group loop")
 assert(lane.c:find("for (; i < end; ++i)", 1, true), "lane C lost its scalar epilogue")
 assert(not lane.c:find("ks_f32x8", 1, true), "removed explicit-vector path remains in C")
@@ -113,11 +115,74 @@ rejected(
    "recursive native helpers are not admitted"
 )
 rejected("missing-kernel", assert(source:gsub("@aot", "@ordinary", 1)), "no @aot function was found")
-rejected(
-   "lane-short-circuit",
-   assert(laneSource:gsub("nextY < 0%.0", "nextY < 0.0 and from.x > 0.0", 1)),
-   "mask-aware short-circuit"
-)
+do
+   local changed = assert(laneSource:gsub(
+      "nextY < 0%.0", "nextY < 0.0 and from.x > 0.0", 1
+   ))
+   local short = assert(compiler.compile(changed, "lane-short-circuit.nupp"))
+   assert(short.irText:find("vshort_and", 1, true),
+      "pure short-circuit expression lost its verified mask operation")
+   local function findShort(node)
+      if type(node) ~= "table" then return nil end
+      if node.op == "vshort_and" then return node end
+      for _, value in pairs(node) do
+         local found = findShort(value)
+         if found then return found end
+      end
+   end
+   local operation = assert(findShort(short.ir.lanes), "short-circuit IR node is missing")
+   operation.effect = nil
+   local ok, problem = pcall(compiler.verifyIR, short.ir)
+   operation.effect = "pure_total"
+   assert(not ok and tostring(problem):find("effect proof", 1, true),
+      "IR accepted eager short-circuiting without its effect proof")
+end
+
+do
+   local mandelbrotSource = read(here .. "mandelbrot.nupp")
+   local mandelbrot = assert(compiler.compile(mandelbrotSource, "mandelbrot.nupp"))
+   assert(mandelbrot.irText:find("vwhile any", 1, true),
+      "varying inner loop did not become a live-mask loop")
+   assert(mandelbrot.irText:find("vbreak", 1, true),
+      "varying break did not retire lanes")
+   assert(mandelbrot.irText:find("escapes[i..i+3].iterations", 1, true),
+      "integer field store lost its lane narrowing")
+   assert(mandelbrot.c:find("while (ks_any64", 1, true),
+      "generated C lost horizontal live-lane termination")
+
+   local laneLoop
+   for _, statement in ipairs(mandelbrot.ir.lanes.statements) do
+      if statement.op == "vwhile" then laneLoop = statement break end
+   end
+   assert(laneLoop, "Mandelbrot lane IR contains no verified loop")
+   local conditionType = laneLoop.condition.type
+   laneLoop.condition.type = "f64x4"
+   local ok, problem = pcall(compiler.verifyIR, mandelbrot.ir)
+   laneLoop.condition.type = conditionType
+   assert(not ok and tostring(problem):find("invalid lane", 1, true),
+      "IR accepted a non-mask lane-loop condition")
+
+   local branchDead = assert(mandelbrotSource:gsub(
+      "escaped = 1\n                break",
+      "zx = 123.0\n                escaped = 1\n                break",
+      1
+   ))
+   local branchDeadResult = assert(compiler.compile(branchDead, "lane-branch-dead.nupp"))
+   assert(branchDeadResult.irText:find("vset zx = vselect", 1, true),
+      "dead-state speculation escaped its controlling branch mask")
+
+   local continued = assert(mandelbrotSource:gsub(
+      "escaped = 1\n                break",
+      "escaped = 1\n                iteration = maxIterations\n                continue",
+      1
+   ))
+   local continuedResult = assert(compiler.compile(continued, "lane-continue.nupp"))
+   assert(continuedResult.irText:find("vcontinue", 1, true),
+      "varying continue did not mask the rest of its iteration")
+   assert(continuedResult.irText:find(
+      "vmand:m64x4(local:m64x4 $if", 1, true
+   ), "statements after a lane exit lost the current executing mask")
+end
 
 local unaryMath = {"abs", "floor", "ceil", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "exp", "log", "deg", "rad"}
 for _, name in ipairs(unaryMath) do
