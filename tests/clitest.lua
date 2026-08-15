@@ -393,10 +393,11 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
    local source = assert(io.open(dir .. "/surface.g.nupp", "wb"))
    source:write(table.concat({
-      "cdef function lookup(borrows key: const char*): void* @borrowed(key)",
+      "cdef function lookup(borrows key: const char*,",
+      "   out value: voidptr* borrows (key)): int32",
       "cdef function visit(borrows values: const int32* countedBy(count), count: uint64)",
       "unsafe do",
-      "   local raw = lookup('key')",
+      "   local _, raw = lookup('key')",
       "   print(raw)",
       "   local text = 'key'",
       "   local bytes = ffi.cast<const uint8[?]>(text)",
@@ -434,7 +435,7 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
       "counted pointer relationships survive checking")
    assert(report.foreign[2].zeroCount:find("calls once", 1, true),
       "the audit reports the foreign zero-count promise")
-   assert(#report.unsafe == 3 and report.unsafe[1].line == 3,
+   assert(#report.unsafe == 3 and report.unsafe[1].line == 4,
       "the explicit unsafe boundary, operation, and contract are enumerable")
    assert(report.unsafe[2].kind == "unchecked C memory indexing",
       "the report names the trusted raw operation")

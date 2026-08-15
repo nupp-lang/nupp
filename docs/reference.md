@@ -942,6 +942,12 @@ Reports: `NUPP2603`, `NUPP2615`. `nupp explain <code>` says more.
 time. `nupp import-c` ejects the same declarations as an editable module. Both
 preserve unions and bitfields.
 
+An output contract is written on the output value. `Owned<T, cleanup>*` on an
+`out` slot returns an affine value; `T* borrows (source)` returns a view tied to
+one or more shared inputs. `Success<T, N>` and `Failure<T, N>` on the C return
+describe when those output slots are initialized. All three wrappers erase from
+the physical ABI.
+
 `nupp export-c -o game.h src/game.nupp game.Position game.integrate` goes the
 other direction. It gives an ordinary reified Nupp struct one deterministic,
 module-qualified C typedef, emits target-specific layout fingerprints and
@@ -966,6 +972,8 @@ cdef struct Point
 end
 
 cdef function labs(n: int32): int32
+cdef function point_view(borrows owner: voidptr,
+    out point: Point** borrows (owner)): Success<int32, 0>
 
 function m.magnitude(n: int32): int32
     return labs(n)
@@ -974,8 +982,8 @@ end
 return m
 ```
 
-Reports: `NUPP2203`, `NUPP2101`, `NUPP2502`, `NUPP2514`, `NUPP2707`. `nupp
-explain <code>` says more.
+Reports: `NUPP2203`, `NUPP2101`, `NUPP2502`, `NUPP2514`, `NUPP2602`, `NUPP2619`,
+`NUPP2707`. `nupp explain <code>` says more.
 
 ### Fixed-width scalar arithmetic
 

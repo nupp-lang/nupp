@@ -151,8 +151,20 @@ function M.borrowedSourcesAreAlwaysParenthesised()
    local bare = parser.parse(
       "local view: function(borrows source: any): any borrows source", "test")
    assert(#bare.errors > 0, "a bare source list is refused")
-   assert(bare.errors[1].msg:find("borrowed-result sources", 1, true),
+   assert(bare.errors[1].msg:find("borrow sources", 1, true),
       bare.errors[1].msg)
+end
+
+function M.cdefOutputsUseTheOrdinaryBorrowRelation()
+   local result = parser.parse(table.concat({
+      "cdef function view(borrows left: voidptr, borrows right: voidptr,",
+      "   out value: voidptr* borrows (left, right)): Success<int32, 0>",
+   }, "\n"), "test")
+   assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+   local relation = result.root.blocks[1].stats[1].params[3].type
+   assertEq(relation.kind, "tborrows")
+   assertEq(relation.params[1].text, "left")
+   assertEq(relation.params[2].text, "right")
 end
 
 function M.resultRelationsAttachToTheirFixedPackSlots()

@@ -10,8 +10,8 @@ the reifiability test enforces.
 Ownership matters more here than anywhere: a C function that produces a resource
 is the one place the checker cannot see the cleanup for itself. It is stated in
 the type -- `Owned<T, cleanup>` on the return, `out p: Owned<T, cleanup>*` on an
-output slot -- and `Success<T, N>` on the return says which status means those
-outputs hold values.
+owning output slot, or `out p: T* borrows (source)` on a borrowed one -- and
+`Success<T, N>` on the return says which status means those outputs hold values.
 ]]
 
 local T = require("nupp.compiler.types")
@@ -149,11 +149,6 @@ function cdef.install(
         local params, paramModes, paramNames = {}, {}, {}
         local abiParams = {}
         local physicalNodes, physicalDefs = {}, {}
-        local outputByName = {}
-        for _, output in ipairs(stat.borrowedOuts or {}) do
-            output.kind = "borrowed"
-            outputByName[output.name] = output
-        end
         local ffiOut = {}
         local logicalByName = {}
         for parameterIndex, p in ipairs(stat.params) do
@@ -168,6 +163,7 @@ function cdef.install(
                 end
                 declared.resolvedType = pt
                 local mode = modeTok and modeTok.text or "plain"
+                local relation = declared.kind == "tborrows" and declared as cst.Tborrows or nil
                 local pdef = c.definition(pname, "parameter")
                 if pdef then
                     pdef.type = pt
@@ -208,8 +204,19 @@ function cdef.install(
                         c.diag("NUPP2630", countedBy, "countedBy does not support out parameters")
                     end
                     local named = pname and pname.text or ""
-                    local output = outputByName[named]
                     local slot = pt.tag == "ptr" and pt.elem or nil
+                    local output = nil
+                    if relation then
+                        output = {
+                            kind = "borrowed",
+                            name = named,
+                            sources = relation.params or {relation.param},
+                            at = relation,
+                        }
+                        if slot and slot.tag == "affine" then
+                            c.diag("NUPP2602", relation, "a borrowed output cannot also carry an affine terminal")
+                        end
+                    end
                     -- `out p: Owned<T, cleanup>*` is the slot the callee writes,
                     -- holding a value the caller then owns. The contract is on the
                     -- slot's type rather than above the signature, so it sits where
@@ -227,8 +234,8 @@ function cdef.install(
                         c.diag(
                             "NUPP2602",
                             p,
-                            "an out parameter is written `out p: Owned<T, cleanup>*`, "
-                            .. "or given a @borrowed(out = ...) contract"
+                            "an out parameter is written `out p: Owned<T, cleanup>*` "
+                            .. "or `out p: T* borrows (source)`"
                         )
                     elseif not slot or not pointerShaped(T.unwrapOwnership(slot)) then
                         c.diag("NUPP2602", p, "out parameter must have pointer-to-pointer type")
@@ -240,8 +247,10 @@ function cdef.install(
                         output.success = output.success or "pending"
                         ffiOut[#ffiOut + 1] = output
                     end
-                    outputByName[named] = nil
                 else
+                    if relation then
+                        c.diag("NUPP2602", relation, "borrows (...) on a cdef parameter requires out")
+                    end
                     params[#params + 1] = pt
                     paramModes[#params] = mode
                     paramNames[#params] = pname and pname.text or ""
@@ -250,9 +259,6 @@ function cdef.install(
                     logicalByName[pname and pname.text or ""] = #params
                 end
             end
-        end
-        for name, output in pairs(outputByName) do
-            c.diag("NUPP2602", output.at or stat, ("output contract %q names no out parameter"):format(name))
         end
         local rets = {}
         local abiResult = nil
@@ -305,15 +311,22 @@ function cdef.install(
                 )
                 rets[#rets + 1] = T.affine(valueType, output.cleanups)
             else
-                output.sourceParam = logicalByName[output.source]
-                if not output.sourceParam then
-                    c.diag(
-                        "NUPP2602",
-                        output.at or stat,
-                        ("borrowed output source %q is not an input parameter"):format(output.source)
-                    )
-                elseif paramModes[output.sourceParam] ~= "borrows" then
-                    c.diag("NUPP2602", output.at or stat, "a borrowed output source must be a borrows parameter")
+                output.sourceParams = {}
+                for _, source in ipairs(output.sources or {}) do
+                    local sourceParam = source and logicalByName[source.text] or nil
+                    if not sourceParam then
+                        c.diag(
+                            "NUPP2602",
+                            source or output.at or stat,
+                            ("borrowed output source %q is not an input parameter"):format(source and source.text or "")
+                        )
+                    else
+                        c.markToken(source, physicalDefs[sourceParam], params[sourceParam], "parameter")
+                        if paramModes[sourceParam] ~= "borrows" then
+                            c.diag("NUPP2602", source, "a borrowed output source must be a borrows parameter")
+                        end
+                        output.sourceParams[#output.sourceParams + 1] = sourceParam
+                    end
                 end
                 rets[#rets + 1] = T.borrowed(valueType)
             end

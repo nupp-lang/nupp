@@ -2190,13 +2190,19 @@ function calls.install(c: state.Checker): calls.Ops
         end
         for _, output in ipairs(calleeT.ffiOut or {}) do
             if output.kind == "borrowed" then
-                local source = argNodes[output.sourceParam]
-                local entry = source and c.ownershipEntry(source)
-                if entry then
+                local owners = {}
+                for _, sourceParam in ipairs(output.sourceParams or {}) do
+                    local source = sourceParam and argNodes[sourceParam] or nil
+                    local entry = source and c.ownershipEntry(source)
+                    if entry then
+                        owners[#owners + 1] = c.borrowRoot(entry)
+                    elseif source then
+                        c.diag("NUPP2619", source, "a borrowed C output needs a named lifetime source")
+                    end
+                end
+                if #owners > 0 then
                     node.returnBorrowOwners = node.returnBorrowOwners or {}
-                    node.returnBorrowOwners[output.returnIndex] = {c.borrowRoot(entry),}
-                elseif source then
-                    c.diag("NUPP2619", source, "a borrowed C output needs a named lifetime source")
+                    node.returnBorrowOwners[output.returnIndex] = owners
                 end
             end
         end

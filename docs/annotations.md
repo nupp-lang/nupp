@@ -189,7 +189,6 @@ annotated directly.
 | `@annotationValue` | Implemented | None | An annotation definition field |
 | `@ref` | Implemented | None | An annotation definition field |
 | `@allow` | Implemented | Lint names or codes        statement |  |
-| `@borrowed` | Implemented | Foreign output and source      c-funct | n |
 | `@override` | Implemented | None | function |
 | `@partition` | Implemented | Two result field names | sealed interface field |
 | `@effects` | Implemented | Named effect members | function, c-function, local-binding |
@@ -239,12 +238,11 @@ prelude default requires structural `Drop`, or `Owned<T, cleanup>`, which names
 an explicit const-function terminal. `Transfer<T>` is the explicit
 transfer-only form. See [Ownership and FFI safety](ownership.md).
 
-On a C function, `@borrowed(out = view, from = source, success = zero)`
-describes a logical output tied to a `borrows` input. An *owned* output needs no
-annotation: `out p: Owned<T, cleanup>*` says it in the slot's own type, and
-`Success<T, N>` or `Failure<T, N>` on the return says which status means the
-outputs hold values. Both forms allocate and position the C output holder while
-presenting an ordinary Lua multiple return.
+C outputs state their contracts in type position. A borrowed output is written
+`out view: T* borrows (source)`, and an owned output is written
+`out value: Owned<T, cleanup>*`. `Success<T, N>` or `Failure<T, N>` on the
+return says which status means the outputs hold values. Both forms allocate and
+position the C output holder while presenting an ordinary Lua multiple return.
 
 A declaration that never comes back, because it raises, exits, or loops forever,
 says so with `never` as its return type, not an annotation; see

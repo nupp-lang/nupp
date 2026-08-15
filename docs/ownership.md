@@ -156,10 +156,10 @@ Affine wrappers erase at the ABI. A C return can directly state
 `out value: Owned<T, cleanup>*`. The checker allocates physical output holders,
 returns logical affine values, and preserves C parameter order.
 
-`Success<T, N>` and `Failure<T, N>` describe when conditional outputs are
-initialized. `@borrowed(out = view, from = source)` describes a borrowed output
-rooted in a shared input. These status and borrow contracts are independent of
-the affine facility.
+`out view: T* borrows (source)` describes a borrowed output rooted in a shared
+input. Several sources may be named in the parenthesized list. `Success<T, N>`
+and `Failure<T, N>` describe when conditional outputs are initialized. These
+status and borrow contracts are independent of the affine facility.
 
 ## Comptime construction
 

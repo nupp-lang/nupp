@@ -123,6 +123,6 @@ migration writes an ordinary terminal that calls it.
   declaration results and callable fields. The wider answer resolves terminals
   during type resolution, where a `@drop` may not be registered yet, and makes
   `p: Owned<T>` a second spelling of `takes p: T`.
-- `@borrowed(out = p, from = source)`: `borrows (source)` already names a root,
-  so the parameter wants `out p: T borrows (source)`. `cdefparam` has no borrows
-  suffix today.
+- Resolved: a borrowed C output is `out p: T* borrows (source)`. It uses the
+  same provenance relation as results and fields; status wrappers on the C
+  return independently describe conditional initialization.

@@ -271,9 +271,8 @@ annotationargs = "(" [annotationarg *("," annotationarg)] ")"
 annotationarg  = [Name "="] exp
 ; Owned<T, cleanup> is an ordinary prelude affine type application, and Owned<T>
 ; uses the prelude's structural Drop default. Transfer<T> is the terminal-less
-; prelude affine type. On cdef functions, @borrowed(out = p, from = source,
-; success = zero) describes a logical borrowed output; there is no owned
-; equivalent.
+; prelude affine type. C outputs state borrowed provenance in their parameter
+; type and conditional initialization in the C status return type.
 
 stat           =/ unsafestat
 unsafestat     = %s"unsafe" "do" block "end"  ; permit unproved FFI operations;
@@ -336,8 +335,10 @@ cdefstat       = "cdef" ("struct" Name *fielddecl "end"
 cdeflib        = "from" LiteralString            ; resolve through ffi.load;
                                                  ; omitted = default namespace
 cdefparlist    = cdefparam *("," cdefparam)
-cdefparam      = [cdefmode] Name ":" type [cdefcountedby]
+cdefparam      = [cdefmode] Name ":" type [cdefborrow] [cdefcountedby]
                / "..."                          ; C varargs, must be last
+cdefborrow     = %s"borrows" borrowroots       ; logical out value borrows
+                                                ; every named input
 cdefcountedby  = %s"countedBy" "(" Name ")"     ; element count for a borrowed pointer;
                                                 ; erased from the physical C ABI
 cdefret        = type
@@ -358,7 +359,7 @@ rettypes       = predicate / borrowret / typepack
                                                 ; statement position only [CS-7]
 borrowret      = type %s"borrows" borrowroots   ; [CS-18] the result depends
                                                 ; on every named root
-borrowroots    = Name / "(" Name *("," Name) ")"
+borrowroots    = "(" Name *("," Name) ")"
 predicate      = Name %s"is" type               ; [CS-16] the function answers
                                                 ; whether that parameter holds
                                                 ; the type; the value returned
@@ -595,9 +596,9 @@ packunion      = typepack 1*("|" typepack)
 ;   trusted, which is the point: it is where a test the checker cannot see
 ;   through gets declared once instead of cast at every use.
 ;
-; [CS-18] Borrowing returns. `borrows` is already a soft keyword for a
-;   parameter mode; after a return type it names one parameter, or a
-;   parenthesized list of parameters, the result borrows from. The result may
+; [CS-18] Borrowing relations. `borrows` is already a soft keyword for a
+;   parameter mode; after a related type it names a parenthesized list of
+;   parameters the value borrows from. The value may
 ;   not outlive any named argument, and no source may move while it is live.
 ;   On a method the source may be left out by
 ;   writing the return as `Borrowed<T>`: the receiver is the only thing it

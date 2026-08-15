@@ -194,7 +194,6 @@ local BUILTINS = {
     {name = "annotationValue", arguments = "none", targets = {"field"},},
     {name = "ref", arguments = "none", targets = {"field"},},
     {name = "allow", arguments = "warnings", targets = {"statement"},},
-    {name = "borrowed", arguments = "affine", targets = {"c-function"},},
     {name = "override", arguments = "none", targets = {"function"},},
     {name = "partition", arguments = "names", targets = {"field"}, builtin = true,},
     {name = "effects", arguments = "effects", targets = {"function", "c-function", "local-binding"},},

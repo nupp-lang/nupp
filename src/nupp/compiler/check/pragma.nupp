@@ -31,7 +31,6 @@ function pragma.install(c: state.Checker): state.StatHandlers
     local defineAnnotation = marks.defineAnnotation
     local validateAnnotation = marks.validateAnnotation
     local stringValue, nameText = marks.stringValue, marks.nameText
-    local literalText = marks.literalText
 
     local handlers = {}
     local RELAXATIONS = {
@@ -418,39 +417,6 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 if targetBody then
                     targetBody.relaxedGuarantees = relaxed
                 end
-            end
-            if stat.stat then
-                c.checkStat(stat.stat)
-            end
-            return
-
-        elseif written == "borrowed" then
-            local outName, sourceName, success = nil, nil, "always"
-            for _, arg in ipairs(stat.annotationArgs or {}) do
-                local expr = arg.expr
-                local argName = arg.name and arg.name.text or nil
-                local named = nameText(expr)
-                if argName == "out" and named then
-                    outName = named
-                elseif argName == "from" and named then
-                    sourceName = named
-                elseif argName == "success" and (named == "always" or named == "zero" or named == "nonzero") then
-                    success = named
-                elseif argName == "success" and literalText(expr) then
-                    success = "equals:" .. tostring(literalText(expr))
-                else
-                    c.diag("NUPP2602", arg, "invalid @borrowed argument")
-                end
-            end
-            if not valid or targetKind ~= "cdefFunc" or not target then
-                c.diag("NUPP2602", stat, "@borrowed applies only to cdef functions")
-            elseif not outName or not sourceName then
-                c.diag("NUPP2602", stat, "@borrowed requires out and from parameter names")
-            else
-                target.borrowedOuts = target.borrowedOuts or {}
-                target.borrowedOuts[
-                    #target.borrowedOuts + 1
-                ] = {name = outName, source = sourceName, success = success, at = stat.name,}
             end
             if stat.stat then
                 c.checkStat(stat.stat)

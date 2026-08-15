@@ -2423,7 +2423,6 @@ local BUILTINS = {
 { name = "annotationValue" , arguments = "none" , targets = { "field" } , } ,
 { name = "ref" , arguments = "none" , targets = { "field" } , } ,
 { name = "allow" , arguments = "warnings" , targets = { "statement" } , } ,
-{ name = "borrowed" , arguments = "affine" , targets = { "c-function" } , } ,
 { name = "override" , arguments = "none" , targets = { "function" } , } ,
 { name = "partition" , arguments = "names" , targets = { "field" } , builtin = true , } ,
 { name = "effects" , arguments = "effects" , targets = { "function" , "c-function" , "local-binding" } , } ,
@@ -4788,6 +4787,11 @@ local manifest = { }
 
 
 
+
+
+
+
+
 local function validateArray ( value , label , itemType , required )
 if value == nil then
 if required then
@@ -4864,6 +4868,8 @@ local DOCS_KEYS = {
 "resources" ,
 "output" ,
 "stub" ,
+"platforms" ,
+"platformOutputs" ,
 "nativeFeatures" ,
 "layoutTarget" ,
 }
@@ -4915,6 +4921,8 @@ local TARGET_KEYS = {
 "outDir" ,
 "output" ,
 "stub" ,
+"platforms" ,
+"platformOutputs" ,
 "entries" ,
 "sources" ,
 "resources" ,
@@ -5105,6 +5113,72 @@ if target . stub ~= nil then
 local valid , err = validateString ( target . stub , label .. ".stub" )
 if not valid then
 return nil , err
+end
+end
+if target . platforms ~= nil then
+if kind ~= "binary" then
+return nil , label .. ".platforms is only valid for a binary target"
+end
+if target . stub ~= "nupp" then
+return nil , label .. ".platforms requires the compiler-owned stub = \"nupp\""
+end
+local valid , err = validateArray ( target . platforms , label .. ".platforms" , "string" , true )
+if not valid then
+return nil , err
+end
+local distribution = require ( "nupp.compiler.build.platform" )
+local layouts = require ( "nupp.compiler.target_layout" )
+local seen = { }
+for index , name in ipairs ( target . platforms ) do
+if seen [ name ] then
+return nil , label .. ".platforms[" .. index .. "] duplicates " .. name
+end
+seen [ name ] = true
+if not distribution . has ( name ) then
+return nil , label
+.. ".platforms names unsupported binary platform "
+.. name
+.. "; supported platforms: "
+.. table . concat (
+distribution . keys ( ) ,
+", "
+)
+end
+if not layouts . has ( name ) then
+return nil , label .. ".platforms names a platform with no C layout model " .. name
+end
+end
+if target . layoutTarget ~= nil and ( # target . platforms ~= 1 or target . layoutTarget ~= target . platforms [ 1 ] ) then
+return nil , label .. ".layoutTarget must equal the selected binary platform; omit it for platform selection"
+end
+if # target . platforms > 1 and target . output ~= nil then
+return nil , label .. ".output cannot name several platform binaries; use platformOutputs"
+end
+end
+if target . platformOutputs ~= nil then
+if target . platforms == nil then
+return nil , label .. ".platformOutputs requires platforms"
+end
+if type ( target . platformOutputs ) ~= "table" then
+return nil , label .. ".platformOutputs must be a table"
+end
+local configured = { }
+local outputs = { }
+for _ , name in ipairs ( target . platforms ) do
+configured [ name ] = true
+end
+for name , output in pairs ( target . platformOutputs ) do
+if type ( name ) ~= "string" or not configured [ name ] then
+return nil , label .. ".platformOutputs names unconfigured platform " .. tostring ( name )
+end
+local valid , err = validateString ( output , label .. ".platformOutputs." .. name )
+if not valid then
+return nil , err
+end
+if outputs [ output ] then
+return nil , label .. ".platformOutputs maps several platforms to " .. output
+end
+outputs [ output ] = true
 end
 end
 if target . description ~= nil and type ( target . description ) ~= "string" then
@@ -6752,6 +6826,24 @@ effects
 if target . stub ~= "nupp" then
 return target . stub
 end
+if target . platforms then
+local required = { }
+for _ , feature in ipairs ( native . features ( effects ) ) do
+if feature . host then
+required [ # required + 1 ] = feature . host
+end
+end
+table . sort ( required )
+local stubs = require ( "nupp.compiler.build.stubs" )
+local record , recordErr = target . _stubRecord , nil
+if not record then
+record , recordErr = stubs . record ( assert ( target . layoutTarget ) )
+end
+if not record then
+return nil , recordErr
+end
+return stubs . acquire ( root , record , required )
+end
 local compilerRoot = envMod . compilerRoot ( )
 if not compilerRoot then
 return nil , "the compiler-owned Nupp stub needs compiler source; "
@@ -6800,7 +6892,12 @@ return "lib" .. name .. ".so"
 end
 
 
-function stage . build ( root , outDir , effects )
+function stage . build (
+root ,
+outDir ,
+effects ,
+selectedPlatform
+)
 local outputs = { }
 local providers
 
@@ -6811,6 +6908,16 @@ local providers
 local providerKeys = { }
 for _ , feature in ipairs ( native . features ( effects ) ) do
 if feature . cargo then
+if selectedPlatform and feature . host then
+
+
+goto continue
+end
+if selectedPlatform and not feature . host then
+return nil , (
+"binary target %s needs sidecar-only native feature %s; no %s provider artifact exists"
+) : format ( tostring ( selectedPlatform ) , feature . name , tostring ( selectedPlatform ) )
+end
 local libraryName = feature . library
 local key = feature . cargo .. "\0" .. libraryName
 local provider = providers [ key ]
@@ -6824,6 +6931,7 @@ if feature . cargoFeature then
 provider . cargoFeatures [ # provider . cargoFeatures + 1 ] = feature . cargoFeature
 end
 end
+:: continue ::
 end
 local compilerRoot = envMod . compilerRoot ( )
 table . sort ( providerKeys )
@@ -6924,6 +7032,10 @@ local package_ = { }
 
 
 
+local hostAbiVersion = 1
+
+
+
 
 
 
@@ -6985,11 +7097,48 @@ target ,
 banner ,
 modules ,
 workerDispatch ,
-runtimeModules
+runtimeModules ,
+hostFeatures
 )
 local outDir = target . outDir or "build"
 local mainName , mainPath = entryModule ( root , outDir , target )
 local chunks = { banner or "" }
+
+if hostFeatures then
+local selected = { }
+for _ , feature in ipairs ( hostFeatures ) do
+selected [ feature ] = true
+end
+chunks [ # chunks + 1 ] = "do\nlocal __nuppHost = rawget(_G, \"__nuppHost\")\n"
+chunks [
+# chunks + 1
+] = (
+"if type(__nuppHost) ~= \"table\" or __nuppHost.hostAbi ~= %d then "
+.. "error(\"nupp: payload requires host ABI %d\", 0) end\n"
+) : format ( hostAbiVersion , hostAbiVersion )
+chunks [ # chunks + 1 ] = "local __nuppHostFeatures = __nuppHost.hostFeatures or {}\n"
+for _ , feature in ipairs ( hostFeatures ) do
+chunks [
+# chunks + 1
+] = (
+"if not __nuppHostFeatures[%q] then error(%q, 0) end\n"
+) : format ( feature , "nupp: payload requires host feature " .. feature )
+end
+local preloads = {
+{ feature = "cjson" , modules = { "cjson" , "cjson.safe" } } ,
+{ feature = "lpeg" , modules = { "lpeg" } } ,
+{ feature = "lua-utf8" , modules = { "lua-utf8" } } ,
+{ feature = "workers" , modules = { "nupp.workers.native" } } ,
+}
+for _ , feature in ipairs ( preloads ) do
+if not selected [ feature . feature ] then
+for _ , moduleName in ipairs ( feature . modules ) do
+chunks [ # chunks + 1 ] = ( "package.preload[%q] = nil\n" ) : format ( moduleName )
+end
+end
+end
+chunks [ # chunks + 1 ] = "rawset(_G, \"__nuppHost\", nil)\nend\n"
+end
 
 
 
@@ -7117,6 +7266,23 @@ return join ( root , target . output or join ( outDir , name .. ".lua" ) )
 end
 
 
+local function binaryOutput (
+root ,
+target ,
+name ,
+outDir ,
+selectedPlatform
+)
+if selectedPlatform then
+local configured = target . platformOutputs and target . platformOutputs [ selectedPlatform ]
+local suffix = require ( "nupp.compiler.build.platform" ) . executableSuffix ( selectedPlatform )
+return join ( root , configured or join ( outDir , join ( name , join ( selectedPlatform , name .. suffix ) ) ) )
+end
+
+return join ( root , target . output or join ( outDir , name ) )
+end
+
+
 
 
 local PAYLOAD_MAGIC = "NUPPLOAD"
@@ -7132,6 +7298,107 @@ value = math . floor ( value / 256 )
 end
 
 return table . concat ( bytes )
+end
+
+local function integerAt ( text , offset , width )
+if offset < 0 or offset + width > # text then
+return nil
+end
+local value = 0
+for index = width - 1 , 0 , - 1 do
+value = value * 256 + text : byte ( offset + index + 1 )
+end
+
+return value
+end
+
+local function replaceAt ( text , offset , replacement )
+return text : sub ( 1 , offset ) .. replacement .. text : sub ( offset + # replacement + 1 )
+end
+
+
+
+
+local function sizeMachOLinkedit ( text )
+if text : sub ( 1 , 4 ) ~= "\207\250\237\254" then
+return text
+end
+local commands = integerAt ( text , 16 , 4 )
+local commandBytes = integerAt ( text , 20 , 4 )
+if not commands or not commandBytes or 32 + commandBytes > # text then
+return nil , "cannot stamp malformed arm64 Mach-O load commands"
+end
+local cursor = 32
+for _ = 1 , commands do
+local kind = integerAt ( text , cursor , 4 )
+local length = integerAt ( text , cursor + 4 , 4 )
+if not kind or not length or length < 8 or cursor + length > 32 + commandBytes then
+return nil , "cannot stamp malformed arm64 Mach-O load command"
+end
+if kind == 0x19 and text : sub ( cursor + 9 , cursor + 24 ) : match ( "^__LINKEDIT" ) then
+local fileOffset = integerAt ( text , cursor + 40 , 8 )
+if not fileOffset or fileOffset > # text then
+return nil , "cannot stamp malformed arm64 Mach-O __LINKEDIT segment"
+end
+return replaceAt ( text , cursor + 48 , littleEndian ( # text - fileOffset , 8 ) )
+end
+cursor = cursor + length
+end
+
+return text
+end
+
+
+
+
+local function unsignedMachOStub ( text )
+if text : sub ( 1 , 4 ) ~= "\207\250\237\254" then
+return text
+end
+local commands = integerAt ( text , 16 , 4 )
+local commandBytes = integerAt ( text , 20 , 4 )
+if not commands or not commandBytes or 32 + commandBytes > # text then
+return nil , "cannot stamp malformed arm64 Mach-O load commands"
+end
+local cursor = 32
+local signatureAt
+local signatureSize
+local signatureCommand
+local signatureCommandSize
+for _ = 1 , commands do
+local kind = integerAt ( text , cursor , 4 )
+local length = integerAt ( text , cursor + 4 , 4 )
+if not kind or not length or length < 8 or cursor + length > 32 + commandBytes then
+return nil , "cannot stamp malformed arm64 Mach-O load command"
+end
+if kind == 0x1d then
+signatureAt = integerAt ( text , cursor + 8 , 4 )
+signatureSize = integerAt ( text , cursor + 12 , 4 )
+signatureCommand , signatureCommandSize = cursor , length
+break
+end
+cursor = cursor + length
+end
+if not signatureCommand then
+return text
+end
+if not signatureAt or not signatureSize or signatureAt + signatureSize ~= # text then
+return nil , "cannot stamp a Mach-O whose code signature is not its final blob"
+end
+local foundCommand = assert ( signatureCommand )
+local foundCommandSize = assert ( signatureCommandSize )
+local loadCommands = text : sub ( 33 , 32 + commandBytes )
+local relative = foundCommand - 32
+loadCommands = loadCommands : sub (
+1 ,
+relative
+) .. loadCommands : sub ( relative + foundCommandSize + 1 ) .. ( "\0" ) : rep ( foundCommandSize )
+text = replaceAt ( text , 16 , littleEndian ( commands - 1 , 4 ) )
+text = replaceAt ( text , 20 , littleEndian ( commandBytes - foundCommandSize , 4 ) )
+text = replaceAt ( text , 32 , loadCommands )
+text = text : sub ( 1 , signatureAt )
+
+return sizeMachOLinkedit ( text )
 end
 
 
@@ -7150,10 +7417,17 @@ end
 
 
 
-
-
-
-local function stampBinary ( stubText , payload )
+local function stampBinary ( stubText , payload , selectedPlatform )
+local macTarget = selectedPlatform == "aarch64-apple-darwin" or (
+selectedPlatform == nil and jit . os == "OSX" and stubText : sub ( 1 , 4 ) == "\207\250\237\254"
+)
+if macTarget then
+local unsigned , unsignedErr = unsignedMachOStub ( stubText )
+if not unsigned then
+return nil , unsignedErr
+end
+stubText = unsigned
+end
 local offset = # stubText
 local trailer = PAYLOAD_MAGIC .. littleEndian (
 PAYLOAD_VERSION ,
@@ -7167,42 +7441,179 @@ offset ,
 ) .. littleEndian ( # payload , 8 ) .. digestPrefix ( hash . sha256 ( payload ) , 8 ) .. littleEndian ( TRAILER_LENGTH , 8 )
 assert ( # trailer == TRAILER_LENGTH , "the trailer is a fixed size" )
 
-return stubText .. payload .. trailer
+local stamped = stubText .. payload .. trailer
+if macTarget then
+return sizeMachOLinkedit ( stamped )
+end
+
+return stamped
+end
+
+local function tarField ( value , width )
+assert ( # value < width , "tar field fits its fixed width" )
+return value .. ( "\0" ) : rep ( width - # value )
 end
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-local function stampFile ( output , stubText , payload )
-local written , writeErr = writeFile ( output , stampBinary ( stubText , payload ) )
+local function posixArchive ( output , text )
+local name = fs . basename ( output )
+if # name >= 100 then
+return nil , "cannot archive " .. output .. ": executable name exceeds the tar header limit"
+end
+local parts = {
+tarField ( name , 100 ) ,
+"0000755\0" ,
+"0000000\0" ,
+"0000000\0" ,
+( "%011o\0" ) : format ( # text ) ,
+"00000000000\0" ,
+"        " ,
+"0" ,
+( "\0" ) : rep ( 100 ) ,
+"ustar\0" ,
+"00" ,
+( "\0" ) : rep ( 32 ) ,
+( "\0" ) : rep ( 32 ) ,
+( "\0" ) : rep ( 8 ) ,
+( "\0" ) : rep ( 8 ) ,
+( "\0" ) : rep ( 155 ) ,
+( "\0" ) : rep ( 12 ) ,
+}
+local header = table . concat ( parts )
+assert ( # header == 512 , "tar header is one block" )
+local checksum = 0
+for index = 1 , # header do
+checksum = checksum + header : byte ( index )
+end
+local checksumField = ( "%06o\0 " ) : format ( checksum )
+header = header : sub ( 1 , 148 ) .. checksumField .. header : sub ( 157 )
+local padding = ( 512 - ( # text % 512 ) ) % 512
+local archive = output .. ".tar"
+local written , writeErr = writeFile ( archive , header .. text .. ( "\0" ) : rep ( padding ) .. ( "\0" ) : rep ( 1024 ) )
 if not written then
 return nil , tostring ( writeErr )
 end
+
+return archive
+end
+
+
+
+
+
+
+local function stampFile (
+output ,
+stubText ,
+payload ,
+selectedPlatform
+)
+local stampedText , stampErr = stampBinary ( stubText , payload , selectedPlatform )
+if not stampedText then
+return nil , stampErr
+end
+local written , writeErr = writeFile ( output , stampedText )
+if not written then
+return nil , tostring ( writeErr )
+end
+local posixTarget = selectedPlatform == nil or require ( "nupp.compiler.build.platform" ) . isPosix ( selectedPlatform )
+if posixTarget and jit . os ~= "Windows" then
 local code , chmodErr = process . capture ( { "chmod" , "+x" , output } )
 if code ~= 0 then
 return nil , "cannot make " .. output .. " executable: " .. tostring ( chmodErr )
 end
+end
 
-return true
+
+
+
+
+if selectedPlatform == nil and jit . os == "OSX" and stubText : sub ( 1 , 4 ) == "\207\250\237\254" then
+local code , signErr = process . capture ( {
+"codesign" ,
+"--force" ,
+"--sign" ,
+"-" ,
+"--identifier" ,
+"org.nupp.binary" ,
+output
+} )
+if code ~= 0 then
+return nil , "cannot ad-hoc sign " .. output .. ": " .. tostring ( signErr )
+end
+end
+
+local archive
+if selectedPlatform and posixTarget then
+local archiveErr
+archive , archiveErr = posixArchive ( output , stampedText )
+if not archive then
+return nil , archiveErr
+end
+end
+
+return true , nil , archive
 end
 
 package_ . longString = longString
 package_ . entryModule = entryModule
 package_ . bundleText = bundleText
 package_ . bundleOutput = bundleOutput
+package_ . binaryOutput = binaryOutput
 package_ . stampFile = stampFile
+package_ . posixArchive = posixArchive
+package_ . hostAbiVersion = hostAbiVersion
 
 return package_
+
+end
+package.preload["nupp.compiler.build.platform"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+local platform = { }
+
+local ORDERED = { "x86_64-unknown-linux-gnu" , "aarch64-apple-darwin" , "x86_64-pc-windows-msvc" , }
+
+local RECORDS = {
+[ "x86_64-unknown-linux-gnu" ] = { executableSuffix = "" , posix = true } ,
+[ "aarch64-apple-darwin" ] = { executableSuffix = "" , posix = true } ,
+[ "x86_64-pc-windows-msvc" ] = { executableSuffix = ".exe" , posix = false } ,
+}
+
+function platform . keys ( )
+local keys = { }
+for index , key in ipairs ( ORDERED ) do
+keys [ index ] = key
+end
+
+return keys
+end
+
+function platform . has ( key )
+return key ~= nil and RECORDS [ key ] ~= nil
+end
+
+function platform . executableSuffix ( key )
+return assert ( RECORDS [ key ] , "unsupported binary platform" ) . executableSuffix
+end
+
+function platform . isPosix ( key )
+return assert ( RECORDS [ key ] , "unsupported binary platform" ) . posix
+end
+
+function platform . hostKey ( )
+local key = require ( "nupp.compiler.target_layout" ) . hostKey ( )
+return platform . has ( key ) and key or nil
+end
+
+return platform
 
 end
 package.preload["nupp.compiler.build.process"] = function(...)
@@ -8050,6 +8461,12 @@ local project = { }
 
 
 
+
+
+
+
+
+
 local CHECK_STATE_STAMP = "checks/1"
 
 local normalize , join = fs . normalize , fs . join
@@ -8062,6 +8479,7 @@ local targetConfig = tasks . targetConfig
 local buildDependencies = deps . build
 local buildModules = modules . build
 local bundleText , bundleOutput = packaging . bundleText , packaging . bundleOutput
+local binaryOutput = packaging . binaryOutput
 local stampFile = packaging . stampFile
 
 
@@ -8077,7 +8495,7 @@ json . decode_invalid_numbers ( false )
 json . encode_empty_table_as_object ( true )
 json . encode_invalid_numbers ( false )
 
-function project . build ( root , opts )
+local function buildOne ( root , opts )
 root , opts = root or "." , ( opts or { } )
 
 
@@ -8100,7 +8518,53 @@ if not target then
 io . stderr : write ( "nupp: " .. tostring ( targetErr ) .. "\n" ) ;
 return 1
 end
+local selectedPlatform = opts . platform
+if target . platforms then
+if selectedPlatform == nil then
+if # target . platforms == 1 then
+selectedPlatform = target . platforms [ 1 ]
+else
+io . stderr : write (
+"nupp: binary target " .. tostring (
+target . name or opts . target or "default"
+) .. " configures several platforms; select one with --platform or use --platform all\n"
+)
+return 1
+end
+end
+local configured = false
+for _ , name in ipairs ( target . platforms ) do
+configured = configured or name == selectedPlatform
+end
+if not configured then
+io . stderr : write (
+"nupp: platform " .. tostring (
+selectedPlatform
+) .. " is not configured on binary target " .. tostring ( target . name or opts . target or "default" ) .. "\n"
+)
+return 1
+end
+target . layoutTarget = selectedPlatform
+elseif selectedPlatform ~= nil then
+io . stderr : write (
+"nupp: --platform requires a binary target with a platforms list; target " .. tostring (
+target . name or opts . target or "default"
+) .. " has none\n"
+)
+return 1
+end
+if selectedPlatform and not opts . checkOnly then
+local record , recordErr = require ( "nupp.compiler.build.stubs" ) . record ( selectedPlatform )
+if not record then
+io . stderr : write ( "nupp: " .. tostring ( recordErr ) .. "\n" )
+return 1
+end
+target . _stubRecord = record
+config . _stubCatalogRelease = record . catalogRelease
+config . _stubSha256 = record . sha256
+end
 config . _target = target
+config . _platform = selectedPlatform
 config . _strict = strict and true or false
 
 
@@ -8169,6 +8633,9 @@ for name , produced in pairs ( oldState . targets ) do
 newState . targets [ name ] = produced
 end
 local targetKey = target . name or opts . target or "default"
+if selectedPlatform then
+targetKey = targetKey .. "@" .. selectedPlatform
+end
 report : at ( "dependencies" )
 report : step ( "resolving dependencies" )
 local dependencies , depErr = buildDependencies ( root , outDir , config , oldState . dependencies )
@@ -8203,6 +8670,11 @@ end
 return 1
 end
 if opts . checkOnly then
+if opts . produced then
+opts . produced . target = target . name or opts . target or "default"
+opts . produced . platform = selectedPlatform
+opts . produced . outputs = cache . jsonArray ( { } )
+end
 return 0
 end
 for output in pairs ( result . outputs ) do
@@ -8226,7 +8698,7 @@ return 1
 end
 report : at ( "native" )
 report : step ( "building native providers" )
-local nativeOutputs , nativeErr = native . build ( root , outDir , resolvedEffects )
+local nativeOutputs , nativeErr = native . build ( root , outDir , resolvedEffects , selectedPlatform )
 report : clear ( )
 if not nativeOutputs then
 io . stderr : write ( "nupp: " .. tostring ( nativeErr ) .. "\n" )
@@ -8241,12 +8713,17 @@ if target . kind == "bundle" or target . kind == "binary" then
 report : at ( "bundle" )
 report : step ( "bundling " .. ( target . name or target . kind ) )
 local runtimeModules = { }
+local requiredHostFeatures = { }
 for _ , feature in ipairs ( nativeFeatures . features ( resolvedEffects ) ) do
 if feature . runtimeModule then
 runtimeModules [ # runtimeModules + 1 ] = feature . runtimeModule
 end
+if feature . host then
+requiredHostFeatures [ # requiredHostFeatures + 1 ] = feature . host
+end
 end
 table . sort ( runtimeModules )
+table . sort ( requiredHostFeatures )
 local text , bundleErr , unreachable = bundleText (
 root ,
 config ,
@@ -8254,7 +8731,8 @@ target ,
 nil ,
 newState . modules ,
 resolvedEffects [ "native.workers" ] == true ,
-runtimeModules
+runtimeModules ,
+target . kind == "binary" and target . stub == "nupp" and requiredHostFeatures or nil
 )
 if not text then
 io . stderr : write ( "nupp: " .. tostring ( bundleErr ) .. "\n" )
@@ -8269,7 +8747,7 @@ io . stderr : write (
 ) : format ( # unreachable , # unreachable == 1 and "" or "s" , unreachable [ 1 ] )
 )
 end
-local name = target . name or target . kind
+local name = target . name or opts . target or ( target . platforms and "default" ) or target . kind
 local output
 if target . kind == "binary" then
 local stubPath , hostErr = native . hostStub ( root , outDir , target , resolvedEffects )
@@ -8283,11 +8761,14 @@ if not stub then
 io . stderr : write ( ( "nupp: cannot read the stub %s: %s\n" ) : format ( resolvedStub , tostring ( stubErr ) ) )
 return 1
 end
-output = join ( root , target . output or join ( outDir , name ) )
-local stamped , stampErr = stampFile ( output , stub , text )
+output = binaryOutput ( root , target , name , outDir , selectedPlatform )
+local stamped , stampErr , archive = stampFile ( output , stub , text , selectedPlatform )
 if not stamped then
 io . stderr : write ( "nupp: " .. tostring ( stampErr ) .. "\n" )
 return 1
+end
+if archive then
+newState . outputs [ archive ] = true
 end
 else
 output = bundleOutput ( root , target , name )
@@ -8326,7 +8807,12 @@ newState . targets [ targetKey ] = mine
 
 
 if opts . produced then
-opts . produced . target = targetKey
+opts . produced . target = target . name or opts . target or "default"
+opts . produced . platform = selectedPlatform
+if selectedPlatform == "aarch64-apple-darwin" then
+opts . produced . distributionReady = false
+opts . produced . notice = "the macOS binary must be signed on macOS and has not passed notarization"
+end
 opts . produced . outputs = mine
 opts . produced . materializations = materializeObserve . public ( result . materializations )
 opts . produced . derives = result . derives
@@ -8350,6 +8836,69 @@ opts . produced . timing = report : timing ( )
 end
 
 return 0
+end
+
+
+
+
+function project . build ( root , opts )
+root , opts = root or "." , ( opts or { } )
+if opts . platform ~= "all" then
+return buildOne ( root , opts )
+end
+local config , loadErr = project . loadManifest ( root )
+if not config then
+io . stderr : write ( tostring ( loadErr ) .. "\n" )
+return 1
+end
+local target , targetErr = targetConfig ( config , opts . target )
+if not target then
+io . stderr : write ( "nupp: " .. tostring ( targetErr ) .. "\n" )
+return 1
+end
+if not target . platforms then
+io . stderr : write ( "nupp: --platform all requires a binary target with a platforms list\n" )
+return 1
+end
+local aggregate = opts . produced
+if aggregate then
+aggregate . target = target . name or opts . target or "default"
+aggregate . outputs = cache . jsonArray ( { } )
+aggregate . platforms = cache . jsonArray ( { } )
+end
+local failed = false
+for _ , selected in ipairs ( target . platforms ) do
+local childOptions = { }
+for key , value in pairs ( opts ) do
+if key ~= "produced" then
+childOptions [ key ] = value
+end
+end
+childOptions . platform = selected
+local produced = aggregate and { } or nil
+childOptions . produced = produced
+local code = buildOne ( root , childOptions )
+failed = failed or code ~= 0
+if aggregate then
+local entry = {
+platform = selected ,
+status = code == 0 and "built" or "failed" ,
+outputs = cache . jsonArray ( produced . outputs or { } ) ,
+error = code == 0 and nil or "platform build failed; see diagnostics or standard error" ,
+distributionReady = produced . distributionReady ,
+notice = produced . notice ,
+}
+aggregate . platforms [ # aggregate . platforms + 1 ] = entry
+for _ , output in ipairs ( produced . outputs or { } ) do
+aggregate . outputs [ # aggregate . outputs + 1 ] = output
+end
+end
+end
+if aggregate then
+table . sort ( aggregate . outputs )
+end
+
+return failed and 1 or 0
 end
 
 function project . check ( root , opts )
@@ -8504,6 +9053,88 @@ end
 
 function project . clean ( root , opts )
 root , opts = root or "." , ( opts or { } )
+if opts . target then
+local config , loadErr = project . loadManifest ( root )
+if not config then
+io . stderr : write ( tostring ( loadErr ) .. "\n" )
+return 1
+end
+local target , targetErr = targetConfig ( config , opts . target )
+if not target then
+io . stderr : write ( "nupp: " .. tostring ( targetErr ) .. "\n" )
+return 1
+end
+if target . platforms then
+local selected = { }
+if opts . platform == nil or opts . platform == "all" then
+for _ , name in ipairs ( target . platforms ) do
+selected [ # selected + 1 ] = name
+end
+else
+for _ , name in ipairs ( target . platforms ) do
+if name == opts . platform then
+selected [ 1 ] = name
+end
+end
+if # selected == 0 then
+io . stderr : write (
+"nupp: platform "
+.. opts . platform
+.. " is not configured on binary target "
+.. opts . target
+.. "\n"
+)
+return 1
+end
+end
+local outDir = normalize ( target . outDir or "build" )
+local candidates = { }
+for _ , selectedPlatform in ipairs ( selected ) do
+local raw = binaryOutput ( "." , target , target . name or opts . target , outDir , selectedPlatform )
+candidates [ # candidates + 1 ] = raw
+if require ( "nupp.compiler.build.platform" ) . isPosix ( selectedPlatform ) then
+candidates [ # candidates + 1 ] = raw .. ".tar"
+end
+end
+local collected = opts . removed
+for _ , candidate in ipairs ( candidates ) do
+local safe , safeErr = safeCleanPath ( candidate )
+if not safe then
+io . stderr : write ( "nupp: refusing to clean " .. safeErr .. "\n" )
+return 1
+end
+if not opts . dryRun and removeTree ( join ( root , safe ) ) ~= 0 then
+io . stderr : write ( "nupp: cannot remove build output " .. safe .. "\n" )
+return 1
+end
+if collected then
+collected [ # collected + 1 ] = safe
+elseif opts . dryRun then
+io . write ( "would remove " .. safe .. "\n" )
+else
+io . write ( "removed " .. safe .. "\n" )
+end
+end
+if not opts . dryRun then
+local statePath = join ( root , join ( outDir , ".nupp-state.json" ) )
+if readFile ( statePath ) then
+local state = loadState ( statePath )
+for _ , selectedPlatform in ipairs ( selected ) do
+state . targets [ ( target . name or opts . target ) .. "@" .. selectedPlatform ] = nil
+end
+local saved , saveErr = saveState ( statePath , state )
+if not saved then
+io . stderr : write ( "nupp: " .. tostring ( saveErr ) .. "\n" )
+return 1
+end
+end
+end
+return 0
+elseif opts . platform then
+io . stderr : write ( "nupp: --platform requires a binary target with a platforms list\n" )
+return 1
+end
+end
 local described , err = project . describeTasks ( root , opts . target , { buildOnly = true } )
 if not described then
 io . stderr : write ( tostring ( err ) .. "\n" ) ;
@@ -9000,6 +9631,263 @@ end
 return store
 
 end
+package.preload["nupp.compiler.build.stub_catalog"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+return { catalogRelease = "development" , hostAbi = 1 , stubs = { } , }
+
+end
+package.preload["nupp.compiler.build.stubs"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end __nuppLazy(__nuppData,"json",__nuppLoadJSON);
+
+
+
+
+
+
+
+local fs = require ( "nupp.compiler.fs" )
+local hash = require ( "nupp.compiler.build.hash" )
+local packaging = require ( "nupp.compiler.build.package" )
+local distribution = require ( "nupp.compiler.build.platform" )
+
+local stubs = { }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local function safeComponent ( value )
+return type (
+value
+) == "string" and value ~= "" and not value : find (
+"/" ,
+1 ,
+true
+) and not value : find ( "\\" , 1 , true ) and value ~= "." and value ~= ".."
+end
+
+local function decodeCatalog ( path )
+local text , readErr = fs . readFile ( path )
+if not text then
+return nil , "cannot read stub catalog " .. path .. ": " .. tostring ( readErr )
+end
+local json = require ( "cjson" ) . new ( )
+json . decode_array_with_array_mt ( false )
+json . decode_invalid_numbers ( false )
+local ok , value = pcall ( json . decode , text )
+if not ok then
+return nil , "cannot decode stub catalog " .. path .. ": " .. tostring ( value )
+end
+
+return value
+end
+
+local function catalog ( )
+local path = os . getenv ( "NUPP_STUB_CATALOG" )
+local value , err
+if path and path ~= "" then
+value , err = decodeCatalog ( path )
+else
+value = require ( "nupp.compiler.build.stub_catalog" )
+end
+if not value then
+return nil , err
+end
+if type ( value ) ~= "table" or not safeComponent ( value . catalogRelease ) then
+return nil , "stub catalog requires a safe non-empty catalogRelease"
+end
+if value . hostAbi ~= packaging . hostAbiVersion then
+return nil , (
+"stub catalog %s has hostAbi %s but this compiler requires %d"
+) : format ( value . catalogRelease , tostring ( value . hostAbi ) , packaging . hostAbiVersion )
+end
+if type ( value . stubs ) ~= "table" then
+return nil , "stub catalog " .. value . catalogRelease .. " requires a stubs table"
+end
+
+return value
+end
+
+function stubs . record ( selectedPlatform )
+local selectedCatalog , catalogErr = catalog ( )
+if not selectedCatalog then
+return nil , catalogErr
+end
+local record = selectedCatalog . stubs [ selectedPlatform ]
+if type ( record ) ~= "table" then
+return nil , (
+"stub catalog %s has no %s host; set NUPP_STUB_CATALOG to an immutable catalog which does"
+) : format ( selectedCatalog . catalogRelease , selectedPlatform )
+end
+if record . platform ~= nil and record . platform ~= selectedPlatform then
+return nil , "stub catalog record for " .. selectedPlatform .. " claims platform " .. tostring ( record . platform )
+end
+if record . hostAbi ~= nil and record . hostAbi ~= selectedCatalog . hostAbi then
+return nil , "stub catalog record for " .. selectedPlatform .. " disagrees about hostAbi"
+end
+if record . catalogRelease ~= nil and record . catalogRelease ~= selectedCatalog . catalogRelease then
+return nil , "stub catalog record for " .. selectedPlatform .. " disagrees about catalogRelease"
+end
+if not safeComponent ( record . artifact ) then
+return nil , "stub catalog record for " .. selectedPlatform .. " has an unsafe artifact name"
+end
+if type ( record . sha256 ) ~= "string" or not record . sha256 : match ( "^[0-9a-f][0-9a-f]+$" ) or # record . sha256 ~= 64 then
+return nil , "stub catalog record for " .. selectedPlatform .. " requires a lowercase SHA-256"
+end
+if type ( record . size ) ~= "number" or record . size < 1 or record . size ~= math . floor ( record . size ) then
+return nil , "stub catalog record for " .. selectedPlatform .. " requires a positive integer size"
+end
+if record . executableSuffix ~= distribution . executableSuffix ( selectedPlatform ) then
+return nil , "stub catalog record for " .. selectedPlatform .. " has the wrong executableSuffix"
+end
+if type ( record . hostFeatures ) ~= "table" then
+return nil , "stub catalog record for " .. selectedPlatform .. " requires hostFeatures"
+end
+local featureCount , highest , seenFeatures = 0 , 0 , { }
+for index , feature in pairs ( record . hostFeatures ) do
+if type ( index ) ~= "number" or index < 1 or index ~= math . floor ( index ) or type ( feature ) ~= "string" then
+return nil , "stub catalog record for " .. selectedPlatform .. " requires a string-array hostFeatures"
+end
+if seenFeatures [ feature ] then
+return nil , "stub catalog record for " .. selectedPlatform .. " duplicates host feature " .. feature
+end
+seenFeatures [ feature ] = true
+featureCount = featureCount + 1
+highest = math . max ( highest , index )
+end
+if featureCount ~= highest then
+return nil , "stub catalog record for " .. selectedPlatform .. " has gaps in hostFeatures"
+end
+if not safeComponent ( record . noticeArtifact ) then
+return nil , "stub catalog record for " .. selectedPlatform .. " requires a safe noticeArtifact"
+end
+record . catalogRelease = selectedCatalog . catalogRelease
+record . hostAbi = selectedCatalog . hostAbi
+record . platform = selectedPlatform
+
+return record
+end
+
+local function validateBytes ( record , text , path )
+if # text ~= record . size then
+return nil , ( "stub %s has %d bytes, expected %d" ) : format ( path , # text , record . size )
+end
+local digest = hash . sha256 ( text )
+if digest ~= record . sha256 then
+return nil , ( "stub %s has SHA-256 %s, expected %s" ) : format ( path , digest , record . sha256 )
+end
+local platform = record . platform
+if platform == "x86_64-unknown-linux-gnu" then
+if text : sub ( 1 , 4 ) ~= "\127ELF" or text : byte ( 5 ) ~= 2 or text : byte ( 19 ) ~= 62 or text : byte ( 20 ) ~= 0 then
+return nil , "stub " .. path .. " is not an x86-64 ELF executable"
+end
+elseif platform == "aarch64-apple-darwin" then
+if text : sub ( 1 , 4 ) ~= "\207\250\237\254" or text : byte ( 5 ) ~= 12 or text : byte ( 8 ) ~= 1 then
+return nil , "stub " .. path .. " is not an arm64 Mach-O executable"
+end
+elseif platform == "x86_64-pc-windows-msvc" then
+local offset = # text >= 64 and (
+text : byte ( 61 ) + text : byte ( 62 ) * 256 + text : byte ( 63 ) * 65536 + text : byte ( 64 ) * 16777216
+) or - 1
+if text : sub (
+1 ,
+2
+) ~= "MZ" or offset < 0 or text : sub (
+offset + 1 ,
+offset + 4
+) ~= "PE\0\0" or text : byte ( offset + 5 ) ~= 100 or text : byte ( offset + 6 ) ~= 134 then
+return nil , "stub " .. path .. " is not an x86-64 PE executable"
+end
+end
+
+return true
+end
+
+local function hasFeatures ( record , required )
+local available = { }
+for _ , feature in ipairs ( record . hostFeatures ) do
+available [ feature ] = true
+end
+for _ , feature in ipairs ( required ) do
+if not available [ feature ] then
+return nil , (
+"stub %s for %s lacks required host feature %s"
+) : format ( record . artifact , record . platform , feature )
+end
+end
+
+return true
+end
+
+function stubs . acquire ( root , record , required )
+local featuresOk , featureErr = hasFeatures ( record , required )
+if not featuresOk then
+return nil , featureErr
+end
+local relativeCache = fs . join (
+".nupp/stubs" ,
+fs . join (
+record . catalogRelease ,
+fs . join ( tostring ( record . hostAbi ) , fs . join ( record . platform , fs . join ( record . sha256 , record . artifact ) ) )
+)
+)
+local cached = fs . join ( root , relativeCache )
+local cachedText = fs . readFile ( cached )
+if cachedText then
+local valid = validateBytes ( record , cachedText , cached )
+if valid then
+return cached
+end
+os . remove ( cached )
+end
+local directory = os . getenv ( "NUPP_STUB_DIR" )
+if not directory or directory == "" then
+return nil , (
+"missing %s for %s; put it in NUPP_STUB_DIR or populate %s"
+) : format ( record . artifact , record . platform , relativeCache )
+end
+local source = fs . join ( directory , record . artifact )
+local text , readErr = fs . readFile ( source )
+if not text then
+return nil , "cannot read required stub " .. source .. ": " .. tostring ( readErr )
+end
+local valid , validErr = validateBytes ( record , text , source )
+if not valid then
+return nil , validErr
+end
+
+
+
+
+local nonce = hash . sha256 ( cached .. tostring ( { } ) .. tostring ( os . clock ( ) ) ) : sub ( 1 , 16 )
+local temporary = cached .. ".tmp-" .. nonce
+local written , writeErr = fs . writeFile ( temporary , text )
+if not written then
+return nil , "cannot cache stub " .. cached .. ": " .. tostring ( writeErr )
+end
+os . remove ( cached )
+local renamed , renameErr = os . rename ( temporary , cached )
+if not renamed then
+os . remove ( temporary )
+return nil , "cannot install cached stub " .. cached .. ": " .. tostring ( renameErr )
+end
+
+return cached
+end
+
+return stubs
+
+end
 package.preload["nupp.compiler.build.syntax"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDropDefault ( value )\nvalue : drop ( )\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDropDefault\"]=__nuppDropDefault;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppPeg=rawget(__nupp,"peg")or{};rawset(__nupp,"peg",__nuppPeg) local __nuppLpeg=require("lpeg");__nuppLpeg.setmaxstack(10000) local function __nuppPegInit(subject,init,level) if type(subject)~="string"then error("nupp: PEG subject must be a string",level)end;if init==nil then init=1 elseif type(init)~="number"or init~=math.floor(init)then error("nupp: PEG init must be an integer",level)elseif init<0 then init=#subject+init+1 end;if init<1 then init=1 end;if init>#subject+1 then return nil end;return init end local function __nuppPegFindAt(run,take,captureful,subject,init,search) if search and search.direct then local first,last=subject:find(search.direct,init,search.directPlain);if first==nil then return nil end;local nextPosition=last+1;if search.result=="string"then return first,nextPosition,subject:sub(first,last)end;return first,nextPosition,nextPosition end local position=init;while position<=#subject+1 do if search then position=subject:find(search.value,position,search.plain);if position==nil then return nil end end;local nextPosition=run(subject,position);if nextPosition~=nil then if captureful then return position,nextPosition,take()end;return position,nextPosition,nextPosition end;position=position+1 end end local function __nuppPegCallbackReplacement(replacement,first,nextPosition,...) local out=replacement(first,nextPosition,...);if type(out)~="string"then error("nupp: PEG replacement callback must return a string",3)end;return out end local function __nuppPegVisit(visitor,first,nextPosition,...) if first~=nil then visitor(first,nextPosition,...);return first,nextPosition end end local function __nuppPegReplacementAt(replacement,first,nextPosition,...) if first~=nil then return first,nextPosition,__nuppPegCallbackReplacement(replacement,first,nextPosition,...)end end local function __nuppPegMatcher(run,take,captureful,search,generatedFind,directReplaceAll,generatedTraverse) local Matcher={};Matcher.__index=Matcher local function findAt(subject,init)if generatedFind then return generatedFind(subject,init)end;return __nuppPegFindAt(run,take,captureful,subject,init,search)end function Matcher:match(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;local nextPosition=run(subject,init);if nextPosition==nil then return nil end;if captureful then return take()end;return nextPosition end function Matcher:find(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;return findAt(subject,init)end function Matcher:isMatch(subject,init)init=__nuppPegInit(subject,init,2);return init~=nil and findAt(subject,init)~=nil end function Matcher:forEachMatch(subject,visitor,init)if type(visitor)~="function"then error("nupp: PEG match visitor must be a function",2)end;local cursor=__nuppPegInit(subject,init,2);if cursor==nil then return 0 end;if generatedTraverse then return generatedTraverse(subject,visitor,cursor)end;local count=0;while cursor<=#subject+1 do local first,nextPosition=__nuppPegVisit(visitor,findAt(subject,cursor));if first==nil then break end;count=count+1;cursor=nextPosition>first and nextPosition or first+1 end;return count end function Matcher:__nuppPegReplaceLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition=findAt(subject,init);if first==nil then return subject end;return subject:sub(1,first-1)..replacement..subject:sub(nextPosition)end function Matcher:__nuppPegReplaceCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,init));if first==nil then return subject end;return subject:sub(1,first-1)..value..subject:sub(nextPosition)end function Matcher:replace(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end function Matcher:__nuppPegReplaceAllLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;if directReplaceAll then return directReplaceAll(subject,replacement,init)end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition=findAt(subject,cursor);if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=replacement;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end function Matcher:__nuppPegReplaceAllCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,cursor));if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=value;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end function Matcher:replaceAll(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceAllLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceAllCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end Matcher.__call=Matcher.match;return setmetatable({},Matcher) end local function __nuppPegPattern(program,definitions) definitions=definitions or{};for _,name in ipairs(program.actions or{})do if rawget(definitions,name)==nil then error("nupp: missing PEG definition "..tostring(name),3)end end local P,S,V,C,Ct,Cg,Cb,Cp,Cs,Cmt,Cf=__nuppLpeg.P,__nuppLpeg.S,__nuppLpeg.V,__nuppLpeg.C,__nuppLpeg.Ct,__nuppLpeg.Cg,__nuppLpeg.Cb,__nuppLpeg.Cp,__nuppLpeg.Cs,__nuppLpeg.Cmt,__nuppLpeg.Cf local nodes,memo,targets=program.graph.nodes,{},{} local function equalcap(subject,position,captured)if type(captured)~="string"then return nil end;local ending=position+#captured;if subject:sub(position,ending-1)==captured then return ending end;return nil end local build;build=function(index)local prior=memo[index];if prior then return prior end;local node=nodes[index];local op=node[1];local pattern if op=="literal"then pattern=P(node[2])elseif op=="set"then pattern=S(node[2])elseif op=="any"then pattern=P(1)elseif op=="eof"then pattern=-P(1) elseif op=="sequence"then pattern=P(true);for child=2,#node do pattern=pattern*build(node[child])end elseif op=="choice"then pattern=P(false);for child=2,#node do pattern=pattern+build(node[child])end elseif op=="difference"then pattern=build(node[2])-build(node[3]) elseif op=="zeroOrMore"then pattern=build(node[2])^0 elseif op=="oneOrMore"then pattern=build(node[2])^1 elseif op=="optional"then pattern=build(node[2])^-1 elseif op=="and"then pattern=#build(node[2])elseif op=="not"then pattern=-build(node[2]) elseif op=="capture"then pattern=C(build(node[2]))elseif op=="collect"or op=="tableCapture"then pattern=Ct(build(node[2])) elseif op=="group"then pattern=node[3]~=nil and Cg(build(node[2]),node[3])or Cg(build(node[2])) elseif op=="substitution"then pattern=Cs(build(node[2]))elseif op=="position"then pattern=Cp() elseif op=="backReference"then pattern=Cmt(Cb(node[2]),equalcap) elseif op=="external"then pattern=P(definitions[node[2]]) elseif op=="transform"then local spec=node[3];local target=spec[1]=="definition"and definitions[spec[2]]or spec[2];pattern=build(node[2])/target elseif op=="matchTime"then pattern=Cmt(build(node[2]),definitions[node[3]]) elseif op=="accumulate"then pattern=build(node[2])%definitions[node[3]] elseif op=="fold"then pattern=Cf(build(node[2]),definitions[node[3]]) elseif op=="action"then local callback=definitions[node[3]];pattern=C(build(node[2])/0)/function(text)return callback(text)end elseif op=="reference"then targets[node[2]]=true;pattern=V("n"..node[2]) else error("nupp: unknown PEG graph operation "..tostring(op),3)end;memo[index]=pattern;return pattern end local pattern=build(program.graph.root);if next(targets)then local grammar={pattern};local done={};while true do local target;for candidate in pairs(targets)do if not done[candidate]then target=candidate;break end end;if not target then break end;done[target]=true;grammar["n"..target]=build(target)end;pattern=P(grammar)end;return pattern end local function __nuppPegFromPattern(pattern) local pack=function(...)return{n=select("#",...),...}end;local resultValues;local execution=pattern*__nuppLpeg.Cp() local function run(subject,position)local values=pack(__nuppLpeg.match(execution,subject,position));local nextPosition=values[values.n];if nextPosition==nil then return nil end;values[values.n]=nil;values.n=values.n-1;if values.n==0 then values.n=1;values[1]=nextPosition end;resultValues=values;return nextPosition end local function take()local values=resultValues;resultValues=nil;return unpack(values,1,values.n)end return __nuppPegMatcher(run,take,true,nil) end local function __nuppPegLpeg(program,definitions)return __nuppPegFromPattern(__nuppPegPattern(program,definitions))end local function __nuppPegFastScan9Run(plan,sets) local keys=plan.packedKeys;local k1,k2,k3,k4,k5,k6,k7,k8=keys[1],keys[2],keys[3],keys[4],keys[5],keys[6],keys[7],keys[8] local delimiter,separatorLength=plan.separator:byte(),#plan.separator local scanByte,scanClass;if plan.scan<256 then scanByte=plan.scan else scanClass=sets[plan.scan-255]end local suffix,minimum=plan.suffix,plan.minimum;local suffixHead=((suffix[1]*256+suffix[2])*256+suffix[3])*256+suffix[4];local suffixTail=((suffix[5]*256+suffix[6])*256+suffix[7])*256+suffix[8] local lastByte,lastClass;if suffix[9]<256 then lastByte=suffix[9]else lastClass=sets[suffix[9]-255]end local function run(subject,position) local a,b,c,d,e,f,g=subject:byte(position,position+6);if not a then return nil end local key,prefixLength;if b==delimiter then prefixLength=1;key=a*8+1 elseif c==delimiter then prefixLength=2;key=(a*256+b)*8+2 elseif d==delimiter then prefixLength=3;key=((a*256+b)*256+c)*8+3 elseif e==delimiter then prefixLength=4;key=(((a*256+b)*256+c)*256+d)*8+4 elseif f==delimiter then prefixLength=5;key=((((a*256+b)*256+c)*256+d)*256+e)*8+5 elseif g==delimiter then prefixLength=6;key=(((((a*256+b)*256+c)*256+d)*256+e)*256+f)*8+6 else return nil end if not(key==k1 or key==k2 or key==k3 or key==k4 or key==k5 or key==k6 or key==k7 or key==k8)then return nil end position=position+prefixLength+separatorLength;local suffixStart=#subject-8;if suffixStart-position<minimum then return nil end if scanClass then for index=position,suffixStart-1 do local byte=subject:byte(index);if scanClass:byte(byte+1)==0 then return nil end end else for index=position,suffixStart-1 do if subject:byte(index)~=scanByte then return nil end end end local q,r,s,t,u,v,w,x,y=subject:byte(suffixStart,#subject);if ((q*256+r)*256+s)*256+t==suffixHead and((u*256+v)*256+w)*256+x==suffixTail and((lastByte and y==lastByte)or(lastClass and lastClass:byte(y+1)~=0))then return #subject+1 end;return nil end return run end local function __nuppPegCheckSource(encoded,expression)if encoded<256 then return expression.."=="..encoded end;return"sets["..(encoded-255).."]:byte("..expression.."+1)~=0"end local function __nuppPegRepeatSource(plan)local head=__nuppPegCheckSource(plan.head,"byte");local tail=__nuppPegCheckSource(plan.tail,"byte");local accept=plan.eof and"if position~=#subject+1 then return nil end;"or"";local result=plan.result=="string"and"lastSubject,lastFirst,lastNext=subject,first,position;return position"or"return position";local visitValue=plan.result=="string"and"subject:sub(first,position-1)"or"position";local visit=plan.eof and"if position==length+1 then count=count+1;visitor(first,position,"..visitValue..");return count end"or"count=count+1;visitor(first,position,"..visitValue..")";local state=plan.result=="string"and"local lastSubject,lastFirst,lastNext;local function take()return lastSubject:sub(lastFirst,lastNext-1)end;"or"";local take=plan.result=="string"and"take"or"nil";return"return function(sets)"..state.."local function run(subject,position)local first=position;local byte=subject:byte(position);if not byte or not("..head..")then return nil end;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..accept..result.." end;local function traverse(subject,visitor,position)local count,length=0,#subject;while position<=length do local byte=subject:byte(position);if "..head.." then local first=position;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..visit.." else position=position+1 end end;return count end;return run,"..take..",traverse end"end local function __nuppPegFixedSource(checks)local conditions={"position+"..#checks.."==#subject+1"};for index,encoded in ipairs(checks)do local expression="subject:byte(position+"..(index-1)..")";conditions[#conditions+1]=__nuppPegCheckSource(encoded,expression)end;return"return function(sets)return function(subject,position)if "..table.concat(conditions," and ").." then return position+"..#checks.." end end end"end local function __nuppPegCodegen(program,definitions) if program.fastScan and program.fastScan.packedKeys and program.fastScan.maximum<=6 and #program.fastScan.keys<=8 then local suffix=program.fastScan.suffix;if #suffix==9 and suffix[1]<256 and suffix[2]<256 and suffix[3]<256 and suffix[4]<256 and suffix[5]<256 and suffix[6]<256 and suffix[7]<256 and suffix[8]<256 then return __nuppPegMatcher(__nuppPegFastScan9Run(program.fastScan,program.sets),nil,false,program.search)end end local source;if program.fastRepeat then source=__nuppPegRepeatSource(program.fastRepeat)elseif program.fastFixed then source=__nuppPegFixedSource(program.fastFixed)else return __nuppPegLpeg(program,definitions)end local chunk,why=loadstring(source,"=nupp PEG specialization");if not chunk then error("nupp: PEG specialization failed: "..tostring(why),2)end;local run,take,traverse=chunk()(program.sets);return __nuppPegMatcher(run,take,program.captureful,program.search,nil,nil,traverse) end package.loaded.re=nil package.preload.re=function() local tonumber,type,print,error=tonumber,type,print,error local setmetatable=setmetatable local m=require"lpeg" local mm=m local mt=getmetatable(mm.P(0)) local version=_VERSION local any=m.P(1) local Predef={nl=m.P"\n"} local mem;local fmem;local gmem local function updatelocale() mm.locale(Predef) Predef.a=Predef.alpha;Predef.c=Predef.cntrl;Predef.d=Predef.digit Predef.g=Predef.graph;Predef.l=Predef.lower;Predef.p=Predef.punct Predef.s=Predef.space;Predef.u=Predef.upper;Predef.w=Predef.alnum Predef.x=Predef.xdigit Predef.A=any-Predef.a;Predef.C=any-Predef.c;Predef.D=any-Predef.d Predef.G=any-Predef.g;Predef.L=any-Predef.l;Predef.P=any-Predef.p Predef.S=any-Predef.s;Predef.U=any-Predef.u;Predef.W=any-Predef.w Predef.X=any-Predef.x mem={};fmem={};gmem={};local weak={__mode="v"} setmetatable(mem,weak);setmetatable(fmem,weak);setmetatable(gmem,weak) end updatelocale() local function patt_error(s,i)local msg=(#s<i+20)and s:sub(i)or s:sub(i,i+20).."...";error(("pattern error near '%s'"):format(msg),2)end local function mult(p,n)local np=mm.P(true);while n>=1 do if n%2>=1 then np=np*p end;p=p*p;n=n/2 end;return np end local function equalcap(s,i,c)if type(c)~="string"then return nil end;local e=#c+i;if s:sub(i,e-1)==c then return e end;return nil end local S=(Predef.space+"--"*(any-Predef.nl)^0)^0 local name=m.R("AZ","az","__")*m.R("AZ","az","__","09")^0 local arrow=S*"<-" local seq_follow=m.P"/"+")"+"}"+":}"+"~}"+"|}"+(name*arrow)+-1 name=m.C(name) local Def=name*m.Carg(1) local function getdef(id,defs)local c=defs and defs[id];if not c then error("undefined name: "..id)end;return c end local function defwithfunc(f)return m.Cg(Def/getdef*m.Cc(f))end local num=m.C(m.R"09"^1)*S/tonumber local String="'"*m.C((any-"'")^0)*"'"+'"'*m.C((any-'"')^0)*'"' local defined="%"*Def/function(c,Defs)local cat=Defs and Defs[c]or Predef[c];if not cat then error("name '"..c.."' undefined")end;return cat end local Range=m.Cs(any*(m.P"-"/"")*(any-"]"))/mm.R local item=(defined+Range+m.C(any))/m.P local Class="["*(m.C(m.P"^"^-1))*(item*((item%mt.__add)-"]")^0)/function(c,p)return c=="^"and any-p or p end*"]" local function adddef(t,k,exp)if t[k]then error("'"..k.."' already defined as a rule")else t[k]=exp end;return t end local function firstdef(n,r)return adddef({n},n,r)end local function NT(n,b)if not b then error("rule '"..n.."' used outside a grammar")else return mm.V(n)end end local exp=m.P{"Exp", Exp=S*(m.V"Grammar"+m.V"Seq"*("/"*S*m.V"Seq"%mt.__add)^0), Seq=(m.Cc(m.P"")*(m.V"Prefix"%mt.__mul)^0)*(#seq_follow+patt_error), Prefix="&"*S*m.V"Prefix"/mt.__len+"!"*S*m.V"Prefix"/mt.__unm+m.V"Suffix", Suffix=m.V"Primary"*S*((m.P"+"*m.Cc(1,mt.__pow)+m.P"*"*m.Cc(0,mt.__pow)+m.P"?"*m.Cc(-1,mt.__pow)+"^"*(m.Cg(num*m.Cc(mult))+m.Cg(m.C(m.S"+-"*m.R"09"^1)*m.Cc(mt.__pow)))+"->"*S*(m.Cg((String+num)*m.Cc(mt.__div))+m.P"{}"*m.Cc(nil,m.Ct)+defwithfunc(mt.__div))+"=>"*S*defwithfunc(mm.Cmt)+">>"*S*defwithfunc(mt.__mod)+"~>"*S*defwithfunc(mm.Cf))%function(a,b,f)return f(a,b)end*S)^0, Primary="("*m.V"Exp"*")"+String/mm.P+Class+defined+"{:"*(name*":"+m.Cc(nil))*m.V"Exp"*":}"/function(n,p)return mm.Cg(p,n)end+"="*name/function(n)return mm.Cmt(mm.Cb(n),equalcap)end+m.P"{}"/mm.Cp+"{~"*m.V"Exp"*"~}"/mm.Cs+"{|"*m.V"Exp"*"|}"/mm.Ct+"{"*m.V"Exp"*"}"/mm.C+m.P"."*m.Cc(any)+(name*-arrow+"<"*name*">")*m.Cb("G")/NT, Definition=name*arrow*m.V"Exp", Grammar=m.Cg(m.Cc(true),"G")*((m.V"Definition"/firstdef)*(m.V"Definition"%adddef)^0)/mm.P } local pattern=S*m.Cg(m.Cc(false),"G")*exp/mm.P*(-any+patt_error) local function compile(p,defs)if mm.type(p)=="pattern"then return p end;local cp=pattern:match(p,1,defs);if not cp then error("incorrect pattern",3)end;return cp end local function match(s,p,i)local cp=mem[p];if not cp then cp=compile(p);mem[p]=cp end;return cp:match(s,i or 1)end local function find(s,p,i)local cp=fmem[p];if not cp then cp=compile(p)/0;cp=mm.P{mm.Cp()*cp*mm.Cp()+1*mm.V(1)};fmem[p]=cp end;local first,ending=cp:match(s,i or 1);if first then return first,ending-1 end;return first end local function gsub(s,p,rep)local g=gmem[p]or{};gmem[p]=g;local cp=g[rep];if not cp then cp=compile(p);cp=mm.Cs((cp/rep+1)^0);g[rep]=cp end;return cp:match(s)end local re={compile=compile,match=match,find=find,gsub=gsub,updatelocale=updatelocale} if version=="Lua 5.1"then _G.re=re end return re end local __nuppPegPatternCache=setmetatable({},{__mode="v"}) function __nuppPeg.compile(source,options) if type(source)~="string"then error("nupp: PEG compile source must be a string",2)end;if options~=nil and type(options)~="table"then error("nupp: PEG compile options must be a table",2)end;options=options or{};local backend=options.backend or"auto";if backend~="auto"and backend~="lpeg"then error("nupp: PEG compile backend must be 'auto' or 'lpeg'",2)end local definitions=options.definitions or options.defs or options.actions;local pattern;if definitions==nil then pattern=__nuppPegPatternCache[source];if not pattern then pattern=require("re").compile(source);__nuppPegPatternCache[source]=pattern end else pattern=require("re").compile(source,definitions)end;return __nuppPegFromPattern(pattern) end;
 
@@ -9216,6 +10104,7 @@ resources = copyResources ( target . resources ) ,
 dependencies = copyStrings ( target . dependencies ) ,
 nativeFeatures = target . nativeFeatures ,
 layoutTarget = target . layoutTarget ,
+platforms = copyStrings ( target . platforms ) ,
 command = jsonArray ( { "nupp" , "build" , "--target" , name } ) ,
 }
 end
@@ -18381,13 +19270,19 @@ end
 end
 for _ , output in ipairs ( calleeT . ffiOut or { } ) do
 if output . kind == "borrowed" then
-local source = argNodes [ output . sourceParam ]
+local owners = { }
+for _ , sourceParam in ipairs ( output . sourceParams or { } ) do
+local source = sourceParam and argNodes [ sourceParam ] or nil
 local entry = source and c . ownershipEntry ( source )
 if entry then
-node . returnBorrowOwners = node . returnBorrowOwners or { }
-node . returnBorrowOwners [ output . returnIndex ] = { c . borrowRoot ( entry ) , }
+owners [ # owners + 1 ] = c . borrowRoot ( entry )
 elseif source then
 c . diag ( "NUPP2619" , source , "a borrowed C output needs a named lifetime source" )
+end
+end
+if # owners > 0 then
+node . returnBorrowOwners = node . returnBorrowOwners or { }
+node . returnBorrowOwners [ output . returnIndex ] = owners
 end
 end
 end
@@ -18584,11 +19479,6 @@ c . raises . checkParams ( stat , stat . params or { } )
 local params , paramModes , paramNames = { } , { } , { }
 local abiParams = { }
 local physicalNodes , physicalDefs = { } , { }
-local outputByName = { }
-for _ , output in ipairs ( stat . borrowedOuts or { } ) do
-output . kind = "borrowed"
-outputByName [ output . name ] = output
-end
 local ffiOut = { }
 local logicalByName = { }
 for parameterIndex , p in ipairs ( stat . params ) do
@@ -18603,6 +19493,7 @@ pt = T . foreignFunction ( pt )
 end
 declared . resolvedType = pt
 local mode = modeTok and modeTok . text or "plain"
+local relation = declared . kind == "tborrows" and declared or nil
 local pdef = c . definition ( pname , "parameter" )
 if pdef then
 pdef . type = pt
@@ -18643,8 +19534,19 @@ if countedBy then
 c . diag ( "NUPP2630" , countedBy , "countedBy does not support out parameters" )
 end
 local named = pname and pname . text or ""
-local output = outputByName [ named ]
 local slot = pt . tag == "ptr" and pt . elem or nil
+local output = nil
+if relation then
+output = {
+kind = "borrowed" ,
+name = named ,
+sources = relation . params or { relation . param } ,
+at = relation ,
+}
+if slot and slot . tag == "affine" then
+c . diag ( "NUPP2602" , relation , "a borrowed output cannot also carry an affine terminal" )
+end
+end
 
 
 
@@ -18662,8 +19564,8 @@ if not output then
 c . diag (
 "NUPP2602" ,
 p ,
-"an out parameter is written `out p: Owned<T, cleanup>*`, "
-.. "or given a @borrowed(out = ...) contract"
+"an out parameter is written `out p: Owned<T, cleanup>*` "
+.. "or `out p: T* borrows (source)`"
 )
 elseif not slot or not pointerShaped ( T . unwrapOwnership ( slot ) ) then
 c . diag ( "NUPP2602" , p , "out parameter must have pointer-to-pointer type" )
@@ -18675,8 +19577,10 @@ output . hasStatus = stat . ret ~= nil
 output . success = output . success or "pending"
 ffiOut [ # ffiOut + 1 ] = output
 end
-outputByName [ named ] = nil
 else
+if relation then
+c . diag ( "NUPP2602" , relation , "borrows (...) on a cdef parameter requires out" )
+end
 params [ # params + 1 ] = pt
 paramModes [ # params ] = mode
 paramNames [ # params ] = pname and pname . text or ""
@@ -18685,9 +19589,6 @@ physicalDefs [ # params ] = pdef
 logicalByName [ pname and pname . text or "" ] = # params
 end
 end
-end
-for name , output in pairs ( outputByName ) do
-c . diag ( "NUPP2602" , output . at or stat , ( "output contract %q names no out parameter" ) : format ( name ) )
 end
 local rets = { }
 local abiResult = nil
@@ -18740,15 +19641,22 @@ output . at or stat ,
 )
 rets [ # rets + 1 ] = T . affine ( valueType , output . cleanups )
 else
-output . sourceParam = logicalByName [ output . source ]
-if not output . sourceParam then
+output . sourceParams = { }
+for _ , source in ipairs ( output . sources or { } ) do
+local sourceParam = source and logicalByName [ source . text ] or nil
+if not sourceParam then
 c . diag (
 "NUPP2602" ,
-output . at or stat ,
-( "borrowed output source %q is not an input parameter" ) : format ( output . source )
+source or output . at or stat ,
+( "borrowed output source %q is not an input parameter" ) : format ( source and source . text or "" )
 )
-elseif paramModes [ output . sourceParam ] ~= "borrows" then
-c . diag ( "NUPP2602" , output . at or stat , "a borrowed output source must be a borrows parameter" )
+else
+c . markToken ( source , physicalDefs [ sourceParam ] , params [ sourceParam ] , "parameter" )
+if paramModes [ sourceParam ] ~= "borrows" then
+c . diag ( "NUPP2602" , source , "a borrowed output source must be a borrows parameter" )
+end
+output . sourceParams [ # output . sourceParams + 1 ] = sourceParam
+end
 end
 rets [ # rets + 1 ] = T . borrowed ( valueType )
 end
@@ -30373,7 +31281,6 @@ local marks = c . marks
 local defineAnnotation = marks . defineAnnotation
 local validateAnnotation = marks . validateAnnotation
 local stringValue , nameText = marks . stringValue , marks . nameText
-local literalText = marks . literalText
 
 local handlers = { }
 local RELAXATIONS = {
@@ -30760,39 +31667,6 @@ target . relaxedGuarantees = relaxed
 if targetBody then
 targetBody . relaxedGuarantees = relaxed
 end
-end
-if stat . stat then
-c . checkStat ( stat . stat )
-end
-return
-
-elseif written == "borrowed" then
-local outName , sourceName , success = nil , nil , "always"
-for _ , arg in ipairs ( stat . annotationArgs or { } ) do
-local expr = arg . expr
-local argName = arg . name and arg . name . text or nil
-local named = nameText ( expr )
-if argName == "out" and named then
-outName = named
-elseif argName == "from" and named then
-sourceName = named
-elseif argName == "success" and ( named == "always" or named == "zero" or named == "nonzero" ) then
-success = named
-elseif argName == "success" and literalText ( expr ) then
-success = "equals:" .. tostring ( literalText ( expr ) )
-else
-c . diag ( "NUPP2602" , arg , "invalid @borrowed argument" )
-end
-end
-if not valid or targetKind ~= "cdefFunc" or not target then
-c . diag ( "NUPP2602" , stat , "@borrowed applies only to cdef functions" )
-elseif not outName or not sourceName then
-c . diag ( "NUPP2602" , stat , "@borrowed requires out and from parameter names" )
-else
-target . borrowedOuts = target . borrowedOuts or { }
-target . borrowedOuts [
-# target . borrowedOuts + 1
-] = { name = outName , source = sourceName , success = success , at = stat . name , }
 end
 if stat . stat then
 c . checkStat ( stat . stat )
@@ -34235,11 +35109,13 @@ local command = spec . command {
 name = "build" ,
 summary = "Build source files or a configured project target" ,
 usage = {
-"nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR]" .. " [-q] [--format text|json]" ,
+"nupp build [--strict] [-O<n>] [--target NAME] [--platform NAME|all] [--out-dir DIR]"
+.. " [-q] [--format text|json]" ,
 "nupp build [--strict] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>" ,
 } ,
 options = optionsMod . join (
 { name = "--target" , value = "NAME" , help = "Build a named manifest target" } ,
+{ name = "--platform" , value = "NAME" , help = "Build one configured binary platform, or all" } ,
 
 
 
@@ -34264,6 +35140,28 @@ target = {
 type = "string" ,
 description = "The manifest target that was built. Absent for a "
 .. "build of explicitly named source files."
+} ,
+platform = { type = "string" , description = "The selected binary platform for a one-platform build." } ,
+distributionReady = {
+type = "boolean" ,
+description = "Whether the selected platform output is ready for public distribution."
+} ,
+notice = { type = "string" } ,
+platforms = {
+type = "array" ,
+description = "Per-platform outcomes for --platform all." ,
+items = {
+type = "object" ,
+properties = {
+platform = { type = "string" } ,
+status = { type = "string" , enum = { "built" , "failed" } } ,
+outputs = { type = "array" , items = { type = "string" } } ,
+error = { type = "string" } ,
+distributionReady = { type = "boolean" } ,
+notice = { type = "string" } ,
+} ,
+required = { "platform" , "status" , "outputs" } ,
+} ,
 } ,
 written = {
 type = "array" ,
@@ -34411,8 +35309,8 @@ local paths = parsed . positional
 
 local outDir , projectOutDir = values . outDir , values . projectOutDir
 local target = values . target
-if # paths > 0 and ( projectOutDir or target ) then
-return command : usageError ( "--target and --out-dir cannot be used with explicit source files" )
+if # paths > 0 and ( projectOutDir or target or values . platform ) then
+return command : usageError ( "--target, --platform and --out-dir cannot be used with explicit source files" )
 end
 if # paths == 0 and outDir then
 return command : usageError ( "-o requires at least one explicit source file" )
@@ -34447,13 +35345,21 @@ builtTarget ,
 outputs ,
 observed ,
 observedDerives ,
-timing
+timing ,
+selectedPlatform ,
+platformResults ,
+distributionReady ,
+notice
 )
 if asJson then
 reportMod . write ( {
 ok = code == 0 ,
 diagnostics = reportMod . diagnosticValues ( diagnostics ) ,
 target = builtTarget ,
+platform = selectedPlatform ,
+platforms = platformResults ,
+distributionReady = distributionReady ,
+notice = notice ,
 written = outputs ,
 materializations = observed or materializations ,
 derives = observedDerives or derives ,
@@ -34470,6 +35376,7 @@ local produced = { }
 local code = project . build ( "." , {
 outDir = projectOutDir ,
 target = target ,
+platform = values . platform ,
 strict = settings . strict ,
 optLevel = settings . optLevel ,
 remarks = settings . remarks ,
@@ -34485,7 +35392,11 @@ produced . target ,
 produced . outputs or { } ,
 produced . materializations ,
 produced . derives ,
-produced . timing
+produced . timing ,
+produced . platform ,
+produced . platforms ,
+produced . distributionReady ,
+produced . notice
 )
 end
 local process = require ( "nupp.compiler.build.process" )
@@ -34605,15 +35516,20 @@ local optionsMod = require ( "nupp.compiler.cli.options" )
 local command = spec . command {
 name = "check" ,
 summary = "Type-check source without emitting Lua" ,
-usage = { "nupp check [--strict] [--target NAME] [--format text|json] [file...]" } ,
+usage = { "nupp check [--strict] [--target NAME] [--platform NAME|all] [--format text|json] [file...]" } ,
 options = optionsMod . join (
 optionsMod . strict ,
 { name = "--target" , value = "NAME" , help = "Check a named manifest target" } ,
+{ name = "--platform" , value = "NAME" , help = "Check one configured binary platform, or all" } ,
 optionsMod . format ( )
 ) ,
 schema = {
 type = "object" ,
-properties = { diagnostics = require ( "nupp.compiler.cli.report" ) . DIAGNOSTICS } ,
+properties = {
+diagnostics = require ( "nupp.compiler.cli.report" ) . DIAGNOSTICS ,
+platform = { type = "string" } ,
+platforms = { type = "array" , items = { type = "object" } } ,
+} ,
 required = { "diagnostics" } ,
 } ,
 detail = "With no files, checks the default target from nupp.lua." ,
@@ -34623,21 +35539,28 @@ local function run ( parsed )
 local paths = parsed . positional
 local values = parsed . values
 local target = values . target
-if target and # paths > 0 then
-return command : usageError ( "--target cannot be combined with source files" )
+if ( target or values . platform ) and # paths > 0 then
+return command : usageError ( "--target and --platform cannot be combined with source files" )
 end
 local asJson = values . format == "json"
 local reportMod = require ( "nupp.compiler.cli.report" )
 local diagnostics = { }
 if # paths == 0 then
 local project = require ( "nupp.compiler.build.project" )
+local produced = { }
 local code = project . check ( "." , {
 strict = values . strict ,
 target = target ,
-diagnostics = asJson and diagnostics or nil
+platform = values . platform ,
+diagnostics = asJson and diagnostics or nil ,
+produced = asJson and produced or nil
 } )
 if asJson then
-reportMod . json ( diagnostics )
+reportMod . write ( {
+diagnostics = reportMod . diagnosticValues ( diagnostics ) ,
+platform = produced . platform ,
+platforms = produced . platforms ,
+} )
 end
 return code
 end
@@ -34791,11 +35714,12 @@ local spec = require ( "nupp.compiler.cli.spec" )
 local command = spec . command {
 name = "clean" ,
 summary = "Remove build outputs configured in nupp.lua" ,
-usage = { "nupp clean [--target NAME] [--dry-run] [--format text|json]" } ,
+usage = { "nupp clean [--target NAME] [--platform NAME|all] [--dry-run] [--format text|json]" } ,
 options = require (
 "nupp.compiler.cli.options"
 ) . join (
 { name = "--target" , value = "NAME" , help = "Clean only the named build target" } ,
+{ name = "--platform" , value = "NAME" , help = "Clean one configured binary platform, or all" } ,
 { name = "--dry-run" , help = "Print output paths without removing them" } ,
 require ( "nupp.compiler.cli.options" ) . format ( )
 ) ,
@@ -34825,10 +35749,14 @@ end
 local values = parsed . values
 local asJson = values . format == "json"
 local dryRun = values . dryRun and true or false
+if values . platform and not values . target then
+return command : usageError ( "--platform requires --target" )
+end
 local project = require ( "nupp.compiler.build.project" )
 local removed = { }
 local code = project . clean ( "." , {
 target = values . target ,
+platform = values . platform ,
 dryRun = values . dryRun ,
 removed = asJson and removed or nil
 } )
@@ -39593,6 +40521,7 @@ resources = { type = "array" , items = { type = "string" } } ,
 dependencies = { type = "array" , items = { type = "string" } } ,
 nativeFeatures = { type = "object" , additionalProperties = { type = "boolean" } } ,
 layoutTarget = { type = "string" } ,
+platforms = { type = "array" , items = { type = "string" } } ,
 argv = { type = "array" , items = { type = "string" } } ,
 } ,
 required = { "name" } ,
@@ -39634,6 +40563,9 @@ end
 field ( "Output directory" , task . outDir )
 field ( "Build target" , task . buildTarget )
 field ( "Layout target" , task . layoutTarget )
+if task . platforms and # task . platforms > 0 then
+writeItems ( out , style , "Platforms" , task . platforms )
+end
 field ( "Bootstrap" , task . bootstrap )
 field ( "Title" , task . title )
 field ( "Format" , task . format )
@@ -43172,9 +44104,6 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppD
 local lexer = require ( "nupp.compiler.lexer" )
 
 local cst = { }
-
-
-
 
 
 
@@ -84263,6 +85192,43 @@ local parseTypedecl
 
 
 
+local function parseBorrowRelation ( result )
+
+
+
+
+
+
+
+
+
+if cur ( ) . kind == "name" and cur ( ) . text == "borrows" and tokens [
+i + 1
+] and ( tokens [ i + 1 ] . kind == "name" or tokens [ i + 1 ] . kind == "(" ) then
+local n = setmetatable({ kind =  "tborrows" }, cst.Tborrows)
+n . type = add ( n , result )
+add ( n , advance ( ) )
+n . params = { }
+add ( n , expect ( "(" , "to open borrow sources" ) )
+repeat
+local param = add ( n , expectName ( "as borrow source" ) )
+n . params [ # n . params + 1 ] = param
+if cur ( ) . kind ~= "," then
+break
+end
+add ( n , advance ( ) )
+until false
+add ( n , expect ( ")" , "to close borrow sources" ) )
+n . param = n . params [ 1 ]
+return n
+end
+
+return result
+end
+
+
+
+
 parseReturnType = function ( stopAtFunctionMember )
 local after = tokens [ i + 1 ]
 if cur ( ) . kind == "name" and after and after . kind == "name" and after . text == "is" then
@@ -84282,36 +85248,7 @@ n . param = add ( n , advance ( ) )
 return n
 end
 
-
-
-
-
-
-
-
-
-if cur ( ) . kind == "name" and cur ( ) . text == "borrows" and tokens [
-i + 1
-] and ( tokens [ i + 1 ] . kind == "name" or tokens [ i + 1 ] . kind == "(" ) then
-local n = setmetatable({ kind =  "tborrows" }, cst.Tborrows)
-n . type = add ( n , result )
-add ( n , advance ( ) )
-n . params = { }
-add ( n , expect ( "(" , "to open borrowed-result sources" ) )
-repeat
-local param = add ( n , expectName ( "as borrowed-result source" ) )
-n . params [ # n . params + 1 ] = param
-if cur ( ) . kind ~= "," then
-break
-end
-add ( n , advance ( ) )
-until false
-add ( n , expect ( ")" , "to close borrowed-result sources" ) )
-n . param = n . params [ 1 ]
-return n
-end
-
-return result
+return parseBorrowRelation ( result )
 end
 
 
@@ -84644,7 +85581,10 @@ p . modeTok = add ( p , advance ( ) )
 end
 p . name = add ( p , expectName ( "as cdef parameter" ) )
 annotationColon ( p , "in cdef parameter" )
-p . type = add ( p , parseType ( ) )
+
+
+
+p . type = add ( p , parseBorrowRelation ( parseType ( ) ) )
 if cur ( ) . kind == "name" and cur ( ) . text == "countedBy" then
 p . countedByTok = add ( p , advance ( ) )
 p . countedByTok . contextualOp = true
@@ -87033,7 +87973,7 @@ return m
 
 
 "C interop" ,  codes =
-{ "NUPP2203" , "NUPP2101" , "NUPP2502" , "NUPP2514" , "NUPP2707" } ,  body =
+{ "NUPP2203" , "NUPP2101" , "NUPP2502" , "NUPP2514" , "NUPP2602" , "NUPP2619" , "NUPP2707" } ,  body =
 [=[
 `cdef` declares C functions, structs, unions, and integer bitfields.
 `from "lib"` uses `ffi.load`; omitting it uses the default namespace.
@@ -87041,6 +87981,12 @@ return m
 `cheader('path.h')` types a pinned header through LuaJIT's C parser at compile
 time. `nupp import-c` ejects the same declarations as an editable module. Both
 preserve unions and bitfields.
+
+An output contract is written on the output value. `Owned<T, cleanup>*` on an
+`out` slot returns an affine value; `T* borrows (source)` returns a view tied to
+one or more shared inputs. `Success<T, N>` and `Failure<T, N>` on the C return
+describe when those output slots are initialized. All three wrappers erase from
+the physical ABI.
 
 `nupp export-c -o game.h src/game.nupp game.Position game.integrate` goes the
 other direction. It gives an ordinary reified Nupp struct one deterministic,
@@ -87066,6 +88012,8 @@ cdef struct Point
 end
 
 cdef function labs(n: int32): int32
+cdef function point_view(borrows owner: voidptr,
+    out point: Point** borrows (owner)): Success<int32, 0>
 
 function m.magnitude(n: int32): int32
     return labs(n)
@@ -94062,12 +95010,16 @@ local cleanupIds = { }
 for j , cleanup in ipairs ( output . cleanups or { } ) do
 cleanupIds [ j ] = cleanup . id
 end
+local sourceIds = { }
+for j , sourceParam in ipairs ( output . sourceParams or { } ) do
+sourceIds [ j ] = tostring ( sourceParam )
+end
 key = key .. "|out:" .. (
 output . kind or "affine"
 ) .. ":" .. output . name .. ":" .. table . concat (
 cleanupIds ,
 ","
-) .. ":" .. ( output . success or "always" ) .. ":" .. tostring ( output . sourceParam or "" )
+) .. ":" .. ( output . success or "always" ) .. ":" .. table . concat ( sourceIds , "," )
 end
 if borrowsSelf then
 key = key .. "|borrowsself"

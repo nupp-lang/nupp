@@ -2011,12 +2011,16 @@ function types.func(
         for j, cleanup in ipairs(output.cleanups or {}) do
             cleanupIds[j] = cleanup.id
         end
+        local sourceIds = {}
+        for j, sourceParam in ipairs(output.sourceParams or {}) do
+            sourceIds[j] = tostring(sourceParam)
+        end
         key = key .. "|out:" .. (
             output.kind or "affine"
         ) .. ":" .. output.name .. ":" .. table.concat(
             cleanupIds,
             ","
-        ) .. ":" .. (output.success or "always") .. ":" .. tostring(output.sourceParam or "")
+        ) .. ":" .. (output.success or "always") .. ":" .. table.concat(sourceIds, ",")
     end
     if borrowsSelf then
         key = key .. "|borrowsself"

@@ -421,7 +421,7 @@ These mechanisms answer different questions:
 - `@effects`: what may happen while this value is called?.
 - `const`: will this bodyless binding keep the same value?.
 - `@relax` / `--relax`: which observable guarantee may an optimization change?.
-- affine types, `Owned<T>`, and `@borrowed`: who must release a resource, and when.
+- affine and borrowed types: who must release a resource, and what it may outlive.
 
 An effect summary does not imply stability, purity does not imply ownership,
 and ownership does not imply a call cannot raise or yield. State each boundary

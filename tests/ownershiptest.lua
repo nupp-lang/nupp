@@ -2089,8 +2089,8 @@ end
 -- region's per-iteration locals, so it is not this kind of problem.
 function M.hotLoweringsBuildNoFunctionWhereTheyAreUsed()
    local outParameter = table.concat({
-      "@borrowed(out = rest, from = text, success = nonzero)",
-      "cdef function strtol(borrows text: cstring, out rest: voidptr*, base: int32): int64",
+      "cdef function strtol(borrows text: cstring,",
+      "   out rest: voidptr* borrows (text), base: int32): Failure<int64, 0>",
       "local text = '123abc'",
       "local total = 0",
       "for i = 1, 10 do",
@@ -2140,8 +2140,8 @@ function M.cdefBorrowedOutputsTrackTheirInputOwner()
       "local function make_owner(): Owned<voidptr, free>",
       "   return make_owner_c()",
       "end",
-      "@borrowed(out = view, from = owner, success = zero)",
-      "cdef function get_view(borrows owner: voidptr, out view: voidptr*): int32",
+      "cdef function get_view(borrows owner: voidptr,",
+      "   out view: voidptr* borrows (owner)): Success<int32, 0>",
    }, "\n")
    assertEq(codes(declarations .. "\n" .. table.concat({
       "local owner = make_owner()",
@@ -2159,9 +2159,47 @@ end
 
 function M.cdefBorrowedOutputSourcesMustBeSharedInputs()
    assertEq(codes(table.concat({
-      "@borrowed(out = view, from = owner)",
-      "cdef function get_view(owner: voidptr, out view: voidptr*): int32",
+      "cdef function get_view(owner: voidptr,",
+      "   out view: voidptr* borrows (owner)): int32",
    }, "\n")), "NUPP2602")
+end
+
+function M.cdefBorrowRelationsBelongOnOutputs()
+   assertEq(codes(table.concat({
+      "cdef function get_view(borrows owner: voidptr borrows (owner)): int32",
+   }, "\n")), "NUPP2602")
+end
+
+function M.cdefBorrowedOutputsMayNameSeveralSharedInputs()
+   local declarations = table.concat({
+      "cdef function free(takes value: voidptr)",
+      "cdef function make_owner_c(): voidptr",
+      "local function make_owner(): Owned<voidptr, free>",
+      "   return make_owner_c()",
+      "end",
+      "cdef function combine(borrows left: voidptr, borrows right: voidptr,",
+      "   out view: voidptr* borrows (left, right)): int32",
+   }, "\n")
+   assertEq(codes(declarations .. "\n" .. table.concat({
+      "local left = make_owner()",
+      "local right = make_owner()",
+      "local _, view = combine(left, right)",
+      "drop(left)",
+   }, "\n")), "NUPP2602")
+   assertEq(codes(declarations .. "\n" .. table.concat({
+      "local left = make_owner()",
+      "local right = make_owner()",
+      "local _, view = combine(left, right)",
+      "drop(right)",
+   }, "\n")), "NUPP2602")
+end
+
+function M.borrowedIsNotACompilerAnnotation()
+   assertEq(codes(table.concat({
+      "@borrowed(out = view, from = owner)",
+      "cdef function get_view(borrows owner: voidptr,",
+      "   out view: voidptr* borrows (owner)): int32",
+   }, "\n")), "NUPP2111")
 end
 
 function M.stringDerivedPointersCannotEscape()

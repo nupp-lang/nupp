@@ -416,9 +416,6 @@ interface cst.Hints
     --- The cleanup list this declaration's owning first result carries.
     ownCleanups: any
 
-    --- Logical borrowed outputs of a C function.
-    borrowedOuts: any
-
     --- The owner a borrow came from.
     borrowOwner: any
 

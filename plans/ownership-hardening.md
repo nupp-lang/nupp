@@ -137,8 +137,8 @@ their truth is not observable from Lua values or a C header:
 
 - An external `Owned<T>` producer returned a fresh, exclusive resource.
 - Its ordered cleanup list is the correct protocol and allocator pairing.
-- A bodyless `takes`, `borrows`, `exclusive`, `retains`, `releases`,
-  `@borrowed`, or `Owned<T>` declaration describes the foreign implementation.
+- A bodyless `takes`, `borrows`, `exclusive`, `retains`, `releases`, affine, or
+  borrowed-output declaration describes the foreign implementation.
 - A foreign borrowed output actually derives from every named input.
 - A cleanup body, cancellation callback, or handler shutdown implementation
   performs what its contract says.
@@ -742,7 +742,7 @@ call-only input    borrows
 invalidating input exclusive
 stored input       retains
 unregistered input releases
-derived output     @borrowed(... from ...)
+derived output     out p: T* borrows (source)
 fresh output       out p: Owned<T, cleanup>*
 ```
 
