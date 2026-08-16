@@ -510,6 +510,12 @@ record scalarIR.Helper
 
     resultType: scalarIR.Type
     resultTypes: {scalarIR.Type}
+
+    --- The C struct one result per field, for a helper returning more than one.
+    --- Filled in when the helper is emitted, because it is a fact about the
+    --- generated C and not about the source.
+    cResult: string?
+
     source: scalarIR.Source?
 end
 

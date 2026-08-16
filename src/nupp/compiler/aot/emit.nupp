@@ -618,4 +618,583 @@ function emit.forcedScalarPragma(): {string}
     return {"#if defined(__clang__)", "#pragma clang loop vectorize(disable) interleave(disable)", "#endif",}
 end
 
+--- The C integer type behind each gang's mask.
+---
+--- A mask lane is as wide as the values it selects between, so a binary64 gang
+--- masks with 64-bit lanes and a 32-bit gang with 32-bit ones.
+const emit.MASK_C = {["m64x4"] = "long long", ["m32x8"] = "int"}
+
+--- What every generated file starts with.
+function emit.includes(): {string}
+    return {
+        "/* Generated from verified test-only native C IR. */",
+        "#include <math.h>",
+        "#include <string.h>",
+        "#include <stdbool.h>",
+        "#include <stddef.h>",
+        "#include <stdint.h>",
+        "#ifndef M_PI",
+        "#define M_PI 3.14159265358979323846264338327950288",
+        "#endif",
+        "",
+    }
+end
+
+--- What the compiled object reports about one struct's layout.
+---
+--- A function per measurement rather than a table of numbers, so the answers
+--- come from the C compiler that actually laid the struct out and the generated
+--- wrapper can compare them against what Nupp believes.
+function emit.layoutReporters(symbol: string, layout: scalarIR.Layout): {string}
+    local prefix = "size_t " .. symbol .. "_layout_" .. layout.name
+    local lines: {string} = {prefix .. "_size(void) { return sizeof(" .. layout.cName .. "); }"}
+    for _, field in ipairs(layout.fields) do
+        lines[
+            #lines + 1
+        ] = prefix
+            .. "_offset_"
+            .. field.name
+            .. "(void) { return offsetof("
+            .. layout.cName
+            .. ", "
+            .. field.name
+            .. "); }"
+        lines[
+            #lines + 1
+        ] = prefix
+            .. "_size_"
+            .. field.name
+            .. "(void) { return sizeof((("
+            .. layout.cName
+            .. " *)0)->"
+            .. field.name
+            .. "); }"
+    end
+
+    return lines
+end
+
+--- A set's keys in a fixed order, so the same IR renders the same text.
+---
+--- `pairs` over a set does not order it the same way in two processes, and an
+--- artifact cache keyed by the generated text would then miss on every build.
+local function sortedKeys(set: {[string]: boolean}): {string}
+    local names: {string} = {}
+    for key in pairs(set) do
+        names[#names + 1] = key
+    end
+    table.sort(names)
+
+    return names
+end
+
+--- One value of the given lane, repeated across the gang.
+local function repeated(value: string, lanes: integer): string
+    local parts: {string} = {}
+    for position = 1, lanes do
+        parts[position] = value
+    end
+
+    return table.concat(parts, ", ")
+end
+
+--- The vector typedefs one gang needs.
+---
+--- Emitted whole, and marked unused below, so a kernel that uses one shape does
+--- not fail `-Werror` for a conversion the other shape would have needed.
+local function vectorTypes(shape: lane.Shape): {string}
+    local lines: {
+        string
+    } = {
+        "typedef " .. tostring(emit.MASK_C[shape.mask]) .. " ks_" .. shape.mask .. " __attribute__((vector_size(32)));",
+    }
+
+    local vectors: {[string]: boolean} = {}
+    for _, vector in pairs(shape.vectorFor) do
+        vectors[vector] = true
+    end
+    vectors[shape.bits] = true
+
+    for _, vector in ipairs(sortedKeys(vectors)) do
+        if vector ~= shape.mask then
+            local element, lanes = emit.vectorParts(vector)
+            local bits = tonumber(element:match("%d+")) or 0
+            local width = tostring(math.floor(bits / 8 * lanes))
+            lines[
+                #lines + 1
+            ] = "typedef " .. tostring(
+                emit.VECTOR_ELEMENT_C[element]
+            ) .. " ks_" .. vector .. " __attribute__((vector_size(" .. width .. ")));"
+
+            -- The signed companion of the bit vector, for arithmetic shift.
+            if vector == shape.bits and element:sub(1, 1) == "u" then
+                lines[
+                    #lines + 1
+                ] = "typedef int" .. tostring(
+                    element:match("%d+")
+                ) .. "_t ks_i" .. vector:sub(2) .. " __attribute__((vector_size(" .. width .. ")));"
+            end
+        end
+    end
+
+    return lines
+end
+
+--- The mask helpers, and the splat and select each value-carrying vector needs.
+local function vectorHelpers(shape: lane.Shape): {string}
+    local unused = "static inline __attribute__((unused)) "
+    local lines: {
+        string
+    } = {
+        unused .. "ks_" .. shape.mask .. " ks_mask_all(void) { return (ks_" .. shape.mask .. "){" .. repeated(
+            "-1",
+            shape.lanes
+        ) .. "}; }",
+        unused
+        .. "ks_"
+        .. shape.mask
+        .. " ks_bool_mask(bool v) { return v ? ks_mask_all() : (ks_"
+        .. shape.mask
+        .. "){"
+        .. repeated(
+            "0",
+            shape.lanes
+        ) .. "}; }",
+    }
+
+    local terms: {string} = {}
+    for index = 0, shape.lanes - 1 do
+        terms[index + 1] = "m[" .. tostring(index) .. "]"
+    end
+    lines[
+        #lines + 1
+    ] = unused .. "bool ks_any(ks_" .. shape.mask .. " m) { return (" .. table.concat(terms, " | ") .. ") != 0; }"
+
+    -- A splat and a select are wanted for every vector that carries values, and
+    -- for nothing else. The bit vector is not one of them in a binary64 gang --
+    -- it is half the width and has no mask to pair with -- but in a 32-bit gang
+    -- it is also where integers live, so membership of `vectorFor` is the test
+    -- rather than whether it happens to be `shape.bits`.
+    local carriers: {[string]: boolean} = {}
+    for _, vector in pairs(shape.vectorFor) do
+        carriers[vector] = true
+    end
+
+    for _, vector in ipairs(sortedKeys(carriers)) do
+        if vector ~= shape.mask then
+            local element = tostring(vector:match("^(%a%d+)x"))
+            lines[
+                #lines + 1
+            ] = unused .. "ks_" .. vector .. " ks_splat_" .. vector .. "(" .. tostring(
+                emit.VECTOR_ELEMENT_C[element]
+            ) .. " v) { return (ks_" .. vector .. "){" .. repeated("v", shape.lanes) .. "}; }"
+
+            -- Blend through the mask's integer lanes. A branchless select is
+            -- what makes an inactive lane keep its old value instead of
+            -- computing a new one, so it must not be an arithmetic idiom:
+            -- multiplying by zero turns an escaped lane's infinity into a NaN
+            -- and destroys it.
+            lines[
+                #lines + 1
+            ] = unused
+                .. "ks_"
+                .. vector
+                .. " ks_sel_"
+                .. vector
+                .. "(ks_"
+                .. shape.mask
+                .. " m, ks_"
+                .. vector
+                .. " a, ks_"
+                .. vector
+                .. " b) { return (ks_"
+                .. vector
+                .. ")((m & (ks_"
+                .. shape.mask
+                .. ")a) | (~m & (ks_"
+                .. shape.mask
+                .. ")b)); }"
+        end
+    end
+
+    return lines
+end
+
+--- The scalar helpers the generated code calls.
+---
+--- The binary32 corrections are here rather than left to the C library, because
+--- `nupp.math.f32` defines a canonical quiet NaN and defines `min` and `max` to
+--- propagate NaN, where `fminf` and `fmaxf` return the operand that is not NaN.
+--- An AOT build must not change bits that `toBits` can read back.
+local function scalarHelpers(): {string}
+    local unused = "static inline __attribute__((unused)) "
+
+    return {
+        unused .. "uint32_t nupp_u32(double value) { return (uint32_t)value; }",
+        unused .. "uint32_t nupp_u32_i32(int32_t value) { return (uint32_t)value; }",
+        unused .. "uint32_t nupp_u32_u32(uint32_t value) { return value; }",
+        "#define nupp_u32(value) _Generic((value), int32_t: nupp_u32_i32, uint32_t: nupp_u32_u32, default: nupp_u32)(value)",
+        unused .. "int32_t nupp_arshift(uint32_t value, uint32_t shift) {",
+        "    if (shift == 0u) return (int32_t)value;",
+        "    uint32_t shifted = value >> shift;",
+        "    if ((value & UINT32_C(0x80000000)) != 0u) shifted |= ~(UINT32_MAX >> shift);",
+        "    return (int32_t)shifted;",
+        "}",
+        "",
+        unused .. "float nupp_f32_nan(void) {",
+        "    uint32_t bits = UINT32_C(0x7fc00000);",
+        "    float out;",
+        "    memcpy(&out, &bits, 4);",
+        "    return out;",
+        "}",
+        unused .. "float nupp_f32_min(float left, float right) {",
+        "    if (left != left || right != right) return nupp_f32_nan();",
+        "    return fminf(left, right);",
+        "}",
+        unused .. "float nupp_f32_max(float left, float right) {",
+        "    if (left != left || right != right) return nupp_f32_nan();",
+        "    return fmaxf(left, right);",
+        "}",
+        unused .. "float nupp_f32_fma(float a, float b, float c) {",
+        "    float out = fmaf(a, b, c);",
+        "    return out == out ? out : nupp_f32_nan();",
+        "}",
+        "",
+        unused .. "double nupp_min2(double left, double right) {",
+        "    return left < right ? left : right;",
+        "}",
+        unused .. "double nupp_max2(double left, double right) {",
+        "    return left > right ? left : right;",
+        "}",
+        "",
+    }
+end
+
+--- Everything the generated body needs before its own statements.
+function emit.prelude(shape: lane.Shape): {string}
+    local lines = vectorTypes(shape)
+    for _, line in ipairs(vectorHelpers(shape)) do
+        lines[#lines + 1] = line
+    end
+    for _, line in ipairs(scalarHelpers()) do
+        lines[#lines + 1] = line
+    end
+
+    return lines
+end
+
+--- One helper's C parameter list.
+local function helperParams(helper: scalarIR.Helper): string
+    local parts: {string} = {}
+    for position, param in ipairs(helper.params) do
+        parts[position] = emit.cType(param.type) .. " " .. tostring(param.cName)
+    end
+
+    return table.concat(parts, ", ")
+end
+
+--- The visible pure helpers, as C.
+---
+--- Result structs first, then every prototype, then every definition, so a
+--- helper may call one declared after it. Each is `static inline`, because they
+--- exist to be inlined into the loop and a helper that survived as a call would
+--- be a call in the innermost loop of the program.
+function emit.helpers(helpers: {scalarIR.Helper}): {string}
+    local lines: {string} = {}
+    for _, helper in ipairs(helpers) do
+        if #helper.resultTypes > 1 then
+            helper.cResult = helper.cName .. "_result"
+            lines[#lines + 1] = "typedef struct {"
+            for position, resultType in ipairs(helper.resultTypes) do
+                lines[#lines + 1] = "    " .. emit.cType(resultType) .. " v" .. tostring(position) .. ";"
+            end
+            lines[#lines + 1] = "} " .. tostring(helper.cResult) .. ";"
+        end
+    end
+    if #helpers > 0 then
+        lines[#lines + 1] = ""
+    end
+
+    for _, helper in ipairs(helpers) do
+        local result = helper.cResult or emit.cType(helper.resultType)
+        lines[#lines + 1] = "static inline " .. result .. " " .. helper.cName .. "(" .. helperParams(helper) .. ");"
+    end
+    if #helpers > 0 then
+        lines[#lines + 1] = ""
+    end
+
+    for _, helper in ipairs(helpers) do
+        local result = helper.cResult or emit.cType(helper.resultType)
+        lines[#lines + 1] = "static inline " .. result .. " " .. helper.cName .. "(" .. helperParams(helper) .. ") {"
+        if helper.cResult ~= nil then
+            local values: {string} = {}
+            for position, value in ipairs(helper.values) do
+                values[position] = emit.lane(value)
+            end
+            lines[
+                #lines + 1
+            ] = "    " .. tostring(helper.cResult) .. " result = {" .. table.concat(values, ", ") .. "};"
+            lines[#lines + 1] = "    return result;"
+        else
+            lines[#lines + 1] = "    return " .. emit.lane(helper.values[1]) .. ";"
+        end
+        lines[#lines + 1] = "}"
+        lines[#lines + 1] = ""
+    end
+
+    return lines
+end
+
+--- What a block needs from the program around it.
+record emit.Body
+    --- The helpers, for a multiple binding that has to name a call's result
+    --- struct.
+    helpers: {scalarIR.Helper}
+
+    --- How wide a lane store is, for a body that was rewritten.
+    lanes: integer
+end
+
+--- The C type one local is declared with.
+---
+--- A pointer to a struct element carries its own constness, because that is
+--- where a shared borrow stops being writable as far as C is concerned.
+local function localCType(typeName: string, mutable: boolean): string
+    local layout = typeName:match("^ref:(.+)$")
+    if layout ~= nil then
+        return (mutable and "" or "const ") .. "Ks" .. tostring(layout) .. " *"
+    end
+
+    return emit.cType(typeName) .. " "
+end
+
+--- One block of statements, scalar or lane, indented by `depth`.
+function emit.block(statements: {any}, depth: integer, body: emit.Body): {string}
+    local lines: {string} = {}
+    local prefix = string.rep("    ", depth)
+    local temporary = 0
+
+    --- Appends the rendering of a nested block.
+    local function nested(inner: {any}): nil
+        for _, line in ipairs(emit.block(inner, depth + 1, body)) do
+            lines[#lines + 1] = line
+        end
+    end
+
+    for _, statement in ipairs(statements) do
+        local op = statement.op
+        if op == "let" then
+            lines[
+                #lines + 1
+            ] = prefix .. localCType(
+                statement.type,
+                statement.value.mutable == true
+            ) .. statement.cName .. " = " .. emit.lane(statement.value) .. ";"
+        elseif op == "multi_let" then
+            temporary = temporary + 1
+
+            local result = ""
+            for _, candidate in ipairs(body.helpers) do
+                if candidate.name == statement.call.helper then
+                    result = tostring(candidate.cResult)
+                end
+            end
+
+            local temp = "mr" .. tostring(temporary)
+            lines[#lines + 1] = prefix .. result .. " " .. temp .. " = " .. emit.lane(statement.call) .. ";"
+            for position, bound in ipairs(statement.bindings) do
+                lines[
+                    #lines + 1
+                ] = prefix .. emit.cType(
+                    bound.type
+                ) .. " " .. bound.cName .. " = " .. temp .. ".v" .. tostring(position) .. ";"
+            end
+        elseif op == "store" then
+            lines[
+                #lines + 1
+            ] = prefix .. scalarIR.cIdentifier("p", statement.span) .. "[i] = " .. emit.lane(statement.value) .. ";"
+        elseif op == "assign" then
+            -- Every value into a temporary before any is stored, because
+            -- `a, b = b, a` means what it says and storing as it went would not.
+            local temps: {string} = {}
+            for position, entry in ipairs(statement.values) do
+                temporary = temporary + 1
+                temps[position] = "as" .. tostring(temporary)
+                lines[
+                    #lines + 1
+                ] = prefix .. emit.cType(
+                    entry.target.type
+                ) .. " " .. temps[position] .. " = " .. emit.lane(entry.value) .. ";"
+            end
+            for position, entry in ipairs(statement.values) do
+                local target = entry.target.kind == "local" and entry.target.cName or "(" .. emit.lane(
+                    entry.target.object
+                ) .. "->" .. entry.target.field .. ")"
+                lines[#lines + 1] = prefix .. target .. " = " .. temps[position] .. ";"
+            end
+        elseif op == "vassign" then
+            for _, entry in ipairs(statement.values) do
+                local target = entry.target
+                if target.kind == "vfield" then
+                    -- Consecutive elements, one lane each. Clang turns the group
+                    -- into an interleaving store where the target has one.
+                    lines[#lines + 1] = prefix .. "{"
+                    lines[
+                        #lines + 1
+                    ] = prefix .. "    " .. emit.cType(entry.value.type) .. " lanes = " .. emit.lane(entry.value) .. ";"
+                    for index = 0, body.lanes - 1 do
+                        lines[
+                            #lines + 1
+                        ] = prefix .. "    p_" .. target.span .. "[i + " .. tostring(
+                            index
+                        ) .. "]." .. target.field .. " = (" .. emit.cType(
+                            target.scalarType
+                        ) .. ")lanes[" .. tostring(index) .. "];"
+                    end
+                    lines[#lines + 1] = prefix .. "}"
+                else
+                    lines[#lines + 1] = prefix .. target.cName .. " = " .. emit.lane(entry.value) .. ";"
+                end
+            end
+        elseif op == "if" then
+            for position, clause in ipairs(statement.clauses) do
+                lines[
+                    #lines + 1
+                ] = prefix .. (position == 1 and "if (" or "else if (") .. emit.lane(clause.condition) .. ") {"
+                nested(clause.body)
+                lines[#lines + 1] = prefix .. "}"
+            end
+            if statement.elseBody ~= nil then
+                lines[#lines + 1] = prefix .. "else {"
+                nested(statement.elseBody)
+                lines[#lines + 1] = prefix .. "}"
+            end
+        elseif op == "vwhile" then
+            -- The loop runs while any lane is live, and a lane that retired
+            -- stops contributing without stopping the others.
+            lines[
+                #lines + 1
+            ] = prefix .. emit.cType(
+                statement.live.type
+            ) .. " " .. statement.live.cName .. " = " .. emit.lane(statement.initial) .. ";"
+            lines[#lines + 1] = prefix .. "while (ks_any(" .. statement.live.cName .. ")) {"
+            lines[
+                #lines + 1
+            ] = prefix .. "    " .. emit.cType(
+                statement.executing.type
+            ) .. " " .. statement.executing.cName .. " = " .. statement.live.cName .. ";"
+            nested(statement.body)
+            lines[
+                #lines + 1
+            ] = prefix .. "    " .. statement.live.cName .. " &= " .. emit.lane(statement.condition) .. ";"
+            lines[#lines + 1] = prefix .. "}"
+        elseif op == "vbreak" then
+            local mask = emit.lane(statement.mask)
+            lines[#lines + 1] = prefix .. statement.live.cName .. " &= ~(" .. mask .. ");"
+            lines[#lines + 1] = prefix .. statement.executing.cName .. " &= ~(" .. mask .. ");"
+        elseif op == "vcontinue" then
+            lines[#lines + 1] = prefix .. statement.executing.cName .. " &= ~(" .. emit.lane(statement.mask) .. ");"
+        elseif op == "fornum" then
+            local counter = statement.binding.cName
+            lines[
+                #lines + 1
+            ] = prefix .. "for (int32_t " .. counter .. " = " .. emit.lane(
+                statement.from
+            ) .. "; " .. counter .. " <= (int32_t)" .. emit.lane(statement.to) .. "; ++" .. counter .. ") {"
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "}"
+        elseif op == "while" then
+            lines[#lines + 1] = prefix .. "while (" .. emit.lane(statement.condition) .. ") {"
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "}"
+        elseif op == "block" then
+            lines[#lines + 1] = prefix .. "{"
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "}"
+        else
+            lines[#lines + 1] = prefix .. op .. ";"
+        end
+    end
+
+    return lines
+end
+
+--- One whole program, as C.
+---
+--- Two definitions of the same function come out: the real one, and a
+--- forced-scalar one that is the oracle the lane-parallel body is diffed
+--- against. The oracle must not share the real body's lowering, which is why it
+--- keeps the scalar statements and carries a pragma refusing vectorisation --
+--- including whatever the C compiler would have done on its own.
+function emit.program(program: scalarIR.Program): string
+    emit.begin()
+
+    local lines = emit.includes()
+    for _, layout in ipairs(program.layouts or {}) do
+        for _, line in ipairs(emit.layout(layout)) do
+            lines[#lines + 1] = line
+        end
+        lines[#lines + 1] = ""
+        for _, line in ipairs(emit.layoutReporters(program.symbol, layout)) do
+            lines[#lines + 1] = line
+        end
+        lines[#lines + 1] = ""
+    end
+
+    local lanes = program.lanes
+    local shape = lanes ~= nil and lane.SHAPE_BY_NAME[(lanes as scalarIR.LaneBody).shape] or lane.SHAPES[1]
+    for _, line in ipairs(emit.prelude(shape as lane.Shape)) do
+        lines[#lines + 1] = line
+    end
+
+    local helpers = program.helpers or {}
+    for _, line in ipairs(emit.helpers(helpers)) do
+        lines[#lines + 1] = line
+    end
+
+    local width = lanes ~= nil and (lanes as scalarIR.LaneBody).lanes or 0
+    local body = new emit.Body(helpers = helpers, lanes = width)
+    local params = emit.parameters(program.params)
+
+    --- One C definition of the kernel.
+    local function implementation(symbol: string, forced: boolean): nil
+        lines[#lines + 1] = "__attribute__((noinline))"
+        lines[#lines + 1] = "void " .. symbol .. "(" .. params .. ") {"
+        if program.fpContract == true then
+            for _, line in ipairs(emit.contractPragma()) do
+                lines[#lines + 1] = line
+            end
+        end
+        for _, line in ipairs(emit.bounds(program.rangeGuard)) do
+            lines[#lines + 1] = line
+        end
+        if forced then
+            for _, line in ipairs(emit.forcedScalarPragma()) do
+                lines[#lines + 1] = line
+            end
+        end
+        if lanes ~= nil and not forced then
+            for _, line in ipairs(emit.groupBound(width)) do
+                lines[#lines + 1] = line
+            end
+            for _, line in ipairs(emit.block((lanes as scalarIR.LaneBody).statements, 2, body)) do
+                lines[#lines + 1] = line
+            end
+            lines[#lines + 1] = "    }"
+        end
+        lines[#lines + 1] = "    for (; i < end; ++i) {"
+        for _, line in ipairs(emit.block(program.loop.statements, 2, body)) do
+            lines[#lines + 1] = line
+        end
+        lines[#lines + 1] = "    }"
+        lines[#lines + 1] = "}"
+        lines[#lines + 1] = ""
+    end
+
+    implementation(program.symbol .. "_forced_scalar", true)
+    implementation(program.symbol, false)
+
+    return table.concat(lines, "\n") .. "\n"
+end
+
 return emit
