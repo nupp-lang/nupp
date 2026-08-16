@@ -33,11 +33,28 @@ local function advance(
 end
 ```
 
-`simd = true` is a requirement, not a hint or lane-count setting. It accepts
-only literal `true`, requires exactly one top-level numeric map loop, and says
-its iterations are independent. The spike either produces verified lane IR or
-reports why it cannot. Explicit `F32x8`, `I32x8`, mask helpers, and hand-unrolled
-lane structs were removed; compiler-internal vectors are the only vector values.
+Lane lowering is attempted for every `@aot` body, and a body of exactly one
+top-level numeric map loop is the shape it can take. Nothing requests it and
+nothing names a lane, a mask, or a width. `@aot(lanes = false)` declines it for a
+body that is deliberately scalar. Explicit `F32x8`, `I32x8`, mask helpers, and
+hand-unrolled lane structs were removed; compiler-internal vectors are the only
+vector values.
+
+A body that cannot lower lane-parallel compiles anyway, one iteration at a time.
+Whether it vectorized is a performance property -- no answer depends on it, so no
+ordinary check reports it and an edit can quietly take it away. That is the
+category `nupp bc --check` already covers for a loop LuaJIT cannot record, and it
+gets the same treatment here:
+
+```sh
+bench/kernel-subset-spike/generate.sh KERNEL.nupp OUT --check-lanes
+```
+
+It names the width when a body lowered, names the construct that stopped it when
+one did not, and exits 1 for the second. This is where the withdrawn
+`@aot(simd = true)` went: the setting was justified as asserting that iterations
+are independent, which the admitted subset proves rather than assumes, and what
+it actually delivered was a build error instead of silently scalar code.
 
 The current pass handles binary64 arithmetic, comparisons, nested masked
 conditionals, and data-dependent inner `while` loops over consecutive struct

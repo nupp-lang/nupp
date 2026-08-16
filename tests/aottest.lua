@@ -81,11 +81,16 @@ return {accumulate = accumulate}
 ]], "", "numeric loops and branches are admitted")
 end
 
-function M.simdRequiresOneCanonicalMapLoop()
+function M.laneLoweringIsAttemptedRatherThanRequested()
+   -- The shape lane lowering can take is one top-level numeric map loop. It is
+   -- recorded rather than required: a body of another shape is an ordinary
+   -- `@aot` function that compiles one iteration at a time, and only the
+   -- vectorisation check has anything to say about it. `simd = true` used to
+   -- make every one of these a build error.
    reports([[
 local span = require("nupp.span")
 
-@aot(simd = true)
+@aot
 local function map(
     exclusive output: span.WriteSpan<float>,
     borrows input: span.Span<float>
@@ -95,20 +100,20 @@ local function map(
     end
 end
 return {map = map}
-]], "", "one top-level numeric loop is the SIMD unit")
+]], "", "the map-loop shape compiles")
 
    reports([[
-@aot(simd = true)
+@aot
 local function missing(value: number): number
     return value
 end
 
 return {missing = missing}
-]], "NUPP2903", "SIMD cannot silently accept no loop")
+]], "", "a body with no loop is an ordinary AOT function")
 
    reports([[
-@aot(simd = true)
-local function ambiguous(count: integer): number
+@aot
+local function two(count: integer): number
     local total = 0.0
     for i = 1, count do
         total = total + i
@@ -120,8 +125,33 @@ local function ambiguous(count: integer): number
     return total
 end
 
-return {ambiguous = ambiguous}
-]], "NUPP2903", "a function-level SIMD contract cannot choose between loops")
+return {two = two}
+]], "", "two loops are not a shape lane lowering takes, and not an error")
+
+   reports([[
+@aot(lanes = false)
+local function scalar(count: integer): number
+    local total = 0.0
+    for i = 1, count do
+        total = total + i
+    end
+
+    return total
+end
+
+return {scalar = scalar}
+]], "", "a deliberately scalar body declines lane lowering")
+
+   -- The setting only accepts literal false. It is not a lane-count knob in
+   -- either direction.
+   reports([[
+@aot(lanes = true)
+local function wrong(value: number): number
+    return value
+end
+
+return {wrong = wrong}
+]], "NUPP2115", "lanes accepts only literal false")
 end
 
 function M.simdAcceptsOnlyTheRequiredSetting()

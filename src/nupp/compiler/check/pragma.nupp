@@ -213,14 +213,14 @@ function pragma.install(c: state.Checker): state.StatHandlers
                     c.diag("NUPP2901", annotationName, "@aot and @jit name different compilers for one body")
                 end
                 targetBody.aotRequired = true
-                -- `simd = true` says the function's one canonical map loop has
-                -- independent iterations and requires a SIMD lowering. The width
-                -- remains a target decision; inability to vectorize is a refusal,
-                -- never permission to run this AOT body scalar.
+                -- Lane lowering is attempted for every `@aot` body whose shape
+                -- admits it. `lanes = false` declines it for a body that is
+                -- deliberately scalar, so the vectorisation check stays quiet
+                -- about it; it says nothing about whether the body compiles.
                 local values = (stat as any).annotationValues
-                local simd = values and values.simd
-                if simd and simd.expr and simd.expr.kind == "trueExpr" then
-                    targetBody.simdRequired = true
+                local lanes = values and values.lanes
+                if lanes and lanes.expr and lanes.expr.kind == "falseExpr" then
+                    targetBody.lanesDeclined = true
                 end
             end
             if stat.stat then
@@ -230,7 +230,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
             -- ordinary rules have already accepted. An `@aot` body that is not valid
             -- Nupp is not an AOT problem.
             if valid and targetBody and targetBody.aotRequired then
-                c.aot.body(targetBody, targetBody.simdRequired == true)
+                c.aot.body(targetBody)
             end
             return
 

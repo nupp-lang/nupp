@@ -1118,11 +1118,13 @@ it with `@jit` promises one body to two compilers and reports NUPP2901, and a
 constructor or inline requirement is not a whole function to compile, so
 annotating one reports NUPP2902.
 
-`@aot(simd = true)` additionally promises that exactly one top-level numeric
-map loop has independent iterations and requires SIMD lowering when AOT
-compilation is enabled. It accepts only literal `true`: this is not a preference
-or lane-count knob. Removing either annotation changes the required compilation
-strategy, never the ordinary function's answer.
+An `@aot` body of exactly one top-level numeric map loop is additionally lowered
+lane-parallel, several iterations at once, with the width chosen from the lane
+types the loop's own values need. Nothing in the source names a lane, a mask, or
+a width. `@aot(lanes = false)` declines that lowering for a body that is
+deliberately scalar; it accepts only literal `false`, and it is not a lane-count
+knob in either direction. Removing either annotation changes the required
+compilation strategy, never the ordinary function's answer.
 
 ```nupp
 local m = {}

@@ -171,17 +171,21 @@ local function parseKernel(source, filename, checked)
       local body = fn.body
       local fpContract = body.relaxedGuarantees
          and body.relaxedGuarantees["fp-contract"] == true or false
-      local wantsLanes = body.simdRequired == true
+      -- Lane lowering is attempted for every admitted body; `lanes = false`
+      -- declines it. A body that cannot lower lane-parallel is not an error --
+      -- it compiles scalar, and the vectorisation check is what has something to
+      -- say about it.
+      local wantsLanes = body.lanesDeclined ~= true
       if not checked then
          for _, link in ipairs(selected.chain) do
             local written = link.name and link.name.text
             if written == "aot" then
                for _, arg in ipairs(link.annotationArgs or {}) do
                   local name = arg.name and arg.name.text
-                  if name == "simd" then
-                     if arg.expr and arg.expr.kind == "trueExpr" then wantsLanes = true end
+                  if name == "lanes" then
+                     if arg.expr and arg.expr.kind == "falseExpr" then wantsLanes = false end
                   else
-                     reject(link, "@aot takes simd = true or nothing")
+                     reject(link, "@aot takes lanes = false or nothing")
                   end
                end
             elseif written == "relax" then
@@ -3022,6 +3026,7 @@ function compiler.compile(source, filename, checked)
    -- The lane-parallel pass runs on verified scalar IR: what it rewrites has
    -- already been proved to mean something, so a refusal here is only ever
    -- about lowering it several iterations at a time.
+   ir.lanesDeclined = not ir.wantsLanes
    if ir.wantsLanes then
       -- Try the shapes widest lane count first. The 32-bit gang refuses the
       -- moment any varying value turns out to be binary64, so a loop written
@@ -3052,8 +3057,16 @@ function compiler.compile(source, filename, checked)
          end
          refusals = attempted
       end
-      if not ir.lanes then return nil, refusals end
-      verifyIR(ir)
+      -- A body that cannot lower lane-parallel still compiles: it keeps its
+      -- scalar loop, and the refusals are carried so the vectorisation check can
+      -- name the construct that stopped it rather than the build failing on a
+      -- performance property.
+      if not ir.lanes then
+         ir.laneRefusals = refusals
+         ir.lanesDeclined = false
+      else
+         verifyIR(ir)
+      end
    end
    return {
       ir = ir,

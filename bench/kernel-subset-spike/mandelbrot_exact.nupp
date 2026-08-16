@@ -28,7 +28,7 @@ end
 -- so it is asked for here rather than assumed. Without this line the kernel is
 -- exact and reproducible across targets; with it, it is neither, and it is
 -- roughly twice the speed.
-@aot(simd = true)
+@aot
 local function mandelbrot(
     exclusive escapes: span.WriteSpan<Escape>,
     borrows points: span.Span<Point>,

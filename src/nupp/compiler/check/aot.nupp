@@ -40,7 +40,7 @@ local aot = {}
 local type Node = cst.Node
 
 --- What `install` answers with.
-type aot.Ops = {readonly body: function(any, boolean?)}
+type aot.Ops = {readonly body: function(any)}
 
 --- The constructs with no AOT IR representation, and what to call each one where a
 --- diagnostic has to name it. A kind absent from here is not thereby admitted; it is
@@ -106,26 +106,22 @@ function aot.install(c: state.Checker): aot.Ops
     --- Walks a checked `@aot` body and reports every construct the IR cannot take.
     ---
     --- @param node the body, or a node within it
-    function ops.body(node: any, simdRequired: boolean?): nil
+    function ops.body(node: any): nil
         if node == nil or cst.isToken(node) then
             return
         end
-        if simdRequired then
-            local body = (node as any).body
-            local loops = 0
-            for _, statement in ipairs(body and body.stats or {}) do
-                if statement.kind == "fornumStmt" then
-                    loops = loops + 1
-                end
-            end
-            if loops ~= 1 then
-                c.diag(
-                    "NUPP2903",
-                    cst.firstToken(node) or node,
-                    "`@aot(simd = true)` needs one top-level numeric map loop; found " .. tostring(loops)
-                )
+        -- Exactly one top-level numeric loop is the shape lane lowering can take.
+        -- It is recorded rather than required: a body of another shape is an
+        -- ordinary `@aot` function that compiles scalar, and only the
+        -- vectorisation check has anything to say about it.
+        local body = (node as any).body
+        local loops = 0
+        for _, statement in ipairs(body and body.stats or {}) do
+            if statement.kind == "fornumStmt" then
+                loops = loops + 1
             end
         end
+        (node as any).aotMapLoop = loops == 1
         local function walk(current: any): nil
             if current == nil or cst.isToken(current) then
                 return

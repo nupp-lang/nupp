@@ -29,7 +29,7 @@ end
 -- exact and reproducible across targets; with it, it is neither, and it is
 -- roughly twice the speed.
 @relax("fp-contract")
-@aot(simd = true)
+@aot
 local function mandelbrot(
     exclusive escapes: span.WriteSpan<Escape>,
     borrows points: span.Span<Point>,

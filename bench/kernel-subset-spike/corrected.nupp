@@ -26,7 +26,7 @@ local struct Result
     fused: float
 end
 
-@aot(simd = true)
+@aot
 local function corrected(
     exclusive results: span.WriteSpan<Result>,
     borrows samples: span.Span<Sample>,

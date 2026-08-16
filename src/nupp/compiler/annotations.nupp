@@ -266,8 +266,13 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     json.memberOrder = {"unknown", "name", "omit", "omitEmpty"}
 
     local aot = registry:get("aot")
-    aot.members = {simd = member("simd", optional(typesApi.literal(true, typesApi.boolean)), true),}
-    aot.memberOrder = {"simd"}
+    -- `lanes = false` is the only setting, and it declines lane lowering rather
+    -- than requesting it. Requesting it was `simd = true`, withdrawn because the
+    -- independence it claimed to assert is a theorem of the admitted subset;
+    -- what it delivered was a build error rather than silently scalar code, and
+    -- a check command answers that without a language surface.
+    aot.members = {lanes = member("lanes", optional(typesApi.literal(false, typesApi.boolean)), true),}
+    aot.memberOrder = {"lanes"}
 
     local debug = registry:get("debug")
     debug.members = {

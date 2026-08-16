@@ -80,9 +80,15 @@ interface cst.Hints
     --- LuaJIT. Checking records it; the AOT subset pass consumes it.
     aotRequired: boolean?
 
-    --- `@aot(simd = true)` asserts that one canonical map loop has independent
-    --- iterations and must receive a SIMD lowering in an AOT-required build.
-    simdRequired: boolean?
+    --- `@aot(lanes = false)` declines lane lowering for a body that would
+    --- otherwise be lowered lane-parallel, so the vectorisation check does not
+    --- report a loop that is deliberately scalar.
+    lanesDeclined: boolean?
+
+    --- Whether an `@aot` body has the one-top-level-numeric-loop shape that lane
+    --- lowering can take. Recorded by the subset pass so the vectorisation check
+    --- can ask which bodies it should have anything to say about.
+    aotMapLoop: boolean?
 
     --- Fixed C-array bound whose dynamic index code generation checks.
     carrayBound: integer?

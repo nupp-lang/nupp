@@ -28,7 +28,7 @@ local struct Escape
 end
 
 @relax("fp-contract")
-@aot(simd = true)
+@aot
 local function mandelbrot(
     exclusive escapes: span.WriteSpan<Escape>,
     borrows points: span.Span<Point>,

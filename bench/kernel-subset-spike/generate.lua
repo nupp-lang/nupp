@@ -47,11 +47,34 @@ if #checkedDiagnostics > 0 then
 end
 
 -- Lower the same tree the checker annotated. The spike does not rediscover
--- `@aot`, `simd`, relaxation, or fixed-width establishment from source spelling.
+-- `@aot`, `lanes`, relaxation, or fixed-width establishment from source
+-- spelling.
 local artifacts, diagnostics = compiler.compile(source, input, parsed)
 if not artifacts then
    for _, problem in ipairs(diagnostics) do
       io.stderr:write(compiler.renderDiagnostic(problem), "\n")
+   end
+   os.exit(1)
+end
+
+-- Whether a loop vectorized is a performance property: no answer depends on it,
+-- so no ordinary check reports it, and an edit can quietly take it away. That is
+-- the same category `nupp bc --check` already covers for a loop LuaJIT cannot
+-- record, and it gets the same treatment -- a check that names the construct and
+-- exits 1, rather than an annotation that turns it into a build error for
+-- everyone. `@aot(lanes = false)` is how a deliberately scalar body says so.
+if arg[3] == "--check-lanes" then
+   if artifacts.ir.lanes then
+      io.write(("%s: lowered to %d lanes\n"):format(input, artifacts.ir.lanes.lanes))
+      os.exit(0)
+   end
+   if artifacts.ir.lanesDeclined then
+      io.write(("%s: lane lowering declined by `@aot(lanes = false)`\n"):format(input))
+      os.exit(0)
+   end
+   io.stderr:write(("%s: ran one iteration at a time\n"):format(input))
+   for _, problem in ipairs(artifacts.ir.laneRefusals or {}) do
+      io.stderr:write("  ", compiler.renderDiagnostic(problem), "\n")
    end
    os.exit(1)
 end

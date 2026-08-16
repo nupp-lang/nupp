@@ -27,7 +27,7 @@ local struct Escape
     escaped: uint32
 end
 
-@aot(simd = true)
+@aot
 local function mandelbrot(
     exclusive escapes: span.WriteSpan<Escape>,
     borrows points: span.Span<Point>,

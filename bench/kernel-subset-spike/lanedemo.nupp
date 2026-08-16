@@ -1,6 +1,6 @@
 -- A lane-parallel kernel written as ordinary scalar Nupp.
 --
--- Nothing here names a lane, a mask, or a vector. `simd = true` says the
+-- Nothing here names a lane, a mask, or a vector. lane lowering says the
 -- iterations are independent; the compiler decides how many run at once.
 local span = require("nupp.span")
 
@@ -11,7 +11,7 @@ local struct Particle
     vy: float
 end
 
-@aot(simd = true)
+@aot
 local function advance(
     exclusive particles: span.WriteSpan<Particle>,
     borrows source: span.Span<Particle>,
