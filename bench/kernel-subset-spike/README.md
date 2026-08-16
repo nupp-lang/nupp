@@ -88,6 +88,41 @@ A scalar epilogue handles the remainder so no vector load can cross the end of a
 span. Nested numeric `for` loops, uniform inner loops, and helper calls
 currently refuse.
 
+## Lane lowering loses on a memory-bound loop
+
+Mandelbrot reads sixteen bytes once and then runs a bounded loop over four live
+doubles, so four lanes are worth about 2x. `kernels.nupp` is the opposite: it
+streams component columns and does a little arithmetic per row. Measured against
+its own forced-scalar oracle, on the same source with only the lane rewrite
+between them:
+
+```
+ Kernel                          bound     scalar    lanes   ratio
+ ──────────────────────────────  ───────  ───────  ───────  ─────
+ kernels.nupp   5-field AoS      memory      2766      315  0.11x
+ columns.nupp   2-field, f64     memory     28835    22440  0.78x
+ columns, binary32 f32x8         memory     16398    11547  0.70x
+ mandelbrot     register-bound   compute       35       72  2.06x
+```
+
+Two hypotheses for the first row are wrong, and the second and third rows are
+what rule them out. It is not that `Transform2D` is a five-field twenty-byte
+struct that no interleaved load covers: a two-field eight-byte component still
+loses. It is not the binary64 gang widening every `float` field either: the same
+kernel in binary32 through an eight-lane gang loses by about as much. At tens of
+gigabytes a second there is no arithmetic to amortize assembling and taking
+apart the vectors, and that is the whole cost.
+
+So the rule is compute-bound against memory-bound, and neither layout nor
+element width moves it. `columns.nupp` is kept as the standing measurement of
+the losing side, because a backend change that claims to fix this has to move
+that row.
+
+Nothing in the compiler decides this today: lane lowering is attempted wherever
+the shape admits it, and `@aot(lanes = false)` is how a loop that measured worse
+says so. Whether that default is right, and whether the pass should decline a
+shape it can predict will lose, is open.
+
 ## What a Tecs kernel still cannot do
 
 `kernels.nupp` is the shape this feature exists for, and running the
@@ -99,10 +134,14 @@ kernels.nupp: ran one iteration at a time
   statement multi_let has no lane-parallel form
 ```
 
-A multiple-result helper call. Inlining that call by hand leaves the kernel
-lowering to four lanes, so helper calls in a lane body -- and multiple-result
-ones especially -- are the remaining gap between the admitted subset and the
-workload. `tecsbits.nupp` is that kernel with the call inlined, kept as the
+That gap is closed: a pure helper call is inlined into the lane body, with each
+parameter bound to the lane vector its argument produced, and the
+multiple-result form binds one local per result. The helper body is already
+verified scalar IR over its parameters, so nothing about what it means is
+decided again -- only that this call's arguments are what its parameters are.
+`kernels.nupp` now lowers to four lanes as written.
+
+`tecsbits.nupp` is that kernel with the call inlined by hand, kept as the
 differential for the bitwise lane path; `tecsbits_main.lua` runs it over every
 bit position and six query masks against ordinary Nupp.
 
@@ -154,6 +193,13 @@ bench/kernel-subset-spike/mandelbrot.sh corrected
 luajit bench/kernel-subset-spike/corrected_main.lua
 bench/kernel-subset-spike/mandelbrot.sh tecsbits
 luajit bench/kernel-subset-spike/tecsbits_main.lua
+```
+
+Measure the losing side, which is the row a backend change has to move:
+
+```sh
+bench/kernel-subset-spike/mandelbrot.sh columns
+luajit bench/kernel-subset-spike/columns_main.lua
 ```
 
 It compares ordinary Nupp, forced-scalar C, and required-SIMD C byte-for-byte

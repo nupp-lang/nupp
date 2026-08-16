@@ -1,0 +1,47 @@
+-- The same component update over column storage instead of an array of structs.
+--
+-- `kernels.nupp` holds five fields in one 20-byte struct, so loading one field
+-- for four consecutive entities is four scalar loads, four widenings, and four
+-- inserts -- and no interleaved load instruction covers a five-element
+-- structure. On a kernel with little arithmetic to amortize that, assembling
+-- and disassembling the vectors costs more than the work.
+--
+-- An entity-component store keeps components in columns, which is what makes
+-- them worth having. This is that layout: one span per component, contiguous,
+-- so a lane load is a vector load.
+local span = require("nupp.span")
+
+local struct Position
+    x: float
+    y: float
+end
+
+local struct Velocity
+    vx: float
+    vy: float
+end
+
+@aot
+local function advance(
+    exclusive positions: span.WriteSpan<Position>,
+    borrows velocities: span.Span<Velocity>,
+    first: integer,
+    last: integer,
+    dt: float
+): nil
+    if positions.count ~= velocities.count then
+        error("length mismatch", 2)
+    end
+    if first < 1 or last > positions.count or first > last + 1 then
+        error("range out of bounds", 2)
+    end
+
+    for i = first, last do
+        local position = positions:getMut(i)
+        local velocity = velocities:get(i)
+        position.x = position.x + velocity.vx * dt
+        position.y = position.y + velocity.vy * dt
+    end
+end
+
+return {advance = advance, Position = Position, Velocity = Velocity,}

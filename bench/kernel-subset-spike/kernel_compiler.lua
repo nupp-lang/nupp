@@ -1170,15 +1170,25 @@ local function vectorizeLoop(ir, reject, shape)
       return shape.vectorFor[scalar]
    end
 
+   -- Bound while one helper call is being inlined: parameter name to the lane
+   -- vector its argument produced. A helper is a parameter list and a list of
+   -- result expressions over those parameters, so inlining it is substitution.
+   local helperBindings = {}
+   local helperByName = {}
+   for _, helper in ipairs(ir.helpers or {}) do helperByName[helper.name] = helper end
+
    local function exprVarying(node)
       if node == nil then return false end
       local op = node.op
+      if op == "helper_param" then
+         return helperBindings[node.name] ~= nil
+      end
       if op == "element_ref" or op == "load" then
          return node.index == index
       elseif op == "local" then
          return varyingLocals[node.name] == true or refBindings[node.name] ~= nil
       elseif op == "uniform" or op == "constant" or op == "constant_i32"
-         or op == "bool" or op == "helper_param" then
+         or op == "bool" then
          return false
       elseif op == "field_load" then
          return exprVarying(node.object)
@@ -1201,6 +1211,16 @@ local function vectorizeLoop(ir, reject, shape)
          if statement.op == "let" then
             if controlled or exprVarying(statement.value) then
                varyingLocals[statement.name] = true
+            end
+         elseif statement.op == "multi_let" then
+            -- Every result of one call varies together: the call is inlined as a
+            -- whole, so if any argument varies then all of its results do. This
+            -- has to be decided here rather than while rewriting, because a
+            -- later read of one of these names is rewritten on the answer.
+            if controlled or exprVarying(statement.call) then
+               for _, binding in ipairs(statement.bindings) do
+                  varyingLocals[binding.name] = true
+               end
             end
          elseif statement.op == "assign" then
             for _, assignment in ipairs(statement.values) do
@@ -1345,6 +1365,7 @@ local function vectorizeLoop(ir, reject, shape)
    }
 
    local rewriteExpr
+   local inlineHelper
 
    --- The vector opcode for `verb` over `element` lanes, e.g. "vmul.f32x8".
    --- Encoding the element in the opcode keeps the verifier's type check total:
@@ -1434,6 +1455,39 @@ local function vectorizeLoop(ir, reject, shape)
          end
       end
       return false
+   end
+
+   --- Rewrites a helper call to the helper's own result expressions, with each
+   --- parameter bound to the lane vector its argument produced.
+   ---
+   --- The helper body is already verified scalar IR over `helper_param` nodes,
+   --- so nothing here decides what the helper means -- it decides only that this
+   --- call's arguments are what its parameters are. Bindings are saved and
+   --- restored around the call, so a helper called twice, or a helper calling
+   --- another, cannot see the wrong ones.
+   inlineHelper = function(node)
+      local helper = helperByName[node.helper]
+      if not helper then reject(nil, "a lane-parallel call has no visible helper") end
+      if #node.args ~= #helper.params then
+         reject(nil, "a lane-parallel helper call has the wrong argument count")
+      end
+      local bound, saved = {}, {}
+      for i, param in ipairs(helper.params) do
+         bound[param.name] = numericVector(node.args[i], param.type)
+      end
+      for name, value in pairs(bound) do
+         saved[name] = helperBindings[name]
+         helperBindings[name] = value
+      end
+      local values = {}
+      for i, value in ipairs(helper.values) do
+         values[i] = rewriteExpr(value)
+      end
+      for name in pairs(bound) do
+         helperBindings[name] = saved[name]
+      end
+
+      return values
    end
 
    --- Rewrites one expression, returning it unchanged when it is uniform.
@@ -1575,8 +1629,14 @@ local function vectorizeLoop(ir, reject, shape)
          local _, vector = laneOp("math", "f64")
          return {op = "vmath", intrinsic = node.intrinsic, args = args,
             type = vector, source = node.source}, true
+      elseif op == "helper_param" then
+         local bound = helperBindings[node.name]
+         if not bound then reject(nil, "a helper parameter escaped its call") end
+         return bound, true
       elseif op == "helper_call" then
-         reject(nil, "a lane-parallel loop cannot call a helper yet")
+         local inlined = inlineHelper(node)
+         if #inlined ~= 1 then reject(nil, "a multiple-result helper is not one value") end
+         return inlined[1], true
       elseif op == "numeric_cast" or op == "narrow_f64_f32" then
          -- Storage conversions remain attached to the scalar field target. The
          -- vector value keeps its gang's element type until each lane is stored,
@@ -1617,6 +1677,27 @@ local function vectorizeLoop(ir, reject, shape)
                type = varying and value.type or statement.type,
                source = statement.source,
             }
+         elseif statement.op == "multi_let" then
+            -- One binding per result, each declared separately. The scalar form
+            -- needs one statement because a C call returns once; inlined, the
+            -- results are ordinary expressions and there is nothing to hold
+            -- together.
+            local varying = exprVarying(statement.call)
+            local values = varying and inlineHelper(statement.call) or nil
+            for i, binding in ipairs(statement.bindings) do
+               local value
+               if varying then
+                  value = values[i]
+               else
+                  value = {op = "helper_result", call = statement.call, index = i,
+                     type = binding.type, source = statement.source}
+               end
+               out[#out + 1] = {
+                  op = "let", name = binding.name, cName = binding.cName,
+                  value = value, type = varying and value.type or binding.type,
+                  source = statement.source,
+               }
+            end
          elseif statement.op == "assign" then
             local assignments = {}
             for i, assignment in ipairs(statement.values) do
@@ -2456,6 +2537,31 @@ local cBinary = {
 local LANE_VERB = {add = " + ", sub = " - ", mul = " * ", div = " / ",
    lt = " < ", le = " <= ", gt = " > ", ge = " >= ", eq = " == ", ne = " != "}
 
+local laneTemporary = 0
+
+--- Expands a vector operation one lane at a time with each argument evaluated
+--- once. `build(names, lane)` returns the scalar expression for one lane, given
+--- the temporaries holding the argument vectors.
+---
+--- Without the temporaries each argument is rendered into every lane slot, so a
+--- vector expression is recomputed once per lane to take one element of it, and
+--- nesting multiplies that. It is what made a memory-bound kernel eight times
+--- slower vectorized than scalar.
+local function perLane(vector, args, render, build)
+   laneTemporary = laneTemporary + 1
+   local names, bindings = {}, {}
+   for i, argument in ipairs(args) do
+      names[i] = ("lt%d_%d"):format(laneTemporary, i)
+      bindings[#bindings + 1] = ("ks_%s %s = %s;"):format(vector, names[i], render(argument))
+   end
+   local lanes = tonumber(vector:match("x(%d+)$"))
+   local parts = {}
+   for lane = 0, lanes - 1 do parts[#parts + 1] = build(names, lane) end
+
+   return "({ " .. table.concat(bindings, " ") .. " (ks_" .. vector .. "){"
+      .. table.concat(parts, ", ") .. "}; })"
+end
+
 local function renderExpr(node)
    local LANE_BINARY = {vmand = " & ", vmor = " | ",
       vshort_and = " & ", vshort_or = " | "}
@@ -2526,30 +2632,25 @@ local function renderExpr(node)
       -- One scalar helper call per lane, the same helper the scalar body calls,
       -- so the correction cannot be right in one form and wrong in the other.
       local vector = node.op:match("^vcorrected%.(%w+)$")
-      local parts = {}
-      for lane = 0, tonumber(vector:match("x(%d+)$")) - 1 do
+      return perLane(vector, node.args, renderExpr, function(names, lane)
          local args = {}
-         for i, argument in ipairs(node.args) do
-            args[i] = renderExpr(argument) .. "[" .. lane .. "]"
-         end
-         parts[#parts + 1] = node.helper .. "(" .. table.concat(args, ", ") .. ")"
-      end
-      return "((ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "})"
+         for i, name in ipairs(names) do args[i] = name .. "[" .. lane .. "]" end
+
+         return node.helper .. "(" .. table.concat(args, ", ") .. ")"
+      end)
    end
    if node.op == "vmath" then
       -- One scalar call per lane, rendered through the ordinary math path so the
       -- lane-parallel form cannot drift from the scalar one. Clang recognizes
       -- the shape and uses a vector library call where it has one.
-      local parts = {}
-      for lane = 0, tonumber(node.type:match("x(%d+)$")) - 1 do
+      return perLane(node.type, node.args, renderExpr, function(names, lane)
          local args = {}
-         for i, arg in ipairs(node.args) do
-            args[i] = {op = "raw", text = renderExpr(arg) .. "[" .. lane .. "]"}
+         for i, name in ipairs(names) do
+            args[i] = {op = "raw", text = name .. "[" .. lane .. "]"}
          end
-         parts[#parts + 1] = renderExpr({op = "math", intrinsic = node.intrinsic, args = args})
-      end
 
-      return "((" .. ("ks_" .. node.type) .. "){" .. table.concat(parts, ", ") .. "})"
+         return renderExpr({op = "math", intrinsic = node.intrinsic, args = args})
+      end)
    end
    if FIXED_BINARY[node.op] then
       local element = FIXED_BINARY[node.op]
@@ -2667,6 +2768,10 @@ local function cParams(ir)
 end
 
 local function renderC(ir)
+   -- Reset per emission: the same IR has to render the same C, or an artifact
+   -- cache keyed by its text would miss on every build and a fingerprint would
+   -- say two identical programs differ.
+   laneTemporary = 0
    local lines = {}
    local function emit(line) lines[#lines + 1] = line or "" end
    emit("/* Generated from verified test-only native C IR. */")
