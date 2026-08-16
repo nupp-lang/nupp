@@ -260,6 +260,77 @@ AOT IR does not inherit the Lua representation. Its boundary receives checked co
 bases and one count, then represents `(field identity, index)` directly. A scalar tail
 and vector body use the same bounds and alias facts.
 
+## Reflection surface
+
+SoA columns have reflection data at both compile time and run time. Reflection exposes
+what the storage contains and how it is laid out; it does not expose a column pointer or
+grant read/write capability.
+
+Compile-time semantic reflection is authoritative. `nupp.reflect(T)` and derive recipes
+can obtain:
+
+- the element's nominal identity and the SoA storage fingerprint;
+- every stored top-level field's stable declaration identity, source name, ordinal,
+  resolved storage type, C spelling, width, and alignment;
+- whether a declaration member is stored, associated, derived, or ineligible;
+- the segment alignment and offset formula for an arbitrary count; and
+- typed operations for allocating, projecting, copying, gathering, and scattering that
+  field.
+
+This is the surface a Tecs derive uses. It receives semantic type and field handles, not
+strings that it reparses and not compiler CST nodes.
+
+Runtime reflection is emitted only when requested, following `layoutof` and plan 044's
+on-demand `TypeInfo` model. A representative immutable surface is:
+
+```nupp
+record soa.Layout
+    readonly name: string
+    readonly fingerprint: string
+    readonly alignment: integer
+    readonly fields: {soa.FieldLayout}
+    forCount: function(self: soa.Layout, count: integer): soa.InstanceLayout
+end
+
+record soa.FieldLayout
+    readonly name: string
+    readonly ctype: string
+    readonly ordinal: integer
+    readonly elementSize: integer
+    readonly alignment: integer
+end
+
+record soa.SegmentLayout
+    readonly field: soa.FieldLayout
+    readonly offset: integer
+    readonly byteCount: integer
+end
+
+record soa.InstanceLayout
+    readonly count: integer
+    readonly byteSize: integer
+    readonly segments: {soa.SegmentLayout}
+end
+```
+
+`soa.layoutof(T)` returns count-independent field metadata and the storage fingerprint.
+`layout:forCount(count)` checks the same arithmetic as allocation and returns the
+relative segment offsets and byte counts for that count. A live `soa.Array<T>` reports
+the same layout fingerprint and count. The public records may later carry plan 044
+`TypeInfo` witnesses beside the stable C spelling; derives do not wait for runtime
+reflection to obtain typed handles.
+
+Field declaration identities remain compiler/reflection handles. Persistent formats
+store the versioned fingerprint plus field names and type spellings needed for
+migration; they do not serialize an internal compiler ID and expect another build to
+understand it.
+
+Layout reflection never returns the slab base, typed column pointers, or an operation
+that constructs a span from numeric offsets. Checked code obtains data only through the
+owner's shared or writable views and resolved field projection. `unsafe` code may use
+existing explicit pointer facilities, but reflection data alone manufactures no
+provenance.
+
 ## Element eligibility
 
 `soa.Array<T>` initially requires a reified nominal struct whose stored top-level
@@ -351,10 +422,83 @@ runtime `fieldcodec` source generation, struct-size metadata, and positional sna
 fingerprint. Tecs still owns archetype movement, dirty tracking, component identity,
 snapshot policy, and migrations.
 
-Snapshot code writes each SoA field as one column. It does not pretend the slab is an
-array of `Transform2D` bytes. A stored fingerprint includes the component identity,
-field identities and types, SoA schema, and application format version. Loading an AoS
-snapshot into SoA storage is an explicit codec path, not a raw copy.
+### Tecs snapshot framing
+
+A SoA component remains one logical Tecs archetype column. Its fields are storage
+segments inside that component, not independent components: splitting them into Tecs
+columns would change archetype identity, queries, presence, dirty tracking, and
+component migration.
+
+The current Tecs binary fast path writes one dense FFI component with one
+`putcdata(structSize * count)` and restores it with one `memcpy`. A SoA slab is not an
+array of structs, so it must never enter that path under a fictional `structSize`.
+
+Extend the per-component frame encoding explicitly:
+
+```text
+COLUMN_DENSE  = 0
+COLUMN_SPARSE = 1
+COLUMN_SOA    = 2
+
+SoA component frame
+    fieldCount
+    for each saved field in fingerprint order
+        byteCount
+        raw contiguous field bytes
+```
+
+The component-table entry carries a versioned schema such as
+`soa1|x:float,y:float,rotation:float`. The exact spelling is decided with Tecs's
+existing fingerprint parser, but it must distinguish storage family and schema version
+before parsing field data. The field headers need not repeat names or types: their
+ordered definitions are in the saved schema. `byteCount` lets a reader validate and
+skip a segment without trusting current code's layout.
+
+Saving an unfiltered same-schema SoA component performs one `putcdata` per field.
+Loading it performs one direct copy into each current field span. Padding between slab
+segments is never serialized. Nested struct and fixed-array fields retain their own
+ordinary value bytes inside their field segment, matching the current raw-FFI target
+and endianness contract.
+
+Custom component serialization, the table/JSON writer, and a filtered archetype may
+use the correctness path:
+
+```text
+SoA row -> materialize ordinary component value -> existing serialize
+decoded value -> whole-row scatter into SoA storage
+```
+
+That path allocates no runtime row proxy; it constructs a value only because the
+serializer asked for one. A later filtered bulk gather is a measured optimization, not
+a prerequisite for correctness.
+
+Schema migration is representation-aware:
+
+| Saved payload | Current storage | Load path |
+| --- | --- | --- |
+| SoA, identical schema | SoA | bulk-copy each field segment |
+| SoA, changed schema | SoA | match saved fields by name/type; copy or convert surviving columns |
+| AoS | SoA | decode saved row values, then scatter into current fields |
+| SoA | AoS | read saved field segments, then construct/scatter current rows |
+| table/JSON | either | existing keyed value deserialize plus the storage adapter |
+
+New fields receive their declared/default initialization, removed fields are skipped,
+and reordering follows saved names rather than current ordinals. An exactly compatible
+field may copy as one block. A numeric conversion or changed aggregate shape uses the
+generated per-value migration path and retains the current failure behavior for an
+incompatible conversion.
+
+Tecs currently writes `SNAPSHOT_VERSION = 1` and recognizes only dense and sparse
+column encodings. Adding `COLUMN_SOA` changes framing and therefore bumps the snapshot
+format version to 2. Preserve Tecs's existing policy that a reader refuses a snapshot
+version it does not implement; do not make the version-2 reader guess at version-1
+frames. AoS-to-SoA and SoA-to-AoS migration above apply to version-2 snapshots written
+before and after a component changes storage. Importing a pre-feature version-1 save is
+a separate application migration decision.
+
+The Nupp SoA core supplies reflection, checked field spans, gather/scatter, and the
+fingerprint inputs. Tecs continues to own the component table, column encoding values,
+snapshot version, custom serializers, migration policy, and events.
 
 ## Diagnostics and inspection
 
@@ -398,6 +542,8 @@ or why lane lowering declined it.
 ### S1 — Canonical descriptor and owner
 
 - Derive one target-aware SoA descriptor from the canonical struct layout graph.
+- Publish compile-time field/type reflection and on-demand immutable runtime
+  `soa.layoutof` metadata without exposing pointers or provenance.
 - Implement overflow-checked aligned slab allocation and one affine owner.
 - Add shared and exclusive private-representation views with count, slicing, sharing,
   commit, and automatic cleanup.
@@ -436,7 +582,11 @@ or why lane lowering declined it.
   from the public SoA descriptor.
 - Port representative Tecs `Transform2D` and particle stores without runtime source
   generation or hand-maintained field arrays.
-- Generate positional snapshot codecs and verify AoS/SoA migration explicitly.
+- Add one `COLUMN_SOA` component-frame encoding, bump the Tecs snapshot format, and
+  write one validated field subframe per stored field without changing archetype
+  component identity.
+- Generate positional snapshot codecs and verify same-schema bulk restore, changed
+  schemas, custom/table fallbacks, and AoS/SoA migration explicitly.
 - Measure system source size, component-registration machinery removed, snapshot
   throughput, extraction throughput, memory, and frame time.
 
@@ -451,6 +601,9 @@ next phase.
   parallel cdata arrays before AOT.
 - AOT lane code must use unit-stride loads/stores and match the hand-written SoA C
   baseline within 10% on the accepted transform and particle kernels.
+- Same-schema binary snapshot save and restore perform one bulk operation per stored
+  field, with no per-entity materialization; record their throughput beside the current
+  one-operation-per-AoS-component baseline.
 - Whole-row materialization must be measured and documented; it is not required to
   beat AoS, but direct field code may not materialize a row accidentally.
 - Owner allocation performs one native allocation independent of field count.
@@ -475,10 +628,14 @@ Tests must prove:
 - shared/writable slices, field spans, split ranges, and cleanup obey ownership;
 - distinct writable fields coexist and overlapping row/field/index regions do not;
 - field rename/references use declaration identity rather than the string spelling;
+- compile-time and requested runtime reflection agree on field order, names, types,
+  widths, alignments, segment arithmetic, and fingerprint without exposing addresses;
 - JIT-on, JIT-off, scalar AOT, and lane AOT answers agree;
 - hot reload rejects or migrates incompatible live storage rather than reinterpreting
   it;
-- snapshots identify their storage schema and never raw-copy SoA as AoS; and
+- snapshots retain one Tecs component column, identify their storage schema, frame SoA
+  fields as subsegments, never raw-copy SoA as AoS, and cover the full migration
+  matrix; and
 - Tecs acceptance removes runtime field codec generation for the selected components.
 
 ## Completion criteria
@@ -489,10 +646,13 @@ This plan is complete when:
 - normal indexed field source lowers without runtime row objects;
 - whole-row value semantics and gradual boundaries are unambiguous;
 - one owned slab supplies safe shared, writable, sliced, and field-column views;
+- compile-time derives and on-demand runtime consumers can inspect the same immutable
+  SoA layout facts without acquiring storage access;
 - general capability regions describe every row and field alias decision;
 - AOT consumes published unit-stride facts and emits inspected SIMD code;
 - a Tecs component derive replaces the corresponding field lists, runtime codegen,
-  layout metadata, and snapshot codec;
+  layout metadata, and snapshot codec, with field subframes inside one component
+  column;
 - ordinary non-SoA programs pay no build or runtime cost; and
 - the full suite, fixpoint, bootstrap, cross-target layout, ABI, JIT, AOT differential,
   and Tecs performance gates pass.
