@@ -936,4 +936,109 @@ function rewrite.containsContinue(statements: {any}): boolean
     return false
 end
 
+--- Rewriting one block, and everything nested in it.
+---
+--- The mask threading is the whole of this. A branch mask is captured into its
+--- own binding before the branch body runs, so changing a condition operand
+--- inside the body cannot change which lanes execute the statements after it --
+--- an ordinary `if` reads its condition once, and a lane rewrite that
+--- re-evaluated it would not.
+---
+--- `break` and `continue` become per-lane retirement rather than control flow:
+--- the masked lanes leave the iteration, and a `break` leaves the loop too. The
+--- loop ends when no lane is live, which is a horizontal test on a mask rather
+--- than a branch any lane takes.
+record rewrite.Block
+    --- Statements produced so far.
+    out: {any}
+
+    --- Which lanes this block runs under, or nothing at the top level where
+    --- every lane is active and no select is needed.
+    mask: lane.Expr?
+
+    --- The enclosing lane loop, when there is one.
+    loopContext: rewrite.LoopContext?
+end
+
+--- Declaring a lane local.
+---
+--- A binding the pre-pass marked varying takes a vector, broadcasting where its
+--- value does not vary; one it did not stays exactly as the scalar IR had it.
+function rewrite.let(statement: scalarIR.Let, state: rewrite.State): lane.Let
+    local varies = state.varyingLocals[statement.name] == true or rewrite.varying(statement.value, state)
+    if not varies then
+        return new lane.Let(
+            op = "let",
+            name = statement.name,
+            cName = statement.cName,
+            value = statement.value,
+            type = statement.type,
+            source = statement.source
+        )
+    end
+    local value = rewrite.varying(
+        statement.value,
+        state
+    ) and rewrite.expression(
+        statement.value,
+        state
+    ) or rewrite.splat(statement.value, rewrite.asElement(statement.value.type) or "f64", state)
+
+    return new lane.Let(
+        op = "let",
+        name = statement.name,
+        cName = statement.cName,
+        value = value,
+        type = value.type,
+        source = statement.source
+    )
+end
+
+--- The value an assignment stores, with its select where one is needed.
+---
+--- An inactive lane keeps what it had, which is what makes a conditional a mask
+--- rather than a branch: the old value is read back and selected against. A
+--- field target reads its own current lanes for the same reason.
+function rewrite.assignedValue(
+    value: lane.Expr,
+    target: lane.Target,
+    assignmentMask: lane.Expr?,
+    source: scalarIR.Source?,
+    state: rewrite.State
+): lane.Expr
+    if assignmentMask == nil then
+        return value
+    end
+    local previous: lane.Expr
+    if target.kind == "local" then
+        local localTarget = target as lane.LocalTarget
+        previous = new lane.Local(
+            op = "local",
+            name = localTarget.name,
+            cName = localTarget.cName,
+            type = value.type,
+            source = source
+        )
+    else
+        local fieldTarget = target as lane.FieldTarget
+        previous = new lane.FieldLoad(
+            op = "vfield_load",
+            span = fieldTarget.span,
+            layout = fieldTarget.layout,
+            field = fieldTarget.field,
+            lanes = state.shape.lanes,
+            scalarType = fieldTarget.scalarType,
+            type = value.type,
+            source = source
+        )
+    end
+
+    return new lane.Select(
+        op = "vselect",
+        args = {assignmentMask as lane.Expr, value, previous},
+        type = value.type,
+        source = source
+    )
+end
+
 return rewrite

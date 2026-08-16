@@ -1566,18 +1566,7 @@ local function vectorizeLoop(ir, reject, shape)
             and statement.value.index == index then
             refBindings[statement.name] = statement.value
          elseif statement.op == "let" then
-            local varying = varyingLocals[statement.name] == true
-               or exprVarying(statement.value)
-            local value = varying and (
-               exprVarying(statement.value) and rewriteExpr(statement.value)
-               or splat(statement.value)
-            ) or statement.value
-            out[#out + 1] = {
-               op = "let", name = statement.name, cName = statement.cName,
-               value = value,
-               type = varying and value.type or statement.type,
-               source = statement.source,
-            }
+            out[#out + 1] = rewriteRules.let(statement, rewriteState)
          elseif statement.op == "multi_let" then
             -- One binding per result, each declared separately. The scalar form
             -- needs one statement because a C call returns once; inlined, the
@@ -1618,40 +1607,27 @@ local function vectorizeLoop(ir, reject, shape)
                then
                   assignmentMask = nil
                end
-               if assignmentMask then
-                  -- An inactive lane keeps what it had, which is what makes a
-                  -- conditional a mask rather than a branch. A field target
-                  -- reads its own current lanes back for the same reason.
-                  local previous
-                  if target.kind == "local" then
-                     previous = {op = "local", name = target.name, cName = target.cName,
-                        type = value.type, source = statement.source}
-                  else
-                     local object = resolveRef(target.object)
-                     if not object or object.index ~= index then
-                        reject(nil, "a lane-parallel field store writes consecutive elements only")
-                     end
-                     previous = {op = "vfield_load", span = object.span,
-                        layout = target.layout, field = target.field, lanes = LANES,
-                        scalarType = target.type, type = value.type, source = statement.source}
-                  end
-                  value = {op = "vselect", args = {assignmentMask, value, previous},
-                     type = value.type, source = statement.source}
-               end
+               -- The lane target is worked out once, then used both to read the
+               -- old value back for the select and to say where the store goes.
+               local laneTarget
                if target.kind == "field" then
                   local object = resolveRef(target.object)
                   if not object or object.index ~= index then
                      reject(nil, "a lane-parallel field store writes consecutive elements only")
                   end
-                  assignments[i] = {
-                     target = {kind = "vfield", span = object.span,
-                        layout = target.layout, field = target.field,
-                        scalarType = target.type},
-                     value = value,
-                  }
+                  laneTarget = {kind = "vfield", span = object.span,
+                     layout = target.layout, field = target.field,
+                     scalarType = target.type}
                else
-                  assignments[i] = {target = target, value = value}
+                  laneTarget = {kind = "local", name = target.name, cName = target.cName}
                end
+               value = rewriteRules.assignedValue(
+                  value, laneTarget, assignmentMask, statement.source, rewriteState
+               )
+               assignments[i] = {
+                  target = target.kind == "field" and laneTarget or target,
+                  value = value,
+               }
             end
             out[#out + 1] = {op = "vassign", values = assignments, source = statement.source}
          elseif statement.op == "store" then

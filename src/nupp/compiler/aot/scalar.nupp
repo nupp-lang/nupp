@@ -250,4 +250,117 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.Convert
     | scalarIR.HelperCall
 
+--- Where one assignment puts its value: a local, or one field of a struct
+--- element reached through a span.
+record scalarIR.Target
+    kind: 'local' | 'field'
+    name: string?
+    cName: string?
+    object: scalarIR.Expr?
+    layout: string?
+    field: string?
+    type: scalarIR.Type?
+end
+
+--- One target and the value going into it.
+record scalarIR.Assignment
+    target: scalarIR.Target
+    value: scalarIR.Expr
+end
+
+--- Declaring a local.
+record scalarIR.Let
+    op: 'let'
+    name: string
+    cName: string
+    value: scalarIR.Expr
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- One binding per result of a call that returns several.
+record scalarIR.MultiLet
+    op: 'multi_let'
+    call: scalarIR.HelperCall
+    bindings: {any}
+    source: scalarIR.Source?
+end
+
+--- Simultaneous assignment: every value computed before any is stored.
+record scalarIR.Assign
+    op: 'assign'
+    values: {scalarIR.Assignment}
+    source: scalarIR.Source?
+end
+
+--- Storing through a span that holds scalars.
+record scalarIR.Store
+    op: 'store'
+    span: string
+    index: string
+    value: scalarIR.Expr
+    source: scalarIR.Source?
+end
+
+--- One arm of a conditional.
+record scalarIR.Clause
+    condition: scalarIR.Expr
+    body: {scalarIR.Statement}
+end
+
+record scalarIR.If
+    op: 'if'
+    clauses: {scalarIR.Clause}
+    elseBody: {scalarIR.Statement}?
+    source: scalarIR.Source?
+end
+
+record scalarIR.While
+    op: 'while'
+    condition: scalarIR.Expr
+    body: {scalarIR.Statement}
+    source: scalarIR.Source?
+end
+
+record scalarIR.Fornum
+    op: 'fornum'
+    binding: any
+    from: scalarIR.Expr
+    to: scalarIR.Expr
+    body: {scalarIR.Statement}
+    source: scalarIR.Source?
+end
+
+record scalarIR.Block
+    op: 'block'
+    body: {scalarIR.Statement}
+    source: scalarIR.Source?
+end
+
+--- Leaving the enclosing loop, or the current iteration of it.
+---
+--- Two records rather than one with two tags, because a tag that could be either
+--- narrows to neither.
+record scalarIR.Break
+    op: 'break'
+    source: scalarIR.Source?
+end
+
+record scalarIR.Continue
+    op: 'continue'
+    source: scalarIR.Source?
+end
+
+--- Every scalar statement.
+type scalarIR.Statement = scalarIR.Let
+    | scalarIR.MultiLet
+    | scalarIR.Assign
+    | scalarIR.Store
+    | scalarIR.If
+    | scalarIR.While
+    | scalarIR.Fornum
+    | scalarIR.Block
+    | scalarIR.Break
+    | scalarIR.Continue
+
 return scalarIR

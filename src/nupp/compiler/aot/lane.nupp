@@ -363,21 +363,31 @@ record aotLane.Let
     source: aotLane.Source?
 end
 
---- Where one assignment puts its value.
+--- A lane local being assigned to.
 ---
---- A local target is a lane local. A field target is one field of consecutive
---- span elements, which is the only place lane IR writes memory.
-record aotLane.Target
-    kind: 'local' | 'vfield'
-    name: string?
-    cName: string?
-    span: string?
-    layout: string?
-    field: string?
+--- Two records rather than one with optional fields for each shape: a field
+--- that is only sometimes there is one every reader has to check, and the
+--- checker will not let it be read as though it were always present.
+record aotLane.LocalTarget
+    kind: 'local'
+    name: string
+    cName: string
+end
+
+--- One field of consecutive span elements, which is the only place lane IR
+--- writes memory.
+record aotLane.FieldTarget
+    kind: 'vfield'
+    span: string
+    layout: string
+    field: string
 
     --- The field's storage type, which is what the store narrows to.
-    scalarType: aotLane.Element?
+    scalarType: aotLane.Element
 end
+
+--- Where one assignment puts its value.
+type aotLane.Target = aotLane.LocalTarget | aotLane.FieldTarget
 
 --- One target and the value going into it.
 record aotLane.Assignment
