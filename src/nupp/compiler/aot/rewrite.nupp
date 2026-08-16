@@ -1041,4 +1041,88 @@ function rewrite.assignedValue(
     )
 end
 
+--- The clause masks of one conditional, in order.
+---
+--- Each arm runs under the lanes that reached the conditional and match its own
+--- condition; the arm after it runs under those that reached it and did not. The
+--- mask is captured into its own binding before the arm's body is rewritten,
+--- because a body may assign to a name the condition read -- and an ordinary
+--- `if` evaluates its condition once, so a lane rewrite that re-read it would
+--- change which lanes ran the statements after the assignment.
+---
+--- @param clauses the conditional's arms
+--- @param reaching the mask that reaches the conditional, or nothing at the top
+--- @param block where the introduced mask bindings are numbered from
+--- @param state what this rewrite carries
+--- @return one binding and one entry mask per arm, and the mask the else arm
+---   runs under
+function rewrite.branchMasks(
+    clauses: {scalarIR.Clause},
+    reaching: lane.Expr?,
+    block: rewrite.BlockState,
+    state: rewrite.State
+): ({any}, lane.Expr?)
+    local arms: {any} = {}
+    local remaining = reaching
+    for position, clause in ipairs(clauses) do
+        local condition = conditionMask(clause.condition, state)
+        local entry = rewrite.maskAnd(remaining, condition, clause.source, state)
+        local binding = rewrite.internalMask("if", clause.source, block, state)
+        arms[position] = {binding = binding, entry = entry, clause = clause}
+        local captured = rewrite.maskLocal(binding, clause.source, state)
+        remaining = rewrite.maskAnd(remaining, rewrite.maskNot(captured, clause.source, state), clause.source, state)
+    end
+
+    return arms, remaining
+end
+
+--- The context a lane loop's body is rewritten under.
+---
+--- `live` holds the lanes still in the loop and `executing` those still running
+--- this iteration. They differ the moment one lane breaks or continues, and both
+--- are needed: a lane that continued is not running the rest of this iteration
+--- but is still in the loop.
+---
+--- Speculation is allowed only when the body contains no `continue`. With one, a
+--- lane can stop part way through an iteration and resume the next, so its state
+--- is live across that boundary and assigning to it unmasked would be observable.
+function rewrite.loopContext(
+    statement: scalarIR.While,
+    observable: {[string]: boolean},
+    block: rewrite.BlockState,
+    state: rewrite.State
+): rewrite.LoopContext
+    return new rewrite.LoopContext(
+        live = rewrite.internalMask("live", statement.source, block, state),
+        executing = rewrite.internalMask("exec", statement.source, block, state),
+        observable = observable,
+        speculate = not rewrite.containsContinue(statement.body)
+    )
+end
+
+--- Leaving a loop, or the current iteration of it, for the masked lanes.
+---
+--- Retirement rather than control flow: no lane branches anywhere, the masks
+--- simply stop covering it. A `break` clears both, a `continue` clears only the
+--- executing mask, and the loop ends when nothing is live.
+function rewrite.exit(statement: scalarIR.Statement, mask: lane.Expr, loopContext: rewrite.LoopContext): lane.Statement
+    if statement.op == "break" then
+        return new lane.Break(
+            op = "vbreak",
+            mask = mask,
+            live = loopContext.live,
+            executing = loopContext.executing,
+            source = statement.source
+        )
+    end
+
+    return new lane.Continue(
+        op = "vcontinue",
+        mask = mask,
+        live = loopContext.live,
+        executing = loopContext.executing,
+        source = statement.source
+    )
+end
+
 return rewrite

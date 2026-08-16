@@ -306,6 +306,7 @@ end
 record scalarIR.Clause
     condition: scalarIR.Expr
     body: {scalarIR.Statement}
+    source: scalarIR.Source?
 end
 
 record scalarIR.If

@@ -1633,23 +1633,22 @@ local function vectorizeLoop(ir, reject, shape)
          elseif statement.op == "store" then
             reject(nil, "a lane-parallel loop stores through struct fields for now")
          elseif statement.op == "if" then
-            local remaining = statementMask
-            for _, clause in ipairs(statement.clauses) do
-               local condition = conditionMask(clause.condition)
-               local branchValue = maskAnd(remaining, condition, clause.source)
-               local branch = internalMask("if", clause.source)
+            -- Each arm's mask is captured into its own binding before the arm
+            -- runs, so a body that assigns to a name the condition read cannot
+            -- change which lanes execute the statements after it.
+            local arms, remaining = rewriteRules.branchMasks(
+               statement.clauses, statementMask, blockState, rewriteState
+            )
+            for _, arm in ipairs(arms) do
                out[#out + 1] = {
-                  op = "let", name = branch.name, cName = branch.cName,
-                  value = branchValue, type = MASK, source = clause.source,
+                  op = "let", name = arm.binding.name, cName = arm.binding.cName,
+                  value = arm.entry, type = MASK, source = arm.clause.source,
                }
-               local branchMask = maskLocal(branch, clause.source)
                local inner = rewriteBlock(
-                  clause.body, branchMask, loopContext, readsAfter[position]
+                  arm.clause.body, maskLocal(arm.binding, arm.clause.source),
+                  loopContext, readsAfter[position]
                )
                for _, produced in ipairs(inner) do out[#out + 1] = produced end
-               remaining = maskAnd(
-                  remaining, maskNot(branchMask, clause.source), clause.source
-               )
             end
             if statement.elseBody then
                local inner = rewriteBlock(
@@ -1666,23 +1665,19 @@ local function vectorizeLoop(ir, reject, shape)
             if not exprVarying(statement.condition) then
                reject(nil, "a uniform inner while loop is not lane-controlled yet")
             end
-            local live = internalMask("live", statement.source)
-            local executing = internalMask("exec", statement.source)
+            local context = rewriteRules.loopContext(
+               statement, readsAfter[position], blockState, rewriteState
+            )
             local condition = conditionMask(statement.condition)
             local initial = maskAnd(statementMask, condition, statement.source)
-            local context = {
-               live = live, executing = executing, source = statement.source,
-               observable = readsAfter[position],
-               speculate = not containsContinue(statement.body),
-            }
             local body = rewriteBlock(
                statement.body,
-               maskLocal(executing, statement.source),
+               maskLocal(context.executing, statement.source),
                context,
                nil
             )
             out[#out + 1] = {
-               op = "vwhile", live = live, executing = executing,
+               op = "vwhile", live = context.live, executing = context.executing,
                initial = initial, condition = condition, body = body,
                source = statement.source,
             }
@@ -1692,12 +1687,7 @@ local function vectorizeLoop(ir, reject, shape)
             if not loopContext then
                reject(nil, statement.op .. " applies to the outer map loop and is not admitted")
             end
-            out[#out + 1] = {
-               op = statement.op == "break" and "vbreak" or "vcontinue",
-               mask = statementMask,
-               live = loopContext.live, executing = loopContext.executing,
-               source = statement.source,
-            }
+            out[#out + 1] = rewriteRules.exit(statement, statementMask, loopContext)
          else
             reject(nil, "statement " .. tostring(statement.op) .. " has no lane-parallel form")
          end
