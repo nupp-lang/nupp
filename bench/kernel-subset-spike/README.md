@@ -105,6 +105,14 @@ Run the scalar-source SIMD differential separately:
 bench/kernel-subset-spike/simd.sh
 ```
 
+Run the corrected binary32 differential, which is what admits `min`, `max` and
+`fma` to the subset:
+
+```sh
+bench/kernel-subset-spike/mandelbrot.sh corrected
+luajit bench/kernel-subset-spike/corrected_main.lua
+```
+
 It compares ordinary Nupp, forced-scalar C, and required-SIMD C byte-for-byte
 at counts 0, 1, 3, 4, 5, 7, 8, 33, and 1000. Those counts exercise no complete
 group, exact groups, and every relevant scalar tail. Inputs include decimals
@@ -200,10 +208,21 @@ The scalar subset currently covers:
   single-precision and wrapping 32-bit instructions. A binary32 operation over
   binary32 operands computed in binary64 and rounded once is bit-identical to
   the native instruction, because 53 >= 2 * 24 + 2, so this is an exact lowering
-  rather than a relaxation. `min`, `max`, and `fma` are deliberately not
-  admitted yet: their `nupp.math` implementations canonicalize NaNs and
-  compensate rounding in ways a native instruction may not match, and each owes
-  a differential test before it enters;
+  rather than a relaxation;
+- `min`, `max`, and `fma`, which that argument does not cover, through a
+  correcting helper. A differential over every interesting binary32 value --
+  both zeroes, both subnormal extremes, both finite extremes, both infinities,
+  and canonical, payload and signalling NaN -- found they disagree with `fminf`,
+  `fmaxf` and `fmaf` in exactly two respects and nowhere else. `nupp.math.f32`
+  canonicalizes every NaN where the instruction propagates a payload, and `min`
+  and `max` answer with that canonical NaN where IEEE `minNum` answers with
+  whichever operand is not NaN. Nothing else differs: not signed zero, not
+  subnormals, not overflow, not any ordinary value. So each lowers to the
+  instruction plus a select, one extra operation for `fma` and a compare pair
+  for `min` and `max`. `corrected.nupp` and `corrected_main.lua` are the
+  standing proof, over 3375 cases through the lane body, the forced-scalar
+  body, and ordinary Nupp, compared as bits rather than as numbers because the
+  question is NaN payloads and signed zero and `==` answers neither;
 - established `float`, `int32`, and `uint32` parameters using matching private
   C ABI slots;
 - mutable locals, simultaneous assignment, branches, nested scalar loops,

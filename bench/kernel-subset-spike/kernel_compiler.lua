@@ -446,6 +446,17 @@ local function parseKernel(source, filename, checked)
          ["nupp.math.f32.mul"] = {op = "f32_mul", arity = 2, from = "f32", result = "f32"},
          ["nupp.math.f32.div"] = {op = "f32_div", arity = 2, from = "f32", result = "f32"},
          ["nupp.math.f32.sqrt"] = {op = "f32_sqrt", arity = 1, from = "f32", result = "f32"},
+         -- These three are not covered by the double-rounding argument the
+         -- arithmetic above rests on. A differential over every interesting
+         -- binary32 value found that they disagree with fminf, fmaxf and fmaf
+         -- in exactly one respect each and nowhere else: nupp.math.f32
+         -- canonicalizes every NaN where the instruction propagates a payload,
+         -- and min/max return that canonical NaN where IEEE minNum returns the
+         -- operand that is not NaN. Both are repaired by a select, so they are
+         -- admitted with one rather than left out.
+         ["nupp.math.f32.min"] = {op = "f32_min", arity = 2, from = "f32", result = "f32"},
+         ["nupp.math.f32.max"] = {op = "f32_max", arity = 2, from = "f32", result = "f32"},
+         ["nupp.math.f32.fma"] = {op = "f32_fma", arity = 3, from = "f32", result = "f32"},
          ["nupp.math.i32.wrap"] = {op = "numeric_cast", arity = 1, from = "f64", result = "i32"},
          ["nupp.math.i32.add"] = {op = "i32_add", arity = 2, from = "i32", result = "i32"},
          ["nupp.math.i32.sub"] = {op = "i32_sub", arity = 2, from = "i32", result = "i32"},
@@ -707,6 +718,9 @@ local function parseKernel(source, filename, checked)
                end
                if fixed.arity == 1 then
                   return {op = fixed.op, value = args[1], type = fixed.result, source = site(node)}
+               end
+               if fixed.arity == 3 then
+                  return {op = fixed.op, args = args, type = fixed.result, source = site(node)}
                end
                return {op = fixed.op, left = args[1], right = args[2],
                   type = fixed.result, source = site(node)}
@@ -1057,6 +1071,15 @@ end
 local FIXED_BINARY = {
    f32_add = "f32", f32_sub = "f32", f32_mul = "f32", f32_div = "f32",
    i32_add = "i32", i32_sub = "i32", i32_mul = "i32",
+}
+-- Operations whose native instruction is right about the value and wrong about
+-- NaN, and the C helper that repairs it. Emitting the bare instruction would let
+-- an AOT build change bits that `nupp.math.f32.toBits` can read back, so each
+-- carries its correction rather than being left out of the subset.
+local FIXED_CORRECTED = {
+   f32_min = {element = "f32", arity = 2, helper = "nupp_f32_min"},
+   f32_max = {element = "f32", arity = 2, helper = "nupp_f32_max"},
+   f32_fma = {element = "f32", arity = 3, helper = "nupp_f32_fma"},
 }
 local FIXED_OPERATOR = {
    f32_add = "+", f32_sub = "-", f32_mul = "*", f32_div = "/",
@@ -1490,6 +1513,27 @@ local function vectorizeLoop(ir, reject, shape)
          local chosen, vector = laneOp("sqrt", "f32")
          return {op = chosen, args = {numericVector(node.value, "f32")},
             element = "f32", type = vector, source = node.source}, true
+      elseif FIXED_CORRECTED[op] then
+         local corrected = FIXED_CORRECTED[op]
+         -- Same width rule as the plain fixed-width operations: a gang without
+         -- lanes of this width would have to compute it wider and drop a
+         -- rounding the source asked for.
+         local vector = lanesVectorType(corrected.element)
+         if vector ~= corrected.element .. "x" .. tostring(shape.lanes) then
+            reject(nil, "an explicit " .. corrected.element .. " operation needs "
+               .. corrected.element .. " lanes, and " .. shape.name .. " has none")
+         end
+         local args = {}
+         if corrected.arity == 3 then
+            for i, argument in ipairs(node.args) do
+               args[i] = numericVector(argument, corrected.element)
+            end
+         else
+            args[1] = numericVector(node.left, corrected.element)
+            args[2] = numericVector(node.right, corrected.element)
+         end
+         return {op = "vcorrected." .. vector, helper = corrected.helper, args = args,
+            element = corrected.element, type = vector, source = node.source}, true
       elseif op == "math" then
          local args = {}
          for i, arg in ipairs(node.args) do
@@ -1823,6 +1867,20 @@ local function verifyIR(ir)
       elseif node.op == "f32_sqrt" then
          assert(node.type == "f32" and node.value.type == "f32", "invalid binary32 square root")
          verifyExpr(node.value, values)
+      elseif FIXED_CORRECTED[node.op] then
+         local corrected = FIXED_CORRECTED[node.op]
+         if corrected.arity == 3 then
+            assert(node.type == corrected.element and #node.args == 3, "invalid fused operation")
+            for _, argument in ipairs(node.args) do
+               assert(argument.type == corrected.element, "invalid fused operand")
+               verifyExpr(argument, values)
+            end
+         else
+            assert(node.type == corrected.element and node.left.type == corrected.element
+               and node.right.type == corrected.element, "invalid corrected binary operation")
+            verifyExpr(node.left, values)
+            verifyExpr(node.right, values)
+         end
       elseif node.op == "constant_i32" then
          assert(node.type == "i32", "integer constant type")
       elseif node.op == "constant" then
@@ -2084,6 +2142,16 @@ local function verifyIR(ir)
             verifyLaneExpr(node.args[1], values)
             verifyLaneExpr(node.args[2], values)
             verifyLaneExpr(node.args[3], values)
+         elseif node.op:match("^vcorrected%.") then
+            local vector = node.op:match("^vcorrected%.(%w+)$")
+            local helpers = {nupp_f32_min = 2, nupp_f32_max = 2, nupp_f32_fma = 3}
+            assert(node.type == vector and laneTypes[vector] and vector ~= MASK
+               and helpers[node.helper] == #node.args,
+               "invalid corrected lane operation")
+            for _, argument in ipairs(node.args) do
+               assert(argument.type == vector, "invalid corrected lane operand")
+               verifyLaneExpr(argument, values)
+            end
          elseif node.op == "vmath" then
             assert(node.type == shape.vectorFor.f64 and laneMath[node.intrinsic],
                "invalid lane math operation")
@@ -2385,6 +2453,20 @@ local function renderExpr(node)
       end
       return "((" .. ("ks_" .. node.type) .. "){" .. table.concat(parts, ", ") .. "})"
    end
+   if node.op:match("^vcorrected%.") then
+      -- One scalar helper call per lane, the same helper the scalar body calls,
+      -- so the correction cannot be right in one form and wrong in the other.
+      local vector = node.op:match("^vcorrected%.(%w+)$")
+      local parts = {}
+      for lane = 0, tonumber(vector:match("x(%d+)$")) - 1 do
+         local args = {}
+         for i, argument in ipairs(node.args) do
+            args[i] = renderExpr(argument) .. "[" .. lane .. "]"
+         end
+         parts[#parts + 1] = node.helper .. "(" .. table.concat(args, ", ") .. ")"
+      end
+      return "((ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "})"
+   end
    if node.op == "vmath" then
       -- One scalar call per lane, rendered through the ordinary math path so the
       -- lane-parallel form cannot drift from the scalar one. Clang recognizes
@@ -2413,6 +2495,16 @@ local function renderExpr(node)
          .. " nupp_u32(" .. right .. ")))"
    end
    if node.op == "f32_sqrt" then return "sqrtf(" .. renderExpr(node.value) .. ")" end
+   if FIXED_CORRECTED[node.op] then
+      local corrected = FIXED_CORRECTED[node.op]
+      local parts = {}
+      if corrected.arity == 3 then
+         for i, argument in ipairs(node.args) do parts[i] = renderExpr(argument) end
+      else
+         parts[1], parts[2] = renderExpr(node.left), renderExpr(node.right)
+      end
+      return corrected.helper .. "(" .. table.concat(parts, ", ") .. ")"
+   end
    if node.op == "raw" then return node.text end
    if node.op == "narrow_f64_f32" then return "(float)(" .. renderExpr(node.value) .. ")" end
    if node.op == "widen_f32_f64" then return "((double)" .. renderExpr(node.value) .. ")" end
@@ -2510,6 +2602,7 @@ local function renderC(ir)
    local function emit(line) lines[#lines + 1] = line or "" end
    emit("/* Generated from verified test-only native C IR. */")
    emit("#include <math.h>")
+   emit("#include <string.h>")
    emit("#include <stdbool.h>")
    emit("#include <stddef.h>")
    emit("#include <stdint.h>")
@@ -2592,6 +2685,28 @@ local function renderC(ir)
    emit("    uint32_t shifted = value >> shift;")
    emit("    if ((value & UINT32_C(0x80000000)) != 0u) shifted |= ~(UINT32_MAX >> shift);")
    emit("    return (int32_t)shifted;")
+   emit("}")
+   emit("")
+   -- Canonical quiet NaN, as nupp.math.f32 defines it. min and max additionally
+   -- differ from IEEE minNum: a NaN operand makes the result NaN here, where
+   -- fminf and fmaxf return the operand that is not NaN.
+   emit("static inline __attribute__((unused)) float nupp_f32_nan(void) {")
+   emit("    uint32_t bits = UINT32_C(0x7fc00000);")
+   emit("    float out;")
+   emit("    memcpy(&out, &bits, 4);")
+   emit("    return out;")
+   emit("}")
+   emit("static inline __attribute__((unused)) float nupp_f32_min(float left, float right) {")
+   emit("    if (left != left || right != right) return nupp_f32_nan();")
+   emit("    return fminf(left, right);")
+   emit("}")
+   emit("static inline __attribute__((unused)) float nupp_f32_max(float left, float right) {")
+   emit("    if (left != left || right != right) return nupp_f32_nan();")
+   emit("    return fmaxf(left, right);")
+   emit("}")
+   emit("static inline __attribute__((unused)) float nupp_f32_fma(float a, float b, float c) {")
+   emit("    float out = fmaf(a, b, c);")
+   emit("    return out == out ? out : nupp_f32_nan();")
    emit("}")
    emit("")
    emit("static inline __attribute__((unused)) double nupp_min2(double left, double right) {")
