@@ -10,6 +10,7 @@ package.path = root .. "/build/?.lua;" .. package.path
 local lane = require("nupp.compiler.aot.lane")
 local intensity = require("nupp.compiler.aot.intensity")
 local admit = require("nupp.compiler.aot.admit")
+local lower = require("nupp.compiler.aot.lower")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local irVerify = require("nupp.compiler.aot.verify")
 local irText = require("nupp.compiler.aot.text")
@@ -102,6 +103,19 @@ local function parseKernel(source, filename, checked)
       diagnostics[#diagnostics + 1] = diagnostic(filename, node, message)
       error(STOP, 0)
    end
+
+   -- Where a width may change is `nupp.compiler.aot.lower`'s. It reports by
+   -- position rather than by node, because what it refuses is about values
+   -- meeting and not about syntax.
+   local loweringContext = {
+      reject = function(at, message)
+         diagnostics[#diagnostics + 1] = {
+            file = filename, line = at and at.line or 1,
+            column = at and at.column or 1, message = message,
+         }
+         error(STOP, 0)
+      end,
+   }
 
    local ok, ir = pcall(function()
       local applications, helperDecls, structDecls = {}, {}, {}
@@ -676,15 +690,7 @@ local function parseKernel(source, filename, checked)
                   -- A helper takes ordinary Nupp values, so a fixed-width
                   -- argument widens into it exactly as it would at any other
                   -- binary64 operator.
-                  if arg.type ~= wanted and wanted == "f64" and arg.type == "f32" then
-                     args[i] = {op = "widen_f32_f64", value = arg, type = "f64", source = arg.source}
-                  elseif arg.type ~= wanted and wanted == "f64"
-                     and (arg.type == "i32" or arg.type == "u32")
-                  then
-                     args[i] = {op = "int_to_f64", value = arg, type = "f64", source = arg.source}
-                  elseif arg.type ~= wanted then
-                     reject(node, "native helper argument type does not match")
-                  end
+                  args[i] = lower.helperArgument(arg, wanted, site(node), loweringContext)
                end
                return {
                   op = "helper_call", helper = helper.name, cName = helper.cName,
@@ -699,31 +705,10 @@ local function parseKernel(source, filename, checked)
       end
 
       local localSerial = 0
-      local function sourceValueType(spelling)
-         return spelling == "boolean" and "bool"
-            or (spelling == "number" or spelling == "integer") and "f64"
-            or spelling == "float" and "f32"
-            or spelling == "uint32" and "u32"
-            or spelling == "int32" and "i32" or nil
-      end
+      local sourceValueType = lower.sourceValueType
 
       local function convertValue(value, targetType, at)
-         if value.type == targetType then return value end
-         if targetType == "f64" and (value.type == "i32" or value.type == "u32") then
-            return {op = "int_to_f64", value = value, type = "f64", source = site(at)}
-         end
-         if targetType == "f64" and value.type == "f32" then
-            return {op = "widen_f32_f64", value = value, type = "f64", source = site(at)}
-         end
-         if targetType == "f32" and value.type == "f64" then
-            return {op = "narrow_f64_f32", value = value, type = "f32", source = site(at)}
-         end
-         if (targetType == "i32" or targetType == "u32")
-            and (value.type == "f64" or value.type == "i32" or value.type == "u32")
-         then
-            return {op = "numeric_cast", value = value, type = targetType, source = site(at)}
-         end
-         reject(at, "native value cannot convert from " .. tostring(value.type) .. " to " .. tostring(targetType))
+         return lower.convert(value, targetType, site(at), loweringContext)
       end
 
       local function lowerBlock(rawStats, environment)

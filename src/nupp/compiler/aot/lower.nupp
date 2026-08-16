@@ -1,0 +1,121 @@
+--[[
+Turning admitted source into AOT IR.
+
+The front end of the AOT backend: it reads the checked syntax tree and produces
+the IR the verifier proves and the emitter prints. Everything here is about what
+the source said; nothing here decides what the IR means.
+
+The one rule worth stating separately is where a width may change. Ordinary Nupp
+arithmetic is binary64, and `float`, `int32` and `uint32` are establishment facts
+rather than arithmetic types -- so a value crosses between them only at a
+conversion this module writes down, never as a side effect of an operator. A
+narrowing that is not in the IR is a narrowing that did not happen.
+]]
+
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local lower = {}
+
+--- What lowering needs from the caller.
+record lower.Context
+    --- Reports a construct the subset does not admit, naming where it was
+    --- written. Does not return.
+    reject: function(scalarIR.Source?, string): nil
+end
+
+--- The IR type one source spelling denotes, or nothing when it denotes none.
+---
+--- `integer` lowers to binary64 rather than to a 32-bit type: it is Nupp's
+--- ordinary number with a range refinement, and giving it an integer
+--- representation here would change what arithmetic on it answers.
+function lower.sourceValueType(spelling: string): scalarIR.Type?
+    if spelling == "boolean" then
+        return "bool"
+    elseif spelling == "number" or spelling == "integer" then
+        return "f64"
+    elseif spelling == "float" then
+        return "f32"
+    elseif spelling == "uint32" then
+        return "u32"
+    elseif spelling == "int32" then
+        return "i32"
+    end
+
+    return nil
+end
+
+--- The conversion that takes `value` to `targetType`, if one exists.
+---
+--- Written into the IR rather than left implicit, because these are the only
+--- places a width changes and an emitter that inferred them could infer a
+--- different set.
+function lower.conversion(value: scalarIR.Expr, targetType: scalarIR.Type, source: scalarIR.Source?): scalarIR.Expr?
+    if value.type == targetType then
+        return value
+    end
+
+    local op: string? = nil
+    if targetType == "f64" and (value.type == "i32" or value.type == "u32") then
+        op = "int_to_f64"
+    elseif targetType == "f64" and value.type == "f32" then
+        op = "widen_f32_f64"
+    elseif targetType == "f32" and value.type == "f64" then
+        op = "narrow_f64_f32"
+    elseif (
+        targetType == "i32" or targetType == "u32"
+    ) and (value.type == "f64" or value.type == "i32" or value.type == "u32") then
+        op = "numeric_cast"
+    end
+    if op == nil then
+        return nil
+    end
+
+    return new scalarIR.Convert(op = op as any, value = value, type = targetType, source = source)
+end
+
+--- The same, refusing what has no conversion.
+function lower.convert(
+    value: scalarIR.Expr,
+    targetType: scalarIR.Type,
+    source: scalarIR.Source?,
+    context: lower.Context
+): scalarIR.Expr
+    local converted = lower.conversion(value, targetType, source)
+    if converted == nil then
+        context.reject(
+            source,
+            "native value cannot convert from " .. tostring(value.type) .. " to " .. tostring(targetType)
+        )
+    end
+
+    return converted as scalarIR.Expr
+end
+
+--- One argument brought to the type a helper parameter takes.
+---
+--- A helper takes ordinary Nupp values, so a fixed-width argument widens into it
+--- exactly as it would at any other binary64 operator. Nothing narrows: a helper
+--- that wanted binary32 would have to say so, and passing one silently would
+--- change the answer.
+function lower.helperArgument(
+    value: scalarIR.Expr,
+    wanted: scalarIR.Type,
+    source: scalarIR.Source?,
+    context: lower.Context
+): scalarIR.Expr
+    if value.type == wanted then
+        return value
+    end
+    if wanted ~= "f64" then
+        context.reject(source, "native helper argument type does not match")
+    end
+
+    local widened = lower.conversion(value, "f64", value.source)
+    if widened == nil then
+        context.reject(source, "native helper argument type does not match")
+    end
+
+    return widened as scalarIR.Expr
+end
+
+return lower
