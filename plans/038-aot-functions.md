@@ -947,6 +947,96 @@ Do not add a construct merely because Clang or the host CPU can execute it. The
 question is whether Nupp can preserve its contract across every backend and
 target.
 
+## Turning it on
+
+The delivery stages above are about what the backend can do. This is about what
+stands between that and a user writing `@aot`, running `nupp build`, and getting
+native code -- written down after the backend landed under `src/`, because
+several of these were only visible from there.
+
+Two goals hide in "make it real", and the smaller one is the plumbing. A user
+writing a natural kernel today meets *one `@aot` function per file*, or *a
+uniform inner loop gets no lanes*, long before meeting *it is not wired into the
+build*. Most of what makes the feature feel unfinished is the width of the
+admitted subset, not the absence of a build step.
+
+### The decision that gates the rest
+
+What happens where the generated C cannot be compiled.
+
+The emitter needs `__attribute__((vector_size))` and `__builtin_convertvector`.
+GCC 9 and later and every Clang have both; **MSVC has neither**, so the Windows
+job cannot run this backend as written at any effort. And `aot=require` is
+defined to fail the build when the toolchain is missing, which sits against the
+N3 exit criterion of no undeclared host-tool dependency.
+
+Make it opt-in per project and honest about targets. Default `aot=off`; a
+project that wants native code sets `require` and thereby accepts a Clang or GCC
+dependency, pinned by version into the cache key. Windows is `off` or `emit-c`
+until someone wants `clang-cl`. That is a supported-platform statement rather
+than a disclaimer -- every native feature has one -- and it is the only answer
+that does not either bundle a compiler or rewrite the backend.
+
+The alternative that removes the toolchain entirely is direct machine-code
+emission. That is a different project, and the backend review gate above is
+where it would be argued.
+
+### Link time, not run time
+
+Compile the generated C into the project's own shared library during the build,
+and have the generated binding load it. Do not map code at run time.
+
+That choice is what makes a first release tractable: W^X, `MAP_JIT`, the
+hardened Apple policy, executable-memory limits, worker code sharing and
+retirement, and native hot-reload invalidation all exist only because code is
+mapped at run time. None of them is needed by a shared library the loader
+already brought in. They return if and when direct emission does.
+
+The machinery is largely present: `kind = "c"` in
+`src/nupp/compiler/build/deps.nupp` already discovers a compiler, captures its
+version, compiles sources and produces a shared library into `outDir/lib/`.
+Producing and loading a native library from a build is not new ground here. What
+is new is doing it for compiler-generated C, keyed on the IR that produced it.
+
+### Order
+
+1. **Widen the subset.** Uniform inner loops, which today get no lanes at all
+   rather than a scalar inner loop over lane bodies. More than one `@aot`
+   function per file. The uniform multiple binding that produces a
+   `helper_result` node no verifier rule covers. These are what a user meets
+   first, and none of them is a design question.
+2. **Feature tiers.** Both gang shapes are 32 bytes, which is one AVX register
+   and two NEON registers, so there is no gang for x86-64 below AVX. Either a
+   16-byte shape or a stated refusal, and then a decision between pinning one
+   baseline at build time and multiversioning with runtime dispatch.
+3. **`aot=emit-c` in `nupp build`.** Exercises policy selection, artifact
+   naming, the cache key and its validation with no toolchain in play, so it
+   cannot fail for a reason unrelated to the feature.
+4. **The cache key and its validation**, before anything executable exists. A
+   stale artifact that validates is the only failure in this whole feature that
+   produces wrong answers rather than slow builds. While the artifact is a text
+   file, getting it wrong costs a regenerated file.
+5. **`aot=require`.** Compile, link, load, dispatch.
+
+Mixed-width gang sizing is not on this path. It is a performance property and
+has never blocked a correct answer.
+
+### What the checks have to cover first
+
+Everything about the lane lowering was measured on Apple arm64 until
+`bench/kernel-subset-spike/crosscheck.sh` ran natively elsewhere, and the first
+native run found a defect the local one could not: Apple Clang does not
+implement `-Wpsabi`, so a 32-byte vector below AVX -- which has no register class
+on x86-64 and no stable ABI at a function boundary -- was silent locally and an
+error on Linux. A second local finding, a trap at `-march=x86-64-v3`, turned out
+to be the emulator rather than the codegen, and only the native run could say
+so.
+
+Both directions of that are the point. Before `require` compiles anything for a
+user, the differential has to run on every target tier that is claimed, natively,
+and with the compiler the user will actually have -- which means adding GCC
+beside Clang, since step 5 hands the generated C to whatever is installed.
+
 ## Verification matrix
 
 Each compiler slice runs focused annotation, checking, generation, ownership,
