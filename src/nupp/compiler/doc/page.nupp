@@ -488,6 +488,7 @@ function page.render(
     local shellClass = home and "nuppdoc-shell nuppdoc-home-shell" or "nuppdoc-shell"
     local contentClass = home and "nuppdoc-content nuppdoc-home-content" or "nuppdoc-content"
     local actions = {}
+    local mobileOutlineAction = ""
     if not home then
         actions[
             #actions + 1
@@ -497,9 +498,7 @@ function page.render(
             .. ' title="Open page navigation">'
             .. ICONS.menu
             .. '</button>'
-        actions[
-            #actions + 1
-        ] = '<button class="nuppdoc-icon-link nuppdoc-mobile-outline-toggle"'
+        mobileOutlineAction = '<button class="nuppdoc-icon-link nuppdoc-mobile-outline-toggle"'
             .. ' type="button" data-mobile-outline-toggle aria-controls="nuppdoc-outline"'
             .. ' aria-expanded="false" aria-label="Open table of contents"'
             .. ' title="Open table of contents">'
@@ -585,7 +584,7 @@ function page.render(
         .. 'http://nupp-lang.org/modules/nupp/index.html">API</a><a href="/playground/">Playground</a></div><div class="nuppdoc-actions">'
         .. table.concat(
         actions
-    ) .. search .. '</div></nav></header>' .. (
+    ) .. search .. mobileOutlineAction .. '</div></nav></header>' .. (
         home
         and ""
         or '<button class="nuppdoc-sidebar-backdrop" type="button"'
