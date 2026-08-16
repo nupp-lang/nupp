@@ -376,6 +376,32 @@ Both are nominal. Two records with identical fields are different types, and
 neither is assignable to the other. A record does erode into a structural shape
 with the same fields, so width subtyping works one way only.
 
+## Records remain ordinary Lua tables
+
+A record declaration creates the table and metatable pattern ordinary Lua code
+already uses. It adds a nominal type to checking but no class runtime or hidden
+instance wrapper. The [record lowering](#records) uses a table and
+`setmetatable`, while [metamethod
+contracts](../metamethods.md#declaring-a-contract) remain explicit when an API
+needs operator behavior.
+
+## Methods do not require a shared interface
+
+An instance reaches its inline methods through the record table, so a concrete
+record API does not need an interface merely to call `file:read()`. Use an
+[interface](interfaces.md#satisfaction-is-structural) when several unrelated
+types must satisfy the same structural contract, not as plumbing between a
+record and an ownership view of that record.
+
+## Constructor policies do not wrap instances
+
+An affine constructor result adds a checker obligation to the record it already
+builds. The value keeps the record's methods and runtime identity, while
+[lexical destruction](../ownership.md#consumption-and-lexical-destruction)
+discharges its cleanup. [Affine constructor
+policies](affine-types.md#constructors-can-introduce-the-policy) define the
+complete result rule.
+
 ## Diagnostics
 
 - **NUPP2201**: a struct field is not reifiable, or a struct nests a

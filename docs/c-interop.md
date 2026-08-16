@@ -395,6 +395,31 @@ configuration, [ownership](start/ownership.md) for the resource workflow, and
 the [ownership reference](ownership.md) for output parameters, callbacks,
 pinning, and raw-pointer escape hatches.
 
+## Checked bindings still use LuaJIT FFI
+
+Nupp does not replace LuaJIT FFI or insert a foreign-call runtime. A checked
+[`cdef` binding](#hand-write-a-small-binding) lowers to `ffi.cdef`, a namespace
+lookup, and the same native call. The [typed FFI
+operations](#typed-ffi-operations) likewise retain their LuaJIT representation
+while the checker validates their type arguments.
+
+## Headers leave lifetime behavior unspecified
+
+A C declaration says that a value is a pointer, but not whether the caller
+must free it, whether the callee retains it, or how long a derived pointer
+remains valid. Add those facts under [lifetime
+behavior](#describe-lifetime-behavior) after importing a header. The [ownership
+reference](ownership.md#borrowing-and-pinning) defines the corresponding
+borrowing, pinning, retention, and cleanup contracts.
+
+## Ownership contracts preserve the native ABI
+
+`affine(T, cleanup)`, `borrows`, `exclusive`, and `countedBy` describe checked
+relationships around a call; they do not add fields or change its C signature.
+An [affine pointer keeps its ABI representation](ownership.md#c-interop), and a
+[counted pointer adapter](#counted-pointer-adapters) projects a checked span
+onto the pointer and count the function already accepts.
+
 ## Diagnostics
 
 - **NUPP2201**: a struct field is not reifiable, which a `T[?]` field reports

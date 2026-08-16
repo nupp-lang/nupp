@@ -473,6 +473,31 @@ Because this is a `cdef function`, the compiler trusts the declaration. The
 same annotation on a visible Nupp function would be checked as an upper bound
 on its inferred body effects.
 
+## Effect annotations remain optional
+
+The checker infers effects for visible functions whether or not they carry
+`@effects`. Add a contract only when its complete upper bound belongs to the
+API or must remain stable across implementation changes. [Inference without an
+annotation](#inference-without-an-annotation) explains the boundary, and
+[trusted declarations](#where-contracts-are-checked-and-trusted) cover code
+whose body is unavailable.
+
+## Contracts add no runtime work
+
+`@effects` is erased after checking. It adds no guard, wrapper, allocation, or
+calling-convention change. The compiler uses the summary to reject an invalid
+contract and to decide whether an [optimization
+proof](#optimizer-interaction) remains valid around a call.
+
+## Effects do not replace ownership
+
+Effects describe what may happen during a call; ownership describes which
+value carries a cleanup, access, or lifetime obligation. A function may be
+effect-free while forwarding an affine value, or effectful while accepting
+only GC-managed values. See [ownership and affine
+types](ownership.md#public-capability-contracts) for the separate public
+capability contract.
+
 ## Diagnostic checklist
 
 When an effect contract reports `NUPP2112`:

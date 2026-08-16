@@ -65,6 +65,28 @@ A `struct` lowers to FFI cdata with a fixed layout, and a C header imports as
 checked declarations. Everything else is ordinary Lua at run time: the types are
 gone, and what remains is what you would have written by hand.
 
+## Existing Lua needs no conversion
+
+A valid LuaJIT program remains valid Nupp source when it stays in a `.lua` file.
+Rename a file to `.g.nupp` only when it needs [typed
+syntax](../type-system/overview.md), then move it to `.nupp` when the strict
+floor is useful. Required modules may mix these extensions in one project.
+
+## File extensions select checking, not module identity
+
+The extension chooses the typed layer and strict floor; it does not become part
+of the module name. `require("models")` continues to resolve `models.g.nupp`
+after it becomes `models.nupp`. [Module forms](../modules.md#module-forms) keep
+the same local, returned-table, and global meanings throughout that migration.
+
+## Types usually disappear before execution
+
+Annotations, generics, interfaces, affine policies, and most other checked
+constructs erase when source lowers to Lua. A `struct` remains FFI cdata because
+its C layout is the feature, and [C declarations](../c-interop.md) remain
+runtime bindings because they load native symbols. Ordinary typed code acquires
+no type registry or runtime checker.
+
 ## Diagnostics
 
 - **NUPP1006**: the typed layer appears in a `.lua` file, which is plain Lua.

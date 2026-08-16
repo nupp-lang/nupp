@@ -236,6 +236,31 @@ Results cross the worker boundary as validated structural blueprints; they
 cannot forge nominal identity or escape into generated Lua. Recursive algorithms
 use ordinary comptime calls or loops and are governed by those limits.
 
+## Comptime calls never enter runtime
+
+A `comptime function` runs while source is checked and contributes only its
+resulting type or pack. It emits no callable function, cache table, or runtime
+branch. [Const parameters](#const-parameters) erase by the same boundary. The
+two [reified
+exceptions](../concepts/strictness.md#erasure-has-two-exceptions) remain because
+structs carry layout and C declarations bind native symbols.
+
+## Parentheses invoke type generators
+
+`Optional(string)` calls a compile-time function; `Box<string>` applies a
+declared generic type. The distinction lets built-in and user-defined
+generators share one call syntax. [Affine type
+generation](affine-types.md#why-parentheses-instead-of-angle-brackets) uses the
+same rule rather than introducing ownership-specific generic syntax.
+
+## Structural generation cannot mint nominal identity
+
+A type function can assemble a structural result or return an existing nominal
+type, but it cannot declare a new record, interface, method, or module member.
+[Records and structs](records.md) receive identity from declarations, and
+[associated types](associated-types.md) attach declaration-owned type answers
+without allowing an evaluator to forge a new nominal name.
+
 ## Next
 
 - [packs.md](packs.md): value sequences and `unpackof`.
