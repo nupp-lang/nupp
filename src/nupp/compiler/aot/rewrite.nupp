@@ -45,6 +45,9 @@ record rewrite.State
     --- Helper parameters bound to lane vectors while one call is inlined.
     helperBindings: {[string]: lane.Expr}
 
+    --- Pure helpers by name, for inlining a call into the lane body.
+    helpers: {[string]: any}
+
     --- Reports a construct this pass cannot represent.
     reject: function(string): nil
 end
@@ -210,6 +213,66 @@ function rewrite.varying(node: scalarIR.Expr, state: rewrite.State): boolean
     end
 
     return false
+end
+
+--- Brings a uniform scalar to the element its gang carries it in.
+---
+--- A binary64 gang widens everything, because every int32 and uint32 is an exact
+--- binary64 value and so is every binary32 one. A 32-bit gang has nothing to
+--- widen to, so a binary64 uniform is refused rather than narrowed: narrowing
+--- would change an answer the source did not ask to change.
+local function asElement(node: scalarIR.Expr, element: lane.Element, state: rewrite.State): scalarIR.Expr
+    if node.type == element then
+        return node
+    end
+    if element == "f64" then
+        if node.type == "f32" then
+            return new scalarIR.Convert(op = "widen_f32_f64", value = node, type = "f64", source = node.source)
+        elseif node.type == "i32" or node.type == "u32" then
+            return new scalarIR.Convert(op = "int_to_f64", value = node, type = "f64", source = node.source)
+        end
+    end
+    if element == "i32" and node.type == "u32" then
+        return node
+    end
+    -- An exact literal establishes the value, so it may enter directly.
+    if rewrite.constantFits(node, element) then
+        if element == "i32" then
+            return new scalarIR.IntConstant(
+                op = "constant_i32",
+                value = (node as scalarIR.Constant).value,
+                type = "i32",
+                source = node.source
+            )
+        else
+            return new scalarIR.Convert(op = "narrow_f64_f32", value = node, type = "f32", source = node.source)
+        end
+    end
+    state.reject("a uniform " .. tostring(node.type) .. " cannot enter " .. state.shape.name)
+
+    return node
+end
+
+--- The element a vector's name says it carries.
+local function elementOf(vector: string): lane.Element
+    return (vector:match("^(%a%d+)x") or "f64") as lane.Element
+end
+
+--- Broadcasts a uniform into every lane.
+function rewrite.splat(node: scalarIR.Expr, scalarType: lane.Element, state: rewrite.State): lane.Splat
+    local vector = state.shape.vectorFor[scalarType]
+    if vector == nil or vector == state.shape.mask then
+        state.reject("a uniform " .. tostring(node.type) .. " cannot enter " .. state.shape.name)
+    end
+    local element = elementOf(vector as string)
+
+    return new lane.Splat(
+        op = "vsplat",
+        args = {asElement(node, element, state)},
+        element = element,
+        type = vector as string,
+        source = node.source
+    )
 end
 
 return rewrite

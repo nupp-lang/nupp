@@ -22,13 +22,17 @@ A vector type is written `<element>x<lanes>`: `f64x4` is four binary64 lanes,
 lane count follows the element width and the two are never independent.
 ]]
 
+local scalarIR = require("nupp.compiler.aot.scalar")
+
 local aotLane = {}
 
 --- Where an operation came from, for a diagnostic that has to name it.
-record aotLane.Source
-    line: integer
-    column: integer
-end
+---
+--- The scalar half's, rather than a second record of the same shape: lane IR
+--- embeds scalar uniforms, so it already depends on that vocabulary, and two
+--- structurally identical positions would be different types that no conversion
+--- exists between.
+type aotLane.Source = scalarIR.Source
 
 --- A vector type name. Not an enumeration: a shape names the vectors it uses and
 --- the verifier checks membership against that shape, so a width one target
@@ -73,7 +77,7 @@ record aotLane.Splat
     op: 'vsplat'
 
     --- The scalar expression, in the scalar IR's own vocabulary.
-    args: {any}
+    args: {scalarIR.Expr}
 
     --- The element the scalar was brought to before broadcasting.
     element: aotLane.Element

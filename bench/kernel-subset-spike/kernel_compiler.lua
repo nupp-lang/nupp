@@ -1156,6 +1156,7 @@ local function vectorizeLoop(ir, reject, shape)
       varyingLocals = varyingLocals,
       refBindings = refBindings,
       helperBindings = helperBindings,
+      helpers = helperByName,
       reject = function(why) reject(nil, why) end,
    }
    local function exprVarying(node)
@@ -1230,37 +1231,11 @@ local function vectorizeLoop(ir, reject, shape)
    --- Brings a uniform scalar to the element type its gang carries it in. An
    --- f64 gang widens everything; a 32-bit gang has nothing to widen to and
    --- refuses a binary64 uniform rather than narrowing one.
-   local function scalarAsElement(node, element)
-      if node.type == element then return node end
-      if element == "f64" then
-         if node.type == "f32" then
-            return {op = "widen_f32_f64", value = node, type = "f64", source = node.source}
-         end
-         if node.type == "i32" or node.type == "u32" then
-            return {op = "int_to_f64", value = node, type = "f64", source = node.source}
-         end
-      end
-      if element == "i32" and node.type == "u32" then return node end
-      if rewriteRules.constantFits(node, element) then
-         if element == "i32" then
-            return {op = "constant_i32", value = node.value, type = "i32", source = node.source}
-         end
-         return {op = "narrow_f64_f32", value = node, type = "f32", source = node.source}
-      end
-      reject(nil, "a uniform " .. tostring(node.type) .. " cannot enter "
-         .. shape.name .. " SIMD")
-   end
-
-   --- Splats a uniform into the vector type the gang uses for `scalarType`.
+   -- `nupp.compiler.aot.rewrite` owns bringing a uniform into a lane: which
+   -- element a gang carries a value in, and what conversion that takes, is the
+   -- vocabulary's business rather than this loop's.
    local function splat(node, scalarType)
-      local vector = lanesVectorType(scalarType or node.type)
-      if not vector or vector == MASK then
-         reject(nil, "a uniform " .. tostring(node.type) .. " cannot enter "
-            .. shape.name .. " SIMD")
-      end
-      local element = shape.widen or vector:match("^(%a%d+)x") or node.type
-      return {op = "vsplat", args = {scalarAsElement(node, element)},
-         type = vector, element = element, source = node.source}
+      return rewriteRules.splat(node, scalarType or node.type, rewriteState)
    end
 
    local function boolMask(node)
