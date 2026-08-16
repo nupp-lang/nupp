@@ -466,6 +466,10 @@ record scalarIR.Param
     --- Which borrow the source wrote, so the region declaration can cite it.
     ownership: ('exclusive' | 'shared')?
 
+    --- What a span holds, as the front end admitted it. Carried so a load
+    --- through this span does not have to parse the written type again.
+    element: any?
+
     source: scalarIR.Source?
 end
 

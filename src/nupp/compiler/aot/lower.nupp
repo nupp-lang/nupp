@@ -1290,4 +1290,346 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
     return out
 end
 
+--- The span one `x.count` names, if the node is that.
+function lower.dotCount(node: cst.Node?): string?
+    if node == nil or node.kind ~= "dotIndex" then
+        return nil
+    end
+
+    local indexed = node as cst.DotIndex
+    if indexed.name == nil or (indexed.name as lexer.Token).text ~= "count" then
+        return nil
+    end
+
+    return lower.nameOf(indexed.obj)
+end
+
+--- What the kernel prototype declares.
+record lower.Signature
+    --- Every parameter, in order.
+    params: {scalarIR.Param}
+
+    --- The same, by name.
+    byName: {[string]: scalarIR.Param}
+
+    --- Only the spans, in order, which is the order their regions are numbered.
+    spans: {scalarIR.Param}
+
+    --- The writable spans. The first is the primary output, whose length bounds
+    --- the loop.
+    writes: {scalarIR.Param}
+
+    --- The readable spans.
+    reads: {scalarIR.Param}
+end
+
+--- Admits the kernel prototype's parameters.
+---
+--- Ownership is not inferred from use: a writable span has to be written
+--- `exclusive` and a readable one `borrows`, because the alias facts the
+--- generated C rests on are those borrows restated, and a mode this had to guess
+--- would be a `restrict` nobody proved.
+function lower.parameters(
+    raws: {cst.Param},
+    declarations: {[string]: cst.RecordDecl},
+    layouts: lower.Layouts,
+    context: lower.Context
+): lower.Signature
+    local signature = new lower.Signature(params = {}, byName = {}, spans = {}, writes = {}, reads = {})
+    for _, raw in ipairs(raws) do
+        local name = raw.name ~= nil and (raw.name as lexer.Token).text or nil
+        if name == nil then
+            context.reject(lower.site(raw), "every kernel parameter must be named")
+        end
+        if signature.byName[name as string] ~= nil then
+            context.reject(lower.site(raw), "duplicate kernel parameter " .. (name as string))
+        end
+
+        local spelling = lower.compactType(raw.type)
+        local mode = raw.modeTok ~= nil and (raw.modeTok as lexer.Token).text or nil
+        local at = raw.type or raw
+        local writeElement = lower.spanElement(spelling, "span%.WriteSpan", at, declarations, layouts, context)
+        local readElement = lower.spanElement(spelling, "span%.Span", at, declarations, layouts, context)
+        local region = "r" .. tostring(#signature.spans)
+
+        local param: scalarIR.Param
+        if writeElement ~= nil then
+            if mode ~= "exclusive" then
+                context.reject(lower.site(raw), "a writable float span must be declared exclusive")
+            end
+            param = new scalarIR.Param(
+                kind = "write_span",
+                name = name as string,
+                type = (writeElement as lower.Element).type,
+                region = region,
+                access = "readwrite",
+                ownership = "exclusive",
+                source = lower.site(raw)
+            )
+            param.element = writeElement
+            signature.writes[#signature.writes + 1] = param
+            signature.spans[#signature.spans + 1] = param
+        elseif readElement ~= nil then
+            if mode ~= "borrows" then
+                context.reject(lower.site(raw), "a readable float span must be declared borrows")
+            end
+            param = new scalarIR.Param(
+                kind = "read_span",
+                name = name as string,
+                type = (readElement as lower.Element).type,
+                region = region,
+                access = "read",
+                ownership = "shared",
+                source = lower.site(raw)
+            )
+            param.element = readElement
+            signature.reads[#signature.reads + 1] = param
+            signature.spans[#signature.spans + 1] = param
+        elseif spelling == "float" or spelling == "number" or spelling == "integer" then
+            if mode ~= nil then
+                context.reject(lower.site(raw), "a uniform float parameter has no ownership mode")
+            end
+            param = new scalarIR.Param(
+                kind = "uniform",
+                name = name as string,
+                type = spelling == "float" and "f32" or "f64",
+                sourceType = spelling,
+                source = lower.site(raw)
+            )
+        elseif spelling == "uint32" or spelling == "int32" then
+            if mode ~= nil then
+                context.reject(lower.site(raw), "a uniform integer parameter has no ownership mode")
+            end
+            param = new scalarIR.Param(
+                kind = "uniform",
+                name = name as string,
+                type = spelling == "uint32" and "u32" or "i32",
+                sourceType = spelling,
+                source = lower.site(raw)
+            )
+        else
+            context.reject(lower.site(at), "parameter type " .. spelling .. " is not admitted")
+            param = new scalarIR.Param(kind = "uniform", name = name as string, type = "f64")
+        end
+
+        signature.params[#signature.params + 1] = param
+        signature.byName[name as string] = param
+    end
+
+    return signature
+end
+
+--- The borrow regions, and the complete alias matrix over them.
+---
+--- Every pair carries a fact rather than only the interesting ones: a pair with
+--- no fact is a `restrict` nobody justified, and the verifier checks the count.
+function lower.regions(spans: {scalarIR.Param}): ({scalarIR.Region}, {scalarIR.AliasFact})
+    local regions: {scalarIR.Region} = {}
+    for position, param in ipairs(spans) do
+        regions[
+            position
+        ] = new scalarIR.Region(
+            id = param.region as string,
+            param = param.name,
+            access = param.access as any,
+            proof = tostring(param.ownership) .. "_borrow"
+        )
+    end
+
+    local facts: {scalarIR.AliasFact} = {}
+    for left = 1, #spans do
+        for right = left + 1, #spans do
+            local hasWrite = spans[left].kind == "write_span" or spans[right].kind == "write_span"
+            facts[
+                #facts + 1
+            ] = new scalarIR.AliasFact(
+                relation = hasWrite and "disjoint" or "may_alias",
+                left = spans[left].region as string,
+                right = spans[right].region as string,
+                proof = hasWrite and "exclusive_borrow" or "shared_borrows"
+            )
+        end
+    end
+
+    return regions, facts
+end
+
+--- The one clause of a guard that does nothing but call `error`.
+---
+--- Both guards have this shape, and it is the shape that makes them checkable:
+--- a guard whose body did something else would be a guard whose failure the
+--- backend could not reason about.
+function lower.guardClause(stat: cst.Node?, shapeWhy: string, bodyWhy: string, context: lower.Context): cst.IfClause
+    local branch = stat as cst.IfStmt
+    if stat == nil or stat.kind ~= "ifStmt" or #(branch.clauses or {}) ~= 1 or branch.elseClause ~= nil then
+        context.reject(lower.site(stat), shapeWhy)
+    end
+
+    local clause = (branch.clauses as {cst.IfClause})[1]
+    local body = clause.body ~= nil and (clause.body as cst.Block).stats or {}
+    local first = body[1]
+    local call = first ~= nil and first.kind == "callStmt" and (first as cst.CallStmt).expr or nil
+    if #body ~= 1 or call == nil or call.kind ~= "call" or lower.nameOf((call as cst.Call).obj) ~= "error" then
+        context.reject(lower.site(stat), bodyWhy)
+    end
+
+    return clause
+end
+
+--- The length agreements one guard proves.
+---
+--- Every span but the primary output has to be covered, because the loop indexes
+--- them all with one counter and a shorter one would be read past its end.
+function lower.lengthGuards(
+    stat: cst.Node,
+    clause: cst.IfClause,
+    signature: lower.Signature,
+    context: lower.Context
+): {scalarIR.Guard}
+    local primary = signature.writes[1]
+    local guarded: {[string]: scalarIR.Source} = {}
+
+    --- One comparison, or a chain of them joined by `or`.
+    local function collect(expr: cst.Node?): nil
+        local operator = expr as cst.Binop
+        if expr ~= nil and expr.kind == "binop" and operator.op ~= nil and (
+            operator.op as lexer.Token
+        ).text == "or" then
+            collect(operator.lhs)
+            collect(operator.rhs)
+
+            return
+        end
+        if expr == nil or expr.kind ~= "binop" or operator.op == nil or (operator.op as lexer.Token).text ~= "~=" then
+            context.reject(lower.site(expr or stat), "the guard may only compare span counts with ~=")
+        end
+
+        local left, right = lower.dotCount(operator.lhs), lower.dotCount(operator.rhs)
+        local other: string? = nil
+        if left == primary.name then
+            other = right
+        elseif right == primary.name then
+            other = left
+        end
+
+        local named = other ~= nil and signature.byName[other as string] or nil
+        if named == nil or named.region == nil or other == primary.name then
+            context.reject(lower.site(expr), "each guard comparison must compare the primary output with another span")
+        end
+        if guarded[other as string] ~= nil then
+            context.reject(lower.site(expr), "duplicate length guard for " .. (other as string))
+        end
+        guarded[other as string] = lower.site(expr)
+    end
+
+    collect(clause.cond)
+
+    local guards: {scalarIR.Guard} = {}
+    for _, span in ipairs(signature.spans) do
+        if span.name ~= primary.name then
+            if guarded[span.name] == nil then
+                context.reject(lower.site(stat), "the length guard does not cover span " .. span.name)
+            end
+            guards[
+                #guards + 1
+            ] = new scalarIR.Guard(
+                op = "equal_count",
+                left = primary.name,
+                right = span.name,
+                source = guarded[span.name]
+            )
+        end
+    end
+
+    return guards
+end
+
+--- The range one optional second guard proves.
+---
+--- Matched against its exact written form rather than interpreted. The generated
+--- loop reads these bounds without comparing them, so what makes that sound is
+--- that this guard was checked -- and a guard the backend only approximately
+--- understood would not be a check.
+function lower.rangeGuard(
+    stat: cst.Node,
+    clause: cst.IfClause,
+    signature: lower.Signature,
+    context: lower.Context
+): scalarIR.RangeGuard
+    local primary = signature.writes[1]
+    local written = lower.compactType(clause.cond)
+    local firstName, lastName = written:match("^([%a_][%w_]*)<1or([%a_][%w_]*)>[%a_][%w_]*%.countor")
+    local expected = firstName ~= nil and (
+        tostring(
+            firstName
+        ) .. "<1or" .. tostring(
+            lastName
+        ) .. ">" .. primary.name .. ".countor" .. tostring(firstName) .. ">" .. tostring(lastName) .. "+1"
+    ) or ""
+    if written ~= expected then
+        context.reject(
+            lower.site(clause.cond),
+            "range guard must be `first < 1 or last > output.count or first > last + 1`"
+        )
+    end
+
+    local first = signature.byName[tostring(firstName)]
+    local last = signature.byName[tostring(lastName)]
+    if first == nil
+        or last == nil
+        or first.kind ~= "uniform"
+        or last.kind ~= "uniform"
+        or first.sourceType ~= "integer"
+        or last.sourceType ~= "integer"
+    then
+        context.reject(lower.site(clause.cond), "range bounds must be uniform integer parameters")
+    end
+
+    return new scalarIR.RangeGuard(
+        first = tostring(firstName),
+        last = tostring(lastName),
+        count = primary.name,
+        source = lower.site(stat)
+    )
+end
+
+--- Admits the outer loop, and answers what it counts with.
+---
+--- Its bounds have to be the ones a guard proved, written the same way. The IR
+--- carries them and the verifier checks them, which is what lets the generated
+--- loop read them rather than checking them again per element.
+function lower.loopIndex(
+    loop: cst.Node,
+    rangeGuard: scalarIR.RangeGuard?,
+    signature: lower.Signature,
+    context: lower.Context
+): string
+    local primary = signature.writes[1]
+    if loop.kind ~= "fornumStmt" then
+        context.reject(lower.site(loop), "the final statement must be a numeric for loop")
+    end
+
+    local counted = loop as cst.FornumStmt
+    local start = counted.start
+    local literal = start ~= nil and start.kind == "number" and (start as cst.NumberLit).token or nil
+    local first = lower.nameOf(start) or (literal ~= nil and (literal as lexer.Token).text or nil)
+    if first ~= (rangeGuard ~= nil and (rangeGuard as scalarIR.RangeGuard).first or "1") then
+        context.reject(lower.site(start or loop), "kernel loop start must match its verified range")
+    end
+    if counted.step ~= nil then
+        context.reject(lower.site(counted.step), "the first subset does not admit an explicit loop step")
+    end
+
+    local stop = lower.nameOf(counted.stop) or lower.dotCount(counted.stop)
+    local wanted = rangeGuard ~= nil and (rangeGuard as scalarIR.RangeGuard).last or primary.name
+    if stop ~= wanted then
+        context.reject(lower.site(counted.stop or loop), "the loop bound must match its verified range")
+    end
+    if counted.var == nil then
+        context.reject(lower.site(loop), "the kernel loop needs an index variable")
+    end
+
+    return (counted.var as lexer.Token).text
+end
+
 return lower

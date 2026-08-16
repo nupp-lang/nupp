@@ -210,179 +210,51 @@ local function parseKernel(source, filename, checked)
          return lower.spanElement(spelling, prefix, at, structDecls, layoutState, loweringContext)
       end
 
-      local params, byName, spans, writes, reads = {}, {}, {}, {}, {}
-      for _, raw in ipairs(body.params or {}) do
-         local name = raw.name and raw.name.text
-         if not name then reject(raw, "every kernel parameter must be named") end
-         if byName[name] then reject(raw, "duplicate kernel parameter " .. name) end
-
-         local spelling = compactType(raw.type)
-         local mode = raw.modeTok and raw.modeTok.text or nil
-         local param
-         local writeElement = spanElement(spelling, "span%.WriteSpan", raw.type or raw)
-         local readElement = spanElement(spelling, "span%.Span", raw.type or raw)
-         if writeElement then
-            if mode ~= "exclusive" then
-               reject(raw, "a writable float span must be declared exclusive")
-            end
-            param = {
-               kind = "write_span", name = name, type = writeElement.type,
-               element = writeElement, region = "r" .. tostring(#spans), access = "readwrite",
-               ownership = "exclusive", source = site(raw),
-            }
-            writes[#writes + 1] = param
-            spans[#spans + 1] = param
-         elseif readElement then
-            if mode ~= "borrows" then
-               reject(raw, "a readable float span must be declared borrows")
-            end
-            param = {
-               kind = "read_span", name = name, type = readElement.type,
-               element = readElement,
-               region = "r" .. tostring(#spans), access = "read",
-               ownership = "shared", source = site(raw),
-            }
-            reads[#reads + 1] = param
-            spans[#spans + 1] = param
-         elseif spelling == "float" or spelling == "number" or spelling == "integer" then
-            if mode then reject(raw, "a uniform float parameter has no ownership mode") end
-            param = {
-               kind = "uniform", name = name, type = spelling == "float" and "f32" or "f64",
-               sourceType = spelling, source = site(raw),
-            }
-         elseif spelling == "uint32" or spelling == "int32" then
-            if mode then reject(raw, "a uniform integer parameter has no ownership mode") end
-            param = {
-               kind = "uniform", name = name, type = spelling == "uint32" and "u32" or "i32",
-               sourceType = spelling, source = site(raw),
-            }
-         else
-            reject(raw.type or raw, "parameter type " .. spelling .. " is not admitted")
-         end
-         params[#params + 1] = param
-         byName[name] = param
-      end
-      if #writes == 0 then reject(body, "the map-kernel prototype needs a writable span") end
-      if #reads == 0 then reject(body, "the map-kernel prototype needs a readable span") end
-      local primary = writes[1]
-
-      local regions, aliasFacts = {}, {}
-      for _, param in ipairs(spans) do
-         regions[#regions + 1] = {
-            id = param.region, param = param.name, access = param.access,
-            proof = param.ownership .. "_borrow",
-         }
-      end
-      for left = 1, #spans do
-         for right = left + 1, #spans do
-            local hasWrite = spans[left].kind == "write_span" or spans[right].kind == "write_span"
-            aliasFacts[#aliasFacts + 1] = {
-               relation = hasWrite and "disjoint" or "may_alias",
-               left = spans[left].region,
-               right = spans[right].region,
-               proof = hasWrite and "exclusive_borrow" or "shared_borrows",
-            }
-         end
-      end
+      -- The prototype's shape is `nupp.compiler.aot.lower`'s: which parameters
+      -- are admitted, what ownership proved about them, and which guards make
+      -- the loop's bounds readable without checking them per element.
+      local signature = lower.parameters(
+         body.params or {}, structDecls, layoutState, loweringContext
+      )
+      local params, byName, spans = signature.params, signature.byName, signature.spans
+      if #signature.writes == 0 then reject(body, "the map-kernel prototype needs a writable span") end
+      if #signature.reads == 0 then reject(body, "the map-kernel prototype needs a readable span") end
+      local primary = signature.writes[1]
+      local regions, aliasFacts = lower.regions(spans)
 
       local stats = body.body and body.body.stats or {}
       if #stats ~= 2 and #stats ~= 3 then
          reject(body.body or body, "the admitted body is a length guard, optional range guard, and one numeric loop")
       end
 
-      local guard = stats[1]
-      if guard.kind ~= "ifStmt" or #(guard.clauses or {}) ~= 1 or guard.elseClause then
-         reject(guard, "the first statement must be a single length-mismatch guard")
-      end
-      local clause = guard.clauses[1]
-      local guardBody = clause.body and clause.body.stats or {}
-      local errorCall = guardBody[1] and guardBody[1].kind == "callStmt" and guardBody[1].expr or nil
-      if #guardBody ~= 1 or not errorCall or errorCall.kind ~= "call"
-         or nameOf(errorCall.obj) ~= "error"
-      then
-         reject(guard, "a length guard must call error directly")
-      end
-
-      local guarded = {}
-      local function collectGuards(expr)
-         if expr and expr.kind == "binop" and expr.op and expr.op.text == "or" then
-            collectGuards(expr.lhs)
-            collectGuards(expr.rhs)
-            return
-         end
-         if not expr or expr.kind ~= "binop" or not expr.op or expr.op.text ~= "~=" then
-            reject(expr or guard, "the guard may only compare span counts with ~=")
-         end
-         local left, right = dotCount(expr.lhs), dotCount(expr.rhs)
-         local other
-         if left == primary.name then other = right
-         elseif right == primary.name then other = left
-         end
-         if not other or not byName[other] or not byName[other].region or other == primary.name then
-            reject(expr, "each guard comparison must compare the primary output with another span")
-         end
-         if guarded[other] then reject(expr, "duplicate length guard for " .. other) end
-         guarded[other] = site(expr)
-      end
-      collectGuards(clause.cond)
-      local guards = {}
-      for _, span in ipairs(spans) do
-         if span ~= primary then
-            if not guarded[span.name] then reject(guard, "the length guard does not cover span " .. span.name) end
-            guards[#guards + 1] = {
-               op = "equal_count", left = primary.name, right = span.name,
-               source = guarded[span.name],
-            }
-         end
-      end
+      local guards = lower.lengthGuards(
+         stats[1],
+         lower.guardClause(
+            stats[1],
+            "the first statement must be a single length-mismatch guard",
+            "a length guard must call error directly",
+            loweringContext
+         ),
+         signature,
+         loweringContext
+      )
 
       local rangeGuard
       local loop = stats[#stats]
       if #stats == 3 then
-         local candidate = stats[2]
-         if candidate.kind ~= "ifStmt" or #(candidate.clauses or {}) ~= 1 or candidate.elseClause then
-            reject(candidate, "the optional second statement must be a range guard")
-         end
-         local rangeClause = candidate.clauses[1]
-         local rangeBody = rangeClause.body and rangeClause.body.stats or {}
-         local rangeError = rangeBody[1] and rangeBody[1].kind == "callStmt" and rangeBody[1].expr or nil
-         if #rangeBody ~= 1 or not rangeError or rangeError.kind ~= "call"
-            or nameOf(rangeError.obj) ~= "error"
-         then
-            reject(candidate, "a range guard must call error directly")
-         end
-         local written = cst.textOf(rangeClause.cond):gsub("%s+", "")
-         local firstName, lastName = written:match(
-            "^([%a_][%w_]*)<1or([%a_][%w_]*)>[%a_][%w_]*%.countor"
+         rangeGuard = lower.rangeGuard(
+            stats[2],
+            lower.guardClause(
+               stats[2],
+               "the optional second statement must be a range guard",
+               "a range guard must call error directly",
+               loweringContext
+            ),
+            signature,
+            loweringContext
          )
-         local expected = firstName and (
-            firstName .. "<1or" .. lastName .. ">" .. primary.name .. ".countor"
-               .. firstName .. ">" .. lastName .. "+1"
-         ) or ""
-         if written ~= expected then
-            reject(rangeClause.cond, "range guard must be `first < 1 or last > output.count or first > last + 1`")
-         end
-         local firstParam, lastParam = byName[firstName], byName[lastName]
-         if not firstParam or not lastParam or firstParam.kind ~= "uniform" or lastParam.kind ~= "uniform"
-            or firstParam.sourceType ~= "integer" or lastParam.sourceType ~= "integer"
-         then
-            reject(rangeClause.cond, "range bounds must be uniform integer parameters")
-         end
-         rangeGuard = {first = firstName, last = lastName, count = primary.name, source = site(candidate)}
       end
-      if loop.kind ~= "fornumStmt" then reject(loop, "the final statement must be a numeric for loop") end
-      local first = loop.start and (nameOf(loop.start) or (loop.start.kind == "number" and loop.start.token.text))
-      if first ~= (rangeGuard and rangeGuard.first or "1") then
-         reject(loop.start or loop, "kernel loop start must match its verified range")
-      end
-      if loop.step then reject(loop.step, "the first subset does not admit an explicit loop step") end
-      local stop = nameOf(loop.stop) or dotCount(loop.stop)
-      local expectedStop = rangeGuard and rangeGuard.last or primary.name
-      if stop ~= expectedStop then
-         reject(loop.stop or loop, "the loop bound must match its verified range")
-      end
-      local index = loop.var and loop.var.text
-      if not index then reject(loop, "the kernel loop needs an index variable") end
+      local index = lower.loopIndex(loop, rangeGuard, signature, loweringContext)
 
       -- Lowering an expression, and a visible pure helper, are
       -- `nupp.compiler.aot.lower`'s. What the source is allowed to say and what
