@@ -1102,6 +1102,12 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
                 #lines + 1
             ] = prefix .. "    " .. statement.live.cName .. " &= " .. emit.lane(statement.condition) .. ";"
             lines[#lines + 1] = prefix .. "}"
+        elseif op == "vwhile_uniform" then
+            -- An ordinary loop over lane-parallel statements. The condition is
+            -- scalar, so this is the same `while` the scalar body emits.
+            lines[#lines + 1] = prefix .. "while (" .. emit.lane(statement.condition) .. ") {"
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "}"
         elseif op == "vbreak" then
             local mask = emit.lane(statement.mask)
             lines[#lines + 1] = prefix .. statement.live.cName .. " &= ~(" .. mask .. ");"

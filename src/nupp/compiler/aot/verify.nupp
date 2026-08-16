@@ -825,6 +825,13 @@ local function laneBlock(
             inner[statement.live.name] = mask
             inner[statement.executing.name] = mask
             laneBlock(statement.body, inner, context, statement)
+        elseif statement.op == "vwhile_uniform" then
+            -- No masks, because there is nothing for them to say: the condition
+            -- is an ordinary scalar and every lane runs the loop the same
+            -- number of times. It is checked as one, against the scalar rules.
+            scalarWalk(statement.condition, values, context.scope)
+            laneHolds(statement.condition.type == "bool", "a uniform lane loop without a boolean condition")
+            laneBlock(statement.body, values, context, loopContext)
         elseif statement.op == "vbreak" or statement.op == "vcontinue" then
             laneHolds(
                 loopContext ~= nil

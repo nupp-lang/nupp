@@ -85,6 +85,14 @@ work makes sense in.
       lane body produces a `helper_result` node that no verifier rule and no
       emitter covers, so it raises rather than declining lane lowering. No
       kernel has one, which is why nothing caught it.
+      A uniform inner loop is no longer refused. Every lane runs it the same
+      number of times, so there is nothing for a mask to say and it stays
+      ordinary control flow over lane-parallel statements -- masking it would
+      have been correct and would have paid a select per assignment and a
+      horizontal test per iteration to prove something never in doubt.
+      `uniform.nupp` is that shape and it lowers to four lanes where it used to
+      run one iteration at a time. Generated C is byte-identical for every kernel
+      that already lowered.
       Two things about how, both learned by starting it. The backend
       re-derives facts because they are not published, not because it was
       lazy: it matched `span%.WriteSpan<(.+)>` against written type text

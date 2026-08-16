@@ -478,6 +478,27 @@ record aotLane.While
     source: aotLane.Source?
 end
 
+--- A loop every lane runs the same number of times.
+---
+--- Its condition is uniform and nothing in it leaves early, so no lane can be
+--- at a different iteration from any other and there is nothing for a mask to
+--- say. It stays an ordinary loop over lane-parallel statements.
+---
+--- Worth keeping distinct from the masked form rather than broadcasting the
+--- condition into one. The masked form is correct here -- an all-ones mask
+--- makes every select and every retirement a no-op -- but it pays a select per
+--- assignment and a horizontal test per iteration for an answer that was never
+--- in doubt, in the innermost loop of the program.
+record aotLane.UniformWhile
+    op: 'vwhile_uniform'
+
+    --- Evaluated as an ordinary scalar, because it is one.
+    condition: any
+
+    body: {any}
+    source: aotLane.Source?
+end
+
 --- A `break`, as per-lane retirement.
 ---
 --- The masked lanes leave both the iteration and the loop. Two records rather
@@ -501,6 +522,11 @@ record aotLane.Continue
 end
 
 --- Every lane statement.
-type aotLane.Statement = aotLane.Let | aotLane.Assign | aotLane.While | aotLane.Break | aotLane.Continue
+type aotLane.Statement = aotLane.Let
+    | aotLane.Assign
+    | aotLane.While
+    | aotLane.UniformWhile
+    | aotLane.Break
+    | aotLane.Continue
 
 return aotLane

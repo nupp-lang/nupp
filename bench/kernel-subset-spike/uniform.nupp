@@ -1,0 +1,70 @@
+-- A fixed-trip-count inner loop, which is the shape that used to get no lanes.
+--
+-- Every lane runs this inner loop the same number of times: the condition is a
+-- uniform parameter and nothing leaves early. There is nothing for a mask to
+-- say, so the rewrite leaves it an ordinary loop over lane-parallel statements
+-- rather than masking it -- which would be correct and would pay a select per
+-- assignment and a horizontal test per iteration to prove something that was
+-- never in doubt.
+--
+-- Before that, a uniform inner loop was refused outright, so a kernel of this
+-- shape ran one iteration at a time. It is an ordinary thing to write, which is
+-- why it is here.
+--
+-- Forced by annotation: the estimate is above the threshold, but the point of
+-- this file is the loop shape rather than the decision about it.
+local span = require("nupp.span")
+
+local struct Body
+    x: float
+    y: float
+    vx: float
+    vy: float
+end
+
+local struct Track
+    distance: float
+    steps: int32
+end
+
+@aot(lanes = true)
+local function integrate(
+    exclusive tracks: span.WriteSpan<Track>,
+    borrows bodies: span.Span<Body>,
+    first: integer,
+    last: integer,
+    steps: int32,
+    interval: float
+): nil
+    if tracks.count ~= bodies.count then
+        error("length mismatch", 2)
+    end
+    if first < 1 or last > tracks.count or first > last + 1 then
+        error("range out of bounds", 2)
+    end
+
+    for i = first, last do
+        local track = tracks:getMut(i)
+        local body = bodies:get(i)
+        local x = body.x
+        local y = body.y
+        local vx = body.vx
+        local vy = body.vy
+        local travelled = 0.0
+        local step = 0
+        while step < steps do
+            local dx = vx * interval
+            local dy = vy * interval
+            x = x + dx
+            y = y + dy
+            vx = vx - x * 0.0009765625
+            vy = vy - y * 0.0009765625
+            travelled = travelled + math.sqrt(dx * dx + dy * dy)
+            step = step + 1
+        end
+        track.distance = travelled
+        track.steps = step
+    end
+end
+
+return {integrate = integrate, Body = Body, Track = Track,}

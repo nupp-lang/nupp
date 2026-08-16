@@ -213,6 +213,10 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
             nested(statement.body)
             lines[#lines + 1] = prefix .. "  retest " .. text.expression(statement.condition)
             lines[#lines + 1] = prefix .. "end"
+        elseif op == "vwhile_uniform" then
+            lines[#lines + 1] = prefix .. "vwhile all " .. text.expression(statement.condition)
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "end"
         elseif op == "vbreak" or op == "vcontinue" then
             lines[#lines + 1] = prefix .. op .. " " .. text.expression(statement.mask)
         elseif op == "if" then

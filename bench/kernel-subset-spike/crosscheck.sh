@@ -25,7 +25,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$ROOT"
 SPIKE="bench/kernel-subset-spike"
 OUT="$SPIKE/build/crosscheck"
-KERNELS=${NUPP_CHECK_KERNELS:-"mandelbrot mandelbrot_f32 tecsbits mixedwidth"}
+KERNELS=${NUPP_CHECK_KERNELS:-"mandelbrot mandelbrot_f32 tecsbits mixedwidth uniform"}
 
 # Clang for consistency with the sibling scripts, but nothing here needs it, and
 # a machine that has a C compiler under another name can still answer the

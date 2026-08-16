@@ -1459,6 +1459,37 @@ local function laneAssignment(
     }
 end
 
+--- Whether this block leaves its loop early at all, however it decides to.
+---
+--- `rewrite.markVarying` asks a narrower question -- whether the exit is under a
+--- varying condition, which is what makes lanes diverge. This one is about
+--- whether there is an exit to represent: a loop with none and a uniform
+--- condition needs no masks, and one with any needs them whether or not lanes
+--- disagree about when.
+---
+--- Nested loops are not descended into: their exits are theirs.
+function rewrite.containsExit(statements: {any}): boolean
+    for _, statement in ipairs(statements) do
+        local op = statement.op
+        if op == "break" or op == "continue" then
+            return true
+        elseif op == "if" then
+            for _, clause in ipairs(statement.clauses) do
+                if rewrite.containsExit(clause.body) then
+                    return true
+                end
+            end
+            if statement.elseBody ~= nil and rewrite.containsExit(statement.elseBody) then
+                return true
+            end
+        elseif op == "block" and rewrite.containsExit(statement.body) then
+            return true
+        end
+    end
+
+    return false
+end
+
 --- Rewrites a block of statements to run several iterations at once.
 ---
 --- @param mask which lanes this block runs under, or nothing at the top level
@@ -1533,30 +1564,42 @@ function rewrite.block(
         elseif op == "block" then
             append(rewrite.block(statement.body, statementMask, loopContext, readsAfter[position], block, state))
         elseif op == "while" then
-            if not rewrite.varying(statement.condition, state) then
-                state.reject("a uniform inner while loop is not lane-controlled yet")
+            -- A loop every lane runs the same number of times needs no masks:
+            -- the condition does not vary and nothing leaves early, so no lane
+            -- can be at a different iteration from any other. Masking it would
+            -- be correct and would pay a select per assignment and a horizontal
+            -- test per iteration to prove something that was never in doubt.
+            if not rewrite.varying(statement.condition, state) and not rewrite.containsExit(statement.body) then
+                out[
+                    #out + 1
+                ] = new lane.UniformWhile(
+                    op = "vwhile_uniform",
+                    condition = statement.condition,
+                    body = rewrite.block(statement.body, mask, loopContext, readsAfter[position], block, state),
+                    source = statement.source
+                )
+            else
+                local context = rewrite.loopContext(statement, readsAfter[position] or {}, block, state)
+                local condition = rewrite.conditionMask(statement.condition, state)
+                out[
+                    #out + 1
+                ] = new lane.While(
+                    op = "vwhile",
+                    live = context.live,
+                    executing = context.executing,
+                    initial = rewrite.maskAnd(statementMask, condition, statement.source, state),
+                    condition = condition,
+                    body = rewrite.block(
+                        statement.body,
+                        rewrite.maskLocal(context.executing, statement.source, state),
+                        context,
+                        nil,
+                        block,
+                        state
+                    ),
+                    source = statement.source
+                )
             end
-
-            local context = rewrite.loopContext(statement, readsAfter[position] or {}, block, state)
-            local condition = rewrite.conditionMask(statement.condition, state)
-            out[
-                #out + 1
-            ] = new lane.While(
-                op = "vwhile",
-                live = context.live,
-                executing = context.executing,
-                initial = rewrite.maskAnd(statementMask, condition, statement.source, state),
-                condition = condition,
-                body = rewrite.block(
-                    statement.body,
-                    rewrite.maskLocal(context.executing, statement.source, state),
-                    context,
-                    nil,
-                    block,
-                    state
-                ),
-                source = statement.source
-            )
         elseif op == "fornum" then
             state.reject("a nested numeric loop is not lane-controlled yet")
         elseif op == "break" or op == "continue" then

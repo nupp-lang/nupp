@@ -238,6 +238,15 @@ NUPP_CHECK_TARGET=x86_64-apple-macos11 NUPP_CHECK_RUNNER='arch -x86_64' \
     NUPP_CHECK_CFLAGS=-mavx2 bench/kernel-subset-spike/crosscheck.sh
 ```
 
+Run the uniform-loop differential, which is what admits an inner loop every
+lane runs the same number of times -- the shape that used to be refused, so a
+kernel written that way ran one iteration at a time:
+
+```sh
+bench/kernel-subset-spike/mandelbrot.sh uniform
+luajit bench/kernel-subset-spike/uniform_main.lua
+```
+
 Run the mixed-width differential, which is what admits an explicit binary32
 operation to a gang that carries binary32 in binary64 lanes. Its kernel is
 everything-binary32 except one binary64 running total, which is the shape
