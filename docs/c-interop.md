@@ -458,8 +458,9 @@ onto the pointer and count the function already accepts.
   because a struct whose size depends on a runtime count has none.
 - **NUPP2402**: `layoutof` was asked about something with no layout, such as a
   `record`, which is a table rather than C memory.
-- **NUPP2403**: `nupp.soa` was asked to store a non-reified or unsupported
-  element, or a field projection did not resolve one stored struct field.
+- **NUPP2403**: [structure-of-arrays storage](soa.md) was asked to store a
+  non-reified or unsupported element, or a field projection did not resolve
+  one stored struct field.
 
 ## Next
 

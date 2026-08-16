@@ -534,6 +534,11 @@ nupp lsp            # start the language server]],
                   source = "docs/c-interop.md",
                },
                {
+                  path = "concepts/structure-of-arrays",
+                  title = "Structure-of-arrays storage",
+                  source = "docs/soa.md",
+               },
+               {
                   path = "concepts/standard-library",
                   title = "Standard library",
                   source = "docs/stdlib.md",
