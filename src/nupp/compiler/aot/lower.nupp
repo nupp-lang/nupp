@@ -12,6 +12,9 @@ conversion this module writes down, never as a side effect of an operator. A
 narrowing that is not in the IR is a narrowing that did not happen.
 ]]
 
+local admit = require("nupp.compiler.aot.admit")
+local lexer = require("nupp.compiler.lexer")
+local cst = require("nupp.compiler.cst")
 local scalarIR = require("nupp.compiler.aot.scalar")
 
 local lower = {}
@@ -116,6 +119,144 @@ function lower.helperArgument(
     end
 
     return widened as scalarIR.Expr
+end
+
+--- Where a node was written, for a diagnostic or an IR node that has to name it.
+---
+--- A construct with no token of its own reads as the start of the file rather
+--- than as no position, because every IR node carries one and an absent
+--- position would have to be handled everywhere downstream.
+function lower.site(node: cst.Child?): scalarIR.Source
+    local token = node ~= nil and cst.firstToken(node) or nil
+    if token == nil then
+        return new scalarIR.Source(line = 1, column = 1)
+    end
+
+    return new scalarIR.Source(line = (token as lexer.Token).line, column = (token as lexer.Token).col)
+end
+
+--- One written type, with its whitespace removed, so two spellings of the same
+--- type compare equal.
+function lower.compactType(node: cst.Child?): string
+    if node == nil then
+        return ""
+    end
+
+    return (cst.textOf(node as cst.Child):gsub("%s+", ""))
+end
+
+--- The layouts one kernel reifies, in the order they were first reached.
+---
+--- Order matters: it is the order the generated C declares the structs in, and
+--- a set would not have one.
+record lower.Layouts
+    ordered: {scalarIR.Layout}
+    byName: {[string]: scalarIR.Layout}
+end
+
+--- Admits one local struct as a span element layout.
+---
+--- Reifying a struct is a claim about memory, so the shape is deliberately
+--- small: no generics, no supertypes, stored fields only, and every field type
+--- one this backend has a storage width for. Anything else would be a layout
+--- Nupp and C could disagree about.
+function lower.layout(
+    name: string,
+    at: cst.Child?,
+    declarations: {[string]: cst.RecordDecl},
+    layouts: lower.Layouts,
+    context: lower.Context
+): scalarIR.Layout
+    local known = layouts.byName[name]
+    if known ~= nil then
+        return known as scalarIR.Layout
+    end
+
+    local found = declarations[name]
+    if found == nil then
+        context.reject(lower.site(at), "span element " .. name .. " is not a visible local struct")
+    end
+
+    local declaration = found as cst.RecordDecl
+    if declaration.generics ~= nil or #(declaration.supertypes or {}) > 0 then
+        context.reject(lower.site(declaration), "native structs must be non-generic and have no supertypes")
+    end
+
+    local layout = new scalarIR.Layout(name = name, cName = "Ks" .. name, fields = {}, source = lower.site(declaration))
+    local seen: {[string]: boolean} = {}
+    for _, entry in ipairs(declaration.entries) do
+        local field = entry as cst.FieldDecl
+        if entry.kind ~= "fieldDecl" or field.name == nil then
+            context.reject(lower.site(entry), "native structs initially contain only stored fields")
+        end
+
+        local fieldName = (field.name as lexer.Token).text
+        local spelling = lower.compactType(field.type)
+        local fieldType = admit.STORAGE[spelling]
+        if fieldType == nil then
+            context.reject(
+                lower.site(field.type or entry),
+                "native struct field type " .. spelling .. " is not admitted"
+            )
+        end
+        if seen[fieldName] then
+            context.reject(lower.site(entry), "duplicate native struct field " .. fieldName)
+        end
+        seen[fieldName] = true
+        layout.fields[
+            #layout.fields + 1
+        ] = new scalarIR.Field(name = fieldName, type = fieldType as string, source = lower.site(entry))
+    end
+    if #layout.fields == 0 then
+        context.reject(lower.site(declaration), "native structs need at least one field")
+    end
+
+    layouts.byName[name] = layout
+    layouts.ordered[#layouts.ordered + 1] = layout
+
+    return layout
+end
+
+--- What one span parameter holds.
+record lower.Element
+    kind: 'scalar' | 'struct'
+
+    --- The IR type of one element.
+    type: string
+
+    --- How the source spelled it, for a scalar element.
+    sourceType: string?
+
+    --- The reified layout, for a struct element.
+    layout: scalarIR.Layout?
+end
+
+--- The element type a span spelling names, or nothing when it is not that span.
+---
+--- @param prefix the span type to match, as a Lua pattern
+function lower.spanElement(
+    spelling: string,
+    prefix: string,
+    at: cst.Child?,
+    declarations: {[string]: cst.RecordDecl},
+    layouts: lower.Layouts,
+    context: lower.Context
+): lower.Element?
+    local element = spelling:match("^" .. prefix .. "<(.+)>$")
+    if element == nil then
+        return nil
+    end
+
+    local storage = admit.STORAGE[element as string]
+    if storage ~= nil then
+        return new lower.Element(kind = "scalar", type = storage as string, sourceType = element as string)
+    end
+
+    return new lower.Element(
+        kind = "struct",
+        type = "struct:" .. (element as string),
+        layout = lower.layout(element as string, at, declarations, layouts, context)
+    )
 end
 
 return lower

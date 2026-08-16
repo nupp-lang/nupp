@@ -27,18 +27,13 @@ local function firstToken(node)
    return node and cst.firstToken(node) or nil
 end
 
-local function site(node)
-   local token = firstToken(node)
-   return {line = token and token.line or 1, column = token and token.col or 1}
-end
+local site = lower.site
 
 local function nameOf(node)
    return node and node.kind == "name" and node.token and node.token.text or nil
 end
 
-local function compactType(node)
-   return node and cst.textOf(node):gsub("%s+", "") or ""
-end
+local compactType = lower.compactType
 
 local function receiverName(node)
    return nameOf(node)
@@ -205,43 +200,14 @@ local function parseKernel(source, filename, checked)
       end
 
       local storageTypes = admit.STORAGE
-      local layouts, layoutByName = {}, {}
-      local function lowerLayout(name, at)
-         if layoutByName[name] then return layoutByName[name] end
-         local declaration = structDecls[name]
-         if not declaration then reject(at, "span element " .. name .. " is not a visible local struct") end
-         if declaration.generics or declaration.supertypes and #declaration.supertypes > 0 then
-            reject(declaration, "native structs must be non-generic and have no supertypes")
-         end
-         local layout = {name = name, cName = "Ks" .. name, fields = {}, source = site(declaration)}
-         local seen = {}
-         for _, entry in ipairs(declaration.entries or {}) do
-            if entry.kind ~= "fieldDecl" or not entry.name then
-               reject(entry, "native structs initially contain only stored fields")
-            end
-            local fieldName = entry.name.text
-            local fieldType = storageTypes[compactType(entry.type)]
-            if not fieldType then
-               reject(entry.type or entry, "native struct field type " .. compactType(entry.type) .. " is not admitted")
-            end
-            if seen[fieldName] then reject(entry, "duplicate native struct field " .. fieldName) end
-            seen[fieldName] = true
-            layout.fields[#layout.fields + 1] = {
-               name = fieldName, type = fieldType, source = site(entry),
-            }
-         end
-         if #layout.fields == 0 then reject(declaration, "native structs need at least one field") end
-         layoutByName[name] = layout
-         layouts[#layouts + 1] = layout
-         return layout
-      end
+      -- Which structs may be reified and what a span holds is
+      -- `nupp.compiler.aot.lower`'s: a layout is a claim about memory, and the
+      -- shape it has to have is compiler policy.
+      local layoutState = {ordered = {}, byName = {}}
+      local layouts = layoutState.ordered
 
       local function spanElement(spelling, prefix, at)
-         local element = spelling:match("^" .. prefix .. "<(.+)>$")
-         if not element then return nil end
-         local storage = storageTypes[element]
-         if storage then return {kind = "scalar", type = storage, sourceType = element} end
-         return {kind = "struct", type = "struct:" .. element, layout = lowerLayout(element, at)}
+         return lower.spanElement(spelling, prefix, at, structDecls, layoutState, loweringContext)
       end
 
       local params, byName, spans, writes, reads = {}, {}, {}, {}, {}
@@ -568,7 +534,7 @@ local function parseKernel(source, filename, checked)
          elseif node.kind == "dotIndex" and node.name then
             local object = lowerExpression(node.obj, environment, activeIndex)
             local layoutName = object.type and object.type:match("^ref:(.+)$")
-            local layout = layoutName and layoutByName[layoutName] or nil
+            local layout = layoutName and layoutState.byName[layoutName] or nil
             if not layout then reject(node, "native field access needs a reified struct element") end
             local field
             for _, candidate in ipairs(layout.fields) do
@@ -819,7 +785,7 @@ local function parseKernel(source, filename, checked)
                   elseif target.kind == "dotIndex" and target.name then
                      local object = lowerExpression(target.obj, environment, index)
                      local layoutName = object.type and object.type:match("^ref:(.+)$")
-                     local layout = layoutName and layoutByName[layoutName] or nil
+                     local layout = layoutName and layoutState.byName[layoutName] or nil
                      if not layout or not object.mutable then reject(target, "native field assignment needs getMut(index)") end
                      local field
                      for _, candidate in ipairs(layout.fields) do
