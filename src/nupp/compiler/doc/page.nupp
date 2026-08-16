@@ -173,8 +173,11 @@ local function moduleTreeHtml(node, current, prefix, path, depth)
     return table.concat(parts)
 end
 
-local function sidebar(modules, current, prefix, pages, currentPath)
+local function sidebar(modules, current, prefix, pages, currentPath, mobileOutline)
     local out = {'<aside class="nuppdoc-sidebar" id="nuppdoc-sidebar"' .. ' aria-label="Page navigation"><ul>'}
+    if mobileOutline then
+        out[#out + 1] = mobileOutline
+    end
     local groups, byGroup = {}, {}
     for _, candidate in ipairs(pages or {}) do
         if candidate.path ~= "" and not candidate.module then
@@ -245,18 +248,20 @@ local function outlineEntries(items: {page.Entry}): string
     return table.concat(out)
 end
 
+local function mobileOutline(items: {page.Entry}?): string
+    return '<li class="nuppdoc-sidebar-section nuppdoc-mobile-outline">'
+        .. '<details open><summary>On this page</summary><ol>'
+        .. outlineEntries(items or {})
+        .. "</ol></details></li>"
+end
+
 local function outline(items: {page.Entry}?): string
-    local entries = outlineEntries(items or {})
     local out = {
         '<aside class="nuppdoc-outline" aria-label="On this page">'
-        .. '<div class="nuppdoc-outline-desktop">'
         .. '<div class="nuppdoc-outline-title">On this page</div><ol>'
     }
-    out[#out + 1] = entries
-    out[#out + 1] = '</ol></div><details class="nuppdoc-mobile-outline">'
-        .. "<summary>On this page</summary><ol>"
-    out[#out + 1] = entries
-    out[#out + 1] = "</ol></details></aside>"
+    out[#out + 1] = outlineEntries(items or {})
+    out[#out + 1] = "</ol></aside>"
 
     return table.concat(out)
 end
@@ -534,7 +539,14 @@ function page.render(
         #actions + 1
     ] = '<button class="nuppdoc-icon-link" type="button"'
         .. ' title="Toggle theme" aria-label="Toggle theme" data-theme-toggle>◐</button>'
-    local side = home and "" or sidebar(modules, current, prefix, pages, route)
+    local side = home and "" or sidebar(
+        modules,
+        current,
+        prefix,
+        pages,
+        route,
+        mobileOutline(items)
+    )
     local right = home and "" or outline(items)
     local search = '<button class="nuppdoc-search-button" type="button"'
         .. ' data-nuppdoc-search aria-label="Search documentation">'
