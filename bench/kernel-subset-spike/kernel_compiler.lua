@@ -7,8 +7,30 @@ local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
 local root = here .. "../.."
 package.path = root .. "/build/?.lua;" .. package.path
 
+local ffi = require("ffi")
 local parser = require("nupp.compiler.parser")
 local cst = require("nupp.compiler.cst")
+
+-- One binary32 slot, used only to ask whether a literal survives the round trip.
+local roundTrip = ffi.new("float[1]")
+
+--- Whether a scalar IR constant is exactly the value `element` would hold, so
+--- that entering a narrow lane type cannot change it. Comparing a binary32 lane
+--- against a literal only means the same thing when this is true; otherwise the
+--- literal has to stay binary64 and take the loop with it.
+local function constantFits(node, element)
+   if not node or node.op ~= "constant" then return false end
+   local number = tonumber(node.value)
+   if not number then return false end
+   if element == "i32" then
+      return number % 1 == 0 and number >= -2147483648 and number <= 2147483647
+   end
+   if element == "f32" then
+      roundTrip[0] = number
+      return roundTrip[0] == number
+   end
+   return element == "f64"
+end
 
 local compiler = {}
 local STOP = {}
@@ -410,6 +432,25 @@ local function parseKernel(source, filename, checked)
          ["<"] = "lt", ["<="] = "le", [">"] = "gt", [">="] = "ge",
          ["=="] = "eq", ["~="] = "ne",
       }
+      -- The released fixed-width namespaces. These are ordinary Nupp calls with
+      -- an exact Lua implementation in nupp.math, so admitting them here adds no
+      -- surface: it lets the same source say binary32 instead of binary64 and
+      -- have the backend believe it. A binary32 operation over binary32 operands
+      -- computed in binary64 and rounded once is bit-identical to the native
+      -- single-precision instruction, because 53 >= 2 * 24 + 2, so this lowering
+      -- is exact rather than a relaxation.
+      local fixedIntrinsics = {
+         ["nupp.math.f32.narrow"] = {op = "narrow_f64_f32", arity = 1, from = "f64", result = "f32"},
+         ["nupp.math.f32.add"] = {op = "f32_add", arity = 2, from = "f32", result = "f32"},
+         ["nupp.math.f32.sub"] = {op = "f32_sub", arity = 2, from = "f32", result = "f32"},
+         ["nupp.math.f32.mul"] = {op = "f32_mul", arity = 2, from = "f32", result = "f32"},
+         ["nupp.math.f32.div"] = {op = "f32_div", arity = 2, from = "f32", result = "f32"},
+         ["nupp.math.f32.sqrt"] = {op = "f32_sqrt", arity = 1, from = "f32", result = "f32"},
+         ["nupp.math.i32.wrap"] = {op = "numeric_cast", arity = 1, from = "f64", result = "i32"},
+         ["nupp.math.i32.add"] = {op = "i32_add", arity = 2, from = "i32", result = "i32"},
+         ["nupp.math.i32.sub"] = {op = "i32_sub", arity = 2, from = "i32", result = "i32"},
+         ["nupp.math.i32.mul"] = {op = "i32_mul", arity = 2, from = "i32", result = "i32"},
+      }
       local mathIntrinsics = {
          ["math.sqrt"] = {name = "sqrt", min = 1, max = 1},
          ["math.abs"] = {name = "abs", min = 1, max = 1},
@@ -515,14 +556,14 @@ local function parseKernel(source, filename, checked)
             if not value then reject(node, "value " .. tostring(name) .. " is not available in native code") end
             local op = value.kind == "uniform" and "uniform"
                or value.kind == "helper_param" and "helper_param" or "local"
-            local loaded = {
+            -- A name keeps whatever refinement its binding holds. Only a
+            -- physical load widens eagerly, because that is where ordinary Nupp
+            -- turns storage into a Lua number; widening here as well would make
+            -- an established `float` local unreadable as one.
+            return {
                op = op, name = name, type = value.type, cName = value.cName,
                mutable = value.mutable, source = site(node),
             }
-            if loaded.type == "f32" then
-               return {op = "widen_f32_f64", type = "f64", source = site(node), value = loaded}
-            end
-            return loaded
          elseif node.kind == "number" then
             local value = node.token and node.token.text or ""
             if not tonumber(value) then reject(node, "the kernel needs a finite decimal numeric literal") end
@@ -598,6 +639,9 @@ local function parseKernel(source, filename, checked)
             if arithmetic[written] then
                local function promote(value)
                   if value.type == "f64" then return value end
+                  if value.type == "f32" then
+                     return {op = "widen_f32_f64", value = value, type = "f64", source = value.source}
+                  end
                   if value.type == "i32" or value.type == "u32" then
                      return {op = "int_to_f64", value = value, type = "f64", source = value.source}
                   end
@@ -636,6 +680,37 @@ local function parseKernel(source, filename, checked)
                args[#args + 1] = lowerExpression(arg, environment, activeIndex)
             end
             local qualified = dottedName(node.obj)
+            local fixed = qualified and fixedIntrinsics[qualified] or nil
+            if fixed then
+               if #args ~= fixed.arity then
+                  reject(node, qualified .. " has an unsupported argument count")
+               end
+               for i, arg in ipairs(args) do
+                  -- An exact decimal literal establishes a fixed-width value, so
+                  -- a constant may enter directly. Anything else must already
+                  -- carry the refinement: this is where the front end refuses to
+                  -- invent establishment the source never performed.
+                  if arg.op == "constant" and fixed.from ~= "f64" then
+                     local number = tonumber(arg.value)
+                     if fixed.from == "i32" then
+                        if not number or number % 1 ~= 0 or number < -2147483648 or number > 2147483647 then
+                           reject(node, qualified .. " needs an exact int32 literal")
+                        end
+                        args[i] = {op = "constant_i32", value = arg.value, type = "i32", source = arg.source}
+                     else
+                        args[i] = {op = "narrow_f64_f32", value = arg, type = "f32", source = arg.source}
+                     end
+                  elseif arg.type ~= fixed.from then
+                     reject(node, qualified .. " argument " .. tostring(i) .. " is "
+                        .. tostring(arg.type) .. " and was never established as " .. fixed.from)
+                  end
+               end
+               if fixed.arity == 1 then
+                  return {op = fixed.op, value = args[1], type = fixed.result, source = site(node)}
+               end
+               return {op = fixed.op, left = args[1], right = args[2],
+                  type = fixed.result, source = site(node)}
+            end
             local intrinsic = qualified and mathIntrinsics[qualified] or nil
             if intrinsic then
                if #args < intrinsic.min or intrinsic.max and #args > intrinsic.max then
@@ -644,6 +719,8 @@ local function parseKernel(source, filename, checked)
                for i, arg in ipairs(args) do
                   if arg.type == "i32" or arg.type == "u32" then
                      args[i] = {op = "int_to_f64", value = arg, type = "f64", source = arg.source}
+                  elseif arg.type == "f32" then
+                     args[i] = {op = "widen_f32_f64", value = arg, type = "f64", source = arg.source}
                   elseif arg.type ~= "f64" then
                      reject(node, qualified .. " arguments must be numeric")
                   end
@@ -655,7 +732,19 @@ local function parseKernel(source, filename, checked)
                local helper = lowerHelper(helperName, node)
                if #args ~= #helper.params then reject(node, "native helper argument count does not match") end
                for i, arg in ipairs(args) do
-                  if arg.type ~= helper.params[i].type then reject(node, "native helper argument type does not match") end
+                  local wanted = helper.params[i].type
+                  -- A helper takes ordinary Nupp values, so a fixed-width
+                  -- argument widens into it exactly as it would at any other
+                  -- binary64 operator.
+                  if arg.type ~= wanted and wanted == "f64" and arg.type == "f32" then
+                     args[i] = {op = "widen_f32_f64", value = arg, type = "f64", source = arg.source}
+                  elseif arg.type ~= wanted and wanted == "f64"
+                     and (arg.type == "i32" or arg.type == "u32")
+                  then
+                     args[i] = {op = "int_to_f64", value = arg, type = "f64", source = arg.source}
+                  elseif arg.type ~= wanted then
+                     reject(node, "native helper argument type does not match")
+                  end
                end
                return {
                   op = "helper_call", helper = helper.name, cName = helper.cName,
@@ -961,6 +1050,19 @@ local function parseKernel(source, filename, checked)
    return ir, diagnostics
 end
 
+-- The released fixed-width scalar operations, as IR. Each is one binary32 or
+-- wrapping int32 operation with an exact `nupp.math` implementation behind it,
+-- which is what lets the backend emit the native instruction and still owe the
+-- same answer as ordinary Nupp.
+local FIXED_BINARY = {
+   f32_add = "f32", f32_sub = "f32", f32_mul = "f32", f32_div = "f32",
+   i32_add = "i32", i32_sub = "i32", i32_mul = "i32",
+}
+local FIXED_OPERATOR = {
+   f32_add = "+", f32_sub = "-", f32_mul = "*", f32_div = "/",
+   i32_add = "+", i32_sub = "-", i32_mul = "*",
+}
+
 --[[
 Lane-parallel lowering.
 
@@ -975,34 +1077,63 @@ It runs on IR rather than on the tree because the front end has already settled
 what everything means. What is left is a choice about how many iterations to do
 at a time, which is exactly the kind of decision an IR pass should own.
 
-Four lanes of binary64. Ordinary Nupp arithmetic is binary64 and removing `@aot`
-may not change an answer, so the lanes are too; four of them is two NEON
-registers or one AVX2 register, which a body of eight live values can hold.
-Eight would be four registers each and would spill.
+The gang size follows the widths the loop's varying values actually need, not a
+single element type. Ordinary Nupp arithmetic is binary64, so a loop written
+with operators gets four binary64 lanes: two NEON registers or one AVX2
+register per live value, which a body of eight of them can hold, where eight
+lanes would be four registers each and would spill.
+
+A loop whose varying values are all 32-bit -- because the source asked for
+binary32 and wrapping int32 through the released `nupp.math` namespaces -- gets
+eight lanes at the same register cost. That is a different program with
+different answers, and it is the source that says so; this pass only declines
+to waste half of each register on it.
 
 The tail is a scalar epilogue over the same body rather than a masked final
 group, because a masked load still reads the addresses it masks off and the
 last element of a span may be the last byte of a page.
 ]]
 
-local LANES = 4
+--- The lane shapes this backend can choose between. Both are 32 bytes wide, so
+--- a group costs the same registers either way and only the lane count differs.
+local SHAPES = {
+   {
+      name = "f64x4", lanes = 4, mask = "m64x4", suffix = "64",
+      -- Every scalar type an f64 gang admits, and the vector type it lives in.
+      -- Integers ride in binary64 lanes because every int32 and uint32 is an
+      -- exact binary64 value, which is also what ordinary Nupp does with them.
+      vectorFor = {f64 = "f64x4", f32 = "f64x4", i32 = "f64x4", u32 = "f64x4", bool = "m64x4"},
+      -- What a splat of a uniform scalar has to become first.
+      widen = "f64",
+   },
+   {
+      name = "f32x8", lanes = 8, mask = "m32x8", suffix = "32",
+      -- No f64 entry: a binary64 varying value cannot enter a 32-bit gang, and
+      -- inventing a narrowing here would change an answer the source did not.
+      vectorFor = {f32 = "f32x8", i32 = "i32x8", u32 = "i32x8", bool = "m32x8"},
+      widen = nil,
+   },
+}
 
-local function lanesVectorType(scalar)
-   if scalar == "f64" then return "f64x4" end
-   if scalar == "bool" then return "m64x4" end
+local SHAPE_BY_NAME = {}
+for _, entry in ipairs(SHAPES) do SHAPE_BY_NAME[entry.name] = entry end
 
-   return nil
-end
-
---- Rewrites one lowered loop body to run `LANES` iterations at once.
+--- Rewrites one lowered loop body to run `shape.lanes` iterations at once.
 ---
 --- @param ir the verified scalar IR
 --- @param reject how to report a construct this pass cannot represent
-local function vectorizeLoop(ir, reject)
+--- @param shape the lane shape to attempt
+local function vectorizeLoop(ir, reject, shape)
    local varyingLocals = {}
    local refBindings = {}
    local index = ir.loop.index
    local internalSerial = 0
+   local LANES = shape.lanes
+   local MASK = shape.mask
+
+   local function lanesVectorType(scalar)
+      return shape.vectorFor[scalar]
+   end
 
    local function exprVarying(node)
       if node == nil then return false end
@@ -1085,28 +1216,49 @@ local function vectorizeLoop(ir, reject)
       return nil
    end
 
-   local function scalarAsF64(node)
-      if node.type == "f64" then return node end
-      if node.type == "f32" then
-         return {op = "widen_f32_f64", value = node, type = "f64", source = node.source}
+   --- Brings a uniform scalar to the element type its gang carries it in. An
+   --- f64 gang widens everything; a 32-bit gang has nothing to widen to and
+   --- refuses a binary64 uniform rather than narrowing one.
+   local function scalarAsElement(node, element)
+      if node.type == element then return node end
+      if element == "f64" then
+         if node.type == "f32" then
+            return {op = "widen_f32_f64", value = node, type = "f64", source = node.source}
+         end
+         if node.type == "i32" or node.type == "u32" then
+            return {op = "int_to_f64", value = node, type = "f64", source = node.source}
+         end
       end
-      if node.type == "i32" or node.type == "u32" then
-         return {op = "int_to_f64", value = node, type = "f64", source = node.source}
+      if element == "i32" and node.type == "u32" then return node end
+      if constantFits(node, element) then
+         if element == "i32" then
+            return {op = "constant_i32", value = node.value, type = "i32", source = node.source}
+         end
+         return {op = "narrow_f64_f32", value = node, type = "f32", source = node.source}
       end
-      reject(nil, "a uniform " .. tostring(node.type) .. " cannot enter binary64 SIMD")
+      reject(nil, "a uniform " .. tostring(node.type) .. " cannot enter "
+         .. shape.name .. " SIMD")
    end
 
-   local function splat64(node)
-      return {op = "vsplat64", args = {scalarAsF64(node)}, type = "f64x4", source = node.source}
+   --- Splats a uniform into the vector type the gang uses for `scalarType`.
+   local function splat(node, scalarType)
+      local vector = lanesVectorType(scalarType or node.type)
+      if not vector or vector == MASK then
+         reject(nil, "a uniform " .. tostring(node.type) .. " cannot enter "
+            .. shape.name .. " SIMD")
+      end
+      local element = shape.widen or vector:match("^(%a%d+)x") or node.type
+      return {op = "vsplat", args = {scalarAsElement(node, element)},
+         type = vector, element = element, source = node.source}
    end
 
    local function boolMask(node)
-      return {op = "vbool_splat", args = {node}, type = "m64x4", source = node.source}
+      return {op = "vbool_splat", args = {node}, type = MASK, source = node.source}
    end
 
    local function maskLocal(binding, source)
       return {op = "local", name = binding.name, cName = binding.cName,
-         type = "m64x4", source = source}
+         type = MASK, source = source}
    end
 
    local function internalMask(label, source)
@@ -1114,17 +1266,17 @@ local function vectorizeLoop(ir, reject)
       return {
          kind = "local", name = "$" .. label .. tostring(internalSerial),
          cName = "lm" .. tostring(internalSerial) .. "_" .. label,
-         type = "m64x4", source = source,
+         type = MASK, source = source,
       }
    end
 
    local function maskAnd(left, right, source)
       if not left then return right end
-      return {op = "vmand", args = {left, right}, type = "m64x4", source = source}
+      return {op = "vmand", args = {left, right}, type = MASK, source = source}
    end
 
    local function maskNot(value, source)
-      return {op = "vmnot", args = {value}, type = "m64x4", source = source}
+      return {op = "vmnot", args = {value}, type = MASK, source = source}
    end
 
    local function activeMask(mask, loopContext, source)
@@ -1140,31 +1292,52 @@ local function vectorizeLoop(ir, reject)
       return maskAnd(mask, executing, source)
    end
 
-   local VECTOR_BINARY = {
-      add = "vadd64", sub = "vsub64", mul = "vmul64", div = "vdiv64",
-      lt = "vlt64", le = "vle64", gt = "vgt64", ge = "vge64",
-      eq = "veq64", ne = "vne64",
+   -- Scalar opcode to lane opcode. The f64 gang carries every scalar type in
+   -- binary64 lanes, so one entry each is enough; the 32-bit gang keeps
+   -- binary32 and int32 apart, so the arithmetic rows are chosen by the operand
+   -- type at the use site and the comparison rows by what they compare.
+   local VECTOR_ARITHMETIC = {add = "add", sub = "sub", mul = "mul", div = "div"}
+   local VECTOR_COMPARISON = {lt = "lt", le = "le", gt = "gt", ge = "ge",
+      eq = "eq", ne = "ne"}
+   local FIXED_LANE = {
+      f32_add = {"add", "f32"}, f32_sub = {"sub", "f32"}, f32_mul = {"mul", "f32"},
+      f32_div = {"div", "f32"}, i32_add = {"add", "i32"}, i32_sub = {"sub", "i32"},
+      i32_mul = {"mul", "i32"},
    }
-   local COMPARISON = {vlt64 = true, vle64 = true, vgt64 = true, vge64 = true,
-      veq64 = true, vne64 = true}
 
    local rewriteExpr
 
-   local function numericVector(node)
+   --- The vector opcode for `verb` over `element` lanes, e.g. "vmul.f32x8".
+   --- Encoding the element in the opcode keeps the verifier's type check total:
+   --- there is no lane operation whose operand width has to be inferred.
+   local function laneOp(verb, element)
+      local vector = lanesVectorType(element)
+      if not vector then
+         reject(nil, "a varying " .. tostring(element) .. " cannot enter " .. shape.name .. " SIMD")
+      end
+      return "v" .. verb .. "." .. vector, vector
+   end
+
+   --- Rewrites `node` to a vector of the type the gang uses for `want`, or for
+   --- the node's own scalar type when the caller has no opinion.
+   local function numericVector(node, want)
+      local scalarType = want or node.type
+      local vector = lanesVectorType(scalarType)
       if exprVarying(node) then
          local value = rewriteExpr(node)
-         if value.type ~= "f64x4" then
-            reject(nil, "a varying " .. tostring(node.type) .. " cannot enter binary64 SIMD")
+         if value.type ~= vector then
+            reject(nil, "a varying " .. tostring(node.type) .. " cannot enter "
+               .. tostring(vector) .. " SIMD")
          end
          return value
       end
-      return splat64(node)
+      return splat(node, scalarType)
    end
 
    local function conditionMask(node)
       if exprVarying(node) then
          local value = rewriteExpr(node)
-         if value.type ~= "m64x4" then reject(nil, "a varying condition did not produce a mask") end
+         if value.type ~= MASK then reject(nil, "a varying condition did not produce a mask") end
          return value
       end
       return boolMask(node)
@@ -1237,24 +1410,65 @@ local function vectorizeLoop(ir, reject)
          if not object or object.index ~= index then
             reject(nil, "a lane-parallel field load reads consecutive elements only")
          end
+         -- A field's storage type decides the lane type it loads into. The f64
+         -- gang widens every one of them; the 32-bit gang loads float storage
+         -- straight into binary32 lanes, which is the whole point of it.
          local scalarType = node.type
+         local vector = lanesVectorType(scalarType)
+            or reject(nil, "a " .. tostring(scalarType) .. " field cannot enter " .. shape.name)
          local loaded = {
             op = "vfield_load", span = object.span, layout = object.layout,
             field = node.field, lanes = LANES, scalarType = scalarType,
-            type = "f64x4", source = node.source,
+            type = vector, source = node.source,
          }
          return loaded, true
       elseif op == "widen_f32_f64" or op == "int_to_f64" then
-         -- The lane load already produced binary64, so the scalar widening the
-         -- front end inserted has nothing left to do.
+         -- Widening is exact, so the lane form is whatever the value already
+         -- was: in the f64 gang the load produced binary64 and there is nothing
+         -- left to do, and in a 32-bit gang the value stays in its own lanes so
+         -- that `narrow(load)` -- the idiom that re-establishes a float field
+         -- the front end widened -- comes back to exactly the loaded lanes.
+         --
+         -- Nothing is lost by not rejecting here. A binary64 consumer asks for
+         -- an f64 lane operation, and a gang without f64 lanes refuses that.
          local inner = rewriteExpr(node.value)
          return inner, true
-      elseif VECTOR_BINARY[op] then
-         local left = numericVector(node.left)
-         local right = numericVector(node.right)
-         local chosen = VECTOR_BINARY[op]
-         return {op = chosen, args = {left, right},
-            type = COMPARISON[chosen] and "m64x4" or "f64x4", source = node.source}, true
+      elseif VECTOR_ARITHMETIC[op] or VECTOR_COMPARISON[op] or FIXED_LANE[op] then
+         local verb, element
+         if FIXED_LANE[op] then
+            verb, element = FIXED_LANE[op][1], FIXED_LANE[op][2]
+            -- An explicit binary32 or wrapping int32 operation rounds at every
+            -- step. A gang that carries the value in wider lanes would compute
+            -- a different answer than the source asked for unless it narrowed
+            -- after each one, so it declines instead and lets a gang of the
+            -- right width take the loop.
+            if shape.vectorFor[element] ~= element .. "x" .. tostring(shape.lanes) then
+               reject(nil, "an explicit " .. element .. " operation needs "
+                  .. element .. " lanes, and " .. shape.name .. " has none")
+            end
+         elseif VECTOR_ARITHMETIC[op] then
+            -- Ordinary operators are binary64 and the scalar IR already typed
+            -- them that way, so the element is the result type.
+            verb, element = VECTOR_ARITHMETIC[op], node.type
+         else
+            -- A comparison's own type is bool; its width comes from what it
+            -- compares. Mixed operands were widened by the front end.
+            verb = VECTOR_COMPARISON[op]
+            if node.left.type == node.right.type then
+               element = node.left.type
+            elseif constantFits(node.right, node.left.type) then
+               element = node.left.type
+            elseif constantFits(node.left, node.right.type) then
+               element = node.right.type
+            else
+               element = "f64"
+            end
+         end
+         local chosen, vector = laneOp(verb, element)
+         local left = numericVector(node.left, element)
+         local right = numericVector(node.right, element)
+         return {op = chosen, args = {left, right}, element = element,
+            type = VECTOR_COMPARISON[op] and MASK or vector, source = node.source}, true
       elseif op == "and" or op == "or" then
          -- Every expression admitted by this spike is pure and total: span
          -- bounds were proved before this pass, arithmetic does not trap, and
@@ -1263,27 +1477,35 @@ local function vectorizeLoop(ir, reject)
          return {
             op = op == "and" and "vshort_and" or "vshort_or",
             args = {conditionMask(node.left), conditionMask(node.right)},
-            type = "m64x4", effect = "pure_total", source = node.source,
+            type = MASK, effect = "pure_total", source = node.source,
          }, true
       elseif op == "not" then
-         return {op = "vmnot", args = {rewriteExpr(node.value)}, type = "m64x4",
+         return {op = "vmnot", args = {rewriteExpr(node.value)}, type = MASK,
             source = node.source}, true
       elseif op == "neg" then
-         return {op = "vneg64", args = {rewriteExpr(node.value)}, type = "f64x4",
-            source = node.source}, true
+         local chosen, vector = laneOp("neg", node.type)
+         return {op = chosen, args = {numericVector(node.value, node.type)},
+            element = node.type, type = vector, source = node.source}, true
+      elseif op == "f32_sqrt" then
+         local chosen, vector = laneOp("sqrt", "f32")
+         return {op = chosen, args = {numericVector(node.value, "f32")},
+            element = "f32", type = vector, source = node.source}, true
       elseif op == "math" then
          local args = {}
          for i, arg in ipairs(node.args) do
-            args[i] = numericVector(arg)
+            args[i] = numericVector(arg, "f64")
          end
+         local _, vector = laneOp("math", "f64")
          return {op = "vmath", intrinsic = node.intrinsic, args = args,
-            type = "f64x4", source = node.source}, true
+            type = vector, source = node.source}, true
       elseif op == "helper_call" then
          reject(nil, "a lane-parallel loop cannot call a helper yet")
       elseif op == "numeric_cast" or op == "narrow_f64_f32" then
          -- Storage conversions remain attached to the scalar field target. The
-         -- vector value stays binary64 until each lane is stored, exactly like
-         -- ordinary Nupp widens a physical load and narrows a physical store.
+         -- vector value keeps its gang's element type until each lane is stored,
+         -- exactly like ordinary Nupp widens a physical load and narrows a
+         -- physical store. In a 32-bit gang the source already established the
+         -- value, so there is likewise nothing left for this to do.
          return rewriteExpr(node.value), true
       end
       reject(nil, "operation " .. tostring(op) .. " has no lane-parallel form")
@@ -1310,7 +1532,7 @@ local function vectorizeLoop(ir, reject)
                or exprVarying(statement.value)
             local value = varying and (
                exprVarying(statement.value) and rewriteExpr(statement.value)
-               or splat64(statement.value)
+               or splat(statement.value)
             ) or statement.value
             out[#out + 1] = {
                op = "let", name = statement.name, cName = statement.cName,
@@ -1329,7 +1551,7 @@ local function vectorizeLoop(ir, reject)
                if not exprVarying(assignment.value)
                   and targetVarying
                then
-                  value = splat64(assignment.value)
+                  value = splat(assignment.value)
                end
                local assignmentMask = statementMask
                if assignmentMask and target.kind == "local" and loopContext
@@ -1361,7 +1583,7 @@ local function vectorizeLoop(ir, reject)
                      end
                      previous = {op = "vfield_load", span = object.span,
                         layout = target.layout, field = target.field, lanes = LANES,
-                        scalarType = target.type, type = "f64x4", source = statement.source}
+                        scalarType = target.type, type = value.type, source = statement.source}
                   end
                   value = {op = "vselect", args = {assignmentMask, value, previous},
                      type = value.type, source = statement.source}
@@ -1392,7 +1614,7 @@ local function vectorizeLoop(ir, reject)
                local branch = internalMask("if", clause.source)
                out[#out + 1] = {
                   op = "let", name = branch.name, cName = branch.cName,
-                  value = branchValue, type = "m64x4", source = clause.source,
+                  value = branchValue, type = MASK, source = clause.source,
                }
                local branchMask = maskLocal(branch, clause.source)
                local inner = rewriteBlock(
@@ -1458,7 +1680,7 @@ local function vectorizeLoop(ir, reject)
       return out
    end
 
-   return {lanes = LANES, statements = rewriteBlock(ir.loop.statements, nil, nil, nil)}
+   return {lanes = LANES, shape = shape.name, statements = rewriteBlock(ir.loop.statements, nil, nil, nil)}
 end
 
 local function verifyIR(ir)
@@ -1592,6 +1814,15 @@ local function verifyIR(ir)
             and node.type == byName[node.name].type, "invalid uniform")
       elseif node.op == "local" or node.op == "helper_param" then
          assert(values[node.name] == node.type, "invalid local value")
+      elseif FIXED_BINARY[node.op] then
+         local element = FIXED_BINARY[node.op]
+         assert(node.type == element and node.left.type == element
+            and node.right.type == element, "invalid fixed-width binary operation")
+         verifyExpr(node.left, values)
+         verifyExpr(node.right, values)
+      elseif node.op == "f32_sqrt" then
+         assert(node.type == "f32" and node.value.type == "f32", "invalid binary32 square root")
+         verifyExpr(node.value, values)
       elseif node.op == "constant_i32" then
          assert(node.type == "i32", "integer constant type")
       elseif node.op == "constant" then
@@ -1759,7 +1990,14 @@ local function verifyIR(ir)
       end
    end
    if ir.lanes then
-      assert(ir.wantsLanes and ir.lanes.lanes == LANES, "invalid lane width or missing SIMD contract")
+      local shape = SHAPE_BY_NAME[ir.lanes.shape]
+      assert(ir.wantsLanes and shape and ir.lanes.lanes == shape.lanes,
+         "invalid lane width or missing SIMD contract")
+      local MASK = shape.mask
+      -- Every vector type this gang may mention, so an opcode naming one that
+      -- belongs to a different shape is caught rather than silently accepted.
+      local laneTypes = {[MASK] = true}
+      for _, vector in pairs(shape.vectorFor) do laneTypes[vector] = true end
 
       local laneMath = {
          sqrt = true, abs = true, floor = true, ceil = true, min = true, max = true,
@@ -1767,24 +2005,37 @@ local function verifyIR(ir)
          atan2 = true, sinh = true, cosh = true, tanh = true, exp = true, log = true,
          pow = true, fmod = true, deg = true, rad = true,
       }
-      local laneBinary = {
-         vadd64 = "f64x4", vsub64 = "f64x4", vmul64 = "f64x4", vdiv64 = "f64x4",
-         vlt64 = "m64x4", vle64 = "m64x4", vgt64 = "m64x4", vge64 = "m64x4",
-         veq64 = "m64x4", vne64 = "m64x4",
-      }
+      -- Lane arithmetic and comparison opcodes carry their operand vector type,
+      -- so this table is built from the shape rather than written out: an
+      -- opcode for a width this gang does not use simply has no entry.
+      local laneBinary, laneUnary = {}, {}
+      for _, vector in pairs(shape.vectorFor) do
+         if vector ~= MASK then
+            for _, verb in ipairs({"add", "sub", "mul", "div"}) do
+               laneBinary["v" .. verb .. "." .. vector] = {result = vector, operand = vector}
+            end
+            for _, verb in ipairs({"lt", "le", "gt", "ge", "eq", "ne"}) do
+               laneBinary["v" .. verb .. "." .. vector] = {result = MASK, operand = vector}
+            end
+            laneUnary["vneg." .. vector] = {result = vector, operand = vector}
+            laneUnary["vsqrt." .. vector] = {result = vector, operand = vector}
+         end
+      end
 
       local function verifyLaneExpr(node, values)
          assert(node and node.type, "untyped lane expression")
-         if node.type ~= "f64x4" and node.type ~= "m64x4" then
+         if not laneTypes[node.type] then
             verifyExpr(node, values)
          elseif node.op == "local" then
             assert(values[node.name] == node.type, "invalid lane local")
-         elseif node.op == "vsplat64" then
-            assert(node.type == "f64x4" and #node.args == 1 and node.args[1].type == "f64",
+         elseif node.op == "vsplat" then
+            assert(#node.args == 1 and node.type ~= MASK and laneTypes[node.type]
+               and node.element and node.args[1].type == node.element
+               and shape.vectorFor[node.element] == node.type,
                "invalid lane splat")
             verifyExpr(node.args[1], values)
          elseif node.op == "vbool_splat" then
-            assert(node.type == "m64x4" and #node.args == 1 and node.args[1].type == "bool",
+            assert(node.type == MASK and #node.args == 1 and node.args[1].type == "bool",
                "invalid boolean mask splat")
             verifyExpr(node.args[1], values)
          elseif node.op == "vfield_load" then
@@ -1794,19 +2045,22 @@ local function verifyIR(ir)
                and layout and layout.fieldTypes[node.field] == node.scalarType
                and (node.scalarType == "f32" or node.scalarType == "i32"
                   or node.scalarType == "u32")
-               and node.lanes == LANES and node.type == "f64x4",
+               and node.lanes == shape.lanes
+               and node.type == shape.vectorFor[node.scalarType],
                "invalid lane field load")
          elseif laneBinary[node.op] then
-            assert(#node.args == 2 and node.type == laneBinary[node.op]
-               and node.args[1].type == "f64x4" and node.args[2].type == "f64x4",
+            local signature = laneBinary[node.op]
+            assert(#node.args == 2 and node.type == signature.result
+               and node.args[1].type == signature.operand
+               and node.args[2].type == signature.operand,
                "invalid lane binary operation")
             verifyLaneExpr(node.args[1], values)
             verifyLaneExpr(node.args[2], values)
          elseif node.op == "vmand" or node.op == "vmor"
             or node.op == "vshort_and" or node.op == "vshort_or"
          then
-            assert(node.type == "m64x4" and #node.args == 2
-               and node.args[1].type == "m64x4" and node.args[2].type == "m64x4",
+            assert(node.type == MASK and #node.args == 2
+               and node.args[1].type == MASK and node.args[2].type == MASK,
                "invalid lane mask operation")
             if node.op == "vshort_and" or node.op == "vshort_or" then
                assert(node.effect == "pure_total", "short-circuit mask lost its effect proof")
@@ -1814,24 +2068,27 @@ local function verifyIR(ir)
             verifyLaneExpr(node.args[1], values)
             verifyLaneExpr(node.args[2], values)
          elseif node.op == "vmnot" then
-            assert(node.type == "m64x4" and #node.args == 1 and node.args[1].type == "m64x4",
+            assert(node.type == MASK and #node.args == 1 and node.args[1].type == MASK,
                "invalid lane mask negation")
             verifyLaneExpr(node.args[1], values)
-         elseif node.op == "vneg64" then
-            assert(node.type == "f64x4" and #node.args == 1 and node.args[1].type == "f64x4",
-               "invalid lane negation")
+         elseif laneUnary[node.op] then
+            local signature = laneUnary[node.op]
+            assert(node.type == signature.result and #node.args == 1
+               and node.args[1].type == signature.operand,
+               "invalid lane unary operation")
             verifyLaneExpr(node.args[1], values)
          elseif node.op == "vselect" then
-            assert(#node.args == 3 and node.args[1].type == "m64x4"
+            assert(#node.args == 3 and node.args[1].type == MASK
                and node.args[2].type == node.type and node.args[3].type == node.type,
                "invalid lane select")
             verifyLaneExpr(node.args[1], values)
             verifyLaneExpr(node.args[2], values)
             verifyLaneExpr(node.args[3], values)
          elseif node.op == "vmath" then
-            assert(node.type == "f64x4" and laneMath[node.intrinsic], "invalid lane math operation")
+            assert(node.type == shape.vectorFor.f64 and laneMath[node.intrinsic],
+               "invalid lane math operation")
             for _, arg in ipairs(node.args) do
-               assert(arg.type == "f64x4", "invalid lane math argument")
+               assert(arg.type == node.type, "invalid lane math argument")
                verifyLaneExpr(arg, values)
             end
          else
@@ -1862,30 +2119,30 @@ local function verifyIR(ir)
                         and layout and layout.fieldTypes[target.field] == target.scalarType
                         and (target.scalarType == "f32" or target.scalarType == "i32"
                            or target.scalarType == "u32")
-                        and assignment.value.type == "f64x4",
+                        and assignment.value.type == shape.vectorFor[target.scalarType],
                         "invalid lane field assignment")
                   end
                end
             elseif statement.op == "vwhile" then
-               assert(statement.live.type == "m64x4" and statement.executing.type == "m64x4"
+               assert(statement.live.type == MASK and statement.executing.type == MASK
                   and statement.live.name ~= statement.executing.name
                   and not laneValues[statement.live.name]
                   and not laneValues[statement.executing.name],
                   "invalid lane-loop mask bindings")
                verifyLaneExpr(statement.initial, laneValues)
                verifyLaneExpr(statement.condition, laneValues)
-               assert(statement.initial.type == "m64x4" and statement.condition.type == "m64x4",
+               assert(statement.initial.type == MASK and statement.condition.type == MASK,
                   "invalid lane-loop condition")
                local inner = copyEnvironment(laneValues)
-               inner[statement.live.name] = "m64x4"
-               inner[statement.executing.name] = "m64x4"
+               inner[statement.live.name] = MASK
+               inner[statement.executing.name] = MASK
                verifyLaneBlock(statement.body, inner, statement)
             elseif statement.op == "vbreak" or statement.op == "vcontinue" then
                assert(loopContext and statement.live.name == loopContext.live.name
                   and statement.executing.name == loopContext.executing.name,
                   "lane loop control escaped its loop")
                verifyLaneExpr(statement.mask, laneValues)
-               assert(statement.mask.type == "m64x4", "lane loop control needs a mask")
+               assert(statement.mask.type == MASK, "lane loop control needs a mask")
             else
                error("unknown lane statement opcode " .. tostring(statement.op))
             end
@@ -2015,7 +2272,7 @@ local function irLines(ir)
          elseif statement.op == "vassign" then
             for _, assignment in ipairs(statement.values) do
                local target = assignment.target.kind == "local" and assignment.target.name
-                  or assignment.target.span .. "[i..i+" .. tostring(LANES - 1)
+                  or assignment.target.span .. "[i..i+" .. tostring(ir.lanes.lanes - 1)
                      .. "]." .. assignment.target.field
                lines[#lines + 1] = prefix .. "vset " .. target .. " = "
                   .. expression(assignment.value)
@@ -2075,17 +2332,41 @@ local cBinary = {
    ["and"] = "&&", ["or"] = "||",
 }
 
+-- Vector-typed opcodes are spelled "<verb>.<vector type>", so one table of
+-- verbs serves every lane shape and an unknown width cannot render as a valid
+-- operator by accident.
+local LANE_VERB = {add = " + ", sub = " - ", mul = " * ", div = " / ",
+   lt = " < ", le = " <= ", gt = " > ", ge = " >= ", eq = " == ", ne = " != "}
+
 local function renderExpr(node)
-   local LANE_BINARY = {vadd64 = " + ", vsub64 = " - ", vmul64 = " * ", vdiv64 = " / ",
-      vlt64 = " < ", vle64 = " <= ", vgt64 = " > ", vge64 = " >= ", veq64 = " == ",
-      vne64 = " != ", vmand = " & ", vmor = " | ",
+   local LANE_BINARY = {vmand = " & ", vmor = " | ",
       vshort_and = " & ", vshort_or = " | "}
    if LANE_BINARY[node.op] then
       return "(" .. renderExpr(node.args[1]) .. LANE_BINARY[node.op]
          .. renderExpr(node.args[2]) .. ")"
    end
-   if node.op == "vsplat64" then
-      return "ks_splat64(" .. renderExpr(node.args[1]) .. ")"
+   local verb, vector = node.op:match("^v(%a+)%.(%w+)$")
+   if verb and LANE_VERB[verb] then
+      return "(" .. renderExpr(node.args[1]) .. LANE_VERB[verb]
+         .. renderExpr(node.args[2]) .. ")"
+   end
+   if verb == "neg" then
+      return "(-" .. renderExpr(node.args[1]) .. ")"
+   end
+   if verb == "sqrt" then
+      -- Elementwise, through the width's own library call so the lane form is
+      -- the same operation the scalar one performs.
+      local scalar = vector:match("^(%a%d+)x")
+      local lanes = tonumber(vector:match("x(%d+)$"))
+      local parts = {}
+      for lane = 0, lanes - 1 do
+         parts[#parts + 1] = (scalar == "f32" and "sqrtf(" or "sqrt(")
+            .. renderExpr(node.args[1]) .. "[" .. lane .. "])"
+      end
+      return "((" .. ("ks_" .. vector) .. "){" .. table.concat(parts, ", ") .. "})"
+   end
+   if node.op == "vsplat" then
+      return "ks_splat_" .. node.type .. "(" .. renderExpr(node.args[1]) .. ")"
    end
    if node.op == "vbool_splat" then
       return "ks_bool_mask(" .. renderExpr(node.args[1]) .. ")"
@@ -2093,26 +2374,23 @@ local function renderExpr(node)
    if node.op == "vmnot" then
       return "(~" .. renderExpr(node.args[1]) .. ")"
    end
-   if node.op == "vneg64" then
-      return "(-" .. renderExpr(node.args[1]) .. ")"
-   end
    if node.op == "vselect" then
-      return "ks_sel64(" .. renderExpr(node.args[1]) .. ", " .. renderExpr(node.args[2])
-         .. ", " .. renderExpr(node.args[3]) .. ")"
+      return "ks_sel_" .. node.type .. "(" .. renderExpr(node.args[1]) .. ", "
+         .. renderExpr(node.args[2]) .. ", " .. renderExpr(node.args[3]) .. ")"
    end
    if node.op == "vfield_load" then
       local parts = {}
       for lane = 0, node.lanes - 1 do
          parts[#parts + 1] = "p_" .. node.span .. "[i + " .. lane .. "]." .. node.field
       end
-      return "((ks_f64x4){" .. table.concat(parts, ", ") .. "})"
+      return "((" .. ("ks_" .. node.type) .. "){" .. table.concat(parts, ", ") .. "})"
    end
    if node.op == "vmath" then
       -- One scalar call per lane, rendered through the ordinary math path so the
       -- lane-parallel form cannot drift from the scalar one. Clang recognizes
       -- the shape and uses a vector library call where it has one.
       local parts = {}
-      for lane = 0, 3 do
+      for lane = 0, tonumber(node.type:match("x(%d+)$")) - 1 do
          local args = {}
          for i, arg in ipairs(node.args) do
             args[i] = {op = "raw", text = renderExpr(arg) .. "[" .. lane .. "]"}
@@ -2120,8 +2398,21 @@ local function renderExpr(node)
          parts[#parts + 1] = renderExpr({op = "math", intrinsic = node.intrinsic, args = args})
       end
 
-      return "((ks_f64x4){" .. table.concat(parts, ", ") .. "})"
+      return "((" .. ("ks_" .. node.type) .. "){" .. table.concat(parts, ", ") .. "})"
    end
+   if FIXED_BINARY[node.op] then
+      local element = FIXED_BINARY[node.op]
+      local left, right = renderExpr(node.left), renderExpr(node.right)
+      if element == "f32" then
+         -- C float arithmetic is single-rounded: it does not promote to double,
+         -- so this is the binary32 operation the source asked for.
+         return "((float)(" .. left .. ") " .. FIXED_OPERATOR[node.op] .. " (float)(" .. right .. "))"
+      end
+      -- Wrapping happens in unsigned, where overflow is defined, then comes back.
+      return "((int32_t)(nupp_u32(" .. left .. ") " .. FIXED_OPERATOR[node.op]
+         .. " nupp_u32(" .. right .. ")))"
+   end
+   if node.op == "f32_sqrt" then return "sqrtf(" .. renderExpr(node.value) .. ")" end
    if node.op == "raw" then return node.text end
    if node.op == "narrow_f64_f32" then return "(float)(" .. renderExpr(node.value) .. ")" end
    if node.op == "widen_f32_f64" then return "((double)" .. renderExpr(node.value) .. ")" end
@@ -2192,8 +2483,8 @@ local function cType(typeName)
    if typeName == "f32" then return "float" end
    if typeName == "i32" then return "int32_t" end
    if typeName == "u32" then return "uint32_t" end
-   if typeName == "f64x4" then return "ks_f64x4" end
-   if typeName == "m64x4" then return "ks_m64x4" end
+   local vector = typeName:match("^[fmiu]%d+x%d+$")
+   if vector then return "ks_" .. typeName end
    local layout = typeName:match("^ref:(.+)$")
    if layout then return "Ks" .. layout .. " *" end
    error("unknown C type " .. tostring(typeName))
@@ -2246,18 +2537,52 @@ local function renderC(ir)
    -- Marked unused for the same reason the helpers below are: the prelude is
    -- emitted whole, so a kernel with no bit operation never calls these, and
    -- -Werror would fail a correct program for a conversion it did not need.
-   emit("typedef double ks_f64x4 __attribute__((vector_size(32)));")
-   emit("typedef long long ks_m64x4 __attribute__((vector_size(32)));")
-   emit("static inline __attribute__((unused)) ks_f64x4 ks_splat64(double v)"
-      .. " { return (ks_f64x4){v, v, v, v}; }")
-   emit("static inline __attribute__((unused)) ks_m64x4 ks_mask_all(void)"
-      .. " { return (ks_m64x4){-1, -1, -1, -1}; }")
-   emit("static inline __attribute__((unused)) ks_m64x4 ks_bool_mask(bool v)"
-      .. " { return v ? ks_mask_all() : (ks_m64x4){0, 0, 0, 0}; }")
-   emit("static inline __attribute__((unused)) bool ks_any64(ks_m64x4 m)"
-      .. " { return (m[0] | m[1] | m[2] | m[3]) != 0; }")
-   emit("static inline __attribute__((unused)) ks_f64x4 ks_sel64(ks_m64x4 m, ks_f64x4 a, ks_f64x4 b)"
-      .. " { return (ks_f64x4)((m & (ks_m64x4)a) | (~m & (ks_m64x4)b)); }")
+   -- One 32-byte group either way: four binary64 lanes or eight 32-bit ones.
+   -- Both preludes are emitted whole and marked unused, like the helpers below,
+   -- so a kernel that uses one shape does not fail -Werror for the other.
+   local shape = ir.lanes and SHAPE_BY_NAME[ir.lanes.shape] or SHAPES[1]
+   local vectors = {}
+   for _, vector in pairs(shape.vectorFor) do vectors[vector] = true end
+   local ELEMENT_C = {f64 = "double", f32 = "float", i32 = "int32_t"}
+   local MASK_C = {m64x4 = "long long", m32x8 = "int"}
+   emit("typedef " .. MASK_C[shape.mask] .. " ks_" .. shape.mask
+      .. " __attribute__((vector_size(32)));")
+   for vector in pairs(vectors) do
+      if vector ~= shape.mask then
+         local element = vector:match("^(%a%d+)x")
+         emit("typedef " .. ELEMENT_C[element] .. " ks_" .. vector
+            .. " __attribute__((vector_size(32)));")
+      end
+   end
+   local ones, zeros = {}, {}
+   for _ = 1, shape.lanes do ones[#ones + 1] = "-1" zeros[#zeros + 1] = "0" end
+   emit("static inline __attribute__((unused)) ks_" .. shape.mask .. " ks_mask_all(void)"
+      .. " { return (ks_" .. shape.mask .. "){" .. table.concat(ones, ", ") .. "}; }")
+   emit("static inline __attribute__((unused)) ks_" .. shape.mask .. " ks_bool_mask(bool v)"
+      .. " { return v ? ks_mask_all() : (ks_" .. shape.mask .. "){"
+      .. table.concat(zeros, ", ") .. "}; }")
+   local anyTerms = {}
+   for lane = 0, shape.lanes - 1 do anyTerms[#anyTerms + 1] = "m[" .. lane .. "]" end
+   emit("static inline __attribute__((unused)) bool ks_any(ks_" .. shape.mask .. " m)"
+      .. " { return (" .. table.concat(anyTerms, " | ") .. ") != 0; }")
+   for vector in pairs(vectors) do
+      if vector ~= shape.mask then
+         local element = vector:match("^(%a%d+)x")
+         local splatLanes = {}
+         for _ = 1, shape.lanes do splatLanes[#splatLanes + 1] = "v" end
+         emit("static inline __attribute__((unused)) ks_" .. vector .. " ks_splat_" .. vector
+            .. "(" .. ELEMENT_C[element] .. " v) { return (ks_" .. vector .. "){"
+            .. table.concat(splatLanes, ", ") .. "}; }")
+         -- Blend through the mask's integer lanes. A branchless select is what
+         -- makes an inactive lane keep its old value instead of computing a new
+         -- one, so it must not be an arithmetic idiom: multiplying by zero turns
+         -- an escaped lane's infinity into a NaN and destroys it.
+         emit("static inline __attribute__((unused)) ks_" .. vector .. " ks_sel_" .. vector
+            .. "(ks_" .. shape.mask .. " m, ks_" .. vector .. " a, ks_" .. vector .. " b)"
+            .. " { return (ks_" .. vector .. ")((m & (ks_" .. shape.mask .. ")a)"
+            .. " | (~m & (ks_" .. shape.mask .. ")b)); }")
+      end
+   end
    emit("static inline __attribute__((unused)) uint32_t nupp_u32(double value) { return (uint32_t)value; }")
    emit("static inline __attribute__((unused)) uint32_t nupp_u32_i32(int32_t value) { return (uint32_t)value; }")
    emit("static inline __attribute__((unused)) uint32_t nupp_u32_u32(uint32_t value) { return value; }")
@@ -2376,8 +2701,8 @@ local function renderC(ir)
                   -- into an interleaving store where the target has one.
                   local rendered = renderExpr(assignment.value)
                   emit(prefix .. "{")
-                  emit(prefix .. "    ks_f64x4 lanes = " .. rendered .. ";")
-                  for lane = 0, 3 do
+                  emit(prefix .. "    " .. cType(assignment.value.type) .. " lanes = " .. rendered .. ";")
+                  for lane = 0, ir.lanes.lanes - 1 do
                      emit(prefix .. "    p_" .. target.span .. "[i + " .. lane .. "]."
                         .. target.field .. " = (" .. cType(target.scalarType)
                         .. ")lanes[" .. lane .. "];")
@@ -2388,10 +2713,10 @@ local function renderC(ir)
                end
             end
          elseif statement.op == "vwhile" then
-            emit(prefix .. "ks_m64x4 " .. statement.live.cName .. " = "
+            emit(prefix .. cType(statement.live.type) .. " " .. statement.live.cName .. " = "
                .. renderExpr(statement.initial) .. ";")
-            emit(prefix .. "while (ks_any64(" .. statement.live.cName .. ")) {")
-            emit(prefix .. "    ks_m64x4 " .. statement.executing.cName .. " = "
+            emit(prefix .. "while (ks_any(" .. statement.live.cName .. ")) {")
+            emit(prefix .. "    " .. cType(statement.executing.type) .. " " .. statement.executing.cName .. " = "
                .. statement.live.cName .. ";")
             renderBlock(statement.body, depth + 1)
             emit(prefix .. "    " .. statement.live.cName .. " &= "
@@ -2583,18 +2908,36 @@ function compiler.compile(source, filename, checked)
    -- already been proved to mean something, so a refusal here is only ever
    -- about lowering it several iterations at a time.
    if ir.wantsLanes then
-      local refusals = {}
-      local ok, problem = pcall(function()
-         ir.lanes = vectorizeLoop(ir, function(_, message)
-            refusals[#refusals + 1] = diagnostic(filename, ir.loop.source, message)
-            error(STOP, 0)
+      -- Try the shapes widest lane count first. The 32-bit gang refuses the
+      -- moment any varying value turns out to be binary64, so a loop written
+      -- with ordinary operators lands on f64x4 exactly as it did before, and a
+      -- loop whose values the source established as float or int32 gets twice
+      -- the lanes for the same registers. The pass builds fresh IR and touches
+      -- nothing else, so a declined attempt costs a retry and no state.
+      --
+      -- Only the last shape's refusals are reported. A loop that cannot lower
+      -- at all cannot lower in any width, and the binary64 refusal is the one
+      -- that names the construct rather than the width.
+      local refusals
+      for position = #SHAPES, 1, -1 do
+         local attempted, lanes = {}, nil
+         local ok, problem = pcall(function()
+            lanes = vectorizeLoop(ir, function(_, message)
+               attempted[#attempted + 1] = diagnostic(filename, ir.loop.source, message)
+               error(STOP, 0)
+            end, SHAPES[position])
          end)
-      end)
-      if not ok then
+         if ok then ir.lanes = lanes break end
          if problem ~= STOP then error(problem, 0) end
-
-         return nil, refusals
+         if os.getenv("NUPP_SPIKE_SHAPES") then
+            for _, refusal in ipairs(attempted) do
+               io.stderr:write("shape ", SHAPES[position].name, ": ",
+                  renderDiagnostic(refusal), "\n")
+            end
+         end
+         refusals = attempted
       end
+      if not ir.lanes then return nil, refusals end
       verifyIR(ir)
    end
    return {

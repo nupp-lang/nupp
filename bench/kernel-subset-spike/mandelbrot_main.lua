@@ -9,10 +9,14 @@
 local ffi = require("ffi")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
-local OUT = here .. "build/mandelbrot/"
+-- Which kernel to run. `mandelbrot` is the ordinary binary64 one; `mandelbrot_f32`
+-- is the same algorithm written in explicit binary32, which is a different
+-- program with different escape counts and is checked against its own oracle.
+local KERNEL = os.getenv("MANDELBROT_KERNEL") or "mandelbrot"
+local OUT = here .. "build/" .. KERNEL .. "/"
 package.path = OUT .. "fallback/?.lua;" .. OUT .. "fallback/?/init.lua;" .. package.path
 
-local ordinary = require("mandelbrot")
+local ordinary = require(KERNEL)
 local spans = require("nupp.span")
 
 ffi.cdef [[
@@ -24,7 +28,7 @@ void ks_mandelbrot_forced_scalar(KsEscape *escapes, const KsPoint *points,
    double first, double last, int32_t maxIterations, size_t count);
 ]]
 
-local lib = ffi.load(OUT .. (jit.os == "OSX" and "libmandelbrot.dylib" or "libmandelbrot.so"))
+local lib = ffi.load(OUT .. "lib" .. KERNEL .. (jit.os == "OSX" and ".dylib" or ".so"))
 
 local WIDTH = tonumber(os.getenv("MANDELBROT_WIDTH") or 78)
 local HEIGHT = tonumber(os.getenv("MANDELBROT_HEIGHT") or 30)
@@ -56,7 +60,9 @@ for row = 0, HEIGHT - 1 do
    end
 end
 
---- The same recurrence in plain Lua, as the semantic oracle.
+--- The same recurrence in plain Lua, as the semantic oracle. Independent of the
+--- kernel source: if the generated code and the ordinary Nupp body ever agreed
+--- with each other but not with the algorithm, this is what would say so.
 local function reference(cx, cy)
    local zx, zy, zxSquared, zySquared, iteration = 0.0, 0.0, 0.0, 0.0, 0
    while iteration < MAX_ITERATIONS do
@@ -72,17 +78,96 @@ local function reference(cx, cy)
    return iteration, 0
 end
 
+--- The binary32 recurrence, through the released fixed-width namespace. Every
+--- rounding point the source asks for happens here too, so this is the oracle
+--- for the explicitly binary32 kernel rather than a tolerance on the other one.
+local function referenceF32(cx, cy)
+   local f32 = nupp.math.f32
+   cx, cy = f32.narrow(cx), f32.narrow(cy)
+   local zx, zy = f32.narrow(0.0), f32.narrow(0.0)
+   local zxSquared, zySquared = f32.narrow(0.0), f32.narrow(0.0)
+   local iteration = 0
+   while iteration < MAX_ITERATIONS do
+      if f32.add(zxSquared, zySquared) > f32.narrow(4.0) then
+         return iteration, 1
+      end
+      zy = f32.add(f32.mul(f32.mul(zx, f32.narrow(2.0)), zy), cy)
+      zx = f32.add(f32.sub(zxSquared, zySquared), cx)
+      zxSquared, zySquared = f32.mul(zx, zx), f32.mul(zy, zy)
+      iteration = iteration + 1
+   end
+
+   return iteration, 0
+end
+
+--- The interior test the kernels use to skip points known to be in the set. It
+--- changes no answer, so the oracle has to apply it too or it would disagree
+--- about how many iterations an interior point took.
+local function inCardioid(cx, cy)
+   local x = cx - 0.25
+   local ySquared = cy * cy
+   local q = x * x + ySquared
+   return q * (q + x) <= 0.25 * ySquared
+      or (cx + 1.0) * (cx + 1.0) + ySquared <= 0.0625
+end
+
+local function inCardioidF32(cx, cy)
+   local f32 = nupp.math.f32
+   cx, cy = f32.narrow(cx), f32.narrow(cy)
+   local quarter = f32.narrow(0.25)
+   local x = f32.sub(cx, quarter)
+   local ySquared = f32.mul(cy, cy)
+   local q = f32.add(f32.mul(x, x), ySquared)
+   if f32.mul(q, f32.add(q, x)) <= f32.mul(quarter, ySquared) then return true end
+   local shifted = f32.add(cx, f32.narrow(1.0))
+   return f32.add(f32.mul(shifted, shifted), ySquared) <= f32.narrow(0.0625)
+end
+
+local binary32 = KERNEL:find("f32", 1, true) ~= nil
+-- Reported rather than assumed: the gang width is the backend's choice from the
+-- loop's own lane types, so a run says which one it actually got.
+SHAPE = binary32 and "f32x8" or "f64x4"
+local recurrence = binary32 and referenceF32 or reference
+local interior = binary32 and inCardioidF32 or inCardioid
+
+local function oracle(cx, cy)
+   if interior(cx, cy) then return MAX_ITERATIONS, 0 end
+
+   return recurrence(cx, cy)
+end
+
 local optimized = ffi.new("KsEscape[?]", count)
 local scalar = ffi.new("KsEscape[?]", count)
-local fallback = ffi.new("KsEscape[?]", count)
 lib.ks_mandelbrot(optimized, points, 1, count, MAX_ITERATIONS, count)
 lib.ks_mandelbrot_forced_scalar(scalar, points, 1, count, MAX_ITERATIONS, count)
-local fallbackWriter = spans.writeCarray(fallback, count)
-ordinary.mandelbrot(fallbackWriter, spans.fromCarray(points, count), 1, count, MAX_ITERATIONS)
+
+-- The two generated bodies are compared on every pixel: they come from one IR,
+-- and the lane rewrite is exactly what is between them, so this is the check
+-- that the rewrite changed no answer.
+for index = 0, count - 1 do
+   if optimized[index].iterations ~= scalar[index].iterations
+      or optimized[index].escaped ~= scalar[index].escaped
+   then
+      error(("SPMD pixel %d: scalar says %d/%d, lanes say %d/%d"):format(
+         index, scalar[index].iterations, scalar[index].escaped,
+         optimized[index].iterations, optimized[index].escaped))
+   end
+end
+
+-- The ordinary Nupp body and the hand-written Lua recurrence anchor those two
+-- to the language's meaning. Both run one pixel at a time, and for the
+-- explicitly binary32 kernel every operation is an FFI round trip, so this is
+-- bounded by count rather than run to the display size. What was checked is
+-- printed rather than assumed: a silent cap would read like full coverage.
+local ORACLE_LIMIT = tonumber(os.getenv("MANDELBROT_ORACLE_LIMIT") or (binary32 and 20000 or count))
+local oracleCount = math.min(count, ORACLE_LIMIT)
+local fallback = ffi.new("KsEscape[?]", math.max(1, oracleCount))
+local fallbackWriter = spans.writeCarray(fallback, oracleCount)
+ordinary.mandelbrot(fallbackWriter, spans.fromCarray(points, oracleCount), 1, oracleCount, MAX_ITERATIONS)
 fallbackWriter:commit()
 
-for index = 0, count - 1 do
-   local wantIterations, wantEscaped = reference(points[index].re, points[index].im)
+for index = 0, oracleCount - 1 do
+   local wantIterations, wantEscaped = oracle(points[index].re, points[index].im)
    for label, got in pairs({
       optimized = optimized[index], scalar = scalar[index], fallback = fallback[index],
    }) do
@@ -96,7 +181,9 @@ end
 -- Exercise every whole-group/tail shape independently of the display size.
 -- The source points come from the same initialized prefix, while each output
 -- starts fresh so a missed or overrun lane cannot hide behind an earlier call.
-for _, prefix in ipairs({0, 1, 3, 4, 5, 7, 8, 33}) do
+-- Covers no complete group, exact groups, and every remainder for both gang
+-- widths, so a four-lane and an eight-lane tail are both exercised.
+for _, prefix in ipairs({0, 1, 3, 4, 5, 7, 8, 9, 15, 16, 17, 33}) do
    if prefix <= count then
       local capacity = math.max(1, prefix)
       local expected = ffi.new("KsEscape[?]", capacity)
@@ -123,7 +210,8 @@ for index = 0, count - 1 do
 end
 io.write(("mandelbrot: %dx%d, %d max iterations, checksum %d\n")
    :format(WIDTH, HEIGHT, MAX_ITERATIONS, checksum))
-io.write(("%d pixels agree across ordinary Nupp, scalar C, and SPMD C\n\n"):format(count))
+io.write(("%d pixels agree between scalar C and SPMD C; %d of them also agree with ordinary Nupp and the Lua oracle\n\n")
+   :format(count, oracleCount))
 if os.getenv("MANDELBROT_QUIET") then
    local function bench(name, run)
       for _ = 1, 3 do run() end
@@ -138,7 +226,7 @@ if os.getenv("MANDELBROT_QUIET") then
          :format(name, elapsed * 1e9, count / elapsed / 1e6))
    end
 
-   bench("SPMD f64x4", function()
+   bench("SPMD " .. SHAPE, function()
       lib.ks_mandelbrot(optimized, points, 1, count, MAX_ITERATIONS, count)
    end)
    bench("scalar C", function()
@@ -147,7 +235,7 @@ if os.getenv("MANDELBROT_QUIET") then
    bench("LuaJIT", function()
       local total = 0
       for index = 0, count - 1 do
-         total = total + reference(points[index].re, points[index].im)
+         total = total + recurrence(points[index].re, points[index].im)
       end
 
       return total
@@ -172,7 +260,8 @@ end
 
 -- Timing is a sanity check rather than a gate: one call over the whole grid,
 -- against the same recurrence interpreted by LuaJIT.
-local function timed(name, run)
+local function timed(name, run, pixels)
+   pixels = pixels or count
    for _ = 1, 3 do run() end
    local started = os.clock()
    local passes = 0
@@ -181,23 +270,29 @@ local function timed(name, run)
       passes = passes + 1
    end
    local elapsed = (os.clock() - started) / passes
-   io.write(("\n%-22s %8.3f ms  %10.1f Mpixel/s")
-      :format(name, elapsed * 1000, count / elapsed / 1e6))
+   io.write(("\n%-22s %8.3f ms  %10.1f Mpixel/s%s")
+      :format(name, elapsed * 1000, pixels / elapsed / 1e6,
+         pixels ~= count and (" (over %d pixels)"):format(pixels) or ""))
 end
 
-timed("AOT SPMD f64x4", function()
+timed("AOT SPMD " .. SHAPE, function()
    lib.ks_mandelbrot(optimized, points, 1, count, MAX_ITERATIONS, count)
 end)
 timed("forced-scalar C", function()
    lib.ks_mandelbrot_forced_scalar(scalar, points, 1, count, MAX_ITERATIONS, count)
 end)
+-- The ordinary fallback for the binary32 program performs every rounding point
+-- through an FFI store and load, so it is timed over a prefix and reported as a
+-- per-pixel rate. That cost is the price of the explicitly binary32 source, not
+-- an artifact of measuring it: it is what this program costs with AOT off.
+local luaPixels = binary32 and math.min(count, 20000) or count
 timed("LuaJIT", function()
    local total = 0
-   for index = 0, count - 1 do
-      local iterations = reference(points[index].re, points[index].im)
+   for index = 0, luaPixels - 1 do
+      local iterations = recurrence(points[index].re, points[index].im)
       total = total + iterations
    end
 
    return total
-end)
+end, luaPixels)
 io.write("\n")

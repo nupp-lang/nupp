@@ -47,11 +47,24 @@ explicit verified pure-and-total effect fact. Branch masks are captured before
 their bodies execute, so changing a condition operand cannot change which
 lanes execute later statements in that branch.
 
-It chooses four binary64 lanes on this experimental backend. Physical
-`float`, `int32`, and `uint32` fields widen to binary64 lane values for ordinary
-Nupp arithmetic and narrow independently at stores. A scalar epilogue handles
-the remainder so no vector load can cross the end of a span. Nested numeric
-`for` loops, uniform inner loops, and helper calls currently refuse.
+The gang width follows the widths the loop's own varying values need. Ordinary
+Nupp arithmetic is binary64, so a loop written with operators gets four binary64
+lanes; physical `float`, `int32`, and `uint32` fields widen to binary64 lane
+values for that arithmetic and narrow independently at stores.
+
+A loop whose varying values are all 32-bit gets eight lanes for the same
+registers. That happens only when the source says so, through the released
+`nupp.math.f32` and `nupp.math.i32` operations, and it is a different program
+with different answers. The pass tries the eight-lane shape first and falls back
+to four the moment a varying value turns out to be binary64; set
+`NUPP_SPIKE_SHAPES=1` to see why a shape declined. An explicit binary32 or
+wrapping int32 operation refuses a gang without lanes of its width rather than
+computing it wider, because that would drop a rounding point the source asked
+for.
+
+A scalar epilogue handles the remainder so no vector load can cross the end of a
+span. Nested numeric `for` loops, uniform inner loops, and helper calls
+currently refuse.
 
 Both the scalar IR and the rewritten lane IR are verified before C emission.
 The lane verifier checks vector types and arities, writable roots, layouts,
@@ -107,12 +120,42 @@ luajit bench/kernel-subset-spike/mandelbrot_main.lua
 
 It compares the ordinary annotated Nupp body, one generated SPMD C body, its
 deliberately de-vectorized scalar C oracle, and a handwritten Lua recurrence.
-It also exercises every relevant tail shape. On the current Apple arm64
-measurement at 1024x768 and 256 iterations, the four-lane binary64 body runs at
-about 72 MPix/s versus 35 MPix/s for forced-scalar C. That row establishes the
-lane rewrite's value; it does not claim to beat whatever a normal optimizing C
-compiler could infer from the scalar body. Historical binary32 eight-lane
-results and checksums are not comparable to this ordinary-Nupp program.
+It also exercises every relevant tail shape for both gang widths.
+
+`MANDELBROT_KERNEL=mandelbrot_f32` runs the same algorithm written in explicit
+binary32 instead of ordinary binary64 operators:
+
+```sh
+bench/kernel-subset-spike/mandelbrot.sh mandelbrot_f32
+MANDELBROT_KERNEL=mandelbrot_f32 luajit bench/kernel-subset-spike/mandelbrot_main.lua
+```
+
+On the current Apple arm64 measurement at 1024x768 and 256 iterations:
+
+```
+ Body                          MPix/s  Note
+ ────────────────────────────  ──────  ─────────────────────────────────
+ SPMD f32x8, explicit f32       ~119   different program, own oracle
+ SPMD f64x4, ordinary Nupp       ~72   exact agreement with ordinary Nupp
+ forced-scalar C, either         ~35   de-vectorized oracle
+ LuaJIT, ordinary Nupp           ~1.6
+ LuaJIT, explicit f32            ~0.1  every rounding point is an FFI trip
+```
+
+Two things in that table are the point of it. Forced-scalar C is the same speed
+for both kernels, so the whole binary32 gain is lane density rather than
+anything about single-precision arithmetic being cheaper. And the explicitly
+binary32 program's ordinary fallback is roughly sixteen times slower than the
+binary64 one, because LuaJIT has to perform each rounding the source asked for.
+
+The binary64 row establishes the lane rewrite's value and agrees with ordinary
+Nupp exactly; it does not claim to beat whatever a normal optimizing C compiler
+could infer from the scalar body. The binary32 row is a different program with
+different escape counts, checked against its own ordinary Nupp body and an
+independent Lua `nupp.math.f32` recurrence rather than against the binary64
+answers. Because that oracle is slow, the two generated bodies are compared on
+every pixel and the semantic oracles on a bounded prefix, which the run prints
+rather than assumes; `MANDELBROT_ORACLE_LIMIT` raises it.
 
 ## Checked boundary
 
@@ -123,6 +166,14 @@ The scalar subset currently covers:
 - flat reified structs containing `float`, `int32`, and `uint32` fields;
 - full-span or guarded inclusive-range iteration;
 - ordinary binary64 arithmetic with explicit storage widening and narrowing;
+- the released `nupp.math.f32` and `nupp.math.i32` operations, lowered to native
+  single-precision and wrapping 32-bit instructions. A binary32 operation over
+  binary32 operands computed in binary64 and rounded once is bit-identical to
+  the native instruction, because 53 >= 2 * 24 + 2, so this is an exact lowering
+  rather than a relaxation. `min`, `max`, and `fma` are deliberately not
+  admitted yet: their `nupp.math` implementations canonicalize NaNs and
+  compensate rounding in ways a native instruction may not match, and each owes
+  a differential test before it enters;
 - established `float`, `int32`, and `uint32` parameters using matching private
   C ABI slots;
 - mutable locals, simultaneous assignment, branches, nested scalar loops,
