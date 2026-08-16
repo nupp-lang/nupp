@@ -1,0 +1,131 @@
+--[[
+Rewriting one scalar expression to run several iterations at once.
+
+The loop body was already lowered, typed and bound as scalar IR, so nothing here
+decides what anything means. What is left is a choice about how many iterations
+happen at a time, which is the kind of decision an IR pass should own.
+
+A value that depends on the loop index becomes a vector; one that does not stays
+scalar and broadcasts where it meets one. That distinction is the whole of it,
+and `State.varyingLocals` is where it is recorded -- worked out in a pass over the
+body before this one runs, because whether a name varies has to be settled before
+any read of it is rewritten.
+
+Widths are not chosen here either. The gang was picked before this ran, and an
+operation that cannot be carried in it refuses rather than being computed wider:
+an explicitly binary32 multiply in a binary64 gang would round somewhere the
+source did not ask for, and answering differently is not an optimisation.
+]]
+
+local lane = require("nupp.compiler.aot.lane")
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local rewrite = {}
+
+--- What rewriting one expression needs to know.
+---
+--- Passed rather than closed over, because the same rewrite runs for each shape
+--- the pass tries and a closure would have to be rebuilt for each attempt.
+record rewrite.State
+    --- The gang this body is being lowered to.
+    shape: lane.Shape
+
+    --- The loop's own index. A span access at any other index is not
+    --- consecutive, and consecutive access is the whole licence for running
+    --- several iterations at once.
+    index: string
+
+    --- Locals whose value depends on the loop index, by name.
+    varyingLocals: {[string]: boolean}
+
+    --- Locals bound to one element of a span, by name, to the element they were
+    --- bound to.
+    refBindings: {[string]: any}
+
+    --- Helper parameters bound to lane vectors while one call is inlined.
+    helperBindings: {[string]: lane.Expr}
+
+    --- Reports a construct this pass cannot represent.
+    reject: function(string): nil
+end
+
+--- The scalar types that name a lane element.
+---
+--- A scalar type is wider than this: it also covers `multi` for a call with
+--- several results and the layout names a span element takes. Neither is
+--- something a lane carries, so crossing from one to the other is a check
+--- rather than a cast.
+const rewrite.ELEMENTS = {["f64"] = true, ["f32"] = true, ["i32"] = true, ["u32"] = true, ["bool"] = true,}
+
+--- The lane element a scalar type names, when it names one.
+function rewrite.asElement(scalarType: scalarIR.Type): lane.Element?
+    if rewrite.ELEMENTS[scalarType] == true then
+        return scalarType as lane.Element
+    end
+
+    return nil
+end
+
+--- Whether a scalar constant is exactly the value `element` would hold.
+---
+--- Comparing a binary32 lane against a literal only means the same thing when
+--- this holds; otherwise the literal stays binary64 and takes the loop with it.
+--- The round trip is the test rather than a range check, because the question is
+--- representability and not magnitude.
+function rewrite.constantFits(node: scalarIR.Expr, element: lane.Element): boolean
+    if node.op ~= "constant" then
+        return false
+    end
+    local number = tonumber((node as scalarIR.Constant).value)
+    if number == nil then
+        return false
+    elseif element == "i32" then
+        return number % 1 == 0 and number >= -2147483648 and number <= 2147483647
+    elseif element == "f32" then
+        -- The language already owns what binary32 rounding means, so this asks
+        -- it rather than reaching for a storage slot of its own and having a
+        -- second answer to the same question.
+        return nupp.math.f32.narrow(number) == number
+    end
+
+    return element == "f64"
+end
+
+--- The vector this gang carries `element` in, or nothing when it carries it at
+--- all.
+function rewrite.vectorFor(state: rewrite.State, element: lane.Element): string?
+    return state.shape.vectorFor[element]
+end
+
+--- Whether an explicit fixed-width operation can happen in this gang.
+---
+--- It can only where the gang's lanes are that width. Computing it wider would
+--- drop a rounding the source asked for, so a gang without those lanes declines
+--- the loop and lets one that has them take it.
+function rewrite.carriesExactly(state: rewrite.State, element: lane.Element): boolean
+    return state.shape.vectorFor[element] == element .. "x" .. tostring(state.shape.lanes)
+end
+
+--- The element a comparison compares, which is not its own type.
+---
+--- A comparison produces a mask whatever it compares, so the width comes from
+--- the operands. Mixed ones were widened by the front end; a literal on one side
+--- adopts the other's width when it is exactly representable there, which is
+--- what keeps `zxSquared + zySquared > 4.0` in binary32 lanes.
+function rewrite.comparisonElement(left: scalarIR.Expr, right: scalarIR.Expr): lane.Element
+    local leftElement = rewrite.asElement(left.type)
+    local rightElement = rewrite.asElement(right.type)
+    if leftElement == nil or rightElement == nil then
+        return "f64"
+    elseif leftElement == rightElement then
+        return leftElement
+    elseif rewrite.constantFits(right, leftElement) then
+        return leftElement
+    elseif rewrite.constantFits(left, rightElement) then
+        return rightElement
+    end
+
+    return "f64"
+end
+
+return rewrite

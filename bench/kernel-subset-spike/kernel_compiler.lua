@@ -7,33 +7,12 @@ local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
 local root = here .. "../.."
 package.path = root .. "/build/?.lua;" .. package.path
 
-local ffi = require("ffi")
 local lane = require("nupp.compiler.aot.lane")
 local intensity = require("nupp.compiler.aot.intensity")
 local laneVerify = require("nupp.compiler.aot.verify")
+local rewriteRules = require("nupp.compiler.aot.rewrite")
 local parser = require("nupp.compiler.parser")
 local cst = require("nupp.compiler.cst")
-
--- One binary32 slot, used only to ask whether a literal survives the round trip.
-local roundTrip = ffi.new("float[1]")
-
---- Whether a scalar IR constant is exactly the value `element` would hold, so
---- that entering a narrow lane type cannot change it. Comparing a binary32 lane
---- against a literal only means the same thing when this is true; otherwise the
---- literal has to stay binary64 and take the loop with it.
-local function constantFits(node, element)
-   if not node or node.op ~= "constant" then return false end
-   local number = tonumber(node.value)
-   if not number then return false end
-   if element == "i32" then
-      return number % 1 == 0 and number >= -2147483648 and number <= 2147483647
-   end
-   if element == "f32" then
-      roundTrip[0] = number
-      return roundTrip[0] == number
-   end
-   return element == "f64"
-end
 
 local compiler = {}
 local STOP = {}
@@ -1276,7 +1255,7 @@ local function vectorizeLoop(ir, reject, shape)
          end
       end
       if element == "i32" and node.type == "u32" then return node end
-      if constantFits(node, element) then
+      if rewriteRules.constantFits(node, element) then
          if element == "i32" then
             return {op = "constant_i32", value = node.value, type = "i32", source = node.source}
          end
@@ -1540,9 +1519,9 @@ local function vectorizeLoop(ir, reject, shape)
             verb = VECTOR_COMPARISON[op]
             if node.left.type == node.right.type then
                element = node.left.type
-            elseif constantFits(node.right, node.left.type) then
+            elseif rewriteRules.constantFits(node.right, node.left.type) then
                element = node.left.type
-            elseif constantFits(node.left, node.right.type) then
+            elseif rewriteRules.constantFits(node.left, node.right.type) then
                element = node.right.type
             else
                element = "f64"
