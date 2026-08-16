@@ -96,6 +96,23 @@ The domain references describe `NUPP2xxx` diagnostics in context:
 - [ownership and unsafe operations](ownership.md);
 - [lints, configuration, and suppression](lints.md).
 
+The capability-specific codes distinguish the repair the checker needs:
+
+| Code | Meaning |
+| --- | --- |
+| `NUPP2607` | Two capability regions overlap. |
+| `NUPP2608` | A rooted value escapes its permitted lifetime. |
+| `NUPP2609` | A loop back edge changes capability state. |
+| `NUPP2610` | A public capability contract leaves its mode or relation implicit. |
+| `NUPP2611` | A dynamic boundary would erase a live capability. |
+| `NUPP2612` | A dynamic store cannot safely discharge the supplied capability. |
+| `NUPP2613` | An erased dynamic handle is recovered with the wrong type policy. |
+| `NUPP2614` | A dynamic handle is stale or names a destroyed store. |
+
+Run `nupp explain CODE` for a checked example and the matching repair. Runtime
+handle failures use the same `NUPP2613` and `NUPP2614` codes in
+`nupp.dynamic.Error` values.
+
 ## Repairs
 
 Checker-provided fixes cover misspelled variables, type names, fields,

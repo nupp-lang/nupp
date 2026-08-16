@@ -367,7 +367,8 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
             t.constParams,
             t.paramKinds,
             t.partitionResults,
-            t.comptimeOnly
+            t.comptimeOnly,
+            t.explicitPreserves
         )
     end
 
@@ -1249,7 +1250,8 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
                 t.constParams,
                 t.paramKinds,
                 t.partitionResults,
-                t.comptimeOnly
+                t.comptimeOnly,
+                t.explicitPreserves
             )
         end
     elseif t.tag == "shape" then
@@ -1461,7 +1463,8 @@ function generics.instantiateFunction(t: T.Func, map: Bindings, control: generic
         nil,
         nil,
         concrete.partitionResults,
-        concrete.comptimeOnly
+        concrete.comptimeOnly,
+        concrete.explicitPreserves
     ) as T.Func
 end
 
@@ -2083,7 +2086,8 @@ function generics.dropSelf(ft: Type): Type
             ft.constParams,
             ft.paramKinds,
             ft.partitionResults,
-            ft.comptimeOnly
+            ft.comptimeOnly,
+            ft.explicitPreserves
         )
     end
 
@@ -2157,7 +2161,8 @@ function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
         ft.constParams,
         ft.paramKinds,
         ft.partitionResults,
-        ft.comptimeOnly
+        ft.comptimeOnly,
+        ft.explicitPreserves
     )
 end
 

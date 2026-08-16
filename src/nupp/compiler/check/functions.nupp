@@ -208,11 +208,10 @@ function functions.install(c: state.Checker): state.StatHandlers
         return modes, declared
     end
 
-    --- Result-slot capability transfers stated by `preserves`, plus the conservative
-    --- identity inference for visible generic bodies. Inference deliberately accepts
-    --- only a direct parameter on every explicit return path; conditionals and raising
-    --- paths work because their successful returns are still visited, while calls,
-    --- storage and selection do not accidentally become transparent.
+    --- Result-slot capability transfers stated by `preserves`, plus conservative
+    --- identity inference for visible generic bodies. A source may pass directly,
+    --- through another preserving call, or into one unambiguous constructor subtree.
+    --- Arbitrary calls and storage do not accidentally become transparent.
     local function couldCarryMovable(t)
         if not t or t == T.any or t == T.unknown then
             return true
@@ -234,7 +233,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         return false
     end
 
-    local function preservationResults(body, paramNames, paramTypes, paramModes, inferVisible, report)
+    local function preservationResults(body, paramNames, paramTypes, resultTypes, paramModes, inferVisible, report)
         local byname, results, explicit = {}, {}, {}
         for j, name in ipairs(paramNames or {}) do
             byname[name] = j
@@ -255,6 +254,17 @@ function functions.install(c: state.Checker): state.StatHandlers
                             (
                                 "preserving capability-bearing parameter %q requires `takes %s`"
                             ):format(ret.param.text, ret.param.text)
+                        )
+                    end
+                    if report and resultTypes[
+                        result
+                    ] and not T.preservationPath(resultTypes[result], paramTypes[source]) then
+                        c.diag(
+                            "NUPP2606",
+                            ret,
+                            (
+                                "preserves %q must select one unambiguous component of the result shape"
+                            ):format(ret.param.text)
                         )
                     end
                 end
@@ -286,6 +296,11 @@ function functions.install(c: state.Checker): state.StatHandlers
             while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
                 expr = expr.expr
             end
+            if expr and expr.kind == "namedArg" then
+                return directParameter(expr.value)
+            elseif expr and expr.kind == "newExpr" then
+                return directParameter(expr.call)
+            end
             if expr and expr.kind == "call" then
                 local source = expr.preservesArguments and expr.preservesArguments[1] or nil
                 if not source then
@@ -302,6 +317,23 @@ function functions.install(c: state.Checker): state.StatHandlers
                 local argument = source and expr.args and expr.args.exprs and expr.args.exprs[source] or nil
                 if argument then
                     return directParameter(argument)
+                end
+                if (expr.constructorCall or expr.recordConstruct) and expr.args then
+                    local found
+                    for _, value in ipairs(expr.args.exprs or {}) do
+                        local nested = directParameter(value)
+                        if nested then
+                            if found and found ~= nested then
+                                return nil
+                            elseif found == nested then
+                                -- A movable capability cannot be placed twice in one
+                                -- aggregate, even when both occurrences name it.
+                                return nil
+                            end
+                            found = nested
+                        end
+                    end
+                    return found
                 end
             end
 
@@ -363,7 +395,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             end
         end
 
-        return next(results) and results or nil
+        return next(results) and results or nil, next(explicit) and explicit or nil
     end
 
     --- Parameters whose every value use is an immediate direct invocation. Such a
@@ -1009,7 +1041,15 @@ function functions.install(c: state.Checker): state.StatHandlers
             retPack = T.pack(rets, retPack.tail, retPack.modes)
         end
 
-        local preservesResults = preservationResults(body, paramNames, params, paramModes, typeParams ~= nil, true)
+        local preservesResults, explicitPreserves = preservationResults(
+            body,
+            paramNames,
+            params,
+            rets,
+            paramModes,
+            typeParams ~= nil,
+            true
+        )
         local callable = T.func(
             params,
             rets,
@@ -1035,7 +1075,9 @@ function functions.install(c: state.Checker): state.StatHandlers
             nil,
             constParams,
             paramKinds,
-            body.partitionResults
+            body.partitionResults,
+            nil,
+            explicitPreserves
         )
         if #captures > 0 then
             return T.affine(callable, {T.closureCleanup()})
@@ -1124,7 +1166,15 @@ function functions.install(c: state.Checker): state.StatHandlers
         local resumePack = body and body.resumePack and c.resolvePack(body.resumePack) or nil
         c.popScope()
 
-        local preservesResults = preservationResults(body, paramNames, params, modes, typeParams ~= nil, false)
+        local preservesResults, explicitPreserves = preservationResults(
+            body,
+            paramNames,
+            params,
+            rets,
+            modes,
+            typeParams ~= nil,
+            false
+        )
 
         return T.func(
             params,
@@ -1150,7 +1200,10 @@ function functions.install(c: state.Checker): state.StatHandlers
             preservesResults,
             nil,
             constParams,
-            paramKinds
+            paramKinds,
+            nil,
+            nil,
+            explicitPreserves
         )
     end
 
@@ -1342,7 +1395,10 @@ function functions.install(c: state.Checker): state.StatHandlers
                     next(preserves) and preserves or nil,
                     ft.foreign,
                     ft.constParams,
-                    ft.paramKinds
+                    ft.paramKinds,
+                    ft.partitionResults,
+                    ft.comptimeOnly,
+                    ft.explicitPreserves
                 )
                 owner.writeByname[member] = owner.byname[member]
                 owner.fieldDefs[member] = owner.fieldDefs[member] or memberDefinition

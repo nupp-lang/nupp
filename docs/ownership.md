@@ -195,7 +195,61 @@ end
 An unconstrained `T` may carry a movable capability, so a preserving public
 function spells `takes`. Ordinary copyable values still pass through the same
 function without becoming affine. `preserves` never copies an obligation and
-never changes runtime representation.
+never changes runtime representation. Preservation follows one unambiguous path
+through records, tuples, optionals, unions, and result packs. If
+the source type appears in two result components, the checker will not guess which
+component owns the obligation.
+
+## Regions and loop-carried capabilities
+
+Loans use a general place path: stable fields, constant or unknown indexes, and
+audited checked partitions. Sibling fields and
+different constant indexes are disjoint. A parent overlaps every descendant, and
+unknown dynamic indexes overlap unless an existing integer proof distinguishes
+them. `nupp.span` splitting uses the same algebra rather than receiving ownership
+privilege from method names.
+
+A loop back edge must re-enter its header with the same obligation, roots, access,
+pin, retention, and live-region shape. Iteration-local borrows end before the edge.
+Moving an outer owner only on a repeating path, or carrying a newly exclusive child
+into the next iteration, reports `NUPP2609`.
+
+## Dynamic boundaries
+
+A nontrivial capability cannot disappear into `any` or an untyped call. Prefer a
+typed wrapper for a closed backend set. Truly heterogeneous storage uses
+`nupp.dynamic`:
+
+```nupp
+local dynamic = require("nupp.dynamic")
+
+local store = dynamic.newStore()
+local handle = store:put(openFile()) -- Moves the exact cleanup policy into the store.
+local token = dynamic.erase(handle)  -- Safe to pass through untyped Lua.
+local restored, problem = dynamic.recover(token, FileState)
+if restored then
+    local file = store:take(restored)
+    if file then use(file) end
+end
+drop(store) -- Cleans every entry not taken or removed.
+```
+
+Handles contain store identity, slot, generation, and a stable type-policy key.
+`take` and `remove` invalidate every copied handle. Recovery checks a nominal
+representation witness against the complete stored representation-and-cleanup key;
+`take` restores the exact stored affine policy. Transfer-only
+values, external borrows, pins, and foreign retentions cannot be enrolled because
+store destruction could not discharge them. `unsafe release`/`unsafe adopt` remains
+the manual-proof alternative.
+
+## Public capability contracts
+
+Exported functions need explicit modes only for parameters that may carry a
+nontrivial capability. Ordinary strings, numbers, and GC-managed records remain
+unannotated; an unconstrained public generic parameter spells `takes`, `borrows`,
+`exclusive`, or `scoped` because callers may instantiate it with a capability. A
+public forwarder also writes `preserves source`; visible-body inference remains a
+private implementation convenience rather than part of an implicit API contract.
 
 ## Borrowing and pinning
 
@@ -252,6 +306,14 @@ nothing to the runtime representation.
   transferred.
 - **NUPP2606**: a preservation relation loses, duplicates, or names the wrong
   capability source.
+- **NUPP2607**: shared and exclusive regions overlap incompatibly.
+- **NUPP2608**: a rooted or scoped value escapes its permitted lifetime.
+- **NUPP2609**: a loop back edge changes a live capability or region.
+- **NUPP2610**: a capability-bearing public parameter omits its mode.
+- **NUPP2611**: a nontrivial capability is implicitly erased.
+- **NUPP2612**: a dynamic-store value is not self-contained and droppable.
+- **NUPP2613**: dynamic recovery requests the wrong type policy.
+- **NUPP2614**: a dynamic handle is stale or names a different or destroyed store.
 - **NUPP2615**: a terminal is missing or does not exactly match its
   representation.
 

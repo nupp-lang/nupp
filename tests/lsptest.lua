@@ -568,10 +568,16 @@ function M.hoverAndInspectExposeAutomaticCleanup()
    os.execute("rm -rf '" .. projectDir .. "'")
 
    local hover = responseWithId(out, 10).result
+   assertContains(hover.contents.value, "handle: Handle",
+      "hover leads with the ordinary representation")
+   assertContains(hover.contents.value, "Capability: cleanup `close_handle`.",
+      "hover describes the affine policy separately")
    assertContains(hover.contents.value,
       "Automatically destroyed after line 11 with `close_handle`.",
       "automatic cleanup hover")
    local inspected = responseWithId(out, 11).result
+   assert(inspected.capability == "cleanup `close_handle`",
+      "inspect returns the canonical capability summary")
    assert(inspected.automaticCleanup
       and inspected.automaticCleanup.status == "automatic"
       and inspected.automaticCleanup.line == 11

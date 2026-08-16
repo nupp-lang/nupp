@@ -66,6 +66,7 @@ local RESOURCES = {
    "src/nupp/compiler/decls/*.d.nupp",
    "src/nupp/compiler/decls/jit/*.d.nupp",
    {source = "src/nupp/resources.nupp", output = "nupp/compiler/nupp/resources.nupp"},
+   {source = "src/nupp/dynamic.nupp", output = "nupp/compiler/nupp/dynamic.nupp"},
    {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
    {source = "src/nupp/zone.nupp", output = "nupp/compiler/nupp/zone.nupp"},
    {source = "src/nupp/profile.nupp", output = "nupp/compiler/nupp/profile.nupp"},

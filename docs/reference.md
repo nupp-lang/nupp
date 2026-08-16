@@ -853,63 +853,49 @@ Reports: `NUPP2001`. `nupp explain <code>` says more.
 
 ### Affine resources
 
-`affine(Representation[, cleanup])` constructs a transparent affine type, normally
-named with an ordinary alias such as `type HeldLock = affine(LockToken, unlock)`.
-Its identity is the representation plus the const-function identity of its cleanup;
-it allocates no wrapper. The cleanup must be exactly a
-`nosuspend function(takes Representation): nil`, and may raise.
-
-`affine(T, cleanup)` and `affine(T)` are built-in compile-time type-generator
-calls, not runtime function or method calls. There is no global structural
-cleanup policy: a package names the exact cleanup function for its resource.
-`affine(T)` deliberately has no cleanup and can only be forwarded or released.
+`affine(T[, cleanup])` is a transparent compile-time type-generator call, normally
+named as `type HeldLock = affine(LockToken, unlock)`. Identity combines `T` and the
+exact const cleanup function; no wrapper is allocated. Cleanup has type
+`nosuspend function(takes T): nil`. `affine(T)` is transfer-only.
 
 A known affine local is destroyed at scope exit. `drop owner` invokes its selected
-terminal immediately. `unsafe adopt raw as SomeAffine` introduces an asserted fresh
-obligation; `unsafe release owner` consumes one without invoking its terminal.
-`takes` and matching affine returns transfer an obligation once.
+terminal now. `unsafe adopt raw as SomeAffine` asserts a fresh obligation;
+`unsafe release owner` consumes it without cleanup. `takes` and affine returns move it.
 
 Parameter modes describe calls: `takes` consumes; `borrows` is call-scoped;
 `exclusive` also requires sole access; `retains`/`releases` describe C holding a
 pointer across calls.
 
-`T preserves value` transports a parameter's exact capability through scalar
-generic narrowing. `T borrows (source)` ties a result or nominal field to a
-root. Closures borrow captured owners by default; `borrows (source)` declares
-that relation. `takes (source)` moves an owner into an affine, single-shot
-closure whose call or drop discharges it. A `scoped` callback proves borrowed
-captures cannot escape. `affine(T, cleanup)` in a callable field declares a
-fresh owning result.
+`T preserves value` moves an exact capability through one unambiguous scalar or
+aggregate result path. `T borrows (source)` ties a result or nominal field to a
+root. Closures borrow captured owners by default. `takes (source)` makes a
+single-shot closure; `scoped` proves callback captures cannot escape.
 
 Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds
-dynamic owners. `nupp.span` gives sealed, private-implementation `Span<T>` and
-affine `WriteSpan<T>` views. `FixedSpan<T, N>` and `FixedWriteSpan<T, N>` refine
-those contracts without a runtime length check. `nupp.heap.allocate` gives
-`Array<T>` whose immutable count moves with its private pointer. Raw or unknown
-suspension cannot cross an obligation; handled suspension requires its
-cancellation contract.
+dynamic owners. `nupp.span` provides `Span<T>` and affine `WriteSpan<T>` views;
+fixed variants remove a runtime length check. `nupp.heap.Array<T>` moves its count
+with its private pointer. Suspension cannot strand an obligation.
 
 `WriteSpan.getMut(index)` returns a checked mutable element pointer borrowed
-from the writer for reading or writing, so another shared or
-exclusive use cannot overlap it. An exclusive parameter may be forwarded to
-another exclusive call while no such derived borrow is live.
+from the writer, excluding overlapping access. An exclusive parameter may be
+forwarded while no derived borrow is live.
 
-`WriteSpan.splitAt(mid)` produces disjoint sibling regions. `countedBy(count)`
-maps borrowed cdef pointer/count parameters to checked spans. The wrapper checks
-shared lengths, projects slice-adjusted pointers, and calls C once even at zero
-count. Const pointers use `Span<T>`; mutable pointers use `WriteSpan<T>`.
+Fields, tuple slots, exact indexes, and ranges use one region algebra; unknown
+indexes overlap. Loop back edges restore their complete capability state.
+`WriteSpan.splitAt(mid)` creates audited disjoint regions. `countedBy(count)` maps
+cdef pointer/count parameters to checked spans.
 
-Lifetime alone does not prove a C pointer index is in bounds. Direct pointer or
-variable-length C-array indexing therefore requires `unsafe`; use `nupp.span`
-when a runtime count is available. A fixed C array rejects a statically
-out-of-range literal and inserts a runtime guard for a non-literal index.
+Direct pointer or variable-length C-array indexing requires `unsafe`; use a span
+for checked bounds. Fixed arrays reject bad literals and guard dynamic indexes.
 
 The remaining ownership helpers are `nupp.attemptAll`, `nupp.borrow`,
-`nupp.borrowFrom`, and `nupp.pin`.
-`nupp.attemptAll(value, ...)` runs each named operation in order, attempts every
-one after a failure, and raises the first with the rest suppressed; only the last
-may `takes` the value. Bare aliases lower identically.
-Any local spelling, including `nupp`, shadows them.
+`nupp.borrowFrom`, and `nupp.pin`. `attemptAll` tries every cleanup in order and
+raises the first failure with the rest suppressed. Local names shadow helpers.
+
+Capabilities cannot disappear into `any`. `nupp.dynamic` holds self-contained
+cleanup capabilities behind copyable generation-checked handles; `recover` checks
+an erased handle's policy and `take` restores its exact capability. Public APIs
+spell modes and result relations only for capability-bearing values.
 
 ```nupp
 local m = {}
@@ -938,7 +924,9 @@ end
 return m
 ```
 
-Reports: `NUPP2603`, `NUPP2606`, `NUPP2615`. `nupp explain <code>` says more.
+Reports: `NUPP2603`, `NUPP2606`, `NUPP2607`, `NUPP2608`, `NUPP2609`, `NUPP2610`,
+`NUPP2611`, `NUPP2612`, `NUPP2613`, `NUPP2614`, `NUPP2615`. `nupp explain
+<code>` says more.
 
 ### C interop
 
@@ -1792,6 +1780,14 @@ says more.
 - **NUPP2603**: An ownership obligation is not discharged or cannot escape.
 - **NUPP2605**: Adjusting a value pack would discard an affine value.
 - **NUPP2606**: A preservation relation would lose or duplicate capability.
+- **NUPP2607**: Shared and exclusive regions overlap incompatibly.
+- **NUPP2608**: A rooted value escapes its permitted lifetime.
+- **NUPP2609**: A loop back edge changes capability state unsafely.
+- **NUPP2610**: A public capability contract is implicit.
+- **NUPP2611**: A dynamic boundary would erase a live capability.
+- **NUPP2612**: A dynamic-store value is not self-contained.
+- **NUPP2613**: A dynamic handle has the wrong type policy.
+- **NUPP2614**: A dynamic handle is stale or names a destroyed store.
 - **NUPP2615**: An affine value names an invalid terminal.
 - **NUPP2630**: A counted C pointer does not match its physical count parameter.
 - **NUPP2701**: A non-suspending region can reach suspension.

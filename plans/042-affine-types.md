@@ -1,5 +1,9 @@
 # User-defined affine types
 
+> Historical plan. The affine constructor and exact cleanup identity landed, but
+> plan 047 superseded the proposed global `Owned`, `Transfer`, and `Drop` policy.
+> Current source uses `affine(T, cleanup)`, `affine(T)`, and concrete resource names.
+
 ## Decision
 
 Nupp will make affinity a public type-system facility and define ownership policy
@@ -7,7 +11,7 @@ with ordinary Nupp declarations in the prelude. The compiler will understand the
 `affine(Representation[, cleanup])` type constructor, affine introduction and consumption, and automatic
 lexical destruction. It will not recognize `Owned`, `Drop`, or `Transfer` by name.
 
-The target prelude is:
+The original target prelude was:
 
 ```nupp
 global interface Drop

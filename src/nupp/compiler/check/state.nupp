@@ -397,6 +397,7 @@ record state.Checker
     regionOf: function(node: any): (any, string?)
 
     regionsOverlap: function(left: string?, right: string?): boolean
+    regionContains: function(parent: string?, child: string?): boolean
 
     --- The key narrowing tracks a reference under, or nil when it has none.
     pathKey: function(node: Node): string?

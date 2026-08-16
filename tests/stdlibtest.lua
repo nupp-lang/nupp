@@ -260,7 +260,7 @@ function M.processViewsSatisfyTheSharedContracts()
       "local output = child.stdout as process.Reader",
       "local leaked: nupp.io.Reader? = nil",
       "leaked = process.asReader(output)",
-   }, "\n"))), "NUPP2603:5", "a view cannot escape its borrowed process stream")
+   }, "\n"))), "NUPP2608:5", "a view cannot escape its borrowed process stream")
    assertEq((diagsOf(table.concat({
       "local process = require('nupp.io.process')",
       "local impossible: process.ReaderView = nil as any",
@@ -812,7 +812,7 @@ function M.stringBufferBorrowBlocksInvalidation()
       "local base, size = b:ref()",
       "b:reset()",
       "print(base, size)",
-   }, "\n"))), "NUPP2602:4")
+   }, "\n"))), "NUPP2607:4")
 end
 
 -- Pointer/length pairs are rooted by the buffer, then made bounds-carrying before

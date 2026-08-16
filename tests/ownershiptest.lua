@@ -143,6 +143,30 @@ function M.fixedPackPreservationCarriesTheExactResultSlot()
    }, "\n"))
 end
 
+function M.genericPreservationMovesCapabilitiesIntoAggregateResults()
+   assertClean(table.concat({
+      RESOURCE,
+      "local record Box<T>",
+      "   value: T",
+      "end",
+      "local function box<T>(takes value: T): Box<T> preserves value",
+      "   return new Box(value = value)",
+      "end",
+      "local boxed = box(resource_new())",
+      "drop(boxed)",
+   }, "\n"))
+
+   assertEq(codes(table.concat({
+      "local record Pair<T>",
+      "   left: T",
+      "   right: T",
+      "end",
+      "local function ambiguous<T>(takes value: T): Pair<T> preserves value",
+      "   return new Pair(left = value, right = value)",
+      "end",
+   }, "\n")), "NUPP2606 NUPP2602", "a relation cannot guess between repeated components or duplicate a move")
+end
+
 function M.assertPreservesAndNarrowsAnOptionalOwner()
    assertClean(table.concat({
       RESOURCE,
@@ -452,6 +476,177 @@ function M.resourceSetsCanTransferARegistrationBackOutExactlyOnce()
       "end",
    }, "\n"))
 end
+
+function M.dynamicStoresCarryExactCleanupPoliciesBehindTypedHandles()
+   local source = table.concat({
+      RESOURCE,
+      "local dynamic = require('nupp.dynamic')",
+      "do",
+      "   local store = dynamic.newStore()",
+      "   local handle = store:put(resource_new())",
+      "   local returned, problem = store:take(handle)",
+      "   assert(problem == nil)",
+      "   drop(assert(returned))",
+      "end",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   assert(code:find(":_put%([^,]+,__nuppDynamicCleanup%d+,") ,
+      "dynamic put must receive its cleanup program and policy:\n" .. code)
+   assert(code:find("const __nuppDynamicCleanup%d+ = function%(__nuppV%)"),
+      "dynamic cleanup must be declared once per policy:\n" .. code)
+end
+
+function M.dynamicStoresEnforceCustodyAtRuntime()
+   local source = table.concat({
+      "local dynamic = require('nupp.dynamic')",
+      "local cleaned = 0",
+      "local record FileState value: integer end",
+      "local function closeFile(takes file: FileState): nil",
+      "   cleaned = cleaned + file.value",
+      "end",
+      "local function openFile(value: integer): affine(FileState, closeFile)",
+      "   return new FileState(value = value)",
+      "end",
+      "local store = dynamic.newStore()",
+      "local handle = store:put(openFile(1))",
+      "local stale = handle",
+      "local erased = dynamic.erase(handle)",
+      "local recovered, recoveryProblem = dynamic.recover(erased, FileState)",
+      "assert(recoveryProblem == nil)",
+      "if not recovered then error('recovery failed') end",
+      "local file, takeProblem = store:take(recovered)",
+      "assert(takeProblem == nil)",
+      "if not file then error('take failed') end",
+      "drop(file)",
+      "local staleProblem = store:remove(stale)",
+      "assert(staleProblem ~= nil)",
+      "store:put(openFile(2))",
+      "drop(store)",
+      "return cleaned, staleProblem and staleProblem.code",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-dynamic-runtime")
+   assertEq(#genDiags, 0, (genDiags[1] and genDiags[1].msg or "generate")
+      .. "\n" .. code)
+   local chunk, loadErr = loadstring(code, "@ownership-dynamic-runtime")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   local cleaned, staleCode = chunk()
+   assertEq(cleaned, 3, "take and store destruction each clean exactly once")
+   assertEq(staleCode, "NUPP2614", "a consumed slot invalidates copied handles")
+end
+
+function M.dynamicStoresRejectCapabilitiesTheyCannotDischarge()
+   assertEq(codes(table.concat({
+      "local dynamic = require('nupp.dynamic')",
+      "local record Request value: integer end",
+      "local function begin(): affine(Request) return new Request(value = 1) end",
+      "local store = dynamic.newStore()",
+      "local handle = store:put(begin())",
+      "drop(store)",
+      "return handle",
+   }, "\n")), "NUPP2612")
+end
+
+function M.dynamicErasureAndBorrowEscapesHaveDedicatedDiagnostics()
+   assertEq(codes(table.concat({
+      RESOURCE,
+      "local value: any = resource_new()",
+   }, "\n")), "NUPP2611")
+
+   assertEq(codes(table.concat({
+      RESOURCE,
+      "local function leak(borrows value: resource*): resource*",
+      "   return value",
+      "end",
+      "return leak",
+   }, "\n")), "NUPP2608")
+end
+
+function M.loopBackEdgesCannotConsumeAnOuterCapabilityConditionally()
+   assertEq(codes(table.concat({
+      RESOURCE,
+      "local function run(flag: boolean): nil",
+      "   local value = resource_new()",
+      "   while flag do",
+      "      drop(value)",
+      "   end",
+      "end",
+   }, "\n")), "NUPP2609")
+end
+
+function M.generalRegionsDistinguishSiblingFieldsAndExactIndexes()
+   local prelude = table.concat({
+      "local record Pair",
+      "   left: table",
+      "   right: table",
+      "end",
+      "local function together(exclusive left: table, exclusive right: table): nil end",
+      "local pair = new Pair(left = {}, right = {})",
+   }, "\n")
+   assertClean(prelude .. "\ntogether(pair.left, pair.right)")
+   assertEq(codes(prelude .. "\ntogether(pair.left, pair.left)"), "NUPP2607")
+
+   local indexed = table.concat({
+      "local function together(exclusive left: table, exclusive right: table): nil end",
+      "local values: {table} = {{}, {}}",
+   }, "\n")
+   assertClean(indexed .. "\ntogether(values[1], values[2])")
+   assertEq(codes(indexed .. "\nlocal i: integer = 1\ntogether(values[i], values[i])"), "NUPP2607")
+   assertEq(codes(indexed .. "\nlocal i: integer = 1\ntogether(values[i], values[1])"), "NUPP2607")
+   assertEq(codes(indexed .. "\nlocal value = {}\ntogether(value, value)"), "NUPP2607")
+end
+
+function M.publicContractsAreExplicitOnlyForCapabilityBearingParameters()
+   assertClean(table.concat({
+      "local m = {}",
+      "function m.length(value: string): integer return #value end",
+      "return m",
+   }, "\n"))
+   assertEq(codes(table.concat({
+      "local m = {}",
+      "function m.forward<T>(value: T): T return value end",
+      "return m",
+   }, "\n")), "NUPP2610")
+   assertEq(codes(table.concat({
+      "local m = {}",
+      "function m.forward<T>(takes value: T): T return value end",
+      "return m",
+   }, "\n")), "NUPP2610 NUPP2603")
+   assertClean(table.concat({
+      "local m = {}",
+      "function m.forward<T>(takes value: T): T preserves value return value end",
+      "return m",
+   }, "\n"))
+end
+
+function M.dynamicRecoveryKeepsAndChecksTheStoredCapabilityPolicy()
+   local prelude = table.concat({
+      "local dynamic = require('nupp.dynamic')",
+      "local record FileState end",
+      "local function closeFile(takes value: FileState): nil end",
+      "local type File = affine(FileState, closeFile)",
+      "local function openFile(): File return new FileState() end",
+      "local record SocketState end",
+      "local function closeSocket(takes value: SocketState): nil end",
+      "local type Socket = affine(SocketState, closeSocket)",
+      "local store = dynamic.newStore()",
+      "local handle = store:put(openFile())",
+      "local erased = dynamic.erase(handle)",
+   }, "\n")
+   assertClean(prelude .. table.concat({
+      "",
+      "local recovered, problem = dynamic.recover(erased, FileState)",
+      "if recovered then",
+      "   local value = store:take(recovered)",
+      "   if value then drop(value) end",
+      "end",
+   }, "\n"))
+   assertEq(codes(prelude .. "\nlocal recovered = dynamic.recover(erased, SocketState)"), "NUPP2613")
+end
 function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
    assertClean(table.concat({
       "local spans = require('nupp.span')",
@@ -599,7 +794,7 @@ function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
       "writable:set(1, 1 as int32)",
       "print(shared:get(1))",
       "spans.commit(writable)",
-   }, "\n")), "NUPP2602 NUPP2602", "a shared downgrade blocks mutation and commit")
+   }, "\n")), "NUPP2607 NUPP2602", "a shared downgrade blocks mutation and commit")
 end
 
 function M.writableSlicesAreAffineChildrenOfTheirWriter()
@@ -631,7 +826,7 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
       "local child = writable:slice(2, 3)",
       "writable:set(1, 1 as int32)",
       "print(child.count)",
-   }, "\n")), "NUPP2602", "a live child blocks exclusive parent use")
+   }, "\n")), "NUPP2607", "a live child blocks exclusive parent use")
 
    assertClean(table.concat({
       "local spans = require('nupp.span')",
@@ -696,7 +891,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
       "local readable = values:read()",
       "local writable = values:write()",
       "print(readable, writable)",
-   }, "\n")), "NUPP2602", "a live array read blocks a writer")
+   }, "\n")), "NUPP2607", "a live array read blocks a writer")
 
    assertEq(codes(table.concat({
       "local heap = require('nupp.heap')",
@@ -704,7 +899,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
       "local writable = values:write()",
       "local readable = values:read()",
       "print(readable, writable)",
-   }, "\n")), "NUPP2602", "a live array writer blocks a reader")
+   }, "\n")), "NUPP2607", "a live array writer blocks a reader")
 
    assertEq(codes(table.concat({
       "local heap = require('nupp.heap')",
@@ -774,13 +969,13 @@ function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
    }, "\n")
 
    assertClean(prelude .. "\npair(split.left, split.right)")
-   assertEq(codes(prelude .. "\npair(split.left, split.left)"), "NUPP2602", "one child is not two regions")
-   assertEq(codes(prelude .. "\nwritable:set(1, 1 as int32)"), "NUPP2602", "a split blocks its parent")
+   assertEq(codes(prelude .. "\npair(split.left, split.left)"), "NUPP2607", "one child is not two regions")
+   assertEq(codes(prelude .. "\nwritable:set(1, 1 as int32)"), "NUPP2607", "a split blocks its parent")
    assertEq(codes(prelude .. table.concat({
       "",
       "local nested = split.left:splitAt(2)",
       "pair(split.left, nested.right)",
-   }, "\n")), "NUPP2602 NUPP2602", "an ancestor overlaps its descendant")
+   }, "\n")), "NUPP2607 NUPP2607", "an ancestor overlaps its descendant")
 
    assertClean(table.concat({
       prelude,
@@ -822,7 +1017,7 @@ function M.exclusiveParametersCanBeForwardedWithoutAStoredBorrow()
       "   inner(values)",
       "   print(element)",
       "end",
-   }, "\n")), "NUPP2602")
+   }, "\n")), "NUPP2607")
 
    assertEq(codes(table.concat({
       "local spans = require('nupp.span')",
@@ -832,7 +1027,7 @@ function M.exclusiveParametersCanBeForwardedWithoutAStoredBorrow()
       "   inspect(values)",
       "   print(element)",
       "end",
-   }, "\n")), "NUPP2602")
+   }, "\n")), "NUPP2607")
 end
 
 function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
@@ -1015,7 +1210,7 @@ function M.aBorrowedResultCannotOutliveItsSource()
       "      return peek(pool)",
       "   end",
       "end",
-   }, "\n")), "NUPP2603")
+   }, "\n")), "NUPP2608")
 end
 
 function M.borrowingAConsumedParameterIsRejected()
@@ -1042,7 +1237,7 @@ function M.returningABorrowStillNeedsTheAnnotation()
       "local function sneak(borrows p: Pool): Pool",
       "   return p",
       "end",
-   }, "\n")), "NUPP2603")
+   }, "\n")), "NUPP2608")
 end
 
 -- Borrowing a borrow needs no separate machinery: a borrow can only be bound
@@ -1220,7 +1415,7 @@ function M.aDerivedBorrowCannotOutliveItsIntermediate()
       "   held = peek(inner)",
       "end",
       "drop(pool)",
-   }, "\n")), "NUPP2603 NUPP2602")
+   }, "\n")), "NUPP2608 NUPP2602")
 end
 
 function M.aDerivedBorrowCannotBeStored()
@@ -1425,7 +1620,7 @@ function M.explicitBorrowContractsPinEscapeErrorsToTheBody()
       "local function stash(borrows value: resource*)",
       "   saved = value",
       "end",
-   }, "\n")), "NUPP2603")
+   }, "\n")), "NUPP2608")
 end
 
 function M.sharedBorrowsPermitStableMutation()
@@ -1450,7 +1645,7 @@ function M.exclusiveRequiresCallDurationExclusivity()
       "   print(view.value)",
       "end",
       "resource_free(value)",
-   }, "\n")), "NUPP2602")
+   }, "\n")), "NUPP2607")
 
    assertClean(RESOURCE .. table.concat({
       "",
@@ -1478,7 +1673,7 @@ function M.exclusiveRequiresCallDurationExclusivity()
       "   print(second.value)",
       "end",
       "resource_free(value)",
-   }, "\n")), "NUPP2602")
+   }, "\n")), "NUPP2607")
 end
 
 function M.consumeMovesAndRejectsLaterUse()
@@ -1598,7 +1793,7 @@ function M.borrowedValuesCannotEscape()
       "   return value",
       "end",
    }, "\n")
-   assertEq(codes(returned), "NUPP2603")
+   assertEq(codes(returned), "NUPP2608")
 
    local stored = RESOURCE .. table.concat({
       "",
@@ -1621,7 +1816,7 @@ function M.aBorrowingClosureCannotEraseProvenanceOnReturn()
       "   end",
       "end",
    }, "\n"))
-   assertEq(got, "NUPP2603")
+   assertEq(got, "NUPP2608")
 end
 
 function M.rawReconstructionRequiresUnsafe()
@@ -2223,7 +2418,7 @@ function M.stringDerivedPointersCannotEscape()
       "local text = 'hello'",
       "local pointer = ffi.cast<cstring>(text)",
       "return pointer",
-   }, "\n")), "NUPP2603")
+   }, "\n")), "NUPP2608")
    assertClean(table.concat({
       "cdef function strlen(value: cstring): uint64",
       "local text = 'hello'",
@@ -2610,7 +2805,7 @@ function M.qualifiedDisposeIsNotAnIntrinsicAliasForDrop()
       RESOURCE,
       "local value = resource_new()",
       "nupp.dispose(value)",
-   }, "\n")), "NUPP2004 NUPP2603")
+   }, "\n")), "NUPP2004 NUPP2611")
 end
 
 function M.bothSpellingsOfDropLowerTheSameWay()

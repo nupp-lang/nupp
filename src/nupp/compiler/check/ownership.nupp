@@ -82,6 +82,8 @@ type ownership.Ops = {
 
     regionsOverlap: function(left: string?, right: string?): boolean,
 
+    regionContains: function(parent: string?, child: string?): boolean,
+
     --- Records that an expression's owner has been handed over.
     moveExpression: function(
         expr: any,
@@ -441,9 +443,11 @@ function ownership.install(c: state.Checker): ownership.Ops
     end
 
     function own.regionsOverlap(left, right)
-        left, right = left or "", right or ""
-        local common = math.min(#left, #right)
-        return left:sub(1, common) == right:sub(1, common)
+        return T.regionsOverlap(left, right)
+    end
+
+    function own.regionContains(parent, child)
+        return T.regionContains(parent, child)
     end
 
     function own.regionOf(expr)
@@ -472,7 +476,20 @@ function ownership.install(c: state.Checker): ownership.Ops
             local suffix = fields and fields[expr.name.text] or nil
             if root and suffix then
                 expr.regionExclusive = true
-                return root, (path or "") .. suffix
+                local side = suffix == "L" and "left" or suffix == "R" and "right" or suffix
+                return root, T.regionPartition(path, side)
+            elseif root then
+                return root, T.regionField(path, expr.name.text)
+            end
+            return root, path
+        elseif expr.kind == "bracketIndex" or expr.kind == "safeBracket" then
+            local root, path = own.regionOf(expr.obj)
+            if root then
+                local key = expr.expr and c.infer(expr.expr) or nil
+                local exact = key and key.tag == "literal" and type(
+                    key.constant
+                ) == "number" and key.constant % 1 == 0 and key.constant or nil
+                return root, T.regionIndex(path, exact)
             end
             return root, path
         end
@@ -774,6 +791,7 @@ function ownership.install(c: state.Checker): ownership.Ops
     c.releaseBorrowLinks = own.releaseBorrowLinks
     c.regionOf = own.regionOf
     c.regionsOverlap = own.regionsOverlap
+    c.regionContains = own.regionContains
     c.validateCleanups = own.validateCleanups
 
     return own

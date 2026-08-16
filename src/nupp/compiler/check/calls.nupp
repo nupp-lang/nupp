@@ -937,7 +937,10 @@ function calls.install(c: state.Checker): calls.Ops
                             selectedSignature.preservesResults,
                             selectedSignature.foreign,
                             selectedSignature.constParams,
-                            selectedSignature.paramKinds
+                            selectedSignature.paramKinds,
+                            selectedSignature.partitionResults,
+                            selectedSignature.comptimeOnly,
+                            selectedSignature.explicitPreserves
                         )
                     end
                     node.valuePack = pack
@@ -1013,8 +1016,8 @@ function calls.install(c: state.Checker): calls.Ops
                 constructionFields[fname] = {node = value, type = vt}
                 local _, regionPath = c.regionOf(value)
                 if regionPath and regionPath ~= "" then
-                    local suffix = regionPath:sub(-1)
-                    if suffix == "L" or suffix == "R" then
+                    local suffix = T.regionLastPartition(regionPath)
+                    if suffix then
                         node.partitionFields = node.partitionFields or {}
                         node.partitionFields[fname] = suffix
                     end
@@ -1239,9 +1242,9 @@ function calls.install(c: state.Checker): calls.Ops
                     local argumentType = c.infer(value)
                     if c.ownershipKind(argumentType) then
                         c.diag(
-                            "NUPP2603",
+                            "NUPP2611",
                             arg,
-                            "an owner or borrow cannot cross an untyped call; "
+                            "a live capability cannot cross an untyped call; "
                             .. "use unsafe release explicitly to abandon tracking"
                         )
                     end
@@ -1776,14 +1779,24 @@ function calls.install(c: state.Checker): calls.Ops
         end
 
         -- Substitution determines only the payload. A preservation relation then
-        -- copies the argument slot's non-forgettable capability around that payload.
+        -- transports the argument slot's non-forgettable capability into the selected
+        -- result path. Movable facts leave the source; roots and regions remain usable
+        -- as provenance rather than being duplicated ownership obligations.
         -- Rebuild the result pack before any caller observes either its scalar view or
         -- its expansion.
         if next(preservesResults) and not retPack.alternatives then
             local adjusted = {}
             for j, result in ipairs(retPack.head) do
                 local source = preservesResults[j]
-                adjusted[j] = source and ats[source] and T.withOwnershipPayload(ats[source], rawType(result)) or result
+                adjusted[
+                    j
+                ] = source and ats[
+                    source
+                ] and T.withOwnershipPayload(
+                    ats[source],
+                    rawType(result),
+                    calleeT.preservesPaths and calleeT.preservesPaths[j] or nil
+                ) or result
             end
             retPack = T.pack(adjusted, retPack.tail, retPack.modes)
             rets = retPack.head
@@ -2018,11 +2031,11 @@ function calls.install(c: state.Checker): calls.Ops
                 local entry, nameNode = c.ownershipEntry(argNodes[j])
                 entry = c.ownershipState(entry)
                 local regionRoot, regionPath = c.regionOf(argNodes[j])
-                if regionRoot and regionPath and regionPath ~= "" then
+                if regionRoot and regionPath ~= nil then
                     for _, prior in ipairs(exclusiveRegions) do
                         if prior.root == regionRoot and c.regionsOverlap(prior.path, regionPath) then
                             c.diag(
-                                "NUPP2602",
+                                "NUPP2607",
                                 argNodes[j] or node,
                                 "exclusive arguments overlap the same writable region"
                             )
@@ -2066,7 +2079,7 @@ function calls.install(c: state.Checker): calls.Ops
                                 activePath ~= regionPath and c.regionsOverlap(
                                     activePath,
                                     regionPath
-                                ) and activePath:sub(1, #regionPath) == regionPath
+                                ) and not c.regionContains(activePath, regionPath)
                             ) then
                                 sole = false
                             end
@@ -2074,14 +2087,14 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                     if not sole then
                         c.diag(
-                            "NUPP2602",
+                            "NUPP2607",
                             argNodes[j] or node,
                             "an exclusive parameter needs the sole live borrowed view"
                         )
                     end
                 elseif entry and (entry.activeBorrows or 0) > 0 then
                     c.diag(
-                        "NUPP2602",
+                        "NUPP2607",
                         nameNode or argNodes[j],
                         "an exclusive parameter cannot invalidate a value while a " .. "derived borrow is live"
                     )
@@ -2110,7 +2123,7 @@ function calls.install(c: state.Checker): calls.Ops
                                     activePath ~= regionPath and c.regionsOverlap(
                                         activePath,
                                         regionPath
-                                    ) and activePath:sub(1, #regionPath) == regionPath
+                                    ) and not c.regionContains(activePath, regionPath)
                                 ) then
                                     blocked = true
                                     break
@@ -2119,7 +2132,7 @@ function calls.install(c: state.Checker): calls.Ops
                         end
                         if blocked then
                             c.diag(
-                                "NUPP2602",
+                                "NUPP2607",
                                 nameNode or argNodes[j] or node,
                                 "a shared argument cannot overlap a live exclusive view"
                             )
@@ -2129,9 +2142,13 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             elseif mode == "plain" and c.ownershipKind(ats[j]) then
                 c.diag(
-                    "NUPP2603",
+                    params[j] == T.any and "NUPP2611" or "NUPP2603",
                     argNodes[j] or node,
-                    "an owner or borrow needs a borrows, exclusive, or takes contract"
+                    params[
+                        j
+                    ] == T.any
+                    and "a live capability cannot cross an any parameter"
+                    or "an owner or borrow needs a borrows, exclusive, or takes contract"
                 )
             elseif mode == "plain" and node.cdefCall and c.pointerShaped(ats[j]) then
                 if c.unsafeDepth == 0 then
@@ -2347,7 +2364,10 @@ function calls.install(c: state.Checker): calls.Ops
             calleeT.preservesResults,
             calleeT.foreign,
             calleeT.constParams,
-            calleeT.paramKinds
+            calleeT.paramKinds,
+            calleeT.partitionResults,
+            calleeT.comptimeOnly,
+            calleeT.explicitPreserves
         )
 
         return T.packAt(retPack, 1) or T.nil_, retPack.head, retPack

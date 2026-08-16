@@ -88,7 +88,28 @@ end
 For an ordinary value this is an ordinary pass-through. For an affine value its
 single obligation moves to the result; it is not copied. This lets generic APIs
 work with both affine and ordinary types without overloads or an `Affine`
-interface special case.
+interface special case. The same relation is compositional:
+
+```nupp
+local record Box<T>
+    value: T
+end
+
+local function box<T>(takes value: T): Box<T> preserves value
+    return new Box(value = value)
+end
+```
+
+The checker substitutes the complete capability into the unique `T` component of
+`Box<T>`. It recursively handles records, tuples, optionals, unions, and result packs.
+Cleanup obligations, pins, and retentions move once; root and
+region provenance remains available to derived views. A result with two possible
+`T` components is ambiguous and reports `NUPP2606` instead of guessing.
+
+This does not require higher-kinded generics. `Box<T>` is an ordinary first-order
+application, while `preserves` supplies the separate conservation proof. HKT would
+only be relevant to an API abstracting over `Box` itself as a constructor and would
+not replace that proof.
 
 ## Next
 

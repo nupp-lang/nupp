@@ -1,8 +1,13 @@
 # Compositional capability preservation
 
+> Aggregate preservation landed. Callable contracts retain the unique result-shape path, and
+> preservation transports complete capabilities through aggregate generic results
+> without copying movable obligations. The closure, mapped/projection, and join
+> extensions below remain future phases.
+
 ## Decision
 
-Generalize today's scalar-only `preserves` relation into one-to-one capability
+Generalize the original scalar-only `preserves` relation into one-to-one capability
 substitution through generic result shapes. `preserves` is a conservation relation:
 cleanup obligations, transfer-only obligations, pin anchors, and foreign-retention
 tokens move; roots, access, and region provenance are reproduced on the result.
@@ -16,7 +21,7 @@ result type after ordinary generic substitution.
 
 ## Baseline
 
-`preserves` is currently documented and implemented for scalar generic narrowing.
+Before this plan, `preserves` was documented and implemented for scalar generic narrowing.
 The expansion begins by freezing every present use in the prelude, compiler reference,
 checker, tests, generated documentation, module summaries, and incremental cache.
 Existing scalar behavior must remain accepted before aggregate transport is enabled.

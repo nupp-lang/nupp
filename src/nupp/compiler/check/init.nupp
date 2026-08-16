@@ -398,10 +398,90 @@ end
 -- is
 -- set here instead, on the returned surface only: nothing inside this module captured
 -- the new identity, because everything inside it consults the analysis directly.
+local function couldCarryPublicCapability(t): boolean
+    if not t or t == T.any or t == T.unknown then
+        -- NUPP2611 prevents checked code from acquiring a capability through a dynamic
+        -- value, so ordinary public `any` does not require ownership noise.
+        return false
+    end
+    if t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" then
+        return true
+    elseif t.tag == "typevar" then
+        return not t.bound or couldCarryPublicCapability(t.bound)
+    elseif t.tag == "union" or t.tag == "intersection" then
+        for _, member in ipairs(t.members or {}) do
+            if couldCarryPublicCapability(member) then
+                return true
+            end
+        end
+    elseif t.tag == "nominal" then
+        return t.affineFields ~= nil and #t.affineFields > 0 or t.fieldBorrowSources ~= nil
+    elseif t.tag == "tuple" then
+        for _, member in ipairs(t.elems or {}) do
+            if couldCarryPublicCapability(member) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function requirePublicCapabilityContracts(c: state.Checker): nil
+    -- Compiler implementation modules are the private mutually recursive bootstrap
+    -- graph, not the installed package surface. All ordinary and standard-library
+    -- module fields pass through this one boundary check regardless of declaration
+    -- spelling (`function M.f` or `M.f = function`).
+    if c.result.moduleName and c.result.moduleName:match("^nupp%.compiler") then
+        return
+    end
+    for name, exported in pairs(c.moduleFields or {}) do
+        local signatures = exported.tag == "intersection" and exported.members or {exported}
+        for _, signature in ipairs(signatures) do
+            if signature.tag == "func" then
+                local implicitCapabilityParams = {}
+                for parameter, t in ipairs(signature.params or {}) do
+                    if couldCarryPublicCapability(t) and signature.paramModes[parameter] == "plain" then
+                        implicitCapabilityParams[parameter] = true
+                        c.diag(
+                            "NUPP2610",
+                            c.moduleFieldTokens[name] or c.moduleReturnValue,
+                            (
+                                "exported capability-bearing parameter #%d of %q needs an explicit mode"
+                            ):format(parameter, name),
+                            nil,
+                            {help = "write takes, borrows, exclusive, or scoped as part of the public contract"}
+                        )
+                    end
+                end
+                for result = 1, #signature.rets do
+                    local source = signature.preservesResults and signature.preservesResults[result]
+                    if source and couldCarryPublicCapability(
+                        signature.params[source]
+                    ) and not implicitCapabilityParams[
+                        source
+                    ] and not (signature.explicitPreserves and signature.explicitPreserves[result]) then
+                        c.diag(
+                            "NUPP2610",
+                            c.moduleFieldTokens[name] or c.moduleReturnValue,
+                            (
+                                "exported capability result #%d of %q must spell `preserves %s`"
+                            ):format(result, name, signature.paramNames[source] or ("parameter" .. tostring(source))),
+                            nil,
+                            {help = "write preserves source on the public result type"}
+                        )
+                    end
+                end
+            end
+        end
+    end
+end
+
 local function finalizeBoundary(c: state.Checker)
     if not c.moduleType then
         return
     end
+    requirePublicCapabilityContracts(c)
     -- A module assembled one field at a time: each export answers from the value that
     -- was assigned to it, and the surface is rebuilt from the qualified fields.
     if c.moduleTypeFromFields then

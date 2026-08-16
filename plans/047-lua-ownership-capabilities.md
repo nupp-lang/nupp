@@ -1,5 +1,9 @@
 # Lua ownership capabilities
 
+> Core implementation landed. The checker uses the canonical capability query for obligations,
+> loans, anchors, retentions, erasure, preservation, regions, and suspension. The
+> old public ownership-policy aliases and borrowed/pinned wrapper spellings are gone.
+
 ## Decision
 
 Nupp will finish its ownership model as garbage collection plus opt-in affine
@@ -38,8 +42,8 @@ lattice, or read-only shared references. Relationships name ordinary values, and
 checker carries their roots invisibly.
 
 [`042-affine-types.md`](042-affine-types.md) has largely landed: `affine(...)` is a
-public type constructor, while `Owned`, `Transfer`, and the structural `Drop` default
-currently exist as ordinary prelude policy. This plan keeps 042's affine constructor,
+public type constructor. `Owned`, `Transfer`, and the structural `Drop` default
+previously existed as ordinary prelude policy and are now removed. This plan keeps 042's affine constructor,
 function identity, cleanup contract, origin proof, automatic destruction, comptime
 construction, and erased runtime representation, but deliberately replaces that
 prelude policy. It retires 042's completion criteria that require `Owned`, `Transfer`,

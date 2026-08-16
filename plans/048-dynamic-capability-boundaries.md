@@ -1,5 +1,10 @@
 # Dynamic capability boundaries
 
+> Core implementation landed. `nupp.dynamic` provides affine stores, exact injected cleanup
+> programs, typed and erased generation-checked handles, checked recovery, and
+> structured `NUPP2611`-`NUPP2614` failures. The HTTP body path now uses private
+> typed native contracts instead of erasing its client and transfer to `any`.
+
 ## Decision
 
 Checked Nupp will not silently erase a live capability into `any`, an untyped Lua
@@ -129,8 +134,11 @@ global function dynamic.recover<T>(
 
 `Handle<T>` is a copyable, opaque runtime token. It carries no cleanup obligation and
 may cross `any` or untyped Lua because the store, not the handle, owns the value.
-`ErasedHandle` is the only form that loses the static `T`; `recover` checks the stored
-stable type key before restoring `Handle<T>`. A handle contains a store identity, slot
+`ErasedHandle` is the only form that loses the static representation. `recover` takes
+the representation's nominal `Type<T>` witness, checks it against the stored stable
+policy key, and restores `Handle<T>` with hidden custody metadata for the complete
+affine policy. `take` therefore restores the exact enrolled capability rather than
+constructing one from the witness. A handle contains a store identity, slot
 identity, generation, and type-policy key. Its fields are not user-readable or
 constructible.
 
@@ -203,7 +211,7 @@ module reports `NUPP2611`. The diagnostic offers only sound fixes:
 - enter `unsafe` and release the representation explicitly.
 
 An untyped module receives only `ErasedHandle`. Checked code calls
-`dynamic.recover(handle, File)` before accessing a `File` entry. Merely casting the token
+`dynamic.recover(handle, FileState)` before accessing a `File` entry. Merely casting the token
 or reconstructing its fields is rejected outside `unsafe`.
 
 Reflection may describe a capability but may not return its live representation as

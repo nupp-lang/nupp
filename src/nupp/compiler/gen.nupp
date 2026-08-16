@@ -3209,7 +3209,7 @@ function gen.generate(
             e(" end")
             return
 
-        elseif kind == "callStmt" and x.expr and x.expr.automaticOwnerMoves then
+        elseif kind == "callStmt" and x.expr and (x.expr.automaticOwnerMoves or x.expr.dynamicPutCleanups) then
             -- A consuming call lowers to an immediately-invoked wrapper. At the start
             -- of a statement its leading `(` can continue the call on the previous
             -- line, because Lua newlines are whitespace: `print(x)\n(function...)()`
@@ -3499,7 +3499,28 @@ function gen.generate(
             end
             return
 
-        elseif (kind == "call" or kind == "methodCall") and x.automaticOwnerMoves and not x.resourceAdoptCleanups then
+        elseif kind == "call" and x.dynamicRecoverPolicy then
+            -- The type witness is compile-time-only. Recovery receives the exact same
+            -- representation-and-cleanup key injected at `put`, so runtime code never
+            -- guesses from a display name or invokes cleanup through the requested
+            -- type before validating it.
+            local callee = x.obj
+            if callee and callee.kind == "dotIndex" and callee.obj then
+                emit(callee.obj)
+                e("._recover(")
+                local args = x.args and x.args.exprs or {}
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil")
+                end
+                e((",%q)"):format(x.dynamicRecoverPolicy))
+                return
+            end
+
+        elseif (
+            kind == "call" or kind == "methodCall"
+        ) and x.automaticOwnerMoves and not x.resourceAdoptCleanups and not x.dynamicPutCleanups then
             -- Evaluate the complete callee/receiver and argument list before ending
             -- the caller's cleanup responsibility. Once the wrapper body begins the
             -- callee is about to receive every `takes` value, so a raise belongs to
@@ -3542,6 +3563,60 @@ function gen.generate(
                     e(",")
                     emit(value)
                 end
+            end
+            e(")")
+            return
+
+        elseif kind == "methodCall" and x.dynamicPutCleanups then
+            local line = sourceLine(x)
+            local args = x.args and x.args.exprs or {}
+            local activeNames, seen = {}, {}
+            for _, move in ipairs(x.automaticOwnerMoves or {}) do
+                local activeName = activeWith(move)
+                if activeName and not seen[activeName] then
+                    seen[activeName] = true
+                    activeNames[#activeNames + 1] = activeName
+                end
+            end
+            local object, value = nextTemp(), nextTemp()
+            pluck.loweredFunction(("(function(%s,%s) "):format(object, value), line, pluck.reasons.move)
+            for _, activeName in ipairs(activeNames) do
+                e(("%s=false; "):format(activeName))
+            end
+            local body = {"local __first,__suppressed=nil,0; "}
+            for _, cleanup in ipairs(x.dynamicPutCleanups) do
+                local call = protectedCleanupCall(cleanup, "__nuppV", "pcall")
+                if call then
+                    body[
+                        #body + 1
+                    ] = "do local __ok,__reason="
+                        .. call
+                        .. "; if not __ok then if __first==nil then __first=__reason "
+                        .. "else __suppressed=__suppressed+1 end end end; "
+                end
+            end
+            body[
+                #body + 1
+            ] = "if __first~=nil then if __suppressed>0 then "
+                .. "error(tostring(__first)..\" (suppressed \"..tostring(__suppressed)"
+                .. "..\" cleanup failure(s))\",0) else error(__first,0) end end"
+            e(
+                (
+                    "return %s:_put(%s,%s,%q)"
+                ):format(
+                    object,
+                    value,
+                    pluck.declareHelper("__nuppDynamicCleanup", "__nuppV", table.concat(body)),
+                    x.dynamicTypePolicy or ""
+                )
+            )
+            e(" end)(")
+            emit(x.obj)
+            e(",")
+            if args[1] then
+                emit(args[1])
+            else
+                e("nil")
             end
             e(")")
             return

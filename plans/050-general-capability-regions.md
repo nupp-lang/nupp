@@ -1,5 +1,9 @@
 # General capability regions
 
+> Core implementation landed. One stable segment algebra now answers fields, exact/unknown
+> index, parent/descendant, and audited partition overlap. Loop back edges compare
+> complete capability and live-region state; unrelated span compiler behavior remains.
+
 ## Decision
 
 Replace ownership-specific span overlap rules with a general region algebra over

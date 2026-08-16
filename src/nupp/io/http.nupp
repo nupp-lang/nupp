@@ -9,10 +9,48 @@ as reasons.
 ]]
 
 local suspension = require("nupp.suspension")
-local type NativeBackend = {newClient: function(any): (any?, string?)}
-local native = require("nupp.io.httpnative") as NativeBackend
-
 local http = {}
+
+-- The native provider is intentionally loaded through a dynamic Lua module, but its
+-- resource-bearing objects do not cross this checked module as `any`. These private
+-- structural contracts name the complete operations used by Body and Client; the
+-- affine policy remains owned by the checked wrappers below.
+local interface NativeTransfer
+    onHead: function(self: NativeTransfer, wake: function()): function()
+    onBody: function(self: NativeTransfer, wake: function()): function()
+    onUpload: function(self: NativeTransfer, wake: function()): function()
+    head: function(self: NativeTransfer): (string, integer?, string?, string?, string?, string?)
+    cancel: nosuspend function(self: NativeTransfer): nil
+    close: nosuspend function(self: NativeTransfer): nil
+    offer: function(self: NativeTransfer, value: any, final: boolean, count: integer?): string
+    takeBody: function(self: NativeTransfer): (boolean?, string?)
+    bodyRead: function(
+        self: NativeTransfer,
+        count: integer,
+        destination: nupp.io.Buffer?,
+        offset: integer
+    ): (string, any?, string?)
+    directDestination: function(self: NativeTransfer, destination: nupp.io.Writer): boolean
+    bodyWrite: function(self: NativeTransfer, destination: nupp.io.Writer, count: integer): (string, integer?, string?)
+end
+
+local interface NativeClient
+    poll: function(self: NativeClient, waitMs: integer): integer
+    onAdmission: function(self: NativeClient, wake: function()): function()
+    now: function(self: NativeClient): number
+    send: function(self: NativeClient, descriptor: any): (NativeTransfer?, string?, boolean?)
+    pending: function(self: NativeClient): integer
+    close: nosuspend function(self: NativeClient): nil
+end
+
+local interface BodyClient
+    _native: NativeClient
+    _retainSource: function(self: BodyClient, context: suspension.Context): nil
+    _releaseSource: function(self: BodyClient): nil
+end
+
+local type NativeBackend = {newClient: function(any): (NativeClient?, string?)}
+local native = require("nupp.io.httpnative") as NativeBackend
 
 type http.Version = "1.0" | "1.1" | "2"
 
@@ -196,7 +234,7 @@ local function copiedOptions(options: http.Options?): any
     }
 end
 
-local function appendWaiter(client: any, transfer: any, which: string, cancelNative: boolean): nil
+local function appendWaiter(client: BodyClient, transfer: NativeTransfer, which: string, cancelNative: boolean): nil
     suspension.suspend("HTTP " .. which, function(resume: function(boolean), context: suspension.Context): function()?
         local active = true
         client:_retainSource(context)
@@ -234,7 +272,7 @@ local function appendWaiter(client: any, transfer: any, which: string, cancelNat
     end)
 end
 
-local function waitAdmission(client: any): nil
+local function waitAdmission(client: BodyClient): nil
     suspension.suspend(
         "HTTP request admission",
         function(resume: function(boolean), context: suspension.Context): function()?
@@ -266,7 +304,7 @@ local function waitAdmission(client: any): nil
     )
 end
 
-local function waitHead(client: any, transfer: any, cancelNative: boolean): any
+local function waitHead(client: BodyClient, transfer: NativeTransfer, cancelNative: boolean): any
     while true do
         local state, status, version, url, headers, reason = transfer:head()
         if state == "ready" then
@@ -302,8 +340,8 @@ end
 
 record http.Body is nupp.io.Reader
     drop: nosuspend function(takes self: http.Body): nil
-    _client: any
-    _transfer: any
+    _client: BodyClient
+    _transfer: NativeTransfer
     _closed: boolean
     _reading: boolean
 
@@ -421,8 +459,7 @@ record http.Body is nupp.io.Reader
             return
         end
         self._closed = true
-        local transfer = self._transfer as {close: nosuspend function(any): nil}
-        transfer:close()
+        self._transfer:close()
     end
 end
 
@@ -430,8 +467,7 @@ function http.Body.drop(takes self: http.Body): nil
     nosuspend do
         if not self._closed then
             self._closed = true
-            local transfer = self._transfer as {close: nosuspend function(any): nil}
-            transfer:close()
+            self._transfer:close()
         end
     end
 end
@@ -439,12 +475,11 @@ end
 local function destroyBody(takes body: http.Body): nil
     if not body._closed then
         body._closed = true
-        local transfer = body._transfer as {close: nosuspend function(any): nil}
-        transfer:close()
+        body._transfer:close()
     end
 end
 
-local function makeBody(client: any, transfer: any): affine(http.Body, destroyBody)
+local function makeBody(client: BodyClient, transfer: NativeTransfer): affine(http.Body, destroyBody)
     return new http.Body(_client = client, _transfer = transfer, _closed = false, _reading = false)
 end
 
@@ -633,8 +668,8 @@ local function makeResponse(
     )
 end
 
-record http.Client
-    _native: any
+record http.Client is BodyClient
+    _native: NativeClient
     _options: any
     _source: suspension.Source?
     _sourceUsers: integer

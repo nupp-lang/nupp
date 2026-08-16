@@ -491,6 +491,12 @@ interface cst.Hints
     --- Exact capability dynamically registered by resources.Set.adopt/remove.
     resourceCapability: any
 
+    --- Cleanup program and stable policy injected into dynamic.Store.put.
+    dynamicPutCleanups: any
+
+    dynamicTypePolicy: string?
+    dynamicRecoverPolicy: string?
+
     --- Whether a use-after-move was already reported here.
     ownershipUseReported: boolean?
 

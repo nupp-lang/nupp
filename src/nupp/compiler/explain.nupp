@@ -724,6 +724,131 @@ local ENTRIES: {any} = {
         docs = "docs/ownership.md#generic-preservation",
     },
     {
+        code = "NUPP2607",
+        summary = "Shared and exclusive regions overlap incompatibly",
+        rule = "A live exclusive region must be disjoint from every other live "
+        .. "shared or exclusive region. Fixed sibling fields and distinct proven "
+        .. "indexes are disjoint; a parent, unknown index, or unproved range "
+        .. "overlaps conservatively.",
+        wrong = "local function pair(exclusive a: table, exclusive b: table): nil end\n"
+        .. "local value = {}\npair(value, value)\n",
+        right = "local function pair(exclusive a: table, exclusive b: table): nil end\n" .. "pair({}, {})\n",
+        related = {"NUPP2602", "NUPP2608", "NUPP2609"},
+        docs = "docs/ownership.md#regions-and-loop-carried-capabilities",
+    },
+    {
+        code = "NUPP2608",
+        summary = "A rooted value escapes its permitted lifetime",
+        rule = "A borrowed or scoped value may leave its scope only through an "
+        .. "explicit result relation whose named roots outlive the result. It may "
+        .. "not be returned, stored, captured, or erased without that relation.",
+        wrong = "local function leak(borrows value: table): table\n" .. "    return borrow(value)\nend\nreturn leak\n",
+        right = "local function view(borrows value: table): table borrows (value)\n"
+        .. "    return borrow(value)\nend\nreturn view\n",
+        related = {"NUPP2603", "NUPP2607", "NUPP2611"},
+        docs = "docs/ownership.md#borrowing-and-pinning",
+    },
+    {
+        code = "NUPP2609",
+        summary = "A loop back edge changes capability state unsafely",
+        rule = "Every repeatable back edge must restore the loop header's live "
+        .. "obligations and region loans. An iteration-local borrow must end before "
+        .. "the edge, and an outer affine value cannot be consumed only on a "
+        .. "possibly repeating path.",
+        wrong = "local record Resource\nend\n"
+        .. "local function close(takes value: Resource): nil\nend\n"
+        .. "local function open(): affine(Resource, close) return new Resource() end\n"
+        .. "local function run(again: boolean): nil\n"
+        .. "    local value = open()\n"
+        .. "    while again do\n        drop(value)\n    end\nend\nreturn run\n",
+        right = "local record Resource\nend\n"
+        .. "local function close(takes value: Resource): nil\nend\n"
+        .. "local function open(): affine(Resource, close) return new Resource() end\n"
+        .. "local function run(again: boolean): nil\n"
+        .. "    local value = open()\n"
+        .. "    if again then\n        print('once')\n    end\n"
+        .. "    drop(value)\nend\nreturn run\n",
+        related = {"NUPP2601", "NUPP2603", "NUPP2607"},
+        docs = "docs/ownership.md#regions-and-loop-carried-capabilities",
+    },
+    {
+        code = "NUPP2610",
+        summary = "A public capability contract is implicit",
+        rule = "An exported parameter or result that may carry a cleanup, pin, "
+        .. "retention, or rooted view must state its mode or result relation. "
+        .. "Ordinary public values remain unannotated.",
+        wrong = "local m = {}\nfunction m.forward<T>(value: T): T\n" .. "    return value\nend\nreturn m\n",
+        right = "local m = {}\nfunction m.forward<T>(takes value: T): T preserves value\n"
+        .. "    return value\nend\nreturn m\n",
+        related = {"NUPP2606", "NUPP2611"},
+        docs = "docs/ownership.md#public-capability-contracts",
+    },
+    {
+        code = "NUPP2611",
+        summary = "A dynamic boundary would erase a live capability",
+        rule = "A value carrying an obligation, root, exclusive loan, pin, or "
+        .. "foreign retention cannot be converted to any or passed to untyped Lua. "
+        .. "Keep the boundary typed, enroll a self-contained value in "
+        .. "nupp.dynamic, or use an explicit unsafe release.",
+        wrong = "local function erase(value: affine(table)): any\n    return value\nend\nreturn erase\n",
+        right = "local function erase(takes value: affine(table)): any\n"
+        .. "    return unsafe release value\nend\nreturn erase\n",
+        related = {"NUPP2603", "NUPP2608", "NUPP2612"},
+        docs = "docs/ownership.md#dynamic-boundaries",
+    },
+    {
+        code = "NUPP2612",
+        summary = "A dynamic-store value is not self-contained",
+        rule = "nupp.dynamic accepts only capabilities it can discharge without "
+        .. "outside state. Transfer-only obligations, external roots, outstanding "
+        .. "exclusive loans, and unmatched foreign retentions cannot be enrolled.",
+        wrong = "local dynamic = require('nupp.dynamic')\n"
+        .. "local record Resource\n    value: integer\nend\n"
+        .. "local function begin(): affine(Resource) "
+        .. "return new Resource(value = 1) end\n"
+        .. "local store = dynamic.newStore()\n"
+        .. "local handle = store:put(begin())\ndrop(store)\nreturn handle\n",
+        right = "local dynamic = require('nupp.dynamic')\n"
+        .. "local record Resource\nend\n"
+        .. "local function close(takes value: Resource): nil\nend\n"
+        .. "local function open(): affine(Resource, close) return new Resource() end\n"
+        .. "local store = dynamic.newStore()\nstore:put(open())\ndrop(store)\n",
+        related = {"NUPP2608", "NUPP2611", "NUPP2614"},
+        docs = "docs/ownership.md#dynamic-boundaries",
+    },
+    {
+        code = "NUPP2613",
+        summary = "A dynamic handle has the wrong type policy",
+        rule = "Recovering an erased dynamic handle requires the same canonical "
+        .. "representation and cleanup policy that were recorded by put. A name or "
+        .. "cast cannot substitute for that runtime check.",
+        wrong = "local dynamic = require('nupp.dynamic')\n"
+        .. "local record File\nend\nlocal record Socket\nend\n"
+        .. "local function close(takes value: File): nil\nend\n"
+        .. "local function open(): affine(File, close) return new File() end\n"
+        .. "local store = dynamic.newStore()\nlocal handle = store:put(open())\n"
+        .. "local erased = dynamic.erase(handle)\n"
+        .. "local recovered = dynamic.recover(erased, Socket)\n",
+        right = "local dynamic = require('nupp.dynamic')\n"
+        .. "local record File\nend\n"
+        .. "local function close(takes value: File): nil\nend\n"
+        .. "local function open(): affine(File, close) return new File() end\n"
+        .. "local store = dynamic.newStore()\nlocal handle = store:put(open())\n"
+        .. "local erased = dynamic.erase(handle)\n"
+        .. "local recovered = dynamic.recover(erased, File)\n",
+        related = {"NUPP2611", "NUPP2614"},
+        docs = "docs/ownership.md#dynamic-boundaries",
+    },
+    {
+        code = "NUPP2614",
+        summary = "A dynamic handle is stale or names a destroyed store",
+        rule = "Taking, removing, or destroying a dynamic-store slot increments its "
+        .. "generation. Every older handle fails before the stored value is read or "
+        .. "its cleanup policy is selected.",
+        related = {"NUPP2612", "NUPP2613"},
+        docs = "docs/ownership.md#dynamic-boundaries",
+    },
+    {
         code = "NUPP2603",
         summary = "An ownership obligation is not discharged or cannot escape",
         rule = "An affine value must be consumed, dropped, returned under a "

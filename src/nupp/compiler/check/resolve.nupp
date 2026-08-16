@@ -1509,7 +1509,15 @@ function resolve.install(c: state.Checker): nil
                 constParams,
                 paramKinds,
                 nil,
-                node.comptimeOnly
+                node.comptimeOnly,
+                next(preservesResults) and (function()
+                    local written = {}
+                    for result in pairs(preservesResults) do
+                        written[result] = true
+                    end
+
+                    return written
+                end)() or nil
             )
             if node.comptimeOnly then
                 c.comptimeFunctionDepth = c.comptimeFunctionDepth - 1

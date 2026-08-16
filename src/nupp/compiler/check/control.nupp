@@ -128,6 +128,18 @@ function control.install(c: state.Checker): state.StatHandlers
     --
     -- The statement still records the move once every arm has been seen, so what a
     -- later statement sees does not change; only what a sibling arm sees does.
+    local function regionSignature(regions): string
+        local keys = {}
+        for path, count in pairs(regions or {}) do
+            if count > 0 then
+                keys[#keys + 1] = path .. "=" .. tostring(count)
+            end
+        end
+        table.sort(keys)
+
+        return table.concat(keys, ";")
+    end
+
     local function ownershipSnapshot(): {any}
         local seen, snapshot = {}, {}
         local scope = c.scope
@@ -136,7 +148,19 @@ function control.install(c: state.Checker): state.StatHandlers
                 local state = ownershipState(entry)
                 if state and state.ownership and not seen[state] then
                     seen[state] = true
-                    snapshot[#snapshot + 1] = {state = state, moved = state.moved or false, movedAt = state.movedAt}
+                    snapshot[
+                        #snapshot + 1
+                    ] = {
+                        state = state,
+                        moved = state.moved or false,
+                        movedAt = state.movedAt,
+                        retained = state.retained or false,
+                        capability = own.capabilityOf(state.t, state).id,
+                        activeBorrows = state.activeBorrows or 0,
+                        activeExclusiveBorrows = state.activeExclusiveBorrows or 0,
+                        activeRegions = regionSignature(state.activeRegions),
+                        activeExclusiveRegions = regionSignature(state.activeExclusiveRegions),
+                    }
                 end
             end
             scope = scope.parent
@@ -153,6 +177,40 @@ function control.install(c: state.Checker): state.StatHandlers
                 moved[item.state] = true
             end
             item.state.moved, item.state.movedAt = item.moved, item.movedAt
+        end
+    end
+
+    --- Rejects a capability transition that a repeatable back edge would feed into a
+    --- header checked under a different state. Lexical values created by the body are
+    --- gone before this runs; the snapshot therefore contains exactly the loop-carried
+    --- places. A body that always returns, breaks, or continues has no ordinary back
+    --- edge for this purpose.
+    local function checkLoopBackEdge(snapshot: {any}, body: any, at: any): nil
+        if alwaysExits(body) then
+            return
+        end
+        for _, item in ipairs(snapshot) do
+            local state = item.state
+            local capabilityChanged = own.capabilityOf(
+                state.t,
+                state
+            ).id ~= item.capability or (
+                state.activeBorrows or 0
+            ) ~= item.activeBorrows or (state.activeExclusiveBorrows or 0) ~= item.activeExclusiveBorrows
+            capabilityChanged = capabilityChanged or regionSignature(
+                state.activeRegions
+            ) ~= item.activeRegions or regionSignature(state.activeExclusiveRegions) ~= item.activeExclusiveRegions
+            if state.moved ~= item.moved or (state.retained or false) ~= item.retained or capabilityChanged then
+                c.diag(
+                    "NUPP2609",
+                    state.movedAt or at,
+                    "loop back edge changes a live capability from the state at the loop header",
+                    nil,
+                    {
+                        help = "finish the capability inside each iteration, move it into an explicit loop-carried place, or make this path leave the loop"
+                    }
+                )
+            end
         end
     end
 
@@ -265,7 +323,7 @@ function control.install(c: state.Checker): state.StatHandlers
                 local ownReturns = c.ownReturnStack[#c.ownReturnStack]
                 local ownCode = ownReturns and ownReturns[j] and "NUPP2616" or nil
                 c.diag(
-                    ownCode or "NUPP2603",
+                    ownCode or "NUPP2608",
                     expr,
                     ownCode and "an owning result cannot retain an input borrow" or "borrowed value cannot be returned"
                 )
@@ -283,7 +341,14 @@ function control.install(c: state.Checker): state.StatHandlers
                 if #c.retStack == 0 then
                     c.diag("NUPP2603", stat.exprs[j] or stat, valueKind .. " value cannot be exported as module state")
                 elseif not expected or ownershipKind(expected) ~= valueKind and not capabilityResult then
-                    c.diag("NUPP2603", stat.exprs[j] or stat, valueKind .. " return needs a matching annotation")
+                    c.diag(
+                        expected == T.any and "NUPP2611" or "NUPP2603",
+                        stat.exprs[j] or stat,
+                        expected == T.any
+                        and "a live capability cannot be erased into an any result"
+                        or valueKind
+                        .. " return needs a matching annotation"
+                    )
                 else
                     local source = ownershipState((c.ownershipEntry(stat.exprs[j])))
                     local promoted = ownReturns and ownReturns[j] and source and ownershipKind(source.t) ~= valueKind
@@ -634,6 +699,10 @@ function control.install(c: state.Checker): state.StatHandlers
     handlers.whileStmt = function(stat: cst.WhileStmt)
         local cond = stat.cond
         if cond then
+            local ownershipBefore = ownershipSnapshot()
+            for _, item in ipairs(ownershipBefore) do
+                item.retained = item.state.retained or false
+            end
             c.infer(cond)
             local facts = analyzeCond(cond)
             c.pushScope()
@@ -642,11 +711,16 @@ function control.install(c: state.Checker): state.StatHandlers
             c.checkBlock(stat.body, true)
             c.loops.pop()
             c.popScope()
+            checkLoopBackEdge(ownershipBefore, stat.body, stat)
         end
     end
 
     handlers.repeatStmt = function(stat: cst.RepeatStmt)
         -- repeat scope extends over the until condition
+        local ownershipBefore = ownershipSnapshot()
+        for _, item in ipairs(ownershipBefore) do
+            item.retained = item.state.retained or false
+        end
         c.pushScope()
         c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
@@ -655,6 +729,7 @@ function control.install(c: state.Checker): state.StatHandlers
             c.infer(stat.cond)
         end
         c.popScope()
+        checkLoopBackEdge(ownershipBefore, stat.body, stat)
     end
 
     handlers.doStmt = function(stat: cst.DoStmt)
@@ -822,6 +897,10 @@ function control.install(c: state.Checker): state.StatHandlers
         end
         c.numericOperand(st, from, "for")
         c.numericOperand(et, to, "for")
+        local ownershipBefore = ownershipSnapshot()
+        for _, item in ipairs(ownershipBefore) do
+            item.retained = item.state.retained or false
+        end
         c.pushScope()
         c.scope.completionScope = stat.body
         c.bindVar(var.text, (isA(st, T.integer) and isA(et, T.integer)) and T.integer or T.number, false, var)
@@ -875,6 +954,7 @@ function control.install(c: state.Checker): state.StatHandlers
         end
         c.loops.pop()
         c.popScope()
+        checkLoopBackEdge(ownershipBefore, stat.body, stat)
     end
 
     handlers.forinStmt = function(stat: cst.ForinStmt)
@@ -911,6 +991,10 @@ function control.install(c: state.Checker): state.StatHandlers
         then
             stat.builtinIpairs = {operand = operand, type = operandType}
         end
+        local ownershipBefore = ownershipSnapshot()
+        for _, item in ipairs(ownershipBefore) do
+            item.retained = item.state.retained or false
+        end
         c.pushScope()
         c.scope.completionScope = stat.body
         for j, nameTok in ipairs(stat.names) do
@@ -924,6 +1008,7 @@ function control.install(c: state.Checker): state.StatHandlers
         c.checkBlock(stat.body, true)
         c.loops.pop()
         c.popScope()
+        checkLoopBackEdge(ownershipBefore, stat.body, stat)
     end
 
     return handlers

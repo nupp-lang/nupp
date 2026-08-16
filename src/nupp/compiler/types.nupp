@@ -449,6 +449,16 @@ record types.Func
     --- that result transports. A nil entry is a fresh or unrestricted result.
     preservesResults: {integer}?
 
+    --- Result relations written in source rather than inferred from a visible private
+    --- body. Public capability APIs require these relations to be explicit.
+    explicitPreserves: {[integer]: boolean}?
+
+    --- The result-shape path selected by each preservation relation. An empty path is
+    --- scalar transport. Keeping the path on the callable contract makes aggregate
+    --- preservation deterministic across imports and prevents a repeated `T` field
+    --- from being guessed at the call site.
+    preservesPaths: {[integer]: {string}}?
+
     --- Aggregate field region suffixes proven for each fixed result slot.
     partitionResults: {[integer]: {[string]: string}}?
 
@@ -779,6 +789,9 @@ record types.Nominal
 
     --- The audited dynamic discharge container shipped by the standard library.
     resourceSet: boolean?
+
+    --- The generation-checked heterogeneous capability store.
+    dynamicStore: boolean?
 
     --- The compiler-provided LPeg declaration whose generic argument is its capture
     --- tuple.
@@ -1354,7 +1367,8 @@ local function pushUnionMember(
                 prior.constParams,
                 prior.paramKinds,
                 prior.partitionResults,
-                prior.comptimeOnly
+                prior.comptimeOnly,
+                prior.explicitPreserves
             )
             seen[prior] = nil
             seen[merged] = true
@@ -1879,6 +1893,98 @@ function types.valueSlot(t: types.Type, facts: types.CapabilityFacts?): types.Va
     return new types.ValueSlot(payload = types.unwrapOwnership(t), capability = types.capability(t, facts))
 end
 
+-- Region paths are stable length-prefixed segments. Their representation is compact
+-- enough for flow-map keys and module summaries, while all overlap decisions go
+-- through the segment algebra below rather than string-prefix guesses.
+local function regionAppend(path: string?, kind: string, value: string): string
+    return (path or "") .. "/" .. kind .. tostring(#value) .. ":" .. value
+end
+
+function types.regionField(path: string?, name: string): string
+    return regionAppend(path, "F", name)
+end
+
+function types.regionTupleSlot(path: string?, slot: integer): string
+    return regionAppend(path, "T", tostring(slot))
+end
+
+function types.regionIndex(path: string?, index: integer?): string
+    return regionAppend(path, index and "I" or "U", index and tostring(index) or "")
+end
+
+function types.regionPartition(path: string?, side: 'left' | 'right'): string
+    return regionAppend(path, "P", side)
+end
+
+local function regionSegments(path: string?): {{
+    kind: string,
+    value: string
+}}
+    local result = {}
+    path = path or ""
+    local at = 1
+    while at <= #path do
+        if path:sub(at, at) ~= "/" then
+            -- Old cached binary paths are interpreted as partition segments. They are
+            -- accepted only during cache migration and are never produced anew.
+            local legacy = path:sub(at, at)
+            result[#result + 1] = {kind = "P", value = legacy == "L" and "left" or "right"}
+            at = at + 1
+        else
+            local kind = path:sub(at + 1, at + 1)
+            local colon = path:find(":", at + 2, true)
+            if not colon then
+                return {{kind = "U", value = ""}}
+            end
+            local length = tonumber(path:sub(at + 2, colon - 1))
+            if not length then
+                return {{kind = "U", value = ""}}
+            end
+            local value = path:sub(colon + 1, colon + length)
+            result[#result + 1] = {kind = kind, value = value}
+            at = colon + length + 1
+        end
+    end
+
+    return result
+end
+
+function types.regionsOverlap(left: string?, right: string?): boolean
+    local a, b = regionSegments(left), regionSegments(right)
+    local common = math.min(#a, #b)
+    for j = 1, common do
+        local x, y = a[j], b[j]
+        if x.kind == "U" or y.kind == "U" then
+            return true
+        end
+        if x.kind ~= y.kind or x.value ~= y.value then
+            return false
+        end
+    end
+
+    return true
+end
+
+function types.regionContains(parent: string?, child: string?): boolean
+    local a, b = regionSegments(parent), regionSegments(child)
+    if #a > #b then
+        return false
+    end
+    for j = 1, #a do
+        if a[j].kind ~= b[j].kind or a[j].value ~= b[j].value then
+            return false
+        end
+    end
+
+    return true
+end
+
+function types.regionLastPartition(path: string?): string?
+    local segments = regionSegments(path)
+    local last = segments[#segments]
+    return last and last.kind == "P" and last.value or nil
+end
+
 local function preservedPath(t: types.Type, target: types.Type, seen: {[any]: boolean}?): {string}?
     if types.unwrapOwnership(t).id == target.id then
         return {}
@@ -1972,10 +2078,10 @@ end
 --- capability into that field instead of pretending its cleanup accepts the outer
 --- record. Ambiguous or absent placements remain a scalar result and are rejected by
 --- the ordinary return check.
-function types.withOwnershipPayload(source: types.Type, payload: types.Type): types.Type
+function types.withOwnershipPayload(source: types.Type, payload: types.Type, selectedPath: {string}?): types.Type
     local slot = types.valueSlot(source)
     if slot.capability.obligation then
-        local path = preservedPath(payload, slot.payload)
+        local path = selectedPath or preservedPath(payload, slot.payload)
         if path and #path > 0 then
             local cleanups = {}
             for j, cleanup in ipairs(types.capabilityCleanups(slot.capability)) do
@@ -2001,6 +2107,12 @@ function types.withOwnershipPayload(source: types.Type, payload: types.Type): ty
     end
 
     return payload
+end
+
+--- The unique path at which `source` occurs in `payload`, including an empty scalar
+--- path. Nil means the shape contains no such component or contains it ambiguously.
+function types.preservationPath(payload: types.Type, source: types.Type): {string}?
+    return preservedPath(payload, types.unwrapOwnership(source))
 end
 
 local function packTailId(tail: any): string
@@ -2304,7 +2416,8 @@ function types.func(
     constParams: {types.ConstVar}?,
     paramKinds: {string}?,
     partitionResults: {[integer]: {[string]: string}}?,
-    comptimeOnly: boolean?
+    comptimeOnly: boolean?,
+    explicitPreserves: {[integer]: boolean}?
 ): types.Type
     -- A single declared result of `never` is a promise the call never comes back, the
     -- same promise `noreturn` records; deriving it here means a signature only has to
@@ -2316,6 +2429,7 @@ function types.func(
     local rids: {string} = {}
     local modes: {string} = {}
     local names: {string} = {}
+    local preservesPaths: {[integer]: {string}} = {}
     for j, p in ipairs(params) do
         pids[j] = p.id
         modes[j] = paramModes and paramModes[j] or "plain"
@@ -2399,6 +2513,13 @@ function types.func(
             local source = preservesResults[result]
             if source then
                 key = key .. "|preserves" .. tostring(result) .. ":" .. tostring(source)
+                local path = params[source] and types.preservationPath(rets[result], params[source]) or nil
+                if path then
+                    preservesPaths[result] = path
+                    key = key .. "@" .. table.concat(path, ".")
+                else
+                    key = key .. "@ambiguous"
+                end
             end
         end
     end
@@ -2430,6 +2551,17 @@ function types.func(
         key = key .. "|comptime"
     end
     local unlabeledId = key
+    if explicitPreserves then
+        local written = {}
+        for result = 1, #rets do
+            if explicitPreserves[result] then
+                written[#written + 1] = tostring(result)
+            end
+        end
+        if #written > 0 then
+            key = key .. "|written-preserves(" .. table.concat(written, ",") .. ")"
+        end
+    end
     if paramNames then
         key = key .. "|names(" .. table.concat(names, ",") .. ")"
     end
@@ -2457,6 +2589,8 @@ function types.func(
             borrowsSelf = borrowsSelf,
             borrowsParams = borrowsParams,
             preservesResults = preservesResults,
+            explicitPreserves = explicitPreserves,
+            preservesPaths = next(preservesPaths) and preservesPaths or nil,
             partitionResults = partitionResults,
             foreign = foreign or nil,
             ffiOut = ffiOut,
@@ -2521,7 +2655,8 @@ function types.withYields(ft: types.Type, mayYield: boolean): types.Type
         fn.constParams,
         fn.paramKinds,
         fn.partitionResults,
-        fn.comptimeOnly
+        fn.comptimeOnly,
+        fn.explicitPreserves
     )
 end
 
@@ -2561,7 +2696,8 @@ function types.foreignFunction(ft: types.Type): types.Type
         fn.constParams,
         fn.paramKinds,
         fn.partitionResults,
-        fn.comptimeOnly
+        fn.comptimeOnly,
+        fn.explicitPreserves
     )
 end
 
@@ -2603,7 +2739,8 @@ function types.withFirstResult(ft: types.Type, first: types.Type): types.Type
         fn.constParams,
         fn.paramKinds,
         fn.partitionResults,
-        fn.comptimeOnly
+        fn.comptimeOnly,
+        fn.explicitPreserves
     )
 end
 
@@ -2642,7 +2779,8 @@ function types.withPartitionResults(ft: types.Type, partitionResults: {[integer]
         fn.constParams,
         fn.paramKinds,
         partitionResults,
-        fn.comptimeOnly
+        fn.comptimeOnly,
+        fn.explicitPreserves
     )
 end
 

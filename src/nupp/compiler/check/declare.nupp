@@ -1235,6 +1235,8 @@ function declare.install(
             end
             if c.result.moduleName == "nupp.resources" and n.name == "Set" then
                 n.resourceSet = true
+            elseif c.result.moduleName == "nupp.dynamic" and n.name == "StoreState" then
+                n.dynamicStore = true
             end
 
             -- Predeclared before anything resolves, so a member may name one wherever

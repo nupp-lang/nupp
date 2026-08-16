@@ -242,15 +242,15 @@ local comptime function jsonSpec(T: type, contract: type): any
     return nil
 end
 
-function derive.debug<T>(value: T, entry: derive.Entry): string
+function derive.debug<T is table>(value: T, entry: derive.Entry): string
     return _G.nupp.__derive.debug(value, entry.schema.data.debug)
 end
 
-function derive.toJSON<T>(value: T, entry: derive.Entry): string
+function derive.toJSON<T is table>(value: T, entry: derive.Entry): string
     return _G.nupp.__derive.toJSON(value, entry)
 end
 
-function derive.fromJSON<T>(text: string, entry: derive.Entry): (T?, string?)
+function derive.fromJSON<T is table>(text: string, entry: derive.Entry): (T?, string?)
     return _G.nupp.__derive.fromJSON(text, entry)
 end
 
