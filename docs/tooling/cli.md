@@ -1371,14 +1371,74 @@ cdef struct mini_point
    y: number
 end
 
-cdef function mini_length(point: mini_point*): number from "mini"
+cdef function mini_length(point: const mini_point*?): number from "mini"
 cdef function mini_version(): int32 from "mini"
 
 return { mini_point = mini_point, mini_length = mini_length, mini_version = mini_version }
 ```
 
-A declaration the importer cannot type is left out with a comment saying so,
-and `--json` reports those as warnings. See [C interop](../c-interop.md).
+Every imported pointer is nullable unless you edit the generated module to add
+a stronger reviewed contract. Fixed arrays retain their bounds, function
+pointers remain typed in fields, parameters, results and pointer nesting, and a
+typedef-named anonymous aggregate keeps its typedef identity. A declaration the
+importer cannot type is left out with a readable `-- import-c: skipped` comment.
+
+Inspect a header before writing anything:
+
+```bash
+nupp import-c native/image.h --inspect
+nupp import-c native/image.h --inspect --json
+nupp import-c --schema
+```
+
+Text inspection prints `direct N, bridged N, skipped N`. JSON also carries the
+warning strings and structured `dispositions`; a skipped `static inline`
+function, for example, has `reason: "bridge-required"`. `direct`, `type-only`,
+`bridge-inline`, `bridge-macro`, and `skipped` distinguish the available
+lowering. Inspection writes neither the default module nor an `-o` path.
+
+A `static inline` definition has no symbol for FFI to load. Ask the standalone
+command to emit wrappers beside the editable module:
+
+```bash
+nupp import-c native/image.h \
+  --lib build/lib/libimage.so \
+  --bridge-out build/generated/image_bridge.c \
+  -o src/native/image.nupp
+```
+
+On success, text mode prints the Nupp output path. JSON reports this shape:
+
+```json
+{
+  "ok": true,
+  "output": "src/native/image.nupp",
+  "bridgeOutput": "build/generated/image_bridge.c",
+  "warnings": [],
+  "direct": 1,
+  "bridged": 2,
+  "skipped": 0,
+  "dispositions": [
+    {"name": "image_version", "kind": "direct"},
+    {
+      "name": "image_triple",
+      "kind": "bridge-inline",
+      "symbol": "__nupp_bridge_..."
+    }
+  ]
+}
+```
+
+The command emits C but does not compile it. Build that file into the exact
+library named by `--lib`, with the header's include paths, definitions and C
+flags. Function-like macros cannot be typed on this command line; configure
+their explicit signatures under a C dependency's `bindings.macros`. Combining
+`--bridge-out` with `--inspect` previews which inline functions would bridge but
+still writes no file.
+
+See [C interop](../c-interop.md#header-only-functions) for complete direct and
+bridge headers, a runnable header-only manifest, macro recipe types, emitted C,
+ownership refinements, and supported limits.
 
 ### `export-c`
 

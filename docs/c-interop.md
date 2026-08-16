@@ -4,7 +4,7 @@ Nupp turns C declarations into checked LuaJIT FFI calls. Start by importing a
 header, then add ownership and borrowing contracts where the C signature alone
 cannot describe lifetime behavior.
 
-There are three ways to bring C declarations in, and one canonical way to
+There are four ways to bring C declarations in, and one canonical way to
 publish ordinary Nupp structs to C:
 
 | Route | Use it when |
@@ -12,6 +12,7 @@ publish ordinary Nupp structs to C:
 | cdef declarations | The API is small, or you want exact control |
 | `cheader("mini.h")` | You want the header typed with no generated file |
 | nupp import-c mini.h | You want a committed module you can edit |
+| `bindings.bridge` in `nupp.lua` | The header contains `static inline` functions or typed function-like macros |
 | nupp export-c -o mini.h ... | C needs to consume Nupp struct layouts |
 
 ## Export ordinary structs to C
@@ -157,6 +158,52 @@ arrays nested in fields or behind pointers. It leaves an `-- import-c: skipped`
 comment for flexible arrays, anonymous-member promotion, unsupported scalar
 widths or calling conventions, and names that collide with Lua keywords.
 
+For example, this header exercises the declarators which are easiest to lose in
+a source generator:
+
+```c
+#include <stdint.h>
+
+typedef void (*visit_fn)(int32_t value);
+
+typedef struct {
+    float matrix[2][3];
+    visit_fn callback;
+} context;
+
+void use_context(context *value);
+visit_fn get_callback(void);
+void set_callbacks(visit_fn callbacks[4]);
+int32_t (*get_row(void))[4];
+```
+
+`nupp import-c complete.h -o complete.nupp` preserves every nested part:
+
+```nupp
+cdef struct context
+   matrix: float[3][2]
+   callback: function(int32)?
+end
+
+cdef function use_context(value: context*?)
+cdef function get_callback(): function(int32)?
+cdef function set_callbacks(callbacks: function(int32)?*?)
+cdef function get_row(): int32[4]*?
+```
+
+Nupp writes nested C array declarators from the element outward, so C
+`float[2][3]` is `float[3][2]`: three floats make an inner row and two rows make
+the field. A C array parameter is adjusted to a pointer by C itself, which is
+why `callbacks[4]` becomes a pointer while the pointer-to-array result retains
+its `[4]` bound. Function pointers and ordinary pointers are nullable: the
+current importer does not infer a nonnull contract from a header. A `const char
+*` is the nullable string-taking form `cstring?`.
+
+The anonymous struct is public as `context`, its typedef identity. The same
+rule applies to typedef-named anonymous unions. Anonymous members which promote
+their fields into an enclosing aggregate are deliberately skipped because Nupp
+does not yet have the corresponding member-access semantics.
+
 A declaration LuaJIT itself will not parse gets the same comment and does not
 take the header with it. That is commonly a struct laid out from a type whose
 definition belongs to a header this import left alone. Those are counted on
@@ -166,32 +213,283 @@ broke upstream and the module is not worth keeping.
 
 ### Header-only functions
 
-A `static inline` function has no exported symbol for LuaJIT to load. Emit a C
-bridge when importing one directly:
+A `static inline` function has a callable C type but no exported symbol for
+LuaJIT to load. A function-like macro has neither a symbol nor a C type. A
+bridge turns either one into an ordinary exported function in the native
+dependency while leaving its logical Nupp name unchanged.
 
-```bash
-nupp import-c native/image.h --lib image \
-  --bridge-out build/generated/image_bridge.c \
-  -o src/native/image.nupp
+The bridge is opt-in. A direct import of this header reports both inline
+functions as skipped rather than generating a library behind your back:
+
+```c [native/image.h]
+#ifndef IMAGE_H
+#define IMAGE_H
+
+#include <stdint.h>
+
+static inline int32_t image_triple(int32_t value)
+{
+    return value * 3;
+}
+
+static inline void image_store(int32_t *slot, int32_t value)
+{
+    *slot = value;
+}
+
+#define IMAGE_CLAMP(value, low, high) \
+    ((value) < (low) ? (low) : ((value) > (high) ? (high) : (value)))
+#define IMAGE_IGNORE(value) ((void)(value))
+
+#endif
 ```
 
-The generated C includes the original header and exports deterministic private
-wrapper symbols. The Nupp module keeps the header's logical names, so callers do
-not use or depend on those symbols. Compile the emitted file into the library
-named by `--lib`, with the same include paths and definitions as the header.
-Ordinary imports generate no bridge or native artifact.
+#### Build the bridge with the project
 
-`nupp import-c HEADER --inspect --json` reports each direct, bridged, type-only,
-or skipped declaration without writing a module. This is useful for reviewing
-coverage before adopting a binding.
+The preferred route is a C dependency because the build then owns the compiler
+flags, shared library, binding module, cache key, and packaging together. A
+header-only dependency needs no dummy `.c` file:
 
-Function-like macros require an explicit value signature because C gives a
-macro no type. Configure them on a native dependency rather than translating
-their bodies into Nupp; the C compiler validates their expansion. A wrapper's
-parameters also ensure each Nupp argument is evaluated once even when the macro
-mentions it repeatedly. The initial macro bridge admits fixed-width numeric,
-floating-point and boolean values; pointer-bearing recipes need a handwritten
-binding where their ownership contract is explicit.
+```lua [nupp.lua]
+return {
+   include = { "src" },
+
+   dependencies = {
+      image = {
+         kind = "c",
+         includeDirs = { "native" },
+         headers = { "native/**/*.h" },
+         bindings = {
+            header = "native/image.h",
+            bridge = true,
+            macros = {
+               IMAGE_CLAMP = {
+                  parameters = { "int32", "int32", "int32" },
+                  result = "int32",
+               },
+               IMAGE_IGNORE = {
+                  parameters = { "int32" },
+               },
+            },
+         },
+      },
+   },
+
+   build = {
+      outDir = "build",
+      entries = { "main" },
+      dependencies = { "image" },
+   },
+}
+```
+
+`bridge = true` selects eligible `static inline` definitions in the named
+header. Each entry in `macros` independently requests one function-like macro
+and supplies the type C itself does not provide. Omitting `result` means the
+wrapper returns `void`, as `IMAGE_IGNORE` does above. The admitted recipe types
+are:
+
+| Recipe spelling | Wrapper C type |
+| --- | --- |
+| `boolean` | `_Bool` |
+| `float` | `float` |
+| `number` | `double` |
+| `integer` | `int32_t` |
+| `int8`, `int16`, `int32`, `int64` | matching signed fixed-width integer |
+| `uint8`, `uint16`, `uint32`, `uint64` | matching unsigned fixed-width integer |
+
+Recipes are positional and fixed-arity. The build rejects a missing macro, a
+variadic macro, an arity mismatch, or any other type spelling before installing
+a partial binding. Pointer recipes are intentionally rejected: the recipe
+would otherwise conceal whether the macro borrows, retains, releases, or writes
+through the pointer. Use a handwritten C wrapper and an ownership-refined
+`cdef` for that boundary.
+
+After `nupp build`, the generated module has the dependency's name:
+
+```nupp [src/main.nupp]
+local image = require("image")
+
+print(image.image_triple(14))       -- 42
+print(image.IMAGE_CLAMP(20, 2, 8)) -- 8
+image.IMAGE_IGNORE(42)
+```
+
+The build writes three artifacts on macOS, using the corresponding platform
+library suffix elsewhere:
+
+```text
+build/generated/image.nupp
+build/generated/image_bridge.c
+build/lib/libimage.dylib
+```
+
+The Nupp module binds deterministic private symbols such as
+`__nupp_bridge_<fingerprint>`, then aliases them back to `image_triple` and
+`IMAGE_CLAMP`. Application code uses only those logical names. The generated C
+includes `native/image.h`; it does not copy or translate the inline body or
+macro expansion. The selected C compiler remains the
+authority, and changing the header, macro recipes, flags, compiler identity, or
+bridge source invalidates the dependency build.
+
+The generated binding has this shape; the real suffix is a 24-character
+hexadecimal digest:
+
+```nupp
+cdef function __nupp_bridge_fingerprint(value: int32): int32 from "build/lib/libimage.so"
+local image_triple = __nupp_bridge_fingerprint
+
+return { image_triple = image_triple }
+```
+
+Every Nupp argument is evaluated before the FFI call. A macro may mention its C
+parameter more than once, but it cannot re-evaluate the Nupp expression which
+produced the wrapper argument.
+
+#### Emit a standalone bridge
+
+`import-c` can emit the same inline wrappers without compiling them. This is
+useful when an external build system owns the native library:
+
+```bash
+mkdir -p build/generated build/lib src/native
+
+nupp import-c native/image.h \
+  --lib build/lib/libimage.so \
+  --bridge-out build/generated/image_bridge.c \
+  -o src/native/image.nupp
+
+cc -shared -fPIC -I. \
+  -o build/lib/libimage.so build/generated/image_bridge.c
+```
+
+That compiler command is the Linux form. On macOS use `-dynamiclib` and a
+`.dylib` output. In a real build, pass the same include directories,
+preprocessor definitions, language standard, target, and required warning
+flags as the header's native library. `--bridge-out` handles eligible inline
+functions only; standalone macro signatures belong in the checked manifest, so
+macros need either a project dependency or a handwritten wrapper.
+
+The emitted C is deliberately small:
+
+```c
+#include <stdint.h>
+#if defined(_WIN32)
+#define NUPP_BRIDGE_EXPORT __declspec(dllexport)
+#else
+#define NUPP_BRIDGE_EXPORT __attribute__((visibility("default")))
+#endif
+#include "native/image.h"
+
+NUPP_BRIDGE_EXPORT int32_t __nupp_bridge_fingerprint(int32_t value) {
+    return image_triple(value);
+}
+```
+
+`--lib` must name the artifact which actually contains the wrappers. The
+command only writes the requested Nupp and C files; it does not invent a
+compiler invocation, create a library, or arrange a runtime search path.
+
+#### Inspect coverage before generating files
+
+Inspection performs preprocessing and declaration analysis but writes no
+module, bridge, or native library:
+
+```bash
+nupp import-c native/image.h --inspect
+# direct 0, bridged 0, skipped 2
+
+nupp import-c native/image.h --inspect --json
+```
+
+The JSON result contains totals, warnings, and dispositions for each considered
+aggregate or callable:
+
+```json
+{
+  "ok": true,
+  "direct": 0,
+  "bridged": 0,
+  "skipped": 2,
+  "warnings": [
+    "static inline image_triple needs a configured C bridge",
+    "static inline image_store needs a configured C bridge"
+  ],
+  "dispositions": [
+    {"name": "image_triple", "kind": "skipped", "reason": "bridge-required"},
+    {"name": "image_store", "kind": "skipped", "reason": "bridge-required"}
+  ]
+}
+```
+
+To preview inline bridge eligibility without writing the named bridge, combine
+`--bridge-out` with `--inspect`. Inspection still wins over output, while the
+flag makes eligible entries report `bridge-inline` and include their private
+`symbol`:
+
+```bash
+nupp import-c native/image.h \
+  --bridge-out ignored.c --inspect --json
+```
+
+Disposition kinds are stable integration data:
+
+| Kind | Meaning |
+| --- | --- |
+| `direct` | An externally addressable C function is bound directly |
+| `type-only` | An aggregate declaration was imported for use by callables |
+| `bridge-inline` | A `static inline` definition received a wrapper |
+| `bridge-macro` | An explicitly typed function-like macro received a wrapper |
+| `skipped` | No safe lowering exists; `reason` says why |
+
+Common skip reasons include `bridge-required`, `parse-failure`,
+`unsupported-c-type`, `unsupported-field-type`,
+`unsupported-bridge-type`, and `invalid-macro-signature`. The generated module
+also retains readable `-- import-c: skipped` comments, so a non-JSON workflow
+does not hide incomplete coverage.
+
+#### Refine the generated ownership contract
+
+A header supplies physical types, not lifetimes or effects. Bridge generation
+does not infer that a pointer is borrowed, retained, released, counted, or
+initialized on success. The generated module is intentionally editable, so
+refine the declaration after reviewing the API contract:
+
+```nupp
+-- Generated physical type:
+cdef function use_context(value: context*?)
+
+-- Reviewed contract: the callee only reads it during this call.
+cdef function use_context(borrows value: context*?)
+```
+
+For a bridged callable, add the mode to its private generated `cdef function`;
+the logical local alias receives that checked function type. Keep an owned
+callback pinned for as long as C may call it. The ordinary callback/JIT warning
+also applies through nullable callback fields, parameters, results, arrays, and
+pointer nesting.
+
+#### Current boundary
+
+The direct importer and bridge deliberately refuse shapes for which they do
+not have one proven physical meaning:
+
+- C++ declarations, compiler vector extensions, `long double`, `_Complex`,
+  inline assembly, and unmodelled calling conventions;
+- flexible and variable-length arrays, incomplete by-value aggregates, and
+  anonymous-member promotion;
+- arbitrary preprocessor programs, variadic macros, pointer-bearing macro
+  recipes, and expansions which are not valid in the generated return
+  expression or void statement;
+- an inline definition whose signature LuaJIT cannot represent, or which is
+  not an eligible named `static inline` definition in the selected header.
+
+Included headers provide typedef vocabulary but their declarations and macros
+are not swept into the requested module. Direct layout and calling facts are
+currently host LuaJIT facts; rich Clang extraction, ABI witnesses, and complete
+cross-target bridge emission remain future work. An unsupported declaration is
+skipped with a reason rather than widened to `any` or a plausible-looking
+`voidptr`.
 
 An enum's members come across as named `int32` constants:
 
@@ -224,7 +522,11 @@ load; without it the default namespace is used.
 
 This suits a header that changes often, or one you would rather not vendor a
 translation of. `import-c` suits a header you want to prune and annotate, since
-its output is yours to edit.
+its output is yours to edit. `cheader` uses the same direct declaration model
+for fixed arrays, typedef-named anonymous aggregates, exact pointer nesting,
+and callback fields, parameters and results. It never compiles a bridge:
+header-only callables still require the manifest dependency or standalone
+`--bridge-out` workflow above.
 
 ## Typed FFI operations
 

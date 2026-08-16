@@ -971,7 +971,18 @@ Reports: `NUPP2603`, `NUPP2606`, `NUPP2607`, `NUPP2608`, `NUPP2609`, `NUPP2610`,
 
 `cheader('path.h')` types a pinned header through LuaJIT's C parser at compile
 time. `nupp import-c` ejects the same declarations as an editable module. Both
-preserve unions and bitfields.
+preserve unions, bitfields, fixed and nested arrays, function pointers in every
+C declarator position, enum storage, and typedef-named anonymous aggregates.
+Imported pointers are nullable until the generated contract is reviewed.
+
+A C dependency binding with `bridge = true` compiles deterministic wrappers for
+eligible `static inline` functions. `bindings.macros` requests selected
+fixed-arity function macros with explicit scalar parameter and result types;
+omitting `result` creates a void wrapper. `nupp import-c --bridge-out FILE` emits
+inline wrappers for an external build without compiling them, while `--inspect`
+reports direct, bridged and skipped dispositions without writing output.
+Bridges keep the header's logical names and expose only private hashed C
+symbols. They do not infer pointer ownership or make foreign code safe.
 
 An output contract is written on the output value. `affine(T, cleanup)*` on an
 `out` slot returns an affine value; `T* borrows (source)` returns a view tied to

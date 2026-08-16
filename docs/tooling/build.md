@@ -374,32 +374,106 @@ under `outDir/generated` so it participates in normal module resolution.
 while `**/` matches zero or more directories. `pkg-config` output honors shell
 quotes and backslash escapes, but is never expanded or executed by a shell.
 
-Header-only APIs opt into a generated bridge at the binding:
+### Header-only C dependencies
+
+An API made entirely from `static inline` functions and function-like macros
+has no native symbol for LuaJIT to load. Opt its binding into a generated bridge;
+no empty `.c` source is required:
 
 ```lua
-image = {
-   kind = "c",
-   sources = {"native/image.c"},
-   includeDirs = {"native/include"},
-   bindings = {
-      header = "native/include/image.h",
-      bridge = true,
-      macros = {
-         IMAGE_CLAMP = {
-            parameters = {"int32", "int32", "int32"},
-            result = "int32",
+return {
+   include = { "src" },
+
+   dependencies = {
+      image = {
+         kind = "c",
+         includeDirs = { "native" },
+         headers = { "native/**/*.h" },
+         cflags = { "-std=c11", "-Wall", "-Werror" },
+         cppflags = { "-DIMAGE_FAST=1" },
+         bindings = {
+            header = "native/image.h",
+            bridge = true,
+            macros = {
+               IMAGE_CLAMP = {
+                  parameters = { "int32", "int32", "int32" },
+                  result = "int32",
+               },
+               IMAGE_IGNORE = {
+                  parameters = { "int32" },
+               },
+            },
          },
       },
+   },
+
+   build = {
+      outDir = "build",
+      entries = { "main" },
+      dependencies = { "image" },
    },
 }
 ```
 
-`bridge = true` wraps eligible `static inline` definitions from the named
-header. Macro wrappers are generated only for the explicitly listed fixed-arity
-signatures. The deterministic translation unit is written beside the binding
-as `outDir/generated/NAME_bridge.c` and compiled into the dependency's shared
-library. A dependency containing only header functions still produces that
-library; disabling the bridge produces neither file nor compiler work.
+The binding keys have separate jobs:
+
+| Key | Effect |
+| --- | --- |
+| `header` | Header to preprocess and import; required for generated bindings |
+| `library` | Override the library name/path written into generated `cdef` declarations |
+| `out` | Override the generated Nupp module path |
+| `bridge` | Wrap eligible named `static inline` definitions from `header` |
+| `macros` | Wrap only the listed function-like macros using explicit signatures |
+
+Each macro recipe requires a dense `parameters` array. `result` is optional;
+omit it for a void wrapper. The accepted value spellings are `boolean`,
+`float`, `number`, `integer`, `int8` through `int64`, and `uint8` through
+`uint64`. Recipes do not accept pointer spellings, varargs, or arbitrary C
+declarator text. `bridge` controls inline discovery; a `macros` table can
+request macro wrappers independently.
+
+The header above can then be consumed under the dependency name:
+
+```nupp
+local image = require("image")
+
+local tripled = image.image_triple(14)
+local clamped = image.IMAGE_CLAMP(20, 2, 8)
+image.IMAGE_IGNORE(clamped)
+print(tripled) -- 42
+```
+
+For the default `outDir`, a macOS build writes:
+
+```text
+build/generated/image.nupp
+build/generated/image_bridge.c
+build/lib/libimage.dylib
+```
+
+Linux uses `libimage.so`; Windows uses the platform DLL name. The generated
+translation unit includes the original header and exports only deterministic
+private wrapper symbols. It is compiled with the dependency's `cc`,
+`includeDirs`, `cflags`, `cppflags`, package flags, and linker inputs, then
+installed into the same shared library as any ordinary `sources`. A dependency
+containing only bridge wrappers still produces the library.
+
+The dependency cache includes the header, source and bridge bytes, macro
+recipes, compiler identity, flags, package flags, child dependencies, and
+manifest configuration. A changed header or recipe regenerates both the module
+and bridge. The binding's named header is tracked automatically; list its local
+include closure under `headers` as above so a transitive header edit also
+invalidates the native artifact. Disabling `bridge` and removing `macros`
+produces no bridge source, compiler invocation, or bridge-only library.
+
+Macro arity and type recipes are validated before a generated binding is
+installed. The C compilation then validates the original macro expansion and
+inline bodies under the selected flags. Either failure stops the dependency
+build; compiler-failed generated source remains inspectable, but no successful
+target may consume it. See [Calling C
+safely](../c-interop.md#header-only-functions) for a complete header,
+standalone bridge emission, inspection output, ownership refinements, and the
+supported boundary.
 
 ## Rust dependencies
 

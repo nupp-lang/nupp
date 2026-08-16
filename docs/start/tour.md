@@ -266,7 +266,9 @@ which a header cannot. None of them change the ABI.
 
 For a whole header there are two routes: `nupp import-c` writes a committed,
 hand-editable module, and `cheader("mini.h")` types the header at compile time
-with no generated file. [C interop](../c-interop.md) covers both.
+with no generated file. A manifest C dependency adds a generated bridge when
+the API exists only as `static inline` functions or function-like macros.
+[C interop](../c-interop.md) covers all three.
 
 ## Everything is one binary
 

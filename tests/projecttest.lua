@@ -1538,24 +1538,35 @@ function M.cDependencyBuildsHeaderOnlyBridges()
 return {
    include = {"src"},
    dependencies = {
-      tiny = {kind = "c", bindings = {
+      tiny = {kind = "c", cppflags = {"-DTINY_SCALE=3"}, bindings = {
          header = "native/tiny.h",
          bridge = true,
          macros = {
             TINY_CLAMP = {parameters = {"int32", "int32", "int32"},
                result = "int32"},
+            TINY_IGNORE = {parameters = {"int32"}},
          },
       }},
    },
    build = {outDir = "out", entries = {"main"}, dependencies = {"tiny"}},
 }
 ]],
-      ["src/main.nupp"] = "return true\n",
+      ["src/main.nupp"] = table.concat({
+         "local tiny = require('tiny')",
+         "local tripled: int32 = tiny.tiny_triple(14)",
+         "local clamped: int32 = tiny.TINY_CLAMP(20, 2, 8)",
+         "tiny.TINY_IGNORE(clamped)",
+         "return tripled",
+      }, "\n"),
       ["native/tiny.h"] = [[
 #include <stdint.h>
-static inline int32_t tiny_triple(int32_t value) { return value * 3; }
+#ifndef TINY_SCALE
+#define TINY_SCALE 1
+#endif
+static inline int32_t tiny_triple(int32_t value) { return value * TINY_SCALE; }
 #define TINY_CLAMP(value, low, high) \
    ((value) < (low) ? (low) : ((value) > (high) ? (high) : (value)))
+#define TINY_IGNORE(value) ((void)(value))
 ]],
    })
    assertEq(project.build(dir), 0)
@@ -1568,6 +1579,8 @@ static inline int32_t tiny_triple(int32_t value) { return value * 3; }
       "inline exported under its logical name")
    assert(binding:find("local TINY_CLAMP = __nupp_bridge_", 1, true),
       "macro exported under its logical name")
+   assert(binding:find("local TINY_IGNORE = __nupp_bridge_", 1, true),
+      "void macro exported under its logical name")
 
    local triple = binding:match("cdef function (__nupp_bridge_[%da-f]+)%(value: int32%)")
    assert(triple, "physical inline symbol recorded")
@@ -1578,7 +1591,8 @@ static inline int32_t tiny_triple(int32_t value) { return value * 3; }
    ffi.cdef(("int32_t %s(int32_t); int32_t %s(int32_t, int32_t, int32_t);")
       :format(triple, clamp))
    local native = ffi.load(library)
-   assertEq(native[triple](4), 12)
+   assertEq(native[triple](4), 12,
+      "bridge compilation receives the dependency's preprocessor flags")
    assertEq(native[clamp](20, 2, 8), 8)
    remove(dir)
 end

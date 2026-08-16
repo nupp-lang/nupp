@@ -294,6 +294,9 @@ local function buildC(root, outDir, name, dep, previous, childResults)
             if bridge then
                 argv[#argv + 1] = "-I" .. base
             end
+            for _, flag in ipairs(dep.cppflags or {}) do
+                argv[#argv + 1] = flag
+            end
             for _, flag in ipairs(dep.cflags or {}) do
                 argv[#argv + 1] = flag
             end

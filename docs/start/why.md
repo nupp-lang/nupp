@@ -73,7 +73,9 @@ Now the call is checked, and `borrows` records something the C prototype could
 not: the callee only looks at the pointer for the duration of the call. Nupp
 imports whole headers two ways, `nupp import-c` for a committed module you can
 edit and `cheader("mini.h")` for compile-time typing with no generated file, and
-neither changes the ABI or installs a finalizer.
+neither changes the ABI or installs a finalizer. A manifest C dependency can
+also compile deterministic wrappers for header-only `static inline` functions
+and explicitly typed function-like macros.
 
 ## Resources that are hard to leak
 
