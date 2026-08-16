@@ -159,23 +159,56 @@ end
 -- explicitly binary32 kernel every operation is an FFI round trip, so this is
 -- bounded by count rather than run to the display size. What was checked is
 -- printed rather than assumed: a silent cap would read like full coverage.
+-- A prefix is the wrong sample. The first pixels of the grid are its top-left
+-- corner, which escapes in a handful of iterations, so a prefix exercises
+-- neither the interior nor the boundary where the escape count is decided --
+-- and those are exactly where a rounding difference changes an answer. A
+-- contracted binary32 body agrees over the first four thousand pixels and still
+-- moves the whole-grid checksum.
+--
+-- So the budget is spread instead. The ordinary Nupp body takes a contiguous
+-- range, so it runs over blocks placed evenly down the grid; the Lua recurrence
+-- is per-pixel, so it strides across every row. Neither is a whole sweep, but
+-- both cross the boundary.
 local ORACLE_LIMIT = tonumber(os.getenv("MANDELBROT_ORACLE_LIMIT") or (binary32 and 20000 or count))
 local oracleCount = math.min(count, ORACLE_LIMIT)
-local fallback = ffi.new("KsEscape[?]", math.max(1, oracleCount))
-local fallbackWriter = spans.writeCarray(fallback, oracleCount)
-ordinary.mandelbrot(fallbackWriter, spans.fromCarray(points, oracleCount), 1, oracleCount, MAX_ITERATIONS)
-fallbackWriter:commit()
 
-for index = 0, oracleCount - 1 do
+local function compare(label, index, got)
    local wantIterations, wantEscaped = oracle(points[index].re, points[index].im)
-   for label, got in pairs({
-      optimized = optimized[index], scalar = scalar[index], fallback = fallback[index],
-   }) do
-      if got.iterations ~= wantIterations or got.escaped ~= wantEscaped then
-         error(("%s pixel %d: want %d/%d, got %d/%d"):format(
-            label, index, wantIterations, wantEscaped, got.iterations, got.escaped))
-      end
+   if got.iterations ~= wantIterations or got.escaped ~= wantEscaped then
+      error(("%s pixel %d (row %d, column %d): want %d/%d, got %d/%d"):format(
+         label, index, math.floor(index / WIDTH), index % WIDTH,
+         wantIterations, wantEscaped, got.iterations, got.escaped))
    end
+end
+
+local BLOCKS = 32
+local blockSize = math.max(1, math.floor(oracleCount / BLOCKS))
+local checkedByBlocks = 0
+if oracleCount >= count then
+   -- The whole grid fits the budget, so there is nothing to place.
+   BLOCKS, blockSize = 1, count
+end
+local fallback = ffi.new("KsEscape[?]", math.max(1, blockSize))
+for block = 0, BLOCKS - 1 do
+   local first = math.floor(block * (count - blockSize) / math.max(1, BLOCKS - 1))
+   local writer = spans.writeCarray(fallback, blockSize)
+   ordinary.mandelbrot(writer, spans.fromCarray(points + first, blockSize), 1, blockSize, MAX_ITERATIONS)
+   writer:commit()
+   for offset = 0, blockSize - 1 do
+      compare("ordinary Nupp", first + offset, fallback[offset])
+      compare("SPMD C", first + offset, optimized[first + offset])
+   end
+   checkedByBlocks = checkedByBlocks + blockSize
+end
+
+-- Every row is crossed, so a body that is only wrong deep in the set is seen.
+local stride = math.max(1, math.floor(count / oracleCount))
+local checkedByStride = 0
+for index = 0, count - 1, stride do
+   compare("SPMD C", index, optimized[index])
+   compare("scalar C", index, scalar[index])
+   checkedByStride = checkedByStride + 1
 end
 
 -- Exercise every whole-group/tail shape independently of the display size.
@@ -210,8 +243,8 @@ for index = 0, count - 1 do
 end
 io.write(("mandelbrot: %dx%d, %d max iterations, checksum %d\n")
    :format(WIDTH, HEIGHT, MAX_ITERATIONS, checksum))
-io.write(("%d pixels agree between scalar C and SPMD C; %d of them also agree with ordinary Nupp and the Lua oracle\n\n")
-   :format(count, oracleCount))
+io.write(("%d pixels agree between scalar C and SPMD C; %d in %d blocks also agree with ordinary Nupp, and %d strided across every row agree with the Lua oracle\n\n")
+   :format(count, checkedByBlocks, BLOCKS, checkedByStride))
 if os.getenv("MANDELBROT_QUIET") then
    local function bench(name, run)
       for _ = 1, 3 do run() end
