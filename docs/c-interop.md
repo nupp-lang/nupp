@@ -466,3 +466,4 @@ onto the pointer and count the function already accepts.
 
 - [ownership.md](ownership.md): the contracts a C pointer crosses the boundary with.
 - [records.md](type-system/records.md): the struct declarations a header imports as.
+- [embedding.md](embedding.md): host checked Nupp components from a C application.

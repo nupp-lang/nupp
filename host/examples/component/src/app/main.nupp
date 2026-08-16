@@ -1,0 +1,5 @@
+local game = require("game")
+
+assert(game.answer(41) == 42)
+
+return true

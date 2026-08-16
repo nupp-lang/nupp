@@ -711,6 +711,11 @@ nupp lsp            # start the language server]],
                   source = "docs/tooling/build.md",
                },
                {
+                  path = "guides/embedding",
+                  title = "Embedding Nupp",
+                  source = "docs/embedding.md",
+               },
+               {
                   path = "guides/luarocks",
                   title = "Working with LuaRocks",
                   source = "docs/tooling/luarocks.md",
