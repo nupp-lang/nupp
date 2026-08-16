@@ -502,7 +502,7 @@ function page.render(
             .. ' type="button" data-mobile-outline-toggle aria-controls="nuppdoc-outline"'
             .. ' aria-expanded="false" aria-label="Open table of contents"'
             .. ' title="Open table of contents">'
-            .. ICONS.menu
+            .. ICONS.outline
             .. '</button>'
         actions[
             #actions + 1

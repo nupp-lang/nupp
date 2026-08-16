@@ -338,6 +338,7 @@ local ICONS = {
     markdown = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2.5 5.25h19A2.5 2.5 0 0 1 24 7.75v8.5a2.5 2.5 0 0 1-2.5 2.5h-19A2.5 2.5 0 0 1 0 16.25v-8.5a2.5 2.5 0 0 1 2.5-2.5Zm.5 3v7.5h2v-4l2 2 2-2v4h2v-7.5H9l-2 2-2-2H3Zm11 3.75h2.5v3.75h2V12H21l-3.5-3.5L14 12Z"/></svg>]],
     panel = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" d="M4 4.5h16v15H4zM9 4.5v15"/></svg>]],
     menu = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 6.5h16M4 12h16M4 17.5h16"/></svg>]],
+    outline = [[<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M8 6.5h12M8 12h12M8 17.5h12"/><circle cx="4" cy="6.5" r="1" fill="currentColor"/><circle cx="4" cy="12" r="1" fill="currentColor"/><circle cx="4" cy="17.5" r="1" fill="currentColor"/></svg>]],
 }
 
 assets.THEME = THEME
