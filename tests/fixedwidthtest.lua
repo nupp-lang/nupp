@@ -182,6 +182,39 @@ return a, b, forward
 ]])
 end
 
+function M.assignmentKeepsAFixedWidthValueEstablished()
+   -- Assigning narrows the destination, and a narrowed binding shadows its
+   -- declaration. The shadow has to carry the establishment fact, or a
+   -- fixed-width local would stop being usable as one the moment anything
+   -- wrote to it -- which is every accumulator in an iterative kernel.
+   checkedTree([[
+local function step(v: number): (float, int32)
+    local x: float = 0.0
+    x = nupp.math.f32.narrow(v)
+    x = nupp.math.f32.mul(x, x)
+    local n: int32 = 0
+    while n < 4 do
+        n = nupp.math.i32.add(n, 1)
+        x = nupp.math.f32.add(x, x)
+    end
+    return x, n
+end
+return step
+]])
+end
+
+function M.assignmentDoesNotInventEstablishment()
+   -- The other half of the same rule: carrying the fact must not become
+   -- carrying it regardless of what was assigned.
+   assertEq(errorCodes([[
+local input: number = 0.1
+local x: float = 0.0
+x = input as float
+local y: float = nupp.math.f32.mul(x, x)
+return y
+]]), "NUPP2011,NUPP2011,NUPP2011", "an erased assertion still establishes nothing")
+end
+
 function M.conversionsReturnUnboxedLuaNumbers()
    local m = library()
    assertEq(m.i32.wrap(2147483648), -2147483648)
