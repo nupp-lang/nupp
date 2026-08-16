@@ -55,6 +55,33 @@ jobs:
         shell: bash
         run: ./bin/nupp check
 
+      # The AOT lane body is written in compiler vector extensions, and what a
+      # select, a mask lane and a horizontal test lower to is completely
+      # different on NEON, SSE2 and AVX2. Every measurement and every
+      # differential before this ran on one architecture, so this is the first
+      # time the lowering is executed anywhere else. It needs only a built
+      # compiler and a C compiler, so it runs here rather than only where a host
+      # LuaJIT is set up.
+      #
+      # Deliberately before the suite. It does not depend on the suite passing,
+      # and a step placed after one that is red for an unrelated reason is a step
+      # that never runs -- which is what happened the first time this landed.
+      - name: Compare the AOT lane and scalar bodies
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bench/kernel-subset-spike/crosscheck.sh
+
+      # A 32-byte vector is two SSE registers and one AVX2 register, so the two
+      # are different instruction sequences and passing one says nothing about
+      # the other. Every x86-64 runner has AVX2; arm64 has one vector width and
+      # nothing to select.
+      - name: Compare them again at the AVX2 feature tier
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          NUPP_CHECK_CFLAGS: -march=x86-64-v3
+        run: bench/kernel-subset-spike/crosscheck.sh
+
       - name: Run the compiler suite
         if: runner.os != 'Windows'
         shell: bash
@@ -71,28 +98,6 @@ jobs:
       - name: Verify the self-hosting fixpoint
         shell: bash
         run: ./bin/nupp fixpoint
-
-      # The AOT lane body is written in compiler vector extensions, and what a
-      # select, a mask lane and a horizontal test lower to is completely
-      # different on NEON, SSE2 and AVX2. Every measurement before this ran on
-      # one architecture, so this is the first time the lowering is executed
-      # anywhere else. It needs only a C compiler, which is what lets it run
-      # here rather than only where a host Nupp and LuaJIT are set up.
-      - name: Compare the AOT lane and scalar bodies
-        if: runner.os != 'Windows'
-        shell: bash
-        run: bench/kernel-subset-spike/crosscheck.sh
-
-      # A 32-byte vector is two SSE registers and one AVX2 register, so the two
-      # are different instruction sequences and passing one says nothing about
-      # the other. Every x86-64 runner has AVX2; arm64 has one vector width and
-      # nothing to select.
-      - name: Compare them again at the AVX2 feature tier
-        if: runner.os == 'Linux'
-        shell: bash
-        env:
-          NUPP_CHECK_CFLAGS: -march=x86-64-v3
-        run: bench/kernel-subset-spike/crosscheck.sh
 
       - name: Run every native provider test
         shell: bash
