@@ -40,9 +40,24 @@ case $($CC --version 2>&1 | head -1) in
 esac
 
 TARGET_FLAGS=""
+ARCH=$(uname -m)
 if [ -n "${NUPP_CHECK_TARGET:-}" ]; then
     TARGET_FLAGS="-target $NUPP_CHECK_TARGET"
+    ARCH=${NUPP_CHECK_TARGET%%-*}
 fi
+
+# A gang is 32 bytes. That is one AVX register on x86-64 and two NEON registers
+# on arm64, so arm64 has nothing to select and x86-64 has to ask for AVX.
+#
+# Below AVX a 32-byte vector has no register class on x86-64: it still compiles,
+# because the compiler splits it, but it has no stable ABI at a function
+# boundary and says so. Rather than silence that, this targets the tier the gang
+# shapes were designed for -- and a build that forces a lower one gets the
+# warning, which is the honest answer, because no 16-byte gang exists yet.
+case $ARCH in
+    x86_64|amd64) DEFAULT_CFLAGS="-mavx2" ;;
+    *) DEFAULT_CFLAGS="" ;;
+esac
 
 ./bin/nupp build
 mkdir -p "$OUT"
@@ -54,7 +69,7 @@ for kernel in $KERNELS; do
     # target it claims, not only the one it was written on.
     $CC -std=c11 -O2 -ffp-contract=off -fno-fast-math \
         -Wall -Wextra -Werror $DIALECT \
-        $TARGET_FLAGS ${NUPP_CHECK_CFLAGS:-} -DKERNEL_C="\"$ROOT/$OUT/$kernel.c\"" \
+        $TARGET_FLAGS ${NUPP_CHECK_CFLAGS:-$DEFAULT_CFLAGS} -DKERNEL_C="\"$ROOT/$OUT/$kernel.c\"" \
         "$SPIKE/checks/$kernel.c" -lm -o "$OUT/$kernel"
     if ${NUPP_CHECK_RUNNER:-} "$OUT/$kernel"; then
         :

@@ -126,7 +126,22 @@ work makes sense in.
         1 for an `@aot` map loop that lowered scalar, naming the construct that
         stopped it. Needs an inverted marker for a deliberately scalar loop, and
         the one-top-level-map-loop shape stops being an error.
-  - [ ] mixed-width gangs. Half of this is done and the half that is left is
+  - [ ] **No gang fits x86-64 below AVX.** Both shapes are 32 bytes, which is one
+      AVX register and two NEON registers. Below AVX on x86-64 a 32-byte vector
+      has no register class: it compiles, because the compiler splits it, but it
+      has no stable ABI at a function boundary and Clang says so through
+      `-Wpsabi`. The generated helpers are `static inline` and never actually
+      cross one, so nothing is wrong today -- but a target tier the shapes do not
+      fit is a tier with no gang, and there is no 16-byte shape to fall back to.
+      Found by the first native x86-64 CI run. Apple Clang does not emit
+      `-Wpsabi` at all, so the same code cross-compiled and emulated locally was
+      silent; only the native run said anything, which is the argument for the
+      job existing.
+      What this needs is the feature tier the delivery plan already asks the
+      cache key to carry: a 16-byte gang for the x86-64 baseline, or a stated
+      refusal to compile `@aot` lanes below AVX. `crosscheck.sh` targets the AVX
+      tier on x86-64 in the meantime and lets a forced lower one warn.
+- [ ] mixed-width gangs. Half of this is done and the half that is left is
         smaller than it was.
         The sharp edge was not lane count: a loop mixing explicit binary32 with
         one binary64 value got **no gang at all**, because the 32-bit gang

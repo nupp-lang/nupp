@@ -71,11 +71,11 @@ jobs:
         shell: bash
         run: bench/kernel-subset-spike/crosscheck.sh
 
-      # A 32-byte vector is two SSE registers and one AVX2 register, so the two
-      # are different instruction sequences and passing one says nothing about
-      # the other. Every x86-64 runner has AVX2; arm64 has one vector width and
-      # nothing to select.
-      - name: Compare them again at the AVX2 feature tier
+      # The step above targets the tier a gang fits -- AVX on x86-64, where a
+      # 32-byte vector is one register. This one adds the rest of v3, because a
+      # feature tier changes which instructions the same vector operations lower
+      # to and passing one says nothing about another.
+      - name: Compare them again at the full v3 feature tier
         if: runner.os == 'Linux'
         shell: bash
         env:
