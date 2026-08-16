@@ -1632,4 +1632,178 @@ function lower.loopIndex(
     return (counted.var as lexer.Token).text
 end
 
+--- One `@aot` application: the annotation chain, and what it decorates.
+record lower.Application
+    --- The annotations, outermost first. They stack, so `@aot` may be written
+    --- above or below `@relax` and both orders mean the same thing.
+    chain: {cst.PragmaStmt}
+
+    --- The statement at the end of the chain.
+    tail: cst.Node?
+
+    --- The outermost annotation, for a diagnostic that has to name the whole
+    --- application.
+    at: cst.PragmaStmt
+end
+
+--- What one module offers this backend.
+record lower.Declarations
+    applications: {lower.Application}
+
+    --- Visible local functions, which is where a pure helper comes from.
+    helpers: {[string]: cst.LocalFuncStmt}
+
+    --- Visible local structs, which is what a span may hold.
+    structs: {[string]: cst.RecordDecl}
+end
+
+--- Finds the `@aot` functions, and what they may call and hold.
+---
+--- @param checked whether the tree came from the real checker, which records
+---   `@aot` as a fact on the body rather than leaving it to be read off the
+---   annotation
+function lower.scan(chunk: cst.Chunk, checked: boolean): lower.Declarations
+    local found = new lower.Declarations(applications = {}, helpers = {}, structs = {})
+    for _, block in ipairs(chunk.blocks or {}) do
+        for _, stat in ipairs((block as cst.Block).stats or {}) do
+            if stat.kind == "pragmaStmt" then
+                local chain: {cst.PragmaStmt} = {}
+                local cursor: cst.Node? = stat
+                while cursor ~= nil and cursor.kind == "pragmaStmt" do
+                    chain[#chain + 1] = cursor as cst.PragmaStmt
+                    cursor = (cursor as cst.PragmaStmt).stat
+                end
+
+                local isAot = false
+                for _, link in ipairs(chain) do
+                    if link.name ~= nil and (link.name as lexer.Token).text == "aot" then
+                        isAot = true
+                    end
+                end
+                if checked then
+                    local decorated = cursor as cst.LocalFuncStmt?
+                    isAot = decorated ~= nil and (
+                        decorated as cst.LocalFuncStmt
+                    ).body ~= nil and ((decorated as cst.LocalFuncStmt).body as cst.Funcbody).aotRequired == true
+                end
+                if isAot then
+                    found.applications[
+                        #found.applications + 1
+                    ] = new lower.Application(chain = chain, tail = cursor, at = stat as cst.PragmaStmt)
+                end
+            elseif stat.kind == "localFuncStmt" and (stat as cst.LocalFuncStmt).name ~= nil then
+                local declaration = stat as cst.LocalFuncStmt
+                found.helpers[(declaration.name as lexer.Token).text] = declaration
+            elseif stat.kind == "recordDecl" then
+                local declaration = stat as cst.RecordDecl
+                if declaration.declKind == "struct" and declaration.name ~= nil then
+                    found.structs[(declaration.name as lexer.Token).text] = declaration
+                end
+            end
+        end
+    end
+
+    return found
+end
+
+--- What one `@aot` application asks the backend for.
+record lower.Contract
+    --- Whether a multiply and an add may be fused into one rounding. Per
+    --- function and carried in the IR, because it decides what the function
+    --- answers rather than only how fast it gets there.
+    fpContract: boolean
+
+    --- Whether lane lowering is attempted at all.
+    wantsLanes: boolean
+
+    --- Whether it is taken whatever the arithmetic-intensity estimate says.
+    lanesRequired: boolean
+end
+
+--- Reads one application's contract.
+---
+--- From the checked body where there is one, because the checker resolved the
+--- annotations; from the written annotations otherwise, which is what lets the
+--- spike run on a tree the checker never saw.
+function lower.contract(
+    application: lower.Application,
+    body: cst.Funcbody,
+    checked: boolean,
+    context: lower.Context
+): lower.Contract
+    local relaxed = body.relaxedGuarantees
+    local contract = new lower.Contract(
+        fpContract = relaxed ~= nil and relaxed["fp-contract"] == true,
+        wantsLanes = body.lanesDeclined ~= true,
+        lanesRequired = body.lanesRequired == true
+    )
+    if checked then
+        return contract
+    end
+
+    for _, link in ipairs(application.chain) do
+        local written = link.name ~= nil and (link.name as lexer.Token).text or nil
+        if written == "aot" then
+            for _, argument in ipairs(link.annotationArgs or {}) do
+                local name = argument.name ~= nil and (argument.name as lexer.Token).text or nil
+                if name ~= "lanes" then
+                    context.reject(lower.site(link), "@aot takes lanes = true, lanes = false, or nothing")
+                end
+
+                local value = argument.expr
+                if value ~= nil and value.kind == "falseExpr" then
+                    contract.wantsLanes = false
+                end
+                if value ~= nil and value.kind == "trueExpr" then
+                    contract.lanesRequired = true
+                end
+            end
+        elseif written == "relax" then
+            for _, argument in ipairs(link.annotationArgs or {}) do
+                local token = argument.expr ~= nil and cst.firstToken(argument.expr as cst.Node) or nil
+                local text = token ~= nil and (token as lexer.Token).text or ""
+                if text:sub(1, 1) == "\"" or text:sub(1, 1) == "'" then
+                    text = text:sub(2, -2)
+                end
+                if text == "fp-contract" then
+                    contract.fpContract = true
+                end
+            end
+        end
+    end
+
+    return contract
+end
+
+--- The one `@aot` function this backend compiles, and its body.
+---
+--- The shape is small on purpose: no generics, no varargs, no captures, and a
+--- prototype that returns nothing. Each of those would be a value crossing the
+--- boundary whose representation nobody has decided.
+function lower.kernelBody(application: lower.Application, context: lower.Context): (cst.LocalFuncStmt, cst.Funcbody)
+    local fn = application.tail
+    if fn == nil or fn.kind ~= "localFuncStmt" then
+        context.reject(lower.site(fn or application.at), "@aot must decorate a local function with a visible body")
+    end
+
+    local declaration = fn as cst.LocalFuncStmt
+    local body = declaration.body as cst.Funcbody?
+    if body == nil
+        or body.generics ~= nil
+        or body.varargParam ~= nil
+        or body.captureTakes ~= nil
+        or body.captureBorrows ~= nil
+    then
+        context.reject(lower.site(body or fn), "generic, variadic, and capturing kernels are not admitted")
+    end
+
+    local funcbody = body as cst.Funcbody
+    local rets = funcbody.rets or {}
+    if #rets ~= 1 or lower.compactType(rets[1]) ~= "nil" then
+        context.reject(lower.site(funcbody), "the map-kernel prototype must return nil")
+    end
+
+    return declaration, funcbody
+end
+
 return lower

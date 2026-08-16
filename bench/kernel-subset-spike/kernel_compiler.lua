@@ -23,41 +23,8 @@ local cst = require("nupp.compiler.cst")
 local compiler = {}
 local STOP = {}
 
-local function firstToken(node)
-   return node and cst.firstToken(node) or nil
-end
-
 local site = lower.site
-
-local function nameOf(node)
-   return node and node.kind == "name" and node.token and node.token.text or nil
-end
-
-local compactType = lower.compactType
-
-local function receiverName(node)
-   return nameOf(node)
-end
-
-local function dotCount(node)
-   if not node or node.kind ~= "dotIndex" or not node.name or node.name.text ~= "count" then
-      return nil
-   end
-   return receiverName(node.obj)
-end
-
-local function dottedName(node)
-   if not node then return nil end
-   if node.kind == "name" then return nameOf(node) end
-   if node.kind == "dotIndex" and node.name then
-      local base = dottedName(node.obj)
-      return base and base .. "." .. node.name.text or nil
-   end
-   return nil
-end
-
 local privateSymbol = scalarIR.privateSymbol
-local cIdentifier = scalarIR.cIdentifier
 
 local function diagnostic(filename, node, message)
    local at = site(node)
@@ -113,102 +80,31 @@ local function parseKernel(source, filename, checked)
    }
 
    local ok, ir = pcall(function()
-      local applications, helperDecls, structDecls = {}, {}, {}
-      for _, block in ipairs(parsed.root.blocks or {}) do
-         for _, stat in ipairs(block.stats or {}) do
-            if stat.kind == "pragmaStmt" then
-               -- Annotations stack, so walk the whole chain rather than only
-               -- looking at the outermost one. `@aot` may be written above or
-               -- below `@relax`, and both orders mean the same thing.
-               local chain, cursor = {}, stat
-               while cursor and cursor.kind == "pragmaStmt" do
-                  chain[#chain + 1] = cursor
-                  cursor = cursor.stat
-               end
-               local isAot = false
-               for _, link in ipairs(chain) do
-                  if link.name and link.name.text == "aot" then isAot = true end
-               end
-               if checked then
-                  isAot = cursor and cursor.body and cursor.body.aotRequired == true
-               end
-               if isAot then
-                  applications[#applications + 1] = {chain = chain, tail = cursor, at = stat}
-               end
-            elseif stat.kind == "localFuncStmt" and stat.name then
-               helperDecls[stat.name.text] = stat
-            elseif stat.kind == "recordDecl" and stat.declKind == "struct" and stat.name then
-               structDecls[stat.name.text] = stat
-            end
-         end
-      end
+      -- Finding the `@aot` function, and reading what it asked for, are
+      -- `nupp.compiler.aot.lower`'s. The scan is what production replaces with
+      -- the checker's own answer; everything it decides is already policy.
+      local found = lower.scan(parsed.root, checked and true or false)
+      local applications = found.applications
+      local helperDecls, structDecls = found.helpers, found.structs
       if #applications == 0 then
          reject(parsed.root, "no @aot function was found")
       elseif #applications > 1 then
-         reject(applications[2], "this spike accepts exactly one @aot function")
+         reject(applications[2].at, "this spike accepts exactly one @aot function")
       end
 
       local selected = applications[1]
-      local application = selected.at
-      local fn = selected.tail
-      if not fn or fn.kind ~= "localFuncStmt" then
-         reject(fn or application, "@aot must decorate a local function with a visible body")
-      end
-      -- `@relax("fp-contract")` is the only relaxation this spike acts on. It
-      -- permits the backend to fuse a multiply and an add into one rounding,
-      -- which is faster and gives a different answer, so it is per function and
-      -- appears in the IR rather than being a build-wide compiler flag.
-      local body = fn.body
-      local fpContract = body.relaxedGuarantees
-         and body.relaxedGuarantees["fp-contract"] == true or false
-      -- Lane lowering is attempted for every admitted body; `lanes = false`
-      -- declines it. A body that cannot lower lane-parallel is not an error --
-      -- it compiles scalar, and the vectorisation check is what has something to
-      -- say about it.
-      local wantsLanes = body.lanesDeclined ~= true
-      local lanesRequired = body.lanesRequired == true
-      if not checked then
-         for _, link in ipairs(selected.chain) do
-            local written = link.name and link.name.text
-            if written == "aot" then
-               for _, arg in ipairs(link.annotationArgs or {}) do
-                  local name = arg.name and arg.name.text
-                  if name == "lanes" then
-                     if arg.expr and arg.expr.kind == "falseExpr" then wantsLanes = false end
-                     if arg.expr and arg.expr.kind == "trueExpr" then lanesRequired = true end
-                  else
-                     reject(link, "@aot takes lanes = true, lanes = false, or nothing")
-                  end
-               end
-            elseif written == "relax" then
-               for _, arg in ipairs(link.annotationArgs or {}) do
-                  local token = firstToken(arg.expr)
-                  local text = token and token.text or ""
-                  if text:sub(1, 1) == '"' or text:sub(1, 1) == "'" then
-                     text = text:sub(2, -2)
-                  end
-                  if text == "fp-contract" then fpContract = true end
-               end
-            end
-         end
-      end
-      if not body or body.generics or body.varargParam or body.captureTakes or body.captureBorrows then
-         reject(body or fn, "generic, variadic, and capturing kernels are not admitted")
-      end
-      if #(body.rets or {}) ~= 1 or compactType(body.rets[1]) ~= "nil" then
-         reject(body, "the map-kernel prototype must return nil")
-      end
+      local fn, body = lower.kernelBody(selected, loweringContext)
+      local contract = lower.contract(selected, body, checked and true or false, loweringContext)
+      local fpContract = contract.fpContract
+      local wantsLanes = contract.wantsLanes
+      local lanesRequired = contract.lanesRequired
 
-      local storageTypes = admit.STORAGE
+
       -- Which structs may be reified and what a span holds is
       -- `nupp.compiler.aot.lower`'s: a layout is a claim about memory, and the
       -- shape it has to have is compiler policy.
       local layoutState = {ordered = {}, byName = {}}
       local layouts = layoutState.ordered
-
-      local function spanElement(spelling, prefix, at)
-         return lower.spanElement(spelling, prefix, at, structDecls, layoutState, loweringContext)
-      end
 
       -- The prototype's shape is `nupp.compiler.aot.lower`'s: which parameters
       -- are admitted, what ownership proved about them, and which guards make
