@@ -122,31 +122,54 @@ It compares the ordinary annotated Nupp body, one generated SPMD C body, its
 deliberately de-vectorized scalar C oracle, and a handwritten Lua recurrence.
 It also exercises every relevant tail shape for both gang widths.
 
-`MANDELBROT_KERNEL=mandelbrot_f32` runs the same algorithm written in explicit
-binary32 instead of ordinary binary64 operators:
+`MANDELBROT_KERNEL` selects the body. `mandelbrot_f32` is the same algorithm
+written in explicit binary32 instead of ordinary binary64 operators;
+`mandelbrot_exact` and `mandelbrot_f32fma` differ from those two only in whether
+they ask for fused multiply-add, so that a comparison can hold that constant:
 
 ```sh
 bench/kernel-subset-spike/mandelbrot.sh mandelbrot_f32
 MANDELBROT_KERNEL=mandelbrot_f32 luajit bench/kernel-subset-spike/mandelbrot_main.lua
+luajit bench/kernel-subset-spike/divergence.lua
 ```
 
-On the current Apple arm64 measurement at 1024x768 and 256 iterations:
+`mandelbrot.nupp` carries `@relax("fp-contract")` and `mandelbrot_f32.nupp` does
+not, so the two are not comparable as written. `mandelbrot_exact.nupp` and
+`mandelbrot_f32fma.nupp` are the missing corners. On the current Apple arm64
+measurement at 1024x768 and 256 iterations, with about 5% run-to-run spread:
 
 ```
- Body                          MPix/s  Note
- ────────────────────────────  ──────  ─────────────────────────────────
- SPMD f32x8, explicit f32       ~119   different program, own oracle
- SPMD f64x4, ordinary Nupp       ~72   exact agreement with ordinary Nupp
- forced-scalar C, either         ~35   de-vectorized oracle
- LuaJIT, ordinary Nupp           ~1.6
- LuaJIT, explicit f32            ~0.1  every rounding point is an FFI trip
+ Body                          contract   MPix/s   Note
+ ────────────────────────────  ────────   ──────   ───────────────────────
+ SPMD f32x8, explicit f32      yes         ~122    answers move again
+ SPMD f32x8, explicit f32      no          ~115    checked against its own
+ SPMD f64x4, ordinary Nupp     yes          ~69
+ SPMD f64x4, ordinary Nupp     no           ~67    exact agreement
+ forced-scalar C, any kernel   either       ~35    de-vectorized oracle
+ LuaJIT, ordinary Nupp                      ~1.6
+ LuaJIT, explicit f32                       ~0.1   every rounding is an FFI trip
 ```
 
-Two things in that table are the point of it. Forced-scalar C is the same speed
-for both kernels, so the whole binary32 gain is lane density rather than
-anything about single-precision arithmetic being cheaper. And the explicitly
+Three things in that table are the point of it. Forced-scalar C is the same
+speed for every kernel, so the whole binary32 gain is lane density rather than
+anything about single-precision arithmetic being cheaper. The explicitly
 binary32 program's ordinary fallback is roughly sixteen times slower than the
 binary64 one, because LuaJIT has to perform each rounding the source asked for.
+And contraction is worth only a few percent here, against the 2.38x it is worth
+to the scalar kernel that `plans/038-aot-functions.md` measured -- once the loop
+is lane-parallel, fusing a multiply-add stops being where the time goes.
+
+Comparing the exact bodies, eight binary32 lanes are about 1.7x four binary64
+ones. Splitting that by varying the iteration cap separates a fixed per-group
+cost from the iteration loop: the per-group work (loads, the interior test,
+stores, the scalar tail) gets about 1.92x, and the iteration loop about 1.54x.
+`divergence.lua` measures why the second is not 2x and finds that it mostly is
+not the reason: a gang runs until its slowest lane retires, and on this grid
+eight lanes execute only 1.027x the lane-iterations four do, so the ceiling is
+about 1.95x rather than 2x. The remaining shortfall is unexplained. It is not
+the emitted idioms -- a masked select compiles to one `bsl` per register in both
+shapes, and the horizontal live-lane test costs the wide gang two extra scalar
+instructions rather than eight lane extracts.
 
 The binary64 row establishes the lane rewrite's value and agrees with ordinary
 Nupp exactly; it does not claim to beat whatever a normal optimizing C compiler
@@ -156,6 +179,13 @@ independent Lua `nupp.math.f32` recurrence rather than against the binary64
 answers. Because that oracle is slow, the two generated bodies are compared on
 every pixel and the semantic oracles on a bounded prefix, which the run prints
 rather than assumes; `MANDELBROT_ORACLE_LIMIT` raises it.
+
+That prefix is a real blind spot rather than a conservative one. The contracted
+binary32 body agrees with its oracle over the first four thousand pixels and
+still produces a different checksum over the whole grid, which is exactly the
+reproducibility that `@relax` exists to trade away -- but it means a bounded
+sweep can pass a body that is wrong outside the prefix. A sampled sweep should
+be stratified across the grid, or the oracle made fast enough to run whole.
 
 ## Checked boundary
 
