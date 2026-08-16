@@ -1,0 +1,380 @@
+-- The standard derives are ordinary comptime providers.  Their runtime work is
+-- deliberately kept in this module too, so a generated member is just an
+-- ordinary derive.forward call rather than a compiler operation.
+
+local derive = {}
+
+interface derive.JSONContract is nupp.data.json.JSONEncodable
+end
+
+record derive.Entry
+    schema: {data: {[string]: any}}
+    codec: nupp.reflect.FieldCodec<any>
+end
+
+local comptime function option(items, annotationName: string, name: string): any
+    for _, item in ipairs(items) do
+        if item.name == annotationName then
+            for index, argument in ipairs(item.arguments) do
+                if argument.name == name or name == "value" and index == 1 then
+                    return argument.value
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local comptime function detail(T: type): any
+    local value = nupp.types.describe(T)
+    if value.sourceKind then
+        local normalized = {}
+        for key, item in pairs(value) do
+            normalized[key] = item
+        end
+        normalized.kind = value.sourceKind
+        return normalized
+    end
+
+    return value
+end
+
+local comptime function optional(T: type): type?
+    local value = detail(T)
+    if value.kind ~= "union" then
+        return nil
+    end
+    local rest = {}
+    for _, member in ipairs(value.members or {}) do
+        local memberDetail = detail(member)
+        if not (memberDetail.kind == "primitive" and memberDetail.name == "nil") then
+            rest[#rest + 1] = member
+        end
+    end
+    if #rest == 1 then
+        return rest[1]
+    end
+
+    return nil
+end
+
+local comptime function debugSpec(T: type, contract: type): any
+    local inner = optional(T)
+    if inner ~= nil then
+        return {kind = "optional", value = debugSpec(inner, contract)}
+    end
+    local value = detail(T)
+    if value.kind == "literal" then
+        return {kind = "literal", value = value.value}
+    end
+    if value.kind == "primitive" then
+        if value.name == "nil"
+            or value.name == "boolean"
+            or value.name == "string"
+            or value.name == "number"
+            or value.name == "integer"
+            or value.name == "float"
+            or value.name:find(
+            "int",
+            1,
+            true
+        ) or value.name:find("uint", 1, true) then
+            return {kind = value.name}
+        end
+    elseif value.kind == "array" then
+        return {kind = "array", value = debugSpec(value.element, contract)}
+    elseif value.kind == "map" then
+        return {kind = "map", key = debugSpec(value.readKey, contract), value = debugSpec(value.readValue, contract)}
+    elseif value.kind == "tuple" then
+        local items = {}
+        for index, member in ipairs(value.members or {}) do
+            items[index] = debugSpec(member, contract)
+        end
+        return {kind = "tuple", items = items}
+    elseif value.kind == "shape" then
+        local fields = {}
+        for index, field in ipairs(value.fields or {}) do
+            local fieldType = field.read
+            if fieldType == nil then
+                fieldType = field.write
+            end
+            fields[index] = {name = field.name, type = debugSpec(fieldType, contract)}
+        end
+        return {kind = "shape", fields = fields}
+    elseif value.kind == "reference" and value.nominal then
+        if value.nominal.deriveKey and nupp.derive.claims(T, contract) then
+            return {kind = "record", typeKey = value.nominal.deriveKey}
+        elseif nupp.derive.claims(T, contract) then
+            return {kind = "customDebug"}
+        end
+    end
+
+    return nil
+end
+
+local comptime function jsonSpec(T: type, contract: type): any
+    local inner = optional(T)
+    if inner ~= nil then
+        local value = jsonSpec(inner, contract)
+        return value and {kind = "optional", value = value} or nil
+    end
+    local value = detail(T)
+    if value.kind == "literal" then
+        return {kind = "literal", value = value.value}
+    end
+    if value.kind == "primitive" then
+        if value.name == "nil"
+            or value.name == "boolean"
+            or value.name == "string"
+            or value.name == "number"
+            or value.name == "float"
+        then
+            return {kind = value.name}
+        end
+        if value.name == "integer"
+            or value.name == "int8"
+            or value.name == "int16"
+            or value.name == "int32"
+            or value.name == "uint8"
+            or value.name == "uint16"
+            or value.name == "uint32"
+        then
+            return {kind = "integer"}
+        end
+    elseif value.kind == "array" then
+        local item = jsonSpec(value.element, contract)
+        return item and {kind = "array", value = item} or nil
+    elseif value.kind == "map" then
+        local key = detail(value.readKey)
+        local item = key.name == "string" and jsonSpec(value.readValue, contract) or nil
+        return item and {kind = "map", value = item} or nil
+    elseif value.kind == "tuple" then
+        local items = {}
+        for index, member in ipairs(value.members or {}) do
+            local item = jsonSpec(member, contract)
+            if not item then
+                return nil
+            end
+            items[index] = item
+        end
+        return {kind = "tuple", items = items}
+    elseif value.kind == "shape" then
+        local fields = {}
+        for index, field in ipairs(value.fields or {}) do
+            local fieldType = field.read
+            if fieldType == nil then
+                fieldType = field.write
+            end
+            local item = jsonSpec(fieldType, contract)
+            if not item then
+                return nil
+            end
+            fields[index] = {name = field.name, type = item}
+        end
+        return {kind = "shape", fields = fields, unknown = "reject"}
+    elseif value.kind == "union" then
+        local members = value.members or {}
+        if #members > 0 then
+            local first = detail(members[1])
+            local firstNominal = first.nominal
+            if first.kind == "reference" and firstNominal ~= nil and firstNominal.kind == "record" then
+                for _, candidate in ipairs(firstNominal.fields or {}) do
+                    local choices, seen = {}, {}
+                    local jsonName, valid = nil, true
+                    for _, member in ipairs(members) do
+                        local memberDetail = detail(member)
+                        local nominal = memberDetail.nominal
+                        local tagged = nil
+                        if memberDetail.kind == "reference"
+                            and nominal ~= nil
+                            and nominal.kind == "record"
+                            and nominal.deriveKey ~= nil
+                            and nupp.derive.claims(
+                            member,
+                            contract
+                        ) then
+                            for _, field in ipairs(nominal.fields or {}) do
+                                if field.name == candidate.name then
+                                    tagged = field
+                                end
+                            end
+                        end
+                        if tagged == nil then
+                            valid = false
+                            break
+                        end
+                        local tagType = tagged.read
+                        if tagType == nil then
+                            tagType = tagged.write
+                        end
+                        local tag = detail(tagType)
+                        if tag.kind ~= "literal" or seen[tag.value] then
+                            valid = false
+                            break
+                        end
+                        local encoded = option(tagged.annotations, "json", "name")
+                        if encoded == nil then
+                            encoded = candidate.name
+                        end
+                        if jsonName ~= nil and jsonName ~= encoded then
+                            valid = false
+                            break
+                        end
+                        jsonName = encoded
+                        seen[tag.value] = true
+                        choices[tag.value] = {kind = "record", typeKey = nominal.deriveKey}
+                    end
+                    if valid then
+                        return {kind = "union", tagField = candidate.name, jsonTag = jsonName, choices = choices}
+                    end
+                end
+            end
+        end
+        return nil
+    elseif value.kind == "reference" and value.nominal and value.nominal.deriveKey and nupp.derive.claims(
+        T,
+        contract
+    ) then
+        return {kind = "record", typeKey = value.nominal.deriveKey}
+    end
+
+    return nil
+end
+
+function derive.debug<T is table>(value: T, entry: derive.Entry): string
+    return _G.nupp.__derive.debug(value, entry.schema.data.debug)
+end
+
+function derive.toJSON<T is table>(value: T, entry: derive.Entry): string
+    return _G.nupp.__derive.toJSON(value, entry)
+end
+
+function derive.fromJSON<T is table>(text: string, entry: derive.Entry): (T?, string?)
+    return _G.nupp.__derive.fromJSON(text, entry)
+end
+
+function derive.fieldCodec(entry: derive.Entry): nupp.reflect.FieldCodec<any>
+    return entry.codec
+end
+
+comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
+    if info.kind ~= "record" then
+        return nupp.derive.error("Debug can be derived only for records", info.reference, "NUPP2803")
+    end
+    local fields = {}
+    for index, field in ipairs(info.fields) do
+        local skip = option(field.annotations, "debug", "skip") == true
+        local redact = option(field.annotations, "debug", "redact") == true
+        if skip and redact then
+            return nupp.derive.error(
+                "field " .. field.name .. " cannot be both skipped and redacted",
+                field.reference,
+                "NUPP2803"
+            )
+        end
+        local spec = field.name ~= "debug" and not skip and not redact and debugSpec(
+            field.readType,
+            info.interfaceType
+        ) or nil
+        if not skip and not redact and not spec then
+            if field.name ~= "debug" then
+                return nupp.derive.error("field type cannot be formatted by Debug", field.reference, "NUPP2803")
+            end
+        end
+        fields[index] = {name = field.name, debugSkip = skip, debugRedact = redact, debugType = spec}
+    end
+
+    return nupp.derive.implement{
+        methods = {
+            debug = nupp.derive.forward{
+                helper = nupp.derive.helper(derive, "debug"),
+                arguments = {nupp.derive.receiver(), nupp.derive.entry()},
+            }
+        },
+        data = {debug = {name = info.name, fields = fields}},
+    }
+end
+
+comptime function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.data.json.JSONEncodable>
+    if info.kind ~= "record" then
+        return nupp.derive.error("JSON can be derived only for records", info.reference, "NUPP2806")
+    end
+    local fields, seen = {}, {}
+    for index, field in ipairs(info.fields) do
+        local name = option(field.annotations, "json", "name") or field.name
+        if seen[name] then
+            return nupp.derive.error("JSON field name " .. name .. " is duplicated", field.reference, "NUPP2806")
+        end
+        seen[name] = true
+        local defaultField = field as any
+        local omit = option(field.annotations, "json", "omit") == true
+        if omit and not defaultField.hasDefault then
+            return nupp.derive.error(
+                "an omitted JSON field needs an explicit declaration default",
+                field.reference,
+                "NUPP2806"
+            )
+        end
+        local spec = not omit and jsonSpec(field.readType, info.interfaceType) or nil
+        if not omit and not spec then
+            return nupp.derive.error("type is not supported by JSON", field.reference, "NUPP2806")
+        end
+        fields[
+            index
+        ] = {
+            name = field.name,
+            jsonName = name,
+            omit = omit,
+            omitEmpty = option(field.annotations, "json", "omitEmpty") == true,
+            jsonType = spec,
+            default = defaultField.hasDefault and {kind = "literal", value = defaultField.defaultValue} or nil,
+        }
+    end
+    local text = nupp.types.string
+    local nullable = nupp.types.optional(info.ownerType)
+    local problem = nupp.types.optional(text)
+
+    return nupp.derive.implement{
+        methods = {
+            toJSON = nupp.derive.forward{
+                helper = nupp.derive.helper(derive, "toJSON"),
+                arguments = {nupp.derive.receiver(), nupp.derive.entry()},
+            }
+        },
+        statics = {
+            fromJSON = nupp.derive.member{
+                signature = nupp.types.function_(
+                    nupp.types.pack({
+                        text
+                    }),
+                    nupp.types.pack({
+                        nullable,
+                        problem
+                    })
+                ),
+                parameters = {"text"},
+                forward = nupp.derive.forward{
+                    helper = nupp.derive.helper(derive, "fromJSON"),
+                    arguments = {nupp.derive.argument("text"), nupp.derive.entry()},
+                },
+            },
+            fieldCodec = nupp.derive.member{
+                signature = nupp.types.function_(
+                    nupp.types.pack({}),
+                    nupp.types.pack({
+                        nupp.types.any
+                    })
+                ),
+                forward = nupp.derive.forward{
+                    helper = nupp.derive.helper(derive, "fieldCodec"),
+                    arguments = {nupp.derive.entry()},
+                },
+            },
+        },
+        data = {json = {fields = fields, unknown = option(info.annotations, "json", "unknown") or "reject"}},
+        effects = {"native.cjson"},
+    }
+end
+
+return derive

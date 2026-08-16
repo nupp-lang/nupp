@@ -1321,6 +1321,147 @@ local function vectorizeLoop(ir, reject, shape)
       return boolMask(node)
    end
 
+   -- Liveness and the continue search are the compiler's: what a lane-local's
+   -- value is worth after a lane retires is the reasoning behind the
+   -- speculation rule, and it belongs beside it.
+   local function containsContinue(statements)
+      return rewriteRules.containsContinue(statements)
+   end
+
+   local rewriteExpr
+   local inlineHelper
+
+   --- The vector opcode for `verb` over `element` lanes, e.g. "vmul.f32x8".
+   --- Encoding the element in the opcode keeps the verifier's type check total:
+   --- there is no lane operation whose operand width has to be inferred.
+   local function laneOp(verb, element)
+      local vector = lanesVectorType(element)
+      if not vector then
+         reject(nil, "a varying " .. tostring(element) .. " cannot enter " .. shape.name .. " SIMD")
+      end
+      return verb, vector
+   end
+
+   --- Rewrites `node` to a vector of the type the gang uses for `want`, or for
+   --- the node's own scalar type when the caller has no opinion.
+   local function numericVector(node, want)
+      local scalarType = want or node.type
+      local vector = lanesVectorType(scalarType)
+      if exprVarying(node) then
+         local value = rewriteExpr(node)
+         if value.type ~= vector then
+            reject(nil, "a varying " .. tostring(node.type) .. " cannot enter "
+               .. tostring(vector) .. " SIMD")
+         end
+         return value
+      end
+      return splat(node, scalarType)
+   end
+
+   local function conditionMask(node)
+      if exprVarying(node) then
+         local value = rewriteExpr(node)
+         if value.type ~= MASK then reject(nil, "a varying condition did not produce a mask") end
+         return value
+      end
+      return boolMask(node)
+   end
+
+   local function collectExprReads(node, reads)
+      if not node then return end
+      if node.op == "local" then reads[node.name] = true end
+      if node.value then collectExprReads(node.value, reads) end
+      if node.left then collectExprReads(node.left, reads) end
+      if node.right then collectExprReads(node.right, reads) end
+      for _, arg in ipairs(node.args or {}) do collectExprReads(arg, reads) end
+      if node.object then collectExprReads(node.object, reads) end
+   end
+
+   local rewriteExpr
+   local inlineHelper
+
+   --- The vector opcode for `verb` over `element` lanes, e.g. "vmul.f32x8".
+   --- Encoding the element in the opcode keeps the verifier's type check total:
+   --- there is no lane operation whose operand width has to be inferred.
+   local function laneOp(verb, element)
+      local vector = lanesVectorType(element)
+      if not vector then
+         reject(nil, "a varying " .. tostring(element) .. " cannot enter " .. shape.name .. " SIMD")
+      end
+      return verb, vector
+   end
+
+   --- Rewrites `node` to a vector of the type the gang uses for `want`, or for
+   --- the node's own scalar type when the caller has no opinion.
+   local function numericVector(node, want)
+      local scalarType = want or node.type
+      local vector = lanesVectorType(scalarType)
+      if exprVarying(node) then
+         local value = rewriteExpr(node)
+         if value.type ~= vector then
+            reject(nil, "a varying " .. tostring(node.type) .. " cannot enter "
+               .. tostring(vector) .. " SIMD")
+         end
+         return value
+      end
+      return splat(node, scalarType)
+   end
+
+   local function conditionMask(node)
+      if exprVarying(node) then
+         local value = rewriteExpr(node)
+         if value.type ~= MASK then reject(nil, "a varying condition did not produce a mask") end
+         return value
+      end
+      return boolMask(node)
+   end
+
+   -- Liveness and the continue search are the compiler's: what a lane-local's
+   -- value is worth after a lane retires is the reasoning behind the
+   -- speculation rule, and it belongs beside it.
+   local function containsContinue(statements)
+      return rewriteRules.containsContinue(statements)
+   end
+
+   local rewriteExpr
+   local inlineHelper
+
+   --- The vector opcode for `verb` over `element` lanes, e.g. "vmul.f32x8".
+   --- Encoding the element in the opcode keeps the verifier's type check total:
+   --- there is no lane operation whose operand width has to be inferred.
+   local function laneOp(verb, element)
+      local vector = lanesVectorType(element)
+      if not vector then
+         reject(nil, "a varying " .. tostring(element) .. " cannot enter " .. shape.name .. " SIMD")
+      end
+      return verb, vector
+   end
+
+   --- Rewrites `node` to a vector of the type the gang uses for `want`, or for
+   --- the node's own scalar type when the caller has no opinion.
+   local function numericVector(node, want)
+      local scalarType = want or node.type
+      local vector = lanesVectorType(scalarType)
+      if exprVarying(node) then
+         local value = rewriteExpr(node)
+         if value.type ~= vector then
+            reject(nil, "a varying " .. tostring(node.type) .. " cannot enter "
+               .. tostring(vector) .. " SIMD")
+         end
+         return value
+      end
+      return splat(node, scalarType)
+   end
+
+   local function conditionMask(node)
+      if exprVarying(node) then
+         local value = rewriteExpr(node)
+         if value.type ~= MASK then reject(nil, "a varying condition did not produce a mask") end
+         return value
+      end
+      return boolMask(node)
+   end
+
    local function collectExprReads(node, reads)
       if not node then return end
       if node.op == "local" then reads[node.name] = true end
@@ -1418,12 +1559,7 @@ local function vectorizeLoop(ir, reject, shape)
    local rewriteBlock
    rewriteBlock = function(statements, mask, loopContext, following)
       local out = {}
-      local suffixReads = copyEnvironment(following or {})
-      local readsAfter = {}
-      for position = #statements, 1, -1 do
-         readsAfter[position] = copyEnvironment(suffixReads)
-         collectStatementReads(statements[position], suffixReads)
-      end
+      local readsAfter = rewriteRules.readsAfter(statements, following or {})
       for position, statement in ipairs(statements) do
          local statementMask = activeMask(mask, loopContext, statement.source)
          if statement.op == "let" and statement.value.op == "element_ref"

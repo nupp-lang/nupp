@@ -817,4 +817,123 @@ function rewrite.maySpeculate(targetName: string, mask: lane.Expr?, loopContext:
     ).name == context.executing.name and context.speculate and context.observable[targetName] ~= true
 end
 
+--- Names an expression reads.
+local function exprReads(node: scalarIR.Expr, reads: {[string]: boolean}): nil
+    if node == nil then
+        return
+    end
+    if node.op == "local" then
+        reads[(node as scalarIR.Name).name] = true
+    end
+    local unary = node as scalarIR.Unary
+    exprReads(unary.value, reads)
+    local binary = node as scalarIR.Binary
+    exprReads(binary.left, reads)
+    exprReads(binary.right, reads)
+    for _, argument in ipairs((node as scalarIR.Math).args or {}) do
+        exprReads(argument, reads)
+    end
+    exprReads((node as scalarIR.FieldLoad).object, reads)
+end
+
+--- Names a statement reads, including everything nested in it.
+local statementReads: function(any, {[string]: boolean}): nil
+
+statementReads = function(statement: any, reads: {[string]: boolean}): nil
+    local operation = statement.op
+    if operation == "let" then
+        exprReads(statement.value, reads)
+    elseif operation == "assign" then
+        for _, assignment in ipairs(statement.values) do
+            exprReads(assignment.value, reads)
+            exprReads(assignment.target.object, reads)
+        end
+    elseif operation == "store" then
+        exprReads(statement.value, reads)
+    elseif operation == "if" then
+        for _, clause in ipairs(statement.clauses) do
+            exprReads(clause.condition, reads)
+            for _, inner in ipairs(clause.body) do
+                statementReads(inner, reads)
+            end
+        end
+        for _, inner in ipairs(statement.elseBody or {}) do
+            statementReads(inner, reads)
+        end
+    elseif operation == "while" then
+        exprReads(statement.condition, reads)
+        for _, inner in ipairs(statement.body) do
+            statementReads(inner, reads)
+        end
+    elseif operation == "fornum" then
+        exprReads(statement.from, reads)
+        exprReads(statement.to, reads)
+        for _, inner in ipairs(statement.body) do
+            statementReads(inner, reads)
+        end
+    elseif operation == "block" then
+        for _, inner in ipairs(statement.body) do
+            statementReads(inner, reads)
+        end
+    end
+end
+
+--- What each position in a block is followed by reading.
+---
+--- Walked backwards, so each entry is the set of names the statements after it
+--- read. That is what says whether a lane-local's value is observable once a
+--- lane retires, and so whether the assignment to it needs its select.
+---
+--- @param statements one block of scalar IR
+--- @param following names read after the block itself
+--- @return one read set per position
+function rewrite.readsAfter(statements: {any}, following: {[string]: boolean}): {{[string]: boolean}}
+    local suffix: {[string]: boolean} = {}
+    for name in pairs(following or {}) do
+        suffix[name] = true
+    end
+    local perPosition: {{[string]: boolean}} = {}
+    for position = #statements, 1, -1 do
+        local snapshot: {[string]: boolean} = {}
+        for name in pairs(suffix) do
+            snapshot[name] = true
+        end
+        perPosition[position] = snapshot
+        statementReads(statements[position], suffix)
+    end
+
+    return perPosition
+end
+
+--- Whether a block contains a `continue` anywhere within it.
+---
+--- A `continue` means a lane can stop part way through an iteration and resume
+--- the next one, so its state is live across the boundary and speculating on it
+--- would be observable.
+---
+--- Nested bodies are searched too, including nested loops -- whose `continue`
+--- arguably belongs to them rather than to this loop. Nothing turns on it today
+--- because a nested loop is refused before this runs, and narrowing it would be
+--- a change of behaviour rather than a move of it.
+function rewrite.containsContinue(statements: {any}): boolean
+    for _, statement in ipairs(statements) do
+        if statement.op == "continue" then
+            return true
+        elseif statement.op == "if" then
+            for _, clause in ipairs(statement.clauses) do
+                if rewrite.containsContinue(clause.body) then
+                    return true
+                end
+            end
+            if statement.elseBody ~= nil and rewrite.containsContinue(statement.elseBody) then
+                return true
+            end
+        elseif statement.body ~= nil and rewrite.containsContinue(statement.body) then
+            return true
+        end
+    end
+
+    return false
+end
+
 return rewrite

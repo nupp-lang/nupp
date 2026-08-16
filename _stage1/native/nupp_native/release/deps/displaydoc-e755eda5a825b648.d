@@ -1,0 +1,8 @@
+/private/tmp/nupp-vectorize/_stage1/native/nupp_native/release/deps/displaydoc-e755eda5a825b648.d: /Users/dowling/.asdf/installs/rust/stable/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.7/src/lib.rs /Users/dowling/.asdf/installs/rust/stable/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.7/src/attr.rs /Users/dowling/.asdf/installs/rust/stable/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.7/src/expand.rs /Users/dowling/.asdf/installs/rust/stable/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.7/src/fmt.rs
+
+/private/tmp/nupp-vectorize/_stage1/native/nupp_native/release/deps/libdisplaydoc-e755eda5a825b648.dylib: /Users/dowling/.asdf/installs/rust/stable/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.7/src/lib.rs /Users/dowling/.asdf/installs/rust/stable/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.7/src/attr.rs /Users/dowling/.asdf/installs/rust/stable/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.7/src/expand.rs /Users/dowling/.asdf/installs/rust/stable/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.7/src/fmt.rs
+
+/Users/dowling/.asdf/installs/rust/stable/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.7/src/lib.rs:
+/Users/dowling/.asdf/installs/rust/stable/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.7/src/attr.rs:
+/Users/dowling/.asdf/installs/rust/stable/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.7/src/expand.rs:
+/Users/dowling/.asdf/installs/rust/stable/registry/src/index.crates.io-1949cf8c6b5b557f/displaydoc-0.2.7/src/fmt.rs:

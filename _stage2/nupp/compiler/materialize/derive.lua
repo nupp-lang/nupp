@@ -1,0 +1,675 @@
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+local hash = require ( "nupp.compiler.build.hash" )
+local recipeCodec = require ( "nupp.compiler.materialize.codec" )
+local typeprovider = require ( "nupp.compiler.materialize.typeprovider" )
+
+const deriveProvider = {} deriveProvider.__index = deriveProvider
+
+
+
+
+
+
+
+
+local MAX_NODES = 16384
+
+local function failure ( code , message , help )
+return { code = code , message = message , help = help }
+end
+
+function deriveProvider . installEvaluator ( state , env , opaque , provenance , entryOf )
+local library = { }
+local function install ( name , implementation )
+local token = function ( )
+end
+state . intrinsics [ token ] = implementation
+library [ name ] = token
+end
+
+local function hasOnly ( value , allowed )
+if type ( value ) ~= "table" then
+return false
+end
+for key in pairs ( value ) do
+if not allowed [ key ] then
+return false
+end
+end
+
+return true
+end
+
+local function denseArray ( value )
+if type ( value ) ~= "table" then
+return false
+end
+local length = # value
+for key in pairs ( value ) do
+if type ( key ) ~= "number" or key ~= math . floor ( key ) or key < 1 or key > length then
+return false
+end
+end
+
+return true
+end
+
+install ( "receiver" , function ( at , args )
+if args . n ~= 0 then
+return nil , failure ( "NUPP2810" , "derive.receiver takes no arguments" )
+end
+return opaque ( "derive" , "Argument" , { kind = "receiver" } , provenance ( at , "receiver" ) )
+end )
+install ( "entry" , function ( at , args )
+if args . n ~= 0 then
+return nil , failure ( "NUPP2810" , "derive.entry takes no arguments" )
+end
+return opaque ( "derive" , "Argument" , { kind = "entry" } , provenance ( at , "entry" ) )
+end )
+install ( "argument" , function ( at , args )
+if args . n ~= 1 or type ( args [ 1 ] ) ~= "string" or args [ 1 ] == "" then
+return nil , failure ( "NUPP2810" , "derive.argument needs one parameter name" )
+end
+return opaque ( "derive" , "Argument" , { kind = "argument" , name = args [ 1 ] } , provenance ( at , "argument" ) )
+end )
+install ( "field" , function ( at , args )
+local field = args [ 1 ] and entryOf ( args [ 1 ] ) or nil
+if args . n ~= 1 or not field or field . provider ~= "derive" or field . family ~= "Field" then
+return nil , failure ( "NUPP2810" , "derive.field needs a field from the current derive Info" )
+end
+
+return opaque (
+"derive" ,
+"Argument" ,
+{
+kind = "field" ,
+index = field . payload . index ,
+name = field . payload . name ,
+reference = field . payload . reference ,
+} ,
+provenance ( at , "field" )
+)
+end )
+install ( "constant" , function ( at , args )
+if args . n ~= 1 then
+return nil , failure ( "NUPP2810" , "derive.constant needs one value" )
+end
+return opaque ( "derive" , "Argument" , { kind = "constant" , value = args [ 1 ] } , provenance ( at , "constant" ) )
+end )
+install ( "array" , function ( at , args )
+if args . n ~= 1 or not denseArray ( args [ 1 ] ) then
+return nil , failure ( "NUPP2810" , "derive.array needs an array of argument recipes" )
+end
+return opaque ( "derive" , "Argument" , { kind = "array" , values = args [ 1 ] } , provenance ( at , "array" ) )
+end )
+install ( "file" , function ( _ , args )
+local path = args [ 1 ]
+if args . n ~= 1 or type ( path ) ~= "string" or path == "" then
+return nil , failure ( "NUPP2810" , "derive.file needs one non-empty project-relative path" )
+end
+local value = state . deriveFiles and state . deriveFiles [ path ]
+if type ( value ) ~= "string" then
+return nil , failure ( "NUPP2810" , "derive.file path was not statically admitted by the compiler: " .. path )
+end
+
+return value
+end )
+install ( "helper" , function ( at , args )
+local moduleName , member
+if args . n == 1 and type ( args [ 1 ] ) == "string" then
+moduleName , member = state . deriveProviderModule , args [ 1 ]
+elseif args . n == 2 and type ( args [ 1 ] ) == "string" and type ( args [ 2 ] ) == "string" then
+moduleName , member = args [ 1 ] , args [ 2 ]
+end
+local key = moduleName and member and ( moduleName .. "." .. member ) or nil
+local descriptor = key and state . deriveHelpers and state . deriveHelpers [ key ] or nil
+if not descriptor then
+return nil , failure (
+"NUPP2810" ,
+"derive.helper must name an admitted exported runtime helper" ,
+"pass the provider module and an exported helper name"
+)
+end
+
+return opaque ( "derive" , "RuntimeHelper" , descriptor , provenance ( at , "helper" ) )
+end )
+install ( "forward" , function ( at , args )
+local specification = args [ 1 ]
+local helper = type ( specification ) == "table" and entryOf ( specification . helper ) or nil
+if args . n ~= 1 or not hasOnly ( specification , {
+helper = true ,
+arguments = true
+} ) or not helper or helper . provider ~= "derive" or helper . family ~= "RuntimeHelper" then
+return nil , failure ( "NUPP2810" , "derive.forward needs a runtime helper and arguments" )
+end
+local arguments = specification . arguments or { }
+if not denseArray ( arguments ) then
+return nil , failure ( "NUPP2810" , "derive.forward arguments must be an array" )
+end
+
+return opaque (
+"derive" ,
+"Forward" ,
+{ helper = helper . payload , arguments = arguments , } ,
+provenance ( at , "forward.v1" )
+)
+end )
+install ( "member" , function ( at , args )
+local specification = args [ 1 ]
+local signature = type ( specification ) == "table" and entryOf ( specification . signature ) or nil
+local forward = type ( specification ) == "table" and entryOf ( specification . forward ) or nil
+if args . n ~= 1 or not hasOnly ( specification , {
+signature = true ,
+parameters = true ,
+forward = true
+} )
+or not signature
+or signature . provider ~= "types"
+or signature . family ~= "Type"
+or not forward
+or forward . provider ~= "derive"
+or forward . family ~= "Forward" then
+return nil , failure ( "NUPP2810" , "derive.member needs a function signature and forward recipe" )
+end
+if signature . payload . kind ~= "function" then
+return nil , failure ( "NUPP2810" , "derive.member signature must be a function type" )
+end
+local parameters = specification . parameters or { }
+if not denseArray ( parameters ) then
+return nil , failure ( "NUPP2810" , "derive.member parameters must be an array" )
+end
+for _ , name in ipairs ( parameters ) do
+if type ( name ) ~= "string" or name == "" then
+return nil , failure ( "NUPP2810" , "derive.member parameter names must be non-empty strings" )
+end
+end
+
+return opaque (
+"derive" ,
+"Member" ,
+{ signature = specification . signature , parameters = parameters , forward = specification . forward , } ,
+provenance ( at , "member" )
+)
+end )
+install ( "implement" , function ( at , args )
+local specification = args [ 1 ]
+if args . n ~= 1 or not hasOnly ( specification , {
+methods = true ,
+statics = true ,
+data = true ,
+effects = true
+} ) or type (
+specification . methods or { }
+) ~= "table" or type (
+specification . statics or { }
+) ~= "table" or type ( specification . data or { } ) ~= "table" or not denseArray ( specification . effects or { } ) then
+return nil , failure (
+"NUPP2810" ,
+(
+"derive.implement needs methods and optional statics tables (arguments=%d, value=%s)"
+) : format ( args . n , type ( specification ) )
+)
+end
+
+return opaque (
+"derive" ,
+"Result" ,
+{
+methods = specification . methods or { } ,
+statics = specification . statics or { } ,
+data = specification . data or { } ,
+effects = specification . effects or { } ,
+} ,
+provenance ( at , "implement" )
+)
+end )
+install ( "error" , function ( at , args )
+local message , suppliedReference , code = args [ 1 ] , args [ 2 ] , args [ 3 ] or "NUPP2810"
+local reference = suppliedReference and entryOf ( suppliedReference ) or nil
+if (
+args . n ~= 1 and args . n ~= 2 and args . n ~= 3
+) or type (
+message
+) ~= "string" or type (
+code
+) ~= "string" or not code : match (
+"^NUPP%d%d%d%d$"
+) or (
+suppliedReference ~= nil and (
+not reference or reference . provider ~= "derive" or reference . family ~= "Reference"
+)
+) then
+return nil , failure ( "NUPP2810" , "derive.error needs a message and optional Info reference" )
+end
+
+return opaque (
+"derive" ,
+"Error" ,
+{ code = code , message = message , reference = reference and reference . payload . token or nil , } ,
+provenance ( at , "error" )
+)
+end )
+install ( "claims" , function ( _ , args )
+if args . n ~= 2 then
+return false
+end
+local right = entryOf ( args [ 2 ] )
+local rightIdentity = right and right . provider == "types" and right . payload and (
+right . payload . fingerprint or right . payload . key
+) or nil
+local claims = state . deriveClaims and state . deriveClaims [ args [ 1 ] ] or nil
+if claims and rightIdentity and claims [ rightIdentity ] == true then
+return true
+end
+local left = entryOf ( args [ 1 ] )
+if not left or left . provider ~= "types" or not rightIdentity then
+return false
+end
+local leftIdentity = left . payload and ( left . payload . fingerprint or left . payload . key ) or nil
+if leftIdentity == rightIdentity then
+return true
+end
+local nominal = left . payload and left . payload . nominal or nil
+for _ , supertype in ipairs ( nominal and nominal . supertypes or { } ) do
+local inherited = entryOf ( supertype )
+local inheritedIdentity = inherited and inherited . payload and (
+inherited . payload . fingerprint or inherited . payload . key
+) or nil
+if inheritedIdentity == rightIdentity then
+return true
+end
+end
+
+return false
+end )
+
+env . nupp = env . nupp or { }
+env . nupp . derive = library
+end
+
+function deriveProvider . materializeInfo ( state , input , opaque , provenance )
+state . deriveRequest = {
+fingerprint = input . fingerprint ,
+providerIdentity = input . providerIdentity ,
+ownerIdentity = input . ownerIdentity ,
+}
+state . deriveFiles = input . providerFiles or { }
+state . deriveInputDescriptors = input . providerInputDescriptors or { }
+local references , views = { } , { }
+local view
+view = function ( value )
+if type ( value ) ~= "table" or state . opaque [ value ] then
+return value
+end
+local prior = views [ value ]
+if prior then
+return prior
+end
+prior = opaque ( "derive" , "View" , { value = value , view = view } , provenance ( nil , "view" ) )
+views [ value ] = prior
+
+return prior
+end
+local function reference ( token )
+local prior = references [ token ]
+if prior then
+return prior
+end
+prior = opaque ( "derive" , "Reference" , { token = token } , provenance ( nil , "reference" ) )
+references [ token ] = prior
+
+return prior
+end
+
+local fields = { }
+for index , field in ipairs ( input . fields or { } ) do
+fields [
+index
+] = opaque (
+"derive" ,
+"Field" ,
+{
+index = index ,
+name = field . name ,
+readable = field . readable ,
+writable = field . writable ,
+hasDefault = field . hasDefault and true or false ,
+defaultValue = view ( field . defaultValue ) ,
+readType = field . readType ,
+writeType = field . writeType ,
+annotationsHandle = view ( field . annotations or { } ) ,
+reference = field . reference ,
+referenceHandle = reference ( field . reference ) ,
+} ,
+provenance ( nil , "field" )
+)
+end
+
+return opaque (
+"derive" ,
+"Info" ,
+{
+schema = input . schema ,
+kind = input . kind ,
+name = input . name ,
+visibility = input . visibility ,
+providerIdentity = input . providerIdentity ,
+ownerIdentity = input . ownerIdentity ,
+ownerType = input . ownerType ,
+interfaceType = input . interfaceType ,
+fieldsHandle = view ( fields ) ,
+annotationsHandle = view ( input . annotations or { } ) ,
+hasConstructor = input . hasConstructor and true or false ,
+reference = input . reference ,
+referenceHandle = reference ( input . reference ) ,
+fingerprint = input . fingerprint ,
+} ,
+provenance ( nil , "info" )
+)
+end
+
+function deriveProvider . index ( state , entry , key )
+if entry . family == "Info" then
+local payload = entry . payload
+if key == "reference" then
+return payload . referenceHandle
+elseif key == "fields" then
+return payload . fieldsHandle
+elseif key == "ownerType" or key == "interfaceType" then
+return payload [ key ]
+elseif key == "annotations" then
+return payload . annotationsHandle
+elseif key == "schema"
+or key == "kind"
+or key == "name"
+or key == "visibility"
+or key == "providerIdentity"
+or key == "ownerIdentity"
+or key == "hasConstructor"
+or key == "fingerprint"
+then
+return payload [ key ]
+end
+elseif entry . family == "Field" then
+local payload = entry . payload
+if key == "reference" then
+return payload . referenceHandle
+elseif key == "annotations" then
+return payload . annotationsHandle
+elseif key == "readType"
+or key == "writeType"
+or key == "name"
+or key == "readable"
+or key == "writable"
+or key == "hasDefault"
+or key == "defaultValue"
+then
+return payload [ key ]
+end
+elseif entry . family == "View" then
+local payload = entry . payload
+if type ( key ) ~= "string" and type ( key ) ~= "number" then
+return nil , failure ( "NUPP2810" , "derive view indices must be strings or numbers" )
+end
+
+return payload . view ( payload . value [ key ] )
+end
+
+return nil , failure ( "NUPP2810" , "this derive value has no member " .. tostring ( key ) )
+end
+
+function deriveProvider . iterator ( state , entry , array )
+if entry . family ~= "View" then
+return nil , failure ( "NUPP2810" , "this derive value cannot be iterated" )
+end
+local payload , keys = entry . payload , { }
+if array then
+for index = 1 , # payload . value do
+keys [ index ] = index
+end
+else
+for key in pairs ( payload . value ) do
+keys [ # keys + 1 ] = key
+end
+table . sort ( keys , function ( left , right )
+if type ( left ) ~= type ( right ) then
+return type ( left ) < type ( right )
+end
+
+return left < right
+end )
+end
+local cursor = 0
+
+return function ( )
+cursor = cursor + 1
+local key = keys [ cursor ]
+if key == nil then
+return nil
+end
+
+return key , payload . view ( payload . value [ key ] )
+end , nil
+end
+
+function deriveProvider . operator ( state , op , entry , right )
+if entry . family == "View" and op == "unary#" then
+return # entry . payload . value , nil
+end
+
+return nil , failure ( "NUPP2810" , "this operator is unavailable for the derive value" )
+end
+
+local function copyConstant ( value , active , count , state )
+count [ 1 ] = count [ 1 ] + 1
+if count [ 1 ] > MAX_NODES then
+return nil , "recipe exceeds its node limit"
+end
+local kind = type ( value )
+if kind == "nil" or kind == "boolean" or kind == "number" or kind == "string" then
+return value
+end
+local opaqueEntry = kind == "table" and state . opaque [ value ] or nil
+if opaqueEntry and opaqueEntry . provider == "derive" and opaqueEntry . family == "View" then
+return copyConstant ( opaqueEntry . payload . value , active , count , state )
+end
+if kind ~= "table" or active [ value ] or opaqueEntry then
+return nil , "constant is cyclic, opaque, or not quotable"
+end
+active [ value ] = true
+local out = { }
+for key , child in pairs ( value ) do
+if type ( key ) ~= "string" and type ( key ) ~= "number" and type ( key ) ~= "boolean" then
+active [ value ] = nil
+return nil , "constant has an unsupported key"
+end
+local copied , why = copyConstant ( child , active , count , state )
+if why then
+active [ value ] = nil ;
+return nil , why
+end
+out [ key ] = copied
+if count [ 1 ] > MAX_NODES then
+active [ value ] = nil ;
+return nil , "recipe exceeds its node limit"
+end
+end
+active [ value ] = nil
+
+return out
+end
+
+function deriveProvider . finalize ( state , root )
+local rootEntry = state . opaque [ root ]
+if not rootEntry or rootEntry . provider ~= "derive" then
+return nil , failure ( "NUPP2810" , "derive provider returned a foreign value" )
+end
+if rootEntry . family == "Error" then
+local payload = {
+code = rootEntry . payload . code ,
+message = rootEntry . payload . message ,
+reference = rootEntry . payload . reference ,
+requestFingerprint = state . deriveRequest and state . deriveRequest . fingerprint ,
+providerIdentity = state . deriveRequest and state . deriveRequest . providerIdentity ,
+ownerIdentity = state . deriveRequest and state . deriveRequest . ownerIdentity ,
+}
+local canonical = assert ( recipeCodec . canonical ( payload ) )
+return {
+kind = "materialized" ,
+provider = "derive" ,
+schema = 1 ,
+family = "Error" ,
+payload = payload ,
+fingerprint = hash . sha256 ( "nupp.derive.error\0v1\0" .. canonical ) ,
+}
+end
+if rootEntry . family ~= "Result" then
+return nil , failure ( "NUPP2810" , "derive provider must return derive.implement or derive.error" )
+end
+local count , active = { 1 } , { }
+local function takeNode ( )
+count [ 1 ] = count [ 1 ] + 1
+return count [ 1 ] <= MAX_NODES
+end
+
+local function argument ( handle )
+if not takeNode ( ) then
+return nil , "recipe exceeds its node limit"
+end
+local entry = state . opaque [ handle ]
+if not entry or entry . provider ~= "derive" or entry . family ~= "Argument" then
+return nil , "forwarding argument contains a foreign handle"
+end
+if active [ handle ] then
+return nil , "forwarding argument graph is cyclic"
+end
+active [ handle ] = true
+local payload = entry . payload
+local out = { kind = payload . kind }
+if payload . kind == "argument" then
+out . name = payload . name
+elseif payload . kind == "field" then
+out . index , out . name , out . reference = payload . index , payload . name , payload . reference
+elseif payload . kind == "constant" then
+local why
+out . value , why = copyConstant ( payload . value , { } , count , state )
+if why then
+active [ handle ] = nil ;
+return nil , why
+end
+elseif payload . kind == "array" then
+out . values = { }
+for index , child in ipairs ( payload . values ) do
+local why
+out . values [ index ] , why = argument ( child )
+if why then
+active [ handle ] = nil ;
+return nil , why
+end
+end
+elseif payload . kind ~= "receiver" and payload . kind ~= "entry" then
+active [ handle ] = nil
+return nil , "unknown forwarding argument operation"
+end
+active [ handle ] = nil
+
+return out
+end
+
+local function forwards ( source , namespace )
+local methods = { }
+for name , handle in pairs ( source or { } ) do
+if not takeNode ( ) then
+return nil , failure ( "NUPP2810" , "recipe exceeds its node limit" )
+end
+if type ( name ) ~= "string" or name == "" then
+return nil , failure ( "NUPP2810" , "derive member names must be non-empty strings" )
+end
+local entry = state . opaque [ handle ]
+local member = entry and entry . provider == "derive" and entry . family == "Member" and entry . payload or nil
+local forward = member and state . opaque [ member . forward ] or entry
+if not forward or forward . provider ~= "derive" or forward . family ~= "Forward" then
+return nil , failure ( "NUPP2810" , "derive " .. namespace .. " " .. name .. " is not a forward recipe" )
+end
+if not takeNode ( ) then
+return nil , failure ( "NUPP2810" , "recipe exceeds its node limit" )
+end
+local arguments = { }
+for index , child in ipairs ( forward . payload . arguments or { } ) do
+local why
+arguments [ index ] , why = argument ( child )
+if why then
+return nil , failure ( "NUPP2810" , why )
+end
+end
+local out = { operation = "forward.v1" , helper = forward . payload . helper , arguments = arguments , }
+if member then
+local signature , why = typeprovider . finalize ( state , member . signature )
+if not signature or signature . family ~= "Type" then
+return nil , failure (
+"NUPP2810" ,
+"derive member has an invalid function signature: " .. tostring ( why and why . message )
+)
+end
+out . signature , out . parameters = signature , member . parameters
+end
+methods [ name ] = out
+end
+
+return methods
+end
+
+local methods , methodsFailure = forwards ( rootEntry . payload . methods , "method" )
+if not methods then
+return nil , methodsFailure
+end
+local statics , staticsFailure = forwards ( rootEntry . payload . statics , "static" )
+if not statics then
+return nil , staticsFailure
+end
+local payload = {
+version = "nupp.derive.result.v3" ,
+requestFingerprint = state . deriveRequest and state . deriveRequest . fingerprint ,
+providerIdentity = state . deriveRequest and state . deriveRequest . providerIdentity ,
+ownerIdentity = state . deriveRequest and state . deriveRequest . ownerIdentity ,
+methods = methods ,
+statics = statics ,
+data = { } ,
+effects = rootEntry . payload . effects or { } ,
+inputs = state . deriveInputDescriptors or { } ,
+}
+for name , value in pairs ( rootEntry . payload . data or { } ) do
+if type ( name ) ~= "string" or name == "" then
+return nil , failure ( "NUPP2810" , "derive data keys must be non-empty strings" )
+end
+local copied , why = copyConstant ( value , { } , count , state )
+if why then
+return nil , failure ( "NUPP2810" , "derive data " .. name .. " " .. why )
+end
+payload . data [ name ] = copied
+end
+for _ , effect in ipairs ( payload . effects ) do
+if type ( effect ) ~= "string" or effect == "" then
+return nil , failure ( "NUPP2810" , "derive effects must be non-empty strings" )
+end
+end
+local canonical , why = recipeCodec . canonical ( payload )
+if not canonical then
+return nil , failure ( "NUPP2810" , "derive result is not canonical: " .. tostring ( why ) )
+end
+
+return {
+kind = "materialized" ,
+provider = "derive" ,
+schema = 1 ,
+family = "Result" ,
+payload = payload ,
+fingerprint = hash . sha256 ( "nupp.derive.result\0v3\0" .. canonical ) ,
+}
+end
+
+return deriveProvider

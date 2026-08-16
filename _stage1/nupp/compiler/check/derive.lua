@@ -1,0 +1,1448 @@
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+local T = require ( "nupp.compiler.types" )
+local cst = require ( "nupp.compiler.cst" )
+local relations = require ( "nupp.compiler.relations" )
+local generics = require ( "nupp.compiler.generics" )
+local hash = require ( "nupp.compiler.build.hash" )
+local fs = require ( "nupp.compiler.fs" )
+local recipeCodec = require ( "nupp.compiler.materialize.codec" )
+local reflection = require ( "nupp.compiler.reflection" )
+local typeblueprint = require ( "nupp.compiler.typeblueprint" )
+local comptime = require (
+"nupp.compiler.comptime"
+)
+local state = require ( "nupp.compiler.check.state" )
+
+local derive = { }
+
+local MAX_FIELDS , MAX_RECIPE_NODES = 2048 , 16384
+local MAX_GENERATED_MEMBERS = 6
+
+derive . MAX_FIELDS = MAX_FIELDS
+derive . MAX_RECIPE_NODES = MAX_RECIPE_NODES
+derive . MAX_GENERATED_MEMBERS = MAX_GENERATED_MEMBERS
+
+derive.Ops = {} derive.Ops.__index = derive.Ops
+
+
+
+
+
+local function fieldNodes ( stat )
+local out = { }
+for _ , entry in ipairs ( stat . entries or { } ) do
+if entry . kind == "fieldDecl" and entry . name then
+out [ entry . name . text ] = entry
+end
+end
+
+return out
+end
+
+local function providerFilePaths ( program )
+local paths , seen = { } , { }
+local function stringLiteral ( token )
+if not token then
+return nil
+end
+local chunk = loadstring ( "return " .. token . text )
+if not chunk then
+return nil
+end
+local ok , value = pcall ( chunk )
+
+return ok and type ( value ) == "string" and value or nil
+end
+
+local function dotted ( node )
+if not node or cst . isToken ( node ) then
+return nil
+end
+if node . kind == "name" then
+return node . token and node . token . text or nil
+elseif node . kind == "dotIndex" then
+local left = dotted ( node . obj )
+return left and node . name and ( left .. "." .. node . name . text ) or nil
+end
+
+return nil
+end
+
+local dynamic
+local function visit ( node )
+if type ( node ) ~= "table" or cst . isToken ( node ) then
+return
+end
+if node . kind == "call" and dotted ( node . obj ) == "nupp.derive.file" then
+local args = node . args and node . args . exprs or { }
+local first = args [ 1 ]
+local token = first and first . kind == "string" and first . token or nil
+local path = stringLiteral ( token )
+if path and path ~= "" and # args == 1 then
+if not seen [ path ] then
+seen [ path ] = true
+paths [ # paths + 1 ] = path
+end
+else
+dynamic = node
+end
+end
+for _ , child in ipairs ( node ) do
+visit ( child )
+end
+end
+
+visit ( program and program . helper )
+for _ , helper in pairs ( program and program . helpers or { } ) do
+visit ( helper )
+end
+for name , descriptor in pairs ( program and program . serializedHelpers or { } ) do
+if type ( descriptor ) == "table" and type ( descriptor . source ) == "string" then
+local parsed = require (
+"nupp.compiler.parser"
+) . parse ( descriptor . source , "=provider-input-" .. tostring ( name ) )
+if # ( parsed . errors or { } ) == 0 then
+visit ( parsed . root )
+end
+end
+end
+table . sort ( paths )
+
+return paths , dynamic
+end
+
+
+function derive . install ( c )
+c . result . cancelled = nil
+c . result . deriveAborted = nil
+c . result . deriveObservations = nil
+c . result . deriveInterface = nil
+local pending = { }
+local ops = setmetatable({ }, derive.Ops)
+local recipeLimitAt = nil
+local keyOccurrences = { }
+local aborted , abortReason = false , nil
+local budget = c . opts and c . opts . deriveBudget or nil
+local budgetReported = false
+local configuredLimits = c . opts and c . opts . deriveLimits or { }
+local maxFields = configuredLimits . fields or MAX_FIELDS
+local maxRecipeNodes = configuredLimits . nodes or MAX_RECIPE_NODES
+local maxCanonicalBytes = configuredLimits . canonicalBytes or recipeCodec . MAX_CANONICAL_BYTES
+local maxOutputBytes = configuredLimits . outputBytes or recipeCodec . MAX_OUTPUT_BYTES
+local providerMemo = { }
+local addDefinition
+local removeProviderFix
+
+local function expressionPath ( expr )
+if not expr then
+return nil
+end
+if expr . kind == "name" then
+return expr . token and expr . token . text or nil
+end
+if expr . kind == "dotIndex" then
+local base = expressionPath ( expr . obj )
+local member = expr . name and expr . name . text or nil
+return base and member and ( base .. "." .. member ) or nil
+end
+
+return nil
+end
+
+local function resolveProvider ( arg )
+local path = expressionPath ( arg and arg . expr )
+if not path or not path : find ( "." , 1 , true ) then
+return nil
+end
+local parts = { }
+for part in path : gmatch ( "[^.]+" ) do
+parts [ # parts + 1 ] = part
+end
+local member = table . remove ( parts )
+local moduleName = table . concat ( parts , "." )
+local first = parts [ 1 ]
+local exports
+if first == c . moduleLocal and # parts == 1 then
+exports = c . moduleExports
+moduleName = c . result . moduleName or moduleName
+elseif c . env and c . env . resolveModuleExports then
+local holder = first and c . lookupEntry ( first ) or nil
+if holder and holder . requiredModule then
+moduleName = holder . requiredModule .. moduleName : sub ( # first + 1 )
+end
+exports = c . env . resolveModuleExports ( c . env , moduleName )
+end
+local provider = exports and exports . comptimeFunctions and exports . comptimeFunctions [ member ] or nil
+if provider and provider . deriveProvider then
+local token = arg . expr . kind == "dotIndex" and arg . expr . name or arg . expr . token
+if token then
+c . markToken ( token , provider . definition , provider . signature , "function" )
+end
+return provider , moduleName , path
+end
+
+return nil , moduleName , path
+end
+
+function ops . claim ( stat , n )
+local seen = { }
+n . deriveClaimedContracts = { }
+for _ , super in ipairs ( n . supertypes or { } ) do
+seen [ super ] = true
+end
+for _ , application in ipairs ( stat . deriveApplications or { } ) do
+for _ , arg in ipairs ( application . annotationArgs or { } ) do
+local provider , _ , spelling = resolveProvider ( arg )
+if not provider then
+c . diag (
+"NUPP2809" ,
+arg . expr or arg ,
+( "%s is not an exported comptime derive provider" ) : format ( spelling or "this expression" )
+)
+else
+arg . deriveProvider = provider
+arg . deriveProviderSpelling = spelling
+local contract = provider . deriveInterface
+if contract and not seen [ contract ] then
+n . supertypes [ # n . supertypes + 1 ] = contract
+n . deriveClaimedContracts [ # n . deriveClaimedContracts + 1 ] = contract
+seen [ contract ] = true
+end
+stat . deriveInterfaceRuntimeNames = stat . deriveInterfaceRuntimeNames or { }
+if contract then
+local base = spelling and spelling : match ( "^(.*)%.[^.]+$" ) or nil
+stat . deriveInterfaceRuntimeNames [
+contract
+] = base and ( base .. "." .. contract . name ) or contract . name
+end
+end
+end
+end
+end
+
+local function probe ( at )
+if aborted then
+return false
+end
+if c . opts and c . opts . cancelled and c . opts . cancelled ( ) then
+aborted , abortReason = true , "cancelled"
+return false
+end
+if budget then
+if budget <= 0 then
+aborted , abortReason = true , "budget"
+if not budgetReported then
+budgetReported = true
+c . diag ( "NUPP2808" , at , "derive recipe construction exhausted its cooperative work budget" , nil , {
+help = "split the declaration or increase the derive recipe budget"
+} )
+end
+return false
+end
+budget = budget - 1
+end
+
+return true
+end
+
+local function transportedType ( t )
+if not t then
+return nil
+end
+if t . tag == "typevar" then
+t = t . bound or T . unknown
+end
+local descriptor = reflection . describe ( t , nil , true )
+descriptor . sources = nil
+
+return { descriptor = descriptor }
+end
+
+
+local function valueType ( value )
+local kind = type ( value )
+if kind == "nil" then
+return T . nil_
+elseif kind == "boolean" or kind == "string" or kind == "number" then
+return T . literal ( value )
+elseif kind == "table" then
+local members = { }
+for _ , child in ipairs ( value ) do
+members [ # members + 1 ] = valueType ( child )
+end
+local element = # members == 0 and T . unknown or # members == 1 and members [ 1 ] or T . union ( members )
+return T . array ( element )
+else
+return T . unknown
+end
+end
+
+local function runtimeHelperType ( descriptor )
+if not descriptor then
+return nil
+end
+if descriptor . module == c . result . moduleName then
+return c . moduleFields and c . moduleFields [ descriptor . member ] or nil
+end
+
+
+
+local moduleType = c . env and c . env . resolveModule and c . env . resolveModule ( c . env , descriptor . module ) or nil
+local exports = c . env and c . env . resolveModuleExports and c . env . resolveModuleExports (
+c . env ,
+descriptor . module
+) or nil
+local exported = exports and exports . values and exports . values [ descriptor . member ] or nil
+if exported then
+return exported
+end
+
+return moduleType and c . fieldType ( moduleType , descriptor . member ) or nil
+end
+
+local function runtimeHelperDefinition ( descriptor )
+if not descriptor then
+return nil
+end
+if descriptor . module == c . result . moduleName then
+return c . moduleExports . valueDefs and c . moduleExports . valueDefs [ descriptor . member ] or nil
+end
+local exports = c . env and c . env . resolveModuleExports and c . env . resolveModuleExports (
+c . env ,
+descriptor . module
+) or nil
+
+return exports and exports . valueDefs and exports . valueDefs [ descriptor . member ] or nil
+end
+
+local function evaluateProvider ( item , provider , plan , nodes )
+local n , contract = item . nominal , provider . contract
+local input = {
+schema = 1 ,
+kind = n . declKind ,
+name = n . name ,
+visibility = c . visibilityOf ( item . stat ) ,
+providerIdentity = provider . identity ,
+ownerIdentity = n . deriveKey ,
+ownerType = { descriptor = item . ownerDescriptor } ,
+interfaceType = transportedType ( contract ) ,
+fields = { } ,
+annotations = item . ownerDescriptor . annotations or { } ,
+hasConstructor = # ( n . constructorEntries or { } ) > 0 ,
+reference = "owner" ,
+}
+local permittedReferences = { }
+local function permit ( edge , prefix )
+local descriptor = edge and edge . descriptor or edge
+for index , node in ipairs ( descriptor and descriptor . types or { } ) do
+local source = descriptor . sources and descriptor . sources [ index ] or nil
+if node . nominal and source then
+permittedReferences [
+prefix .. ":" .. tostring ( index )
+] = {
+source = source ,
+fingerprint = node . referenceFingerprint or reflection . describe ( source ) . fingerprint ,
+}
+end
+end
+end
+
+permit ( input . ownerType , "owner" )
+if item . ownerDescriptor . root then
+local rootNode = item . ownerDescriptor . types [ item . ownerDescriptor . root ]
+permittedReferences [
+"owner:" .. tostring ( item . ownerDescriptor . root )
+] = { source = n , fingerprint = rootNode . referenceFingerprint or reflection . describe ( n ) . fingerprint , }
+end
+if input . interfaceType then
+permit ( input . interfaceType , "interface" )
+end
+local filePaths , dynamicFile = providerFilePaths ( provider . sealedProgram )
+if dynamicFile then
+c . diag ( "NUPP2810" , dynamicFile , "derive.file needs one project-relative path written as a string literal" )
+return
+end
+input . providerFiles = { }
+input . providerInputDescriptors = { }
+local providerInputs = { }
+local root = fs . canonical ( fs . absolute ( c . env and c . env . rootDir or "." ) )
+local rootPrefix = root : sub ( - 1 ) == "/" and root or root .. "/"
+for _ , authoredPath in ipairs ( filePaths ) do
+local absolute = fs . canonical ( fs . absolute ( fs . join ( root , authoredPath ) ) )
+if absolute ~= root and absolute : sub ( 1 , # rootPrefix ) ~= rootPrefix then
+c . diag (
+"NUPP2810" ,
+provider . site . arg . expr or provider . site . arg ,
+"derive.file path escapes the project root: " .. authoredPath
+)
+return
+end
+local bytes = c . env and c . env . externalFile and c . env . externalFile ( c . env , absolute ) or nil
+if bytes == nil then
+c . diag ( "NUPP2810" , provider . site . arg . expr or provider . site . arg , "derive.file cannot read " .. absolute )
+return
+end
+local fingerprint = hash . sha256 ( table . concat ( { "provider-file-v1" , authoredPath , bytes } , "\0" ) )
+input . providerFiles [ authoredPath ] = bytes
+input . providerInputDescriptors [
+# input . providerInputDescriptors + 1
+] = { path = authoredPath , display = authoredPath , fingerprint = fingerprint }
+providerInputs [
+# providerInputs + 1
+] = {
+identity = table . concat ( { "provider-file" , provider . identity , authoredPath } , "\0" ) ,
+kind = "provider-file" ,
+display = authoredPath ,
+paths = { absolute } ,
+fingerprint = fingerprint ,
+consumer = tostring ( c . filename or "<module>" ) ,
+binary = false ,
+provider = provider . identity ,
+}
+end
+local descriptorFields = item . ownerDescriptor . fields or { }
+for index , fieldName in ipairs ( n . fieldOrder or { } ) do
+local fieldType = n . byname [ fieldName ]
+
+
+
+
+
+
+
+
+local claimSource = fieldType and fieldType . tag == "nominal" and ( fieldType . origin or fieldType ) or nil
+local claims = { }
+for claimIndex , claim in ipairs ( claimSource and claimSource . supertypes or { } ) do
+claims [ claimIndex ] = transportedType ( claim )
+end
+input . fields [
+index
+] = {
+name = fieldName ,
+readable = fieldType ~= nil ,
+writable = n . writeByname [ fieldName ] ~= nil ,
+readType = transportedType ( fieldType ) ,
+writeType = transportedType ( n . writeByname [ fieldName ] ) ,
+hasDefault = descriptorFields [ index ] and descriptorFields [ index ] . hasDefault or false ,
+defaultValue = descriptorFields [ index ] and descriptorFields [ index ] . defaultValue ,
+annotations = descriptorFields [ index ] and descriptorFields [ index ] . annotations or { } ,
+claims = claims ,
+reference = "field:" .. tostring ( index ) ,
+}
+permit ( input . fields [ index ] . readType , "field" .. tostring ( index ) .. ":read" )
+permit ( input . fields [ index ] . writeType , "field" .. tostring ( index ) .. ":write" )
+end
+local semanticNodes = 0
+for _ , field in ipairs ( input . fields ) do
+local edge = field . readType or field . writeType
+semanticNodes = semanticNodes + # ( edge and edge . descriptor and edge . descriptor . types or { } )
+end
+if semanticNodes > maxRecipeNodes then
+c . diag (
+"NUPP2808" ,
+provider . site . arg . expr or provider . site . arg ,
+( "derive input exceeds %d semantic nodes" ) : format ( maxRecipeNodes )
+)
+return
+end
+local fingerprintInput = {
+schema = input . schema ,
+kind = input . kind ,
+name = input . name ,
+visibility = input . visibility ,
+providerIdentity = input . providerIdentity ,
+ownerIdentity = input . ownerIdentity ,
+annotations = input . annotations ,
+hasConstructor = input . hasConstructor ,
+owner = input . ownerType . descriptor . fingerprint ,
+interface = input . interfaceType and input . interfaceType . descriptor . fingerprint or "none" ,
+fields = { } ,
+providerInputs = input . providerInputDescriptors ,
+}
+for index , field in ipairs ( input . fields ) do
+fingerprintInput . fields [
+index
+] = {
+name = field . name ,
+readable = field . readable ,
+writable = field . writable ,
+read = field . readType and field . readType . descriptor . fingerprint or nil ,
+write = field . writeType and field . writeType . descriptor . fingerprint or nil ,
+hasDefault = field . hasDefault ,
+defaultValue = field . defaultValue ,
+annotations = field . annotations ,
+claims = { } ,
+}
+for claimIndex , claim in ipairs ( field . claims or { } ) do
+fingerprintInput . fields [ index ] . claims [ claimIndex ] = claim . descriptor . fingerprint
+end
+end
+input . fingerprint = hash . sha256 ( assert ( recipeCodec . canonical ( fingerprintInput ) ) )
+local helperKeys , helperFingerprints = { } , { }
+for key in pairs ( provider . sealedProgram . runtimeHelpers or { } ) do
+helperKeys [ # helperKeys + 1 ] = key
+end
+table . sort ( helperKeys )
+for _ , key in ipairs ( helperKeys ) do
+local descriptor = provider . sealedProgram . runtimeHelpers [ key ]
+local helperType = runtimeHelperType ( descriptor )
+helperFingerprints [
+# helperFingerprints + 1
+] = key .. "=" .. ( helperType and T . tostring ( helperType ) or "missing" )
+end
+local memoKey = hash . sha256 (
+table . concat (
+{ "nupp.derive.query.v1" , provider . identity , input . fingerprint , table . concat ( helperFingerprints , "\0" ) , } ,
+"\0"
+)
+)
+local envelope , evaluationFailure = providerMemo [ memoKey ] , nil
+local persistent = c . env and c . env . openTypeFunctionStore and c . env . openTypeFunctionStore ( c . env ) or nil
+if not envelope and persistent then
+local cached = persistent . get ( memoKey )
+if type (
+cached
+) == "table" and cached . provider == "derive" and cached . schema == 1 and (
+cached . family == "Result" or cached . family == "Error"
+) then
+local canonical = recipeCodec . canonical ( cached . payload )
+local prefix = cached . family == "Result" and "nupp.derive.result\0v3\0" or "nupp.derive.error\0v1\0"
+if canonical and cached . fingerprint == hash . sha256 (
+prefix .. canonical
+)
+and cached . payload . requestFingerprint == input . fingerprint
+and cached . payload . providerIdentity == provider . identity
+and cached . payload . ownerIdentity == n . deriveKey then
+envelope = cached
+end
+end
+end
+if not envelope then
+local root = os . getenv ( "NUPP_COMPILER_ROOT" )
+local executable = root and root .. "/bin/nupp" or nil
+if executable and not os . getenv ( "NUPP_COMPTIME_WORKER_CHILD" ) then
+local worker = require (
+"nupp.compiler.comptime_worker"
+)
+envelope , evaluationFailure = worker . evaluateDeriveProvider (
+provider . sealedProgram ,
+input ,
+provider . sealedProgram . runtimeHelpers or { } ,
+provider . sealedProgram . providerModule ,
+executable ,
+c . env and c . env . host or nil
+)
+else
+envelope , evaluationFailure = comptime . evaluateDeriveProviderDirect (
+provider . sealedProgram ,
+input ,
+c . comptimeFunctions ,
+provider . sealedProgram . runtimeHelpers or { } ,
+provider . sealedProgram . providerModule
+)
+end
+if envelope then
+providerMemo [ memoKey ] = envelope
+if persistent then
+persistent . put ( memoKey , envelope )
+end
+end
+end
+if not envelope then
+c . diag (
+evaluationFailure and evaluationFailure . code or "NUPP2810" ,
+provider . site . arg . expr or provider . site . arg ,
+evaluationFailure and evaluationFailure . message or "derive provider evaluation failed" ,
+nil ,
+{ help = evaluationFailure and evaluationFailure . help or nil }
+)
+return
+end
+if envelope . family == "Error" then
+if not envelope . payload
+or envelope . payload . requestFingerprint ~= input . fingerprint
+or envelope . payload . providerIdentity ~= provider . identity
+or envelope . payload . ownerIdentity ~= n . deriveKey
+then
+c . diag (
+"NUPP2810" ,
+provider . site . arg . expr or provider . site . arg ,
+"derive provider returned a stale result"
+)
+return
+end
+local reference = envelope . payload and envelope . payload . reference
+local at = reference == "owner" and item . stat or nil
+local fieldIndex = reference and tonumber ( reference : match ( "^field:(%d+)$" ) ) or nil
+if fieldIndex then
+at = nodes [ ( n . fieldOrder or { } ) [ fieldIndex ] ]
+end
+c . diag (
+envelope . payload . code or "NUPP2810" ,
+at or provider . site . arg . expr or provider . site . arg ,
+envelope . payload . message
+)
+return
+end
+if envelope . family ~= "Result"
+or envelope . schema ~= 1
+or not envelope . payload
+or envelope . payload . version ~= "nupp.derive.result.v3"
+or envelope . payload . requestFingerprint ~= input . fingerprint
+or envelope . payload . providerIdentity ~= provider . identity
+or envelope . payload . ownerIdentity ~= n . deriveKey
+then
+c . diag (
+"NUPP2810" ,
+provider . site . arg . expr or provider . site . arg ,
+"derive provider returned a malformed recipe"
+)
+return
+end
+for _ , observed in ipairs ( providerInputs ) do
+if c . env and c . env . observeExternalInput then
+c . env . observeExternalInput ( c . env , observed )
+end
+end
+local diagnosticCount , addedMembers = # c . diags , { }
+local existingMembers , requestedMembers = 0 , 0
+for _ in pairs ( n . derivedDefinitions or { } ) do
+existingMembers = existingMembers + 1
+end
+for _ in pairs ( n . derivedStaticDefinitions or { } ) do
+existingMembers = existingMembers + 1
+end
+for _ in pairs ( envelope . payload . methods or { } ) do
+requestedMembers = requestedMembers + 1
+end
+for _ in pairs ( envelope . payload . statics or { } ) do
+requestedMembers = requestedMembers + 1
+end
+if existingMembers + requestedMembers > MAX_GENERATED_MEMBERS then
+c . diag (
+"NUPP2808" ,
+provider . site . arg . expr or provider . site . arg ,
+(
+"derive would generate %d members; the limit is %d"
+) : format ( existingMembers + requestedMembers , MAX_GENERATED_MEMBERS )
+)
+return
+end
+local function validateForwards ( recipes , isStatic )
+local requirements = contract and ( isStatic and contract . staticByname or contract . byname ) or nil
+local generated = isStatic and n . derivedStaticDefinitions or n . derivedDefinitions
+local written = isStatic and n . staticFieldDefs or n . fieldDefs
+local namespace = isStatic and "static" or "method"
+
+
+
+
+
+
+local byName , methodNames = recipes or { } , { }
+for methodName in pairs ( byName ) do
+methodNames [ # methodNames + 1 ] = methodName
+end
+table . sort ( methodNames )
+
+
+
+
+
+local function argumentType ( argument , parameterTypes )
+if argument . kind == "receiver" then
+if isStatic then
+c . diag (
+"NUPP2812" ,
+provider . site . arg . expr or provider . site . arg ,
+"a static recipe has no receiver"
+)
+
+return T . unknown , false
+end
+
+return n , true
+elseif argument . kind == "argument" then
+local found = parameterTypes [ argument . name ]
+if not found then
+c . diag (
+"NUPP2812" ,
+provider . site . arg . expr or provider . site . arg ,
+"unknown method argument " .. tostring ( argument . name )
+)
+end
+
+return found or T . unknown , found ~= nil
+elseif argument . kind == "field" then
+local found = n . byname [ argument . name ]
+if not found then
+c . diag (
+"NUPP2812" ,
+nodes [ argument . name ] or item . stat ,
+"derive recipe cannot read field " .. tostring ( argument . name )
+)
+end
+
+return found or T . unknown , found ~= nil
+elseif argument . kind == "constant" then
+return valueType ( argument . value ) , true
+elseif argument . kind == "entry" then
+return T . any , true
+elseif argument . kind == "array" then
+local children , ok = { } , true
+for _ , child in ipairs ( argument . values or { } ) do
+local childT , childOk = argumentType ( child , parameterTypes )
+children [ # children + 1 ] = childT
+ok = ok and childOk
+end
+
+return T . array (
+# children == 0 and T . unknown or # children == 1 and children [ 1 ] or T . union ( children )
+) , ok
+end
+
+return T . unknown , false
+end
+
+for _ , methodName in ipairs ( methodNames ) do
+local recipe = byName [ methodName ]
+local requirement = requirements and requirements [ methodName ] or nil
+local callable , declared = nil , recipe . signature ~= nil
+if declared then
+local signatureFailure
+callable , signatureFailure = typeblueprint . validate ( recipe . signature , permittedReferences )
+if not callable or callable . tag ~= "func" then
+c . diag (
+"NUPP2811" ,
+provider . site . arg . expr or provider . site . arg ,
+"derive member " .. methodName .. " has an invalid function signature: " .. tostring (
+signatureFailure and signatureFailure . message or "expected a function type"
+)
+)
+elseif # ( recipe . parameters or { } ) ~= # callable . params - ( isStatic and 0 or 1 ) then
+c . diag (
+"NUPP2811" ,
+provider . site . arg . expr or provider . site . arg ,
+"derive member parameter names do not match its function signature"
+)
+callable = nil
+elseif not isStatic and not relations . isA ( n , callable . params [ 1 ] ) then
+c . diag (
+"NUPP2811" ,
+provider . site . arg . expr or provider . site . arg ,
+"an instance derive member must take the derived record as its first parameter"
+)
+callable = nil
+end
+end
+if declared and not callable then
+
+elseif not declared and ( not requirement or requirement . tag ~= "func" ) then
+c . diag (
+"NUPP2811" ,
+provider . site . arg . expr or provider . site . arg ,
+(
+"%s is not a bodyless callable %s requirement of %s"
+) : format ( methodName , namespace , contract and contract . name or "this provider" )
+)
+elseif not declared and not isStatic and contract . defaults and contract . defaults [ methodName ] then
+c . diag (
+"NUPP2811" ,
+provider . site . arg . expr or provider . site . arg ,
+"a derive cannot replace an interface default"
+)
+elseif not declared and (
+(
+not isStatic and contract . overloadedMethods and contract . overloadedMethods [ methodName ]
+) or requirement . tag == "intersection"
+) then
+c . diag (
+"NUPP2811" ,
+provider . site . arg . expr or provider . site . arg ,
+"forward.v1 cannot select an overloaded requirement"
+)
+elseif generated and generated [ methodName ] then
+c . diag (
+"NUPP2802" ,
+provider . site . arg . expr or provider . site . arg ,
+(
+"derive providers %s and %s both generate %s"
+) : format ( tostring ( generated [ methodName ] . generatedBy ) , provider . label , methodName )
+)
+elseif written and written [ methodName ] and not written [ methodName ] . generatedBy then
+local remove = removeProviderFix ( provider . site . application , provider . site . arg , provider . label )
+c . diag (
+"NUPP2802" ,
+written [ methodName ] . token or item . stat ,
+"a derive cannot replace a written member" ,
+remove and { remove } or nil
+)
+else
+callable = callable or generics . specializeSelf ( contract , requirement , n )
+if declared then
+callable . paramNames = { }
+if not isStatic then
+callable . paramNames [ 1 ] = "self"
+end
+for index , parameter in ipairs ( recipe . parameters or { } ) do
+callable . paramNames [ index + ( isStatic and 0 or 1 ) ] = parameter
+end
+end
+local argumentTypes , valid = { } , true
+local parameterTypes = { }
+for index , parameterName in ipairs ( callable . paramNames or { } ) do
+if index > ( isStatic and 0 or 1 ) and parameterName ~= "" then
+parameterTypes [ parameterName ] = callable . params [ index ]
+end
+end
+for index , argument in ipairs ( recipe . arguments or { } ) do
+local argumentT , ok = argumentType ( argument , parameterTypes )
+argumentTypes [ index ] = argumentT
+valid = valid and ok
+end
+local helperType = runtimeHelperType ( recipe . helper )
+if not helperType or helperType . tag ~= "func" then
+c . diag (
+"NUPP2813" ,
+provider . site . arg . expr or provider . site . arg ,
+(
+"derive helper %s.%s is missing or is not an exported function"
+) : format (
+tostring ( recipe . helper and recipe . helper . module ) ,
+tostring ( recipe . helper and recipe . helper . member )
+)
+)
+valid = false
+else
+if # helperType . params ~= # argumentTypes then
+c . diag (
+"NUPP2813" ,
+provider . site . arg . expr or provider . site . arg ,
+"derive helper parameter count does not match the forwarding recipe"
+)
+valid = false
+else
+for index , actual in ipairs ( argumentTypes ) do
+local fits , why = relations . isA ( actual , helperType . params [ index ] )
+if not fits then
+c . diag (
+"NUPP2813" ,
+provider . site . arg . expr or provider . site . arg ,
+(
+"forwarded argument %d does not fit helper parameter %s%s"
+) : format (
+index ,
+T . tostring ( helperType . params [ index ] ) ,
+why and ( ": " .. why ) or ""
+)
+)
+valid = false
+end
+end
+end
+local returnsFit , why = relations . packIsA ( helperType . retPack , callable . retPack )
+if not returnsFit then
+c . diag (
+"NUPP2813" ,
+provider . site . arg . expr or provider . site . arg ,
+"derive helper result does not satisfy the interface requirement" .. (
+why and ( ": " .. why ) or ""
+)
+)
+valid = false
+end
+if callable . noYield and not helperType . noYield then
+c . diag (
+"NUPP2813" ,
+provider . site . arg . expr or provider . site . arg ,
+"a suspending helper cannot implement a non-suspending requirement"
+)
+valid = false
+end
+end
+if valid then
+local providerName = provider . label
+if addDefinition (
+n ,
+methodName ,
+callable ,
+provider . site . arg . expr or provider . site . arg ,
+isStatic and "function" or "method" ,
+providerName ,
+isStatic ,
+provider . site ,
+true
+) then
+recipe . provider = provider . identity
+recipe . interface = contract and contract . id or nil
+recipe . signature = T . tostring ( callable )
+recipe . paramNames = callable . paramNames
+if recipe . helper . module == c . result . moduleName and c . moduleLocal then
+recipe . helper . localPath = c . moduleLocal .. "." .. recipe . helper . member
+end
+local generatedMember = {
+name = methodName ,
+namespace = isStatic and "static" or "instance" ,
+operation = "forward.v1" ,
+helper = recipe . helper ,
+arguments = recipe . arguments ,
+paramNames = recipe . paramNames ,
+provider = recipe . provider ,
+interface = recipe . interface ,
+signature = recipe . signature ,
+}
+plan . members [ # plan . members + 1 ] = generatedMember
+addedMembers [
+# addedMembers + 1
+] = { name = methodName , static = isStatic , member = generatedMember }
+plan . helperABI [ recipe . helper . module .. "." .. recipe . helper . member ] = 1
+local definitions = isStatic and n . derivedStaticDefinitions or n . derivedDefinitions
+local definition = definitions and definitions [ methodName ]
+if definition then
+definition . generatedInterface = contract and contract . name or nil
+definition . generatedInterfaceDefinition = contract and contract . definition or nil
+definition . generatedHelper = recipe . helper . module .. "." .. recipe . helper . member
+definition . generatedHelperDefinition = runtimeHelperDefinition ( recipe . helper )
+end
+end
+end
+end
+end
+end
+
+validateForwards ( envelope . payload . methods , false )
+validateForwards ( envelope . payload . statics , true )
+if # c . diags > diagnosticCount then
+for _ , added in ipairs ( addedMembers ) do
+local methodName , isStatic = added . name , added . static
+local requirements = contract and ( isStatic and contract . staticByname or contract . byname ) or nil
+local inherited = requirements and requirements [ methodName ] or nil
+inherited = inherited and generics . specializeSelf ( contract , inherited , n ) or nil
+local reads = isStatic and n . staticByname or n . byname
+local writes = isStatic and n . staticWriteByname or n . writeByname
+local derived = isStatic and n . derivedStaticByname or n . derivedByname
+local definitions = isStatic and n . derivedStaticDefinitions or n . derivedDefinitions
+local fieldDefs = isStatic and n . staticFieldDefs or n . fieldDefs
+local writeFieldDefs = isStatic and n . staticWriteFieldDefs or n . writeFieldDefs
+reads [ methodName ] , writes [ methodName ] = inherited , inherited
+derived [ methodName ] , definitions [ methodName ] = nil , nil
+fieldDefs [ methodName ] , writeFieldDefs [ methodName ] = nil , nil
+for index = # plan . members , 1 , - 1 do
+if plan . members [ index ] == added . member then
+table . remove ( plan . members , index )
+break
+end
+end
+end
+relations . invalidate ( )
+return
+end
+plan . data = plan . data or { }
+for name , value in pairs ( envelope . payload . data or { } ) do
+if plan . data [ name ] ~= nil then
+c . diag (
+"NUPP2802" ,
+provider . site . arg . expr or provider . site . arg ,
+( "derive providers both define runtime data %q" ) : format ( name )
+)
+return
+end
+plan . data [ name ] = value
+end
+plan . effects = plan . effects or { }
+for _ , effect in ipairs ( envelope . payload . effects or { } ) do
+plan . effects [ effect ] = true
+c . recordEffect ( effect )
+item . stat . compilerFeatureEffects [ # item . stat . compilerFeatureEffects + 1 ] = effect
+end
+plan . providerABI [ provider . label ] = 1
+plan . inputs = plan . inputs or { }
+for _ , input in ipairs ( providerInputs ) do
+plan . inputs [ # plan . inputs + 1 ] = { identity = input . identity , fingerprint = input . fingerprint , }
+end
+end
+
+local function origin ( item , provider )
+return item . origins [ provider ] or item . stat . name
+end
+
+removeProviderFix = function ( application , arg , provider , duplicate )
+local function token ( node )
+return cst . firstToken ( node )
+end
+
+local function lastToken ( node )
+return cst . lastToken ( node )
+end
+
+local args = application and application . annotationArgs or { }
+local title = duplicate
+and "remove duplicate @derive("
+.. provider
+.. ")"
+or "remove @derive("
+.. provider
+.. ")"
+local first , last
+if # args == 1 then
+first , last = token ( application ) , lastToken ( application )
+else
+for index , candidate in ipairs ( args ) do
+if candidate == arg then
+if args [ index + 1 ] then
+first = token ( candidate )
+last = token ( args [ index + 1 ] )
+return c . edits . fix ( title , {
+offset = first . offset ,
+length = last . offset - first . offset ,
+newText = "" ,
+} )
+end
+local prior = lastToken ( args [ index - 1 ] )
+first , last = prior , lastToken ( candidate )
+return c . edits . fix ( title , {
+offset = first . offset + # first . text ,
+length = last . offset + # last . text - ( first . offset + # first . text ) ,
+newText = "" ,
+} )
+end
+end
+end
+if not first or not last then
+return nil
+end
+
+return c . edits . fix ( title , {
+offset = first . offset ,
+length = last . offset + # last . text - first . offset ,
+newText = "" ,
+} )
+end
+
+addDefinition = function ( n , name , signature , tok , kind , provider , isStatic , site , allowRequirement )
+local reads = isStatic and n . staticByname or n . byname
+local writes = isStatic and n . staticWriteByname or n . writeByname
+local other = isStatic and n . byname or n . staticByname
+if ( reads [ name ] and ( not allowRequirement or n . derivedByname [ name ] ) ) or other [ name ] then
+local remove = site and removeProviderFix ( site . application , site . arg , provider )
+c . diag (
+"NUPP2802" ,
+tok ,
+(
+"%s would generate %s member %q, but %s already declares it"
+) : format ( provider , isStatic and "static" or "instance" , name , n . name ) ,
+remove and { remove } or nil ,
+{ help = ( "remove @derive(%s) or remove the written member" ) : format ( provider ) }
+)
+return false
+end
+reads [ name ] , writes [ name ] = signature , signature
+local namespace = isStatic and "static" or "instance"
+local identity = table . concat ( { n . deriveKey , namespace , name } , "\0" )
+local originToken = cst . firstToken ( tok ) or tok
+local definition = c . generatedDefinition ( originToken , name , kind , identity )
+definition . type = signature
+definition . generatedBy = provider
+definition . generatedOwner = n . name
+definition . generatedNamespace = namespace
+definition . generatedOrigin = originToken
+if isStatic then
+n . derivedStaticByname = n . derivedStaticByname or { }
+n . derivedStaticDefinitions = n . derivedStaticDefinitions or { }
+n . derivedStaticByname [ name ] = signature
+n . derivedStaticDefinitions [ name ] = definition
+n . staticFieldDefs [ name ] , n . staticWriteFieldDefs [ name ] = definition , definition
+else
+n . derivedByname = n . derivedByname or { }
+n . derivedDefinitions = n . derivedDefinitions or { }
+n . derivedByname [ name ] = signature
+n . derivedDefinitions [ name ] = definition
+n . fieldDefs [ name ] , n . writeFieldDefs [ name ] = definition , definition
+end
+
+return true
+end
+
+local function clearGeneratedMembers ( n )
+for name , generated in pairs ( n . derivedByname or { } ) do
+if n . byname [ name ] == generated then
+n . byname [ name ] = nil
+end
+if n . writeByname [ name ] == generated then
+n . writeByname [ name ] = nil
+end
+local definition = n . fieldDefs and n . fieldDefs [ name ]
+if definition and definition . generatedBy then
+n . fieldDefs [ name ] = nil
+end
+definition = n . writeFieldDefs and n . writeFieldDefs [ name ]
+if definition and definition . generatedBy then
+n . writeFieldDefs [ name ] = nil
+end
+end
+for name , generated in pairs ( n . derivedStaticByname or { } ) do
+if n . staticByname [ name ] == generated then
+n . staticByname [ name ] = nil
+end
+if n . staticWriteByname [ name ] == generated then
+n . staticWriteByname [ name ] = nil
+end
+local definition = n . staticFieldDefs and n . staticFieldDefs [ name ]
+if definition and definition . generatedBy then
+n . staticFieldDefs [ name ] = nil
+end
+definition = n . staticWriteFieldDefs and n . staticWriteFieldDefs [ name ]
+if definition and definition . generatedBy then
+n . staticWriteFieldDefs [ name ] = nil
+end
+end
+n . derivedByname , n . derivedStaticByname = { } , { }
+n . derivedDefinitions , n . derivedStaticDefinitions = { } , { }
+if n . derivedContracts then
+local retained = { }
+for _ , contract in ipairs ( n . supertypes or { } ) do
+if not n . derivedContracts [ contract ] then
+retained [ # retained + 1 ] = contract
+end
+end
+n . supertypes = retained
+n . derivedContracts = { }
+end
+end
+
+local function abortAll ( )
+for _ , item in ipairs ( pending ) do
+clearGeneratedMembers ( item . nominal )
+item . nominal . deriveRecipe = nil
+item . stat . deriveRecipe = nil
+end
+local symbols = { }
+for _ , definition in ipairs ( c . result . symbols or { } ) do
+if not definition . generatedBy then
+symbols [ # symbols + 1 ] = definition
+end
+end
+c . result . symbols = symbols
+c . result . deriveInterface = nil
+c . moduleExports . deriveInterfaceFingerprint = nil
+if abortReason == "cancelled" then
+c . result . cancelled = true
+end
+c . result . deriveAborted = abortReason
+end
+
+function ops . merge ( stat , n )
+if not probe ( stat ) then
+return
+end
+local applications = { }
+for _ , application in ipairs ( stat . deriveApplications or { } ) do
+applications [ # applications + 1 ] = application
+end
+for _ , application in ipairs ( stat . annotations or { } ) do
+if application . name and application . name . text == "derive" then
+applications [ # applications + 1 ] = application
+end
+end
+if # applications == 0 then
+return
+end
+clearGeneratedMembers ( n )
+local origins , order , providerSites , providerLabels = { } , { } , { } , { }
+local providers , providerIdentities = { } , { }
+for _ , application in ipairs ( applications ) do
+for _ , arg in ipairs ( application . annotationArgs or { } ) do
+local at = arg . expr and ( arg . expr . token or cst . firstToken ( arg . expr ) or arg . expr ) or arg
+local provider = arg . deriveProvider
+if not provider then
+local resolved , _ , spelling = resolveProvider ( arg )
+provider = resolved
+arg . deriveProvider = resolved
+arg . deriveProviderSpelling = spelling
+end
+local providerIdentity = provider and provider . identity or nil
+if provider and providerIdentities [ providerIdentity ] then
+local label = arg . deriveProviderSpelling or providerIdentity
+local remove = removeProviderFix ( application , arg , label , true )
+c . diag ( "NUPP2801" , at , "the same derive provider was requested twice" , remove and { remove } or nil )
+elseif provider then
+providerIdentities [ providerIdentity ] = true
+local label = arg . deriveProviderSpelling or providerIdentity
+origins [ label ] = at
+providerSites [ label ] = { application = application , arg = arg }
+order [ # order + 1 ] = label
+providers [
+# providers + 1
+] = {
+identity = providerIdentity ,
+label = label ,
+sealedProgram = provider ,
+contract = provider . deriveInterface ,
+site = providerSites [ label ] ,
+}
+end
+end
+end
+if # order == 0 then
+return
+end
+
+c . recordEffect ( "stdlib.derives" )
+stat . compilerFeatureEffects = { "stdlib.derives" }
+local moduleIdentity = c . result . moduleName or "<chunk>"
+local declarationIdentity = n . runtimePath or n . name
+local keyBase = moduleIdentity .. ":" .. declarationIdentity
+keyOccurrences [ keyBase ] = ( keyOccurrences [ keyBase ] or 0 ) + 1
+n . deriveKey = "nupp.derive.runtime.v2:" .. keyBase .. ":" .. tostring ( keyOccurrences [ keyBase ] )
+local item = {
+stat = stat ,
+nominal = n ,
+origins = origins ,
+order = order ,
+providerSites = providerSites ,
+providerLabels = providerLabels ,
+providers = providers ,
+startedAt = os . clock ( ) ,
+}
+table . sort ( providers , function ( left , right )
+return left . identity < right . identity
+end )
+item . ownerDescriptor = reflection . describe ( n , nil , true )
+item . ownerDescriptor . sources = nil
+local nodes = fieldNodes ( stat )
+item . fieldNodes = nodes
+local plan = {
+key = n . deriveKey ,
+name = n . name ,
+providerABI = { } ,
+helperABI = { } ,
+fields = { } ,
+members = { } ,
+data = { } ,
+effects = { } ,
+}
+item . plan = plan
+pending [ # pending + 1 ] = item
+
+if # ( n . fieldOrder or { } ) > maxFields then
+c . diag (
+"NUPP2808" ,
+origin ( item , item . order [ 1 ] ) ,
+( "derive target has %d fields; the limit is %d" ) : format ( # n . fieldOrder , maxFields )
+)
+else
+for _ , provider in ipairs ( item . providers or { } ) do
+if not probe ( provider . site . arg . expr or provider . site . arg ) then
+abortAll ( )
+return
+end
+evaluateProvider ( item , provider , plan , nodes )
+end
+end
+
+relations . invalidate ( )
+end
+
+function ops . finalize ( )
+if aborted or not probe ( pending [ 1 ] and pending [ 1 ] . stat or nil ) then
+abortAll ( )
+return
+end
+local function serializationProbe ( )
+return probe ( recipeLimitAt )
+end
+
+for _ , item in ipairs ( pending ) do
+if not probe ( item . stat ) then
+abortAll ( ) ;
+return
+end
+local stat , n = item . stat , item . nominal
+recipeLimitAt = origin ( item , item . order [ 1 ] )
+local nodes = item . fieldNodes
+local plan = item . plan
+local canonical , canonicalError = recipeCodec . canonicalRoot ( plan , {
+limit = maxCanonicalBytes ,
+probe = serializationProbe ,
+} )
+if not canonical then
+if canonicalError == "limit" then
+c . diag (
+"NUPP2808" ,
+recipeLimitAt ,
+( "derive recipe exceeds %d canonical bytes" ) : format ( maxCanonicalBytes )
+)
+aborted , abortReason = true , "limit"
+end
+abortAll ( )
+return
+end
+item . canonicalBytes = # canonical
+plan . fingerprint = hash . sha256 ( "nupp.derive\0v2\0" .. canonical )
+local rendered , renderError = recipeCodec . render ( plan , {
+limit = maxOutputBytes ,
+probe = serializationProbe ,
+} )
+if not rendered then
+if renderError == "limit" then
+c . diag (
+"NUPP2808" ,
+recipeLimitAt ,
+( "derive output recipe exceeds %d rendered bytes" ) : format ( maxOutputBytes )
+)
+aborted , abortReason = true , "limit"
+end
+abortAll ( )
+return
+end
+item . renderedBytes = # rendered
+if c . env and c . env . internDeriveRecipe then
+plan , item . recipeCached = c . env . internDeriveRecipe ( c . env , plan )
+end
+stat . deriveRecipe = plan
+n . deriveRecipe = plan
+for _ , definition in pairs ( n . derivedDefinitions or { } ) do
+definition . generatedRecipeFingerprint = plan . fingerprint
+definition . generatedContributingFields = nodes
+end
+for _ , definition in pairs ( n . derivedStaticDefinitions or { } ) do
+definition . generatedRecipeFingerprint = plan . fingerprint
+definition . generatedContributingFields = nodes
+end
+end
+
+local function recordDependencies ( value , out , seen )
+if type ( value ) ~= "table" or seen [ value ] then
+return
+end
+seen [ value ] = true
+for key , child in pairs ( value ) do
+if key == "typeKey" and type ( child ) == "string" then
+out [ child ] = true
+else
+recordDependencies ( child , out , seen )
+end
+end
+end
+
+
+
+local interface = { }
+local function memberLess ( a , b )
+return a . namespace < b . namespace or a . namespace == b . namespace and a . name < b . name
+end
+
+for _ , item in ipairs ( pending ) do
+local n = item . nominal
+local members = { }
+for name , definition in pairs ( n . derivedDefinitions or { } ) do
+members [
+# members + 1
+] = {
+name = name ,
+namespace = "instance" ,
+signature = T . tostring ( definition . type ) ,
+provider = definition . generatedBy ,
+}
+end
+for name , definition in pairs ( n . derivedStaticDefinitions or { } ) do
+members [
+# members + 1
+] = {
+name = name ,
+namespace = "static" ,
+signature = T . tostring ( definition . type ) ,
+provider = definition . generatedBy ,
+}
+end
+table . sort ( members , memberLess )
+local contracts = { }
+for _ , contract in ipairs ( n . supertypes or { } ) do
+contracts [ # contracts + 1 ] = T . tostring ( contract )
+end
+table . sort ( contracts )
+local dependencySet , dependencies = { } , { }
+recordDependencies ( n . deriveRecipe and n . deriveRecipe . data , dependencySet , { } )
+for dependency in pairs ( dependencySet ) do
+dependencies [ # dependencies + 1 ] = dependency
+end
+table . sort ( dependencies )
+interface [
+# interface + 1
+] = {
+identity = n . deriveKey ,
+providers = n . deriveRecipe and n . deriveRecipe . providerABI or { } ,
+helpers = n . deriveRecipe and n . deriveRecipe . helperABI or { } ,
+members = members ,
+contracts = contracts ,
+effects = item . stat . compilerFeatureEffects or { "stdlib.derives" } ,
+behavior = n . deriveRecipe and n . deriveRecipe . fingerprint or nil ,
+dependencies = dependencies ,
+}
+end
+table . sort ( interface , function ( a , b )
+return a . identity < b . identity
+end )
+c . result . deriveInterface = interface
+local interfaceBytes = recipeCodec . canonical ( interface )
+c . moduleExports . deriveInterfaceFingerprint = # interface > 0 and hash . sha256 (
+"nupp.derive.interface\0v1\0" .. assert ( interfaceBytes )
+) or nil
+
+local observations = { }
+for _ , item in ipairs ( pending ) do
+local memberCount = 0
+for _ in pairs ( item . nominal . derivedDefinitions or { } ) do
+memberCount = memberCount + 1
+end
+for _ in pairs ( item . nominal . derivedStaticDefinitions or { } ) do
+memberCount = memberCount + 1
+end
+if memberCount > MAX_GENERATED_MEMBERS then
+c . diag (
+"NUPP2808" ,
+item . stat ,
+( "derive generated %d members; the limit is %d" ) : format ( memberCount , MAX_GENERATED_MEMBERS )
+)
+end
+for _ , provider in ipairs ( item . order ) do
+local providerMembers = 0
+for _ , definition in pairs ( item . nominal . derivedDefinitions or { } ) do
+if definition . generatedBy == provider then
+providerMembers = providerMembers + 1
+end
+end
+for _ , definition in pairs ( item . nominal . derivedStaticDefinitions or { } ) do
+if definition . generatedBy == provider then
+providerMembers = providerMembers + 1
+end
+end
+observations [ # observations + 1 ] = {
+provider = provider ,
+owner = item . nominal . name ,
+semanticFingerprint = item . nominal . deriveRecipe and item . nominal . deriveRecipe . fingerprint or nil ,
+generatedMembers = providerMembers ,
+canonicalBytes = item . canonicalBytes or 0 ,
+renderedBytes = item . renderedBytes or 0 ,
+effects = provider == item . providerLabels . JSON and {
+"native.cjson" ,
+"stdlib.derives"
+} or { "stdlib.derives" } ,
+cached = item . recipeCached and true or false ,
+durationMs = math . floor ( ( os . clock ( ) - item . startedAt ) * 1000000 + 0.5 ) / 1000 ,
+
+
+generatedLocals = 2 ,
+maxGeneratedUpvalues = 1 ,
+}
+end
+end
+c . result . deriveObservations = observations
+end
+
+return ops
+end
+
+return derive

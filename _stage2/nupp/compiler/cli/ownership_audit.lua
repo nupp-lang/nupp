@@ -1,0 +1,328 @@
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+local spec = require ( "nupp.compiler.cli.spec" )
+local optionsMod = require ( "nupp.compiler.cli.options" )
+
+local command = spec . command {
+name = "ownership-audit" ,
+summary = "List foreign pointer contracts and unsafe assertion sites" ,
+usage = { "nupp ownership-audit [--format text|json] [--regions] [file...]" } ,
+options = optionsMod . join ( { name = "--regions" , help = "Include automatic cleanup regions" } , optionsMod . format ( ) ) ,
+detail = "With no files, scans Nupp sources under src. The report enumerates trusted C contracts and explicit unsafe regions; it does not verify foreign implementations." ,
+schema = {
+type = "object" ,
+properties = {
+foreign = { type = "array" , items = { type = "object" } } ,
+unsafe = { type = "array" , items = { type = "object" } } ,
+regions = { type = "array" , items = { type = "object" } } ,
+} ,
+required = { "foreign" , "unsafe" } ,
+} ,
+}
+
+local function pointerShaped ( t , T )
+t = T . unwrapOwnership ( t )
+if t . tag == "ptr" or t . tag == "carray" or t == T . cstring or t == T . voidptr then
+return true
+end
+if t . tag == "union" then
+for _ , member in ipairs ( t . members ) do
+if member ~= T . nil_ and pointerShaped ( member , T ) then
+return true
+end
+end
+end
+
+return false
+end
+
+local function sourceFiles ( paths , fs )
+if # paths > 0 then
+return paths
+end
+local found = { }
+for _ , path in ipairs ( fs . listFiles ( "src" ) ) do
+if path : match ( "%.nupp$" ) then
+found [ # found + 1 ] = path
+end
+end
+
+return found
+end
+
+local function run ( parsed )
+local fs = require ( "nupp.compiler.fs" )
+local parser = require ( "nupp.compiler.parser" )
+local check = require ( "nupp.compiler.check" )
+local env = require ( "nupp.compiler.env" ) . new ( "." )
+local T = require ( "nupp.compiler.types" )
+local cst = require ( "nupp.compiler.cst" )
+local foreign , unsafeSites , regions = { } , { } , { }
+local failed = false
+
+local function firstToken ( node )
+if not node then
+return nil
+end
+if cst . isToken ( node ) then
+return node
+end
+for _ , child in ipairs ( node ) do
+local found = firstToken ( child )
+if found then
+return found
+end
+end
+
+return nil
+end
+
+local function cleanupName ( cleanup )
+if cleanup . kind == "function" then
+return cleanup . name or cleanup . id
+elseif cleanup . kind == "closure" then
+return "generated closure terminal"
+elseif cleanup . kind == "method" then
+return ":" .. cleanup . name
+elseif cleanup . kind == "field" then
+return cleanup . field .. " -> " .. cleanupName ( cleanup . cleanup )
+end
+
+return cleanup . id or cleanup . kind
+end
+
+local function visit ( node , file , inUnsafe )
+if not node or cst . isToken ( node ) then
+return
+end
+if parsed . values . regions and node . kind == "block" and node . automaticOwners then
+local owners = { }
+for _ , owner in ipairs ( node . automaticOwners ) do
+if owner . lowerable then
+local cleanups , cleanupIds = { } , { }
+for _ , cleanup in ipairs ( owner . cleanups or { } ) do
+cleanups [ # cleanups + 1 ] = cleanupName ( cleanup )
+cleanupIds [ # cleanupIds + 1 ] = cleanup . id
+end
+owners [
+# owners + 1
+] = {
+name = owner . name ,
+line = owner . token and owner . token . line or 0 ,
+column = owner . token and owner . token . col or 0 ,
+capability = table . concat ( cleanupIds , "+" ) ,
+cleanups = cleanups ,
+optional = owner . optional == true ,
+mayMove = owner . moved == true or owner . movedFields ~= nil ,
+}
+end
+end
+if # owners > 0 then
+local activation , cleanup = { } , { }
+for _ , owner in ipairs ( owners ) do
+activation [ # activation + 1 ] = owner . name
+end
+for j = # owners , 1 , - 1 do
+cleanup [ # cleanup + 1 ] = owners [ j ] . name
+end
+regions [
+# regions + 1
+] = {
+file = file ,
+line = owners [ 1 ] . line ,
+column = owners [ 1 ] . column ,
+lowering = node . automaticDirect and "direct" or # owners > 1 and "fused" or "general" ,
+protection = node . automaticDirect
+and "elided: empty live interval and non-raising cleanup"
+or "raised exits and cleanup failures" ,
+activationOrder = activation ,
+cleanupOrder = cleanup ,
+owners = owners ,
+}
+end
+end
+if node . kind == "cdefFunc" and node . signatureType then
+local ft = node . physicalSignatureType or node . signatureType
+local params , results = { } , { }
+for j , param in ipairs ( ft . params or { } ) do
+if pointerShaped ( param , T ) then
+params [
+# params + 1
+] = {
+index = j ,
+name = ft . paramNames and ft . paramNames [ j ] ~= "" and ft . paramNames [ j ] or nil ,
+type = T . tostring ( param ) ,
+contract = ft . paramModes and ft . paramModes [ j ] or "plain" ,
+}
+end
+end
+for j , result in ipairs ( ft . rets or { } ) do
+if pointerShaped ( result , T ) or T . unwrapOwnership ( result ) . tag == "affine" then
+results [ # results + 1 ] = { index = j , type = T . tostring ( result ) }
+end
+end
+if # params > 0 or # results > 0 or ft . vararg then
+local entry = {
+file = file ,
+line = node . name and node . name . line or 0 ,
+name = node . name and node . name . text or "<anonymous>" ,
+parameters = params ,
+results = results ,
+variadic = ft . vararg == true ,
+trusted = true ,
+}
+if node . countedAbi then
+entry . countedBy = { }
+for _ , mapping in ipairs ( node . countedAbi . mappings or { } ) do
+entry . countedBy [
+# entry . countedBy + 1
+] = { access = mapping . kind , pointer = mapping . pointerName , count = mapping . countName , }
+end
+entry . zeroCount = "calls once; foreign implementation must not dereference"
+end
+foreign [ # foreign + 1 ] = entry
+end
+elseif node . kind == "fieldDecl" then
+for _ , application in ipairs ( node . annotations or { } ) do
+if application . name and application . name . text == "partition" then
+local token = firstToken ( application )
+unsafeSites [
+# unsafeSites + 1
+] = {
+file = file ,
+line = token and token . line or 0 ,
+column = token and token . col or 0 ,
+kind = "ownership contract: partitioned result fields" ,
+}
+end
+end
+elseif node . kind == "unsafeStmt" then
+local token = firstToken ( node )
+unsafeSites [
+# unsafeSites + 1
+] = {
+file = file ,
+line = token and token . line or 0 ,
+column = token and token . col or 0 ,
+kind = "unsafe assertion region" ,
+}
+inUnsafe = true
+elseif inUnsafe
+and node . ownershipIntrinsic
+and node . ownershipIntrinsic ~= "borrow"
+and node . ownershipIntrinsic ~= "drop"
+then
+local token = firstToken ( node )
+unsafeSites [
+# unsafeSites + 1
+] = {
+file = file ,
+line = token and token . line or 0 ,
+column = token and token . col or 0 ,
+kind = "ownership assertion: " .. node . ownershipIntrinsic ,
+}
+elseif inUnsafe and node . unsafeOwnershipOperation then
+local token = firstToken ( node )
+unsafeSites [
+# unsafeSites + 1
+] = {
+file = file ,
+line = token and token . line or 0 ,
+column = token and token . col or 0 ,
+kind = node . unsafeOwnershipOperation ,
+}
+end
+for _ , child in ipairs ( node ) do
+visit ( child , file , inUnsafe )
+end
+end
+
+for _ , file in ipairs ( sourceFiles ( parsed . positional , fs ) ) do
+local source = fs . readFile ( file )
+if source then
+local result = parser . parse ( source , file )
+if # result . errors == 0 then
+local diags = check . check ( result , file , env , { strict = false } )
+for _ , diag in ipairs ( diags ) do
+if diag . severity == "error" then
+failed = true
+end
+end
+visit ( result . root , file , false )
+else
+failed = true
+end
+else
+failed = true
+end
+end
+table . sort ( foreign , function ( a , b )
+return a . file == b . file and a . line < b . line or a . file < b . file
+end )
+table . sort ( unsafeSites , function ( a , b )
+return a . file == b . file and a . line < b . line or a . file < b . file
+end )
+table . sort ( regions , function ( a , b )
+return a . file == b . file and ( a . line == b . line and a . column < b . column or a . line < b . line ) or a . file < b . file
+end )
+local regionOrdinals = { }
+for _ , region in ipairs ( regions ) do
+local capabilities = { }
+for _ , owner in ipairs ( region . owners ) do
+capabilities [ # capabilities + 1 ] = owner . capability
+end
+local base = "automatic:" .. table . concat ( capabilities , "|" )
+regionOrdinals [ base ] = ( regionOrdinals [ base ] or 0 ) + 1
+region . id = base .. "#" .. tostring ( regionOrdinals [ base ] )
+end
+local report = { foreign = foreign , unsafe = unsafeSites }
+if parsed . values . regions then
+report . regions = regions
+end
+if parsed . values . format == "json" then
+require ( "nupp.compiler.cli.report" ) . write ( report )
+else
+io . write ( "Foreign ownership contracts\n" )
+for _ , entry in ipairs ( foreign ) do
+io . write (
+( "  %s:%d  %s%s\n" ) : format ( entry . file , entry . line , entry . name , entry . variadic and "  [variadic]" or "" )
+)
+for _ , param in ipairs ( entry . parameters ) do
+io . write (
+(
+"    parameter %d%s: %s  %s\n"
+) : format ( param . index , param . name and " " .. param . name or "" , param . type , param . contract )
+)
+end
+for _ , result in ipairs ( entry . results ) do
+io . write ( ( "    result %d: %s\n" ) : format ( result . index , result . type ) )
+end
+for _ , mapping in ipairs ( entry . countedBy or { } ) do
+io . write ( ( "    counted %s: %s by %s\n" ) : format ( mapping . access , mapping . pointer , mapping . count ) )
+end
+if entry . zeroCount then
+io . write ( "    zero count: " .. entry . zeroCount .. "\n" )
+end
+end
+io . write ( "Unsafe assertion sites\n" )
+for _ , entry in ipairs ( unsafeSites ) do
+io . write ( ( "  %s:%d:%d  %s\n" ) : format ( entry . file , entry . line , entry . column , entry . kind ) )
+end
+if parsed . values . regions then
+io . write ( "Automatic cleanup regions\n" )
+for _ , region in ipairs ( regions ) do
+io . write (
+(
+"  %s:%d:%d  %s  [%s]\n"
+) : format ( region . file , region . line , region . column , region . id , region . lowering )
+)
+io . write ( "    activate: " .. table . concat ( region . activationOrder , ", " ) .. "\n" )
+io . write ( "    cleanup: " .. table . concat ( region . cleanupOrder , ", " ) .. "\n" )
+end
+end
+end
+
+return failed and 1 or 0
+end
+
+return setmetatable({ spec =  command ,  run =  run }, spec.Handler)

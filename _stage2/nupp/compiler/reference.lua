@@ -1,0 +1,2173 @@
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local lints = require ( "nupp.compiler.lints" )
+local explain = require ( "nupp.compiler.explain" )
+
+local reference = { }
+
+
+reference.Section = {} reference.Section.__index = reference.Section
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+reference.Chapter = {} reference.Chapter.__index = reference.Chapter
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local SECTIONS = { setmetatable({ title =
+
+
+"Gradual typing over LuaJIT" ,  codes =
+{ } ,  body =
+[=[
+A gradually typed superset of LuaJIT's Lua dialect. Every valid LuaJIT program
+is a valid Nupp program: a `.lua` file is required, built and run unchanged, and
+the typed layer is refused in one (NUPP1006).
+
+The extension says which floor a file is held to, so it is visible where the
+file is rather than in a setting that governs everything at once:
+
+    .nupp     strict    unknown variables and untyped exports are errors
+    .g.nupp   gradual   the same typed syntax, without that floor
+    .d.nupp   gradual   declares an interface somebody else implements
+    .lua      gradual   plain Lua; the typed layer is refused
+
+Write `.g.nupp` while a file is being typed and rename it to `.nupp` when it is
+ready. The marker is not part of the module's name, so `models.g.nupp` is the
+module `models` and nothing that requires it changes when it moves.
+`nupp check --strict` holds every file to the floor whatever it is called, which
+is how to see what a rename would cost.
+
+Two things are not erased. A `struct` lowers to FFI cdata with a fixed layout,
+and C headers import as checked declarations. Everything else is ordinary Lua at
+run time.
+
+Generated code targets LuaJIT 2.1.1784535649 or newer.
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Declaring things" ,  codes =
+{ "NUPP2119" } ,  body =
+[=[
+A typed declaration says where it lives, the way an ordinary Lua definition
+does: `local` keeps it to the file, a qualified name puts it on that table, and
+`global` publishes it project-wide. Saying none of the three is refused rather
+than defaulted, because plain Lua would have made the name a global and the same
+silence is not reused for a different meaning.
+
+Inside its own body a declaration answers to its simple name, so a recursive
+field reads `User?` rather than `models.User?`.
+]=] ,  example =
+[=[
+local models = {}
+
+local type UserId = uint32
+global type AppId = uint64
+
+record models.User
+    id: UserId
+    name: string
+    email: string?
+end
+
+return models
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Types" ,  codes =
+{ "NUPP2101" , "NUPP2001" } ,  body =
+[=[
+Primitives: `any`, `unknown`, `never`, `nil`, `boolean`, `string`, `number`,
+`integer`, `table`, `thread`, `userdata`. The C numeric tower: `float`,
+`int8`…`int64`, `uint8`…`uint64`, plus `cdata`, `cstring` (`const char *`) and
+`voidptr`.
+
+`any` is gradual: compatible with everything, in both directions, silently.
+`unknown` is its sound counterpart: everything fits into it, but it fits
+nowhere else until narrowed or cast, the top of the type lattice. `never` is
+the bottom: uninhabited, so it fits anywhere and nothing but itself fits it,
+what a function that always raises, exits, or loops forever returns.
+
+`table` is gradual the same way toward table structures only, and is what `{}`
+infers as, so it drops out of a union already holding one: `opts = opts or {}`
+leaves a declared record still holding its fields.
+
+Postfix suffixes apply left to right: `T?` optional, `T*` pointer, `T[?]` a
+variable-length C array and `T[N]` a fixed one. C arrays are zero-based cdata,
+unlike the one-based `{T}`. `|` builds a union, a string literal is the type
+containing just that value, and `const T` is a read-only view.
+
+The fixed count may be an exact integer const expression. `T.[K]` is instead a
+semantic member lookup; its mandatory dot keeps those two meanings separate.
+
+Arithmetic on `integer` widens to `number`; annotate a result `number` unless
+you have narrowed it back.
+]=] ,  example =
+[=[
+local m = {}
+local type Id = uint32
+local type Maybe = string?
+local type Either = string | integer
+local type Mode = "read" | "write"
+local type Counts = {[string]: integer}
+local type Row = {integer}
+local type Point = {
+    x: integer,
+    y: integer
+}
+local type Handler = function(event: string): boolean
+local type Reply = unknown
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Functions" ,  codes =
+{ "NUPP2002" , "NUPP2106" } ,  body =
+[=[
+Parameters and results are annotated in the usual place. Several results are
+listed comma-separated; inside a function *type* a multi-result needs
+parentheses.
+
+In a strict file, meaning `.nupp` or any file under `--strict`, an exported
+function whose signature mentions `any` anywhere is treated as unannotated and
+reported: `any` is the absence of a type, not a type. A function that returns
+nothing still needs to say so, as `: nil`.
+
+A function that always raises, exits, or loops forever returns `never`; a call
+to it leaves the block it stands in, the way an inline `error` does.
+]=] ,  example =
+[=[
+local m = {}
+
+function m.add(a: integer, b: integer): integer
+    return a + b
+end
+
+function m.split(text: string): string, integer
+    return text, #text
+end
+
+function m.log(message: string): nil
+    print(message)
+end
+
+function m.fail(message: string): never
+    error(message)
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Named and plucked arguments" ,  codes =
+{ "NUPP2004" , "NUPP2006" , "NUPP2125" } ,  body =
+[=[
+Inside a parenthesized call, `name = value` fills that parameter directly.
+Named arguments follow every positional argument and appear in parameter order.
+They erase to ordinary positional Lua arguments; an omitted optional slot before
+a later named argument is emitted as `nil`.
+
+`(name) = value` fills that parameter from the field of `value` the parameter
+names: it means `name = value.name` and nothing more. `(a, b) = value` fills
+several parameters from one operand. Nothing is declared on the operand's type,
+so a plucked name reaches any record with a field of that name, including one
+the caller does not own. A name that is not a field of the operand is
+**NUPP2004**; the resulting binding is checked like any other named argument, so
+a field whose type does not fit its parameter is an ordinary rejected call.
+
+A group's names are a set rather than a sequence. Every read is a field of one
+path, so no order among them is observable and `(y, x)` binds exactly what
+`(x, y)` does. Ordering is enforced between arguments, not inside a group.
+
+A plucked operand is a name or dotted field path, such as `entity.position`.
+Bind calls, computed indexes, and other producing expressions to a local first;
+that restriction is what lets the reads be unordered and evaluated once. A
+statement-level call evaluates each dotted operand path and common prefix once,
+while the projected fields remain direct positional arguments. A nested
+expression instead repeats prefixes when needed; plucking never introduces a
+closure or upvalue. Plucking is a named binding, so positional arguments cannot
+follow it; a call keeps its several results only as the last argument, and so
+fills the remaining positional slots only when nothing is plucked after it. This
+applies to functions, callable records, methods, constructors, and specialized
+calls with a statically known positional pack. A bounded type parameter plucks
+through its bound, since the read is an ordinary field access. Safe statements and returns guard the optional
+callee, receiver, and method before binding paths; nested safe calls retain the
+native safe operator and its lazy argument evaluation.
+]=] ,  example =
+[=[
+local record Vec3
+    x: number
+    y: number
+    z: number
+end
+
+local record Entity
+    position: Vec3
+end
+
+local function draw(x: number, y: number, color: string?): nil
+    print(x, y, color)
+end
+
+local position = new Vec3(x = 1, y = 2, z = 3)
+local entity = new Entity(position = position)
+draw((x) = position, (y) = position, color = "blue")
+draw((x, y) = entity.position, color = "blue")
+draw(10, (y) = position)
+
+return position
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Generics and bounds" ,  codes =
+{ "NUPP2101" , "NUPP2131" } ,  body =
+[=[
+Type parameters go in angle brackets after the name. `T is Bound` constrains
+one, and the bound is an ordinary type, usually an interface. A `const Name:
+string|boolean|integer` binder carries a compile-time-known value through a type
+and erases from runtime code. `const Name: function` instead binds a named
+function declaration, so two applications naming different functions are
+different types. `T = Default` lets an application leave a trailing parameter
+out; one without a default cannot follow one with it.
+]=] ,  example =
+[=[
+local m = {}
+
+interface m.Named
+    name: string
+end
+
+function m.first<T>(xs: {T}): T?
+    return xs[1]
+end
+
+function m.labelOf<T is m.Named>(value: T): string
+    return value.name
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Type-level computation" ,  codes =
+{ "NUPP2130" , "NUPP2132" , "NUPP2133" , "NUPP2421" } ,  body =
+[=[
+`keyof T` and `writekeyof T` enumerate readable and writable keys. `T.[K]` and
+`writeof T.[K]` project their value types. A readonly or writeonly mapped shape
+iterates finite literal keys and may remap them with `as`.
+
+Backtick template types concatenate finite string literal sets. Const parameters,
+associated-type projections, and `unpackof` remain direct finite operators.
+
+Algorithms use ordinary Nupp in a `comptime function`. Parameters and results
+may be compiler-only `type` or `typepack` handles. `nupp.types` inspects immutable
+semantics and constructs structural types, never declarations. Calls use
+parentheses in type position and erase completely from generated Lua.
+
+Compile-only members use `comptime type` or `comptime function(...)`;
+projecting one outside comptime code is **NUPP2421**.
+]=] ,  example =
+[=[
+local m = {}
+
+local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
+
+local comptime function DeepElement(T: type): type
+    while nupp.types.kind(T) == "array" do
+        T = nupp.types.elements(T)[1]
+    end
+    return T
+end
+
+local events: Events<{
+    name: string
+}> = nil as any
+local callback: function(value: string): nil = events.nameChanged
+local deep: DeepElement({{integer}}) = 1
+print(callback, deep)
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Type packs and variadic generics" ,  codes =
+{ "NUPP2010" , "NUPP2121" , "NUPP2605" } ,  body =
+[=[
+`A...` declares a heterogeneous generic value sequence. A pack may have a fixed
+head and a generic or homogeneous tail. `unpackof T` makes a computed tuple a
+fixed tail, or a computed array a homogeneous tail, after generic inference and
+type reduction. `{T,}` is a one-slot tuple; `{T}` remains an array. An
+undecidable computed type stays gradual, while any other result is rejected.
+
+This lets one declaration derive later parameters from an earlier literal:
+`function<F is string>(format: F, ...: unpackof Arguments<F>)`. Under Lua's
+ordinary value adjustment, only a final unparenthesized call or bare `...`
+expands in an argument, assignment, or return list; parentheses project one
+value. The explicit `...value` field projection described above is resolved
+before that adjustment.
+
+Inside a computed tuple, `{Head, unpackof Tail}` appends the tuple produced by
+`Tail`; an array of `never` contributes no slots. A comptime function returning
+`typepack` can construct a complete pack through `nupp.types.pack`, and
+`nupp.types.error(message)` deliberately rejects a computed contract.
+
+Whole-pack unions preserve relationships between results. This is why testing
+the boolean returned by `pcall` narrows its sibling values to the callback's
+results or the failure value together. Discarding an affine slot while adjusting
+a list is an error.
+]=] ,  example =
+[=[
+local m = {}
+
+function m.forward<A...>(...: A...): A...
+    return ...
+end
+
+function m.protected<A..., R...>(callback: function(A...): R..., ...: A...): ((true, R...) | (false, any))
+    return pcall(callback, ...)
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Property capabilities" ,  codes =
+{ "NUPP2001" , "NUPP2009" } ,  body =
+[=[
+`readonly` and `writeonly` grant member access independently on shapes,
+interfaces, records, and indexers. A readonly property is covariant; a
+writeonly property is contravariant. Declaring both separately permits
+different types, while an unmodified property grants both capabilities at one
+invariant type.
+
+These are views of members. `const T` makes a whole value read-only, and
+`borrows`/`exclusive` describe lifetime and aliasing instead.
+]=] ,  example =
+[=[
+local m = {}
+
+local type Input = {
+    readonly value: string | integer
+}
+local type Output = {
+    writeonly value: string
+}
+
+record m.Cell
+    readonly value: string
+    writeonly value: string | integer
+    readonly [string]: string
+    writeonly [string]: string | integer
+end
+
+function m.fill(out: Output): nil
+    out.value = "ready"
+end
+
+function m.show(input: Input): string
+    return tostring(input.value)
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Intersections and overloads" ,  codes =
+{ "NUPP2124" , "NUPP2125" , "NUPP2126" , "NUPP2208" } ,  body =
+[=[
+`A & B` is the type of values satisfying both contracts. `&` binds more tightly
+than `|`, nested intersections flatten, duplicate members disappear, and
+`unknown` or gradual `any` add no constraint. Intersections compose structural
+capabilities: readable member types intersect, writable member types unite, and
+member names come from every constituent.
+
+When every member is a function, the intersection is an overload set. The
+checker adjusts the complete argument pack once, probes every candidate without
+changing ownership or borrow state, and applies the selected signature only
+when exactly one survives. There is no best-match ranking and source order does
+not break a tie. The winner supplies its complete result pack, predicates,
+`noreturn`, borrowing, ownership, and FFI output contracts.
+
+A record may declare several constructors with distinct parameter packs.
+`new T(...)` selects one with the same overload rule and emits a direct call to
+that constructor's indexed runtime function; no dispatcher exists at run time.
+
+Repeated method names likewise form an overload set without an annotation.
+Each body remains a separate method entry. A colon call selects exactly one and
+emits a direct call to its hidden runtime member; reading the overloaded method
+as a field is **NUPP2126**, because there is no single Lua value to return.
+Parameter packs must differ, because return types cannot select an entry.
+`@override` replaces the exact matching interface-default entry, leaving other
+overloads inherited. A bodyless interface may declare the operation as a
+callable-intersection field; matching record bodies use the same slots without
+`@override`, because no inherited body is being replaced.
+
+See [Overloads and overrides](type-system/overloads.md) for worked examples of
+method bodies, interface contracts, per-entry defaults, generics, constructors,
+ambiguity, and dynamic facades.
+]=] ,  example =
+[=[
+local type Named = {
+    readonly name: string
+}
+local type Counted = {
+    readonly count: integer
+}
+local type Entry = Named & Counted
+
+local type Parse = function(text: string): integer & function(text: string, base: integer): string
+
+local parse: Parse = nil as any
+local decimal: integer = parse("10")
+local hexadecimal: string = parse("10", 16)
+
+local record Decoder
+    function decode(self, text: string): string
+        return "text:" .. text
+    end
+
+    function decode(self, value: integer): string
+        return "integer:" .. tostring(value)
+    end
+end
+
+local decoder = new Decoder()
+local text: string = decoder:decode("source")
+local number: string = decoder:decode(42)
+
+return decimal, hexadecimal, text, number
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Records" ,  codes =
+{ "NUPP2004" , "NUPP2118" , "NUPP2202" , "NUPP2206" , "NUPP2207" , "NUPP2208" } ,  body =
+[=[
+A record is a table with declared fields. An inline function is an instance
+method when its first parameter is named `self`; without that parameter it is a
+static function on the record's own table. Records are built with `new`.
+
+`new` is how both records and structs are constructed, and the only way: it
+lowers to the metatable stamp and the ctype call directly, installing nothing,
+which is what leaves `__call` and `__new` to the program. Calling a record that
+declares no `__call` contract is **NUPP2202**, and `new` on anything that is not
+a record or a struct is **NUPP2206**.
+
+`new` is contextual: without a name after it on the same line, it remains an
+ordinary variable.
+
+A construction's values are its arguments: `new Point(x = 1, y = 2)`. The table
+is the compiler's to build, so the instance is the only allocation and an
+initializer table beside one is **NUPP2202**. Fields fill in written order, so
+their values evaluate where the source put them. `new Point(1, 2)` fills them in
+declaration order instead, builds the same table, and reports **NUPP2512**. A
+struct has no such choice: it is its C layout, so `new Vec2(1.0, 2.0)` lowers to
+`Vec2(1.0, 2.0)` with no table at any point, and naming its fields is
+**NUPP2202**.
+
+`local p: Point` declares storage and constructs nothing, so it holds nil until
+something assigns to it and reading it before that is **NUPP2207**.
+
+A `constructor(self, ...)` body is what `new T(...)` runs. The instance exists
+before the body and is returned after it; `self` names that instance rather than
+becoming a call argument. Distinct parameter packs may be overloaded. Declaring
+one closes direct construction, and every required field must be assigned or
+defaulted. Invalid constructor declarations are **NUPP2208**.
+
+A stored field may spell `name: T = value`, where the value is a closed scalar
+or table constant fitting `T`. Omitted construction fields and constructor
+instances receive the default; mutable tables are fresh each time. Defaults
+satisfy constructor completeness. Types have no implicit zero default, and
+interfaces reject field defaults.
+
+The declaration name is also its visible `Type<Point>` witness, rather than a
+`Point` instance. It may receive a metamethod; an instance may not. A function
+that wants a declaration rather than an instance takes `Type<P>`. The explicit
+`metatable<P>` type remains for tables passed to Lua's metatable functions.
+
+One explicit type per field: grouped names are rejected.
+]=] ,  example =
+[=[
+local m = {}
+
+--- A point in the plane.
+record m.Point
+    x: integer
+    y: integer
+
+    --- Its distance from the origin, squared.
+    function lengthSquared(self): number
+        return self.x * self.x + self.y * self.y
+    end
+end
+
+--- A point on a line through the origin.
+record m.Diagonal
+    x: integer
+    y: integer
+
+    constructor(self, at: integer)
+        self.x = at
+        self.y = at
+    end
+end
+
+local corner = new m.Diagonal(3)
+local origin = new m.Point(x = 0, y = 0)
+print(corner.x, origin:lengthSquared())
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Interfaces" ,  codes =
+{ "NUPP2001" , "NUPP2136" } ,  body =
+[=[
+An interface declares a shape without a body. `record X is Y` states that X
+includes Y, and the checker holds it to that.
+
+`sealed interface` instead requires an explicit `is` declaration in its owning
+module. The modifier follows visibility: `local sealed interface Token`. It adds
+no wrapper, dispatch, or runtime check.
+]=] ,  example =
+[=[
+local m = {}
+
+interface m.Named
+    name: string
+end
+
+record m.User is m.Named
+    name: string
+    id: uint32
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Default implementations" ,  codes =
+{ "NUPP2118" } ,  body =
+[=[
+An interface may implement what it declares, and a declaration that takes the
+contract takes the behaviour with it. The body is emitted once and referenced,
+so an implementor inherits the behavior rather than a copy, resolved where it
+is written rather than looked up at run time.
+
+This is the one thing that gives an interface a runtime presence: one that
+declares only signatures still emits nothing.
+
+`@override` is required on a member replacing an inherited default, and is an
+error on one replacing nothing. Two interfaces providing the same name are two
+implementations and no reason to prefer either, so the declaration writes the
+member itself to say which behaviour it means. Both are **NUPP2118**.
+]=] ,  example =
+[=[
+local m = {}
+
+interface m.Greeter
+    name: string
+
+    function greet(self): string
+        return "hello, " .. self.name
+    end
+end
+
+record m.Person is m.Greeter
+    name: string
+end
+
+record m.Shouter is m.Greeter
+    name: string
+
+    @override
+    function greet(self): string
+        return "HELLO"
+    end
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Associated types" ,  codes =
+{ "NUPP2127" , "NUPP2128" , "NUPP2129" , "NUPP2134" , "NUPP2135" } ,  body =
+[=[
+An interface may state a type it does not name. Whatever takes the contract
+names it, and the name is reached through whatever answered it: `T.Item` on a
+type parameter, `Lines.Item` on a declaration, `self.Item` inside a body.
+
+Where it is written says what it means. On an interface, `associated type Item`
+states a requirement and `is Bound` says what may answer; `= T` states a
+**default** an implementor may replace, and `== T` **fixes** the type so every
+implementor answers exactly it. Anywhere else, `= T` answers -- `==` is refused
+there, because a concrete declaration already answers exactly.
+
+That difference is what a value's type can rely on. A default stays **opaque**
+through an interface-typed value, since an implementor may answer otherwise; a
+fixed equality resolves through the interface itself. A default is copied to
+each concrete implementor, with `self` rebound there, so `associated type Value
+= self` reads as that implementor.
+
+An interface carrying associated requirements is nominal at that part: a
+structural value has nowhere to put an answer, so it is not one of these however
+many fields it has. An opaque projection fits its effective bound and exposes
+that bound's members -- read as the projection, so a `self`-returning member
+answers `T.Item` -- while the bound does not fit the projection. Through an
+intersection the requirements coalesce and their bounds intersect; through a
+union every alternative has to state the name, the bounds unite, and the answers
+distribute.
+
+Associated types are not nested `type` aliases: an alias is lexically scoped,
+reachable by path, and not inherited. They have no runtime representation at
+all, so a projection is only legal where a C layout is needed once it resolves
+concretely, an interface leaving one unsettled cannot carry `satisfies` -- `==
+any` is fixed and still settles nothing -- and an answer whose head inference
+never reached is checked as `any` and reported by `gradual-projection`.
+]=] ,  example =
+[=[
+local m = {}
+
+interface m.Component
+    componentId: integer
+    associated type Value = self
+end
+
+interface m.ScalarComponent<E> is m.Component
+    componentId: integer
+    associated type Value == E
+end
+
+record m.Position is m.Component
+    componentId: integer
+    x: number
+end
+
+record m.Archetype
+    function column<C is m.Component>(self, component: C): {C.Value}
+        return nil as any
+    end
+end
+
+local archetype = new m.Archetype()
+local health: m.ScalarComponent<number> = nil as any
+local position = new m.Position(componentId = 1, x = 0)
+
+local raw: {number} = archetype:column(health)
+local held: {m.Position} = archetype:column(position)
+
+return m, raw, held
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Refinements" ,  codes =
+{ "NUPP2122" } ,  body =
+[=[
+An interface may carry a `satisfies` declaration, which names the runtime test
+that decides whether a value is one of these. `x is T` compiles to it, so
+`s is m.Circle` below becomes `type(s) == "table" and s.kind == "circle"`.
+
+It is a function of the value, so it is written as one, in either spelling a
+function takes anywhere else: `satisfies |self| -> test`, or `satisfies(self):
+boolean ... end` whose body is the one `return` saying the same thing.
+
+Only an interface. A record is identified by the metatable `new` stamps and a
+struct by its ctype, so both already answer `is` exactly; a refinement beside
+either would be a second answer to a settled question. An interface has no
+runtime table at all, so this is the only identity it can have, and it is what
+lets a value this program did not build, a table off a decoder or anything an
+untyped library returned, answer `is` at all.
+
+The test runs wherever `is` is written, so it reads the declaration's own fields
+through `self` and nothing else: comparisons against literals, `type()` tests,
+and `and`/`or`/`not`. A call, arithmetic, an outside name, a refinement that
+always answers the same way, or one on a record or struct is **NUPP2122**, as
+is a declaration whose own fields provably fail an interface it declares.
+]=] ,  example =
+[=[
+local m = {}
+
+interface m.Shape
+    kind: string
+end
+
+interface m.Circle is m.Shape
+    kind: string
+    radius: number
+
+    satisfies |self| -> self.kind == "circle"
+end
+
+function m.area(s: m.Shape): number
+    if s is m.Circle then
+        return 3 * s.radius * s.radius
+    end
+    return 0
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Structs" ,  codes =
+{ "NUPP2203" } ,  body =
+[=[
+A `struct` reifies: it lowers to `ffi.typeof`, so it has a fixed layout and no
+hash lookup per field. `T[?]` and `T[N]` give contiguous arrays of them. This is
+the one place a type changes what the program does at run time rather than only
+what the checker accepts.
+
+Fields are what fits in C memory: the numeric types, `boolean`, another struct
+by value, a pointer, and a fixed array `T[N]`, which sits inline as N elements
+of the struct's own bytes. A `T[?]` field is refused, because a struct whose
+size depends on a count nobody wrote has none. A GC-managed type is refused too,
+so a `string` field means this wants to be a `record`; that is **NUPP2201**.
+
+A field may state a bit width after its type, which is the C bitfield it lowers
+to: `typeColon: boolean : 1` is one bit, and consecutive narrow fields share a
+word. Twenty-three `boolean` fields occupy twenty-three bytes; twenty-three
+`boolean : 1` fields occupy four. The field is still read and written as its
+declared type -- a one-bit `boolean` reads `true`, not `1` -- so packing changes
+the layout and nothing else.
+
+A struct may point at itself, which is how a linked structure is written. By
+value it cannot: that would have no size.
+
+`layoutof(T)` answers how one is laid out, with the fields in declaration order
+with their C types, offsets, sizes and padding, the struct's size, and a
+fingerprint over all of it. Reifying puts a value where nothing that walks a
+table can reach it, and this is what reaches it again without the language
+choosing a serialization format.
+]=] ,  example =
+[=[
+local m = {}
+
+struct m.Vec3
+    x: float
+    y: float
+    z: float
+end
+
+--- A fixed array sits inline; a pointer to this declaration links one to the next.
+struct m.Vertex
+    pos: float[3]
+    uv: float[2]
+    next: m.Vertex*?
+end
+
+local type Buffer = m.Vec3[?]
+local type Fixed = m.Vec3[16]
+
+local vertex = new m.Vertex()
+vertex.pos[0] = 1.5
+
+local layout = layoutof(m.Vertex)
+print(layout.size, layout.fingerprint)
+for _, field in ipairs(layout.fields) do
+    print(field.name, field.ctype, field.offset, field.size, field.padding)
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Literal and tagged unions" ,  codes =
+{ "NUPP2107" } ,  body =
+[=[
+A union of string literals is a closed set of values, which is what other
+languages spell `enum`. It erases: the value at run time is the plain string,
+and a bare literal lands in it. A dispatch over one that leaves members
+unhandled is reported, which is what makes adding a member a compile-time task
+list rather than a run-time surprise.
+
+A union of records, each carrying a literal-typed field, is a tagged union:
+the field is the tag, and comparing it narrows the union to the one record
+that declares that tag. That is the form to reach for when the alternatives
+carry data, since a bare literal carries none.
+]=] ,  example =
+[=[
+local m = {}
+
+type m.Color = "red" | "green" | "blue"
+
+function m.describe(c: m.Color): string
+    if c == "red" then
+        return "warm"
+    elseif c == "green" then
+        return "cool"
+    else
+        return "cool"
+    end
+end
+
+record m.Circle
+    kind: "circle"
+    radius: number
+end
+
+record m.Square
+    kind: "square"
+    side: number
+end
+
+type m.Shape = m.Circle | m.Square
+
+function m.area(shape: m.Shape): number
+    if shape.kind == "circle" then
+        return 3.14159 * shape.radius * shape.radius
+    end
+    return shape.side * shape.side
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Narrowing" ,  codes =
+{ "NUPP2001" } ,  body =
+[=[
+`e is T` tests a type and narrows in the branch it proves. A truthiness test
+narrows an optional, including through a field path copied into a local. `e as
+T` is an explicit cast where you know better than the checker.
+
+A function may return a predicate, `p is T`, meaning it answers whether that
+parameter holds the type. The value returned is a boolean, and the caller
+narrows on it.
+]=] ,  example =
+[=[
+local m = {}
+
+local function isString(v: any): v is string
+    return type(v) == "string"
+end
+
+function m.describe(value: string | integer): string
+    if isString(value) then
+        return "text of " .. #value .. " bytes"
+    end
+    return "number " .. value
+end
+
+function m.nameOf(user: {
+    name: string?
+}): string
+    local name = user.name
+    if not name then
+        return "anonymous"
+    end
+
+    return name
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Affine resources" ,  codes =
+{
+"NUPP2603" ,
+"NUPP2606" ,
+"NUPP2607" ,
+"NUPP2608" ,
+"NUPP2609" ,
+"NUPP2610" ,
+"NUPP2611" ,
+"NUPP2612" ,
+"NUPP2613" ,
+"NUPP2614" ,
+"NUPP2615"
+} ,  body =
+[=[
+`affine(T[, cleanup])` is a transparent compile-time type-generator call, normally
+named as `type HeldLock = affine(LockToken, unlock)`. Identity combines `T` and the
+exact const cleanup function; no wrapper is allocated. Cleanup has type
+`nosuspend function(takes T): nil`. `affine(T)` is transfer-only.
+
+A known affine local is destroyed at scope exit. `drop owner` invokes its selected
+terminal now. `unsafe adopt raw as SomeAffine` asserts a fresh obligation;
+`unsafe release owner` consumes it without cleanup. `takes` and affine returns move it.
+
+Parameter modes describe calls: `takes` consumes; `borrows` is call-scoped;
+`exclusive` also requires sole access; `retains`/`releases` describe C holding a
+pointer across calls.
+
+`T preserves value` moves an exact capability through one unambiguous scalar,
+aggregate, union/intersection, mapped, projected, or callable result path. Callable
+assignment keeps that relation exactly. `T borrows (source)` ties a result or nominal
+field to a root. Closures borrow captured owners by default. `takes (source)` makes a
+single-shot closure; `scoped` proves callback captures cannot escape.
+
+Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds
+dynamic owners. `nupp.span` provides `Span<T>` and affine `WriteSpan<T>` views;
+fixed variants remove a runtime length check. `nupp.heap.Array<T>` moves its count
+with its private pointer. Suspension cannot strand an obligation.
+
+`WriteSpan.getMut(index)` returns a checked mutable element pointer borrowed
+from the writer, excluding overlapping access. An exclusive parameter may be
+forwarded while no derived borrow is live.
+
+Fields, tuple slots, dereferences, exact indexes, and ranges use one region algebra;
+unknown indexes and bounds overlap. After checking runtime bounds, unsafe library code
+uses `nupp.region(parent, child, first, last)` to attach an exact interval; the call
+erases to `child`. Loop back edges restore their complete capability state.
+`WriteSpan.splitAt(mid)` creates audited disjoint regions. `countedBy(count)` maps
+cdef pointer/count parameters to checked spans.
+
+Direct pointer or variable-length C-array indexing requires `unsafe`; use a span
+for checked bounds. Fixed arrays reject bad literals and guard dynamic indexes.
+
+The remaining ownership helpers are `nupp.attemptAll`, `nupp.borrow`,
+`nupp.borrowFrom`, and `nupp.pin`. `attemptAll` tries every cleanup in order and
+raises the first failure with the rest suppressed. Local names shadow helpers.
+
+Capabilities cannot disappear into `any`. `nupp.dynamic` holds self-contained
+cleanup capabilities behind copyable generation-checked handles; `recover` checks
+an erased handle's policy and `take` restores its exact capability. Watch-mode policy
+changes are rejected while matching entries are live; cleanup-body changes keep their
+stable identity and use the patched function slot. Public APIs spell modes and result
+relations only for capability-bearing values.
+]=] ,  example =
+[=[
+local m = {}
+
+local record File
+    closed: boolean
+
+    function drop(takes self): nil
+        self.closed = true
+    end
+end
+
+local function closeFile(takes file: File): nil
+    file.closed = true
+end
+
+function m.open(): affine(File, closeFile)
+    return new File(closed = false)
+end
+
+function m.closeNow(): nil
+    local file = m.open()
+    drop file
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"C interop" ,  codes =
+{ "NUPP2203" , "NUPP2101" , "NUPP2502" , "NUPP2514" , "NUPP2602" , "NUPP2619" , "NUPP2707" } ,  body =
+[=[
+`cdef` declares C functions, structs, unions, and integer bitfields.
+`from "lib"` uses `ffi.load`; omitting it uses the default namespace.
+
+`cheader('path.h')` types a pinned header through LuaJIT's C parser at compile
+time. `nupp import-c` ejects the same declarations as an editable module. Both
+preserve unions and bitfields.
+
+An output contract is written on the output value. `affine(T, cleanup)*` on an
+`out` slot returns an affine value; `T* borrows (source)` returns a view tied to
+one or more shared inputs. `Success<T, N>` and `Failure<T, N>` on the C return
+describe when those output slots are initialized. All three wrappers erase from
+the physical ABI.
+
+`nupp export-c -o game.h src/game.nupp game.Position game.integrate` goes the
+other direction. It gives an ordinary reified Nupp struct one deterministic,
+module-qualified C typedef, emits target-specific layout fingerprints and
+static assertions, and publishes selected typed `cdef function` prototypes.
+Ordinary structs cross this boundary through pointers or arrays, not by value;
+Nupp keeps its anonymous runtime ctype and owns the physical pointer bridge.
+Generating a header invokes no C compiler.
+
+C callback positions survive aliases. Passing Lua to one reports
+`jit-callback`; a variadic C call reports `jit-boundary`. Disable the cold
+function with `jit.off`. `@jit` makes avoiding both boundaries a checked
+contract (NUPP2707).
+
+Reconstructing a raw pointer is confined to `unsafe do` blocks.
+]=] ,  example =
+[=[
+local m = {}
+
+cdef struct Point
+    x: float
+    y: float
+end
+
+cdef function labs(n: int32): int32
+cdef function point_view(borrows owner: voidptr,
+    out point: Point** borrows (owner)): Success<int32, 0>
+
+function m.magnitude(n: int32): int32
+    return labs(n)
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Fixed-width scalar arithmetic" ,  codes =
+{ "NUPP2001" , "NUPP2004" , "NUPP2011" , "NUPP2012" } ,  body =
+[=[
+`float`, `int32`, and `uint32` are unboxed refinements of Lua numbers. They
+widen to `number` without code, while entering one requires evidence: an exact
+literal, a reified load, an explicit conversion, or another established
+fixed-width value. The erased assertion `as` changes a static claim but does
+not establish it.
+
+The establishing conversions are `nupp.math.f32.narrow(number)`,
+`nupp.math.i32.wrap(integer)`, and `nupp.math.u32.wrap(integer)`. `narrow`
+performs one binary32 store/load without changing a NaN payload; `f32.round`
+retains its canonical-NaN contract.
+
+Ordinary arithmetic still has LuaJIT's numeric meaning and produces `number`.
+Code that requires an explicitly sized operation calls `nupp.math.i32`,
+`nupp.math.u32`, or `nupp.math.f32`; its fixed-width inputs must already be
+established.
+
+The integer namespaces wrap modulo 2^32; shift counts are masked by 31 and
+signedness is stated by the operation. The binary32 namespace rounds every
+input and result to nearest, ties to even. It preserves signed zero,
+subnormals, and infinities, canonicalizes every NaN, and makes `fma` one fused
+operation. `fromBits` and `toBits` expose the canonical bit contract.
+
+Calls use Lua numbers in canonical ranges rather than allocating scalar cdata.
+Aliasing a standard member preserves its intrinsic identity; shadowing its
+spelling is an ordinary call.
+
+`int8`, `int16`, `uint8`, and `uint16` are storage-only names. They may describe
+struct fields, C arrays and pointers, cdefs, and standard span elements, but
+not ordinary locals, parameters, results, record fields, or unrelated generic
+arguments. Loading signed narrow storage yields `int32`; loading unsigned
+narrow storage yields `uint32`. A real struct, C-array, span, or cdef store may
+narrow a wider numeric source because the physical store performs that
+conversion; a table-backed record write may not.
+]=] ,  example =
+[=[
+local m = {}
+
+function m.step(flags: uint32, distance: number, inverseTime: number): (uint32, float)
+    local rotated = nupp.math.u32.rotateLeft(flags, 7)
+    local d = nupp.math.f32.narrow(distance)
+    local dt = nupp.math.f32.narrow(inverseTime)
+    local speed = nupp.math.f32.mul(d, dt)
+    return rotated, speed
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Checked span views" ,  codes =
+{ "NUPP2001" , "NUPP2004" , "NUPP2602" , "NUPP2604" } ,  body =
+[=[
+`nupp.span` wraps rooted C arrays in sealed, bounds-checked shared and writable
+views. `WriteSpan.slice(first, last)` returns one affine child writer; its
+parent remains blocked until that child is committed or dropped. Empty slices
+use the inclusive `first, first - 1` convention.
+
+`span.range(first, last, ...)` validates one inclusive range against every
+supplied standard span and returns ordinary `first` and `last` integers. Its
+typed borrowed vararg passes each original span unchanged and allocates no
+container. A const-bound range over const-bound spans also proves matching
+`get`, `getMut`, and `set` indices non-raising in the dominated numeric loop.
+The access itself remains an ordinary checked span operation.
+]=] ,  example =
+[=[
+local span = require("nupp.span")
+local m = {}
+
+local struct Value
+    n: integer
+end
+
+function m.total(): number
+    const storage = carray(Value, 4)
+    const values = span.fromCarray(storage, 4)
+    const rows = span.range(1, 4, values)
+    local total = 0
+    for index = rows.first, rows.last do
+        total = total + values:get(index).n
+    end
+    return total
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Annotations" ,  codes =
+{ "NUPP2119" } ,  body =
+[=[
+An annotation is declared as a record or struct carrying `@annotation`, whose
+`targets` list says where it may be applied. Its fields are the annotation's
+members, and values are compile-time constants. Unknown annotations, wrong
+targets and wrong value types are errors, so an annotation never becomes a
+silently erased comment.
+
+Applications spell an unqualified `@name`, so a definition is registered
+project-wide and is the one declaration exempt from the visibility rule. Both
+the definition and every application are erased from the generated Lua.
+
+Built-in contracts use the same surface. `@effects` is a complete effect
+summary: visible bodies are checked against it and bodyless declarations are
+trusted. `const` is the shallow identity promise for a bodyless binding in a
+`.d.nupp`; it does not freeze a table's fields. `@relax` records a closed set
+of observable guarantees an optimization may change, locally to one function.
+`@deprecated(reason = "...", replacement = "...")` marks an API for tooling:
+uses report the suppressible `deprecated` lint, editors strike it through and
+show the migration detail, and generated documentation retains the annotation.
+It changes no runtime behavior.
+
+`@jit` enforces traceability: a variadic FFI call or Lua callback passed into C
+must live in a function disabled with `jit.off`, or it reports NUPP2707.
+
+`@aot` reserves a required whole-function ahead-of-time compilation contract.
+The current release checks its target and structural source subset but still
+emits the ordinary Lua body; production AOT artifact generation is not yet part
+of `nupp build`. A closure, table, interpolated string, vararg, `goto`, dynamic
+call, or unsafe operation inside one reports NUPP2903 at the construct. Stacking
+it with `@jit` promises one body to two compilers and reports NUPP2901, and a
+constructor or inline requirement is not a whole function to compile, so
+annotating one reports NUPP2902.
+
+An `@aot` body of one top-level numeric map loop may also be lowered
+lane-parallel, at a width taken from the lane types its own values need; nothing
+in the source names a lane, a mask, or a width. Whether that pays is decided from
+the arithmetic the loop does per byte it touches, since it wins in registers and
+loses streaming memory. `@aot(lanes = true)` and `lanes = false` override that
+estimate; neither requires the lowering to succeed. Removing either annotation
+changes the compilation strategy, never the answer.
+]=] ,  example =
+[=[
+local m = {}
+
+@annotation(targets = {"record", "struct"})
+record serializable
+    format: string
+    version: integer?
+end
+
+@serializable(format = "json")
+record m.User
+    id: uint32
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Declaration derives" ,  codes =
+{
+"NUPP2801" ,
+"NUPP2802" ,
+"NUPP2803" ,
+"NUPP2806" ,
+"NUPP2807" ,
+"NUPP2808" ,
+"NUPP2809" ,
+"NUPP2810" ,
+"NUPP2811" ,
+"NUPP2812" ,
+"NUPP2813" ,
+} ,  body =
+[=[
+`@derive` applies closed comptime recipes.
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Docblocks" ,  codes =
+{ "NUPP1007" , "NUPP2506" } ,  body =
+[=[
+A leading `@!internal` inner annotation keeps a file out of public generated
+documentation. On `init.nupp`, it also hides every descendant module; private
+documentation builds include the complete tree.
+
+An adjacent `---` run documents the declaration under it. `@param`, `@return`,
+`@field`, `@typearg`, `@local`, `@internal` and `@export` are understood. An
+`@internal` declaration stays out of public output but remains in private
+documentation builds. `nupp doc` renders them.
+
+An `@param` name must be one of the declaration's real parameters. A typo is
+**NUPP1007**, so generated documentation cannot quietly publish an argument the
+function does not accept.
+
+`@raises` says what makes a function raise, one line per condition. It is the
+other docblock tag the checker reads as well as renders: a documented function
+that calls `error` without one is `undocumented-raise`. Raising is part of how a
+function is called, and Lua has no signature to find it out from.
+]=] ,  example =
+[=[
+local m = {}
+
+--- Reads a configuration file.
+---
+--- @param path where to read from
+--- @return the file's contents
+--- @raises when the file cannot be read
+function m.load(path: string): string
+    local file = io.open(path, "r")
+    if not file then
+        error("no such file: " .. path)
+    end
+
+    return file:read("*a")
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Modules" ,  codes =
+{ "NUPP2120" , "NUPP2101" } ,  body =
+[=[
+A module is a Lua file: `require` gets the value it returns. Runtime
+declarations attach to a returned table and determine its type; paths such as
+`models.user.User` may also name types.
+
+An annotated `function M.name(...)` signature is visible to sibling bodies in
+either source order. Assignments, local functions and runtime writes remain
+source-ordered.
+
+The returned local names the module; there is no `module` keyword. `const
+M.field = value` makes one export immutable; on a fresh table, `const` marks one
+named slot and `const...` marks them all. Primitive literal types survive in
+consumers.
+
+A `.d.nupp` file returns no table; its bare declarations describe an external
+interface.
+]=] ,  context =
+{
+[ "models.nupp" ] = [=[
+local models = {}
+
+record models.User
+    id: uint32
+    name: string
+end
+
+return models
+]=]
+} ,  example =
+[=[
+local models = require("models")
+
+local user: models.User = new models.User(id = 1, name = "ada")
+
+return user
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"LuaJIT 3.0 syntax" ,  codes =
+{ "NUPP2504" } ,  body =
+[=[
+Nupp implements every LuaJIT 3.0 syntax extension and adds to them. Most is
+written straight through to the output, because LuaJIT 2.1 backported it.
+
+Available: `continue`; compound assignment (`+= -= *= /= //= %= &= |=`); the
+ternary `c ? a : b`; `??` for nil-coalescing; safe navigation `?.`; short
+functions `|x| -> e`; `const` bindings including `const function` and immutable
+named table fields; and the customary spellings `!`, `&&`, `||`, `!=`.
+
+`const M.field = value` initializes an immutable field. Inside a fresh table
+constructor, `const name = value` does the same for a named slot. `const...`
+before the outer field declaration is sugar that applies it recursively to the
+new table graph:
+
+```nupp
+local M = {}
+const ... M.settings = {name = "nupp", nested = {count = 0}}
+return M
+```
+
+The checker rejects later writes through those paths. Plain `const M.field`
+remains shallow: ordinary inner fields stay mutable unless they are themselves
+declared `const`.
+
+The customary spellings are legal but linted: `not`, `and`, `or` and `~=` are
+the ones Lua already has, and two spellings of one thing drift apart across a
+codebase. Suppress per statement with `@allow("customary-operator")`.
+]=] ,  example =
+[=[
+local m = {}
+
+function m.demo(n: integer, flag: boolean, label: string?): integer
+    local total = n
+    total += 1
+    local shown = flag ? "on" : "off"
+    local name = label ?? "anonymous"
+    for i = 1, 10 do
+        if i == 5 then
+            continue
+        end
+        total += i
+    end
+    local double = |x: integer| -> x * 2
+
+    return total + #shown + #name + double(2)
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Lints and suppression" ,  codes =
+{ "NUPP2108" } ,  body =
+[=[
+A type error says the program does not mean what it says it means: nothing
+configures or silences it. A lint says the program means something you probably
+did not intend, so it has a name, a level a project can move, and a suppression
+a statement can apply.
+
+`@allow` takes lint names or codes, applies to the statement it decorates and
+nothing beyond it, and reaches any lint at any level. Bare `@allow` silences
+every lint on that statement. It does not reach a type error; naming one is
+NUPP2108.
+
+Levels are set in `nupp.lua` under `lints`, by name or by category, resolving
+registry default → category → name → `@allow`.
+]=] ,  example =
+[=[
+local m = {}
+
+function m.toggle(flag: boolean): boolean
+    @allow("customary-operator")
+    local inverted = !flag
+    return inverted
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Suspension regions" ,  codes =
+{ "NUPP2701" , "NUPP2702" , "NUPP2706" } ,  body =
+[=[
+`nosuspend do ... end` refuses, while compiling, any call inside it that may
+suspend the current coroutine. It is lexical and static: it erases to an
+ordinary `do` block and has no run-time component at all.
+
+Suspension is inferred from `coroutine.yield` and transitive calls, including
+nominal methods, and travels on callable module interfaces. An unresolved
+callee remains conservatively may-yield.
+
+**NUPP2701** names the call and the path from it to the suspension, since a
+refusal is not actionable when the yield is four functions away.
+
+For anything whose body this compiler never sees, such as a declared host
+binding, a C function, a parameter or a callback, the guarantee is written in
+the type:
+
+    nosuspend function(x: number): integer
+
+The positive guarantee participates in identity, subtyping, aliasing and
+substitution. An unmarked type remains may-yield; a `nosuspend function` fits
+an ordinary slot, but not conversely. Pure library calls such as `math.floor`
+carry the same declaration rather than a special case.
+
+`nosuspend` says control cannot be suspended, not that a callback is
+effect-free. A yielding comparator or replacement still fails at its C-call
+boundary under **NUPP2702**.
+
+`nosuspend` opens a region when `do` follows it and qualifies a type when
+`function` does; elsewhere it is an ordinary name.
+
+Handled exits release first; **NUPP2706** rejects jumps in, which would bypass
+installation.
+]=] ,  example =
+[=[
+local m = {}
+
+local function total(values: {integer}): number
+    local sum = 0
+    for index = 1, #values do
+        sum = sum + values[index]
+    end
+
+    return sum
+end
+
+function m.commit(values: {integer}, report: nosuspend function(n: number): nil): number
+    local answer = 0
+    nosuspend do
+        answer = total(values)
+        report(answer)
+    end
+
+    return answer
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Allocation and raising regions" ,  codes =
+{ "NUPP2710" , "NUPP2711" , "NUPP2112" } ,  body =
+[=[
+`noalloc do ... end` requires every reachable modeled operation to avoid
+Nupp/Lua-managed allocation. `noraise do ... end` independently requires that
+no modeled path raises a catchable Nupp/Lua error. Both are lexical static
+checks and erase to ordinary `do` blocks without guards or protected calls.
+
+Visible functions are inferred to a pessimistic fixed point, including
+automatic cleanup. Exact direct exports transport only the positive
+`noAllocate` and `noRaise` facts a dependant observes; complete read, write,
+escape, and return summaries remain file-local. Unknown callbacks, methods,
+gradual calls, and uncontracted C functions prove neither fact.
+
+A bodyless or foreign declaration may establish a fact with a trusted
+`@effects` contract. That is a promise about the unseen implementation, not a
+proof about an OS, driver, or process-wide allocator. A visible body is still
+checked against its contract under NUPP2112.
+]=] ,  example =
+[=[
+local m = {}
+
+local function quiet(value: uint32): uint32
+    return nupp.math.u32.add(value, 1)
+end
+
+function m.advance(value: uint32): uint32
+    local result = value
+    noalloc do
+        noraise do
+            result = quiet(value)
+        end
+    end
+    return result
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Comptime" ,  codes =
+{
+"NUPP2410" ,
+"NUPP2411" ,
+"NUPP2412" ,
+"NUPP2413" ,
+"NUPP2414" ,
+"NUPP2415" ,
+"NUPP2416" ,
+"NUPP2419" ,
+"NUPP2420" ,
+"NUPP2421" ,
+} ,  body =
+[=[
+`comptime do ... end` is an expression whose value is computed while the file is
+compiled. The block is ordinary Nupp, and what it returns is written into the
+generated Lua as a literal, so nothing of the work survives into the program.
+`comptime` opens a block only when `do` follows it on the same line; everywhere
+else it is an ordinary name.
+
+Its reason to exist is the loop that accumulates: a table built by iterating,
+which no rewrite of an expression can produce. A constant expression does not
+need it, because `-O1` already folds one.
+
+A block returns exactly one value, and that value is checked where it lands, so
+a result that does not fit its declared type is the ordinary error it would be
+if you had typed the literal out. Quotable results are nil, booleans, numbers
+that read back unchanged, strings, and acyclic tables of those with no
+metatable. A table reachable by two paths is **NUPP2413** rather than two
+tables; NaN and the infinities have no literal spelling.
+
+A sealed compiler provider may instead return an opaque description that has no
+literal spelling. It materializes only when the block directly initializes a
+declaration with an explicit provider-owned runtime type. An inferred binding or
+opaque value hidden in an ordinary table is **NUPP2414**. A declared type for
+which the opaque result has no registered materialization relation, or a worker
+payload that fails the provider's schema and fingerprint checks, is
+**NUPP2415**. A finalized blueprint or generated runtime expression over its
+provider limit is **NUPP2416**. Providers return a closed structured expression;
+they cannot return source, declarations, imports, or references to source
+bindings.
+
+A block reads only its own locals and the compile-time environment. A runtime
+local, an upvalue, module state, or a global is **NUPP2410**, and it may not
+write to one either. The environment is an allowlist: `assert`, `error`,
+`ipairs`, `pairs`, `select`, `tonumber`, `tostring`, `type`, and named members
+of `math`, `string`, `table` and `bit`. A member the allowlist leaves out is
+**NUPP2411** and says which. There is no `io`, `os`, `require`, `ffi`, `debug`,
+`load`, clock, or randomness.
+
+Determinism excludes platform-varying libm functions and table-address
+`tostring`; `pairs` is sorted. Evaluation runs in an isolated, cancellable
+worker with step, call-depth, time, memory, result, and protocol limits, so a
+crash or oversized result fails only that block.
+
+`comptime function` declares a reusable compile-only callable; `comptime do ... end`
+evaluates one expression. Helpers share the caller's budgets, may inspect
+`nupp.reflect.Info`, and erase from runtime output. They are not yet generic or variadic.
+
+Comptime produces data, never declarations or source. `nupp build --json`
+reports materialization identities, fingerprints, sizes, runtime features, and
+ABI versions; manifest caches retain the canonical blueprint and lowering.
+]=] ,  example =
+[=[
+local m = {}
+
+local comptime function step(acc: integer): integer
+    return acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
+end
+
+const CRC32 = comptime do
+    const entries = {}
+    for byte = 0, 255 do
+        local acc = byte
+        for _ = 1, 8 do
+            acc = step(acc)
+        end
+        entries[byte + 1] = acc
+    end
+    return entries
+end
+
+function m.checksum(text: string): integer
+    local acc = 0xffffffff
+    for index = 1, #text do
+        acc = CRC32[((acc ~ text:byte(index)) & 0xff) + 1] ~ (acc >> 8)
+    end
+
+    return acc ~ 0xffffffff
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"PEG matchers" ,  codes =
+{ "NUPP2414" , "NUPP2415" , "NUPP2416" , "NUPP2417" } ,  body =
+[=[
+`nupp.peg.compile(grammar, options?)` compiles LPeg-re-style byte grammar text
+at either phase into a typed matcher backed by native LPeg and selected Nupp
+specializations. In `comptime`, its opaque blueprint's capture shape supplies
+`nupp.peg.Peg<R...>` when
+unannotated. A literal runtime grammar infers the same type; a dynamic string
+returns `Peg<...any>`. `Peg<R...>` satisfies `Matcher<R...>`, so a generic
+adapter can return `((R...) | (nil))`. `Backend`, `Definitions`, and
+`CompileOptions` are also direct types on `nupp.peg`; `Action` and `Actions` are
+deprecated aliases for older Nupp sources.
+
+`peg(subject, init)` and `peg:match(subject, init)` are equivalent. A recognizer
+returns the next 1-based byte position or nil. `init` defaults to 1 and may be
+negative; matching is unanchored unless the grammar ends in `!.`. `isMatch`
+searches for a boolean result, while `find` returns the half-open `first, next`
+range followed by the result pack. Both include the empty position after the
+final byte.
+
+`forEachMatch` visits every non-overlapping `first, next, R...` result.
+`replace` changes the first match and `replaceAll` changes each one, using
+either literal text or a callback returning text. Empty matches advance one byte
+so iteration and replacement cannot stall. None of these operations allocates
+match records or result tuples; see `docs/peg.md` for the complete contracts.
+
+### Writing expressions
+
+The notation is byte-oriented. Whitespace is ignored between expressions and
+`--` comments run to the end of their line. Its precedence from tightest to
+loosest is primary expressions, suffixes, predicates, sequence, then ordered
+choice.
+
+```
+ Form                  Meaning
+ ────────────────────  ─────────────────────────────────────────────────────
+ 'text', "text"        exact literal bytes
+ .                     any one byte
+ [a-z_], [^0-9]        one byte inside or outside a class
+ %a, %d, %s, %w, %x    ASCII letter, digit, space, alphanumeric, or hex byte
+ %name                 pattern supplied by CompileOptions.definitions
+ p q                   sequence
+ p / q                 ordered choice, trying p before q
+ p?, p*, p+            optional, zero or more, or one or more
+ p^n, p^+n, p^-n       exactly, at least, or at most n repetitions
+ &p, !p                positive or negative predicate without consumption
+ { p }                 substring capture
+ {}                    current byte-position capture
+ {| p |}               collect the captures made by p into an array
+ {: name: p :}         group captures under name, which is optional
+ {~ p ~}               substitution capture
+ =name                 match the text in named group name
+ p -> {}               collect captures into a table
+ p -> n, p -> 'text'   select capture n, or format captures into text
+ p -> name             transform captures through definition name
+ p => name             match-time definition name
+ p >> name, p ~> name  accumulator and fold definitions
+ name <- p             rule definition; the first rule is the start rule
+ name, <name>          rule reference inside a grammar
+ !.                    end-of-input assertion
+```
+
+Quoted strings contain literal bytes and do not process backslash escapes. A
+class may contain ranges and predefined classes. The long predefined names are
+`%alpha`, `%cntrl`, `%digit`, `%graph`, `%lower`, `%nl`, `%punct`, `%space`,
+`%upper`, `%alnum`, and `%xdigit`; an uppercase one-letter form such as `%D`
+means the complement of its lowercase class.
+
+PEG choice is ordered rather than symmetric. Put a longer literal before its
+prefix: `'integer' / 'in'`, not `'in' / 'integer'`. Repetition is possessive
+and its body must consume input whenever it succeeds, so nullable expressions
+such as `('')*` are rejected. Parentheses group an expression before a suffix
+or make precedence explicit.
+
+### Captures and definitions
+
+A capture `{ p }` returns its matched substring, `{}` returns the current byte
+position, and `{| p |}` or `p -> {}` makes several captures one explicit table
+result. Named groups assign table fields, substitution captures rewrite their
+matched substring, and `=name` matches a prior named capture. Nupp matchers have
+one top-level result; wrap multiple or repeated captures in a table. Every
+ordinary ordered-choice arm must have the same capture shape.
+
+`p -> name` is an ordinary transformation and is deferred until the complete
+match succeeds, so discarded PEG alternatives cannot cause user-code side
+effects. `p => name` is a true LPeg match-time capture: its function receives
+the subject and current position, may inspect captures, and returns the next
+position plus new captures. `>>` accumulates and `~>` folds captures. `%name`
+obtains an external pattern. Runtime values live in `{definitions = values}`. A
+static grammar instead materializes as a factory whose closed parameter record
+contains exactly the referenced names.
+
+### Rules and validation
+
+Recursive grammars use `name <- p` definitions and `name` or `<name>`
+references. Every reference must resolve, repetitions may not contain a
+nullable expression, ordered-choice capture shapes must agree, and left
+recursion is rejected. Those invalid grammars are **NUPP2417** while the common
+materialization boundary and size diagnostics remain **NUPP2414** through
+**NUPP2416**.
+
+### Compilation and backends
+
+Both phases produce one validated canonical PEG graph and matcher shell. The
+default `auto` backend recognizes fixed-width, repeated-byte, and packed scan
+shapes and emits straight-line Lua for them. Every other graph lowers directly
+to native LPeg; Nupp has no PEG bytecode or general interpreter.
+
+LPeg pattern userdata has no public traversable AST from which to recover
+capture types or optimization facts. Nupp therefore owns the canonical graph
+and derives the result pack before lowering; it is a type-system and
+optimization layer above LPeg, not a second general parsing machine. Direct
+`require("lpeg")` still returns native LPeg 1.1, with Nupp declarations tracking
+capture packs through ordinary pattern composition.
+
+`{backend = "lpeg"}` disables those Nupp specializations for reproducible backend
+comparisons. Runtime textual grammars compile through LPeg's `re` module without
+`loadstring` and are cached by grammar. Runtime definition values use
+`{definitions = values}`; static definitions remain factory inputs. The
+expression syntax is LPeg 1.1 `re`; `docs/peg.md` documents native result packs
+and explicit table captures.
+]=] ,  example =
+[=[
+local m = {}
+
+const Identifier: nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile([[
+        [a-zA-Z_] [a-zA-Z_0-9]* !.
+    ]])
+end
+
+const Fields: nupp.peg.Peg<{string}> = comptime do
+    return nupp.peg.compile([[
+        {| { [a-z]+ } (',' { [a-z]+ })* |} !.
+    ]])
+end
+
+function m.identifier(text: string): integer?
+    return Identifier(text)
+end
+
+function m.matcher(grammar: string): nupp.peg.Peg<...any>
+    return nupp.peg.compile(grammar)
+end
+
+function m.fields(text: string): {string}?
+    return Fields(text)
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
+"Reflection and field codecs" ,  codes =
+{ "NUPP2414" , "NUPP2415" , "NUPP2416" , "NUPP2418" } ,  body =
+[=[
+See `docs/concepts/reflection.md` for runtime reflection and type witnesses.
+
+`nupp.reflect(T)` resolves `T` in a type position and creates an immutable,
+target-independent semantic descriptor for comptime. Schema 3 represents the
+possibly recursive type as an acyclic indexed graph: `root` selects a node in
+`types`, and edges between nodes are integer indices. The graph covers nominal
+records, interfaces and structs; shapes, fields and indexers; function
+signatures and packs; generic arguments; unions and intersections; ownership
+wrappers; arrays, pointers and C types. Checked typed annotations on
+declarations and fields appear as ordered `annotations`; an `@ref` argument is
+an edge into the same `types` graph. The root's common fields are also available
+directly as `kind`, `name`, `fields`, `annotations`, and `fingerprint`.
+
+User comptime code may read descriptor members, use `#`, and traverse arrays
+with deterministic `ipairs` or `pairs`. Views preserve identity for equality
+but reject mutation and cannot escape as runtime tables. The fingerprint is
+computed from the canonical semantic graph rather than the checker's
+process-local type identities. Reflection reads declared meaning, not FFI
+layout; `nupp.sizeof`, `nupp.alignof`, and `nupp.offsetof` use the build's
+`layoutTarget`. Annotation names, arguments, values and referenced types
+participate in the fingerprint, so changing serialization metadata invalidates a
+cached comptime result even when the field types themselves are unchanged.
+
+`nupp.reflect.fieldCodec(nupp.reflect(R))` is the first non-PEG materializer.
+For a record `R`, it produces a `nupp.reflect.FieldCodec<R>` whose `encode`
+method copies exactly the record's present declared fields with `rawget`. Its
+stable compatibility fingerprint is `t:` followed by those field names in
+declaration order. The declared codec type must name the same nominal record.
+
+Reflection of a runtime value, an unresolved type, or a non-record codec input
+is **NUPP2418**. The ordinary materialization boundary, envelope, and size
+diagnostics remain **NUPP2414** through **NUPP2416**.
+]=] ,  example =
+[=[
+local m = {}
+
+local record Position
+    x: number
+    y: number
+end
+
+const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
+    return nupp.reflect.fieldCodec(nupp.reflect(Position))
+end
+
+function m.encode(position: Position): {[string]: any}
+    return PositionCodec:encode(position)
+end
+
+return m
+]=] }, reference.Section)
+,
+
+}
+
+
+reference . sections = SECTIONS
+
+
+
+
+reference . tooling = [=[
+Positions are 1-based byte line and column numbers everywhere, matching the
+compiler's own diagnostics. Colour is off whenever output is not a terminal, so
+piped output never carries escapes.
+
+- `nupp check --strict [FILE...]` type-checks. `--json` returns structured
+  diagnostics with `help`, `related`, `notes` and machine-applicable `fixes`.
+  Read `help` and `related` before editing, and apply a whole titled fix rather
+  than picking single edits out of one: a fix is all-or-nothing.
+- `nupp build --json [FILE...]` returns those diagnostics alongside what the
+  build wrote, so one call says both what failed and what landed.
+- `nupp explain CODE [--json]` gives the rule behind a code, a program that
+  reports it, and the same program corrected. Every diagnostic carries a `docs`
+  anchor pointing at the same reference.
+- `nupp lsp inspect|definition|references|symbols|rename|actions --json` answer
+  semantic questions without an editor. `inspect` on a call returns the callee's
+  docblock, which is where `@raises` is read at a call site.
+- `nupp fmt`, `nupp doc`, `nupp test`, `nupp fixpoint` format, document, test,
+  and verify the compiler rebuilds byte-identically.
+
+Every command taking `--json` also takes `--schema`, which prints the JSON
+Schema of that output, so a consumer can be written against a contract rather
+than against a sample.
+
+The loop that works: run `check --json --strict`, apply a complete fix whose
+title matches the intended repair, re-run, and run `nupp test` before
+committing.
+]=]
+
+
+
+
+
+
+
+local function wrapped ( text )
+local out = { }
+local line = ""
+for word in text : gmatch ( "%S+" ) do
+if line == "" then
+line = word
+elseif # line + 1 + # word <= 80 then
+line = line .. " " .. word
+else
+out [ # out + 1 ] , line = line , word
+end
+end
+if line ~= "" then
+out [ # out + 1 ] = line
+end
+
+return out
+end
+
+local function pad ( text , width )
+return text .. ( " " ) : rep ( math . max ( 0 , width - # text ) )
+end
+
+local function rule ( width )
+return ( "\u{2500}" ) : rep ( width )
+end
+
+local function heading ( level , text )
+return ( "#" ) : rep ( level ) .. " " .. text
+end
+
+
+local function lintRows ( )
+local widest = # "Lint"
+for _ , lint in ipairs ( lints . all ) do
+widest = math . max ( widest , # lint . name )
+end
+local category = # "Category"
+for _ , lint in ipairs ( lints . all ) do
+category = math . max ( category , # lint . category )
+end
+local out = { "```" }
+out [
+# out + 1
+] = ( " %s  %s  %s  %s" ) : format ( pad ( "Lint" , widest ) , pad ( "Code" , 8 ) , pad ( "Category" , category ) , "Default" )
+out [ # out + 1 ] = ( " %s  %s  %s  %s" ) : format ( rule ( widest ) , rule ( 8 ) , rule ( category ) , rule ( # "warning" ) )
+for _ , lint in ipairs ( lints . all ) do
+out [
+# out + 1
+] = (
+" %s  %s  %s  %s"
+) : format ( pad ( lint . name , widest ) , pad ( lint . code , 8 ) , pad ( lint . category , category ) , lint . level )
+end
+out [ # out + 1 ] = "```"
+
+return out
+end
+
+
+
+local function codeRows ( )
+local out = { }
+for _ , code in ipairs ( explain . codes ( ) ) do
+local entry = explain . lookup ( code )
+if entry then
+for index , line in ipairs ( wrapped ( ( "- **%s**: %s." ) : format ( entry . code , entry . summary ) ) ) do
+out [ # out + 1 ] = index == 1 and line or ( "  " .. line )
+end
+end
+end
+
+return out
+end
+
+
+
+local function languageSections ( )
+local sections = { }
+for _ , section in ipairs ( reference . sections ) do
+sections [ # sections + 1 ] = section
+end
+sections [
+# sections + 1
+] = setmetatable({ title =  "Built-in lints" ,  codes =  { } ,  body =  table . concat ( lintRows ( ) , "\n" ) }, reference.Section)
+sections [
+# sections + 1
+] = setmetatable({ title =
+"Diagnostic codes with a worked example" ,  codes =
+{ } ,  body =
+table . concat ( codeRows ( ) , "\n" ) }, reference.Section)
+
+
+return sections
+end
+
+local TOOLCHAIN_SECTIONS
+
+= { setmetatable({ title =
+
+"CLI commands" ,  codes =
+{ } ,  body =
+[=[
+`nupp help <command>` is the authoritative argument reference for one command;
+`nupp help` lists every command. Use it when a focused skill names a command but
+does not need every flag in context.
+
+- `check`, `build`, `run`, and `fmt` work with source and generated Lua.
+- `test` runs the configured test command; `coverage` runs it against a separate
+  instrumented build and writes a report.
+- `lsp` answers semantic source questions; `explain` expands a diagnostic; and
+  `reference` returns these focused language and CLI skills.
+- `tasks`, `clean`, `doc`, and `import-c` work with project configuration,
+  outputs, documentation, and C declarations.
+
+Data-producing commands accept `--json`, and then `--schema` describes their
+JSON contract. Use the schema before automating against a command rather than
+inferring fields from an example. The CLI uses 1-based byte lines and columns.
+]=] }, reference.Section)
+, setmetatable({ title =
+"Working with the toolchain" ,  codes =  { } ,  body =  reference . tooling }, reference.Section) , setmetatable({ title =
+
+"Improving test coverage" ,  codes =
+{ } ,  body =
+[=[
+Run `nupp coverage` to build a separate instrumented artifact, run the
+configured tests, and write `build/reports/coverage/index.html`. It never
+changes an ordinary build or its cache. Pass a suite name or other test
+arguments to focus a run.
+
+An agent can inspect an existing report without rerunning tests:
+
+```bash
+nupp coverage --report-json
+```
+
+That JSON names each file and its missed lines, functions, and branch arms.
+Start with an uncovered branch or function that represents an observable
+behaviour, read the indicated source, and add a test that establishes that
+behaviour. Re-run the focused coverage command, then `nupp test` before
+committing. Do not add tests solely to raise a percentage: prefer decisions,
+error paths, and boundary cases whose expected result a test can state clearly.
+The HTML report shows the same locations alongside highlighted Nupp and
+generated Lua when visual context helps.
+]=] }, reference.Section)
+,
+}
+
+
+
+reference . chapters = { setmetatable({ name =
+
+"language" ,  title =
+"Language" ,  summary =
+"Nupp syntax, types, runtime constructs, lints, and diagnostics." ,  sections =
+languageSections ( ) }, reference.Chapter)
+, setmetatable({ name =
+
+"cli" ,  title =
+"CLI" ,  summary =
+"Nupp commands, JSON contracts, testing, and coverage workflows." ,  sections =
+TOOLCHAIN_SECTIONS }, reference.Chapter)
+,
+}
+
+
+
+function reference . chapter ( name )
+for _ , chapter in ipairs ( reference . chapters ) do
+if chapter . name == name then
+return chapter
+end
+end
+
+return nil
+end
+
+
+
+function reference . catalog ( )
+local out = { "Nupp reference chapters" , "" }
+for _ , chapter in ipairs ( reference . chapters ) do
+out [ # out + 1 ] = ( "  %-10s %s" ) : format ( chapter . name , chapter . summary )
+end
+out [ # out + 1 ] = ""
+out [
+# out + 1
+] = "Run `nupp reference <chapter>` for one chapter, or " .. "`nupp reference all` for the complete reference."
+
+return table . concat ( out , "\n" )
+end
+
+
+
+local function renderSection ( out , section , level )
+out [ # out + 1 ] = heading ( level , section . title )
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = ( section . body : gsub ( "^%s+" , "" ) : gsub ( "%s+$" , "" ) )
+out [ # out + 1 ] = ""
+local names = { }
+for name in pairs ( section . context or { } ) do
+names [ # names + 1 ] = name
+end
+table . sort ( names )
+for _ , name in ipairs ( names ) do
+local source = ( section . context ) [ name ]
+out [ # out + 1 ] = "`" .. name .. "`:"
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = "```nupp"
+out [ # out + 1 ] = ( source : gsub ( "^%s+" , "" ) : gsub ( "%s+$" , "" ) )
+out [ # out + 1 ] = "```"
+out [ # out + 1 ] = ""
+end
+if section . example then
+out [ # out + 1 ] = "```nupp"
+out [ # out + 1 ] = ( section . example : gsub ( "^%s+" , "" ) : gsub ( "%s+$" , "" ) )
+out [ # out + 1 ] = "```"
+out [ # out + 1 ] = ""
+end
+if # section . codes > 0 then
+local cited = { }
+for _ , code in ipairs ( section . codes ) do
+cited [ # cited + 1 ] = "`" .. code .. "`"
+end
+for _ , line in ipairs (
+wrapped ( "Reports: " .. table . concat ( cited , ", " ) .. ". `nupp explain <code>` says more." )
+) do
+out [ # out + 1 ] = line
+end
+out [ # out + 1 ] = ""
+end
+end
+
+local function renderChapter ( out , chapter , level )
+for _ , section in ipairs ( chapter . sections ) do
+renderSection ( out , section , level )
+end
+end
+
+
+
+
+
+function reference . markdown ( opts )
+local base = opts and opts . level or 1
+local out = { }
+out [ # out + 1 ] = heading ( base , "Nupp language reference" )
+out [ # out + 1 ] = ""
+for _ , line in ipairs (
+wrapped (
+"Every construct, the shortest program that uses it, and the"
+.. " diagnostic codes that report getting it wrong. Generated from the"
+.. " compiler: `nupp reference`."
+)
+) do
+out [ # out + 1 ] = line
+end
+out [ # out + 1 ] = ""
+for _ , chapter in ipairs ( reference . chapters ) do
+out [ # out + 1 ] = heading ( base + 1 , chapter . title )
+out [ # out + 1 ] = ""
+renderChapter ( out , chapter , base + 2 )
+end
+
+return ( table . concat ( out , "\n" ) : gsub ( "\n+$" , "" ) )
+end
+
+
+function reference . chapterMarkdown ( chapter )
+local out = { "# Nupp " .. chapter . title .. " reference" , "" , chapter . summary , "" }
+renderChapter ( out , chapter , 2 )
+return ( table . concat ( out , "\n" ) : gsub ( "\n+$" , "" ) )
+end
+
+
+
+
+
+
+
+function reference . skill ( chapter )
+local out = { }
+out [ # out + 1 ] = "---"
+out [ # out + 1 ] = "name: " .. ( chapter and "nupp-" .. chapter . name or "nupp" )
+out [ # out + 1 ] = "description: >-"
+if chapter then
+out [ # out + 1 ] = "  " .. chapter . summary
+out [ # out + 1 ] = "  Load when this is the only Nupp context needed."
+else
+out [ # out + 1 ] = "  Write, check and repair Nupp, the gradually typed LuaJIT"
+out [ # out + 1 ] = "  superset. Load before editing any .nupp file, or when"
+out [ # out + 1 ] = "  reading a NUPP diagnostic code. Covers syntax, types,"
+out [ # out + 1 ] = "  records, structs, ownership, C interop, the lints, and the"
+out [ # out + 1 ] = "  check/explain/lsp/coverage commands and their JSON contracts."
+end
+out [ # out + 1 ] = "---"
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = chapter and reference . chapterMarkdown ( chapter ) or reference . markdown ( )
+
+return table . concat ( out , "\n" )
+end
+
+return reference

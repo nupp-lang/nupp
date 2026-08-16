@@ -348,4 +348,97 @@ type aotLane.Expr = aotLane.Splat
     | aotLane.BitConvert
     | aotLane.Local
 
+--- Declaring a lane local.
+record aotLane.Let
+    op: 'let'
+    name: string
+    cName: string
+
+    --- A vector where the value varies, and the scalar it already was where it
+    --- does not: a uniform binding stays uniform rather than being broadcast
+    --- into every lane and read back out of one.
+    value: aotLane.Expr | scalarIR.Expr
+
+    type: string
+    source: aotLane.Source?
+end
+
+--- Where one assignment puts its value.
+---
+--- A local target is a lane local. A field target is one field of consecutive
+--- span elements, which is the only place lane IR writes memory.
+record aotLane.Target
+    kind: 'local' | 'vfield'
+    name: string?
+    cName: string?
+    span: string?
+    layout: string?
+    field: string?
+
+    --- The field's storage type, which is what the store narrows to.
+    scalarType: aotLane.Element?
+end
+
+--- One target and the value going into it.
+record aotLane.Assignment
+    target: aotLane.Target
+    value: aotLane.Expr
+end
+
+--- Simultaneous assignment, as the source wrote it.
+---
+--- Every value is computed before any is stored, because `a, b = b, a` means
+--- what it says and a lane rewrite that stored as it went would not.
+record aotLane.Assign
+    op: 'vassign'
+    values: {aotLane.Assignment}
+    source: aotLane.Source?
+end
+
+--- A loop whose trip count differs per lane.
+---
+--- `live` holds the lanes still in the loop; `executing` holds those still
+--- running the current iteration, which is a smaller set as soon as one lane
+--- breaks or continues. The loop ends when no lane is live, so a lane that
+--- retires early stops contributing without stopping the others.
+record aotLane.While
+    op: 'vwhile'
+    live: any
+    executing: any
+
+    --- Which lanes enter the loop at all.
+    initial: aotLane.Expr
+
+    --- Re-evaluated at the bottom, narrowing `live`.
+    condition: aotLane.Expr
+
+    body: {any}
+    source: aotLane.Source?
+end
+
+--- A `break`, as per-lane retirement.
+---
+--- The masked lanes leave both the iteration and the loop. Two records rather
+--- than one with two tags, because a tag that could be either narrows to
+--- neither.
+record aotLane.Break
+    op: 'vbreak'
+    mask: aotLane.Expr
+    live: any
+    executing: any
+    source: aotLane.Source?
+end
+
+--- A `continue`: the masked lanes leave the iteration and stay in the loop.
+record aotLane.Continue
+    op: 'vcontinue'
+    mask: aotLane.Expr
+    live: any
+    executing: any
+    source: aotLane.Source?
+end
+
+--- Every lane statement.
+type aotLane.Statement = aotLane.Let | aotLane.Assign | aotLane.While | aotLane.Break | aotLane.Continue
+
 return aotLane

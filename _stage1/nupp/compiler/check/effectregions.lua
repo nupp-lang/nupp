@@ -1,0 +1,250 @@
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+
+local cst = require ( "nupp.compiler.cst" )
+local state = require ( "nupp.compiler.check.state" )
+
+local effectregions = { }
+
+
+
+
+
+
+local MAX_CHAIN = 8
+local PURE_BUILTINS = {
+type = true ,
+tonumber = true ,
+select = true ,
+rawequal = true ,
+rawget = true ,
+rawlen = true ,
+ipairs = true ,
+pairs = true ,
+next = true ,
+}
+
+local function callName ( call )
+local callee = call and call . obj
+if not callee then
+return nil
+end
+if callee . kind == "name" then
+return callee . token and callee . token . text
+end
+if callee . kind == "dotIndex" and callee . obj and callee . obj . kind == "name" then
+return callee . obj . token . text .. "." .. callee . name . text
+end
+
+return nil
+end
+
+function effectregions . install ( c )
+local ops , regions = { } , { }
+
+function ops . region ( stat )
+regions [ # regions + 1 ] = stat
+end
+
+local function exactExport ( call )
+local callee = call and call . obj
+if not callee then
+return nil
+end
+if callee . exactCallExport then
+return callee . exactCallExport
+end
+if callee . kind == "name" and callee . token and callee . token . definition then
+return callee . token . definition . exactCallExport
+end
+
+return nil
+end
+
+local function firstEffectCall ( queries , body , effect )
+local found = nil
+local function walk ( node )
+if not node or found or cst . isToken ( node ) then
+return
+end
+local kind = node . kind
+if kind == "localFuncStmt"
+or kind == "funcStmt"
+or kind == "inlineMethod"
+or kind == "constructorDecl"
+or kind == "funcExpr"
+or kind == "shortfn"
+then
+return
+end
+if kind == "call" or kind == "safeCall" or kind == "methodCall" then
+local reached = queries . callee and queries . callee ( node ) or nil
+if reached and reached . summary and ( reached . summary . top or reached . summary [ effect ] ) then
+found = { info = reached , at = node }
+return
+end
+end
+for _ , child in ipairs ( node ) do
+walk ( child )
+end
+end
+
+walk ( body )
+
+return found
+end
+
+local function chain ( queries , info , effect )
+local related , seen , current = { } , { } , info
+while current and # related < MAX_CHAIN do
+if seen [ current ] or not current . body then
+break
+end
+seen [ current ] = true
+local step = firstEffectCall ( queries , current . body , effect )
+if not step then
+break
+end
+local callee = step . at . obj
+local token = callee and ( callee . token or callee . name ) or nil
+if token then
+related [
+# related + 1
+] = {
+line = token . line ,
+col = token . col ,
+offset = token . offset ,
+length = # token . text ,
+msg = effect == "allocates" and ( token . text .. " may allocate" ) or ( token . text .. " may raise" ) ,
+}
+end
+current = step . info
+end
+
+return related
+end
+
+local function callIsFree ( call , effect , queries )
+if call . scalarIntrinsic then
+return true
+end
+if call . spanAccessorNoAllocate then
+if effect == "allocates" or call . rangeProvenNoRaise then
+return true
+end
+return false , "performs a checked span access without a dominating range proof" , nil
+end
+if call . constructorEntry and effect == "allocates" then
+return false , "constructs a new value" , nil
+end
+local info = queries and queries . callee and queries . callee ( call ) or nil
+if info and info . summary then
+if info . summary . top then
+return false , "reaches code with unknown effects" , info
+end
+if info . summary [ effect ] then
+return false , effect == "allocates" and "may allocate" or "may raise" , info
+end
+
+
+return true , nil , info
+end
+local name = callName ( call )
+if PURE_BUILTINS [ name or "" ] then
+return true
+end
+local exact = exactExport ( call )
+if exact and c . env and c . env . observeCallGuarantee then
+local guarantee = effect == "allocates" and "noAllocate" or "noRaise"
+if c . env . observeCallGuarantee ( c . env , exact . module , exact . member , exact . identity , guarantee ) then
+return true
+end
+return false , ( "has no observed %s guarantee" ) : format ( guarantee ) , nil
+end
+
+return false , "cannot be resolved, so its effects are unknown" , nil
+end
+
+local function report ( effect , node , why , info , queries )
+local callee = node . obj
+local token = callee and ( callee . token or callee . name ) or cst . firstToken ( node )
+local shown = token and ( "`" .. token . text .. "`" ) or "this operation"
+local region = effect == "allocates" and "noalloc" or "noraise"
+local action = effect == "allocates" and "allocation" or "raising"
+c . diag (
+effect == "allocates" and "NUPP2710" or "NUPP2711" ,
+callee or node ,
+( "%s %s, and this %s region forbids %s" ) : format ( shown , why , region , action ) ,
+nil ,
+{
+help = effect == "allocates"
+and "remove the allocation, call an exact noAllocate export, or move this out of the region"
+or "remove the error path, call an exact noRaise export, or move this out of the region" ,
+related = info and chain ( queries , info , effect ) or nil ,
+}
+)
+end
+
+function ops . sweep ( queries )
+local diagnosed = { }
+
+
+
+local function walk ( node , root , effect )
+if not node or cst . isToken ( node ) then
+return
+end
+local kind = node . kind
+if node ~= root and (
+kind == "localFuncStmt"
+or kind == "funcStmt"
+or kind == "inlineMethod"
+or kind == "constructorDecl"
+or kind == "funcExpr"
+or kind == "shortfn"
+) then
+if effect == "allocates" and not diagnosed [ node ] then
+diagnosed [ node ] = true
+report ( effect , node , "allocates a closure" , nil , queries )
+end
+return
+elseif (
+kind == "tableExpr"
+or kind == "newExpr"
+or kind == "istring"
+or kind == "binop"
+and node . op
+and node . op . kind == ".."
+) and effect == "allocates" and not diagnosed [ node ] then
+diagnosed [ node ] = true
+report ( effect , node , "constructs a managed value" , nil , queries )
+elseif node . effectUnknownOperation and not diagnosed [ node ] then
+diagnosed [ node ] = true
+report ( effect , node , "may invoke code with unknown effects" , nil , queries )
+elseif kind == "call" or kind == "safeCall" or kind == "methodCall" then
+local free , why , info = callIsFree ( node , effect , queries )
+if not free and not diagnosed [ node ] then
+diagnosed [ node ] = true
+report ( effect , node , why , info , queries )
+end
+end
+for _ , child in ipairs ( node ) do
+walk ( child , root , effect )
+end
+end
+
+for _ , region in ipairs ( regions ) do
+walk ( region . body , region . body , region . effect )
+end
+end
+
+return ops
+end
+
+return effectregions

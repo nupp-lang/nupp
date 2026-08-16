@@ -1,0 +1,1974 @@
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local cst = require ( "nupp.compiler.cst" )
+local T = require ( "nupp.compiler.types" )
+local materializeProviders = require ( "nupp.compiler.materialize.providers" )
+local reflection = require ( "nupp.compiler.reflection" )
+local hash = require ( "nupp.compiler.build.hash" )
+
+const comptime = {} comptime.__index = comptime
+
+
+
+
+
+
+
+
+local isToken = cst . isToken
+
+
+
+local MAX_EXACT_INTEGER = 9007199254740991
+
+local MAX_STEPS = 100000
+local MAX_CALL_DEPTH = 128
+local MAX_RESULT_BYTES = 512 * 1024
+local MAX_RESULT_ITEMS = 10000
+
+local function canonicalNode ( node )
+local tokens = node and node or { }
+local parts = { }
+local function visit ( value )
+if cst . isToken ( value ) then
+parts [ # parts + 1 ] = value . kind .. ":" .. tostring ( # value . text ) .. ":" .. value . text
+elseif type ( value ) == "table" then
+for _ , child in ipairs ( value ) do
+visit ( child )
+end
+end
+end
+
+visit ( tokens )
+
+return table . concat ( parts , "\0" )
+end
+
+
+
+
+function comptime . typeFunctionProgram ( helper , helpers )
+if helper and helper . sealedTypeFunction then
+return helper
+end
+local reachable , visiting = { } , { }
+local function collect ( current )
+if not current or visiting [ current ] then
+return
+end
+visiting [ current ] = true
+local names = { }
+local function scan ( value )
+if type ( value ) ~= "table" or cst . isToken ( value ) then
+return
+end
+if value . kind == "name" and value . token and helpers [ value . token . text ] then
+names [ value . token . text ] = true
+end
+for _ , child in ipairs ( value ) do
+scan ( child )
+end
+end
+
+scan ( current . body or current )
+for name in pairs ( names ) do
+local dependency = helpers [ name ]
+if dependency and dependency ~= current then
+reachable [ name ] = dependency
+collect ( dependency )
+end
+end
+end
+
+collect ( helper )
+local names , parts = { } , { "nupp.type-function\0v1" , canonicalNode ( helper ) }
+for name in pairs ( reachable ) do
+names [ # names + 1 ] = name
+end
+table . sort ( names )
+for _ , name in ipairs ( names ) do
+parts [ # parts + 1 ] = name
+parts [ # parts + 1 ] = canonicalNode ( reachable [ name ] )
+end
+
+return { identity = hash . sha256 ( table . concat ( parts , "\0" ) ) , helper = helper , helpers = reachable , }
+end
+
+function comptime . sealTypeFunction ( helper , helpers , signature , definition )
+if helper and helper . sealedTypeFunction then
+return helper
+end
+local program = comptime . typeFunctionProgram ( helper , helpers )
+local mainName = helper and ( helper . comptimeName or helper . name and helper . name . text ) or ""
+local serialized = { }
+local function add ( name , node )
+local token = node and node . name
+if token then
+local source = cst . textOf ( node )
+if node . kind == "funcStmt" then
+local replaced
+source , replaced = source : gsub ( "comptime%s+function%s+[%w_%.]+" , "local function " .. name , 1 )
+if replaced == 0 then
+source = source : gsub ( "function%s+[%w_%.]+" , "local function " .. name , 1 )
+end
+elseif node . kind == "localFuncStmt" then
+source = source : gsub ( "local%s+comptime%s+function" , "local function" , 1 )
+source = source : gsub ( "const%s+comptime%s+function" , "const function" , 1 )
+end
+serialized [ name ] = { source = source , line = token . line , column = token . col , }
+end
+end
+
+add ( mainName , helper )
+for name , dependency in pairs ( program . helpers or { } ) do
+add ( name , dependency )
+end
+
+return {
+sealedTypeFunction = true ,
+identity = program . identity ,
+main = mainName ,
+serializedHelpers = serialized ,
+signature = signature ,
+definition = definition ,
+}
+end
+
+
+
+
+local FAILURE = { }
+
+local function fail ( code , node , message , help )
+error ( { [ FAILURE ] = true , code = code , node = node , message = message , help = help } , 0 )
+end
+
+
+
+
+
+local function keyLess ( a , b )
+local ta , tb = type ( a ) , type ( b )
+if ta ~= tb then
+return ta < tb
+end
+if ta == "number" or ta == "string" then
+return a < b
+end
+
+
+
+if ta == "boolean" then
+return ( not a ) and b
+end
+
+return false
+end
+
+local function sortedKeys ( t )
+local keys = { }
+for key in pairs ( t ) do
+keys [ # keys + 1 ] = key
+end
+table . sort ( keys , keyLess )
+
+return keys
+end
+
+
+
+
+local function arrayLength ( t )
+local n = 0
+while t [ n + 1 ] ~= nil do
+n = n + 1
+end
+
+return n
+end
+
+
+
+
+
+
+
+
+local function quoteNumber ( value , node )
+if value ~= value then
+fail ( "NUPP2413" , node , "NaN has no literal spelling" )
+end
+if value == math . huge or value == - math . huge then
+fail ( "NUPP2413" , node , "an infinity has no literal spelling" )
+end
+if value == 0 then
+
+
+return 1 / value < 0 and "-0.0" or "0"
+end
+if value == math . floor ( value ) and math . abs ( value ) <= MAX_EXACT_INTEGER then
+return ( "%.0f" ) : format ( value )
+end
+for _ , format in ipairs ( { "%.14g" , "%.15g" , "%.16g" , "%.17g" } ) do
+local text = format : format ( value )
+if tonumber ( text ) == value then
+return text
+end
+end
+
+fail ( "NUPP2413" , node , "this number has no spelling that reads back unchanged" )
+end
+
+
+
+
+
+
+
+
+
+local function quote ( value , node , seen , state )
+state . quoteItems = ( state . quoteItems or 0 ) + 1
+if state . quoteItems > MAX_RESULT_ITEMS then
+fail ( "NUPP2416" , node , "comptime result exceeds the 10000-item result limit" )
+end
+local kind = type ( value )
+if value == nil then
+return "nil"
+elseif kind == "boolean" then
+return tostring ( value )
+elseif kind == "number" then
+return quoteNumber ( value , node )
+elseif kind == "string" then
+return ( "%q" ) : format ( value )
+elseif kind ~= "table" then
+fail ( "NUPP2413" , node , ( "a %s is not a quotable result" ) : format ( kind ) )
+end
+if materializeProviders . isOpaque ( state , value ) then
+fail ( "NUPP2414" , node , "an opaque comptime value needs a directly declared materialization boundary" )
+end
+if seen [ value ] then
+fail (
+"NUPP2413" ,
+node ,
+"this table is reachable by more than one path" ,
+"build a separate table for each position, or return the shared part on its own"
+)
+end
+seen [ value ] = true
+if getmetatable ( value ) ~= nil then
+fail ( "NUPP2413" , node , "a table with a metatable is not a quotable result" )
+end
+local parts = { }
+local count = arrayLength ( value )
+for index = 1 , count do
+parts [ # parts + 1 ] = quote ( value [ index ] , node , seen , state )
+end
+for _ , key in ipairs ( sortedKeys ( value ) ) do
+local skip = type ( key ) == "number" and key == math . floor ( key ) and key >= 1 and key <= count
+if not skip then
+local keyText
+if type ( key ) == "string" and key : find ( "^[%a_][%w_]*$" ) then
+keyText = key
+else
+keyText = "[" .. quote ( key , node , seen , state ) .. "]"
+end
+parts [ # parts + 1 ] = keyText .. " = " .. quote ( value [ key ] , node , seen , state )
+end
+end
+
+
+
+
+return "{" .. table . concat ( parts , ", " ) .. "}"
+end
+
+
+local function quoteValue ( value , node , state )
+return quote ( value , node , { } , state )
+end
+
+local function boundedString ( value , what )
+if type ( value ) == "string" and # value > MAX_RESULT_BYTES then
+error ( ( "%s exceeds the %d-byte comptime value limit" ) : format ( what , MAX_RESULT_BYTES ) , 0 )
+end
+
+return value
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local function buildEnvironment ( state )
+local env = { }
+
+env . assert = assert
+env . error = error
+env . select = select
+env . tonumber = tonumber
+env . type = function ( value )
+if materializeProviders . isOpaque ( state , value ) then
+local kind = materializeProviders . opaqueKind ( state , value )
+if kind then
+return kind
+end
+error ( "type is unavailable for an opaque comptime value" , 0 )
+end
+
+return type ( value )
+end
+
+
+
+env . tostring = function ( value )
+if materializeProviders . isOpaque ( state , value ) then
+error ( "tostring is unavailable for an opaque comptime value" , 0 )
+end
+
+
+local kind = type ( value )
+
+if kind == "string" then
+return value
+end
+if kind == "number" or kind == "boolean" or kind == "nil" then
+return tostring ( value )
+end
+
+error ( ( "tostring is unavailable for a %s at comptime" ) : format ( kind ) , 0 )
+end
+
+env . ipairs = function ( value )
+if materializeProviders . isOpaque ( state , value ) then
+local iterator , failure = materializeProviders . iterator ( state , value , true )
+if failure then
+error ( failure . message , 0 )
+end
+return iterator , value , 0
+end
+
+return ipairs ( value )
+end
+
+
+
+env . pairs = function ( t )
+if materializeProviders . isOpaque ( state , t ) then
+local iterator , failure = materializeProviders . iterator ( state , t , false )
+if failure then
+error ( failure . message , 0 )
+end
+return iterator , t , nil
+end
+if type ( t ) ~= "table" then
+error ( "pairs expects a table" , 0 )
+end
+local keys , index = sortedKeys ( t ) , 0
+
+return function ( )
+index = index + 1
+local key = keys [ index ]
+if key == nil then
+return nil
+end
+
+return key , t [ key ]
+end
+end
+
+env . math = {
+abs = math . abs ,
+ceil = math . ceil ,
+floor = math . floor ,
+fmod = math . fmod ,
+max = math . max ,
+min = math . min ,
+modf = math . modf ,
+sqrt = math . sqrt ,
+huge = math . huge ,
+pi = math . pi ,
+}
+
+env . string = {
+byte = function ( subject , first , last )
+first = first or 1
+last = last or first
+if last - first + 1 > MAX_RESULT_ITEMS then
+error ( "string.byte exceeds the 10000-value comptime result limit" , 0 )
+end
+
+return string . byte ( subject , first , last )
+end ,
+char = function ( ... )
+return boundedString ( string . char ( ... ) , "string.char result" )
+end ,
+find = string . find ,
+format = function ( format , ... )
+if type ( format ) == "string" then
+for width in format : gmatch ( "%%[^%%]-([0-9]+)" ) do
+if tonumber ( width ) and tonumber ( width ) > MAX_RESULT_BYTES then
+error ( "string.format width exceeds the comptime value limit" , 0 )
+end
+end
+end
+
+return boundedString ( string . format ( format , ... ) , "string.format result" )
+end ,
+len = string . len ,
+lower = function ( value )
+return boundedString ( string . lower ( value ) , "string.lower result" )
+end ,
+match = string . match ,
+rep = function ( value , count )
+if type (
+value
+) == "string" and type ( count ) == "number" and count > 0 and # value * count > MAX_RESULT_BYTES then
+error ( "string.rep result exceeds the comptime value limit" , 0 )
+end
+
+return boundedString ( string . rep ( value , count ) , "string.rep result" )
+end ,
+reverse = function ( value )
+return boundedString ( string . reverse ( value ) , "string.reverse result" )
+end ,
+sub = function ( ... )
+return boundedString ( string . sub ( ... ) , "string.sub result" )
+end ,
+upper = function ( value )
+return boundedString ( string . upper ( value ) , "string.upper result" )
+end ,
+
+
+
+
+gsub = function ( subject , pattern , replacement , n )
+if type ( replacement ) ~= "string" and type ( replacement ) ~= "number" then
+error ( "gsub needs a string replacement at comptime" , 0 )
+end
+local replacementText = tostring ( replacement )
+if type ( subject ) == "string" and # subject * math . max ( 1 , # replacementText ) > MAX_RESULT_BYTES then
+error ( "string.gsub result may exceed the comptime value limit" , 0 )
+end
+
+local value , count = string . gsub ( subject , pattern , replacement , n )
+
+return boundedString ( value , "string.gsub result" ) , count
+end ,
+gmatch = string . gmatch ,
+}
+
+
+
+
+env . table = {
+concat = function ( values , separator , first , last )
+separator = separator or ""
+first = first or 1
+last = last or # values
+local bytes = math . max ( 0 , last - first ) * # separator
+for index = first , last do
+local value = values [ index ]
+if type ( value ) ~= "string" and type ( value ) ~= "number" then
+return table . concat ( values , separator , first , last )
+end
+bytes = bytes + # tostring ( value )
+if bytes > MAX_RESULT_BYTES then
+error ( "table.concat result exceeds the comptime value limit" , 0 )
+end
+end
+
+return boundedString ( table . concat ( values , separator , first , last ) , "table.concat result" )
+end ,
+insert = table . insert ,
+remove = table . remove ,
+clone = function ( t )
+local out = { }
+for k , v in next , t do
+out [ k ] = v
+end
+local mt = getmetatable ( t )
+if type ( mt ) == "table" then
+setmetatable ( out , mt )
+end
+
+return out
+end ,
+}
+
+env . bit = {
+band = bit . band ,
+bor = bit . bor ,
+bxor = bit . bxor ,
+bnot = bit . bnot ,
+lshift = bit . lshift ,
+rshift = bit . rshift ,
+arshift = bit . arshift ,
+rol = bit . rol ,
+ror = bit . ror ,
+bswap = bit . bswap ,
+tobit = bit . tobit ,
+tohex = bit . tohex ,
+}
+
+
+
+
+
+local libraries = { [ env . math ] = "math" , [ env . string ] = "string" , [ env . table ] = "table" , [ env . bit ] = "bit" , }
+
+materializeProviders . installEvaluator ( state , env )
+
+return env , libraries
+end
+
+
+
+
+local BREAK = { }
+local RETURN = { }
+
+
+local function newState ( )
+return {
+env = { } ,
+libraries = { } ,
+result = nil ,
+steps = 0 ,
+opaque = { } ,
+intrinsics = { } ,
+reflections = { } ,
+layouts = { } ,
+comptimeFunctions = { } ,
+callDepth = 0 ,
+}
+end
+
+local function step ( state , node )
+state . steps = state . steps + 1
+if state . steps > MAX_STEPS then
+fail (
+"NUPP2412" ,
+node ,
+( "comptime evaluation exceeded %d steps" ) : format ( MAX_STEPS ) ,
+"make the computation smaller or move the unbounded work to run time"
+)
+end
+end
+
+local function scope ( parent )
+return { parent = parent , names = { } }
+end
+
+local function lookup ( current , name )
+while current do
+local slot = current . names [ name ]
+if slot ~= nil then
+return slot
+end
+current = current . parent
+end
+
+return nil
+end
+
+local function declare ( current , name , value )
+current . names [ name ] = { value = value }
+end
+
+local unsupported = function ( node , what )
+fail (
+"NUPP2411" ,
+node ,
+( "%s is unavailable at comptime" ) : format ( what ) ,
+"compute the value with the constructs comptime supports, or move this to run time"
+)
+end
+
+local evalExpr , execBlock , evalMulti
+
+
+
+
+
+
+
+
+local function pack ( ... )
+return { n = select ( "#" , ... ) , ... }
+end
+
+local function callValues ( state , node , callee , args )
+local helper = state . comptimeFunctions [ callee ]
+if helper then
+local body = helper . node and helper . node . body or nil
+local params = body and body . params or { }
+if args . n ~= # params then
+fail (
+"NUPP2412" ,
+node ,
+(
+"comptime function %s expects %d argument%s, got %d"
+) : format ( helper . name , # params , # params == 1 and "" or "s" , args . n )
+)
+end
+if state . callDepth >= MAX_CALL_DEPTH then
+fail (
+"NUPP2412" ,
+node ,
+( "comptime call depth exceeded %d frames" ) : format ( MAX_CALL_DEPTH ) ,
+"make the recursion shallower or move the unbounded work to run time"
+)
+end
+local savedScope , savedResult , savedReturned = state . scope , state . result , state . returned
+state . scope , state . result , state . returned = scope ( nil ) , nil , false
+for index , param in ipairs ( params ) do
+declare ( state . scope , param . name and param . name . text or "" , args [ index ] )
+end
+state . callDepth = state . callDepth + 1
+local ok , err = pcall ( execBlock , state , body and body . body )
+state . callDepth = state . callDepth - 1
+local result , returned = state . result , state . returned
+state . scope , state . result , state . returned = savedScope , savedResult , savedReturned
+if not ok and err ~= RETURN then
+if type ( err ) == "table" and err [ FAILURE ] then
+local at = cst . firstToken ( node )
+local origin = helper . origin or cst . firstToken ( helper . node )
+err . message = tostring (
+err . message
+) .. (
+"\n  called %s at %d:%d; defined at %d:%d"
+) : format (
+helper . name ,
+at and at . line or 1 ,
+at and at . col or 1 ,
+origin and origin . line or helper . line or 1 ,
+origin and origin . col or helper . column or 1
+)
+end
+error ( err , 0 )
+end
+if not returned then
+fail ( "NUPP2412" , node , ( "comptime function %s completed without returning" ) : format ( helper . name ) )
+end
+
+return { n = 1 , result }
+end
+local intrinsic = state . intrinsics [ callee ]
+if intrinsic then
+local value , failure = intrinsic ( node , args )
+if failure then
+fail ( failure . code , node , failure . message , failure . help )
+end
+
+return { n = 1 , value }
+end
+if type ( callee ) ~= "function" then
+fail ( "NUPP2411" , node , ( "a %s is not callable at comptime" ) : format ( type ( callee ) ) )
+end
+local produced = pack ( pcall ( callee , unpack ( args , 1 , args . n ) ) )
+if not produced [ 1 ] then
+local message = produced [ 2 ]
+fail ( "NUPP2412" , node , type ( message ) == "string" and message or "the call failed" )
+end
+local values = { n = produced . n - 1 }
+for index = 2 , produced . n do
+values [ index - 1 ] = produced [ index ]
+boundedString ( values [ index - 1 ] , "comptime call result" )
+end
+
+return values
+end
+
+
+
+
+
+
+
+
+
+local function installComptimeFunctions ( state , env , helpers )
+for name , supplied in pairs ( helpers or { } ) do
+local node = supplied . node or supplied
+if type ( name ) == "string" and node and node . kind == "localFuncStmt" and node . name and node . body then
+local token = function ( )
+return name
+end
+state . comptimeFunctions [
+token
+] = { name = name , node = node , origin = supplied . origin , line = supplied . line , column = supplied . column , }
+env [ name ] = token
+end
+end
+end
+
+
+
+local function expands ( node )
+if not node or isToken ( node ) then
+return false
+end
+local kind = node . kind
+
+return kind == "call" or kind == "safeCall" or kind == "methodCall"
+end
+
+
+
+local function evalList ( state , exprs )
+local values = { n = 0 }
+local count = # ( exprs or { } )
+for index = 1 , count do
+local expr = exprs [ index ]
+if index == count and expands ( expr ) then
+local produced = evalMulti ( state , expr )
+for offset = 1 , produced . n do
+values [ values . n + offset ] = produced [ offset ]
+end
+values . n = values . n + produced . n
+else
+values . n = values . n + 1
+values [ values . n ] = evalExpr ( state , expr )
+end
+end
+
+return values
+end
+
+local function evalArgs ( state , argsNode )
+if argsNode and argsNode . table then
+return { n = 1 , evalExpr ( state , argsNode . table ) }
+end
+if argsNode and argsNode . str then
+local text = argsNode . str . text or ""
+local chunk = loadstring ( "return " .. text )
+if not chunk then
+fail ( "NUPP2412" , argsNode , "invalid string call argument" )
+end
+local ok , value = pcall ( chunk )
+if not ok then
+fail ( "NUPP2412" , argsNode , "invalid string call argument" )
+end
+return { n = 1 , value }
+end
+
+return evalList ( state , argsNode and argsNode . exprs or { } )
+end
+
+
+evalExpr = function ( state , node )
+if not node or isToken ( node ) then
+return nil
+end
+step ( state , node )
+local kind = node . kind
+local answer
+if kind == "number" then
+local text = node . token and node . token . text or "0"
+local lower = text : lower ( )
+if lower : find ( "ll" , 1 , true ) or lower : sub ( - 1 ) == "i" then
+unsupported ( node , "a boxed integer literal" )
+end
+answer = tonumber ( ( text : gsub ( "_" , "" ) ) )
+elseif kind == "string" then
+local chunk = loadstring ( "return " .. ( node . token and node . token . text or '""' ) )
+answer = chunk and chunk ( ) or ""
+elseif kind == "nilExpr" then
+answer = nil
+elseif kind == "trueExpr" then
+answer = true
+elseif kind == "falseExpr" then
+answer = false
+elseif kind == "paren" or kind == "castExpr" then
+answer = evalExpr ( state , node . expr )
+elseif kind == "name" then
+local name = node . token and node . token . text or ""
+local slot = lookup ( state . scope , name )
+if slot then
+answer = slot . value
+else
+local fromEnv = state . env [ name ]
+if fromEnv == nil then
+fail (
+"NUPP2410" ,
+node ,
+( "%q is not available at comptime" ) : format ( name ) ,
+"a comptime block reads only its own locals and the compile-time environment"
+)
+end
+answer = fromEnv
+end
+elseif kind == "unop" then
+local operand = evalExpr ( state , node . operand )
+if materializeProviders . isOpaque ( state , operand ) then
+local value , operatorFailure = materializeProviders . operator (
+state ,
+"unary" .. tostring ( node . op and node . op . kind ) ,
+operand ,
+nil ,
+node . op or node
+)
+if operatorFailure then
+fail ( operatorFailure . code , node , operatorFailure . message , operatorFailure . help )
+end
+
+return value
+end
+local op = node . op and node . op . kind
+if op == "not" then
+answer = not operand
+elseif op == "-" then
+answer = - operand
+elseif op == "#" then
+answer = # operand
+elseif op == "~" then
+answer = bit . bnot ( operand )
+else
+unsupported ( node , ( "the %s operator" ) : format ( tostring ( op ) ) )
+end
+elseif kind == "binop" then
+local op = node . op and node . op . kind
+if op == "and" then
+local left = evalExpr ( state , node . lhs )
+if materializeProviders . isOpaque ( state , left ) then
+fail ( "NUPP2411" , node , "logical operators cannot observe an opaque comptime value" )
+end
+if left then
+answer = evalExpr ( state , node . rhs )
+else
+answer = left
+end
+elseif op == "or" then
+local left = evalExpr ( state , node . lhs )
+if materializeProviders . isOpaque ( state , left ) then
+fail ( "NUPP2411" , node , "logical operators cannot observe an opaque comptime value" )
+end
+if left then
+answer = left
+else
+answer = evalExpr ( state , node . rhs )
+end
+elseif op == "??" then
+local left = evalExpr ( state , node . lhs )
+if materializeProviders . isOpaque ( state , left ) then
+fail ( "NUPP2411" , node , "nil coalescing cannot observe an opaque comptime value" )
+end
+if left == nil then
+answer = evalExpr ( state , node . rhs )
+else
+answer = left
+end
+else
+local left , right = evalExpr ( state , node . lhs ) , evalExpr ( state , node . rhs )
+if materializeProviders . isOpaque ( state , left ) or materializeProviders . isOpaque ( state , right ) then
+local value , operatorFailure = materializeProviders . operator ( state , op , left , right , node . op or node )
+if operatorFailure then
+fail ( operatorFailure . code , node , operatorFailure . message , operatorFailure . help )
+end
+
+return value
+end
+if op == "+" then
+answer = left + right
+elseif op == "-" then
+answer = left - right
+elseif op == "*" then
+answer = left * right
+elseif op == "/" then
+answer = left / right
+elseif op == "%" then
+answer = left % right
+elseif op == "^" then
+answer = left ^ right
+elseif op == "//" then
+
+
+answer = math . floor ( left / right )
+elseif op == ".." then
+if # tostring ( left ) + # tostring ( right ) > MAX_RESULT_BYTES then
+fail ( "NUPP2416" , node , "concatenated comptime value exceeds 524288 bytes" )
+end
+answer = left .. right
+elseif op == "==" then
+answer = left == right
+elseif op == "~=" then
+answer = left ~= right
+elseif op == "<" then
+answer = left < right
+elseif op == "<=" then
+answer = left <= right
+elseif op == ">" then
+answer = left > right
+elseif op == ">=" then
+answer = left >= right
+elseif op == "&" then
+answer = bit . band ( left , right )
+elseif op == "|" then
+answer = bit . bor ( left , right )
+elseif op == "~" then
+answer = bit . bxor ( left , right )
+elseif op == "<<" then
+answer = bit . lshift ( left , right )
+elseif op == ">>" then
+answer = bit . rshift ( left , right )
+elseif op == "~>>" then
+answer = bit . arshift ( left , right )
+else
+unsupported ( node , ( "the %s operator" ) : format ( tostring ( op ) ) )
+end
+end
+elseif kind == "ternary" then
+if evalExpr ( state , node . cond ) then
+answer = evalExpr ( state , node . ifTrue )
+else
+answer = evalExpr ( state , node . ifFalse )
+end
+elseif kind == "tableExpr" then
+local built , nextIndex = { } , 1
+for _ , field in ipairs ( node . fields or { } ) do
+if field . kind == "fieldItem" then
+built [ nextIndex ] = evalExpr ( state , field . value )
+nextIndex = nextIndex + 1
+elseif field . kind == "fieldNamed" then
+built [ field . name and field . name . text or "" ] = evalExpr ( state , field . value )
+else
+local key = evalExpr ( state , field . key )
+if key == nil then
+fail ( "NUPP2412" , field , "a table key evaluated to nil" )
+end
+built [ key ] = evalExpr ( state , field . value )
+end
+end
+answer = built
+elseif kind == "istring" then
+local pieces = { }
+for _ , child in ipairs ( node ) do
+if isToken ( child ) then
+local text = child . text
+local chunk
+if child . kind == "istringOpen" or child . kind == "istringMid" then
+chunk = text : sub ( 2 , - 3 )
+elseif child . kind == "istringClose" then
+chunk = text : sub ( 2 , - 2 )
+end
+if chunk and # chunk > 0 then
+pieces [ # pieces + 1 ] = chunk
+end
+else
+pieces [ # pieces + 1 ] = state . env . tostring ( evalExpr ( state , child ) )
+end
+end
+local bytes = 0
+for _ , piece in ipairs ( pieces ) do
+bytes = bytes + # piece
+end
+if bytes > MAX_RESULT_BYTES then
+fail ( "NUPP2416" , node , "interpolated comptime value exceeds 524288 bytes" )
+end
+answer = table . concat ( pieces )
+elseif kind == "dotIndex" or kind == "safeIndex" then
+local object = evalExpr ( state , node . obj )
+if object == nil and kind == "safeIndex" then
+answer = nil
+else
+if materializeProviders . isOpaque ( state , object ) then
+local value , indexFailure = materializeProviders . index (
+state ,
+object ,
+node . name and node . name . text or "" ,
+node
+)
+if indexFailure then
+fail ( indexFailure . code , node , indexFailure . message , indexFailure . help )
+end
+
+return value
+end
+if type ( object ) ~= "table" then
+fail ( "NUPP2412" , node , ( "a %s cannot be indexed" ) : format ( type ( object ) ) )
+end
+local field = node . name and node . name . text or ""
+answer = object [ field ]
+local library = state . libraries [ object ]
+if answer == nil and library then
+fail (
+"NUPP2411" ,
+node ,
+( "%s.%s is unavailable at comptime" ) : format ( library , field ) ,
+"the comptime library surface is an allowlist; see plans/003-comptime.md"
+)
+end
+end
+elseif kind == "bracketIndex" or kind == "safeBracket" then
+local object = evalExpr ( state , node . obj )
+if object == nil and kind == "safeBracket" then
+answer = nil
+else
+if materializeProviders . isOpaque ( state , object ) then
+local key = evalExpr ( state , node . expr )
+local value , indexFailure = materializeProviders . index ( state , object , key , node )
+if indexFailure then
+fail ( indexFailure . code , node , indexFailure . message , indexFailure . help )
+end
+
+return value
+end
+if type ( object ) ~= "table" then
+fail ( "NUPP2412" , node , ( "a %s cannot be indexed" ) : format ( type ( object ) ) )
+end
+answer = object [ evalExpr ( state , node . expr ) ]
+end
+elseif kind == "call" or kind == "safeCall" or kind == "methodCall" then
+answer = evalMulti ( state , node ) [ 1 ]
+elseif kind == "funcExpr" or kind == "shortfn" then
+unsupported ( node , "defining a function inside a comptime block" )
+elseif kind == "newExpr" then
+unsupported ( node , "a construction" )
+elseif kind == "isExpr" then
+unsupported ( node , "an `is` test" )
+elseif kind == "vararg" then
+unsupported ( node , "varargs" )
+elseif kind == "comptimeExpr" then
+unsupported ( node , "a nested comptime block" )
+else
+unsupported ( node , ( "a %s expression" ) : format ( tostring ( kind ) ) )
+end
+
+if type ( answer ) == "string" and # answer > MAX_RESULT_BYTES then
+fail ( "NUPP2416" , node , "comptime value exceeds the 524288-byte result limit" )
+end
+
+return answer
+end
+
+
+
+evalMulti = function ( state , node )
+local kind = node . kind
+local values
+local comptimeIntrinsic , intrinsicQualified = cst . comptimeTypeIntrinsicSpelling ( node . obj )
+local deriveHelper = kind == "call" and node . obj and cst . textOf ( node . obj ) : gsub ( "%s+" , "" ) == "nupp.derive.helper"
+if deriveHelper then
+local arguments = node . args and node . args . exprs or { }
+if # arguments ~= 2 or not state . deriveProviderModule then
+fail ( "NUPP2810" , node , "derive.helper needs the provider module and one exported helper name" )
+end
+local callee = evalExpr ( state , node . obj )
+local modulePath = cst . textOf ( arguments [ 1 ] ) : gsub ( "%s+" , "" )
+local member = evalExpr ( state , arguments [ 2 ] )
+local descriptor = state . deriveHelpers and state . deriveHelpers [ modulePath .. "." .. tostring ( member ) ] or nil
+values = callValues ( state , node , callee , {
+n = 2 ,
+descriptor and descriptor . module or state . deriveProviderModule ,
+descriptor and descriptor . member or member ,
+} )
+elseif kind == "call" and intrinsicQualified and comptimeIntrinsic == "reflect" then
+local args = node . args and node . args . exprs or { }
+local argument = args [ 1 ]
+local function typePath ( value )
+if not value then
+return nil
+elseif value . kind and value . kind : sub ( 1 , 1 ) == "t" then
+return cst . textOf ( value ) : gsub ( "%s+" , "" )
+elseif value . kind == "name" then
+return value . token and value . token . text or nil
+elseif value . kind == "dotIndex" then
+local base = typePath ( value . obj )
+local field = value . name and value . name . text or nil
+return base and field and ( base .. "." .. field ) or nil
+end
+
+return nil
+end
+
+local key = # args == 1 and typePath ( argument ) or nil
+local descriptor = key and state . reflections [ key ] or nil
+if not descriptor then
+fail ( "NUPP2418" , node , "nupp.reflect type information is unavailable in this comptime worker" )
+end
+values = { n = 1 , materializeProviders . reflect ( state , descriptor , node ) }
+elseif kind == "call" and intrinsicQualified and comptimeIntrinsic then
+local name = comptimeIntrinsic
+local args = node . args and node . args . exprs or { }
+local function typePath ( value )
+if not value then
+return nil
+elseif value . kind and value . kind : sub ( 1 , 1 ) == "t" then
+return cst . textOf ( value ) : gsub ( "%s+" , "" )
+elseif value . kind == "name" then
+return value . token and value . token . text or nil
+elseif value . kind == "dotIndex" then
+local base = typePath ( value . obj )
+local field = value . name and value . name . text or nil
+return base and field and ( base .. "." .. field ) or nil
+end
+
+return nil
+end
+
+local key = typePath ( args [ 1 ] )
+
+
+
+local layout = key and state . layouts [ key ] or nil
+layout = layout or { size = 0 , alignment = 1 , offsets = { } }
+local answer
+if name == "sizeof" then
+answer = layout . size
+elseif name == "alignof" then
+answer = layout . alignment
+else
+local field = evalExpr ( state , args [ 2 ] )
+answer = type ( field ) == "string" and layout . offsets [ field ] or nil
+answer = answer or 0
+end
+values = { n = 1 , answer }
+elseif kind == "methodCall" then
+local object = evalExpr ( state , node . obj )
+if object == nil and node . safeObj then
+values = { n = 0 }
+elseif materializeProviders . isOpaque ( state , object ) then
+local args = evalArgs ( state , node . args )
+local value , failure = materializeProviders . method (
+state ,
+object ,
+node . name and node . name . text or "" ,
+args ,
+node
+)
+if failure then
+fail ( failure . code , node , failure . message , failure . help )
+end
+values = { n = 1 , value }
+else
+if type ( object ) ~= "table" and type ( object ) ~= "string" then
+fail ( "NUPP2412" , node , ( "a %s has no methods at comptime" ) : format ( type ( object ) ) )
+end
+
+
+local from = type ( object ) == "string" and state . env . string or object
+local method = from [ node . name and node . name . text or "" ]
+local args = evalArgs ( state , node . args )
+for index = args . n , 1 , - 1 do
+args [ index + 1 ] = args [ index ]
+end
+args [ 1 ] = object
+args . n = args . n + 1
+values = callValues ( state , node , method , args )
+end
+else
+local callee = evalExpr ( state , node . obj )
+if callee == nil and kind == "safeCall" then
+values = { n = 0 }
+else
+values = callValues ( state , node , callee , evalArgs ( state , node . args ) )
+end
+end
+
+return values
+end
+
+
+local function assign ( state , target , value )
+if isToken ( target ) then
+return
+end
+if target . kind == "name" then
+local name = target . token and target . token . text or ""
+local slot = lookup ( state . scope , name )
+if not slot then
+fail (
+"NUPP2410" ,
+target ,
+( "%q is not a comptime local, so it cannot be assigned" ) : format ( name ) ,
+"a comptime block may not write to anything declared outside it"
+)
+end
+slot . value = value
+elseif target . kind == "dotIndex" then
+local object = evalExpr ( state , target . obj )
+if materializeProviders . isOpaque ( state , object ) then
+fail ( "NUPP2411" , target , "an opaque comptime value cannot be assigned through" )
+end
+if type ( object ) ~= "table" then
+fail ( "NUPP2412" , target , ( "a %s cannot be assigned through" ) : format ( type ( object ) ) )
+end
+object [ target . name and target . name . text or "" ] = value
+elseif target . kind == "bracketIndex" then
+local object = evalExpr ( state , target . obj )
+if materializeProviders . isOpaque ( state , object ) then
+fail ( "NUPP2411" , target , "an opaque comptime value cannot be assigned through" )
+end
+if type ( object ) ~= "table" then
+fail ( "NUPP2412" , target , ( "a %s cannot be assigned through" ) : format ( type ( object ) ) )
+end
+local key = evalExpr ( state , target . expr )
+if key == nil then
+fail ( "NUPP2412" , target , "a table key evaluated to nil" )
+end
+object [ key ] = value
+else
+unsupported ( target , ( "assigning to a %s" ) : format ( tostring ( target . kind ) ) )
+end
+end
+
+local execStatement
+
+
+
+
+
+
+
+
+
+local function execStats ( state , block )
+for _ , stat in ipairs ( block and block . stats or { } ) do
+execStatement ( state , stat )
+end
+end
+
+
+
+
+
+
+execStatement = function ( state , stat )
+if isToken ( stat ) then
+return
+end
+step ( state , stat )
+local kind = stat . kind
+if kind == "localStmt" then
+local values = evalList ( state , stat . exprs or { } )
+for index , name in ipairs ( stat . names or { } ) do
+declare ( state . scope , name . text , values [ index ] )
+end
+elseif kind == "assignStmt" then
+local values = evalList ( state , stat . exprs or { } )
+for index , target in ipairs ( stat . targets or { } ) do
+assign ( state , target , values [ index ] )
+end
+elseif kind == "compoundAssign" then
+local op = stat . op and stat . op . kind or ""
+local base = op : sub ( 1 , - 2 )
+local current = evalExpr ( state , stat . target )
+local operand = evalExpr ( state , stat . value )
+local answer
+if base == "+" then
+answer = current + operand
+elseif base == "-" then
+answer = current - operand
+elseif base == "*" then
+answer = current * operand
+elseif base == "/" then
+answer = current / operand
+elseif base == "%" then
+answer = current % operand
+elseif base == "//" then
+answer = math . floor ( current / operand )
+elseif base == ".." then
+if # tostring ( current ) + # tostring ( operand ) > MAX_RESULT_BYTES then
+fail ( "NUPP2416" , stat , "concatenated comptime value exceeds 524288 bytes" )
+end
+answer = current .. operand
+elseif base == "??" then
+answer = current == nil and operand or current
+else
+unsupported ( stat , ( "the %s operator" ) : format ( op ) )
+end
+assign ( state , stat . target , answer )
+elseif kind == "returnStmt" then
+local exprs = stat . exprs or { }
+if # exprs > 1 then
+fail (
+"NUPP2411" ,
+stat ,
+"a comptime block returns exactly one value" ,
+"return a table holding them, until multi-value results are specified"
+)
+end
+if # exprs == 1 then
+state . result = evalExpr ( state , exprs [ 1 ] )
+else
+state . result = nil
+end
+state . returned = true
+error ( RETURN , 0 )
+elseif kind == "breakStmt" then
+error ( BREAK , 0 )
+elseif kind == "callStmt" then
+evalExpr ( state , stat . expr )
+elseif kind == "doStmt" or kind == "unsafeStmt" then
+execBlock ( state , stat . body )
+elseif kind == "ifStmt" then
+for _ , clause in ipairs ( stat . clauses or { } ) do
+if evalExpr ( state , clause . cond ) then
+execBlock ( state , clause . body )
+return
+end
+end
+if stat . elseClause then
+execBlock ( state , stat . elseClause . body )
+end
+elseif kind == "whileStmt" then
+while evalExpr ( state , stat . cond ) do
+local ok , err = pcall ( execBlock , state , stat . body )
+if not ok then
+if err == BREAK then
+break
+end
+error ( err , 0 )
+end
+end
+elseif kind == "repeatStmt" then
+repeat
+
+
+local inner = scope ( state . scope )
+local saved = state . scope
+state . scope = inner
+local ok , err = pcall ( execStats , state , stat . body )
+local done = ok and evalExpr ( state , stat . cond ) or false
+state . scope = saved
+if not ok then
+if err == BREAK then
+break
+end
+error ( err , 0 )
+end
+if done then
+break
+end
+until false
+elseif kind == "fornumStmt" then
+local from , to = evalExpr ( state , stat . start ) , evalExpr ( state , stat . stop )
+local by = stat . step and evalExpr ( state , stat . step ) or 1
+if type ( from ) ~= "number" or type ( to ) ~= "number" or type ( by ) ~= "number" then
+fail ( "NUPP2412" , stat , "a numeric loop needs numeric bounds" )
+end
+if by == 0 then
+fail ( "NUPP2412" , stat , "a numeric loop with a zero step does not terminate" )
+end
+local index = from
+while ( by > 0 and index <= to ) or ( by < 0 and index >= to ) do
+step ( state , stat )
+local inner = scope ( state . scope )
+if stat . var then
+declare ( inner , stat . var . text , index )
+end
+local saved = state . scope
+state . scope = inner
+local ok , err = pcall ( execStats , state , stat . body )
+state . scope = saved
+if not ok then
+if err == BREAK then
+break
+end
+error ( err , 0 )
+end
+index = index + by
+end
+elseif kind == "forinStmt" then
+
+
+
+
+local produced = evalList ( state , stat . exprs or { } )
+local iterator , invariant , control = produced [ 1 ] , produced [ 2 ] , produced [ 3 ]
+if type ( iterator ) ~= "function" then
+fail (
+"NUPP2411" ,
+stat ,
+"a generic for needs an iterator comptime can call" ,
+"`ipairs`, `pairs` and `string.gmatch` are available"
+)
+end
+while true do
+step ( state , stat )
+local got = callValues ( state , stat , iterator , { n = 2 , invariant , control } )
+if got [ 1 ] == nil then
+break
+end
+control = got [ 1 ]
+local inner = scope ( state . scope )
+for index , name in ipairs ( stat . names or { } ) do
+declare ( inner , name . text , got [ index ] )
+end
+local saved = state . scope
+state . scope = inner
+local ok , err = pcall ( execStats , state , stat . body )
+state . scope = saved
+if not ok then
+if err == BREAK then
+break
+end
+error ( err , 0 )
+end
+end
+elseif kind == "emptyStmt" then
+return
+elseif kind == "localFuncStmt" or kind == "funcStmt" then
+unsupported ( stat , "declaring a function inside a comptime block" )
+elseif kind == "gotoStmt" or kind == "labelStmt" then
+unsupported ( stat , "goto" )
+elseif kind == "continueStmt" then
+unsupported ( stat , "continue" )
+elseif kind == "pragmaStmt" then
+execStatement ( state , stat . stat )
+else
+unsupported ( stat , ( "a %s statement" ) : format ( tostring ( kind ) ) )
+end
+end
+
+
+execBlock = function ( state , block )
+if not block then
+return
+end
+local saved = state . scope
+state . scope = scope ( saved )
+local ok , err = pcall ( execStats , state , block )
+state . scope = saved
+if not ok then
+error ( err , 0 )
+end
+end
+
+
+
+
+
+
+local function typeOf ( value )
+local kind = type ( value )
+if value == nil then
+return T . nil_
+elseif kind == "boolean" then
+return T . literal ( value , T . boolean )
+elseif kind == "string" then
+return T . literal ( value , T . string )
+elseif kind == "number" then
+local exact = value == math . floor ( value ) and math . abs ( value ) <= MAX_EXACT_INTEGER
+return T . literal ( value , exact and T . integer or T . number )
+elseif kind ~= "table" then
+return T . any
+end
+local count = arrayLength ( value )
+local elements , named = { } , { }
+for index = 1 , count do
+local element = typeOf ( value [ index ] )
+
+
+
+elements [ # elements + 1 ] = element . tag == "literal" and ( element . base or T . string ) or element
+end
+for _ , key in ipairs ( sortedKeys ( value ) ) do
+local inArray = type ( key ) == "number" and key == math . floor ( key ) and key >= 1 and key <= count
+if not inArray then
+if type ( key ) == "string" then
+named [ # named + 1 ] = { name = key , read = typeOf ( value [ key ] ) , write = typeOf ( value [ key ] ) }
+else
+
+return T . table_
+end
+end
+end
+if # named > 0 and # elements == 0 then
+return T . shape ( named , nil , true )
+elseif # elements > 0 and # named == 0 then
+return T . array ( T . union ( elements ) )
+elseif # elements == 0 and # named == 0 then
+return T . table_
+end
+
+return T . table_
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function comptime . evaluateDirect (
+node ,
+block ,
+reflections ,
+layouts ,
+helpers
+)
+local state = newState ( )
+state . reflections = reflections or { }
+state . layouts = layouts or { }
+local env , libraries = buildEnvironment ( state )
+state . env , state . libraries = env , libraries
+installComptimeFunctions ( state , env , helpers )
+state . scope = scope ( nil )
+local ok , err = pcall ( execBlock , state , block )
+if not ok and err ~= RETURN then
+if type ( err ) == "table" and err [ FAILURE ] then
+return nil , nil , err
+end
+
+return nil , nil , { code = "NUPP2412" , node = node , message = tostring ( err ) }
+end
+if not state . returned then
+return nil , nil , {
+code = "NUPP2412" ,
+node = node ,
+message = "a comptime block must return a value" ,
+help = "every path out of the block needs a `return`" ,
+}
+end
+if materializeProviders . isOpaque ( state , state . result ) then
+local envelope , failure = materializeProviders . finalize ( state , state . result )
+if failure then
+return nil , nil , {
+code = failure . code ,
+node = node ,
+message = failure . message ,
+help = failure . help ,
+}
+end
+
+return nil , nil , nil , envelope
+end
+local quoted
+state . quoteItems = 0
+ok , quoted = pcall ( quoteValue , state . result , node , state )
+if not ok then
+if type ( quoted ) == "table" and quoted [ FAILURE ] then
+return nil , nil , quoted
+end
+
+return nil , nil , { code = "NUPP2413" , node = node , message = tostring ( quoted ) }
+end
+if # quoted > MAX_RESULT_BYTES then
+return nil , nil , {
+code = "NUPP2416" ,
+node = node ,
+message = "quoted comptime result exceeds the 524288-byte result limit" ,
+help = "materialize a smaller value or construct it at run time" ,
+}
+end
+
+return quoted , typeOf ( state . result ) , nil
+end
+
+
+
+
+function comptime . evaluateTypeFunctionDirect ( helper , arguments , helpers )
+if helper and helper . sealedTypeFunction then
+local parsedHelpers = { }
+local function findLocalFunction ( value )
+if type ( value ) ~= "table" then
+return nil
+end
+if value . kind == "localFuncStmt" then
+return value
+end
+for _ , child in ipairs ( value ) do
+local found = findLocalFunction ( child )
+if found then
+return found
+end
+end
+
+return nil
+end
+
+for helperName , descriptor in pairs ( helper . serializedHelpers or { } ) do
+local parsed = type (
+descriptor
+) == "table" and type (
+descriptor . source
+) == "string" and require (
+"nupp.compiler.parser"
+) . parse ( descriptor . source , "=comptime-helper-" .. helperName ) or nil
+local node = parsed and # ( parsed . errors or { } ) == 0 and findLocalFunction ( parsed . root ) or nil
+if not node or not node . name or node . name . text ~= helperName then
+return nil , {
+code = "NUPP2412" ,
+message = "cannot load sealed comptime helper " .. helperName ,
+}
+end
+parsedHelpers [ helperName ] = { node = node , line = descriptor . line , column = descriptor . column , }
+end
+local main = parsedHelpers [ helper . main ]
+if not main then
+return nil , { code = "NUPP2412" , message = "sealed type function has no entry helper" , }
+end
+helper , helpers = main . node , parsedHelpers
+end
+local node = helper and helper . body or helper
+local name = helper and helper . name and helper . name . text or ""
+if not node or name == "" then
+return nil , { code = "NUPP2412" , message = "type function has no checked body" }
+end
+local state = newState ( )
+local env , libraries = buildEnvironment ( state )
+state . env , state . libraries = env , libraries
+local available = { }
+for helperName , supplied in pairs ( helpers or { } ) do
+available [ helperName ] = supplied
+end
+available [ name ] = helper
+installComptimeFunctions ( state , env , available )
+state . scope = scope ( nil )
+local values = { n = # arguments }
+for position , argument in ipairs ( arguments ) do
+if argument . kind == "type" or argument . kind == "typepack" then
+local descriptor = argument . descriptor or reflection . describe ( argument . value , nil , true )
+local handle , importFailure = materializeProviders . importTypeDescriptor (
+state ,
+descriptor ,
+argument . value ,
+"argument" .. tostring ( position )
+)
+if not handle then
+return nil , {
+code = importFailure and importFailure . code or "NUPP2415" ,
+node = helper ,
+message = importFailure and importFailure . message or "cannot import a type-function argument" ,
+}
+end
+values [ position ] = handle
+elseif argument . kind == "function" then
+local handle = materializeProviders . importFunctionConst ( state , argument . key )
+if not handle then
+return nil , {
+code = "NUPP2415" ,
+node = helper ,
+message = "cannot import a const-function type-function argument" ,
+}
+end
+values [ position ] = handle
+elseif argument . kind == "const"
+and argument . value
+and argument . value . tag == "constLiteral"
+and argument . value . domain == "function"
+then
+local handle = materializeProviders . importFunctionConst ( state , argument . value . value )
+if not handle then
+return nil , {
+code = "NUPP2415" ,
+node = helper ,
+message = "cannot import a const-function type-function argument" ,
+}
+end
+values [ position ] = handle
+else
+values [ position ] = argument . value
+end
+end
+local token = env [ name ]
+local ok , produced = pcall ( callValues , state , helper , token , values )
+if not ok then
+if type ( produced ) == "table" and produced [ FAILURE ] then
+return nil , produced
+end
+return nil , { code = "NUPP2412" , node = helper , message = tostring ( produced ) }
+end
+local value = produced [ 1 ]
+if not materializeProviders . isOpaque ( state , value ) then
+return nil , {
+code = "NUPP2415" ,
+node = helper ,
+message = "a type function must return a type or type-pack handle" ,
+}
+end
+local envelope , finalFailure = materializeProviders . finalize ( state , value )
+if not envelope then
+return nil , {
+code = finalFailure and finalFailure . code or "NUPP2415" ,
+node = helper ,
+message = finalFailure and finalFailure . message or "cannot finalize a type-function result" ,
+help = finalFailure and finalFailure . help or nil ,
+}
+end
+if envelope . provider ~= "types" then
+return nil , {
+code = "NUPP2415" ,
+node = helper ,
+message = "a type function returned a non-type compiler blueprint" ,
+}
+end
+
+return envelope , nil
+end
+
+
+
+
+function comptime . evaluateDeriveProviderDirect (
+helper ,
+input ,
+helpers ,
+runtimeHelpers ,
+providerModule
+)
+if helper and helper . sealedTypeFunction then
+local parsedHelpers = { }
+local function findLocalFunction ( value )
+if type ( value ) ~= "table" then
+return nil
+end
+if value . kind == "localFuncStmt" then
+return value
+end
+for _ , child in ipairs ( value ) do
+local found = findLocalFunction ( child )
+if found then
+return found
+end
+end
+
+return nil
+end
+
+for helperName , descriptor in pairs ( helper . serializedHelpers or { } ) do
+local parsed = type (
+descriptor
+) == "table" and type (
+descriptor . source
+) == "string" and require (
+"nupp.compiler.parser"
+) . parse ( descriptor . source , "=derive-provider-" .. helperName ) or nil
+local node = parsed and # ( parsed . errors or { } ) == 0 and findLocalFunction ( parsed . root ) or nil
+if not node or not node . name or node . name . text ~= helperName then
+return nil , (
+{
+code = "NUPP2810" ,
+message = "cannot load sealed derive provider " .. helperName ,
+}
+)
+end
+parsedHelpers [ helperName ] = { node = node , line = descriptor . line , column = descriptor . column }
+end
+local main = parsedHelpers [ helper . main ]
+if not main then
+return nil , (
+{ code = "NUPP2810" , message = "sealed derive provider has no entry helper" , }
+)
+end
+helper , helpers = main . node , parsedHelpers
+end
+local node = helper and helper . body or helper
+local name = helper and helper . name and helper . name . text or ""
+if not node or name == "" then
+return nil , { code = "NUPP2810" , message = "derive provider has no checked body" }
+end
+local state = newState ( )
+local env , libraries = buildEnvironment ( state )
+state . env , state . libraries = env , libraries
+state . deriveHelpers = runtimeHelpers or { }
+state . deriveProviderModule = providerModule
+local available = { }
+for helperName , supplied in pairs ( helpers or { } ) do
+available [ helperName ] = supplied
+end
+available [ name ] = helper
+installComptimeFunctions ( state , env , available )
+local function importType ( edge , label )
+if not edge then
+return nil
+end
+local descriptor = edge . descriptor or edge
+local handle , why = materializeProviders . importTypeDescriptor ( state , descriptor , nil , label )
+if not handle then
+return nil , {
+code = why and why . code or "NUPP2810" ,
+message = why and why . message or "cannot import derive type information" ,
+}
+end
+
+return handle
+end
+
+local info = { }
+for key , value in pairs ( input or { } ) do
+info [ key ] = value
+end
+local importFailure
+info . ownerType , importFailure = importType ( input and input . ownerType , "owner" )
+if importFailure then
+return nil , importFailure
+end
+info . interfaceType , importFailure = importType ( input and input . interfaceType , "interface" )
+if importFailure then
+return nil , importFailure
+end
+info . fields = { }
+state . deriveClaims = { }
+for index , field in ipairs ( input and input . fields or { } ) do
+local transported = { }
+for key , value in pairs ( field ) do
+transported [ key ] = value
+end
+transported . readType , importFailure = importType ( field . readType , "field" .. index .. ":read" )
+if importFailure then
+return nil , importFailure
+end
+transported . writeType , importFailure = importType ( field . writeType , "field" .. index .. ":write" )
+if importFailure then
+return nil , importFailure
+end
+if transported . readType then
+local claims = { }
+state . deriveClaims [ transported . readType ] = claims
+for claimIndex , claim in ipairs ( field . claims or { } ) do
+local claimHandle
+claimHandle , importFailure = importType ( claim , "field" .. index .. ":claim" .. claimIndex )
+if importFailure then
+return nil , importFailure
+end
+local rightEntry = state . opaque [ claimHandle ]
+local rightIdentity = rightEntry and rightEntry . payload and (
+rightEntry . payload . fingerprint or rightEntry . payload . key
+) or nil
+if rightIdentity then
+claims [ rightIdentity ] = true
+end
+end
+end
+info . fields [ index ] = transported
+end
+local infoHandle = materializeProviders . materializeDeriveInfo ( state , info )
+state . scope = scope ( nil )
+local token = env [ name ]
+local ok , produced = pcall ( callValues , state , helper , token , { n = 1 , infoHandle } )
+if not ok then
+if type ( produced ) == "table" and produced [ FAILURE ] then
+return nil , produced
+end
+return nil , { code = "NUPP2810" , node = helper , message = tostring ( produced ) }
+end
+local value = produced [ 1 ]
+if not materializeProviders . isOpaque ( state , value ) then
+return nil , {
+code = "NUPP2810" ,
+node = helper ,
+message = "a derive provider must return nupp.derive.implement or nupp.derive.error" ,
+}
+end
+local envelope , finalFailure = materializeProviders . finalize ( state , value )
+if not envelope or envelope . provider ~= "derive" then
+return nil , {
+code = finalFailure and finalFailure . code or "NUPP2810" ,
+node = helper ,
+message = finalFailure and finalFailure . message or "derive provider returned a foreign blueprint" ,
+help = finalFailure and finalFailure . help or nil ,
+}
+end
+
+return envelope , nil
+end
+
+
+
+
+
+function comptime . evaluate (
+node ,
+block ,
+reflections ,
+layouts ,
+helpers ,
+host
+)
+local root = os . getenv ( "NUPP_COMPILER_ROOT" )
+local executable = root and root .. "/bin/nupp" or type (
+arg
+) == "table" and type ( arg [ 0 ] ) == "string" and arg [ 0 ] or nil
+if executable and not os . getenv ( "NUPP_COMPTIME_WORKER_CHILD" ) then
+local worker = require (
+"nupp.compiler.comptime_worker"
+)
+local quoted , failure , envelope = worker . evaluate (
+cst . textOf ( node ) ,
+executable ,
+reflections ,
+layouts ,
+helpers ,
+host
+)
+if failure then
+return nil , nil , {
+code = failure . code ,
+node = node ,
+message = failure . message ,
+help = failure . help ,
+}
+end
+if envelope then
+return nil , nil , nil , envelope
+end
+local chunk , loadErr = loadstring ( "return " .. tostring ( quoted ) , "=comptime-result" )
+if not chunk then
+return nil , nil , {
+code = "NUPP2412" ,
+node = node ,
+message = "the comptime worker returned an invalid literal: " .. tostring ( loadErr ) ,
+}
+end
+local ok , value = pcall ( chunk )
+if not ok then
+return nil , nil , {
+code = "NUPP2412" ,
+node = node ,
+message = "the comptime worker result did not load: " .. tostring ( value ) ,
+}
+end
+
+return quoted , typeOf ( value ) , nil
+end
+
+return comptime . evaluateDirect ( node , block , reflections , layouts , helpers )
+end
+
+return comptime

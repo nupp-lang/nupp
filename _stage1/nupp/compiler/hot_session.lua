@@ -1,0 +1,936 @@
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+local incremental = require ( "nupp.compiler.incremental" )
+local diagnostics = require ( "nupp.compiler.diagnostics" )
+local buildModules = require ( "nupp.compiler.build.modules" )
+local hash = require ( "nupp.compiler.build.hash" )
+local cache = require ( "nupp.compiler.build.cache" )
+local cst = require ( "nupp.compiler.cst" )
+local envMod = require ( "nupp.compiler.env" )
+local gen = require ( "nupp.compiler.gen" )
+local fs = require ( "nupp.compiler.fs" )
+local cheader = require ( "nupp.compiler.cheader" )
+
+local hotSession = { }
+local Session = { }
+Session . __index = Session
+
+local function fatalIn ( values )
+for _ , value in ipairs ( values or { } ) do
+if diagnostics . isFatal ( value ) then
+return true
+end
+end
+
+return false
+end
+
+local function copyManifest ( metadata , path , abi )
+local functions = { }
+for _ , fn in ipairs ( metadata . functions or { } ) do
+local captures = { }
+for index , capture in ipairs ( fn . captures or { } ) do
+captures [ index ] = capture
+end
+functions [
+# functions + 1
+] = {
+id = fn . id ,
+slot = fn . slot ,
+name = fn . name ,
+signature = fn . signature ,
+selfName = fn . selfName ,
+captures = captures ,
+implementation = fn . implementation ,
+patchable = fn . patchable ,
+affineCapture = fn . affineCapture ,
+cUses = fn . cUses or { } ,
+cUnknown = fn . cUnknown == true ,
+}
+end
+
+return {
+schema = 1 ,
+module = metadata . module ,
+path = path ,
+optimization = 0 ,
+structure = metadata . structure ,
+functions = functions ,
+abi = abi ,
+unverifiedLibraries = abi . unverifiedLibraries or { } ,
+}
+end
+
+local function sameCaptures ( left , right )
+if # left ~= # right then
+return false
+end
+for index , capture in ipairs ( left ) do
+if capture ~= right [ index ] then
+return false
+end
+end
+
+return true
+end
+
+local function indexed ( manifest )
+local byID = { }
+for _ , fn in ipairs ( manifest . functions or { } ) do
+byID [ fn . id ] = fn
+end
+
+return byID
+end
+
+local function restart ( path , message , reason )
+local help = "restart the program to apply this structural change"
+if reason and reason . kind == "native-artifact" then
+help = "restart the process; loaded cdata, callbacks, function pointers, and native state cannot be rebound"
+end
+
+return {
+kind = "restart-required" ,
+reason = reason ,
+diagnostics = {
+{ filename = path , line = 1 , col = 1 , offset = 0 , length = 0 , code = "NUPP5001" , msg = message , help = help , }
+} ,
+}
+end
+
+local function diagnosticsFailure ( values )
+return { kind = "diagnostics" , diagnostics = values }
+end
+
+local function exportDeprecationsFingerprint ( exports )
+local items = { }
+for _ , field in ipairs ( { "typeDefs" , "valueDefs" } ) do
+for name , definition in pairs ( exports and exports [ field ] or { } ) do
+local deprecated = definition . deprecated
+if deprecated then
+items [
+# items + 1
+] = field .. ":" .. name .. ":" .. cache . stable (
+deprecated . reason
+) .. ":" .. cache . stable ( deprecated . replacement )
+end
+end
+end
+table . sort ( items )
+
+return table . concat ( items , "\0" )
+end
+
+
+
+
+local function cdefFingerprint ( parsed )
+local parts = { }
+local function wrapsCdef ( node )
+while type ( node ) == "table" and node . kind == "pragmaStmt" do
+node = node . stat
+end
+return type ( node ) == "table" and ( node . kind == "cdefStruct" or node . kind == "cdefFunc" )
+end
+
+local function beginsCdef ( node )
+return node . kind == "cdefStruct"
+or node . kind == "cdefFunc"
+or node . cdefDeclarationBlock
+or node . cheaderCdef
+or node . kind == "pragmaStmt"
+and wrapsCdef (
+node
+)
+end
+
+local function visit ( node , inside )
+if type ( node ) ~= "table" then
+return
+end
+if cst . isToken ( node ) then
+if inside then
+parts [ # parts + 1 ] = tostring ( node . kind ) .. ":" .. tostring ( node . text )
+end
+return
+end
+local begins = beginsCdef ( node )
+local active = inside or begins
+if begins then
+parts [ # parts + 1 ] = "begin:" .. node . kind
+if node . cheaderCdef then
+parts [ # parts + 1 ] = "cheader:" .. tostring ( node . cheaderCdef )
+end
+end
+for _ , child in ipairs ( node ) do
+visit ( child , active )
+end
+if begins then
+parts [ # parts + 1 ] = "end:" .. node . kind
+end
+end
+
+visit ( parsed and parsed . root , false )
+
+return table . concat ( parts , "\0" )
+end
+
+
+
+
+
+local function cDeclarations ( parsed )
+local declarations = { }
+local function visit ( node , functionDepth )
+if type ( node ) ~= "table" or cst . isToken ( node ) then
+return
+end
+local isFunction = node . kind == "localFuncStmt"
+or node . kind == "funcStmt"
+or node . kind == "inlineMethod"
+or node . kind == "funcExpr"
+or node . kind == "shortfn"
+local depth = functionDepth + ( isFunction and 1 or 0 )
+if ( node . kind == "cdefStruct" or node . kind == "cdefFunc" ) and node . cdefIdentity then
+local prior = declarations [ node . cdefIdentity ]
+local semantic = node . cdefSemantic or cst . textOf ( node ) : gsub ( "%s+" , "" )
+if prior and prior . semantic ~= semantic then
+semantic = prior . semantic .. "\0duplicate\0" .. semantic
+end
+declarations [
+node . cdefIdentity
+] = {
+identity = node . cdefIdentity ,
+semantic = semantic ,
+name = node . name and node . name . text or node . cdefIdentity ,
+kind = node . kind == "cdefStruct" and "aggregate" or "function" ,
+runtimeBinding = depth == 0 or prior and prior . runtimeBinding or false ,
+}
+end
+for _ , child in ipairs ( node ) do
+visit ( child , depth )
+end
+end
+
+visit ( parsed and parsed . root , 0 )
+
+return declarations
+end
+
+local function interfaceFingerprint ( moduleType , exports )
+exports = exports or { }
+return hash . digest (
+buildModules . typeFingerprint (
+moduleType
+) .. "\0deprecated\0" .. exportDeprecationsFingerprint (
+exports
+) .. "\0nominal-callables:" .. (
+exports . nominalEffectFingerprint or ""
+) .. "\0derives:" .. (
+exports . deriveInterfaceFingerprint or ""
+) .. "\0comptime-functions:" .. ( exports . comptimeFunctionFingerprint or "" )
+)
+end
+
+local function applyCMetadata ( snapshot , metadata )
+local module = metadata and snapshot . modules [ metadata . module ]
+if not module then
+return
+end
+local uses , functions = { } , { }
+local unknown = false
+for _ , fn in ipairs ( metadata . functions or { } ) do
+local own = { }
+for _ , identity in ipairs ( fn . cUses or { } ) do
+uses [ identity ] = true
+own [ identity ] = true
+end
+functions [ fn . id ] = own
+unknown = unknown or fn . cUnknown == true
+end
+module . cUses = uses
+module . cFunctionUses = functions
+module . cUnknown = unknown
+end
+
+local function carryCMetadata ( previous , candidate )
+for identity , current in pairs ( candidate . modules or { } ) do
+local old = previous . modules and previous . modules [ identity ]
+if old then
+current . cUses = current . cUses or old . cUses
+current . cFunctionUses = current . cFunctionUses or old . cFunctionUses
+if current . cUnknown == nil then
+current . cUnknown = old . cUnknown
+end
+end
+end
+end
+
+local function cDeclarationChange ( old , current )
+local oldDeclarations = old . cDeclarations or { }
+local nextDeclarations = current . cDeclarations or { }
+local oldUses = old . cUses or { }
+local nextUses = current . cUses or oldUses
+local identities = { }
+for identity in pairs ( oldDeclarations ) do
+identities [ identity ] = true
+end
+for identity in pairs ( nextDeclarations ) do
+identities [ identity ] = true
+end
+for identity in pairs ( nextUses ) do
+local declaration = nextDeclarations [ identity ] or oldDeclarations [ identity ]
+if not oldUses [ identity ] and declaration and not declaration . runtimeBinding then
+return declaration , "new-use"
+end
+end
+local ordered = { }
+for identity in pairs ( identities ) do
+ordered [ # ordered + 1 ] = identity
+end
+table . sort ( ordered )
+for _ , identity in ipairs ( ordered ) do
+local before , after = oldDeclarations [ identity ] , nextDeclarations [ identity ]
+local changed = not before or not after or before . semantic ~= after . semantic
+local relevant = before and before . runtimeBinding or after and after . runtimeBinding or oldUses [
+identity
+] or nextUses [ identity ]
+if changed and relevant then
+return before or after , not before and "added" or not after and "removed" or "changed"
+end
+end
+if old . cFingerprint ~= current . cFingerprint and ( old . cUnknown or current . cUnknown ) then
+return { name = old . label or current . label , identity = "<module-wide C fallback>" } , "fallback"
+end
+
+return nil
+end
+
+local function snapshotChanged ( previous , candidate , consumer )
+local function keys ( values )
+local out = { }
+for identity in pairs ( values or { } ) do
+out [ # out + 1 ] = identity
+end
+table . sort ( out )
+
+return out
+end
+
+local moduleKeys = keys ( previous . modules )
+for _ , identity in ipairs ( keys ( previous . inputs ) ) do
+local old = previous . inputs [ identity ]
+local current = candidate . inputs [ identity ]
+if not current or current . fingerprint ~= old . fingerprint then
+local kind = old . binary
+and "native-artifact"
+or old . kind == "header"
+and "header-abi"
+or old . kind == "provider-file"
+and "provider-input"
+or "semantic-input"
+return {
+kind = kind ,
+dependencyKind = old . kind ,
+dependency = old . display ,
+identity = identity ,
+path = old . paths and old . paths [ 1 ] or nil ,
+paths = old . paths ,
+consumer = old . consumer ,
+binary = old . binary ,
+}
+end
+end
+for _ , identity in ipairs ( moduleKeys ) do
+local old = previous . modules [ identity ]
+local current = candidate . modules [ identity ]
+local declaration , disposition = current and cDeclarationChange ( old , current ) or nil
+if declaration then
+return {
+kind = "c-declaration" ,
+dependencyKind = "C declarations" ,
+dependency = declaration . name or old . label ,
+identity = declaration . identity or identity ,
+path = old . path ,
+disposition = disposition ,
+}
+end
+end
+for _ , identity in ipairs ( keys ( previous . declarations ) ) do
+local old = previous . declarations [ identity ]
+local current = candidate . declarations [ identity ]
+if current and current . fingerprint ~= old . fingerprint then
+return {
+kind = "project-declaration" ,
+dependencyKind = old . query ,
+dependency = old . label ,
+identity = identity ,
+path = old . paths and old . paths [ 1 ] or nil ,
+paths = old . paths ,
+}
+end
+end
+
+
+
+
+for _ , identity in ipairs ( moduleKeys ) do
+local old = previous . modules [ identity ]
+local current = candidate . modules [ identity ]
+if identity ~= consumer and current and current . fingerprint ~= old . fingerprint then
+return {
+kind = "module-interface" ,
+dependencyKind = "module" ,
+dependency = old . label ,
+identity = identity ,
+path = old . path ,
+}
+end
+end
+local old = previous . modules and previous . modules [ consumer ]
+local current = candidate . modules and candidate . modules [ consumer ]
+if old and current and current . fingerprint ~= old . fingerprint then
+return {
+kind = "module-interface" ,
+dependencyKind = "module" ,
+dependency = old . label ,
+identity = consumer ,
+path = old . path ,
+}
+end
+
+return nil
+end
+
+local function dependencyChangeMessage ( change , consumer , consumerPath )
+local subject
+if change . kind == "c-declaration" then
+subject = "C declarations in module " .. change . dependency
+elseif change . kind == "header-abi" then
+subject = "header " .. change . dependency
+elseif change . kind == "native-artifact" then
+subject = "native artifact for " .. change . dependency
+elseif change . kind == "provider-input" then
+subject = "provider input " .. change . dependency
+elseif change . kind == "module-interface" then
+subject = "module interface " .. change . dependency
+else
+local labels = {
+projectEntries = "project declaration" ,
+projectPathEntries = "project path declaration" ,
+projectModulePath = "module resolution" ,
+projectModuleBasenames = "module basename resolution" ,
+projectAnnotations = "project annotation" ,
+}
+subject = ( labels [ change . dependencyKind ] or "semantic dependency" ) .. " " .. change . dependency
+end
+if change . path then
+subject = subject .. " at " .. change . path
+end
+local required = "required by " .. consumer
+if consumerPath then
+required = required .. " at " .. consumerPath
+end
+
+return subject .. " changed (" .. required .. ")"
+end
+
+function hotSession . new ( root , opts )
+local self = setmetatable ( { } , Session )
+self . inc = incremental . new ( root or "." , opts or { } )
+self . generation = 1
+self . running = { }
+self . prepared = { }
+self . noticedLibraries = { }
+self . observedInputs = { }
+self . libraryPaths = { }
+self . libraryConfiguredPaths = { }
+local configured = self . inc . env . config and self . inc . env . config . hotreload
+if configured ~= nil and type ( configured ) ~= "table" then
+error ( "hotreload must be a table" , 2 )
+end
+local libraries = configured and configured . libraries or nil
+if libraries ~= nil and type ( libraries ) ~= "table" then
+error ( "hotreload.libraries must be a table of loader names to paths" , 2 )
+end
+for name , path in pairs ( libraries or { } ) do
+if type ( name ) ~= "string" or name == "" or type ( path ) ~= "string" or path == "" then
+error ( "hotreload.libraries must map non-empty string names to non-empty paths" , 2 )
+end
+local configuredPath = fs . absolute ( fs . join ( self . inc . env . rootDir , path ) )
+self . libraryConfiguredPaths [ name ] = configuredPath
+self . libraryPaths [ name ] = fs . canonical ( configuredPath )
+end
+
+return self
+end
+
+local function stringLiteral ( text )
+if type ( text ) ~= "string" then
+return nil
+end
+return text : match ( '^"(.*)"$' ) or text : match ( "^'(.*)'$" ) or text : match ( "^%[=+%[(.*)%]=+%]$" )
+end
+
+local function nativeUses ( parsed )
+local uses = { }
+local function add ( name , dynamic , node )
+local first = node and node [ 1 ]
+local line = first and cst . isToken ( first ) and first . line or 1
+uses [ # uses + 1 ] = { name = name , dynamic = dynamic , line = line }
+end
+
+local function visit ( node )
+if type ( node ) ~= "table" or cst . isToken ( node ) then
+return
+end
+if ( node . kind == "cdefFunc" or node . kind == "cdefStruct" ) and node . fromLib then
+add ( stringLiteral ( node . fromLib . text ) , false , node )
+elseif node . cheaderLib then
+add ( node . cheaderLib , false , node )
+elseif node . ffiLoadLib then
+add ( node . ffiLoadLib , false , node )
+elseif node . ffiLoadDynamic then
+add ( nil , true , node )
+end
+for _ , child in ipairs ( node ) do
+visit ( child )
+end
+end
+
+visit ( parsed and parsed . root )
+
+return uses
+end
+
+local function addInput ( snapshot , input , module )
+local identity = input . identity .. "\0consumer=" .. module .. "\0" .. tostring ( input . consumer or "" )
+snapshot . inputs [ identity ] = input
+end
+
+function Session : diskChanged ( path , changeType )
+self . inc . diskChanged ( path , changeType )
+end
+
+
+
+
+function Session : semanticSnapshot ( path , checked , module )
+local snapshot = { modules = { } , declarations = { } , inputs = { } , unverifiedLibraries = { } }
+local visited = { }
+
+local function visit ( currentPath , currentChecked , currentModule )
+if visited [ currentPath ] then
+return true
+end
+visited [ currentPath ] = true
+
+local result = currentChecked or self . inc . checkFile ( currentPath )
+if fatalIn ( result . diags ) then
+return nil , diagnosticsFailure ( result . diags )
+end
+local cFingerprint = cdefFingerprint ( result . result )
+local declarations = cDeclarations ( result . result )
+snapshot . modules [
+currentModule
+] = {
+fingerprint = interfaceFingerprint ( result . moduleType , result . exports ) ,
+label = currentModule ,
+path = currentPath ,
+cFingerprint = cFingerprint ,
+cDeclarations = declarations ,
+}
+for _ , input in ipairs ( result . result and result . result . externalInputs or { } ) do
+addInput ( snapshot , input , currentModule )
+end
+for _ , use in ipairs ( nativeUses ( result . result ) ) do
+local name = use . name
+local mapped = name and self . libraryPaths [ name ] or nil
+if mapped then
+local configuredPath = self . libraryConfiguredPaths [ name ]
+local resolved = fs . canonical ( configuredPath )
+local bytes = self . inc . externalFile ( configuredPath )
+if resolved ~= configuredPath then
+self . inc . externalFile ( resolved )
+end
+if mapped ~= configuredPath and mapped ~= resolved then
+self . inc . externalFile ( mapped )
+end
+local paths = { configuredPath }
+if resolved ~= configuredPath then
+paths [ # paths + 1 ] = resolved
+end
+if mapped ~= configuredPath and mapped ~= resolved then
+paths [ # paths + 1 ] = mapped
+end
+addInput (
+snapshot ,
+{
+identity = "native-artifact\0" .. name ,
+kind = "native-artifact" ,
+display = name ,
+paths = paths ,
+fingerprint = hash . digest (
+table . concat (
+{
+"native-artifact-v1" ,
+configuredPath ,
+mapped ,
+resolved ,
+jit . os ,
+jit . arch ,
+bytes and ( "present\0" .. bytes ) or "missing" ,
+} ,
+"\0"
+)
+) ,
+consumer = currentModule .. ":" .. tostring ( use . line ) ,
+binary = true ,
+} ,
+currentModule
+)
+else
+local label = use . dynamic and "<dynamic ffi.load>" or tostring ( name )
+snapshot . unverifiedLibraries [ label ] = true
+end
+end
+for _ , dependency in ipairs ( self . inc . projectDependencies ( currentPath ) ) do
+local identity = dependency . name .. "\0" .. tostring ( dependency . key )
+snapshot . declarations [
+identity
+] = {
+fingerprint = dependency . fingerprint ,
+label = tostring ( dependency . key ) ,
+query = dependency . name ,
+paths = self . inc . projectDependencyPaths ( dependency . name , dependency . key ) ,
+}
+end
+for _ , dependency in ipairs ( self . inc . moduleDependencies ( currentPath ) ) do
+local dependencyPath = self . inc . modulePath ( dependency )
+if dependencyPath then
+local ok , failure = visit ( dependencyPath , nil , dependency )
+if not ok then
+return nil , failure
+end
+else
+local bundled = self . inc . env . bundled and self . inc . env . bundled [ dependency ]
+if bundled then
+snapshot . modules [
+dependency
+] = { fingerprint = interfaceFingerprint ( bundled . type , bundled . exports ) , label = dependency , }
+end
+end
+end
+
+return true
+end
+
+local ok , failure = visit ( path , checked , module )
+if not ok then
+return nil , failure
+end
+
+for identity , input in pairs ( snapshot . inputs ) do
+self . observedInputs [ identity ] = input
+end
+
+return snapshot
+end
+
+function Session : compile ( path , mode , module , only )
+local checked = self . inc . checkFile ( path )
+if fatalIn ( checked . diags ) then
+return nil , diagnosticsFailure ( checked . diags )
+end
+local abi , abiFailure = self : semanticSnapshot ( path , checked , module )
+if not abi then
+return nil , abiFailure
+end
+local code , generated , _ , _ , metadata = gen . generate ( checked . result , path , nil , {
+mode = mode ,
+module = module ,
+baseGeneration = mode == "patch" and self . generation or nil ,
+only = only ,
+libraries = self . libraryPaths ,
+} )
+if fatalIn ( generated ) then
+return nil , diagnosticsFailure ( generated )
+end
+applyCMetadata ( abi , metadata )
+
+return { code = code , manifest = copyManifest ( metadata , path , abi ) }
+end
+
+function Session : initial ( entries )
+local path = entries and entries [ 1 ]
+if not path then
+error ( "hot reload initial build needs one entry" , 2 )
+end
+local module = envMod . moduleNameForPath ( self . inc . env , path ) or path
+local built , failure = self : compile ( path , "initial" , module )
+if not built then
+return failure
+end
+
+return { kind = "initial" , generation = self . generation , entryCode = built . code , entryManifest = built . manifest , }
+end
+
+function Session : loaded ( module , generation , manifest )
+if generation ~= self . generation then
+error ( "hot reload loaded acknowledgement names an unknown generation" , 2 )
+end
+if self . running [ module ] then
+error ( "hot reload module " .. module .. " was acknowledged twice" , 2 )
+end
+if type ( manifest ) ~= "table" or manifest . schema ~= 1 or manifest . module ~= module then
+error ( "hot reload loaded acknowledgement has a mismatched manifest" , 2 )
+end
+self . running [ module ] = manifest
+self . observedInputs = { }
+
+return self : unverifiedNotices ( { [ module ] = manifest } )
+end
+
+function Session : unverifiedNotices ( manifests )
+local notices = { }
+for _ , manifest in pairs ( manifests or { } ) do
+for name in pairs ( manifest . unverifiedLibraries or { } ) do
+if not self . noticedLibraries [ name ] then
+self . noticedLibraries [ name ] = true
+notices [ # notices + 1 ] = name
+end
+end
+end
+table . sort ( notices )
+
+return { unverifiedLibraries = notices }
+end
+
+function Session : watchedInputs ( )
+local byPath = { }
+for _ , path in ipairs ( envMod . listProjectFiles ( self . inc . env ) ) do
+byPath [ path ] = { path = path , kind = "source" }
+end
+for _ , manifest in pairs ( self . running ) do
+for _ , input in pairs ( manifest . abi and manifest . abi . inputs or { } ) do
+for _ , path in ipairs ( input . paths or { } ) do
+local prior = byPath [ path ]
+if not prior or input . binary then
+byPath [ path ] = { path = path , kind = input . kind }
+end
+end
+end
+end
+for _ , input in pairs ( self . observedInputs ) do
+for _ , path in ipairs ( input . paths or { } ) do
+local prior = byPath [ path ]
+if not prior or input . binary then
+byPath [ path ] = { path = path , kind = input . kind }
+end
+end
+end
+local out = { }
+for _ , input in pairs ( byPath ) do
+out [ # out + 1 ] = input
+end
+table . sort ( out , function ( left , right )
+return left . path < right . path
+end )
+
+return out
+end
+
+function Session : prepare ( paths )
+self . observedInputs = { }
+local patches , candidate = { } , { }
+for module , manifest in pairs ( self . running ) do
+candidate [ module ] = manifest
+end
+
+
+local loaded = { }
+for module in pairs ( self . running ) do
+loaded [ # loaded + 1 ] = module
+end
+table . sort ( loaded )
+
+
+
+for _ , module in ipairs ( loaded ) do
+local live = self . running [ module ]
+for _ , input in pairs ( live . abi and live . abi . inputs or { } ) do
+if input . kind == "header" then
+local observed = cheader . provenance ( input . sourcePath or input . paths [ 1 ] , { preprocess = input . preprocess } )
+if observed and observed . semanticFingerprint ~= input . fingerprint then
+local change = {
+kind = "header-abi" ,
+dependencyKind = "header" ,
+dependency = input . display ,
+identity = input . identity ,
+path = input . paths [ 1 ] ,
+paths = input . paths ,
+consumer = input . consumer or module ,
+}
+return restart ( live . path , dependencyChangeMessage ( change , module , live . path ) , change )
+end
+end
+end
+end
+for _ , module in ipairs ( loaded ) do
+local live = self . running [ module ]
+local checked = self . inc . checkFile ( live . path )
+if fatalIn ( checked . diags ) then
+return diagnosticsFailure ( checked . diags )
+end
+local abi , failure = self : semanticSnapshot ( live . path , checked , module )
+if not abi then
+return failure
+end
+local change = snapshotChanged ( live . abi or { } , abi , module )
+if change then
+change . consumer = module
+change . consumerPath = live . path
+return restart ( live . path , dependencyChangeMessage ( change , module , live . path ) , change )
+end
+carryCMetadata ( live . abi or { } , abi )
+local refreshed = { }
+for key , value in pairs ( live ) do
+refreshed [ key ] = value
+end
+refreshed . abi = abi
+refreshed . unverifiedLibraries = abi . unverifiedLibraries or { }
+candidate [ module ] = refreshed
+end
+local changedCount = 0
+for _ , path in ipairs ( paths or { } ) do
+local module = envMod . moduleNameForPath ( self . inc . env , path ) or path
+local live = self . running [ module ]
+if live then
+local compiled , failure = self : compile ( path , "patch" , module )
+if not compiled then
+return failure
+end
+local nextManifest = compiled . manifest
+local abiChange = snapshotChanged ( live . abi or { } , nextManifest . abi or { } , module )
+if abiChange then
+abiChange . consumer = module
+abiChange . consumerPath = path
+return restart ( path , dependencyChangeMessage ( abiChange , module , path ) , abiChange )
+end
+if live . structure ~= nextManifest . structure then
+return restart ( path , "top-level structure changed in " .. module , {
+kind = "source-structure" ,
+dependency = module ,
+path = path ,
+consumer = module ,
+} )
+end
+local oldByID , nextByID = indexed ( live ) , indexed ( nextManifest )
+local only = { }
+for id , old in pairs ( oldByID ) do
+local nextFn = nextByID [ id ]
+if not nextFn or nextFn . slot ~= old . slot then
+return restart ( path , "reloadable declaration changed: " .. id , {
+kind = "reloadable-declaration" ,
+dependency = id ,
+path = path ,
+consumer = module ,
+} )
+end
+if nextFn . signature ~= old . signature then
+return restart ( path , "callable signature changed: " .. id , {
+kind = "callable-abi" ,
+dependency = id ,
+path = path ,
+consumer = module ,
+} )
+end
+if not sameCaptures ( old . captures , nextFn . captures ) then
+return restart ( path , "captured bindings changed: " .. id , {
+kind = "capture-set" ,
+dependency = id ,
+path = path ,
+consumer = module ,
+} )
+end
+if nextFn . implementation ~= old . implementation then
+if not old . patchable then
+return restart (
+path ,
+"capture " .. tostring (
+old . affineCapture
+) .. " owns a cleanup, so replacing " .. old . id .. " requires restart" ,
+{
+kind = "affine-capture" ,
+dependency = old . id ,
+path = path ,
+consumer = module ,
+capture = old . affineCapture ,
+}
+)
+end
+only [ id ] = true
+changedCount = changedCount + 1
+end
+end
+for id in pairs ( nextByID ) do
+if not oldByID [ id ] then
+return restart ( path , "reloadable declaration was added: " .. id , {
+kind = "reloadable-declaration" ,
+dependency = id ,
+path = path ,
+consumer = module ,
+} )
+end
+end
+if next ( only ) then
+local selected , selectedFailure = self : compile ( path , "patch" , module , only )
+if not selected then
+return selectedFailure
+end
+patches [ # patches + 1 ] = selected . code
+end
+candidate [ module ] = nextManifest
+end
+end
+if changedCount == 0 then
+self . running = candidate
+self . observedInputs = { }
+return { kind = "no-change" , generation = self . generation }
+end
+local generation = self . generation + 1
+local result = {
+kind = "prepared" ,
+patch = table . concat ( patches , "\n" ) ,
+baseGeneration = self . generation ,
+generation = generation ,
+}
+self . prepared [ generation ] = { result = result , manifests = candidate }
+
+return result
+end
+
+function Session : committed ( generation )
+local pending = self . prepared [ generation ]
+if not pending or generation ~= self . generation + 1 then
+error ( "hot reload commit acknowledgement is unknown or stale" , 2 )
+end
+self . generation = generation
+self . running = pending . manifests
+self . prepared = { }
+self . observedInputs = { }
+
+return self : unverifiedNotices ( self . running )
+end
+
+function Session : persist ( )
+self . inc . persist ( )
+end
+
+return hotSession

@@ -1,0 +1,3 @@
+local greet: function(name: string): string
+
+return {greet = greet}

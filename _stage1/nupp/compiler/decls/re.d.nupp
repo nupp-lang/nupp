@@ -1,0 +1,20 @@
+-- Typed declaration for the textual LPeg grammar module bundled by Nupp.
+
+local record re
+    --- Compiles an LPeg `re` expression, or returns an existing pattern unchanged.
+    compile: function(pattern: any, definitions: table?): any
+
+    --- Compiles `pattern` if needed and matches it against `subject`.
+    match: function(subject: string, pattern: any, init: integer?): any
+
+    --- Finds the first match and returns its inclusive byte range.
+    find: function(subject: string, pattern: any, init: integer?): (integer?, integer?)
+
+    --- Replaces every match with a literal, lookup table, or callback result.
+    gsub: function(subject: string, pattern: any, replacement: string | table | function(...: any): any): string
+
+    --- Rebuilds the predefined locale-dependent character classes.
+    updatelocale: function(): nil
+end
+
+return re

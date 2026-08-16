@@ -1,0 +1,7 @@
+local ${moduleName} = {}
+
+function ${moduleName}.greet(name: string): string
+    return "Hello, " .. name .. "!"
+end
+
+return ${moduleName}

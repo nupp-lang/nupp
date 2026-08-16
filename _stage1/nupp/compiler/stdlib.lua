@@ -1,0 +1,1076 @@
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+local stdlib = { }
+
+local function compact ( source )
+return ( source : gsub ( "[\r\n]+%s*" , " " ) : gsub ( "%s+$" , "" ) )
+end
+
+local BASE = compact (
+[=[
+local __nupp=_G.nupp or {};_G.nupp=__nupp
+local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
+]=]
+)
+
+
+
+
+
+local HOT_BASE = compact (
+[=[
+local __nupp=_G.nupp or {};_G.nupp=__nupp
+local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);rawset(__nupp,"math",rawget(__nupp,"math")or{})
+]=]
+)
+
+local LAZY = compact (
+[=[
+local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end
+]=]
+)
+
+local JSON = compact (
+[=[
+local function __nuppLoadJSON()local source=require("cjson");local aliases={EMPTY_ARRAY="empty_array",ARRAY_MT="array_mt",EMPTY_ARRAY_MT="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.NULL=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;local json=adopt({},source);json.newJSON=function()return adopt({},source.new())end;return json end
+__nuppLazy(__nuppData,"json",__nuppLoadJSON)
+]=]
+)
+
+local IO = compact (
+[=[
+local function __nuppInstallIO()local ffi=require("ffi");local Buffer,View,Reader,Writer={},{},{},{};Buffer.__index=Buffer;View.__index=View;Reader.__index=Reader;Writer.__index=Writer
+local __nuppBytes=ffi.typeof("uint8_t[?]");local SMALLEST=32
+local function integer(value,what,level)if type(value)~="number"or value~=math.floor(value)or value<0 then error("nupp: "..what.." must be a non-negative integer",level)end;return value end
+local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: "..what.." must be an integer",level)end;return value end
+local function opened(self,what,level)if self._closed then error("nupp: "..what.." is closed",level)end end
+local function range(length,offset,count,what,level)offset=integer(offset or 0,what.." offset",level);if offset>length then error("nupp: "..what.." offset is past the end",level)end;count=integer(count==nil and length-offset or count,what.." count",level);if offset+count>length then error("nupp: "..what.." range is past the end",level)end;return offset,count end
+local function reserve(self,minimum)if minimum<=self._capacity then return end;local capacity=self._capacity*2;if capacity<minimum then capacity=minimum end;if capacity<SMALLEST then capacity=SMALLEST end;local data=__nuppBytes(capacity);if self._length>0 then ffi.copy(data,self._data,self._length)end;self._data=data;self._capacity=capacity end
+local function bytesAt(self,offset,count)if count==0 then return""end;return ffi.string(self._data+offset,count)end
+function View:length()opened(self,"io.ByteView",2);return #self._bytes end;function View:getString()opened(self,"io.ByteView",2);return self._bytes end;function View:newReader()opened(self,"io.ByteView",2);return setmetatable({_bytes=self._bytes,_at=1,_closed=false},Reader)end;function View:view(offset,count)opened(self,"io.ByteView",2);offset,count=range(#self._bytes,offset,count,"io.ByteView",2);return setmetatable({_bytes=self._bytes:sub(offset+1,offset+count),_closed=false},View)end;function View:isReleased()return self._closed end;function View:close()self._closed=true;self._bytes="";return true end
+function Buffer:length()opened(self,"io.Buffer",2);return self._length end;function Buffer:capacity()opened(self,"io.Buffer",2);return self._capacity end;function Buffer:clear()opened(self,"io.Buffer",2);self._length=0 end;function Buffer:ensureCapacity(minimum)opened(self,"io.Buffer",2);reserve(self,integer(minimum,"io.Buffer capacity",2))end
+function Buffer:resize(length)opened(self,"io.Buffer",2);length=integer(length,"io.Buffer length",2);if length>self._length then reserve(self,length);ffi.fill(self._data+self._length,length-self._length,0)end;self._length=length end
+function Buffer:getString(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return bytesAt(self,offset,count)end
+function Buffer:setString(bytes,offset)opened(self,"io.Buffer",2);if type(bytes)~="string"then error("nupp: io.Buffer bytes must be a string",2)end;offset=integer(offset or 0,"io.Buffer offset",2);local ending=offset+#bytes;reserve(self,ending);if offset>self._length then ffi.fill(self._data+self._length,offset-self._length,0)end;if #bytes>0 then ffi.copy(self._data+offset,bytes,#bytes)end;if ending>self._length then self._length=ending end end
+function Buffer:view(offset,count)opened(self,"io.Buffer",2);offset,count=range(self._length,offset,count,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,offset,count),_closed=false},View)end;function Buffer:isReleased()return self._closed end;function Buffer:close()self._closed=true;self._data=nil;self._length=0;self._capacity=0;return true end
+function Reader:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);if self._at>#self._bytes then return ""end;local taking=math.min(math.max(1,count),#self._bytes-self._at+1);local out=self._bytes:sub(self._at,self._at+taking-1);self._at=self._at+taking;return out end
+function Reader:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);if self._at>#self._bytes or count==0 then return 0 end;local taking=math.min(count,#self._bytes-self._at+1);destination:setString(self._bytes:sub(self._at,self._at+taking-1),offset);self._at=self._at+taking;return taking end
+function Reader:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local remaining=self._bytes:sub(self._at);local ok,reason=destination:write(remaining);if not ok then return nil,reason end;self._at=#self._bytes+1;return #remaining end;function Reader:close()self._closed=true;self._bytes="";return true end
+local function slice(source,offset,count,what)offset,count=range(source:length(),offset,count,what,3);return source:getString(offset,count),count end
+function Writer:write(bytes)if self._closed then return false,"the writer is closed"end;if self._buffer:isReleased()then return false,"the destination buffer is closed"end;self._buffer:setString(bytes,self._at);self._at=self._at+#bytes;return true end
+function Writer:writeFrom(source,offset,count)if self._closed then return nil,"the writer is closed"end;if source==self._buffer then return nil,"cannot write a buffer into itself"end;local bytes,n=slice(source,offset,count,"io.Buffer");local ok,reason=self:write(bytes);if not ok then return nil,reason end;return n end
+function Writer:writeView(source,offset,count)if self._closed then return nil,"the writer is closed"end;offset,count=range(source:length(),offset,count,"io.ByteView",2);local ok,reason=self:write(source:getString():sub(offset+1,offset+count));if not ok then return nil,reason end;return count end;function Writer:flush()if self._closed then return false,"the writer is closed"end;return true end;function Writer:close()self._closed=true;return not self._buffer:isReleased(),self._buffer:isReleased()and"the destination buffer is closed"or nil end
+function Buffer:newReader()opened(self,"io.Buffer",2);return setmetatable({_bytes=bytesAt(self,0,self._length),_at=1,_closed=false},Reader)end;function Buffer:newWriter()opened(self,"io.Buffer",2);self:clear();return setmetatable({_buffer=self,_at=0,_closed=false},Writer)end
+local function newBuffer(initial)if initial~=nil and type(initial)~="number"and type(initial)~="string"then error("nupp: io.newBuffer initial value must be bytes or a capacity",2)end;local bytes=type(initial)=="string"and initial or"";local capacity=type(initial)=="number"and integer(initial,"io.newBuffer capacity",2)or#bytes;local self=setmetatable({_data=capacity>0 and __nuppBytes(capacity)or nil,_length=0,_capacity=capacity,_closed=false},Buffer);if#bytes>0 then ffi.copy(self._data,bytes,#bytes);self._length=#bytes end;return self end
+local ByteQueue,ScalarReader,ScalarWriter={},{},{};ByteQueue.__index=ByteQueue;ScalarReader.__index=ScalarReader;ScalarWriter.__index=ScalarWriter
+function ByteQueue:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);local have=#self._source;if have==0 then return""end;return self._source:get(math.min(math.max(1,count),have))end
+function ByteQueue:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);local have=#self._source;if have==0 or count==0 then return 0 end;local taking=math.min(count,have);destination:setString(self._source:get(taking),offset);return taking end
+function ByteQueue:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local rest=self._source:get();local ok,reason=destination:write(rest);if not ok then return nil,reason end;return #rest end
+function ByteQueue:close()self._closed=true;self._source=nil;return true end
+local function fill(self,need)local failure;if self._reader then while #self._pending<need do local chunk,reason=self._reader:read(need-#self._pending);if chunk==nil then failure=reason;break end;if chunk==""then break end;self._pending=self._pending..chunk end elseif self._queue then local want=need-#self._pending;local have=want>0 and #self._queue or 0;if have>0 then self._pending=self._pending..self._queue:get(math.min(want,have))end end;return #self._pending,failure end
+local function taken(self,need)if self._closed then error("nupp: io.ScalarReader is closed",3)end;local have,failure=fill(self,need);if failure then error("nupp: io.ScalarReader source failed: "..tostring(failure),3)end;if have<need then error(("nupp: io.ScalarReader needs %d bytes, has %d"):format(need,have),3)end;local out=self._pending:sub(1,need);self._pending=self._pending:sub(need+1);return out end
+function ScalarReader:remaining()if self._closed then error("nupp: io.ScalarReader is closed",2)end;if self._reader then return nil end;if self._queue then return #self._pending+#self._queue end;return #self._pending end
+function ScalarReader:atEnd()if self._closed then error("nupp: io.ScalarReader is closed",2)end;local have,failure=fill(self,1);if failure then error("nupp: io.ScalarReader source failed: "..tostring(failure),2)end;return have<1 end
+function ScalarReader:skip(count)taken(self,integer(count,"io.ScalarReader count",2));return self end
+function ScalarReader:readBytes(count)return taken(self,integer(count,"io.ScalarReader count",2))end
+function ScalarReader:close()self._closed=true;self._pending="";self._queue=nil;local reader=self._reader;self._reader=nil;if reader then return reader:close()end;return true end
+local function scalarRead(ctype,size)local pointer=ffi.typeof(ctype);return function(self)local raw=taken(self,size);return ffi.cast(pointer,raw)[0]end end
+ScalarReader.readUint8=scalarRead("uint8_t*",1);ScalarReader.readInt8=scalarRead("int8_t*",1);ScalarReader.readUint16=scalarRead("uint16_t*",2);ScalarReader.readInt16=scalarRead("int16_t*",2);ScalarReader.readUint32=scalarRead("uint32_t*",4);ScalarReader.readInt32=scalarRead("int32_t*",4);ScalarReader.readUint64=scalarRead("uint64_t*",8);ScalarReader.readInt64=scalarRead("int64_t*",8);ScalarReader.readFloat32=scalarRead("float*",4);ScalarReader.readFloat64=scalarRead("double*",8)
+local function put(self,bytes)if self._closed then error("nupp: io.ScalarWriter is closed",3)end;if self._buffer then self._buffer:setString(bytes,self._buffer:length());return self end;local ok,reason=self._writer:write(bytes);if not ok then error("nupp: io.ScalarWriter destination failed: "..tostring(reason),3)end;return self end
+function ScalarWriter:writeBytes(bytes)if type(bytes)~="string"then error("nupp: io.ScalarWriter bytes must be a string",2)end;return put(self,bytes)end
+function ScalarWriter:buffer()return self._buffer end
+function ScalarWriter:flush()if self._closed then return false,"the writer is closed"end;if self._writer then return self._writer:flush()end;return true end
+function ScalarWriter:close()self._closed=true;local writer=self._writer;self._writer=nil;if writer then return writer:close()end;return true end
+local function scalarWrite(ctype,size)local holder=ffi.new(ctype);return function(self,value)holder[0]=value;return put(self,ffi.string(holder,size))end end
+ScalarWriter.writeUint8=scalarWrite("uint8_t[1]",1);ScalarWriter.writeInt8=scalarWrite("int8_t[1]",1);ScalarWriter.writeUint16=scalarWrite("uint16_t[1]",2);ScalarWriter.writeInt16=scalarWrite("int16_t[1]",2);ScalarWriter.writeUint32=scalarWrite("uint32_t[1]",4);ScalarWriter.writeInt32=scalarWrite("int32_t[1]",4);ScalarWriter.writeUint64=scalarWrite("uint64_t[1]",8);ScalarWriter.writeInt64=scalarWrite("int64_t[1]",8);ScalarWriter.writeFloat32=scalarWrite("float[1]",4);ScalarWriter.writeFloat64=scalarWrite("double[1]",8)
+local BADSOURCE="nupp: io.newScalarReader needs bytes, a snapshot, a buffer, a reader or a byte queue"
+local function queueLike(value)local kind=type(value);if kind=="table"then return value.get~=nil end;if kind~="userdata"and kind~="cdata"then return false end;local ok,getter=pcall(function()return value.get end);return ok and getter~=nil end
+local function newQueueReader(source)if not queueLike(source)then error("nupp: io.newQueueReader needs a byte queue",2)end;return setmetatable({_source=source,_closed=false},ByteQueue)end
+local function newScalarReader(source)local self=setmetatable({_pending="",_closed=false},ScalarReader);local kind=type(source);if kind=="string"then self._pending=source elseif kind=="table"and source.read~=nil then self._reader=source elseif kind=="table"and source.getString~=nil then self._pending=source:getString()elseif queueLike(source)then self._queue=source else error(BADSOURCE,2)end;return self end
+local function newScalarWriter(destination)local self=setmetatable({_closed=false},ScalarWriter);if destination==nil then self._buffer=newBuffer()elseif type(destination)=="table"and destination.write~=nil then self._writer=destination elseif type(destination)=="table"and destination.setString~=nil then self._buffer=destination else error("nupp: io.newScalarWriter needs a buffer, a writer, or nothing",2)end;return self end
+View.drop=View.close;Buffer.drop=Buffer.close;Reader.drop=Reader.close;Writer.drop=Writer.close;ByteQueue.drop=ByteQueue.close;ScalarReader.drop=ScalarReader.close;ScalarWriter.drop=ScalarWriter.close
+__nuppIO.newBuffer=newBuffer;__nuppIO.newQueueReader=newQueueReader;__nuppIO.newScalarReader=newScalarReader;__nuppIO.newScalarWriter=newScalarWriter;__nuppIO.newStringReader=function(text)if type(text)~="string"then error("nupp: io.newStringReader needs a string",2)end;return setmetatable({_bytes=text,_at=1,_closed=false},Reader)end;return __nuppIO end
+for _,__name in ipairs({"newBuffer","newQueueReader","newScalarReader","newScalarWriter","newStringReader"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallIO();return rawget(__nuppIO,name)end)end
+]=]
+)
+
+local UTF8 = compact (
+[=[
+__nuppLazy(__nuppData,"utf8",function()local native=require("lua-utf8");local u={};local function bytes(value)if type(value)=="string"then return value end;return value:getString()end;local function offset(value,at,allowEnd)if type(at)~="number"or at~=math.floor(at)then error("nupp: UTF-8 byte offset must be an integer",3)end;local limit=#value+(allowEnd and 1 or 0);if at<1 or at>limit then error("nupp: UTF-8 byte offset is out of range",3)end;return at end;local function decode(s,at)local first=s:byte(at);if not first then return nil,at end;if first<128 then return first,at+1 end;local need,code,min;if first>=194 and first<=223 then need,code,min=1,first-192,128 elseif first>=224 and first<=239 then need,code,min=2,first-224,2048 elseif first>=240 and first<=244 then need,code,min=3,first-240,65536 else return 65533,at+1 end;for i=1,need do local b=s:byte(at+i);if not b or b<128 or b>191 then return 65533,at+1 end;code=code*64+b-128 end;if code<min or code>1114111 or(code>=55296 and code<=57343)then return 65533,at+1 end;return code,at+need+1 end
+function u.length(value)local s=bytes(value);local n,at=0,1;while at<=#s do local _,nextAt=decode(s,at);at=nextAt;n=n+1 end;return n end;function u.decodeAt(value,at)local s=bytes(value);at=offset(s,at,true);return decode(s,at)end;function u.decodeBefore(value,at)local s=bytes(value);at=offset(s,at,true);if at==1 then return nil,1 end;local start=at-1;while start>1 and s:byte(start)>=128 and s:byte(start)<=191 do start=start-1 end;local cp,nextAt=decode(s,start);if nextAt~=at then return 65533,at-1 end;return cp,start end;function u.encode(codepoint)return native.char(codepoint)end;function u.isValid(value)return native.isvalid(bytes(value))end;function u.validPrefixLength(value,maxBytes)local s=bytes(value);maxBytes=math.max(0,math.min(#s,maxBytes));while maxBytes>0 and not native.isvalid(s:sub(1,maxBytes))do maxBytes=maxBytes-1 end;return maxBytes end;function u.truncate(text,maxBytes)return text:sub(1,u.validPrefixLength(text,maxBytes))end;return u end)
+]=]
+)
+
+local MATH = compact (
+[=[
+local m=__nuppMath;local pi,tau=math.pi,2*math.pi
+function m.lerp(from,to,t)if t==0 then return from elseif t==1 then return to end;return from+(to-from)*t end
+function m.wrapAngle(radians)return(radians+pi)%tau-pi end
+function m.deltaAngle(from,to)return m.wrapAngle(to-from)end
+local b=bit;local function ui32(x)x=b.tobit(x);return x<0 and x+4294967296 or x end
+local function mul32(a,c)local al,cl=a%65536,c%65536;local ah,ch=math.floor(a/65536),math.floor(c/65536);return b.tobit(al*cl+((ah*cl+al*ch)%65536)*65536)end
+local i32,u32={},{};m.i32=i32;m.u32=u32
+function i32.wrap(a)return b.tobit(a)end;function u32.wrap(a)return ui32(a)end
+function i32.add(a,c)return b.tobit(a+c)end;function i32.sub(a,c)return b.tobit(a-c)end;function i32.mul(a,c)return mul32(ui32(a),ui32(c))end
+function i32.andBits(a,c)return b.band(a,c)end;function i32.orBits(a,c)return b.bor(a,c)end;function i32.xorBits(a,c)return b.bxor(a,c)end;function i32.notBits(a)return b.bnot(a)end
+function i32.shiftLeft(a,c)return b.lshift(a,b.band(c,31))end;function i32.shiftRightArithmetic(a,c)return b.arshift(a,b.band(c,31))end
+function i32.rotateLeft(a,c)return b.rol(a,b.band(c,31))end;function i32.rotateRight(a,c)return b.ror(a,b.band(c,31))end
+function i32.lessThan(a,c)return b.tobit(a)<b.tobit(c)end;function i32.lessOrEqual(a,c)return b.tobit(a)<=b.tobit(c)end
+function i32.fromU32(a)return b.tobit(a)end;function i32.toU32(a)return ui32(a)end
+function u32.add(a,c)return ui32(a+c)end;function u32.sub(a,c)return ui32(a-c)end;function u32.mul(a,c)return ui32(mul32(ui32(a),ui32(c)))end
+function u32.andBits(a,c)return ui32(b.band(a,c))end;function u32.orBits(a,c)return ui32(b.bor(a,c))end;function u32.xorBits(a,c)return ui32(b.bxor(a,c))end;function u32.notBits(a)return ui32(b.bnot(a))end
+function u32.shiftLeft(a,c)return ui32(b.lshift(a,b.band(c,31)))end;function u32.shiftRightLogical(a,c)return ui32(b.rshift(a,b.band(c,31)))end
+function u32.rotateLeft(a,c)return ui32(b.rol(a,b.band(c,31)))end;function u32.rotateRight(a,c)return ui32(b.ror(a,b.band(c,31)))end
+function u32.lessThan(a,c)return ui32(a)<ui32(c)end;function u32.lessOrEqual(a,c)return ui32(a)<=ui32(c)end
+function u32.fromI32(a)return ui32(a)end;function u32.toI32(a)return b.tobit(a)end
+local ffi=require("ffi");local fh=ffi.new("union {float f;uint32_t u;}[1]");local f32={};m.f32=f32
+local CANON=2143289344;local PINF=2139095040;local NINF=4286578688;local MAX=2139095039;local NMAX=4286578687
+local function nanbits(bits)return b.band(bits,2139095040)==2139095040 and b.band(bits,8388607)~=0 end
+local function putbits(bits)if nanbits(bits)then bits=CANON end;fh[0].u=bits;return tonumber(fh[0].f)end
+local function bits32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then bits=CANON;fh[0].u=bits end;return bits end
+local function round32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then fh[0].u=CANON end;return tonumber(fh[0].f)end
+local function narrow32(value)fh[0].f=value;return tonumber(fh[0].f)end
+local function comparedd(hi,lo,value)local d=hi-value;if d>-lo then return 1 elseif d<-lo then return-1 end;return 0 end
+local function nextup(value,bits)if bits==PINF then return value,bits end;if bits==NINF then return putbits(NMAX),NMAX end;if b.band(bits,2147483648)~=0 then if bits==2147483648 then return putbits(1),1 end;bits=bits-1 else bits=bits+1 end;return putbits(bits),bits end
+local function nextdown(value,bits)if bits==NINF then return value,bits end;if bits==PINF then return putbits(MAX),MAX end;if b.band(bits,2147483648)~=0 then bits=bits+1 else if bits==0 then return putbits(2147483649),2147483649 end;bits=bits-1 end;return putbits(bits),bits end
+local function rounddd(hi,lo)local value=round32(hi);local bits=bits32(value);if nanbits(bits)then return putbits(CANON)end;if bits==PINF then local threshold=3.4028235677973366e38;if comparedd(hi,lo,threshold)<0 then return putbits(MAX)end;return value elseif bits==NINF then local threshold=-3.4028235677973366e38;if comparedd(hi,lo,threshold)>0 then return putbits(NMAX)end;return value end;local side=comparedd(hi,lo,value);if side==0 then return value end;local other,otherbits;if side>0 then other,otherbits=nextup(value,bits)else other,otherbits=nextdown(value,bits)end;local midpoint=(value+other)*0.5;local toward=comparedd(hi,lo,midpoint);if side<0 then toward=-toward end;if toward>0 or toward==0 and b.band(bits,1)~=0 then return putbits(otherbits)end;return value end
+function f32.narrow(a)return narrow32(a)end;function f32.round(a)return round32(a)end;function f32.add(a,c)return round32(round32(a)+round32(c))end;function f32.sub(a,c)return round32(round32(a)-round32(c))end;function f32.mul(a,c)return round32(round32(a)*round32(c))end;function f32.div(a,c)return round32(round32(a)/round32(c))end;function f32.sqrt(a)return round32(math.sqrt(round32(a)))end
+function f32.min(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and(b.band(ab,2147483648)~=0 or b.band(cb,2147483648)~=0)then return putbits(2147483648)end;return a end;return a<c and a or c end
+function f32.max(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and b.band(ab,2147483648)~=0 and b.band(cb,2147483648)~=0 then return putbits(2147483648)elseif a==0 then return putbits(0)end;return a end;return a>c and a or c end
+function f32.fma(a,c,d)a,c,d=round32(a),round32(c),round32(d);local product=a*c;if product~=product or product==math.huge or product==-math.huge then return round32(product+d)end;local sum=product+d;local carry=sum-product;local error=(product-(sum-carry))+(d-carry);return rounddd(sum,error)end
+function f32.fromBits(bits)return putbits(ui32(bits))end;function f32.toBits(value)return bits32(round32(value))end
+local v={};m.vec2=v
+function v.add(ax,ay,bx,by)return ax+bx,ay+by end
+function v.subtract(ax,ay,bx,by)return ax-bx,ay-by end
+function v.scale(x,y,f)return x*f,y*f end
+function v.dot(ax,ay,bx,by)return ax*bx+ay*by end
+function v.cross(ax,ay,bx,by)return ax*by-ay*bx end
+function v.lengthSquared(x,y)return x*x+y*y end
+function v.length(x,y)return math.sqrt(x*x+y*y)end
+function v.distanceSquared(ax,ay,bx,by)local x,y=bx-ax,by-ay;return x*x+y*y end
+function v.distance(ax,ay,bx,by)return math.sqrt(v.distanceSquared(ax,ay,bx,by))end
+function v.normalize(x,y)local length=v.length(x,y);if length==0 then return 0,0 end;return x/length,y/length end
+function v.lerp(ax,ay,bx,by,t)if t==0 then return ax,ay elseif t==1 then return bx,by end;return ax+(bx-ax)*t,ay+(by-ay)*t end
+function v.moveTowards(ax,ay,bx,by,d)if d<=0 then return ax,ay end;local x,y=bx-ax,by-ay;local squared=x*x+y*y;if squared==0 or squared<=d*d then return bx,by end;local f=d/math.sqrt(squared);return ax+x*f,ay+y*f end
+function v.rotate(x,y,r)local c,s=math.cos(r),math.sin(r);return x*c-y*s,x*s+y*c end
+function v.angle(x,y)if x==0 and y==0 then return 0 end;return math.atan2(y,x)end
+function v.angleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;return math.atan2(math.abs(v.cross(ax,ay,bx,by)),v.dot(ax,ay,bx,by))end
+function v.signedAngleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;local a=math.atan2(v.cross(ax,ay,bx,by),v.dot(ax,ay,bx,by));return a==pi and-pi or a end
+function v.project(x,y,ox,oy)local d=ox*ox+oy*oy;if d==0 then return 0,0 end;local f=(x*ox+y*oy)/d;return ox*f,oy*f end
+function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;local f=2*(x*nx+y*ny)/d;return x-nx*f,y-ny*f end
+]=]
+)
+
+local FNV = compact (
+[=[
+__nuppLazy(__nuppData,"fnv1a64",function()local bit=require("bit");return function(value)local s=type(value)=="string"and value or value:getString();local hi,lo=0xcbf29ce4,0x84222325;for i=1,#s do lo=bit.bxor(lo,s:byte(i));local low=lo<0 and lo+4294967296 or lo;local high=hi<0 and hi+4294967296 or hi;local product=low*435;local carry=math.floor(product/4294967296);lo=bit.tobit(product);hi=bit.tobit(high*435+low*256+carry)end;local high=hi<0 and hi+4294967296 or hi;local low=lo<0 and lo+4294967296 or lo;return string.format("%08x%08x",high,low)end end)
+]=]
+)
+
+local CHECKSUMS = compact (
+[=[
+__nuppLazy(__nuppData,"crc32",function()local bit=require("bit");local crcTable={};for n=0,255 do local c=n;for _=1,8 do c=bit.bxor(bit.rshift(c,1),bit.band(c,1)~=0 and 0xedb88320 or 0)end;crcTable[n]=c end;return function(value,previous)if previous==nil then previous=0 elseif type(previous)~="number"or previous~=math.floor(previous)or previous<0 or previous>4294967295 then error("nupp: crc32 previous checksum must be an unsigned 32-bit integer",2)end;local c=bit.bnot(previous);local s=type(value)=="string"and value or value:getString();for i=1,#s do c=bit.bxor(bit.rshift(c,8),crcTable[bit.band(bit.bxor(c,s:byte(i)),255)])end;local out=bit.bnot(c);return out<0 and out+4294967296 or out end end)
+]=]
+)
+
+
+
+
+
+local PEG_NATIVE = compact (
+[=[
+local __nuppPeg=rawget(__nupp,"peg")or{};rawset(__nupp,"peg",__nuppPeg)
+local __nuppLpeg=require("lpeg");__nuppLpeg.setmaxstack(10000)
+local function __nuppPegInit(subject,init,level)
+if type(subject)~="string"then error("nupp: PEG subject must be a string",level)end;if init==nil then init=1 elseif type(init)~="number"or init~=math.floor(init)then error("nupp: PEG init must be an integer",level)elseif init<0 then init=#subject+init+1 end;if init<1 then init=1 end;if init>#subject+1 then return nil end;return init
+end
+local function __nuppPegFindAt(run,take,captureful,subject,init,search)
+if search and search.direct then local first,last=subject:find(search.direct,init,search.directPlain);if first==nil then return nil end;local nextPosition=last+1;if search.result=="string"then return first,nextPosition,subject:sub(first,last)end;return first,nextPosition,nextPosition end
+local position=init;while position<=#subject+1 do if search then position=subject:find(search.value,position,search.plain);if position==nil then return nil end end;local nextPosition=run(subject,position);if nextPosition~=nil then if captureful then return position,nextPosition,take()end;return position,nextPosition,nextPosition end;position=position+1 end
+end
+local function __nuppPegCallbackReplacement(replacement,first,nextPosition,...)
+local out=replacement(first,nextPosition,...);if type(out)~="string"then error("nupp: PEG replacement callback must return a string",3)end;return out
+end
+local function __nuppPegVisit(visitor,first,nextPosition,...)
+if first~=nil then visitor(first,nextPosition,...);return first,nextPosition end
+end
+local function __nuppPegReplacementAt(replacement,first,nextPosition,...)
+if first~=nil then return first,nextPosition,__nuppPegCallbackReplacement(replacement,first,nextPosition,...)end
+end
+local function __nuppPegMatcher(run,take,captureful,search,generatedFind,directReplaceAll,generatedTraverse)
+local Matcher={};Matcher.__index=Matcher
+local function findAt(subject,init)if generatedFind then return generatedFind(subject,init)end;return __nuppPegFindAt(run,take,captureful,subject,init,search)end
+function Matcher:match(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;local nextPosition=run(subject,init);if nextPosition==nil then return nil end;if captureful then return take()end;return nextPosition end
+function Matcher:find(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;return findAt(subject,init)end
+function Matcher:isMatch(subject,init)init=__nuppPegInit(subject,init,2);return init~=nil and findAt(subject,init)~=nil end
+function Matcher:forEachMatch(subject,visitor,init)if type(visitor)~="function"then error("nupp: PEG match visitor must be a function",2)end;local cursor=__nuppPegInit(subject,init,2);if cursor==nil then return 0 end;if generatedTraverse then return generatedTraverse(subject,visitor,cursor)end;local count=0;while cursor<=#subject+1 do local first,nextPosition=__nuppPegVisit(visitor,findAt(subject,cursor));if first==nil then break end;count=count+1;cursor=nextPosition>first and nextPosition or first+1 end;return count end
+function Matcher:__nuppPegReplaceLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition=findAt(subject,init);if first==nil then return subject end;return subject:sub(1,first-1)..replacement..subject:sub(nextPosition)end
+function Matcher:__nuppPegReplaceCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,init));if first==nil then return subject end;return subject:sub(1,first-1)..value..subject:sub(nextPosition)end
+function Matcher:replace(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end
+function Matcher:__nuppPegReplaceAllLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;if directReplaceAll then return directReplaceAll(subject,replacement,init)end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition=findAt(subject,cursor);if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=replacement;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end
+function Matcher:__nuppPegReplaceAllCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,cursor));if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=value;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end
+function Matcher:replaceAll(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceAllLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceAllCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end
+Matcher.__call=Matcher.match;return setmetatable({},Matcher)
+end
+local function __nuppPegPattern(program,definitions)
+definitions=definitions or{};for _,name in ipairs(program.actions or{})do if rawget(definitions,name)==nil then error("nupp: missing PEG definition "..tostring(name),3)end end
+local P,S,V,C,Ct,Cg,Cb,Cp,Cs,Cmt,Cf=__nuppLpeg.P,__nuppLpeg.S,__nuppLpeg.V,__nuppLpeg.C,__nuppLpeg.Ct,__nuppLpeg.Cg,__nuppLpeg.Cb,__nuppLpeg.Cp,__nuppLpeg.Cs,__nuppLpeg.Cmt,__nuppLpeg.Cf
+local nodes,memo,targets=program.graph.nodes,{},{}
+local function equalcap(subject,position,captured)if type(captured)~="string"then return nil end;local ending=position+#captured;if subject:sub(position,ending-1)==captured then return ending end;return nil end
+local build;build=function(index)local prior=memo[index];if prior then return prior end;local node=nodes[index];local op=node[1];local pattern
+if op=="literal"then pattern=P(node[2])elseif op=="set"then pattern=S(node[2])elseif op=="any"then pattern=P(1)elseif op=="eof"then pattern=-P(1)
+elseif op=="sequence"then pattern=P(true);for child=2,#node do pattern=pattern*build(node[child])end
+elseif op=="choice"then pattern=P(false);for child=2,#node do pattern=pattern+build(node[child])end
+elseif op=="difference"then pattern=build(node[2])-build(node[3])
+elseif op=="zeroOrMore"then pattern=build(node[2])^0 elseif op=="oneOrMore"then pattern=build(node[2])^1 elseif op=="optional"then pattern=build(node[2])^-1
+elseif op=="and"then pattern=#build(node[2])elseif op=="not"then pattern=-build(node[2])
+elseif op=="capture"then pattern=C(build(node[2]))elseif op=="collect"or op=="tableCapture"then pattern=Ct(build(node[2]))
+elseif op=="group"then pattern=node[3]~=nil and Cg(build(node[2]),node[3])or Cg(build(node[2]))
+elseif op=="substitution"then pattern=Cs(build(node[2]))elseif op=="position"then pattern=Cp()
+elseif op=="backReference"then pattern=Cmt(Cb(node[2]),equalcap)
+elseif op=="external"then pattern=P(definitions[node[2]])
+elseif op=="transform"then local spec=node[3];local target=spec[1]=="definition"and definitions[spec[2]]or spec[2];pattern=build(node[2])/target
+elseif op=="matchTime"then pattern=Cmt(build(node[2]),definitions[node[3]])
+elseif op=="accumulate"then pattern=build(node[2])%definitions[node[3]]
+elseif op=="fold"then pattern=Cf(build(node[2]),definitions[node[3]])
+elseif op=="action"then local callback=definitions[node[3]];pattern=C(build(node[2])/0)/function(text)return callback(text)end
+elseif op=="reference"then targets[node[2]]=true;pattern=V("n"..node[2])
+else error("nupp: unknown PEG graph operation "..tostring(op),3)end;memo[index]=pattern;return pattern end
+local pattern=build(program.graph.root);if next(targets)then local grammar={pattern};local done={};while true do local target;for candidate in pairs(targets)do if not done[candidate]then target=candidate;break end end;if not target then break end;done[target]=true;grammar["n"..target]=build(target)end;pattern=P(grammar)end;return pattern
+end
+local function __nuppPegFromPattern(pattern)
+local pack=function(...)return{n=select("#",...),...}end;local resultValues;local execution=pattern*__nuppLpeg.Cp()
+local function run(subject,position)local values=pack(__nuppLpeg.match(execution,subject,position));local nextPosition=values[values.n];if nextPosition==nil then return nil end;values[values.n]=nil;values.n=values.n-1;if values.n==0 then values.n=1;values[1]=nextPosition end;resultValues=values;return nextPosition end
+local function take()local values=resultValues;resultValues=nil;return unpack(values,1,values.n)end
+return __nuppPegMatcher(run,take,true,nil)
+end
+local function __nuppPegLpeg(program,definitions)return __nuppPegFromPattern(__nuppPegPattern(program,definitions))end
+local function __nuppPegFastScan9Run(plan,sets)
+local keys=plan.packedKeys;local k1,k2,k3,k4,k5,k6,k7,k8=keys[1],keys[2],keys[3],keys[4],keys[5],keys[6],keys[7],keys[8]
+local delimiter,separatorLength=plan.separator:byte(),#plan.separator
+local scanByte,scanClass;if plan.scan<256 then scanByte=plan.scan else scanClass=sets[plan.scan-255]end
+local suffix,minimum=plan.suffix,plan.minimum;local suffixHead=((suffix[1]*256+suffix[2])*256+suffix[3])*256+suffix[4];local suffixTail=((suffix[5]*256+suffix[6])*256+suffix[7])*256+suffix[8]
+local lastByte,lastClass;if suffix[9]<256 then lastByte=suffix[9]else lastClass=sets[suffix[9]-255]end
+local function run(subject,position)
+local a,b,c,d,e,f,g=subject:byte(position,position+6);if not a then return nil end
+local key,prefixLength;if b==delimiter then prefixLength=1;key=a*8+1 elseif c==delimiter then prefixLength=2;key=(a*256+b)*8+2 elseif d==delimiter then prefixLength=3;key=((a*256+b)*256+c)*8+3 elseif e==delimiter then prefixLength=4;key=(((a*256+b)*256+c)*256+d)*8+4 elseif f==delimiter then prefixLength=5;key=((((a*256+b)*256+c)*256+d)*256+e)*8+5 elseif g==delimiter then prefixLength=6;key=(((((a*256+b)*256+c)*256+d)*256+e)*256+f)*8+6 else return nil end
+if not(key==k1 or key==k2 or key==k3 or key==k4 or key==k5 or key==k6 or key==k7 or key==k8)then return nil end
+position=position+prefixLength+separatorLength;local suffixStart=#subject-8;if suffixStart-position<minimum then return nil end
+if scanClass then for index=position,suffixStart-1 do local byte=subject:byte(index);if scanClass:byte(byte+1)==0 then return nil end end else for index=position,suffixStart-1 do if subject:byte(index)~=scanByte then return nil end end end
+local q,r,s,t,u,v,w,x,y=subject:byte(suffixStart,#subject);if ((q*256+r)*256+s)*256+t==suffixHead and((u*256+v)*256+w)*256+x==suffixTail and((lastByte and y==lastByte)or(lastClass and lastClass:byte(y+1)~=0))then return #subject+1 end;return nil
+end
+return run
+end
+local function __nuppPegCheckSource(encoded,expression)if encoded<256 then return expression.."=="..encoded end;return"sets["..(encoded-255).."]:byte("..expression.."+1)~=0"end
+local function __nuppPegRepeatSource(plan)local head=__nuppPegCheckSource(plan.head,"byte");local tail=__nuppPegCheckSource(plan.tail,"byte");local accept=plan.eof and"if position~=#subject+1 then return nil end;"or"";local result=plan.result=="string"and"lastSubject,lastFirst,lastNext=subject,first,position;return position"or"return position";local visitValue=plan.result=="string"and"subject:sub(first,position-1)"or"position";local visit=plan.eof and"if position==length+1 then count=count+1;visitor(first,position,"..visitValue..");return count end"or"count=count+1;visitor(first,position,"..visitValue..")";local state=plan.result=="string"and"local lastSubject,lastFirst,lastNext;local function take()return lastSubject:sub(lastFirst,lastNext-1)end;"or"";local take=plan.result=="string"and"take"or"nil";return"return function(sets)"..state.."local function run(subject,position)local first=position;local byte=subject:byte(position);if not byte or not("..head..")then return nil end;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..accept..result.." end;local function traverse(subject,visitor,position)local count,length=0,#subject;while position<=length do local byte=subject:byte(position);if "..head.." then local first=position;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..visit.." else position=position+1 end end;return count end;return run,"..take..",traverse end"end
+local function __nuppPegFixedSource(checks)local conditions={"position+"..#checks.."==#subject+1"};for index,encoded in ipairs(checks)do local expression="subject:byte(position+"..(index-1)..")";conditions[#conditions+1]=__nuppPegCheckSource(encoded,expression)end;return"return function(sets)return function(subject,position)if "..table.concat(conditions," and ").." then return position+"..#checks.." end end end"end
+local function __nuppPegCodegen(program,definitions)
+if program.fastScan and program.fastScan.packedKeys and program.fastScan.maximum<=6 and #program.fastScan.keys<=8 then local suffix=program.fastScan.suffix;if #suffix==9 and suffix[1]<256 and suffix[2]<256 and suffix[3]<256 and suffix[4]<256 and suffix[5]<256 and suffix[6]<256 and suffix[7]<256 and suffix[8]<256 then return __nuppPegMatcher(__nuppPegFastScan9Run(program.fastScan,program.sets),nil,false,program.search)end end
+local source;if program.fastRepeat then source=__nuppPegRepeatSource(program.fastRepeat)elseif program.fastFixed then source=__nuppPegFixedSource(program.fastFixed)else return __nuppPegLpeg(program,definitions)end
+local chunk,why=loadstring(source,"=nupp PEG specialization");if not chunk then error("nupp: PEG specialization failed: "..tostring(why),2)end;local run,take,traverse=chunk()(program.sets);return __nuppPegMatcher(run,take,program.captureful,program.search,nil,nil,traverse)
+end
+]=]
+)
+
+
+
+
+local LPEG_RE = compact (
+[=[
+package.loaded.re=nil
+package.preload.re=function()
+local tonumber,type,print,error=tonumber,type,print,error
+local setmetatable=setmetatable
+local m=require"lpeg"
+local mm=m
+local mt=getmetatable(mm.P(0))
+local version=_VERSION
+local any=m.P(1)
+local Predef={nl=m.P"\n"}
+local mem;local fmem;local gmem
+local function updatelocale()
+mm.locale(Predef)
+Predef.a=Predef.alpha;Predef.c=Predef.cntrl;Predef.d=Predef.digit
+Predef.g=Predef.graph;Predef.l=Predef.lower;Predef.p=Predef.punct
+Predef.s=Predef.space;Predef.u=Predef.upper;Predef.w=Predef.alnum
+Predef.x=Predef.xdigit
+Predef.A=any-Predef.a;Predef.C=any-Predef.c;Predef.D=any-Predef.d
+Predef.G=any-Predef.g;Predef.L=any-Predef.l;Predef.P=any-Predef.p
+Predef.S=any-Predef.s;Predef.U=any-Predef.u;Predef.W=any-Predef.w
+Predef.X=any-Predef.x
+mem={};fmem={};gmem={};local weak={__mode="v"}
+setmetatable(mem,weak);setmetatable(fmem,weak);setmetatable(gmem,weak)
+end
+updatelocale()
+local function patt_error(s,i)local msg=(#s<i+20)and s:sub(i)or s:sub(i,i+20).."...";error(("pattern error near '%s'"):format(msg),2)end
+local function mult(p,n)local np=mm.P(true);while n>=1 do if n%2>=1 then np=np*p end;p=p*p;n=n/2 end;return np end
+local function equalcap(s,i,c)if type(c)~="string"then return nil end;local e=#c+i;if s:sub(i,e-1)==c then return e end;return nil end
+local S=(Predef.space+"--"*(any-Predef.nl)^0)^0
+local name=m.R("AZ","az","__")*m.R("AZ","az","__","09")^0
+local arrow=S*"<-"
+local seq_follow=m.P"/"+")"+"}"+":}"+"~}"+"|}"+(name*arrow)+-1
+name=m.C(name)
+local Def=name*m.Carg(1)
+local function getdef(id,defs)local c=defs and defs[id];if not c then error("undefined name: "..id)end;return c end
+local function defwithfunc(f)return m.Cg(Def/getdef*m.Cc(f))end
+local num=m.C(m.R"09"^1)*S/tonumber
+local String="'"*m.C((any-"'")^0)*"'"+'"'*m.C((any-'"')^0)*'"'
+local defined="%"*Def/function(c,Defs)local cat=Defs and Defs[c]or Predef[c];if not cat then error("name '"..c.."' undefined")end;return cat end
+local Range=m.Cs(any*(m.P"-"/"")*(any-"]"))/mm.R
+local item=(defined+Range+m.C(any))/m.P
+local Class="["*(m.C(m.P"^"^-1))*(item*((item%mt.__add)-"]")^0)/function(c,p)return c=="^"and any-p or p end*"]"
+local function adddef(t,k,exp)if t[k]then error("'"..k.."' already defined as a rule")else t[k]=exp end;return t end
+local function firstdef(n,r)return adddef({n},n,r)end
+local function NT(n,b)if not b then error("rule '"..n.."' used outside a grammar")else return mm.V(n)end end
+local exp=m.P{"Exp",
+Exp=S*(m.V"Grammar"+m.V"Seq"*("/"*S*m.V"Seq"%mt.__add)^0),
+Seq=(m.Cc(m.P"")*(m.V"Prefix"%mt.__mul)^0)*(#seq_follow+patt_error),
+Prefix="&"*S*m.V"Prefix"/mt.__len+"!"*S*m.V"Prefix"/mt.__unm+m.V"Suffix",
+Suffix=m.V"Primary"*S*((m.P"+"*m.Cc(1,mt.__pow)+m.P"*"*m.Cc(0,mt.__pow)+m.P"?"*m.Cc(-1,mt.__pow)+"^"*(m.Cg(num*m.Cc(mult))+m.Cg(m.C(m.S"+-"*m.R"09"^1)*m.Cc(mt.__pow)))+"->"*S*(m.Cg((String+num)*m.Cc(mt.__div))+m.P"{}"*m.Cc(nil,m.Ct)+defwithfunc(mt.__div))+"=>"*S*defwithfunc(mm.Cmt)+">>"*S*defwithfunc(mt.__mod)+"~>"*S*defwithfunc(mm.Cf))%function(a,b,f)return f(a,b)end*S)^0,
+Primary="("*m.V"Exp"*")"+String/mm.P+Class+defined+"{:"*(name*":"+m.Cc(nil))*m.V"Exp"*":}"/function(n,p)return mm.Cg(p,n)end+"="*name/function(n)return mm.Cmt(mm.Cb(n),equalcap)end+m.P"{}"/mm.Cp+"{~"*m.V"Exp"*"~}"/mm.Cs+"{|"*m.V"Exp"*"|}"/mm.Ct+"{"*m.V"Exp"*"}"/mm.C+m.P"."*m.Cc(any)+(name*-arrow+"<"*name*">")*m.Cb("G")/NT,
+Definition=name*arrow*m.V"Exp",
+Grammar=m.Cg(m.Cc(true),"G")*((m.V"Definition"/firstdef)*(m.V"Definition"%adddef)^0)/mm.P
+}
+local pattern=S*m.Cg(m.Cc(false),"G")*exp/mm.P*(-any+patt_error)
+local function compile(p,defs)if mm.type(p)=="pattern"then return p end;local cp=pattern:match(p,1,defs);if not cp then error("incorrect pattern",3)end;return cp end
+local function match(s,p,i)local cp=mem[p];if not cp then cp=compile(p);mem[p]=cp end;return cp:match(s,i or 1)end
+local function find(s,p,i)local cp=fmem[p];if not cp then cp=compile(p)/0;cp=mm.P{mm.Cp()*cp*mm.Cp()+1*mm.V(1)};fmem[p]=cp end;local first,ending=cp:match(s,i or 1);if first then return first,ending-1 end;return first end
+local function gsub(s,p,rep)local g=gmem[p]or{};gmem[p]=g;local cp=g[rep];if not cp then cp=compile(p);cp=mm.Cs((cp/rep+1)^0);g[rep]=cp end;return cp:match(s)end
+local re={compile=compile,match=match,find=find,gsub=gsub,updatelocale=updatelocale}
+if version=="Lua 5.1"then _G.re=re end
+return re
+end
+]=]
+)
+
+local PEG_COMPILE_NATIVE = compact (
+[=[
+local __nuppPegPatternCache=setmetatable({},{__mode="v"})
+function __nuppPeg.compile(source,options)
+if type(source)~="string"then error("nupp: PEG compile source must be a string",2)end;if options~=nil and type(options)~="table"then error("nupp: PEG compile options must be a table",2)end;options=options or{};local backend=options.backend or"auto";if backend~="auto"and backend~="lpeg"then error("nupp: PEG compile backend must be 'auto' or 'lpeg'",2)end
+local definitions=options.definitions or options.defs or options.actions;local pattern;if definitions==nil then pattern=__nuppPegPatternCache[source];if not pattern then pattern=require("re").compile(source);__nuppPegPatternCache[source]=pattern end else pattern=require("re").compile(source,definitions)end;return __nuppPegFromPattern(pattern)
+end
+]=]
+)
+
+local FIELDCODEC = compact (
+[=[
+local __nuppFieldCodec=rawget(__nupp,"fieldcodec")or{};rawset(__nupp,"fieldcodec",__nuppFieldCodec)
+local function __nuppKeyedCodec(fields,fingerprint)local Codec={};Codec.__index=Codec;function Codec:encode(value)if type(value)~="table"then error("nupp: keyed codec value must be a table",2)end;local out={};for _,name in ipairs(fields)do local field=rawget(value,name);if field~=nil then out[name]=field end end;return out end;return setmetatable({fingerprint=fingerprint},Codec)end
+__nuppFieldCodec.keyed=__nuppKeyedCodec;
+]=]
+)
+
+
+
+
+local REFLECTION = compact (
+[=[
+local __nuppReflect=rawget(__nupp,"__reflect")or{};rawset(__nupp,"__reflect",__nuppReflect)
+local __nuppReflectionBlueprints=__nuppReflect.blueprints or setmetatable({},{__mode="k"});__nuppReflect.blueprints=__nuppReflectionBlueprints
+local __nuppReflectionInfos=__nuppReflect.infos or setmetatable({},{__mode="k"});__nuppReflect.infos=__nuppReflectionInfos
+local __nuppReflectionStates=__nuppReflect.states or setmetatable({},{__mode="k"});__nuppReflect.states=__nuppReflectionStates
+local __nuppReflectionInfo={}
+function __nuppReflectionInfo:extension(extension)local state=__nuppReflectionStates[self];if not state then error("nupp: foreign reflection descriptor",2)end;local cached=state.extensions[extension];if cached then if cached.state=="ready"then return cached.value end;if cached.state=="failed"then error(cached.error,2)end;error("nupp: recursive extension initialization",2)end;cached={state="initializing"};state.extensions[extension]=cached;local ok,value=pcall(extension.build,self);if not ok then cached.state="failed";cached.error=tostring(value);error(cached.error,2)end;cached.state="ready";cached.value=value;return value end
+__nuppReflectionInfo.__index=function(info,key)if key=="extension"then return __nuppReflectionInfo.extension end;local state=__nuppReflectionStates[info];if key=="type"then return state and state.type end;return state and state.blueprint[key]end
+__nuppReflectionInfo.__newindex=function()error("nupp: reflection descriptors are immutable",2)end
+function __nuppReflect.register(typeObject,blueprint)__nuppReflectionBlueprints[typeObject]=blueprint;rawset(typeObject,"reflect",function()local prior=__nuppReflectionInfos[typeObject];if prior then return prior end;local declared=__nuppReflectionBlueprints[typeObject];if not declared then error("nupp: type has no reflection blueprint",2)end;local info=setmetatable({},__nuppReflectionInfo);__nuppReflectionInfos[typeObject]=info;__nuppReflectionStates[info]={type=typeObject,blueprint=declared,extensions={}};return info end);return typeObject end
+__nuppReflect.json=__nuppReflect.json or {version="nupp-json-extension-v1"}
+]=]
+)
+
+local DERIVES = compact (
+[=[
+local __nuppDerive=rawget(__nupp,"__derive")or{};rawset(__nupp,"__derive",__nuppDerive)
+local __nuppDeriveTypes=__nuppDerive.types or{};__nuppDerive.types=__nuppDeriveTypes
+local __nuppBufferModule
+local function __nuppBufferNew()if not __nuppBufferModule then __nuppBufferModule=require("string.buffer")end;return __nuppBufferModule.new()end
+local function __nuppCopy(value,seen)if type(value)~="table"then return value end;seen=seen or{};if seen[value]then error("nupp: cyclic field default",3)end;seen[value]=true;local out={};for k,v in pairs(value)do out[__nuppCopy(k,seen)]=__nuppCopy(v,seen)end;seen[value]=nil;return out end
+local function __nuppDefaultValue(spec)
+if spec and spec.kind=="literal"then return __nuppCopy(spec.value)end;error("nupp: unsupported field default",3)end
+local function __nuppSortedKeys(value)local keys={};for key in pairs(value)do keys[#keys+1]=key end;table.sort(keys,function(a,b)return tostring(a)<tostring(b)end);return keys end
+local function __nuppDebugAny(value,state)
+local kind=type(value);if kind=="nil"or kind=="boolean"or kind=="number"then return tostring(value)elseif kind=="string"then return string.format("%q",value)elseif kind~="table"then return"<"..kind..">"end
+if state.active[value]then return"<cycle>"end;state.active[value]=true;local mt=getmetatable(value);local entry=mt and __nuppDeriveTypes[rawget(mt,"__nuppDeriveKey")];local out;if entry then out=__nuppDerive.debug(value,entry.schema.data.debug,state)else local parts={};for _,key in ipairs(__nuppSortedKeys(value))do parts[#parts+1]="["..__nuppDebugAny(key,state).."] = "..__nuppDebugAny(value[key],state)end;out="{"..table.concat(parts,", ").."}"end;state.active[value]=nil;return out end
+local function __nuppDebugValue(value,spec,state)
+if spec.kind=="optional"then return value==nil and"nil"or __nuppDebugValue(value,spec.value,state)elseif spec.kind=="customDebug"then return value:debug()elseif spec.kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];return nested and __nuppDerive.debug(value,nested.schema.data.debug,state)or"<unloaded>"elseif spec.kind=="any"then return __nuppDebugAny(value,state)elseif spec.kind=="string"or spec.kind=="literal"and type(value)=="string"then return string.format("%q",value)elseif spec.kind=="nil"or spec.kind=="boolean"or spec.kind=="number"or spec.kind=="integer"or spec.kind=="float"or spec.kind:match("^u?int")or spec.kind=="literal"then return tostring(value)end
+if type(value)~="table"then return"<"..type(value)..">"end;if state.active[value]then return"<cycle>"end;state.active[value]=true;local parts={};if spec.kind=="array"then for i=1,#value do parts[#parts+1]=__nuppDebugValue(value[i],spec.value,state)end elseif spec.kind=="tuple"then for i,item in ipairs(spec.items)do parts[#parts+1]=__nuppDebugValue(value[i],item,state)end elseif spec.kind=="shape"then for _,field in ipairs(spec.fields)do parts[#parts+1]=field.name.." = "..__nuppDebugValue(rawget(value,field.name),field.type,state)end elseif spec.kind=="map"then for _,key in ipairs(__nuppSortedKeys(value))do parts[#parts+1]="["..__nuppDebugValue(key,spec.key,state).."] = "..__nuppDebugValue(value[key],spec.value,state)end end;state.active[value]=nil;return"{"..table.concat(parts,", ").."}"end
+function __nuppDerive.debug(value,schema,state)schema=schema.schema and schema.schema.data.debug or schema;state=state or{active={}};if state.active[value]then return"<cycle>"end;state.active[value]=true;local parts={};for _,field in ipairs(schema.fields)do if not field.debugSkip then local shown=field.debugRedact and"<redacted>"or __nuppDebugValue(rawget(value,field.name),field.debugType,state);parts[#parts+1]=field.name.." = "..shown end end;state.active[value]=nil;return schema.name.." { "..table.concat(parts,", ").." }"end
+local __nuppEscapes={[8]="\\b",[9]="\\t",[10]="\\n",[12]="\\f",[13]="\\r",[34]='\\"',[92]="\\\\"}
+local function __nuppPutString(buf,text,path)if type(text)~="string"then error(path..": expected string",3)end;buf:put('"');local start=1;local i=1;while i<=#text do local byte=text:byte(i);local escaped=__nuppEscapes[byte];if escaped or byte<32 then if i>start then buf:put(text:sub(start,i-1))end;buf:put(escaped or string.format("\\u%04X",byte));i=i+1;start=i elseif byte<128 then i=i+1 else local count=byte>=240 and 4 or byte>=224 and 3 or byte>=194 and 2 or 0;if count==0 or i+count-1>#text then error(path..": invalid UTF-8",3)end;local b2,b3,b4=text:byte(i+1,i+3);if not b2 or b2<128 or b2>191 or count>=3 and(not b3 or b3<128 or b3>191)or count==4 and(not b4 or b4<128 or b4>191)or byte==224 and b2<160 or byte==237 and b2>=160 or byte==240 and b2<144 or byte==244 and b2>=144 or byte>244 then error(path..": invalid UTF-8",3)end;i=i+count end end;if start<=#text then buf:put(text:sub(start))end;buf:put('"')end
+local function __nuppFinite(value)return value==value and value~=math.huge and value~=-math.huge end
+local function __nuppEnter(value,state,path)if state.depth>=128 then error(path..": JSON nesting exceeds 128 containers",3)end;if state.active[value]then error(path..": cyclic JSON value",3)end;state.active[value]=true;state.depth=state.depth+1 end
+local function __nuppLeave(value,state)state.depth=state.depth-1;state.active[value]=nil end
+local __nuppWriteValue
+local function __nuppWriteObject(value,fields,unknown,buf,state,path)
+if type(value)~="table"then error(path..": expected object",3)end;__nuppEnter(value,state,path);buf:put("{");local first=true;for _,field in ipairs(fields)do if not field.omit then local item=rawget(value,field.name);local empty=item==nil or item==""or item==false or type(item)=="table"and next(item)==nil;if not(field.omitEmpty and empty)then if not first then buf:put(",")end;first=false;__nuppPutString(buf,field.jsonName or field.name,path);buf:put(":");__nuppWriteValue(item,field.jsonType,buf,state,path.."."..(field.jsonName or field.name))end end end;buf:put("}");__nuppLeave(value,state)end
+__nuppWriteValue=function(value,spec,buf,state,path)
+local kind=spec and spec.kind;if kind=="optional"then if value==nil then buf:put("null")else __nuppWriteValue(value,spec.value,buf,state,path)end;return elseif kind=="union"then if type(value)~="table"then error(path..": expected discriminated object",3)end;local selected=spec.choices[rawget(value,spec.tagField)];if not selected then error(path.."."..spec.jsonTag..": unknown discriminant",3)end;return __nuppWriteValue(value,selected,buf,state,path)elseif kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];if not nested then error(path..": derived JSON dependency is not loaded",3)end;return __nuppWriteObject(value,nested.schema.fields,nested.schema.unknown,buf,state,path)elseif kind=="string"then return __nuppPutString(buf,value,path)elseif kind=="boolean"then if type(value)~="boolean"then error(path..": expected boolean",3)end;buf:put(value and"true"or"false");return elseif kind=="literal"then if value~=spec.value then error(path..": literal value does not match",3)end;local base=type(value);if base=="string"then return __nuppPutString(buf,value,path)elseif base=="boolean"then buf:put(value and"true"or"false");return else kind="number"end end
+if kind=="number"or kind=="float"or kind=="integer"then local number=tonumber(value);if not number or not __nuppFinite(number)then error(path..": expected finite number",3)end;if kind=="integer"and(number%1~=0 or spec.minimum and number<spec.minimum or spec.maximum and number>spec.maximum)then error(path..": integer is out of range",3)end;buf:put(string.format("%.17g",number):lower());return end
+if type(value)~="table"then error(path..": expected table",3)end;if kind=="array"then __nuppEnter(value,state,path);local count,maximum=0,0;for key in pairs(value)do if type(key)~="number"or key%1~=0 or key<1 then error(path..": expected dense array",3)end;count=count+1;if key>maximum then maximum=key end end;if count~=maximum then error(path..": expected dense array",3)end;buf:put("[");for i=1,maximum do if i>1 then buf:put(",")end;__nuppWriteValue(value[i],spec.value,buf,state,path.."["..i.."]")end;buf:put("]");__nuppLeave(value,state);return elseif kind=="tuple"then __nuppEnter(value,state,path);for key in pairs(value)do if type(key)~="number"or key%1~=0 or key<1 or key>#spec.items then error(path..": tuple shape does not match",3)end end;buf:put("[");for i,item in ipairs(spec.items)do if i>1 then buf:put(",")end;__nuppWriteValue(value[i],item,buf,state,path.."["..i.."]")end;buf:put("]");__nuppLeave(value,state);return elseif kind=="map"then __nuppEnter(value,state,path);buf:put("{");local keys={};for key in pairs(value)do if type(key)~="string"then error(path..": JSON map key is not a string",3)end;keys[#keys+1]=key end;table.sort(keys);for i,key in ipairs(keys)do if i>1 then buf:put(",")end;__nuppPutString(buf,key,path);buf:put(":");__nuppWriteValue(value[key],spec.value,buf,state,path.."."..key)end;buf:put("}");__nuppLeave(value,state);return elseif kind=="shape"then return __nuppWriteObject(value,spec.fields,spec.unknown,buf,state,path)end;error(path..": unsupported JSON value",3)end
+local __nuppDecodeValue
+local function __nuppDecodeObject(value,entry,path)
+if type(value)~="table"then return false,nil,path..": expected object"end;local schema=entry.schema;local known={};local out={};for _,field in ipairs(schema.fields)do if not field.omit then local key=field.jsonName or field.name;known[key]=true;local raw=rawget(value,key);if raw==nil then if field.default then local ok,result=pcall(__nuppDefaultValue,field.default);if not ok then return false,nil,path.."."..key..": "..tostring(result)end;if result~=nil then out[field.name]=result end elseif field.jsonType and field.jsonType.kind=="optional"then else return false,nil,path.."."..key..": required field is absent"end else local ok,result,err=__nuppDecodeValue(raw,field.jsonType,entry,path.."."..key);if not ok then return false,nil,err end;if result~=nil then out[field.name]=result end end elseif field.default then local result=__nuppDefaultValue(field.default);if result~=nil then out[field.name]=result end end end;if schema.unknown~="ignore"then for key in pairs(value)do if not known[key]then return false,nil,path..": unknown field "..string.format("%q",tostring(key))end end end;return true,setmetatable(out,entry.mt),nil end
+__nuppDecodeValue=function(value,spec,entry,path)
+local kind=spec and spec.kind;if kind=="optional"then if value==entry.decoder.NULL then return true,nil,nil end;return __nuppDecodeValue(value,spec.value,entry,path)elseif value==entry.decoder.NULL then return false,nil,path..": null is not allowed"elseif kind=="union"then if type(value)~="table"then return false,nil,path..": expected discriminated object"end;local tag=rawget(value,spec.jsonTag);local selected=spec.choices[tag];if not selected then return false,nil,path.."."..spec.jsonTag..": unknown discriminant"end;return __nuppDecodeValue(value,selected,entry,path)elseif kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];if not nested then return false,nil,path..": derived JSON dependency is not loaded"end;__nuppDerive.jsonCodec(nested);return __nuppDecodeObject(value,nested,path)elseif kind=="string"then return type(value)=="string",value,type(value)=="string"and nil or path..": expected string"elseif kind=="boolean"then return type(value)=="boolean",value,type(value)=="boolean"and nil or path..": expected boolean"elseif kind=="literal"then return value==spec.value,value,value==spec.value and nil or path..": literal value does not match"elseif kind=="number"or kind=="float"or kind=="integer"then if type(value)~="number"or not __nuppFinite(value)then return false,nil,path..": expected finite number"end;if kind=="integer"and(value%1~=0 or spec.minimum and value<spec.minimum or spec.maximum and value>spec.maximum)then return false,nil,path..": expected integer in range"end;return true,value,nil end
+if type(value)~="table"then return false,nil,path..": expected table"end;if kind=="array"then local out={};local count=#value;for key in pairs(value)do if type(key)~="number"or key%1~=0 or key<1 or key>count then return false,nil,path..": expected dense array"end end;for i=1,count do local ok,result,err=__nuppDecodeValue(value[i],spec.value,entry,path.."["..i.."]");if not ok then return false,nil,err end;out[i]=result end;return true,out,nil elseif kind=="tuple"then if#value~=#spec.items then return false,nil,path..": tuple length does not match"end;local out={};for i,item in ipairs(spec.items)do local ok,result,err=__nuppDecodeValue(value[i],item,entry,path.."["..i.."]");if not ok then return false,nil,err end;out[i]=result end;return true,out,nil elseif kind=="map"then local out={};for key,item in pairs(value)do if type(key)~="string"then return false,nil,path..": expected string map key"end;local ok,result,err=__nuppDecodeValue(item,spec.value,entry,path.."."..key);if not ok then return false,nil,err end;out[key]=result end;return true,out,nil elseif kind=="shape"then local fake={schema={fields=spec.fields,unknown=spec.unknown or"reject"},mt=nil,decoder=entry.decoder};local ok,result,err=__nuppDecodeObject(value,fake,path);if ok then setmetatable(result,nil)end;return ok,result,err end;return false,nil,path..": unsupported JSON value"end
+function __nuppDerive.register(key,mt,schema)
+local entry={key=key,mt=mt,schema=schema};rawset(mt,"__nuppDeriveKey",key);local json=schema.data and schema.data.json;if json then schema.fields=json.fields;schema.unknown=json.unknown;local decoder=__nuppData.json.newJSON();decoder.decodeArrayWithArrayMt(false);decoder.decodeMaxDepth(128);decoder.decodeInvalidNumbers(false);entry.decoder=decoder;local codec={fingerprint="derive-json-v1|emit=1|decode=cjson|arraymt=false|maxdepth=128|invalid=false|schema="..schema.fingerprint};function codec:encode(value)local out={};for _,field in ipairs(schema.fields)do if not field.omit then local item=rawget(value,field.name);local empty=item==nil or item==""or item==false or type(item)=="table"and next(item)==nil;if item~=nil and not(field.omitEmpty and empty)then out[field.jsonName or field.name]=item end end end;return out end;function codec:decode(value)local ok,result,err=__nuppDecodeObject(value,entry,"$");if ok then return result,nil end;return nil,err end;entry.codec=codec end;__nuppDeriveTypes[key]=entry;return entry end
+function __nuppDerive.toJSON(value,entry)local buf=__nuppBufferNew();__nuppWriteObject(value,entry.schema.fields,entry.schema.unknown,buf,{active={},depth=0},"$");return buf:tostring()end
+function __nuppDerive.fromJSON(text,entry)local ok,value=pcall(entry.decoder.decodeJSON,text);if not ok then return nil,tostring(value)end;local valid,result,err=__nuppDecodeObject(value,entry,"$");if not valid then return nil,err end;return result,nil end
+function __nuppDerive.fieldCodec(entry)return entry.codec end
+function __nuppDerive.jsonCodec(entry)local codec=entry.codec;if codec then return codec end;local schema=entry.schema;local json=schema.data and schema.data.json;if not json then error("nupp: JSON was not derived for this type",3)end;schema.fields=json.fields;schema.unknown=json.unknown;local decoder=__nuppData.json.newJSON();decoder.decodeArrayWithArrayMt(false);decoder.decodeMaxDepth(128);decoder.decodeInvalidNumbers(false);entry.decoder=decoder;codec={fingerprint="derive-json-v1|emit=1|decode=cjson|arraymt=false|maxdepth=128|schema="..schema.fingerprint};function codec:encode(value)local out={};for _,field in ipairs(schema.fields)do if not field.omit then local item=rawget(value,field.name);local empty=item==nil or item==""or item==false or type(item)=="table"and next(item)==nil;if item~=nil and not(field.omitEmpty and empty)then out[field.jsonName or field.name]=item end end end;return out end;function codec:decode(value)local ok,result,err=__nuppDecodeObject(value,entry,"$");if ok then return result,nil end;return nil,err end;entry.codec=codec;return codec end
+function __nuppDerive.register(key,mt,schema)local entry={key=key,mt=mt,schema=schema};rawset(mt,"__nuppDeriveKey",key);local json=schema.data and schema.data.json;if json then schema.fields=json.fields;schema.unknown=json.unknown end;__nuppDeriveTypes[key]=entry;return entry end
+local __nuppDeriveReflect=rawget(__nupp,"__reflect")
+if __nuppDeriveReflect then __nuppDeriveReflect.json.build=function(info)local mt=info.type;local entry=mt and __nuppDeriveTypes[rawget(mt,"__nuppDeriveKey")];if not entry then error("nupp: JSON was not derived for this type",2)end;return __nuppDerive.jsonCodec(entry)end end
+local function __nuppDerivedJSON(entry)return entry.mt:reflect():extension(__nuppDeriveReflect.json)end
+function __nuppDerive.toJSON(value,entry)__nuppDerivedJSON(entry);local buf=__nuppBufferNew();__nuppWriteObject(value,entry.schema.fields,entry.schema.unknown,buf,{active={},depth=0},"$");return buf:tostring()end
+function __nuppDerive.fromJSON(text,entry)local codec=__nuppDerivedJSON(entry);local ok,value=pcall(entry.decoder.decodeJSON,text);if not ok then return nil,tostring(value)end;local result,err=codec:decode(value);if not result then return nil,err end;return result,nil end
+function __nuppDerive.fieldCodec(entry)return __nuppDerivedJSON(entry)end
+if __nuppDeriveReflect then local function __nuppJSONEntry(typeObject)local entry=typeObject and __nuppDeriveTypes[rawget(typeObject,"__nuppDeriveKey")];if not entry then error("nupp: JSON was not derived for this type",3)end;return entry end;local __nuppJSONAPI=__nuppData.json;__nuppJSONAPI.decode=function(typeObject,text)return __nuppDerive.fromJSON(text,__nuppJSONEntry(typeObject))end;__nuppJSONAPI.encodeAs=function(typeObject,value)return __nuppDerive.toJSON(value,__nuppJSONEntry(typeObject))end;__nuppJSONAPI.encode=function(value)local typeObject=getmetatable(value);return __nuppDerive.toJSON(value,__nuppJSONEntry(typeObject))end end
+local __nuppDeriveModule={
+debug=function(value,entry)return __nuppDerive.debug(value,entry.schema.data.debug)end,
+toJSON=function(value,entry)return __nuppDerive.toJSON(value,entry)end,
+fromJSON=function(text,entry)return __nuppDerive.fromJSON(text,entry)end,
+fieldCodec=function(entry)return __nuppDerive.fieldCodec(entry)end,
+}
+package.preload["nupp.derive"]=function()return __nuppDeriveModule end
+]=]
+)
+
+
+
+
+local NATIVE_TEMPLATE = compact (
+[=[
+local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[__NUPP_NATIVE_CDEFS__]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__NUPP_NATIVE_BYTES_HELPER____nuppNativeValue={ffi=ffi,C=C,error=errorText__NUPP_NATIVE_BYTES_FIELD__};return __nuppNativeValue end
+]=]
+)
+
+local NATIVE_CDEF_BASE = "const char*nuppNativeError(void);"
+local NATIVE_BYTES_CDEFS = "typedef struct NuppBytes NuppBytes;"
+.. "const uint8_t*nuppBytesData(const NuppBytes*);"
+.. "size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);"
+local NATIVE_BYTES_HELPER = "local function bytes(value,optional)if value==nil then "
+.. "if optional then return nil end;error(\"nupp: native operation failed: \"..errorText(),3)end;"
+.. "local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));"
+.. "C.nuppBytesDestroy(value);return out end;"
+local NATIVE_CDEFS = {
+[
+"native.path"
+] = "typedef struct{const uint8_t*data;size_t length;}NuppStringView;"
+.. "NuppBytes*nuppPathJoin(const NuppStringView*,size_t);"
+.. "NuppBytes*nuppPathNormalize(const uint8_t*,size_t);"
+.. "NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);"
+.. "NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);"
+.. "NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);"
+.. "NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);"
+.. "NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);"
+.. "bool nuppPathIsAbsolute(const uint8_t*,size_t);" ,
+[
+"native.uri"
+] = "typedef struct NuppUri NuppUri;"
+.. "NuppUri*nuppUriParse(const uint8_t*,size_t);"
+.. "const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);"
+.. "bool nuppUriPort(const NuppUri*,uint16_t*);"
+.. "NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);"
+.. "NuppUri*nuppUriWithPort(const NuppUri*,int32_t);"
+.. "NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);"
+.. "NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);"
+.. "NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);"
+.. "void nuppUriDestroy(NuppUri*);" ,
+[ "native.uuid" ] = "bool nuppUuid4(char*);bool nuppUuid7(char*);" ,
+[ "native.sha256" ] = "bool nuppSha256(const uint8_t*,size_t,char*);" ,
+[
+"native.files"
+] = "typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;"
+.. "bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);"
+.. "NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);"
+.. "bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);"
+.. "bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);"
+.. "bool nuppFilesCreateDirectory(const uint8_t*,size_t);"
+.. "bool nuppFilesRemove(const uint8_t*,size_t,bool);"
+.. "bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);"
+.. "NuppBytes*nuppFilesList(const uint8_t*,size_t);"
+.. "NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);"
+.. "NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);"
+.. "typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);"
+.. "int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);"
+.. "int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);"
+.. "int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);"
+.. "bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);"
+.. "typedef struct NuppRequest NuppRequest;"
+.. "NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);"
+.. "NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);"
+.. "NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);"
+.. "int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);"
+.. "size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);"
+.. "bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);"
+.. "size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);" ,
+[
+"native.process"
+] = "typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;"
+.. "typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);"
+.. "bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);"
+.. "bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);"
+.. "bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);"
+.. "bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);"
+.. "bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);"
+.. "NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);"
+.. "intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);"
+.. "intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);"
+.. "uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);"
+.. "int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);"
+.. "bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);"
+.. "void nuppProcessDestroy(NuppChild*);"
+.. "int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);"
+.. "size_t nuppProcessUncollectedTotal(void);" ,
+}
+local NATIVE_CDEF_ORDER = {
+"native.path" ,
+"native.uri" ,
+"native.uuid" ,
+"native.sha256" ,
+"native.files" ,
+"native.process" ,
+}
+
+local function nativeRuntime ( effects )
+local declarations = { NATIVE_CDEF_BASE }
+local hasBytes = effects [ "native.path" ] or effects [ "native.files" ]
+if hasBytes then
+declarations [ # declarations + 1 ] = NATIVE_BYTES_CDEFS
+end
+
+if effects [ "native.http" ] and not effects [ "native.uri" ] then
+declarations [ # declarations + 1 ] = "typedef struct NuppUri NuppUri;"
+end
+for _ , effect in ipairs ( NATIVE_CDEF_ORDER ) do
+if effects [ effect ] then
+declarations [ # declarations + 1 ] = NATIVE_CDEFS [ effect ]
+end
+end
+local source = NATIVE_TEMPLATE : gsub ( "__NUPP_NATIVE_CDEFS__" , table . concat ( declarations ) )
+source = source : gsub ( "__NUPP_NATIVE_BYTES_HELPER__" , hasBytes and NATIVE_BYTES_HELPER or "" )
+
+return ( source : gsub ( "__NUPP_NATIVE_BYTES_FIELD__" , hasBytes and ",bytes=bytes" or "" ) )
+end
+
+local PATH = compact (
+[=[
+local function __nuppInstallPath()
+local native=__nuppNative();local ffi,C=native.ffi,native.C;local Path={};Path.__index=Path;Path.__tostring=function(self)return self._text end;Path.__eq=function(a,b)return a._text==b._text end
+local function value(v)return type(v)=="table"and getmetatable(v)==Path and v._text or v end
+local function path(text)return setmetatable({_text=text},Path)end
+local function returned(bytes,optional)local text=native.bytes(bytes,optional);return text and path(text)or nil end
+local function call(method,self,...)local out=C[method](self._text,#self._text,...);if out==nil then return nil,native.error()end;return returned(out)end
+function Path:toString()return self._text end
+function Path:join(...)local count=select("#",...);local views=ffi.new("NuppStringView[?]",count+1);local keep={self._text};for i=1,count do keep[i+1]=value(select(i,...))end;for i=1,#keep do views[i-1].data=keep[i];views[i-1].length=#keep[i]end;return returned(C.nuppPathJoin(views,#keep))end
+function Path:normalize()return call("nuppPathNormalize",self)end
+function Path:absolute()return call("nuppPathAbsolute",self)end
+function Path:resolve(...)local absolute,reason=self:absolute();if not absolute then return nil,reason end;return absolute:join(...):normalize()end
+function Path:canonicalize()return call("nuppPathCanonicalize",self)end
+function Path:relativeTo(base)local b=value(base);local out=C.nuppPathRelative(self._text,#self._text,b,#b);if out==nil then return nil,native.error()end;return returned(out)end
+function Path:parent()return returned(C.nuppPathPart(self._text,#self._text,0),true)end
+local parts={fileName=1,stem=2,extension=3};for name,kind in pairs(parts)do Path[name]=function(self)return native.bytes(C.nuppPathPart(self._text,#self._text,kind),true)end end
+function Path:withFileName(name)return returned(C.nuppPathWith(self._text,#self._text,name,#name,false))end
+function Path:withExtension(extension)return returned(C.nuppPathWith(self._text,#self._text,extension,#extension,true))end
+function Path:isAbsolute()return C.nuppPathIsAbsolute(self._text,#self._text)end
+function Path:isRelative()return not self:isAbsolute()end
+Path.new=function(first,...)return path(first):join(...)end
+Path.currentDirectory=function()local out=C.nuppPathAbsolute("",0);if out==nil then return nil,native.error()end;return returned(out)end
+Path.separator=function()return package.config:sub(1,1)end
+__nuppIO.Path=Path
+return __nuppIO end
+__nuppLazy(__nuppIO,"Path",function()__nuppInstallPath();return rawget(__nuppIO,"Path")end)
+]=]
+)
+
+local URI = compact (
+[=[
+local function __nuppInstallURI()
+local native=__nuppNative();local ffi,C=native.ffi,native.C;local URI={};URI.__index=URI;URI.__tostring=function(self)return self:toString()end;URI.__eq=function(a,b)return a:toString()==b:toString()end
+local function wrap(handle)if handle==nil then return nil,native.error()end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end
+local function changed(handle)if handle==nil then error("nupp: cannot modify URI: "..native.error(),3)end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end
+local function part(self,kind)local length=ffi.new("size_t[1]");local data=C.nuppUriPart(self._handle,kind,length);if data==nil then return nil end;return ffi.string(data,tonumber(length[0]))end
+function URI:toString()return part(self,0)end;function URI:scheme()return part(self,1)end;function URI:authority()return part(self,2)end;function URI:username()return part(self,3)end;function URI:password()return part(self,4)end;function URI:host()return part(self,5)end;function URI:path()return part(self,6)end;function URI:query()return part(self,7)end;function URI:fragment()return part(self,8)end
+function URI:userInfo()local username=self:username();local password=self:password();if username==""and password==nil then return nil end;return password and(username..":"..password)or username end
+function URI:port()local value=ffi.new("uint16_t[1]");return C.nuppUriPort(self._handle,value)and tonumber(value[0])or nil end
+local function required(value,what)if type(value)~="string"then error("nupp: "..what.." needs a string",3)end;return value end
+local kinds={withScheme={0,"scheme",true},withUserInfo={1,"userInfo"},withHost={2,"host"},withPath={3,"path",true},withQuery={4,"query"},withFragment={5,"fragment"}};for name,spec in pairs(kinds)do URI[name]=function(self,value)if spec[3]then value=required(value,"URI "..spec[2])elseif value~=nil then value=required(value,"URI "..spec[2])end;if value==self[spec[2]](self)then return self end;return changed(C.nuppUriWithText(self._handle,spec[1],value or"",value and#value or 0,value~=nil))end end
+function URI:withPort(port)if port~=nil and(type(port)~="number"or port~=math.floor(port)or port<0 or port>65535)then error("nupp: URI port must be an integer from 0 through 65535 or nil",2)end;if port==self:port()then return self end;return changed(C.nuppUriWithPort(self._handle,port or-1))end
+function URI:concatPath(path)path=required(path,"URI path");if path==""then return self end;return changed(C.nuppUriConcatPath(self._handle,path,#path))end
+function URI:resolve(reference)if type(reference)~="string"then return nil,"nupp: URI reference needs a string"end;return wrap(C.nuppUriResolve(self._handle,reference,#reference))end
+function URI:withEndpoint(endpoint)if type(endpoint)~="table"or getmetatable(endpoint)~=URI then error("nupp: URI endpoint must be an io.URI",2)end;return changed(C.nuppUriWithEndpoint(self._handle,endpoint._handle))end
+local function compose(c)if type(c)~="table"then return nil,"nupp: io.URI.new needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end
+URI.new=function(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end
+URI.validate=function(text)if type(text)~="string"then return false,"nupp: io.URI.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end
+URI.isURI=function(value)return type(value)=="table"and getmetatable(value)==URI end
+__nuppIO.URI=URI
+return __nuppIO end
+__nuppLazy(__nuppIO,"URI",function()__nuppInstallURI();return rawget(__nuppIO,"URI")end)
+]=]
+)
+
+local UUID = compact (
+[=[
+local function __nuppUUID(which)local native=__nuppNative();local output=native.ffi.new("char[37]");if not native.C[which](output)then error("nupp: UUID generation failed",2)end;return native.ffi.string(output)end;__nuppLazy(__nuppData,"uuid4",function()return function()return __nuppUUID("nuppUuid4")end end);__nuppLazy(__nuppData,"uuid7",function()return function()return __nuppUUID("nuppUuid7")end end)
+]=]
+)
+
+
+
+
+
+
+
+local FILES = compact (
+[=[
+__nuppLazy(__nuppIO,"files",function()
+local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]")
+local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"}
+local ENTRIES={f="file",d="directory",l="symlink",o="other"}
+local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6}
+local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5}
+local ORIGINS={set=0,current=1,["end"]=2}
+local READ_SIZE=65536
+local PENDING,READY=0,1
+local SOURCE,PRIORITY="nupp-files",20
+local waits={};local suspending
+local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer
+local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end
+local function done(answered)if answered then return true end;return false,native.error()end
+local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end
+local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end
+local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end
+local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end
+local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end
+local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end
+local function polled()C.nuppFsPoll();return harvest()end
+local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end
+local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end
+local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end
+local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end
+local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end
+local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end
+local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end
+local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end
+local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end
+local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end
+function File:isReleased()return self._closed end
+function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end
+function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end
+function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end
+function File:position()live(self,"File",2);return self:seek(0,"current")end
+function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end
+function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end
+function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end
+local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end
+local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end
+function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end
+function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end
+function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end
+function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end
+local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end
+function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end
+function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end
+function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end
+function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end
+function Writer:close()self._closed=true;return true end
+function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end
+function files.exists(path)return described(path,true,2)~=nil end
+function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end
+function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end
+function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end
+function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end
+function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end
+function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end
+function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end
+function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end
+function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end
+function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end
+function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end
+local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end
+function Temporary:toString()return self._text end
+function Temporary:isReleased()return self._closed end
+function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end
+function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end
+File.drop=File.close;Reader.drop=Reader.close;Writer.drop=Writer.close;Temporary.drop=Temporary.close
+function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end
+function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end
+function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end
+function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end
+function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end
+function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end
+function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end
+function files.pendingTransfers()return tonumber(C.nuppFsPending())end
+function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end
+function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end
+function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end
+function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end
+return files end)
+]=]
+)
+
+
+
+
+
+local PROCESS = compact (
+[=[
+package.preload["nupp.io.processnative"]=function()
+local native=__nuppNative();local ffi,C=native.ffi,native.C
+ffi.cdef[[double nuppProcessMonotonicMs(void);]]
+local MODE={pipe=0,inherit=1,["null"]=2,stdout=3}
+local WOULD_BLOCK,GONE,FAILED=-1,-2,-3
+local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2
+local READ_SIZE,INT32_MAX=65536,2147483647
+local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end
+local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end
+local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end
+local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end
+local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end
+local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end
+local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end
+return{new=function(exited)
+local backend={}
+function backend:spawn(options)
+local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe"
+if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end
+if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end
+if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end
+local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end
+for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end
+configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode")
+for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end
+if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end
+configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin")
+configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout")
+configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr")
+local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end
+local owner={handle=child,streams={},released=false,destroyed=false}
+local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe")
+return owner,input,output,err,tonumber(C.nuppProcessId(child))
+end
+function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end
+function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end
+function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end
+function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end
+function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end
+function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end
+function backend:now()return C.nuppProcessMonotonicMs()end
+function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end
+return backend end}
+end
+]=]
+)
+
+
+
+local HTTP = compact (
+[=[
+package.preload["nupp.io.httpnative"]=function()
+local native=__nuppNative();local ffi,C=native.ffi,native.C
+ffi.cdef[[
+typedef struct NuppHttpClient NuppHttpClient;
+typedef struct NuppHttpTransfer NuppHttpTransfer;
+typedef struct{const uint8_t*data;size_t length;}NuppHttpSlice;
+typedef struct{NuppHttpSlice name;NuppHttpSlice value;}NuppHttpHeader;
+typedef struct{uint64_t connect_timeout_ms;uint32_t max_redirects;uint32_t max_pending_requests;uint32_t max_connections;uint32_t max_connections_per_host;int compressed;int has_insecure_hosts;int proxy_mode;NuppHttpSlice proxy;int no_proxy_set;NuppHttpSlice no_proxy;NuppHttpSlice proxy_credentials;}NuppHttpClientOptions;
+typedef struct{const NuppUri*uri;NuppHttpSlice method;const NuppHttpHeader*headers;size_t header_count;NuppHttpSlice body;uint32_t body_kind;int64_t body_length;uint64_t timeout_ms;uint64_t stall_timeout_ms;uint64_t max_bytes;int insecure;}NuppHttpRequest;
+typedef struct{uint16_t status;uint8_t version;const uint8_t*url;size_t url_length;const uint8_t*headers;size_t headers_length;}NuppHttpResponseHead;
+typedef struct{const NuppHttpTransfer*transfer;uint32_t tokens;}NuppHttpReady;
+NuppHttpClient*nuppHttpClientCreate(const NuppHttpClientOptions*);
+void nuppHttpClientDestroy(NuppHttpClient*);
+const NuppHttpTransfer*nuppHttpClientSend(NuppHttpClient*,const NuppHttpRequest*);
+void nuppHttpTransferCancel(const NuppHttpTransfer*);
+void nuppHttpTransferDestroy(const NuppHttpTransfer*);
+int nuppHttpTransferOffer(const NuppHttpTransfer*,const uint8_t*,size_t,bool);
+uint32_t nuppHttpTransferPollHeaders(const NuppHttpTransfer*,NuppHttpResponseHead*);
+const char*nuppHttpTransferError(const NuppHttpTransfer*);
+const NuppHttpTransfer*nuppHttpTransferTakeBody(const NuppHttpTransfer*);
+bool nuppHttpBodyArm(const NuppHttpTransfer*);
+bool nuppHttpBodyPeek(const NuppHttpTransfer*,const uint8_t**,size_t*,uint32_t*);
+bool nuppHttpBodyConsume(const NuppHttpTransfer*,size_t);
+const char*nuppHttpBodyError(const NuppHttpTransfer*);
+void nuppHttpBodyDestroy(const NuppHttpTransfer*);
+size_t nuppHttpClientPoll(NuppHttpClient*,NuppHttpReady*,size_t,bool*);
+size_t nuppHttpClientWait(NuppHttpClient*,uint64_t,NuppHttpReady*,size_t,bool*);
+void nuppHttpReadyRelease(const NuppHttpTransfer*);
+size_t nuppHttpClientPending(const NuppHttpClient*);
+double nuppHttpMonotonicMs(void);
+]]
+local HEAD_PENDING,HEAD_READY,HEAD_FAILED=0,1,2
+local BODY_DATA,BODY_PENDING,BODY_EOF,BODY_FAILED,BODY_CLOSED=1,2,3,4,5
+local TOKEN_HEADERS,TOKEN_BODY,TOKEN_UPLOAD,TOKEN_FAILED=1,2,4,8
+local BODY_NONE,BODY_INLINE,BODY_UPLOAD,BODY_FILE=0,1,2,3
+local UPLOAD_CLOSED,UPLOAD_BACKPRESSURE,UPLOAD_ACCEPTED=-1,0,1
+local function slice(value,pointer,length)local out=ffi.new("NuppHttpSlice");if pointer~=nil then out.data=pointer;out.length=length;elseif value~=nil then out.data=value;out.length=#value end;return out end
+local function reason(pointer,fallback)if pointer==nil then return fallback end;local text=ffi.string(pointer);return text~=""and text or fallback end
+local Transfer={};Transfer.__index=Transfer
+local Client={};Client.__index=Client
+local function dispatch(self,field)local waiters=self[field];if waiters==nil then return 0 end;self[field]=nil;local count=#waiters;for index=count,1,-1 do waiters[index]()end;return count end
+local function dispatchOne(self,field)local waiters=self[field];if waiters==nil or#waiters==0 then return 0 end;local wake=table.remove(waiters,1);if#waiters==0 then self[field]=nil end;wake();return 1 end
+function Transfer:_ready(tokens)local moved=0;if bit.band(tokens,TOKEN_HEADERS+TOKEN_FAILED)~=0 then moved=moved+dispatch(self,"_headWaiters")end;if bit.band(tokens,TOKEN_BODY)~=0 then moved=moved+dispatch(self,"_bodyWaiters")end;if bit.band(tokens,TOKEN_UPLOAD)~=0 then moved=moved+dispatch(self,"_uploadWaiters")end;return moved end
+local function addWaiter(self,field,wake)local waiters=self[field];if waiters==nil then waiters={};self[field]=waiters end;waiters[#waiters+1]=wake;local active=true;return function()if not active then return end;active=false;for index=1,#waiters do if waiters[index]==wake then table.remove(waiters,index);break end end end end
+function Transfer:onHead(wake)return addWaiter(self,"_headWaiters",wake)end
+function Transfer:onBody(wake)local forget=addWaiter(self,"_bodyWaiters",wake);if self._body~=nil then C.nuppHttpBodyArm(self._body)end;return forget end
+function Transfer:onUpload(wake)return addWaiter(self,"_uploadWaiters",wake)end
+function Client:onAdmission(wake)if self._closed or tonumber(C.nuppHttpClientPending(self._handle))<self._maxPending then wake();return function()end end;return addWaiter(self,"_admissionWaiters",wake)end
+function Transfer:head()local out=ffi.new("NuppHttpResponseHead[1]");local state=C.nuppHttpTransferPollHeaders(self._handle,out);if state==HEAD_PENDING then return"pending"end;if state==HEAD_FAILED then return"failed",nil,nil,nil,nil,reason(C.nuppHttpTransferError(self._handle),"HTTP transfer failed")end;local head=out[0];local url;if head.url~=nil then url=ffi.string(head.url,tonumber(head.url_length))end;return"ready",tonumber(head.status),tonumber(head.version),url,ffi.string(head.headers,tonumber(head.headers_length))end
+function Transfer:offer(value,finished,count)local data,length=nil,0;if value~=nil then local raw=type(value)=="table"and rawget(value,"_data")or nil;if raw~=nil then data=raw;length=count or rawget(value,"_length")else data=value;length=count or#value end end;local answer=C.nuppHttpTransferOffer(self._handle,data,length,finished==true);if answer==UPLOAD_ACCEPTED then return"accepted"end;if answer==UPLOAD_BACKPRESSURE then return"backpressure"end;return"closed"end
+function Transfer:takeBody()if self._body==nil then local handle=C.nuppHttpTransferTakeBody(self._handle);if handle==nil then return nil,"the HTTP response has no body"end;self._body=ffi.gc(handle,C.nuppHttpBodyDestroy)end;return true end
+function Transfer:bodyRead(count,destination,offset)local data=ffi.new("const uint8_t*[1]");local length=ffi.new("size_t[1]");local state=ffi.new("uint32_t[1]");if not C.nuppHttpBodyPeek(self._body,data,length,state)then return"failed",nil,native.error()end;local kind=tonumber(state[0]);if kind==BODY_PENDING then return"pending"end;if kind==BODY_EOF then return"eof"end;if kind==BODY_FAILED then return"failed",nil,reason(C.nuppHttpBodyError(self._body),"HTTP response body failed")end;if kind==BODY_CLOSED then return"closed",nil,"the body is closed"end;local available=tonumber(length[0]);local take=math.min(count,available);if destination~=nil then local raw=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if raw~=nil or capacity~=nil then destination:ensureCapacity(offset+take);raw=rawget(destination,"_data");local old=rawget(destination,"_length");if offset>old then ffi.fill(raw+old,offset-old,0)end;ffi.copy(raw+offset,data[0],take);if offset+take>old then rawset(destination,"_length",offset+take)end;if not C.nuppHttpBodyConsume(self._body,take)then return"failed",nil,native.error()end;return"data",take end end;local bytes=ffi.string(data[0],take);if not C.nuppHttpBodyConsume(self._body,take)then return"failed",nil,native.error()end;return"data",bytes end
+function Transfer:directDestination(destination)local buffer=rawget(destination,"_buffer");if buffer~=nil and rawget(destination,"_at")~=nil and rawget(buffer,"_capacity")~=nil then return true end;local file=rawget(destination,"_file");return file~=nil and rawget(file,"_handle")~=nil end
+function Transfer:bodyWrite(destination,count)if rawget(destination,"_closed")then return"failed",nil,"the writer is closed"end;local buffer=rawget(destination,"_buffer");if buffer~=nil and rawget(destination,"_at")~=nil and rawget(buffer,"_capacity")~=nil then local at=rawget(destination,"_at");local state,value,why=self:bodyRead(count,buffer,at);if state=="data"then rawset(destination,"_at",at+value)end;return state,value,why end;local file=rawget(destination,"_file");local handle=file and rawget(file,"_handle")or nil;if handle==nil then return"unsupported"end;local data=ffi.new("const uint8_t*[1]");local length=ffi.new("size_t[1]");local state=ffi.new("uint32_t[1]");if not C.nuppHttpBodyPeek(self._body,data,length,state)then return"failed",nil,native.error()end;local kind=tonumber(state[0]);if kind==BODY_PENDING then return"pending"end;if kind==BODY_EOF then return"eof"end;if kind==BODY_FAILED then return"failed",nil,reason(C.nuppHttpBodyError(self._body),"HTTP response body failed")end;if kind==BODY_CLOSED then return"closed",nil,"the body is closed"end;local take=math.min(count,tonumber(length[0]));local wrote=tonumber(C.nuppFileWrite(handle,data[0],take));if wrote<0 then return"failed",nil,native.error()end;if not C.nuppHttpBodyConsume(self._body,wrote)then return"failed",nil,native.error()end;return"data",wrote end
+function Transfer:cancel()if self._handle~=nil then C.nuppHttpTransferCancel(self._handle)end end
+function Transfer:close()if self._closed then return end;self._closed=true;self._client._byHandle[tostring(self._handle)]=nil;if self._body~=nil then local body=self._body;self._body=nil;ffi.gc(body,nil);C.nuppHttpBodyDestroy(body)else C.nuppHttpTransferCancel(self._handle)end;local handle=self._handle;self._handle=nil;ffi.gc(handle,nil);C.nuppHttpTransferDestroy(handle)end
+function Client:send(request)local headers=request.headers or{};local count=#headers;local packed=count>0 and ffi.new("NuppHttpHeader[?]",count)or nil;for index=1,count do local item=headers[index];packed[index-1].name=slice(item[1]);packed[index-1].value=slice(item[2])end;local bodyPointer,bodyLength=nil,0;local value=request.body;if request.bodyKind==BODY_INLINE then if type(value)=="string"then bodyPointer=value;bodyLength=#value else local raw=rawget(value,"_data");if raw~=nil then bodyPointer=raw;bodyLength=rawget(value,"_length")else local bytes=rawget(value,"_bytes")or value:getString();bodyPointer=bytes;bodyLength=#bytes end end elseif request.bodyKind==BODY_FILE then bodyPointer=value;bodyLength=#value end;local descriptor=ffi.new("NuppHttpRequest");descriptor.uri=rawget(request.uri,"_handle");descriptor.method=slice(request.method);descriptor.headers=packed;descriptor.header_count=count;descriptor.body=slice(nil,bodyPointer,bodyLength);descriptor.body_kind=request.bodyKind;descriptor.body_length=request.bodyLength or-1;descriptor.timeout_ms=request.timeoutMs;descriptor.stall_timeout_ms=request.stallTimeoutMs;descriptor.max_bytes=request.maxBytes;descriptor.insecure=request.insecure and 1 or 0;local handle=C.nuppHttpClientSend(self._handle,descriptor);if handle==nil then local why=native.error();return nil,why,why=="the HTTP client has reached maxPendingRequests"end;handle=ffi.gc(handle,C.nuppHttpTransferDestroy);local transfer=setmetatable({_client=self,_handle=handle,_body=nil,_closed=false},Transfer);self._byHandle[tostring(handle)]=transfer;return transfer end
+function Client:poll(waitMs)local count;if waitMs>0 then count=C.nuppHttpClientWait(self._handle,waitMs,self._ready,256,self._more)else count=C.nuppHttpClientPoll(self._handle,self._ready,256,self._more)end;local moved=0;for index=0,tonumber(count)-1 do local item=self._ready[index];local transfer=self._byHandle[tostring(item.transfer)];local ok,problem=true,nil;if transfer~=nil then ok,problem=pcall(function()moved=moved+transfer:_ready(tonumber(item.tokens))end)end;C.nuppHttpReadyRelease(item.transfer);if not ok then error(problem,0)end end;if self._admissionWaiters~=nil and tonumber(C.nuppHttpClientPending(self._handle))<self._maxPending then moved=moved+dispatchOne(self,"_admissionWaiters")end;return moved end
+function Client:pending()if self._closed then return 0 end;return tonumber(C.nuppHttpClientPending(self._handle))end
+function Client:now()return tonumber(C.nuppHttpMonotonicMs())end
+function Client:close()if self._closed then return end;self._closed=true;dispatch(self,"_admissionWaiters");local transfers={};for _,transfer in pairs(self._byHandle)do transfers[#transfers+1]=transfer end;for index=1,#transfers do transfers[index]:close()end;local handle=self._handle;self._handle=nil;ffi.gc(handle,nil);C.nuppHttpClientDestroy(handle)end
+local backend={}
+function backend.newClient(options)local proxyMode=options.proxy==nil and 0 or(options.proxy==""and 1 or 2);local proxy=options.proxy or"";local noProxy=options.noProxy or"";local credentials=options.proxyCredentials or"";local nativeOptions=ffi.new("NuppHttpClientOptions");nativeOptions.connect_timeout_ms=options.connectTimeoutMs;nativeOptions.max_redirects=options.maxRedirects;nativeOptions.max_pending_requests=options.maxPendingRequests;nativeOptions.max_connections=options.maxConnections;nativeOptions.max_connections_per_host=options.maxConnectionsPerHost;nativeOptions.compressed=options.compressed and 1 or 0;nativeOptions.has_insecure_hosts=next(options.insecureHosts)and 1 or 0;nativeOptions.proxy_mode=proxyMode;nativeOptions.proxy=slice(proxy);nativeOptions.no_proxy_set=options.noProxy~=nil and 1 or 0;nativeOptions.no_proxy=slice(noProxy);nativeOptions.proxy_credentials=slice(credentials);local handle=C.nuppHttpClientCreate(nativeOptions);if handle==nil then return nil,native.error()end;handle=ffi.gc(handle,C.nuppHttpClientDestroy);return setmetatable({_handle=handle,_closed=false,_byHandle={},_admissionWaiters=nil,_maxPending=options.maxPendingRequests,_ready=ffi.new("NuppHttpReady[256]"),_more=ffi.new("bool[1]")},Client)end
+return backend end
+]=]
+)
+
+
+
+
+
+
+
+
+
+
+
+
+
+local LOG = compact (
+[=[
+local __nuppLog=rawget(__nupp,"log")or{};rawset(__nupp,"log",__nuppLog)
+do
+local NAMES={"error","warn","info","debug"};local INDEX={off=0,error=1,warn=2,info=3,debug=4}
+local ffi=require("ffi");pcall(ffi.cdef,"typedef int64_t nupp_time_t; nupp_time_t time(nupp_time_t *t);")
+local clock=os.time
+do
+local resolved,fn=pcall(function()return ffi.C.time end)
+if resolved and fn then
+local null=ffi.cast("nupp_time_t*",0);local valid,answered=pcall(fn,null)
+local drift=valid and(tonumber(answered)-os.time())or math.huge
+if drift>-2 and drift<2 then clock=function()return tonumber(fn(null))end end
+end
+end
+local threshold=2;local on={false,false,false,false}
+local target=io.stderr;local targetIsSink=false;local formatter=nil
+local dateFormat="%Y-%m-%d %H:%M:%S ";local cachedTick=-1;local cachedStamp="";local cachedFormat=""
+local registry={}
+local function admit(index)for i=1,4 do on[i]=i<=index end;threshold=index end
+admit(threshold)
+local function stamp()
+if dateFormat==""then return""end
+local tick=clock()
+if tick~=cachedTick or dateFormat~=cachedFormat then cachedTick=tick;cachedFormat=dateFormat;cachedStamp=os.date(dateFormat)end
+return cachedStamp
+end
+local function emit(severity,module,line,message)
+if targetIsSink then return target(severity,module,line,message)end
+local at=stamp()
+if formatter then return target:write(formatter(severity,module,line,message,at),"\n")end
+if line>0 then return target:write(at,NAMES[severity]," ",module,":",line,": ",message,"\n")end
+return target:write(at,NAMES[severity]," ",module,": ",message,"\n")
+end
+__nuppLog.on=on;__nuppLog.emit=emit
+function __nuppLog.forModule(module)
+return{on=on,emit=function(severity,line,message)return emit(severity,module,line,message)end}
+end
+local function named(severity)
+local index=INDEX[severity];if index==nil then error("nupp: log has no level named "..tostring(severity),3)end
+return index
+end
+local function render(message,...)
+local count=select("#",...);if count==0 then return message end
+local values={...}
+if message:find("?",1,true)then
+local pieces={};local index=1;local argument=0
+while index<=#message do
+local percent=message:find("%",index,true)
+if not percent then pieces[#pieces+1]=message:sub(index);break end
+pieces[#pieces+1]=message:sub(index,percent-1)
+if message:sub(percent+1,percent+1)=="%"then pieces[#pieces+1]="%%";index=percent+2
+else
+local finish=percent+1;local current=message:sub(finish,finish)
+while current~=""and("-+ #0"):find(current,1,true)do finish=finish+1;current=message:sub(finish,finish)end
+while current:find("[0-9]")do finish=finish+1;current=message:sub(finish,finish)end
+if current=="."then finish=finish+1;current=message:sub(finish,finish);while current:find("[0-9]")do finish=finish+1;current=message:sub(finish,finish)end end
+argument=argument+1
+if current=="?"then values[argument]=values[argument]:debug();current="s"end
+pieces[#pieces+1]=message:sub(percent,finish-1)..current;index=finish+1
+end
+end
+message=table.concat(pieces)
+end
+return string.format(message,unpack(values,1,count))
+end
+local function ambient(severity)
+return function(message,...)
+if not on[severity]then return end
+return emit(severity,"?",0,render(message,...))
+end
+end
+__nuppLog.error=ambient(1);__nuppLog.warn=ambient(2);__nuppLog.info=ambient(3);__nuppLog.debug=ambient(4)
+local NO_OP=function()end
+local function writer(severity)
+return function(self,message,...)
+return emit(severity,self.name,0,render(message,...))
+end
+end
+local WRITE={writer(1),writer(2),writer(3),writer(4)}
+local function loggerEnabled(self,level)local index=named(level);return index>0 and on[index]or false end
+local function stampLogger(logger)
+logger.error=on[1]and WRITE[1]or NO_OP;logger.warn=on[2]and WRITE[2]or NO_OP
+logger.info=on[3]and WRITE[3]or NO_OP;logger.debug=on[4]and WRITE[4]or NO_OP
+end
+local function restamp()for _,logger in pairs(registry)do stampLogger(logger)end end
+function __nuppLog.named(name)
+if type(name)~="string"then error("nupp: log name must be a string",2)end
+local logger=registry[name]
+if not logger then logger={name=name,enabled=loggerEnabled};stampLogger(logger);registry[name]=logger end
+return logger
+end
+function __nuppLog.level(level)
+if level==nil then return NAMES[threshold]or"off"end
+local previous=NAMES[threshold]or"off";admit(named(level));restamp();return previous
+end
+function __nuppLog.enabled(level)local index=named(level);return index>0 and on[index]or false end
+function __nuppLog.sink(next)
+if next==nil then return target end
+local previous=target
+if type(next)=="function"then target=next;targetIsSink=true
+elseif type(next)=="table"or type(next)=="userdata"then target=next;targetIsSink=false
+else error("nupp: log target must be a sink function or a file",2)end
+restamp();return previous
+end
+function __nuppLog.formatter(next)
+if next==nil then return formatter end
+if type(next)~="function"then error("nupp: log formatter must be a function",2)end
+local previous=formatter;formatter=next;return previous
+end
+function __nuppLog.timestamp()return stamp()end
+function __nuppLog.timestampFormat(next)
+if next==nil then return dateFormat end
+if type(next)~="string"then error("nupp: log timestamp format must be a string",2)end
+local previous=dateFormat;dateFormat=next;cachedTick=-1;return previous
+end
+function __nuppLog.levelName(severity)return NAMES[severity]or"off"end
+end
+]=]
+)
+
+
+
+
+
+local BITSET = compact ( [=[
+__nuppLazy(__nuppData,"bitset",function()return require("nupp._bitset")end)
+]=] )
+
+local SHA256 = compact (
+[=[
+__nuppLazy(__nuppData,"sha256",function()local native=__nuppNative();return function(value)local bytes=type(value)=="string"and value or value:getString();local output=native.ffi.new("char[65]");if not native.C.nuppSha256(bytes,#bytes,output)then error("nupp: SHA-256 input is invalid",2)end;return native.ffi.string(output)end end)
+]=]
+)
+
+function stdlib . bootstrap ( effects , watch )
+local out = { watch and HOT_BASE or BASE }
+if effects and next ( effects ) then
+out [ # out + 1 ] = LAZY
+end
+effects = effects or { }
+if effects [ "native.cjson" ] then
+out [ # out + 1 ] = JSON
+end
+if effects [ "stdlib.io" ] then
+out [ # out + 1 ] = IO
+end
+if effects [ "native.lua_utf8" ] then
+out [ # out + 1 ] = UTF8
+end
+if effects [ "stdlib.math" ] then
+out [ # out + 1 ] = watch and MATH : gsub ( "local m=__nuppMath" , "local m=_G.nupp.math" , 1 ) or MATH
+end
+if effects [ "stdlib.log" ] then
+out [ # out + 1 ] = LOG
+end
+if effects [ "stdlib.fnv1a64" ] then
+out [ # out + 1 ] = FNV
+end
+if effects [ "stdlib.checksums" ] then
+out [ # out + 1 ] = CHECKSUMS
+end
+if effects [ "stdlib.peg" ] or effects [ "stdlib.peg.compile" ] then
+out [ # out + 1 ] = PEG_NATIVE
+end
+if effects [ "stdlib.lpeg.re" ] or effects [ "stdlib.peg.compile" ] then
+out [ # out + 1 ] = LPEG_RE
+end
+if effects [ "stdlib.peg.compile" ] then
+out [ # out + 1 ] = PEG_COMPILE_NATIVE
+end
+if effects [ "stdlib.fieldcodec" ] then
+out [ # out + 1 ] = FIELDCODEC
+end
+if effects [ "stdlib.reflection" ] then
+out [ # out + 1 ] = REFLECTION
+end
+if effects [ "stdlib.derives" ] then
+out [ # out + 1 ] = DERIVES
+end
+if effects [ "stdlib.bitset" ] then
+out [ # out + 1 ] = BITSET
+end
+local hasNative = effects [
+"native.path"
+] or effects [
+"native.uri"
+] or effects [
+"native.uuid"
+] or effects [ "native.sha256" ] or effects [ "native.files" ] or effects [ "native.process" ] or effects [ "native.http" ]
+if hasNative then
+out [ # out + 1 ] = nativeRuntime ( effects )
+end
+if effects [ "native.files" ] then
+out [ # out + 1 ] = FILES
+end
+if effects [ "native.process" ] then
+out [ # out + 1 ] = PROCESS
+end
+if effects [ "native.http" ] then
+out [ # out + 1 ] = HTTP
+end
+if effects [ "native.path" ] then
+out [ # out + 1 ] = PATH
+end
+if effects [ "native.uri" ] then
+out [ # out + 1 ] = URI
+end
+if effects [ "native.uuid" ] then
+out [ # out + 1 ] = UUID
+end
+if effects [ "native.sha256" ] then
+out [ # out + 1 ] = SHA256
+end
+
+local code = table . concat ( out , " " )
+
+return code : sub ( - 1 ) == ";" and code or code .. ";"
+end
+
+return stdlib
