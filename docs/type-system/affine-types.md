@@ -152,19 +152,27 @@ application, while `preserves` supplies the separate conservation proof. HKT wou
 only be relevant to an API abstracting over `Box` itself as a constructor and would
 not replace that proof.
 
-## GC finalizers remain a safety net
+## GC finalizer cleanup costs about 10 times as much
 
-A GC finalizer can eventually release an unreachable resource, but it cannot
-guarantee when that happens. It also cannot prevent use after close, prove that
-exactly one unlock or ownership transfer occurs, or keep a
-[borrowed pointer](../ownership.md#borrowing-and-pinning) attached to its
-backing storage. These guarantees matter at a
-[C and FFI boundary](../c-interop.md#describe-lifetime-behavior), where the
-garbage collector does not know a native library's ownership, pinning, or
-cleanup contract.
-[Lexical destruction](../ownership.md#consumption-and-lexical-destruction)
-provides the deterministic contract; a finalizer can remain a last-resort
-safety net.
+`ffi.gc` attaches runtime finalization to every resource and makes the garbage
+collector discover and dispatch its cleanup. `luajit bench/ownership.lua`
+compares that path with explicit cleanup around the same `malloc` and `free`.
+On LuaJIT 2.1 for arm64, finalization costs roughly an order of magnitude more
+per resource. Nupp's affine policy exists only during checking, and
+[lexical destruction](../ownership.md#consumption-and-lexical-destruction)
+performs like the equivalent explicit cleanup within measurement noise. It
+adds no per-value wrapper, finalizer registration, or tracing work.
+
+Cleanup timing also controls capacity. The garbage collector sees a small Lua
+wrapper, not the file descriptor, socket, lock, or native allocation behind
+it. A program can exhaust its file-descriptor limit before enough wrappers
+trigger collection, or keep another task waiting on a lock whose unreachable
+guard has not been finalized. An affine terminal runs at the scope boundary;
+a finalizer remains useful only as a last-resort safety net. The
+[C and FFI contracts](../c-interop.md#describe-lifetime-behavior) describe who
+owns each native resource, while [borrowing and
+pinning](../ownership.md#borrowing-and-pinning) keep derived pointers attached
+to their backing storage.
 
 ## Manual cleanup does not prove every path
 
