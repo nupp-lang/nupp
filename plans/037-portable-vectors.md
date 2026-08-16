@@ -1,7 +1,8 @@
 # Portable SIMD vectors
 
-Status: decision record; public explicit vectors deferred, scalar-source
-`@aot(simd = true)` selected
+Status: decision record; public explicit vectors deferred, scalar-source lane
+lowering selected. The `simd = true` setting is withdrawn in favour of a check
+command; see the section at the end.
 
 ## Decision
 
@@ -845,10 +846,23 @@ bytes, or four NEON registers per live value; the spike's Mandelbrot holds
 roughly eight such values and would spill a 32-register file. The same loop in
 binary32 fits in one AVX2 register or two NEON ones.
 
-So the width follows the widest lane type the loop actually uses and the target.
-`simd = true` takes no width: it states that iterations are independent and the
-compiler chooses how many run at once. A fixed user-written width would be a
-different language feature and is not part of this decision.
+So the width follows the lane types the loop's own values need, and the target.
+No annotation carries it: a fixed user-written width would be a different
+language feature and is not part of this decision.
+
+The selection rule is a gang size, not a single element type. Fix the number of
+iterations that run at once from the aggregate register pressure of the loop's
+live values, and let each value occupy however many registers its element type
+needs -- a binary64 value in a gang of eight is four NEON registers where a
+binary32 one is two. An earlier draft of this record said the width follows
+"the widest lane type the loop actually uses", which is right for a loop whose
+varying values share an element type and wrong for a mixed one, where it drops
+the whole loop to the narrowest gang one binary64 value can join.
+
+The implementation is at the conservative half of that rule: it selects between
+an eight-lane 32-bit gang and a four-lane binary64 one, and declines the former
+outright when any varying value is binary64. Mixed-width gangs need mask widths
+to convert, which nothing does yet.
 
 ### Measured: source shape does not substitute for vector values
 
@@ -886,10 +900,48 @@ On the same Apple arm64 host, the ordinary binary64 Mandelbrot body lowered to
 private four-lane values measures about 72 MPix/s versus 35 MPix/s for its
 forced-scalar C oracle at 1024x768 and 256 iterations. Ordinary Nupp,
 forced-scalar C, and SPMD C agree exactly. This roughly 2.05x result is the
-relevant measurement for the selected design; the earlier binary32 eight-lane
-explicit-vector result described a different numeric program.
+relevant measurement for the selected design.
 
-The decision is scalar-source `@aot(simd = true)`. It requires compilation and
-turns a lane-lowering decline into a diagnostic, but does not enable vector
-syntax, change results, grant relaxed arithmetic, or create another
-sublanguage. Compiler-internal vector values cannot escape into ordinary Nupp.
+The same body written in explicit binary32, through the released `nupp.math.f32`
+and `nupp.math.i32` operations, lowers to eight lanes and measures about 119
+MPix/s. It is a different numeric program with different escape counts and is
+checked against its own ordinary Nupp body rather than against the binary64
+answers. Its forced-scalar C oracle measures the same 35 MPix/s as the binary64
+one, which is the useful part: single-precision arithmetic is not cheaper here,
+so the whole difference is lane density. That also settles what backend work can
+be expected to reach -- the binary64 gang is bounded by lanes, not scheduling.
+
+The decision is scalar-source lane lowering under `@aot`. It does not enable
+vector syntax, change results, grant relaxed arithmetic, or create another
+sublanguage, and compiler-internal vector values cannot escape into ordinary
+Nupp.
+
+### The `simd = true` setting is being withdrawn
+
+This record justified `@aot(simd = true)` as asserting a fact the compiler
+cannot infer: that the admitted loop's iterations are independent. That is not
+true of the subset the pass actually admits. Cross-span disjointness follows
+from `exclusive_borrow`, which ownership already proved; every span access must
+use the active loop index exactly, so a stencil read is refused rather than
+assumed away; and all mutable lane state is loop-local. Independence is a
+theorem here, not a promise the programmer makes.
+
+What the setting delivers instead is a failure mode -- a build error rather than
+silently scalar code. That is worth having, but it is not worth a language
+surface, because the same category of problem already has an answer in this
+project. `nupp bc --check` exits 1 for a loop LuaJIT cannot record, on the
+stated grounds that nothing else reports it because the answers do not change.
+Whether a loop vectorized is the same kind of fact.
+
+So: `@aot` alone requires compilation. The lane pass runs on every `@aot`
+function whose shape admits it. A check command reports an `@aot` map loop that
+lowered scalar and exits 1, naming the construct that stopped it, beside the
+trace-abort check that already lives there. The one-top-level-map-loop shape
+stops being an error and becomes a shape that does not vectorize, which is both
+more permissive and more honest.
+
+The cost is that the marker inverts. Today a programmer marks the loops that
+must be fast; afterwards they mark the loops that may be slow, so the gate does
+not fire on a scalar helper or a deliberate reduction. That is the better
+default only if most `@aot` map loops want lanes, which is the expectation for
+a Tecs-shaped workload and should be confirmed against one.

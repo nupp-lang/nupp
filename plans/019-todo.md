@@ -87,16 +87,24 @@ work makes sense in.
       binary32 Mandelbrot runs at about 119 MPix/s against 72 for the binary64
       body and 35 for forced-scalar C, which is the same for both kernels --
       the gain is lane density, not cheaper arithmetic. What is unfinished:
+  - [ ] withdraw `@aot(simd = true)`. Decided; the reasoning and its cost are
+        recorded in [portable-vectors.md](037-portable-vectors.md). The
+        annotation was justified as asserting iteration independence, and in the
+        admitted subset independence is a theorem: disjointness follows from
+        `exclusive_borrow`, every span access must use the loop index exactly,
+        and all mutable lane state is loop-local. What it actually delivers is a
+        build error instead of silent scalar code, and this project already
+        answers that category with `nupp bc --check`. So run the lane pass on
+        every `@aot` function whose shape admits it, and add a check that exits
+        1 for an `@aot` map loop that lowered scalar, naming the construct that
+        stopped it. Needs an inverted marker for a deliberately scalar loop, and
+        the one-top-level-map-loop shape stops being an error.
   - [ ] mixed-width gangs. Selection is all-or-nothing today: one binary64
-        varying value drops the whole loop to four lanes. The real rule is
-        ISPC's -- fix a gang size from aggregate register pressure and let each
-        value occupy however many registers its element type needs, so a
-        binary64 value in a gang of eight is four NEON registers and a binary32
-        one is two. That needs mask widths to convert, which nothing does yet.
-  - [ ] amend [portable-vectors.md](037-portable-vectors.md), whose width rule
-        still reads "the widest lane type the loop actually uses". That is right
-        for a uniform-type loop and wrong for a mixed one, and it predates the
-        measurement above.
+        varying value drops the whole loop to four lanes. The rule is ISPC's --
+        fix a gang size from aggregate register pressure and let each value
+        occupy however many registers its element type needs, so a binary64
+        value in a gang of eight is four NEON registers and a binary32 one is
+        two. That needs mask widths to convert, which nothing does yet.
   - [ ] admit `nupp.math.f32.min`, `max`, and `fma`. The admitted operations are
         exact because a binary32 operation over binary32 operands computed in
         binary64 and rounded once is bit-identical to the native instruction
