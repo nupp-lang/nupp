@@ -426,6 +426,29 @@ MPix/s lane-parallel, 36.9 against 35.0 forced scalar.
 Removing `lanes = true` or `lanes = false` changes the compilation strategy and
 never the answer. Removing `@relax` changes the answer.
 
+### Mixing widths
+
+A loop whose values are all binary32 gets eight lanes; one whose values are all
+binary64 gets four. A loop that mixes them — everything binary32 except one
+running total that needs binary64, which is the usual reason — gets four, and
+the binary64 gang performs each explicit binary32 operation in its own lanes and
+rounds the result once. That is bit-identical to the native single-precision
+instruction, by the same argument the whole binary32 surface rests on.
+
+It costs three instructions where an exact operation is one, so such a body
+gains about 1.14× over scalar where a body in a gang that carries its element
+exactly gains about 2×. `nupp aot` says when a body paid it, because the
+operations-per-byte number counts operations and would otherwise imply a gain
+this body does not get:
+
+```text
+mixedwidth.nupp: integrate, 5.67 operations per byte (136 over 24), f64x4, 4 lanes, rounding explicit fixed-width work
+```
+
+If you see that and want the other 0.9×, the answer is in the source: a running
+total that can be binary32 makes the whole loop 32-bit and doubles the lanes.
+Whether it can is a question about your algorithm, not about the backend.
+
 **The fourth lever is the source itself**, and it is the strongest one. Writing
 the arithmetic through `nupp.math.f32` doubles the lane count, because it tells
 the backend the values are genuinely 32-bit rather than binary64 values that
@@ -501,6 +524,7 @@ arithmetic is specified to be the same work in the same order:
 bench/kernel-subset-spike/simd.sh                     # lane rewrite vs scalar
 luajit bench/kernel-subset-spike/corrected_main.lua   # binary32 min/max/fma
 luajit bench/kernel-subset-spike/tecsbits_main.lua    # bitwise lanes over entities
+luajit bench/kernel-subset-spike/mixedwidth_main.lua  # binary32 rounded into binary64 lanes
 luajit bench/kernel-subset-spike/mandelbrot_main.lua  # every pixel, three ways
 ```
 
@@ -528,7 +552,8 @@ Named so you can tell what you are looking at:
 - **Mixed-width gangs.** Width selection is all-or-nothing: a single binary64
   varying value drops the whole loop to four lanes, where the rule should be a
   gang size fixed from register pressure with each value taking however many
-  registers its element needs.
+  registers its element needs. A loop that mixes widths does at least get four
+  lanes now rather than none — see below.
 - **More than one `@aot` function per file.** The scan takes exactly one.
 - **A uniform multiple binding inside a lane body.** It produces a node the
   verifier has no rule for, so it raises rather than declining lane lowering.
