@@ -1248,13 +1248,9 @@ local function vectorizeLoop(ir, reject, shape)
       return rewriteRules.maskLocal(binding, source, rewriteState)
    end
 
+   local blockState = {serial = 0}
    local function internalMask(label, source)
-      internalSerial = internalSerial + 1
-      return {
-         kind = "local", name = "$" .. label .. tostring(internalSerial),
-         cName = "lm" .. tostring(internalSerial) .. "_" .. label,
-         type = MASK, source = source,
-      }
+      return rewriteRules.internalMask(label, source, blockState, rewriteState)
    end
 
    local function maskAnd(left, right, source)
@@ -1481,18 +1477,9 @@ local function vectorizeLoop(ir, reject, shape)
                   value = splat(assignment.value)
                end
                local assignmentMask = statementMask
-               if assignmentMask and target.kind == "local" and loopContext
-                  and mask and mask.op == "local"
-                  and mask.name == loopContext.executing.name
-                  and loopContext.speculate and not loopContext.observable[target.name]
+               if assignmentMask and target.kind == "local"
+                  and rewriteRules.maySpeculate(target.name, mask, loopContext)
                then
-                  -- A retired lane may compute arbitrary pure lane-local state
-                  -- in the unconditional loop body when that state is dead after
-                  -- the loop. Branch masks remain load-bearing: speculating
-                  -- across a branch could change a still-live lane that did not
-                  -- take it. No lane crosses into another, and the value cannot
-                  -- be observed after retirement, so selecting the old value
-                  -- here would only add register pressure.
                   assignmentMask = nil
                end
                if assignmentMask then

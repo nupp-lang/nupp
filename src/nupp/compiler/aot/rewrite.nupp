@@ -750,4 +750,71 @@ function rewrite.activeMask(
     return rewrite.maskAnd(given, executing, source, state)
 end
 
+--- Statement counterparts, and what a rewritten block is made of.
+type rewrite.Statement = any
+
+--- What the block rewrite needs beyond the expression state.
+---
+--- Kept separate because the expression half does not need any of it, and a
+--- record that carried both would let one reach for the other's business.
+record rewrite.BlockState
+    --- Fresh names for the masks this pass introduces.
+    serial: integer
+
+    --- Reports which names a suffix of a block reads, so the loop rewrite knows
+    --- what is observable after it.
+    readsAfter: function({any}, integer): {[string]: boolean}
+
+    --- Whether a block contains a `continue`, which stops a retired lane being
+    --- allowed to compute dead state.
+    containsContinue: function({any}): boolean
+
+    --- Records that a name is bound to one element of a span.
+    bindRef: function(string, scalarIR.Expr): nil
+end
+
+--- A fresh mask binding, named so two never collide.
+function rewrite.internalMask(
+    label: string,
+    source: scalarIR.Source?,
+    block: rewrite.BlockState,
+    state: rewrite.State
+): rewrite.Binding
+    block.serial = block.serial + 1
+    local serial = tostring(block.serial)
+
+    return new rewrite.Binding(
+        kind = "local",
+        name = "$" .. label .. serial,
+        cName = "lm" .. serial .. "_" .. label,
+        type = state.shape.mask,
+        source = source
+    )
+end
+
+--- Whether an assignment to a lane-local may skip its select.
+---
+--- A retired lane may compute arbitrary pure lane-local state in the
+--- unconditional body of a lane loop when that state is dead after it. No lane
+--- crosses into another and the value cannot be observed once the lane retires,
+--- so selecting the old value back would only add register pressure.
+---
+--- Branch masks stay load-bearing. Speculating across a branch could change a
+--- lane that is still live and did not take it, which is a different thing
+--- entirely from a lane that has already stopped.
+function rewrite.maySpeculate(targetName: string, mask: lane.Expr?, loopContext: rewrite.LoopContext?): boolean
+    if loopContext == nil or mask == nil then
+        return false
+    end
+    local context = loopContext as rewrite.LoopContext
+    local given = mask as lane.Expr
+    if given.op ~= "local" then
+        return false
+    end
+
+    return (
+        given as lane.Local
+    ).name == context.executing.name and context.speculate and context.observable[targetName] ~= true
+end
+
 return rewrite
