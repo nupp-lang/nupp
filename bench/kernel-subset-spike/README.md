@@ -238,6 +238,10 @@ NUPP_CHECK_TARGET=x86_64-apple-macos11 NUPP_CHECK_RUNNER='arch -x86_64' \
     NUPP_CHECK_CFLAGS=-mavx2 bench/kernel-subset-spike/crosscheck.sh
 ```
 
+Run the two differentials that widened the subset last: a uniform helper call
+inside a lane body, and two `@aot` functions in one file landing on different
+gangs. Both are C-only and run through `crosscheck.sh` with the rest.
+
 Run the uniform-loop differential, which is what admits an inner loop every
 lane runs the same number of times -- the shape that used to be refused, so a
 kernel written that way ran one iteration at a time:

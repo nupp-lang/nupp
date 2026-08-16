@@ -113,6 +113,10 @@ nupp aot bench/kernel-subset-spike/mandelbrot.nupp
 bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, 5.19 operations per byte (83 over 16), f64x4, 4 lanes
 ```
 
+A file may hold as many `@aot` functions as you like, and they need not agree
+about width. They come out as one C file: a shared struct is declared once, each
+function brings its own bodies, and each gang's prelude appears once.
+
 `--emit ir`, `--emit c` and `--emit binding` print the three artifacts. To
 compile and actually run it — which needs a C compiler and the spike's harness:
 
@@ -554,9 +558,6 @@ Named so you can tell what you are looking at:
   gang size fixed from register pressure with each value taking however many
   registers its element needs. A loop that mixes widths does at least get four
   lanes now rather than none — see below.
-- **More than one `@aot` function per file.** The scan takes exactly one.
-- **A uniform multiple binding inside a lane body.** It produces a node the
-  verifier has no rule for, so it raises rather than declining lane lowering.
 
 ## See also
 

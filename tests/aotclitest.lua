@@ -221,13 +221,17 @@ function M.jsonCarriesTheOutcomeAndTheEstimate()
    test.equal(code, 0, out)
    local decoded = require("cjson").decode(out)
    test.equal(decoded.file, "compute.nupp")
-   test.equal(decoded.name, "escapes")
-   test.equal(decoded.symbol, "ks_escapes")
-   test.equal(decoded.outcome, "lowered")
-   test.equal(decoded.lanes.shape, "f64x4")
-   test.equal(decoded.lanes.lanes, 4)
-   assert(decoded.intensity.perByte > 1.0, "the estimate is above the threshold it was judged by")
-   test.equal(#decoded.refusals, 0, "a lowered loop has nothing to explain")
+   -- One entry per `@aot` function in the file, in source order.
+   test.equal(#decoded.functions, 1)
+
+   local only = decoded.functions[1]
+   test.equal(only.name, "escapes")
+   test.equal(only.symbol, "ks_escapes")
+   test.equal(only.outcome, "lowered")
+   test.equal(only.lanes.shape, "f64x4")
+   test.equal(only.lanes.lanes, 4)
+   assert(only.intensity.perByte > 1.0, "the estimate is above the threshold it was judged by")
+   test.equal(#only.refusals, 0, "a lowered loop has nothing to explain")
    assert(decoded.ir and decoded.c and decoded.binding, "all three artifacts are carried")
 end
 
@@ -236,12 +240,106 @@ function M.jsonNamesWhatRefusedTheLoop()
    local out, code = run(dir, "--json --check refused.nupp")
    test.equal(code, 1, out)
    local decoded = require("cjson").decode(out:match("^(%b{})"))
-   test.equal(decoded.outcome, "refused")
-   test.equal(decoded.lanes, nil, "there is no gang to report")
-   assert(#decoded.refusals >= 1, "the refusal is data, not only a message")
-   assert(decoded.refusals[1].message:find("nested numeric loop", 1, true),
-      "and it names the construct: " .. decoded.refusals[1].message)
-   assert(decoded.refusals[1].line > 0, "at a position")
+   local only = decoded.functions[1]
+   test.equal(only.outcome, "refused")
+   test.equal(only.lanes, nil, "there is no gang to report")
+   assert(#only.refusals >= 1, "the refusal is data, not only a message")
+   assert(only.refusals[1].message:find("nested numeric loop", 1, true),
+      "and it names the construct: " .. only.refusals[1].message)
+   assert(only.refusals[1].line > 0, "at a position")
+end
+
+-- Two functions over one struct, landing on different gangs: `scale` is
+-- ordinary binary64 and takes four lanes, `brighten` is written through
+-- `nupp.math.f32` and takes eight. One file used to hold exactly one function,
+-- and two gangs in one file is where the shared prelude has to not collide.
+local TWO = [[
+local span = require("nupp.span")
+
+local struct Sample
+    value: float
+    weight: float
+end
+
+@aot(lanes = true)
+local function scale(
+    exclusive samples: span.WriteSpan<Sample>,
+    borrows source: span.Span<Sample>,
+    first: integer,
+    last: integer,
+    factor: number
+): nil
+    if samples.count ~= source.count then
+        error("length mismatch", 2)
+    end
+    if first < 1 or last > samples.count or first > last + 1 then
+        error("range out of bounds", 2)
+    end
+
+    for i = first, last do
+        local sample = samples:getMut(i)
+        local input = source:get(i)
+        sample.value = input.value * factor + input.weight
+        sample.weight = input.weight * factor
+    end
+end
+
+@aot(lanes = true)
+local function brighten(
+    exclusive samples: span.WriteSpan<Sample>,
+    borrows source: span.Span<Sample>,
+    first: integer,
+    last: integer,
+    lift: float
+): nil
+    if samples.count ~= source.count then
+        error("length mismatch", 2)
+    end
+    if first < 1 or last > samples.count or first > last + 1 then
+        error("range out of bounds", 2)
+    end
+
+    for i = first, last do
+        local sample = samples:getMut(i)
+        local input = source:get(i)
+        local value = nupp.math.f32.narrow(input.value)
+        local weight = nupp.math.f32.narrow(input.weight)
+        sample.value = nupp.math.f32.add(value, lift)
+        sample.weight = nupp.math.f32.mul(weight, lift)
+    end
+end
+
+return {scale = scale, brighten = brighten, Sample = Sample,}
+]]
+
+function M.everyAotFunctionInAFileIsCompiled()
+   local dir = project{["two.nupp"] = TWO}
+   local out, code = run(dir, "--json two.nupp")
+   test.equal(code, 0, out)
+   local decoded = require("cjson").decode(out)
+   test.equal(#decoded.functions, 2, "both functions are reported")
+   test.equal(decoded.functions[1].name, "scale", "in source order")
+   test.equal(decoded.functions[2].name, "brighten")
+   test.equal(decoded.functions[1].lanes.shape, "f64x4", "ordinary arithmetic takes four lanes")
+   test.equal(decoded.functions[2].lanes.shape, "f32x8", "explicit binary32 takes eight")
+
+   -- One struct declared once, both gangs present, and each function bringing
+   -- its own pair of bodies.
+   local _, ccode = run(dir, "--emit c two.nupp")
+   test.equal(ccode, 0)
+   local c = select(1, run(dir, "--emit c two.nupp"))
+   test.equal(select(2, c:gsub("} KsSample;", "")), 1, "the shared struct is declared once")
+   assert(c:find("ks_any_m64x4", 1, true) and c:find("ks_any_m32x8", 1, true),
+      "each gang brings its own mask helpers, named so they cannot collide")
+   test.equal(select(2, c:gsub("float nupp_f32_nan", "")), 1,
+      "the helpers no gang owns appear once however many gangs the file uses")
+   for _, symbol in ipairs({"ks_scale", "ks_scale_forced_scalar", "ks_brighten", "ks_brighten_forced_scalar"}) do
+      assert(c:find("void " .. symbol .. "(", 1, true), symbol .. " is defined")
+   end
+
+   local binding = select(1, run(dir, "--emit binding two.nupp"))
+   assert(binding:find("scale = scale", 1, true) and binding:find("brighten = brighten", 1, true),
+      "the generated module exports both wrappers: " .. binding:sub(-200))
 end
 
 function M.aFileWithNoAotFunctionIsAnError()

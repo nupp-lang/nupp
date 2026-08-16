@@ -81,10 +81,20 @@ work makes sense in.
       layout, and numeric facts rather than re-deriving them from written type
       text; then add build policy, target compilation and dispatch, cache and
       artifact validation, inspection, and diagnostics.
-      One latent hole found in passing: a uniform multiple binding inside a
-      lane body produces a `helper_result` node that no verifier rule and no
-      emitter covers, so it raises rather than declining lane lowering. No
-      kernel has one, which is why nothing caught it.
+      A uniform multiple binding inside a lane body used to produce a
+      `helper_result` node no verifier rule covered, so compiling such a kernel
+      raised rather than declining lanes. It is not a lane form at all: the call
+      produces the same results for every lane, so it stays the statement it was
+      and the lane body reads its results as the uniform values they are.
+      `uniformcall.nupp` is that shape.
+      A file may now hold as many `@aot` functions as it likes, at whatever
+      widths they each choose. They come out as one C file: a shared struct is
+      declared once, each function brings its own layout reporters and its own
+      pair of bodies, and each gang's prelude appears once. That needed the three
+      mask helpers named for their mask -- two gangs in one file otherwise define
+      `ks_any` twice with different signatures -- and the helpers no gang owns
+      lifted out of the per-gang prelude. `twokernels.nupp` is two functions
+      landing on four lanes and eight.
       A uniform inner loop is no longer refused. Every lane runs it the same
       number of times, so there is nothing for a mask to say and it stays
       ordinary control flow over lane-parallel statements -- masking it would

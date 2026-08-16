@@ -363,4 +363,17 @@ function text.program(program: scalarIR.Program): string
     return table.concat(lines, "\n") .. "\n"
 end
 
+--- Every program in one file, as text.
+---
+--- Separated by a blank line and nothing else. Each carries its own header, so
+--- a reader can tell where one function ends without a marker between them.
+function text.programs(programs: {scalarIR.Program}): string
+    local parts: {string} = {}
+    for position, program in ipairs(programs) do
+        parts[position] = text.program(program)
+    end
+
+    return table.concat(parts, "\n")
+end
+
 return text

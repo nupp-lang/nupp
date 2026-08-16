@@ -28,7 +28,7 @@ function compiler.compile(source, filename, checked)
    if not artifacts then return nil, diagnostics end
 
    return {
-      ir = artifacts.program,
+      ir = artifacts.programs[1],
       irText = artifacts.irText,
       c = artifacts.c,
       binding = artifacts.binding,

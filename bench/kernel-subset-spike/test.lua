@@ -147,7 +147,9 @@ do
       "varying break did not retire lanes")
    assert(mandelbrot.irText:find("escapes[i..i+3].iterations", 1, true),
       "integer field store lost its lane narrowing")
-   assert(mandelbrot.c:find("while (ks_any(", 1, true),
+   -- Named for the mask it tests, so a file holding two gangs gets one of these
+   -- per gang rather than two definitions of the same name.
+   assert(mandelbrot.c:find("while (ks_any_m64x4(", 1, true),
       "generated C lost horizontal live-lane termination")
 
    local laneLoop

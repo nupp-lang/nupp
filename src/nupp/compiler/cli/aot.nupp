@@ -61,50 +61,63 @@ end
 
 local command = spec.command{
     name = "aot",
-    summary = "Show what an @aot function compiles to",
+    summary = "Show what the @aot functions in a file compile to",
     usage = {"nupp aot [--emit ir|c|binding] [--check] [--library PATH] [--format text|json] <file>"},
     intro = "Production `nupp build` still emits the ordinary Lua body; this reports what the "
     .. "ahead-of-time backend would produce for the file.",
     options = aotOptions(),
     schema = {
         type = "object",
-        description = "What one @aot function lowered to.",
+        description = "What every @aot function in one file lowered to.",
         properties = {
             file = {type = "string"},
-            name = {type = "string"},
-            symbol = {type = "string"},
-            intensity = {
-                type = "object",
-                description = "Arithmetic per byte the loop body touches, and the two counts behind it.",
-                properties = {perByte = {type = "number"}, operations = {type = "number"}, bytes = {type = "number"},},
-            },
-            lanes = {
-                type = "object",
-                description = "The gang the loop was lowered to, absent when it was not.",
-                properties = {
-                    shape = {type = "string"},
-                    lanes = {type = "integer"},
-                    rounded = {
-                        type = "boolean",
-                        description = "Whether explicit fixed-width work was performed wider and rounded.",
-                    },
-                },
-            },
-            outcome = {
-                type = "string",
-                enum = {"lowered", "declined", "refused"},
-                description = "Whether the loop vectorised, was not expected to, or wanted to and could not.",
-            },
-            refusals = {
+            functions = {
                 type = "array",
-                description = "Why it ran one iteration at a time, when it wanted not to.",
+                description = "One entry per @aot function, in source order.",
                 items = {
                     type = "object",
                     properties = {
-                        file = {type = "string"},
-                        line = {type = "integer"},
-                        column = {type = "integer"},
-                        message = {type = "string"},
+                        name = {type = "string"},
+                        symbol = {type = "string"},
+                        intensity = {
+                            type = "object",
+                            description = "Arithmetic per byte the loop body touches, and the two counts behind it.",
+                            properties = {
+                                perByte = {type = "number"},
+                                operations = {type = "number"},
+                                bytes = {type = "number"},
+                            },
+                        },
+                        lanes = {
+                            type = "object",
+                            description = "The gang the loop was lowered to, absent when it was not.",
+                            properties = {
+                                shape = {type = "string"},
+                                lanes = {type = "integer"},
+                                rounded = {
+                                    type = "boolean",
+                                    description = "Whether explicit fixed-width work was performed wider and rounded.",
+                                },
+                            },
+                        },
+                        outcome = {
+                            type = "string",
+                            enum = {"lowered", "declined", "refused"},
+                            description = "Whether the loop vectorised, was not expected to, or wanted to and could not.",
+                        },
+                        refusals = {
+                            type = "array",
+                            description = "Why it ran one iteration at a time, when it wanted not to.",
+                            items = {
+                                type = "object",
+                                properties = {
+                                    file = {type = "string"},
+                                    line = {type = "integer"},
+                                    column = {type = "integer"},
+                                    message = {type = "string"},
+                                },
+                            },
+                        },
                     },
                 },
             },
@@ -190,21 +203,23 @@ local function run(parsed: any): integer
         return 1
     end
 
-    local program = artifacts.program
     local emit = parsed.values.emit
+    local refused = false
     if parsed.values.format == "json" then
         -- An absent list is an empty array rather than an empty object, so a
         -- consumer reading `refusals` never has to handle two shapes.
         local json = require("cjson").new()
         json.encode_empty_table_as_object(false)
 
-        local refusals: {any} = {}
-        for position, problem in ipairs(program.laneRefusals or {}) do
-            refusals[position] = problem
-        end
-        io.write(
-            json.encode({
-                file = path,
+        local functions: {any} = {}
+        for position, program in ipairs(artifacts.programs) do
+            local refusals: {any} = {}
+            for index, problem in ipairs(program.laneRefusals or {}) do
+                refusals[index] = problem
+            end
+            functions[
+                position
+            ] = {
                 name = program.name,
                 symbol = program.symbol,
                 intensity = {
@@ -212,9 +227,19 @@ local function run(parsed: any): integer
                     operations = program.operations,
                     bytes = program.touchedBytes,
                 },
-                lanes = program.lanes ~= nil and {shape = program.lanes.shape, lanes = program.lanes.lanes} or nil,
+                lanes = program.lanes ~= nil and {
+                    shape = program.lanes.shape,
+                    lanes = program.lanes.lanes,
+                    rounded = program.lanes.rounded == true,
+                } or nil,
                 outcome = outcome(program),
                 refusals = refusals,
+            }
+        end
+        io.write(
+            json.encode({
+                file = path,
+                functions = functions,
                 ir = (emit == nil or emit == "ir") and artifacts.irText or nil,
                 c = (emit == nil or emit == "c") and artifacts.c or nil,
                 binding = (emit == nil or emit == "binding") and artifacts.binding or nil,
@@ -227,16 +252,27 @@ local function run(parsed: any): integer
     elseif emit == "binding" then
         io.write(artifacts.binding)
     else
-        io.write(summarise(path, program) .. "\n")
+        for _, program in ipairs(artifacts.programs) do
+            io.write(summarise(path, program) .. "\n")
+        end
     end
 
-    if parsed.values.check and outcome(program) == "refused" then
+    for _, program in ipairs(artifacts.programs) do
+        if outcome(program) == "refused" then
+            refused = true
+        end
+    end
+    if parsed.values.check and refused then
         -- stdout is buffered and stderr is not, so the summary would otherwise
         -- arrive after the failure it summarises.
         io.stdout:flush()
-        io.stderr:write(("nupp: %s ran one iteration at a time\n"):format(program.name))
-        for _, problem in ipairs(program.laneRefusals or {}) do
-            io.stderr:write("  " .. aot.renderDiagnostic(problem) .. "\n")
+        for _, program in ipairs(artifacts.programs) do
+            if outcome(program) == "refused" then
+                io.stderr:write(("nupp: %s ran one iteration at a time\n"):format(program.name))
+                for _, problem in ipairs(program.laneRefusals or {}) do
+                    io.stderr:write("  " .. aot.renderDiagnostic(problem) .. "\n")
+                end
+            end
         end
 
         return 1

@@ -5,7 +5,7 @@ which is the text `nupp help <command>` prints, and the output it writes when
 it has any.
 
 - [`ast`](#ast): dump a Nupp file's parsed syntax tree
-- [`aot`](#aot): show what an `@aot` function compiles to
+- [`aot`](#aot): show what the `@aot` functions in a file compile to
 - [`check`](#check): type-check source without emitting Lua
 - [`fmt`](#fmt): format Nupp source
 - [`build`](#build): build source files or a configured project target
@@ -204,7 +204,7 @@ chunk
 ### `aot`
 
 ```text [nupp aot --help]
-Show what an @aot function compiles to
+Show what the @aot functions in a file compile to
 
 Usage:
   nupp aot [--emit ir|c|binding] [--check] [--library PATH] [--format text|json] <file>
@@ -226,8 +226,9 @@ Options:
   -h, --help       Show this help
 ```
 
-The bare command says what the backend decided: how much arithmetic the loop
-does per byte it touches, and which gang it was lowered to, if any.
+The bare command says what the backend decided for every `@aot` function in the
+file: how much arithmetic each loop does per byte it touches, and which gang it
+was lowered to, if any.
 
 ```text [nupp aot bench/kernel-subset-spike/mandelbrot.nupp]
 bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, 5.19 operations per byte (83 over 16), f64x4, 4 lanes
@@ -1644,7 +1645,7 @@ Usage:
 Commands:
   init             Create a project from a template
   ast              Dump a Nupp file's parsed syntax tree
-  aot              Show what an @aot function compiles to
+  aot              Show what the @aot functions in a file compile to
   bc               Show the bytecode a Nupp file compiles to
   check            Type-check source without emitting Lua
   fmt              Format Nupp source

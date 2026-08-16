@@ -40,8 +40,9 @@ end
 
 --- Everything compiling one function produces.
 record compile.Artifacts
-    --- The verified IR, which is what the other three were written from.
-    program: scalarIR.Program
+    --- The verified IR of every `@aot` function in the file, in source order,
+    --- which is what the other three were written from.
+    programs: {scalarIR.Program}
 
     --- The IR's readable form.
     irText: string
@@ -74,7 +75,7 @@ function compile.lower(
     source: string,
     filename: string,
     parsed: parser.ParseResult?
-): (scalarIR.Program?, {compile.Diagnostic})
+): ({scalarIR.Program}, {compile.Diagnostic})
     local tree = parsed or parser.parse(source, filename)
     local diagnostics: {compile.Diagnostic} = {}
     if #tree.errors > 0 then
@@ -89,7 +90,7 @@ function compile.lower(
             )
         end
 
-        return nil, diagnostics
+        return {}, diagnostics
     end
 
     local context = new lower.Context(reject = function(at: scalarIR.Source?, message: string): nil
@@ -108,26 +109,29 @@ function compile.lower(
     -- annotation is read off the tree, which is what lets this run on a tree the
     -- checker never saw.
     local wasChecked = parsed ~= nil
-    local ok, program = pcall(function(): scalarIR.Program
+    local ok, lowered = pcall(function(): {scalarIR.Program}
         local found = lower.scan(tree.root, wasChecked)
         if #found.applications == 0 then
             context.reject(nil, "no @aot function was found")
-        elseif #found.applications > 1 then
-            context.reject(lower.site(found.applications[2].at), "one @aot function per file for now")
         end
 
-        return lower.program(found, found.applications[1], wasChecked, context)
+        local programs: {scalarIR.Program} = {}
+        for position, application in ipairs(found.applications) do
+            programs[position] = verify.program(lower.program(found, application, wasChecked, context))
+        end
+
+        return programs
     end)
 
     if not ok then
-        if program ~= REFUSED then
-            error(program, 0)
+        if lowered ~= REFUSED then
+            error(lowered, 0)
         end
 
-        return nil, diagnostics
+        return {}, diagnostics
     end
 
-    return verify.program(program as scalarIR.Program), diagnostics
+    return lowered as {scalarIR.Program}, diagnostics
 end
 
 --- Decides whether to run the loop several iterations at once, and does it.
@@ -193,19 +197,20 @@ function compile.artifacts(
     parsed: parser.ParseResult?,
     library: string
 ): (compile.Artifacts?, {compile.Diagnostic})
-    local lowered, diagnostics = compile.lower(source, filename, parsed)
-    if lowered == nil then
+    local programs, diagnostics = compile.lower(source, filename, parsed)
+    if #programs == 0 then
         return nil, diagnostics
     end
 
-    local program = lowered as scalarIR.Program
-    compile.lanes(program, filename)
+    for _, program in ipairs(programs) do
+        compile.lanes(program, filename)
+    end
 
     return new compile.Artifacts(
-        program = program,
-        irText = text.program(program),
-        c = emit.program(program),
-        binding = bindingRules.module(program, library)
+        programs = programs,
+        irText = text.programs(programs),
+        c = emit.program(programs),
+        binding = bindingRules.module(programs, library)
     ), diagnostics
 end
 

@@ -221,7 +221,7 @@ end
 
 --- The whole generated module: structs, their layout checks, the foreign
 --- declaration, the wrapper, and what all of it exports.
-function binding.module(program: scalarIR.Program, library: string): string
+function binding.module(programs: {scalarIR.Program}, library: string): string
     local lines: {
         string
     } = {"-- Generated from verified test-only native C IR.", "", "local span = require(\"nupp.span\")", "",}
@@ -232,24 +232,33 @@ function binding.module(program: scalarIR.Program, library: string): string
         end
     end
 
-    local layouts = program.layouts or {}
-    for _, layout in ipairs(layouts) do
-        append(binding.struct(layout))
-        lines[#lines + 1] = ""
-        append(binding.layoutReporters(program.symbol, layout, library))
-        append(binding.layoutChecks(program.symbol, layout))
-        lines[#lines + 1] = ""
+    -- One declaration per struct however many functions reify it, and one set
+    -- of layout checks per function, because a reporter is named after the
+    -- symbol whose wrapper checks it.
+    local declared: {[string]: boolean} = {}
+    local exports: {string} = {}
+    for _, program in ipairs(programs) do
+        for _, layout in ipairs(program.layouts or {}) do
+            if not declared[layout.name] then
+                declared[layout.name] = true
+                append(binding.struct(layout))
+                lines[#lines + 1] = ""
+                exports[#exports + 1] = layout.name .. " = " .. layout.name
+            end
+            append(binding.layoutReporters(program.symbol, layout, library))
+            append(binding.layoutChecks(program.symbol, layout))
+            lines[#lines + 1] = ""
+        end
     end
 
-    append(binding.foreign(program, library))
-    lines[#lines + 1] = ""
-    append(binding.wrapper(program))
-    lines[#lines + 1] = ""
-
-    local exports: {string} = {program.name .. " = " .. program.name}
-    for _, layout in ipairs(layouts) do
-        exports[#exports + 1] = layout.name .. " = " .. layout.name
+    for _, program in ipairs(programs) do
+        append(binding.foreign(program, library))
+        lines[#lines + 1] = ""
+        append(binding.wrapper(program))
+        lines[#lines + 1] = ""
+        exports[#exports + 1] = program.name .. " = " .. program.name
     end
+
     lines[#lines + 1] = "return {" .. table.concat(exports, ", ") .. ",}"
 
     return table.concat(lines, "\n") .. "\n"

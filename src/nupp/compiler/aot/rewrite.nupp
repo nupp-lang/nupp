@@ -1377,26 +1377,22 @@ end
 --- a single statement because a C call returns once; inlined, the results are
 --- ordinary expressions and there is nothing to hold together.
 local function multiLet(statement: any, state: rewrite.State): {any}
-    local varies = rewrite.varying(statement.call, state)
-    local values = varies and rewrite.inlineHelper(statement.call, state) or nil
+    -- A call whose arguments do not vary produces the same results for every
+    -- lane, so it stays exactly the statement it was. The lane body already
+    -- carries uniform values -- a binding it did not have to broadcast is one it
+    -- reads as a scalar -- and a call is no different from any other of them.
+    if not rewrite.varying(statement.call, state) then
+        return {statement}
+    end
 
+    -- Varying, so the call is inlined and its results become ordinary
+    -- expressions. One declaration per result rather than one statement: the
+    -- scalar form needs a single statement because a C call returns once, and
+    -- inlined there is nothing left to hold together.
+    local values = rewrite.inlineHelper(statement.call, state)
     local out: {any} = {}
     for position, bound in ipairs(statement.bindings) do
-        -- A uniform call keeps its results as one call, taken apart by index.
-        -- No verifier rule and no emitter covers that form today, so a uniform
-        -- multiple binding inside a lane body is refused downstream rather than
-        -- here; no kernel has one.
-        local value = varies and (
-            values as {rewrite.Value}
-        )[
-            position
-        ] or {
-            op = "helper_result",
-            call = statement.call,
-            index = position,
-            type = bound.type,
-            source = statement.source,
-        }
+        local value = values[position]
         out[
             position
         ] = {
@@ -1404,7 +1400,7 @@ local function multiLet(statement: any, state: rewrite.State): {any}
             name = bound.name,
             cName = bound.cName,
             value = value,
-            type = varies and value.type or bound.type,
+            type = value.type,
             source = statement.source,
         }
     end

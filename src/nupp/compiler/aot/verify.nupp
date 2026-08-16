@@ -777,6 +777,23 @@ local function laneBlock(
             )
             laneWalk(statement.value, values, context)
             values[statement.name] = statement.type
+        elseif statement.op == "multi_let" then
+            -- A uniform call, left as the statement it was. Nothing about it is
+            -- lane-typed, so the scalar rules are the ones that apply.
+            scalarWalk(statement.call, values, context.scope)
+
+            local resultTypes = statement.call.resultTypes or {}
+            laneHolds(
+                statement.call.type == "multi" and #statement.bindings == #resultTypes,
+                "a uniform lane-body multiple binding that does not match its call"
+            )
+            for position, bound in ipairs(statement.bindings) do
+                laneHolds(
+                    values[bound.name] == nil and bound.type == resultTypes[position],
+                    "an invalid uniform lane-body multiple binding"
+                )
+                values[bound.name] = bound.type
+            end
         elseif statement.op == "vassign" then
             for _, entry in ipairs(statement.values) do
                 local target = entry.target
