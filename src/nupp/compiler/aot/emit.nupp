@@ -360,4 +360,92 @@ function emit.mathFrom(intrinsic: string, parts: {string}): string
     return (name as string) .. "(" .. table.concat(parts, ", ") .. ")"
 end
 
+--- One reified struct, as a C type whose layout the wrapper checks.
+---
+--- Nothing here asserts the layout matches: the generated module compares
+--- `layoutof` against what the compiled object reports, at load, before the
+--- wrapper is exposed. A struct whose C compiler laid it out differently is
+--- caught there rather than corrupting memory here.
+function emit.layout(layout: scalarIR.Layout): {string}
+    local lines: {string} = {"typedef struct {"}
+    for _, field in ipairs(layout.fields) do
+        lines[#lines + 1] = "    " .. emit.cType(field.type) .. " " .. field.name .. ";"
+    end
+    lines[#lines + 1] = "} " .. layout.cName .. ";"
+
+    return lines
+end
+
+--- The private C signature of one kernel.
+---
+--- A writable span is `restrict` and a readable one is not, which is the alias
+--- matrix the checker proved, stated where the C compiler can use it. Nothing
+--- infers it from the pointer types.
+function emit.parameters(params: {any}): string
+    local parts: {string} = {}
+    for position, param in ipairs(params) do
+        local name = "p_" .. param.name
+        local layout = param.type:match("^struct:(.+)$")
+        local element = layout ~= nil and ("Ks" .. (layout as string)) or emit.cType(param.type)
+        if param.kind == "write_span" then
+            parts[position] = element .. " *restrict " .. name
+        elseif param.kind == "read_span" then
+            parts[position] = "const " .. element .. " *" .. name
+        else
+            parts[position] = emit.cType(param.type) .. " " .. name
+        end
+    end
+    parts[#parts + 1] = "size_t count"
+
+    return table.concat(parts, ", ")
+end
+
+--- Where the loop starts and stops.
+---
+--- A guarded range was proved in bounds before this ran, so the generated loop
+--- reads it rather than checking it again. Without one the whole span is
+--- covered.
+function emit.bounds(rangeGuard: scalarIR.RangeGuard?): {string}
+    if rangeGuard == nil then
+        return {"    size_t i = 0;", "    size_t end = count;"}
+    end
+
+    return {
+        "    (void)count;",
+        "    size_t i = (size_t)(p_" .. rangeGuard.first .. " - 1.0);",
+        "    size_t end = (size_t)p_" .. rangeGuard.last .. ";",
+    }
+end
+
+--- The group loop's bounds, for a body that lowered lane-parallel.
+---
+--- Whole groups only. The remainder runs the same body one iteration at a time,
+--- because a masked final group would still read the addresses it masked off and
+--- the last element of a span may be the last byte of a page.
+function emit.groupBound(lanes: integer): {string}
+    local width = tostring(lanes)
+
+    return {
+        "    size_t groups = (end > i) ? ((end - i) / " .. width .. ") * " .. width .. " + i : i;",
+        "    for (; i < groups; i += " .. width .. ") {",
+    }
+end
+
+--- Asking one function for a relaxation the source named.
+---
+--- Scoped to the function rather than set as a build flag, so a relaxation one
+--- function asked for cannot quietly change another's answers.
+function emit.contractPragma(): {string}
+    return {"#if defined(__clang__)", "#pragma clang fp contract(fast)", "#endif",}
+end
+
+--- Holding the oracle scalar.
+---
+--- The forced-scalar body is what the lane-parallel one is compared against, so
+--- it must not share its lowering -- including whatever the C compiler would
+--- have done on its own.
+function emit.forcedScalarPragma(): {string}
+    return {"#if defined(__clang__)", "#pragma clang loop vectorize(disable) interleave(disable)", "#endif",}
+end
+
 return emit

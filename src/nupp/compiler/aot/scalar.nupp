@@ -364,4 +364,31 @@ type scalarIR.Statement = scalarIR.Let
     | scalarIR.Break
     | scalarIR.Continue
 
+--- One stored field of a reified struct.
+record scalarIR.Field
+    name: string
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- A reified struct a span holds elements of.
+---
+--- The C name is carried rather than derived, so the generated module and the
+--- generated C cannot disagree about what to call it.
+record scalarIR.Layout
+    name: string
+    cName: string
+    fields: {scalarIR.Field}
+    source: scalarIR.Source?
+end
+
+--- A range the source guarded, proved in bounds before lowering.
+---
+--- The generated loop reads it rather than checking it again, which is only
+--- sound because the guard was checked and not merely written.
+record scalarIR.RangeGuard
+    first: string
+    last: string
+end
+
 return scalarIR

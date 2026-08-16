@@ -2483,22 +2483,7 @@ local function cType(typeName)
    error("unknown C type " .. tostring(typeName))
 end
 
-local function cParams(ir)
-   local params = {}
-   for _, param in ipairs(ir.params) do
-      local name = cIdentifier("p", param.name)
-      local layout = param.type:match("^struct:(.+)$")
-      local elementType = layout and "Ks" .. layout or cType(param.type)
-      if param.kind == "write_span" then params[#params + 1] = elementType .. " *restrict " .. name
-      elseif param.kind == "read_span" then params[#params + 1] = "const " .. elementType .. " *" .. name
-      else params[#params + 1] = cType(param.type) .. " " .. name
-      end
-   end
-   params[#params + 1] = "size_t count"
-   return table.concat(params, ", ")
-end
-
---- A set's keys in a fixed order.
+--- A set's keys in a fixed order, so the same IR renders the same text.
 local function sortedKeys(set)
    local names = {}
    for key in pairs(set) do names[#names + 1] = key end
@@ -2524,11 +2509,7 @@ local function renderC(ir)
    emit("#endif")
    emit("")
    for _, layout in ipairs(ir.layouts or {}) do
-      emit("typedef struct {")
-      for _, field in ipairs(layout.fields) do
-         emit("    " .. cType(field.type) .. " " .. field.name .. ";")
-      end
-      emit("} " .. layout.cName .. ";")
+      for _, line in ipairs(emitRules.layout(layout)) do emit(line) end
       emit("")
       emit("size_t " .. ir.symbol .. "_layout_" .. layout.name .. "_size(void) { return sizeof("
          .. layout.cName .. "); }")
@@ -2795,29 +2776,18 @@ local function renderC(ir)
       end
    end
 
-   local params = cParams(ir)
+   local params = emitRules.parameters(ir.params)
    local function implementation(symbol, forced)
       emit("__attribute__((noinline))")
       emit("void " .. symbol .. "(" .. params .. ") {")
       -- Scoped to this function rather than set as a build flag, so a relaxation
       -- one function asked for cannot silently change another one's answers.
       if ir.fpContract then
-         emit("#if defined(__clang__)")
-         emit("#pragma clang fp contract(fast)")
-         emit("#endif")
+         for _, line in ipairs(emitRules.contractPragma()) do emit(line) end
       end
-      if ir.rangeGuard then
-         emit("    (void)count;")
-         emit("    size_t i = (size_t)(p_" .. ir.rangeGuard.first .. " - 1.0);")
-         emit("    size_t end = (size_t)p_" .. ir.rangeGuard.last .. ";")
-      else
-         emit("    size_t i = 0;")
-         emit("    size_t end = count;")
-      end
+      for _, line in ipairs(emitRules.bounds(ir.rangeGuard)) do emit(line) end
       if forced then
-         emit("#if defined(__clang__)")
-         emit("#pragma clang loop vectorize(disable) interleave(disable)")
-         emit("#endif")
+         for _, line in ipairs(emitRules.forcedScalarPragma()) do emit(line) end
       end
       -- The forced-scalar body stays scalar: it is the oracle the lane-parallel
       -- one is diffed against, so it must not share its lowering.
@@ -2826,9 +2796,7 @@ local function renderC(ir)
          -- same body one iteration at a time. A masked final group would still
          -- read the addresses it masked off, and the last element of a span may
          -- be the last byte of a page.
-         emit("    size_t groups = (end > i) ? ((end - i) / " .. ir.lanes.lanes
-            .. ") * " .. ir.lanes.lanes .. " + i : i;")
-         emit("    for (; i < groups; i += " .. ir.lanes.lanes .. ") {")
+         for _, line in ipairs(emitRules.groupBound(ir.lanes.lanes)) do emit(line) end
          renderBlock(ir.lanes.statements, 2)
          emit("    }")
       end
