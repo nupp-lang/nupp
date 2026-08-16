@@ -12,6 +12,7 @@ local intensity = require("nupp.compiler.aot.intensity")
 local laneVerify = require("nupp.compiler.aot.verify")
 local rewriteRules = require("nupp.compiler.aot.rewrite")
 local emitRules = require("nupp.compiler.aot.emit")
+local bindingRules = require("nupp.compiler.aot.binding")
 local parser = require("nupp.compiler.parser")
 local cst = require("nupp.compiler.cst")
 
@@ -2811,107 +2812,11 @@ local function renderC(ir)
    return table.concat(lines, "\n") .. "\n"
 end
 
+--- Where the compiled object lands, which is what the generated module loads.
+local SPIKE_LIBRARY = "bench/kernel-subset-spike/build/libkernel_subset_spike"
+
 local function renderBinding(ir)
-   local lib = '"bench/kernel-subset-spike/build/libkernel_subset_spike"'
-   local lines = {"-- Generated from verified test-only native C IR.", "", 'local span = require("nupp.span")', ""}
-   for _, layout in ipairs(ir.layouts or {}) do
-      lines[#lines + 1] = "local struct " .. layout.name
-      for _, field in ipairs(layout.fields) do
-         local sourceType = ({f32 = "float", i32 = "int32", u32 = "uint32"})[field.type]
-         lines[#lines + 1] = "    " .. field.name .. ": " .. sourceType
-      end
-      lines[#lines + 1] = "end"
-      lines[#lines + 1] = ""
-      lines[#lines + 1] = "cdef function " .. ir.symbol .. "_layout_" .. layout.name
-         .. "_size(): uint64 from" .. lib
-      for _, field in ipairs(layout.fields) do
-         lines[#lines + 1] = "cdef function " .. ir.symbol .. "_layout_" .. layout.name
-            .. "_offset_" .. field.name .. "(): uint64 from" .. lib
-         lines[#lines + 1] = "cdef function " .. ir.symbol .. "_layout_" .. layout.name
-            .. "_size_" .. field.name .. "(): uint64 from" .. lib
-      end
-      lines[#lines + 1] = "const " .. layout.name .. "Layout = layoutof(" .. layout.name .. ")"
-      lines[#lines + 1] = "if " .. layout.name .. "Layout.size ~= " .. ir.symbol .. "_layout_"
-         .. layout.name .. "_size() then error(\"native struct layout size mismatch\", 0) end"
-      for i, field in ipairs(layout.fields) do
-         lines[#lines + 1] = "if " .. layout.name .. "Layout.fields[" .. tostring(i) .. "].offset ~= "
-            .. ir.symbol .. "_layout_" .. layout.name .. "_offset_" .. field.name
-            .. "() then error(\"native struct field offset mismatch\", 0) end"
-         lines[#lines + 1] = "if " .. layout.name .. "Layout.fields[" .. tostring(i) .. "].size ~= "
-            .. ir.symbol .. "_layout_" .. layout.name .. "_size_" .. field.name
-            .. "() then error(\"native struct field size mismatch\", 0) end"
-      end
-      lines[#lines + 1] = ""
-   end
-   lines[#lines + 1] = "cdef function " .. ir.symbol .. "("
-   local physicalParams = {}
-   for _, param in ipairs(ir.params) do
-      if param.kind == "write_span" then
-         physicalParams[#physicalParams + 1] = "exclusive " .. param.name .. ": voidptr"
-      elseif param.kind == "read_span" then
-         physicalParams[#physicalParams + 1] = "borrows " .. param.name .. ": voidptr"
-      else
-         local abiType = param.type == "f64" and "number" or param.type == "f32" and "float"
-            or param.type == "u32" and "uint32" or "int32"
-         physicalParams[#physicalParams + 1] = param.name .. ": " .. abiType
-      end
-   end
-   physicalParams[#physicalParams + 1] = "count: uint64"
-   for i, param in ipairs(physicalParams) do
-      lines[#lines + 1] = "    " .. param .. (i < #physicalParams and "," or "")
-   end
-   lines[#lines + 1] = ") from" .. lib
-   lines[#lines + 1] = ""
-   lines[#lines + 1] = "local function " .. ir.name .. "("
-   local logicalParams = {}
-   for _, param in ipairs(ir.params) do
-      local sourceType = param.type:match("^struct:(.+)$") or ({f32 = "float", i32 = "int32", u32 = "uint32"})[param.type]
-      if param.kind == "write_span" then
-         logicalParams[#logicalParams + 1] = "exclusive " .. param.name .. ": span.WriteSpan<" .. sourceType .. ">"
-      elseif param.kind == "read_span" then
-         logicalParams[#logicalParams + 1] = "borrows " .. param.name .. ": span.Span<" .. sourceType .. ">"
-      else
-         logicalParams[#logicalParams + 1] = param.name .. ": " .. param.sourceType
-      end
-   end
-   for i, param in ipairs(logicalParams) do
-      lines[#lines + 1] = "    " .. param .. (i < #logicalParams and "," or "")
-   end
-   lines[#lines + 1] = "): nil"
-   if ir.rangeGuard then
-      lines[#lines + 1] = "    if " .. ir.rangeGuard.first .. " < 1 or " .. ir.rangeGuard.last
-         .. " > " .. ir.rangeGuard.count .. ".count or " .. ir.rangeGuard.first .. " > "
-         .. ir.rangeGuard.last .. " + 1 then"
-      lines[#lines + 1] = "        error(\"native range out of bounds\", 2)"
-      lines[#lines + 1] = "    end"
-   end
-   local primaryPointer, primaryCount
-   local physicalArgs = {}
-   for _, param in ipairs(ir.params) do
-      if param.kind == "write_span" or param.kind == "read_span" then
-         local pointer = "native_" .. param.name
-         local count = "native_" .. param.name .. "Count"
-         lines[#lines + 1] = "    local " .. pointer .. ", " .. count .. " = " .. param.name .. ":ref()"
-         if not primaryPointer then primaryPointer, primaryCount = pointer, count end
-         if count ~= primaryCount then
-            lines[#lines + 1] = "    if " .. count .. " ~= " .. primaryCount
-               .. " then error(\"native spans have incompatible lengths\", 2) end"
-         end
-         physicalArgs[#physicalArgs + 1] = pointer .. " as voidptr"
-      else
-         physicalArgs[#physicalArgs + 1] = param.name
-      end
-   end
-   physicalArgs[#physicalArgs + 1] = primaryCount
-   lines[#lines + 1] = "    unsafe do"
-   lines[#lines + 1] = "        " .. ir.symbol .. "(" .. table.concat(physicalArgs, ", ") .. ")"
-   lines[#lines + 1] = "    end"
-   lines[#lines + 1] = "end"
-   lines[#lines + 1] = ""
-   local exports = {ir.name .. " = " .. ir.name}
-   for _, layout in ipairs(ir.layouts or {}) do exports[#exports + 1] = layout.name .. " = " .. layout.name end
-   lines[#lines + 1] = "return {" .. table.concat(exports, ", ") .. ",}"
-   return table.concat(lines, "\n") .. "\n"
+   return bindingRules.module(ir, SPIKE_LIBRARY)
 end
 
 function compiler.compile(source, filename, checked)

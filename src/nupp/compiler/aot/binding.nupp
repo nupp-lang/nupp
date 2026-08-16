@@ -1,0 +1,258 @@
+--[[
+The Nupp module that stands in front of a compiled `@aot` function.
+
+Generated C is not callable from Nupp on its own: something has to declare the
+symbol, hand a span's pointer across, and say what the caller may pass. That is
+this, and it is written from the same signature the C was, so the two cannot
+drift apart.
+
+Three things happen here that are worth stating outright.
+
+A struct crossing the boundary is checked, not trusted. The wrapper asks
+`layoutof` for the size and offset of every field and compares them against what
+the compiled object reports, at load, before anything is callable. A C compiler
+that laid the struct out differently is a load error rather than a silent
+misread of memory.
+
+The unsafe call is one statement wide. Everything around it -- the range check,
+the length agreement between spans -- is ordinary checked Nupp, and the `unsafe
+do` block holds the foreign call and nothing else.
+
+The wrapper's own signature is spelled the way the source spelled it, over
+spans and reified structs, while the foreign declaration underneath is spelled
+in pointers and counts. A caller writes against the first and never sees the
+second.
+]]
+
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local binding = {}
+
+--- How a storage type is spelled in Nupp source.
+const binding.SOURCE_TYPE = {["f32"] = "float", ["i32"] = "int32", ["u32"] = "uint32"}
+
+--- How a uniform parameter is spelled in a `cdef`, where the ABI type is what
+--- matters rather than the source spelling.
+const binding.ABI_TYPE = {["f64"] = "number", ["f32"] = "float", ["u32"] = "uint32", ["i32"] = "int32"}
+
+--- The library clause a `cdef` ends with.
+local function from(library: string): string
+    return "from\"" .. library .. "\""
+end
+
+--- One reified struct, declared in Nupp so `layoutof` has something to measure.
+function binding.struct(layout: scalarIR.Layout): {string}
+    local lines: {string} = {"local struct " .. layout.name}
+    for _, field in ipairs(layout.fields) do
+        lines[#lines + 1] = "    " .. field.name .. ": " .. tostring(binding.SOURCE_TYPE[field.type])
+    end
+    lines[#lines + 1] = "end"
+
+    return lines
+end
+
+--- Declaring what the compiled object says one struct's layout is.
+---
+--- The object exports a function per measurement rather than a table of
+--- numbers, so the answers come from the C compiler that actually laid the
+--- struct out.
+function binding.layoutReporters(symbol: string, layout: scalarIR.Layout, library: string): {string}
+    local prefix = "cdef function " .. symbol .. "_layout_" .. layout.name
+    local lines: {string} = {prefix .. "_size(): uint64 " .. from(library)}
+    for _, field in ipairs(layout.fields) do
+        lines[#lines + 1] = prefix .. "_offset_" .. field.name .. "(): uint64 " .. from(library)
+        lines[#lines + 1] = prefix .. "_size_" .. field.name .. "(): uint64 " .. from(library)
+    end
+
+    return lines
+end
+
+--- Comparing the two layouts at load.
+---
+--- Every field, both offset and size, and the struct's own size. A mismatch
+--- raises before the wrapper is returned, so a module that loads is a module
+--- whose struct the C compiler agreed with.
+function binding.layoutChecks(symbol: string, layout: scalarIR.Layout): {string}
+    local name = layout.name .. "Layout"
+    local reporter = symbol .. "_layout_" .. layout.name
+
+    --- One comparison, raising with `mismatch` when the two sides disagree.
+    local function agrees(measured: string, reported: string, mismatch: string): string
+        local raise = "error(\"native struct " .. mismatch .. " mismatch\", 0)"
+
+        return "if " .. measured .. " ~= " .. reported .. " then " .. raise .. " end"
+    end
+
+    local lines: {string} = {"const " .. name .. " = layoutof(" .. layout.name .. ")"}
+    lines[#lines + 1] = agrees(name .. ".size", reporter .. "_size()", "layout size")
+    for position, field in ipairs(layout.fields) do
+        local at = name .. ".fields[" .. tostring(position) .. "]"
+        lines[#lines + 1] = agrees(at .. ".offset", reporter .. "_offset_" .. field.name .. "()", "field offset")
+        lines[#lines + 1] = agrees(at .. ".size", reporter .. "_size_" .. field.name .. "()", "field size")
+    end
+
+    return lines
+end
+
+--- The foreign declaration of the kernel itself.
+---
+--- Spans arrive as `voidptr` and their shared length as one trailing count,
+--- which is what the generated C takes. The ownership annotations are carried
+--- across so the unsafe call is still governed by them.
+function binding.foreign(signature: scalarIR.Signature, library: string): {string}
+    local params: {string} = {}
+    for _, param in ipairs(signature.params) do
+        if param.kind == "write_span" then
+            params[#params + 1] = "exclusive " .. param.name .. ": voidptr"
+        elseif param.kind == "read_span" then
+            params[#params + 1] = "borrows " .. param.name .. ": voidptr"
+        else
+            params[#params + 1] = param.name .. ": " .. tostring(binding.ABI_TYPE[param.type] or "int32")
+        end
+    end
+    params[#params + 1] = "count: uint64"
+
+    local lines: {string} = {"cdef function " .. signature.symbol .. "("}
+    for position, param in ipairs(params) do
+        lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
+    end
+    lines[#lines + 1] = ") " .. from(library)
+
+    return lines
+end
+
+--- How the wrapper spells one parameter, which is how the source spelled it.
+local function logical(param: scalarIR.Param): string
+    local element = param.type:match("^struct:(.+)$") or binding.SOURCE_TYPE[param.type]
+    if param.kind == "write_span" then
+        return "exclusive " .. param.name .. ": span.WriteSpan<" .. tostring(element) .. ">"
+    elseif param.kind == "read_span" then
+        return "borrows " .. param.name .. ": span.Span<" .. tostring(element) .. ">"
+    else
+        return param.name .. ": " .. tostring(param.sourceType)
+    end
+end
+
+--- Re-checking the range the kernel loop was allowed to skip.
+---
+--- Once per call rather than once per element. The generated loop reads these
+--- bounds without comparing them, which is sound because of this.
+function binding.range(rangeGuard: scalarIR.RangeGuard?): {string}
+    if rangeGuard == nil then
+        return {}
+    end
+
+    local first, last = rangeGuard.first, rangeGuard.last
+    local outOfBounds = {
+        first .. " < 1",
+        last .. " > " .. rangeGuard.count .. ".count",
+        -- One past the end is how an empty range is spelled, so it is allowed.
+        first .. " > " .. last .. " + 1",
+    }
+
+    return {
+        "    if " .. table.concat(outOfBounds, " or ") .. " then",
+        "        error(\"native range out of bounds\", 2)",
+        "    end",
+    }
+end
+
+--- Taking each span's pointer, and proving they describe the same length.
+---
+--- The kernel indexes every span with one loop counter, so spans of differing
+--- lengths would read past the end of the shorter. The first span's count is
+--- what is passed; the rest are compared against it and the call is refused if
+--- they disagree.
+function binding.spanArguments(params: {scalarIR.Param}): ({string}, {string}, string?)
+    local lines: {string} = {}
+    local arguments: {string} = {}
+    local primary: string? = nil
+    for _, param in ipairs(params) do
+        if param.kind == "write_span" or param.kind == "read_span" then
+            local pointer = "native_" .. param.name
+            local count = "native_" .. param.name .. "Count"
+            lines[#lines + 1] = "    local " .. pointer .. ", " .. count .. " = " .. param.name .. ":ref()"
+            if primary == nil then
+                primary = count
+            elseif count ~= primary then
+                lines[
+                    #lines + 1
+                ] = "    if " .. count .. " ~= " .. tostring(
+                    primary
+                ) .. " then error(\"native spans have incompatible lengths\", 2) end"
+            end
+            arguments[#arguments + 1] = pointer .. " as voidptr"
+        else
+            arguments[#arguments + 1] = param.name
+        end
+    end
+
+    return lines, arguments, primary
+end
+
+--- The checked wrapper the caller actually sees.
+function binding.wrapper(signature: scalarIR.Signature): {string}
+    local params: {string} = {}
+    for position, param in ipairs(signature.params) do
+        params[position] = logical(param)
+    end
+
+    local lines: {string} = {"local function " .. signature.name .. "("}
+    for position, param in ipairs(params) do
+        lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
+    end
+    lines[#lines + 1] = "): nil"
+    for _, line in ipairs(binding.range(signature.rangeGuard)) do
+        lines[#lines + 1] = line
+    end
+
+    local taken, arguments, primary = binding.spanArguments(signature.params)
+    for _, line in ipairs(taken) do
+        lines[#lines + 1] = line
+    end
+    arguments[#arguments + 1] = tostring(primary)
+    lines[#lines + 1] = "    unsafe do"
+    lines[#lines + 1] = "        " .. signature.symbol .. "(" .. table.concat(arguments, ", ") .. ")"
+    lines[#lines + 1] = "    end"
+    lines[#lines + 1] = "end"
+
+    return lines
+end
+
+--- The whole generated module: structs, their layout checks, the foreign
+--- declaration, the wrapper, and what all of it exports.
+function binding.module(signature: scalarIR.Signature, library: string): string
+    local lines: {
+        string
+    } = {"-- Generated from verified test-only native C IR.", "", "local span = require(\"nupp.span\")", "",}
+
+    local function append(more: {string}): nil
+        for _, line in ipairs(more) do
+            lines[#lines + 1] = line
+        end
+    end
+
+    local layouts = signature.layouts or {}
+    for _, layout in ipairs(layouts) do
+        append(binding.struct(layout))
+        lines[#lines + 1] = ""
+        append(binding.layoutReporters(signature.symbol, layout, library))
+        append(binding.layoutChecks(signature.symbol, layout))
+        lines[#lines + 1] = ""
+    end
+
+    append(binding.foreign(signature, library))
+    lines[#lines + 1] = ""
+    append(binding.wrapper(signature))
+    lines[#lines + 1] = ""
+
+    local exports: {string} = {signature.name .. " = " .. signature.name}
+    for _, layout in ipairs(layouts) do
+        exports[#exports + 1] = layout.name .. " = " .. layout.name
+    end
+    lines[#lines + 1] = "return {" .. table.concat(exports, ", ") .. ",}"
+
+    return table.concat(lines, "\n") .. "\n"
+end
+
+return binding

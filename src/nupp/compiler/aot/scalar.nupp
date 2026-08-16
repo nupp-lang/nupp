@@ -385,10 +385,49 @@ end
 --- A range the source guarded, proved in bounds before lowering.
 ---
 --- The generated loop reads it rather than checking it again, which is only
---- sound because the guard was checked and not merely written.
+--- sound because the guard was checked and not merely written. The check itself
+--- moves to the generated wrapper, where it runs once per call rather than once
+--- per element.
 record scalarIR.RangeGuard
     first: string
     last: string
+
+    --- The span the range is a range of, whose length the wrapper compares
+    --- against.
+    count: string
+
+    source: scalarIR.Source?
+end
+
+--- One parameter of an admitted signature.
+---
+--- Two types rather than one. `type` is what the value is physically, which the
+--- generated C and the foreign declaration agree on; `sourceType` is how the
+--- source spelled it, which the generated wrapper's own signature keeps so a
+--- caller sees the type it wrote rather than the ABI underneath it.
+record scalarIR.Param
+    kind: 'write_span' | 'read_span' | 'uniform' | 'scalar'
+    name: string
+    type: scalarIR.Type
+    sourceType: string?
+    source: scalarIR.Source?
+end
+
+--- What one admitted `@aot` function offers its callers.
+---
+--- The compiled object and the generated wrapper are both written from this, so
+--- the two cannot disagree about the symbol, the order of the parameters, or
+--- what a span holds.
+record scalarIR.Signature
+    --- The Nupp name the wrapper exposes.
+    name: string
+
+    --- The exported C symbol, which is not the Nupp name.
+    symbol: string
+
+    params: {scalarIR.Param}
+    layouts: {scalarIR.Layout}?
+    rangeGuard: scalarIR.RangeGuard?
 end
 
 return scalarIR
