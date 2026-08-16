@@ -2,7 +2,7 @@
 
 A suspension-aware function waits without changing its call syntax or return
 type. The same call blocks in a command-line program and parks its coroutine
-when a host installs a [suspension handler](suspension-handlers.md):
+when a host installs a [suspension handler](#hosts-supply-scheduling-policy):
 
 ```nupp:playground
 local process = require("nupp.io.process")
@@ -31,6 +31,61 @@ does not intercept other calls.
 
 The library describes the wait. The handler owns scheduling policy, and the
 caller's result remains `process.Result` on every path.
+
+## Hosts supply scheduling policy
+
+A command-line program needs no handler. A host supplies one when blocking the
+thread would stop unrelated work:
+
+- A game engine parks a loading coroutine and renders the next frame.
+- A server parks one request and serves other connections.
+- A UI runtime parks a task and continues processing input.
+- A test scheduler controls exactly when a suspended operation resumes.
+
+A root task installs the host's handler, then ordinary functions beneath it can
+park without accepting a scheduler parameter:
+
+```nupp [main.nupp]
+local frame = require("scheduler")
+local process = require("nupp.io.process")
+
+local function printCompilerVersion(): nil
+    local child = assert(process.new({args = {"cc", "--version"}}))
+    print(assert(child:communicate()).output)
+    child:close()
+end
+
+local function application(): nil
+    handle suspension with frame.handler do
+        printCompilerVersion()
+    end
+end
+
+frame.run(application)
+```
+
+`frame.handler` is an ordinary value. It is not a keyword, a global scheduler,
+or a handler built into Nupp. The `application` function defines its dynamic
+scope. Most application code only consumes a handler this way. Framework
+authors and scheduler integrations implement one. The `all`, `gather`, `race`,
+and `batch` combinators use a private handler to interleave their branches.
+
+### Waits park one coroutine
+
+When `child:communicate()` cannot finish immediately, control moves through
+seven steps:
+
+1. The process library registers its readiness source and cancellation
+   function.
+2. The suspension runtime calls `frame.handler.park` with the pending wait.
+3. The handler records the current coroutine and yields it to the event loop.
+4. The event loop runs another coroutine, request, or frame.
+5. `suspension.poll()` discovers that the child process has completed.
+6. The library resumes the wait, and the handler queues its coroutine again.
+7. The coroutine runs, and `communicate()` returns its `process.Result`.
+
+The handler never supplies the result. The library's guarded `resume` function
+does that. The handler decides when the coroutine runs again.
 
 ## Function signatures stay synchronous
 
@@ -134,31 +189,47 @@ Use `@effects` when an API needs a reviewed complete effect summary.
 `@effects()` means that every modeled effect is absent, so it promises much
 more than a `nosuspend function` type.
 
-## Raw coroutines keep explicit control
+## Handler scope follows the coroutine
+
+A handler is dynamically scoped per coroutine, not process-wide. A host often
+wraps its root application task, which makes that handler application-wide in
+practice:
+
+```nupp
+local frame = require("scheduler")
+local suspension = require("nupp.suspension")
+
+local function childWork(): nil
+    assert(suspension.handled())
+end
+
+local function application(): nil
+    handle suspension with frame.handler do
+        local task = suspension.create(childWork)
+        local ok, problem = coroutine.resume(task)
+        if not ok then
+            error(problem)
+        end
+    end
+end
+
+frame.run(application)
+```
+
+`suspension.create` creates an ordinary coroutine and makes it inherit the
+handler installed where it was created. Inheritance is fixed at creation.
+Continue to use `coroutine.resume`; no resume wrapper is required. A coroutine
+made with `coroutine.create` inherits no handler.
+
+A nested `handle suspension` temporarily replaces the current handler and
+restores the outer one when its region ends. Different coroutines may therefore
+use different handlers at the same time.
+
+### Raw coroutine yields keep explicit control
 
 `coroutine.yield` yields directly to the code that resumes the coroutine. It
 does not register cancellation or give a handler responsibility for the
 suspended stack.
-
-`suspension.create` creates an ordinary coroutine and makes it inherit the
-handler installed where it was created:
-
-```nupp
-local suspension = require("nupp.suspension")
-
-local thread = suspension.create(function(): nil
-    print("running")
-end)
-
-local ok, problem = coroutine.resume(thread)
-if not ok then
-    error(problem)
-end
-```
-
-Inheritance is fixed at creation. Continue to use `coroutine.resume`; no
-resume wrapper is required. A coroutine made with `coroutine.create` inherits
-no handler.
 
 ## Combinators interleave waits
 
@@ -243,6 +314,135 @@ first, with names breaking ties. A source returning zero means that nothing
 completed during that pass. A wait with no handler and no source reports that
 it cannot make progress instead of hanging.
 
+## Writing a frame handler
+
+This scheduler keeps a queue of runnable coroutines. Its event loop calls
+`tick` once per frame to poll readiness sources and resume the tasks they woke:
+
+```nupp [scheduler.nupp]
+local suspension = require("nupp.suspension")
+
+local runnable: {thread} = {}
+
+local function enqueue(task: thread): nil
+    runnable[#runnable + 1] = task
+end
+
+local function runReady(): nil
+    local pass = runnable
+    runnable = {}
+    for _, task in ipairs(pass) do
+        local ok, problem = coroutine.resume(task)
+        if not ok then
+            error(problem)
+        end
+    end
+end
+
+local scheduler = {park = function(_: suspension.Handler, waiting: suspension.Waiting, _: function(): nil): nil
+    local task = assert(coroutine.running())
+    local function wake(): nil
+        enqueue(task)
+    end
+
+    while not waiting:ready() do
+        waiting:onResume(wake)
+        if not waiting:ready() then
+            coroutine.yield()
+        end
+    end
+end, canPark = function(_: suspension.Handler): boolean
+    return true
+end, shutdown = function(_: suspension.Handler): nil
+    while #runnable > 0 do
+        runReady()
+    end
+end,} as suspension.Handler
+
+local function tick(): nil
+    suspension.poll()
+    runReady()
+end
+
+local function run(body: function(): nil): nil
+    local task = coroutine.create(body)
+    local ok, problem = coroutine.resume(task)
+    if not ok then
+        error(problem)
+    end
+    while coroutine.status(task) ~= "dead" do
+        tick()
+    end
+end
+
+return {handler = scheduler, tick = tick, run = run}
+```
+
+The `as suspension.Handler` cast accepts a trusted runtime contract. The
+checker verifies the function bodies and their annotations, but only the
+scheduler author can guarantee that `park` eventually resumes or cancels every
+wait.
+
+The three members divide the work:
+
+- `park` registers a waker that enqueues the current coroutine, then yields
+  until the wait is ready.
+- `canPark` returns false inside a host barrier where yielding would violate a
+  runtime invariant.
+- `shutdown` drains work queued while the handled extent is ending.
+
+`waiting:onResume(wake)` is a notification, not value delivery. The readiness
+source supplies the value through `resume`; the waker makes the coroutine
+runnable after that value exists. `run` creates the root task used in the
+opening application. Its first resume reaches `park` and yields. Each `tick`
+polls completion sources and resumes tasks placed on `runnable`. A game host
+calls the same `tick` function once per frame instead of using this standalone
+loop.
+
+## Cancellation unwinds the parked stack
+
+`handle suspension` lowers to an owned handler installation. When its extent
+ends, the runtime restores the previous handler, cancels outstanding
+subscriptions, wakes their coroutines, and invokes `shutdown`. A cancelled
+`suspend` raises inside its parked coroutine, so lexical resource drops run as
+the stack unwinds.
+
+Structured exits leave the region only after its installation has been
+released. `return` preserves all values, `break` and `continue` reach the loop
+that owns them, and `goto` may reach a label outside:
+
+```nupp
+local frame = require("scheduler")
+
+local function choose(): integer
+    handle suspension with frame.handler do
+        return 1
+    end
+end
+
+print(choose())
+```
+
+The lowering uses the same completion protocol as automatic resource cleanup.
+That preserves the body failure as primary when releasing the handler also
+fails, while still reporting the release failure.
+
+Control cannot jump *into* a handled region. Such a jump would bypass handler
+installation and the lexical state before the label:
+
+```nupp [wrong.nupp]
+local frame = require("scheduler")
+
+goto inside
+handle suspension with frame.handler do
+    ::inside::
+end
+```
+
+```text [nupp check wrong.nupp]
+error: NUPP2706: control cannot enter a `handle suspension` region
+```
+
 ## C-call boundaries
 
 LuaJIT cannot yield through every C frame. A comparator called by `table.sort`,
@@ -256,10 +456,10 @@ API hides the boundary from static analysis.
 ### Can Nupp suspend any blocking function?
 
 Nupp does not turn an arbitrary blocking Lua or C call into a park. A library
-registers readiness through [suspension
-handlers](suspension-handlers.md#hosts-supply-scheduling-policy), and only that
-suspension-aware path can yield control to its host. The checker rejects a
-yield through a [non-yieldable C boundary](#c-call-boundaries).
+registers readiness through the [suspension
+protocol](#libraries-register-readiness), and only that suspension-aware path
+can yield control to its host. The checker rejects a yield through a
+[non-yieldable C boundary](#c-call-boundaries).
 
 ### Does a suspending call return a future?
 
@@ -276,7 +476,7 @@ unwind performs [automatic lexical
 destruction](../ownership.md#consumption-and-lexical-destruction), so affine
 files, locks, and native allocations do not become stranded. The handler
 contract specifies how [cancellation unwinds a parked
-stack](suspension-handlers.md#cancellation-unwinds-the-parked-stack).
+stack](#cancellation-unwinds-the-parked-stack).
 
 ## Diagnostics
 
@@ -284,13 +484,13 @@ stack](suspension-handlers.md#cancellation-unwinds-the-parked-stack).
   `nosuspend` region or cleanup contract that may suspend.
 - **[NUPP2702](../reference.md#suspension-regions)** reports a suspending
   callback invoked through a non-yieldable C boundary.
+- **[NUPP2706](../reference.md#suspension-regions)** reports a jump into a
+  `handle suspension` region.
 - **[NUPP2603](../reference.md#owned-resources)** reports a raw coroutine yield
   that would strand a live ownership or borrowing obligation.
 
 ## Next
 
-- [Suspension handlers](suspension-handlers.md) explains who supplies a handler,
-  how it parks one coroutine, and how its scope ends.
 - [Effect contracts](../effects.md) defines the complete `@effects` surface and
   its inference limits.
 - [Ownership](ownership.md) defines the obligations that handled cancellation

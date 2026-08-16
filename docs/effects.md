@@ -249,8 +249,9 @@ resolved visible callee.
 For the user-facing control-flow model, including `nosuspend`, cancellation,
 coroutine inheritance, and concurrent combinators, see
 [suspension](start/suspension.md).
-[Suspension handlers](start/suspension-handlers.md) own the scheduling policy.
-This page stays focused on complete `@effects` contracts.
+[Suspension handlers](start/suspension.md#hosts-supply-scheduling-policy) own
+the scheduling policy. This page stays focused on complete `@effects`
+contracts.
 
 `raises` is an optimizer effect, not a replacement for API documentation.
 Public failure conditions still belong in `@raises` docblocks, and `never`

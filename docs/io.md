@@ -246,9 +246,10 @@ allocate or duplicate the native handle. The owning `Process` retains and
 eventually destroys that handle, so a borrow may not outlive it.
 
 Every wait is contextual. With no
-[suspension handler](start/suspension-handlers.md) installed, it sleeps in the
-platform readiness wait. Under a scheduler handler, the same call parks the
-current task while the scheduler keeps running. Ready operations do neither.
+[suspension handler](start/suspension.md#hosts-supply-scheduling-policy)
+installed, it sleeps in the platform readiness wait. Under a scheduler handler,
+the same call parks the current task while the scheduler keeps running. Ready
+operations do neither.
 
 [Suspension](start/suspension.md) explains how the same ordinary call takes
 those paths and how several waits compose with `all`, `race`, or `batch`.

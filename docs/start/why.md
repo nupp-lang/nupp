@@ -125,8 +125,9 @@ handled extent wakes suspended stacks far enough to run deterministic cleanup.
 
 This is not invisible interception of arbitrary blocking calls. Libraries opt
 in through `nupp.suspension`, while the host owns scheduling policy through a
-[suspension handler](suspension-handlers.md). [Suspension](suspension.md)
-follows the model from an application call down to the subscription contract.
+[suspension handler](suspension.md#hosts-supply-scheduling-policy).
+[Suspension](suspension.md) follows the model from an application call down to
+the subscription contract.
 
 ## Toolchain ships with the language
 

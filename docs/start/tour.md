@@ -242,9 +242,9 @@ coroutine so other work can run. A ready operation does neither.
 Whether a function may suspend is an inferred effect. Use `nosuspend do` where
 control must not park; the compiler follows calls to the possible suspension
 and reports the path. Libraries subscribe through `nupp.suspension`,
-[suspension handlers](suspension-handlers.md) own scheduling policy, and `all`,
-`gather`, `race`, and `batch` compose several waiting operations without
-promises.
+[suspension handlers](suspension.md#hosts-supply-scheduling-policy) own
+scheduling policy, and `all`, `gather`, `race`, and `batch` compose several
+waiting operations without promises.
 
 [Suspension](suspension.md) explains the runtime paths, cancellation contract,
 coroutine inheritance, and concurrent combinators.

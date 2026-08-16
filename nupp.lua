@@ -512,11 +512,7 @@ nupp lsp            # start the language server]],
                   path = "concepts/suspension",
                   title = "Suspension",
                   source = "docs/start/suspension.md",
-               },
-               {
-                  path = "concepts/suspension-handlers",
-                  title = "Suspension handlers",
-                  source = "docs/start/suspension-handlers.md",
+                  redirects = { "concepts/suspension-handlers" },
                },
                {
                   path = "concepts/workers",
