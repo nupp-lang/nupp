@@ -21,7 +21,7 @@ local command = spec.command{
     summary = "Compile and run a Nupp or Lua program",
     usage = {
         "nupp run [--strict] [-O<n>] [--watch] [--profile[=MS]] [--profile-out PATH]",
-        "         [--jit-aborts[=PATH]] <file> [args...]",
+        "         [--jit-aborts[=PATH]] [--json] <file> [args...]",
     },
     stopAtPositional = true,
     options = optionsMod.join(
@@ -40,8 +40,55 @@ local command = spec.command{
             value = "PATH",
             form = "optional",
             help = "Record where the JIT gave up (default jit-aborts.csv)"
-        }
+        },
+        {name = "--json", help = "Write --jit-aborts as structured JSON instead of CSV"}
     ),
+    schema = {
+        type = "object",
+        description = "Normalized LuaJIT trace aborts observed while one program ran.",
+        properties = {
+            durationSec = {type = "number"},
+            totalAborts = {type = "integer"},
+            blacklisted = {type = "integer"},
+            traceProfile = {
+                type = "object",
+                properties = {
+                    id = {type = "string"},
+                    luajitRevision = {type = "string"},
+                    luajitVersion = {type = "integer"},
+                    architecture = {type = "string"},
+                    operatingSystem = {type = "string"},
+                    enabledRecorderFeatures = {type = "array", items = {type = "string"}},
+                    bytecodeSchema = {type = "string"},
+                    supported = {type = "boolean"},
+                },
+                required = {"id", "luajitRevision", "architecture", "operatingSystem", "bytecodeSchema"},
+            },
+            reasonCatalog = {
+                type = "object",
+                properties = {id = {type = "string"}, version = {type = "integer"}},
+                required = {"id", "version"},
+            },
+            sites = {
+                type = "array",
+                items = {
+                    type = "object",
+                    properties = {
+                        severity = {type = "string", enum = {"blacklist", "warn", "info"}},
+                        count = {type = "integer"},
+                        reason = {type = "string"},
+                        reasonId = {type = "string"},
+                        class = {type = "string", enum = {"blocker", "risk", "stop"}},
+                        rawReason = {type = "string"},
+                        location = {type = "string"},
+                        zone = {type = "string"},
+                    },
+                    required = {"severity", "count", "reason", "reasonId", "class", "rawReason", "location", "zone"},
+                },
+            },
+        },
+        required = {"durationSec", "totalAborts", "blacklisted", "traceProfile", "reasonCatalog", "sites"},
+    },
     detail = [[Program arguments are passed to the loaded chunk. Use '--' before a file name
 that starts with a dash.
 
@@ -91,10 +138,15 @@ local function run(parsed: any): integer
     end
     local profileOut = values.profileOut or "profile.out"
     local tracingAborts = values.jitAborts ~= nil
+    if values.json and not tracingAborts then
+        return command:usageError("--json describes --jit-aborts, which was not asked for")
+    end
     if values.jitAborts == "" then
         return command:usageError("--jit-aborts= requires a file name")
     end
-    local abortsOut = type(values.jitAborts) == "string" and values.jitAborts or "jit-aborts.csv"
+    local abortsOut = type(
+        values.jitAborts
+    ) == "string" and values.jitAborts or values.json and "jit-aborts.json" or "jit-aborts.csv"
 
     local path = positional[1]
     if not path then
@@ -314,7 +366,39 @@ local function run(parsed: any): integer
         )
     end
     if tracing then
-        local summary = tracing:stop(abortsOut)
+        local summary = tracing:stop(values.json and nil or abortsOut)
+        if values.json then
+            local sites = {}
+            for _, site in ipairs(summary.sites) do
+                sites[
+                    #sites + 1
+                ] = {
+                    severity = site.severity,
+                    count = site.count,
+                    reason = site.reason,
+                    reasonId = site.reasonId,
+                    class = site.reasonClass,
+                    rawReason = site.rawReason,
+                    location = site.location,
+                    zone = site.zonePath,
+                }
+            end
+            local document = {
+                durationSec = summary.durationSec,
+                totalAborts = summary.totalAborts,
+                blacklisted = summary.blacklisted,
+                traceProfile = summary.traceProfile,
+                reasonCatalog = {id = summary.reasonCatalogId, version = summary.reasonCatalogVersion,},
+                sites = sites,
+            }
+            local codec = require("cjson").new()
+            codec.encode_empty_table_as_object(false)
+            local wrote, writeErr = require("nupp.compiler.fs").writeFile(abortsOut, codec.encode(document) .. "\n")
+            if not wrote then
+                io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
+                return 1
+            end
+        end
         io.stderr:write(
             (
                 "nupp: %d trace aborts, %d blacklisted, written to " .. "%s\n"

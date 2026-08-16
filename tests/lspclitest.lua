@@ -118,6 +118,82 @@ function M.inspectDefinitionReferencesAndSymbols()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.traceCheckInspectsOneFunctionWithoutAddingAContract()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return {include = {"."}}\n',
+      ["hot.g.nupp"] = table.concat({
+         "local function hot(values: {integer}): integer",
+         "   local total = 0",
+         "   for i = 1, #values do",
+         "      local add = function(): integer return values[i] end",
+         "      total = total + add()",
+         "   end",
+         "   return total",
+         "end",
+         "return hot({1, 2, 3})",
+         "",
+      }, "\n"),
+   })
+   local checked = json.decode(capture(dir,
+      "lsp trace-check --json hot.g.nupp 5 7"))
+   assert(checked.functionName == "hot", "the enclosing function is selected")
+   assert(checked.contract == "inspection", "manual inspection does not add @jit")
+   assert(checked.addContract and checked.addContract.newText:find("@jit", 1, true),
+      "the result offers an explicit contract edit without applying it")
+   local reasons = {}
+   for _, finding in ipairs(checked.findings) do reasons[finding.reason] = finding end
+   assert(reasons["jit/loop-function-construction"],
+      "the source blocker uses the shared reason identity")
+   assert(checked.traceProfile.id and checked.reasonCatalog.version == 1,
+      "profile and catalog identities travel with the answer")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.traceCheckFollowsAnExactImportedCallee()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return {include = {"."}}\n',
+      ["lib.g.nupp"] = table.concat({
+         "local lib = {}",
+         "function lib.bad(values: {integer}): integer",
+         "   local total = 0",
+         "   for i = 1, #values do",
+         "      local add = function(): integer return values[i] end",
+         "      total = total + add()",
+         "   end",
+         "   return total",
+         "end",
+         "return lib",
+         "",
+      }, "\n"),
+      ["main.g.nupp"] = table.concat({
+         "local lib = require('lib')",
+         "@jit",
+         "local function hot(values: {integer}): integer",
+         "   return lib.bad(values)",
+         "end",
+         "return hot({1, 2, 3})",
+         "",
+      }, "\n"),
+   })
+   local checked = json.decode(capture(dir,
+      "lsp trace-check --json main.g.nupp 4 8"))
+   local found
+   for _, finding in ipairs(checked.findings) do
+      if finding.reason == "jit/loop-function-construction" then found = finding end
+   end
+   assert(found, "the exported callee transports its trace summary")
+   assert(#found.callPath >= 2 and found.callPath[1] == "hot",
+      "the imported call path starts at the inspected function")
+   local diagnostics = json.decode(capture(dir, "check --json main.g.nupp"))
+   local contractError
+   for _, diagnostic in ipairs(diagnostics.diagnostics or {}) do
+      if diagnostic.code == "NUPP2707" then contractError = diagnostic end
+   end
+   assert(contractError and contractError.message:find("jit/loop-function-construction", 1, true),
+      "@jit enforces the transported reason without running either module")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.renamePreviewsThenWritesEverySemanticReference()
    local dir = project()
    local preview = json.decode(capture(dir,

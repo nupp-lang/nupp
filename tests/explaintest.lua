@@ -119,4 +119,17 @@ function M.lookupIsCaseInsensitiveThroughTheCommand()
    assert(decoded.wrong and decoded.right, "with both examples")
 end
 
+function M.traceReasonsResolveThroughTheCommand()
+   local pipe = assert(io.popen(
+      ("'%s' explain jit/loop-function-construction --json 2>&1"):format(NUPP)))
+   local out = pipe:read("*a")
+   pipe:close()
+   local decoded = json.decode(out)
+   assert(decoded.code == "jit/loop-function-construction", out)
+   assert(decoded.class == "blocker", "the reason class is public")
+   assert(decoded.repair and decoded.repair ~= "", "known reasons carry their repair")
+   assert(decoded.reasonCatalog.id == "nupp-trace-reasons-v1",
+      "the answer names its versioned registry")
+end
+
 return M

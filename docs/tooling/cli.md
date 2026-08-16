@@ -225,11 +225,10 @@ Source lines are shown against the instructions they produced. The generated
 runtime preamble all lands on line 1 and is folded away unless `--prologue`
 asks for it.
 
-`--check` marks every instruction LuaJIT cannot record that sits inside a loop,
-and exits 1 when there is one. Building a function is the usual cause: the loop
-holding it aborts trace recording and is blacklisted, so it runs interpreted
-however hot it gets. Nothing else reports that, because nothing about the
-program's answers changes.
+`--check` marks every instruction LuaJIT cannot record that sits inside a loop.
+It exits 1 when every repeatable path reaches one, because that loop cannot
+complete a root trace. A blocker reached on only some paths remains visible as
+advice without claiming every path stays interpreted.
 ```
 
 Generated Lua keeps source line numbers one to one, so the listing shows the
@@ -1208,7 +1207,7 @@ Compile and run a Nupp or Lua program
 
 Usage:
   nupp run [--strict] [-O<n>] [--watch] [--profile[=MS]] [--profile-out PATH]
-           [--jit-aborts[=PATH]] <file> [args...]
+           [--jit-aborts[=PATH]] [--json] <file> [args...]
 
 Options:
   --strict             Treat strict checker rules as errors
@@ -1223,6 +1222,8 @@ Options:
   --profile[=MS]       Sample the program every MS milliseconds (default 10)
   --profile-out PATH   Where the samples go (default profile.out)
   --jit-aborts[=PATH]  Record where the JIT gave up (default jit-aborts.csv)
+  --json               Write --jit-aborts as structured JSON instead of CSV
+  --schema             Print the JSON Schema of --json output and exit
   --color[=WHEN]       When to colour output: always, never, or auto (default)
   --no-color           Never colour output; the same as --color=never
   -h, --help           Show this help
@@ -1265,6 +1266,8 @@ Hello, world
 `--profile` and `--jit-aborts` take an attached value or none, so `--profile=2`
 rather than `--profile 2`. Defaults are 10 ms and `profile.out`, and
 `jit-aborts.csv`. See [profiling](profiling.md).
+With `--json`, the default is `jit-aborts.json` and every site carries both the
+raw VM detail and its stable normalized reason identity.
 
 ### `import-c`
 
@@ -1406,6 +1409,7 @@ Usage:
   nupp lsp symbols [options] [--file FILE] [pattern]
   nupp lsp rename [options] [-w|--write] <file> <line> <column> <new-name>
   nupp lsp actions [options] [--only quickfix|refactor] <file> <line> <column>
+  nupp lsp trace-check [options] <file> <line> <column>
 
 Options:
   --root DIR       Project root (default: current directory)

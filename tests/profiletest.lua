@@ -262,27 +262,30 @@ end
 -- Trace aborts
 -------------------------------------------------------------------------------
 
-function M.traceRecordsWhereTheCompilerGaveUp()
-   local workload = newAbortingWorkload()
-   jit.flush()
-   local session = profile.trace()
-   zone.push("spawning")
-   workload(3000)
-   zone.pop()
-   local report = session:stop()
+function M.recordedTracePayloadUsesTheStaticReasonIdentity()
+   local registry = require("nupp._trace")
+   local vmdef = require("jit.vmdef")
+   local errorCode
+   for code, format in pairs(vmdef.traceerr) do
+      if format:find("NYI: bytecode", 1, true) then errorCode = code; break end
+   end
+   local opcode
+   for code = 0, #vmdef.bcnames / 6 - 1 do
+      if registry.opcodeName(code) == "FNEW" then opcode = code; break end
+   end
+   local reason, raw = registry.runtime(errorCode, opcode)
+   assertEq(reason.id, "jit/loop-function-construction",
+      "recorded VM payload and static bytecode share an identity")
+   assertEq(reason.class, "blocker", "the operation-level classification")
+   assertMatch(raw, "FNEW", "raw recorder detail remains visible")
+end
 
-   assert(report.totalAborts > 0, "unrecordable bytecode must be reported")
-   assert(#report.sites > 0, "and land in a row")
-   assert(report.blacklisted <= report.totalAborts,
-      "blacklists are a subset of the aborts")
-
-   local site = report.sites[1]
-   assertEq(site.zonePath, "spawning", "the zone that was open")
-   assertMatch(site.reason, "NYI", "the reason names what it could not record")
-   assertMatch(site.location, "^abortworkload%.lua:%d+$", "file and line")
-   assert(site.count > 0, "counted")
-   assert(site.severity == "warn" or site.severity == "blacklist",
-      "a refusal is not filed as information: " .. site.severity)
+function M.unknownTracePayloadStaysVisibleWithoutInventedAdvice()
+   local registry = require("nupp._trace")
+   local reason, raw = registry.runtime(2147483647, "opaque")
+   assertEq(reason.id, "jit/runtime-unknown", "unknown stays unknown")
+   assertEq(reason.repair, nil, "an unknown event has no guessed repair")
+   assertMatch(raw, "2147483647", "the raw VM identity remains visible")
 end
 
 function M.traceReportRendersAsCsv()
@@ -456,6 +459,23 @@ function M.cliJitAbortsTakesAPath()
    assert(ok, "the program ran: " .. out)
    assertMatch(out, "written to aborts%.csv", "the summary names it: " .. out)
    assertMatch(readFile(dir .. "/aborts.csv"), "^severity,count", "the CSV")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.cliJitAbortsWritesNormalizedJson()
+   local dir = tempProject()
+   local out, ok = run(dir,
+      "run --jit-aborts=aborts.json --json work.nupp 2")
+   assert(ok, "the program ran: " .. out)
+   local report = require("cjson").decode(readFile(dir .. "/aborts.json"))
+   assert(report.traceProfile.id, "the VM profile is explicit")
+   assertEq(report.reasonCatalog.id, "nupp-trace-reasons-v1",
+      "the stable registry is explicit")
+   assert(#report.sites > 0, "the workload produced an observed abort")
+   assertEq(report.sites[1].reasonId, "jit/loop-function-construction",
+      "the observed FNEW uses the static identity")
+   assertEq(report.sites[1].class, "blocker", "the reason class is preserved")
+   assertMatch(report.sites[1].rawReason, "FNEW", "the raw VM detail remains")
    os.execute("rm -rf '" .. dir .. "'")
 end
 

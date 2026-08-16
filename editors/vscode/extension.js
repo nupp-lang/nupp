@@ -7,6 +7,91 @@ const { LanguageClient } = require("vscode-languageclient/node");
 
 const clients = new Map();
 let nextClientId = 1;
+let traceDiagnostics;
+
+function clientForDocument(document) {
+  const folder = vscode.workspace.getWorkspaceFolder(document.uri);
+  return folder && clients.get(folder.uri.toString());
+}
+
+function asRange(range) {
+  return new vscode.Range(
+    range.start.line,
+    range.start.character,
+    range.end.line,
+    range.end.character
+  );
+}
+
+async function checkFunctionForTraceBlockers(target) {
+  const editor = vscode.window.activeTextEditor;
+  const document = target && target.uri
+    ? await vscode.workspace.openTextDocument(target.uri)
+    : editor && editor.document;
+  const position = target && target.position
+    ? target.position
+    : editor && editor.selection.active;
+  if (!document || document.languageId !== "nupp" || !position) {
+    void vscode.window.showInformationMessage("Open a Nupp function to check it for JIT trace blockers.");
+    return;
+  }
+  const running = clientForDocument(document);
+  if (!running) {
+    void vscode.window.showErrorMessage("No Nupp language server is running for this file.");
+    return;
+  }
+  const uri = document.uri;
+  traceDiagnostics.delete(uri);
+  let result;
+  try {
+    result = await running.client.sendRequest("$/nupp/traceCheck", {
+      textDocument: { uri: uri.toString() },
+      position
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    void vscode.window.showErrorMessage(`JIT trace check failed: ${detail}`);
+    return;
+  }
+  if (!result) {
+    void vscode.window.showInformationMessage("No checked Nupp function contains the cursor.");
+    return;
+  }
+  const diagnostics = (result.findings || []).map((finding) => {
+    const severity = finding.class === "blocker"
+      ? vscode.DiagnosticSeverity.Error
+      : finding.class === "risk"
+        ? vscode.DiagnosticSeverity.Warning
+        : vscode.DiagnosticSeverity.Information;
+    const path = finding.callPath && finding.callPath.length > 1
+      ? ` via ${finding.callPath.join(" → ")}`
+      : "";
+    const diagnostic = new vscode.Diagnostic(
+      finding.range ? asRange(finding.range) : asRange(result.range),
+      `${finding.reason}${path}: ${finding.message || finding.class}`,
+      severity
+    );
+    diagnostic.code = finding.reason;
+    diagnostic.source = "Nupp JIT Check";
+    return diagnostic;
+  });
+  traceDiagnostics.set(uri, diagnostics);
+  let summary;
+  if (diagnostics.length === 0) {
+    summary = `${result.name}: no catalogued unconditional trace blockers or conditional risks.`;
+  } else {
+    summary = `${result.name}: ${diagnostics.length} JIT trace finding${diagnostics.length === 1 ? "" : "s"}.`;
+  }
+  const add = result.addContract ? "Add @jit contract" : undefined;
+  const choice = add
+    ? await vscode.window.showInformationMessage(summary, add)
+    : await vscode.window.showInformationMessage(summary);
+  if (choice === add) {
+    const edit = new vscode.WorkspaceEdit();
+    edit.insert(uri, asRange(result.addContract.range).start, result.addContract.newText);
+    await vscode.workspace.applyEdit(edit);
+  }
+}
 
 function expandSetting(value, root) {
   return value
@@ -124,6 +209,7 @@ async function restartClients(context) {
 }
 
 async function activate(context) {
+  traceDiagnostics = vscode.languages.createDiagnosticCollection("nupp-jit-check");
   await Promise.all(
     (vscode.workspace.workspaceFolders || []).map(
       (folder) => startClient(context, folder)
@@ -131,6 +217,45 @@ async function activate(context) {
   );
 
   context.subscriptions.push(
+    traceDiagnostics,
+    vscode.commands.registerCommand(
+      "nupp.checkFunctionForJitTraceBlockers",
+      checkFunctionForTraceBlockers
+    ),
+    vscode.languages.registerCodeActionsProvider(
+      { language: "nupp", scheme: "file" },
+      {
+        async provideCodeActions(document, range) {
+          const running = clientForDocument(document);
+          if (!running) {
+            return [];
+          }
+          const result = await running.client.sendRequest("$/nupp/traceCheck", {
+            textDocument: { uri: document.uri.toString() },
+            position: range.start
+          });
+          if (!result) {
+            return [];
+          }
+          const action = new vscode.CodeAction(
+            "Check function for JIT trace blockers",
+            vscode.CodeActionKind.Empty
+          );
+          action.command = {
+            command: "nupp.checkFunctionForJitTraceBlockers",
+            title: action.title,
+            arguments: [{ uri: document.uri, position: range.start }]
+          };
+          return [action];
+        }
+      }
+    ),
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      traceDiagnostics.delete(event.document.uri);
+    }),
+    vscode.workspace.onDidCloseTextDocument((document) => {
+      traceDiagnostics.delete(document.uri);
+    }),
     vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
       await Promise.allSettled(event.removed.map(stopClient));
       await Promise.all(event.added.map((folder) => startClient(context, folder)));

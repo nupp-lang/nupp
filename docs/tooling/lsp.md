@@ -125,6 +125,7 @@ nupp lsp references  --json [--include-declaration] FILE LINE COLUMN
 nupp lsp symbols     --json [--file FILE] [PATTERN]
 nupp lsp rename            FILE LINE COLUMN NEW_NAME
 nupp lsp actions     --json [--only quickfix|refactor] FILE LINE COLUMN
+nupp lsp trace-check --json FILE LINE COLUMN
 ```
 
 Every operation takes `--root DIR` (default `.`), the format group, and
@@ -139,6 +140,11 @@ error rather than a guess.
 refuses a symbol not declared in a project file.
 
 `--only refactor` selects the `refactor.rewrite` kind.
+
+`trace-check` selects the smallest enclosing checked function and returns the
+same normalized blocker and risk identities used by `@jit`, including resolved
+callee paths. It reads the language server's unsaved document overlay, runs no
+program, and does not add an annotation or persist a contract.
 
 ## Suggested workflow for an agent
 

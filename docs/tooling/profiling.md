@@ -153,6 +153,11 @@ Each row is one place the compiler gave up, how often, and which zone was open.
 LuaJIT will not record. Hoisting the closure out of the loop is the fix, and
 running again is how you find out whether it was the only one.
 
+For structured output, use `nupp run --jit-aborts=jit-aborts.json --json
+app.nupp`. Each site retains the raw VM detail and also carries a stable
+`reasonId` and `class`; the report carries the exact trace-profile and reason-
+catalog identities. CSV remains unchanged for existing consumers.
+
 ## From a program rather than the command line
 
 The flags are a thin wrapper over `nupp.profile`, which is worth using directly

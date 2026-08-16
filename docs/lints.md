@@ -313,8 +313,8 @@ really has to be built per iteration, the honest answer is that the loop runs
 interpreted, and the choice belongs to whoever wrote it.
 
 Two things report it without being asked. Inside an `@jit` function it is the
-non-suppressible `NUPP2707`, because that annotation promised the function
-compiles; `jit.off` on the enclosing function silences it, since a function
+non-suppressible `NUPP2707`, because that annotation promised the absence of
+catalogued recorder blockers; `jit.off` on the enclosing function silences it, since a function
 taken off the JIT has no trace to lose. And `nupp bc --check` reads the
 bytecode of any file and reports the same loops, together with the ones the
 compiler's own lowerings could introduce.

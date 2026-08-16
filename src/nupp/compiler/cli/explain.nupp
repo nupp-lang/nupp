@@ -43,6 +43,9 @@ local command = spec.command{
                 description = "True when the rule is only reported under "
                 .. "--strict, or with strict = true in the manifest."
             },
+            class = {type = "string", description = "Trace reason class for a jit/* identity."},
+            repair = {type = "string", description = "Specific semantics-preserving repair, when known."},
+            reasonCatalog = {type = "object"},
             codes = {
                 type = "array",
                 items = {type = "string"},
@@ -65,6 +68,10 @@ local function run(parsed: any): integer
     local positional: {string} = parsed.positional
     if values.list then
         local codes = explain.codes()
+        for _, reason in ipairs(require("nupp._trace").records()) do
+            codes[#codes + 1] = reason.id
+        end
+        table.sort(codes)
         if asJson then
             require("nupp.compiler.cli.report").write({codes = codes})
         else
@@ -77,29 +84,55 @@ local function run(parsed: any): integer
     end
     -- Codes are written in upper case everywhere they are reported, so a lower case one
     -- is the same request typed with less shift.
-    local code = positional[1]:upper()
-    local entry = explain.lookup(code)
+    local requested = positional[1]
+    local code = requested:upper()
+    local reason = require("nupp._trace").reason(requested:lower())
+    local entry = reason and {
+        code = reason.id,
+        summary = reason.explanation or reason.id,
+        rule = reason.class == "blocker"
+        and "The selected LuaJIT recorder refuses this operation whenever recording reaches it."
+        or reason.class == "risk"
+        and "Whether the recorder accepts this operation depends on runtime or target facts."
+        or "This is ordinary trace formation rather than a recorder failure.",
+        related = {},
+        docs = "docs/tooling/optimization.md#deliberately-left-in-source",
+        family = false,
+        class = reason.class,
+        repair = reason.repair,
+    } or explain.lookup(code)
     if not entry then
         return command:usageError("unknown diagnostic code " .. positional[1])
     end
+    local display: any = entry
     if asJson then
         require("nupp.compiler.cli.report").write({
-            code = entry.code,
-            summary = entry.summary,
-            rule = entry.rule,
-            wrong = entry.wrong,
-            right = entry.right,
-            related = entry.related,
-            docs = entry.docs,
-            family = entry.family,
-            strict = entry.strict,
+            code = display.code,
+            summary = display.summary,
+            rule = display.rule,
+            wrong = display.wrong,
+            right = display.right,
+            related = display.related,
+            docs = display.docs,
+            family = display.family,
+            strict = display.strict,
+            class = display.class,
+            repair = display.repair,
+            reasonCatalog = reason and {
+                id = require("nupp._trace").CATALOG_ID,
+                version = require("nupp._trace").CATALOG_VERSION,
+            } or nil,
         })
         return 0
     end
     local style = ansi.style(io.stdout)
-    local out: {string} = {style.strong(entry.code) .. "  " .. entry.summary, "",}
-    for _, line in ipairs(spec.wrap(entry.rule, 79)) do
+    local out: {string} = {style.strong(display.code) .. "  " .. display.summary, "",}
+    for _, line in ipairs(spec.wrap(display.rule, 79)) do
         out[#out + 1] = line
+    end
+    if display.repair then
+        out[#out + 1] = ""
+        out[#out + 1] = ansi.forSeverity(style, "help")("Repair: ") .. display.repair
     end
 
     --- The example, indented, without the trailing blank its final newline would
@@ -113,29 +146,29 @@ local function run(parsed: any): integer
         end
     end
 
-    local wrong, right = entry.wrong, entry.right
+    local wrong, right = display.wrong, display.right
     if wrong then
         quote(ansi.forSeverity(style, "error")("Reports it:"), wrong)
     end
     if right then
         quote(ansi.forSeverity(style, "help")("Does not:"), right)
     end
-    if entry.strict then
+    if display.strict then
         out[#out + 1] = ""
         out[#out + 1] = style.faint("Reported only under --strict.")
     end
-    if entry.family then
+    if display.family then
         out[#out + 1] = ""
         out[
             #out + 1
         ] = style.faint("No worked example is recorded for this code; " .. "the rule above is its family's.")
     end
-    if #entry.related > 0 then
+    if #display.related > 0 then
         out[#out + 1] = ""
-        out[#out + 1] = style.faint("Related: ") .. table.concat(entry.related, ", ")
+        out[#out + 1] = style.faint("Related: ") .. table.concat(display.related, ", ")
     end
     out[#out + 1] = ""
-    out[#out + 1] = style.faint("Reference: ") .. entry.docs
+    out[#out + 1] = style.faint("Reference: ") .. display.docs
     io.write(table.concat(out, "\n"), "\n")
 
     return 0

@@ -1,0 +1,217 @@
+--[[
+Stable identities shared by static trace checking and the opt-in runtime collector.
+
+The recorder's strings are presentation, not API.  A trace event is first interpreted
+under the exact VM profile that emitted it, then mapped to one of the identities here.
+Static checks use those same records, which is what keeps a bytecode finding, an @jit
+contract error and an observed abort from acquiring three explanations.
+]]
+
+local vmdef = require("jit.vmdef")
+
+local trace = {}
+
+type trace.Reason = {
+    id: string,
+    class: 'blocker' | 'risk' | 'stop',
+    opcodes: {[string]: boolean}?,
+    source: {[string]: boolean}?,
+    runtime: {string}?,
+    explanation: string?,
+    repair: string?,
+    lint: string?,
+    contractSeverity: string?
+}
+
+type trace.Profile = {
+    id: string,
+    luajitRevision: string,
+    luajitVersion: integer,
+    architecture: string,
+    operatingSystem: string,
+    enabledRecorderFeatures: {string},
+    bytecodeSchema: string,
+    supported: boolean
+}
+
+trace.CATALOG_VERSION = 1
+trace.CATALOG_ID = "nupp-trace-reasons-v1"
+trace.PINNED_LUAJIT_REVISION = "1edc3e52b67eaf6ce5f809be8e17d6862594b8bc"
+trace.PINNED_LUAJIT_VERSION = 1785763465
+
+local records: {
+    trace.Reason
+} = {
+    {
+        id = "jit/loop-function-construction",
+        class = "blocker",
+        opcodes = {FNEW = true},
+        source = {["jit-loop-closure"] = true},
+        explanation = "LuaJIT has no recorder for constructing a function",
+        repair = "declare one function outside the loop and pass what varies to it",
+        lint = "NUPP2515",
+        contractSeverity = "error",
+    },
+    {
+        id = "jit/loop-upvalue-close",
+        class = "blocker",
+        opcodes = {UCLO = true},
+        explanation = "LuaJIT has no recorder for closing an upvalue",
+        repair = "move the captured lifetime outside the repeated region",
+        contractSeverity = "error",
+    },
+    {
+        id = "jit/ffi-vararg-policy",
+        class = "risk",
+        source = {["jit-boundary"] = true},
+        explanation = "this variadic FFI form depends on argument types and the target ABI",
+        repair = "move the call behind an explicit jit.off boundary when it is not a hot operation",
+        lint = "NUPP2514",
+        contractSeverity = "error",
+    },
+    {
+        id = "jit/ffi-callback",
+        class = "risk",
+        source = {["jit-callback"] = true},
+        explanation = "a C call that re-enters Lua through this callback cannot remain on a trace",
+        repair = "disable the callback and its calling boundary with jit.off",
+        lint = "NUPP2502",
+        contractSeverity = "error",
+    },
+    {
+        id = "jit/disabled-callee",
+        class = "blocker",
+        explanation = "the resolved callee is explicitly disabled with jit.off",
+        repair = "remove @jit from the caller or keep the disabled call outside its checked hot path",
+        contractSeverity = "error",
+    },
+    {
+        id = "jit/dynamic-call",
+        class = "risk",
+        explanation = "the call target is dynamic, so its bytecode recordability is unknown",
+    },
+    {id = "jit/expected-loop-leave", class = "stop", runtime = {"leaving loop in root trace"}},
+    {id = "jit/expected-inner-loop", class = "stop", runtime = {"inner loop in root trace"}},
+    {id = "jit/expected-down-recursion", class = "stop", runtime = {"down-recursion, restarting"}},
+    {id = "jit/expected-up-recursion", class = "stop", runtime = {"up-recursion"}},
+    {id = "jit/retry-recording", class = "stop", runtime = {"retry recording"}},
+    {id = "jit/runtime-blacklisted", class = "risk", runtime = {"blacklisted"}},
+    {id = "jit/runtime-trace-too-short", class = "stop", runtime = {"trace too short"}},
+    {id = "jit/runtime-trace-too-long", class = "risk", runtime = {"trace too long"}},
+    {id = "jit/runtime-trace-too-deep", class = "risk", runtime = {"trace too deep"}},
+    {id = "jit/runtime-too-many-snapshots", class = "risk", runtime = {"too many snapshots"}},
+    {id = "jit/runtime-loop-unroll-limit", class = "risk", runtime = {"loop unroll limit reached"}},
+    {id = "jit/runtime-call-unroll-limit", class = "risk", runtime = {"call unroll limit reached"}},
+    {id = "jit/runtime-disabled-callee", class = "blocker", runtime = {"JIT compilation disabled for function"}},
+    {id = "jit/runtime-ffi-call", class = "risk", runtime = {"NYI: unsupported C function type"}},
+    {id = "jit/runtime-ffi-conversion", class = "risk", runtime = {"NYI: unsupported C type conversion"}},
+    {id = "jit/runtime-type-instability", class = "risk", runtime = {"persistent type instability"}},
+    {
+        id = "jit/runtime-machine-code-limit",
+        class = "risk",
+        runtime = {"machine code too long", "hit mcode limit (retrying)", "failed to allocate mcode memory",}
+    },
+    {id = "jit/runtime-recorder-error", class = "risk", runtime = {"error thrown or hook called during recording"}},
+    {id = "jit/runtime-unknown", class = "risk"},
+}
+
+local byId, byOpcode, bySource, byRuntime = {}, {}, {}, {}
+for _, record in ipairs(records) do
+    byId[record.id] = record
+    for opcode in pairs(record.opcodes or {}) do
+        byOpcode[opcode] = record
+    end
+    for source in pairs(record.source or {}) do
+        bySource[source] = record
+    end
+    for _, format in ipairs(record.runtime or {}) do
+        byRuntime[format] = record
+    end
+end
+
+local function smallDigest(value: string): string
+    local digest = 2166136261
+    for index = 1, #value do
+        digest = bit.tobit(bit.bxor(digest, value:byte(index)) * 16777619)
+    end
+
+    return ("%08x"):format(bit.band(digest, 0xffffffff))
+end
+
+function trace.profile(): trace.Profile
+    local status = {jit.status()}
+    local flags = {}
+    for index = 2, #status do
+        flags[#flags + 1] = tostring(status[index])
+    end
+    table.sort(flags)
+    -- `jit.version_num` is the compatibility number (20199 for every current 2.1
+    -- snapshot). The pinned snapshot identity is the timestamp suffix exposed in the
+    -- full version string.
+    local version = math.floor(tonumber(jit.version:match("LuaJIT 2%.1%.(%d+)")) or jit.version_num) as integer
+    local revision = version == trace.PINNED_LUAJIT_VERSION and trace.PINNED_LUAJIT_REVISION or "external:" .. tostring(
+        version
+    )
+    local bytecodeSchema = smallDigest(vmdef.bcnames)
+    local id = table.concat({revision, jit.arch, jit.os, table.concat(flags, ","), bytecodeSchema}, "|")
+
+    return {
+        id = id,
+        luajitRevision = revision,
+        luajitVersion = version,
+        architecture = jit.arch,
+        operatingSystem = jit.os,
+        enabledRecorderFeatures = flags,
+        bytecodeSchema = bytecodeSchema,
+        supported = revision == trace.PINNED_LUAJIT_REVISION,
+    }
+end
+
+function trace.reason(id: string): trace.Reason?
+    return byId[id]
+end
+
+function trace.forOpcode(opcode: string): trace.Reason?
+    return byOpcode[opcode]
+end
+
+function trace.forSource(source: string): trace.Reason?
+    return bySource[source]
+end
+
+function trace.opcodeName(opcode: integer): string
+    local start = opcode * 6 + 1
+    return (vmdef.bcnames:sub(start, start + 5):gsub("%s+$", ""))
+end
+
+function trace.runtime(errorCode: integer?, errorArg: number | string | nil): trace.Reason, string
+    if not errorCode then
+        return byId["jit/runtime-unknown"], "abort"
+    end
+    local format = vmdef.traceerr[errorCode]
+    if not format then
+        return byId["jit/runtime-unknown"], "error " .. tostring(errorCode)
+    end
+    if format:find("NYI: bytecode", 1, true) and type(errorArg) == "number" then
+        local opcode = trace.opcodeName(errorArg as integer)
+        return byOpcode[opcode] or byId["jit/runtime-unknown"], "NYI: bytecode " .. opcode
+    end
+    local record = byRuntime[format] or byId["jit/runtime-unknown"]
+    if errorArg == nil then
+        return record, format
+    end
+    local ok, detail = pcall(string.format, format, errorArg)
+
+    return record, ok and detail as string or format
+end
+
+function trace.records(): {trace.Reason}
+    local copy = {}
+    for index, record in ipairs(records) do
+        copy[index] = record
+    end
+
+    return copy
+end
+
+return trace

@@ -133,7 +133,7 @@ end
 -- cold and the trace never contains it -- the loop compiles, and saying otherwise would
 -- fail a build over code that demonstrably works. This is how a shared cleanup region
 -- is lowered, so it is not a corner case.
-function M.aFunctionBuiltOnceBehindAGuardIsNotReported()
+function M.aFunctionBuiltOnceBehindAGuardIsAdvisory()
    local dir = project{["guarded.g.nupp"] = table.concat({
       "cdef function free(takes value: voidptr)",
       "cdef function malloc(size: uint64): voidptr",
@@ -150,6 +150,8 @@ function M.aFunctionBuiltOnceBehindAGuardIsNotReported()
    local out, code = run(dir, "--check guarded.g.nupp")
    assert(code == 0,
       "a guarded, reused function is not a loop that cannot compile:\n" .. out)
+   assert(out:find("may%-reach"),
+      "the blocker path remains visible without claiming the whole loop fails:\n" .. out)
 end
 
 function M.checkPassesWhenEveryLoopCanCompile()
@@ -166,6 +168,12 @@ function M.jsonCarriesTheFindingAndItsCount()
    local decoded = require("cjson").decode(out)
    test.equal(decoded.file, "bad.g.nupp")
    assert(decoded.unrecordable >= 1, "the count is reported: " .. tostring(decoded.unrecordable))
+   assert(decoded.blockers >= decoded.unrecordable, "all blocker paths are counted")
+   assert(decoded.mustBlockers == decoded.unrecordable, "the CI count is must-reach")
+   assert(decoded.bytecodeFingerprint and decoded.traceProfile.id,
+      "the exact artifact and recorder profile are identified")
+   assert(decoded.reasonCatalog.id == "nupp-trace-reasons-v1",
+      "bytecode uses the shared reason catalog")
    local found = false
    for _, fn in ipairs(decoded.functions) do
       for _, instruction in ipairs(fn.instructions) do
@@ -173,6 +181,8 @@ function M.jsonCarriesTheFindingAndItsCount()
             found = true
             assert(instruction.inLoop, "an unrecordable instruction is marked as in a loop")
             test.equal(instruction.op, instruction.op:upper())
+            assert(instruction.traceReason and instruction.traceReachability == "must",
+               "the compatibility finding carries its normalized classification")
          end
       end
    end

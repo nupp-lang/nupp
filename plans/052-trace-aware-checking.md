@@ -1,7 +1,10 @@
 # Trace-aware LuaJIT checking
 
-Status: planned; extends `@jit`, `nupp bc --check`, trace-abort profiling, and
-optimization remarks without instrumenting ordinary programs
+Status: implemented for the compiler-owned host profile and initial catalog. The
+reason registry, exact bytecode check, transported `@jit` contract, normalized runtime
+report, one-shot LSP query, and VS Code command are shipped without instrumenting
+ordinary programs. Further target/catalog entries and automated cross-report ranking
+remain evidence-gated T5 additions rather than guessed rules.
 
 ## Decision
 
@@ -27,7 +30,11 @@ never run, may stay cold, may take runtime types the recorder cannot specialize,
 may side-exit for input-dependent reasons. It can make narrower exact claims:
 
 - an **unconditional blocker** makes recording abort whenever the pinned recorder
-  reaches that operation in the named loop;
+  reaches that operation;
+- a **must-reach blocker** is an unconditional blocker on every repeatable path through
+  the named loop, so that loop cannot complete a root trace;
+- a **may-reach blocker** is unconditional once reached but lies on only some paths, so
+  a trace taking that path aborts while another path may compile;
 - a **conditional risk** depends on runtime types, call targets, shapes, limits, or
   target details and is advisory;
 - an **observed abort** came from the VM hook in this execution; and
@@ -220,7 +227,9 @@ names.
 Begin with behavior already proved and shipped:
 
 - function construction (`FNEW`) in a repeatable loop;
-- variadic FFI calls reached from a trace;
+- upvalue closing (`UCLO`) in a repeatable loop;
+- exact unsupported variadic FFI forms, keyed by argument, result, ABI, and target
+  predicates; the broader existing `jit-boundary` policy remains a conservative risk;
 - Lua callbacks passed through C in a trace-unsafe direction; and
 - an explicit operation whose pinned declaration is known to disable or flush the JIT
   inside the annotated region.
@@ -248,6 +257,12 @@ A blocker belongs to the smallest repeatable loop whose recording it prevents. I
 loop encloses it, inspection reports the function operation but `bc --check` does not
 claim runtime cost until a trace root can reach it. `@jit` is stronger: its contract
 checks all reachable operations because a caller may form a root through the function.
+
+The CFG records whether a hard blocker must be reached on every repeatable path or may
+be reached on only some. Only the former supports the claim that the loop cannot form a
+root trace. `@jit` rejects either because its contract covers every statically reachable
+checked path, but a may-reach diagnostic says that a trace taking the path aborts rather
+than claiming that every path stays interpreted.
 
 Direct checked calls carry the callee verdict and a bounded call path. Recursive SCCs
 reach a fixed point over reason sets. Unknown calls remain risks. A blocker under a
@@ -298,9 +313,11 @@ Keep `bc --check` as the deterministic static command:
 ```
 
 Extend its JSON schema with trace profile, prototype, loop, reason identity, class,
-source span, bytecode PC/opcode, call path, and repair. Exit 1 only when an
-unconditional blocker affects a repeatable loop or an `@jit` contract. Add an explicit
-flag if callers later need risks to fail CI; do not silently change exit status.
+source span, bytecode PC/opcode, call path, and repair. Exit 1 only when a
+must-reach unconditional blocker prevents the repeatable loop from completing a root
+trace or an `@jit` contract fails. A may-reach blocker and a conditional risk remain
+visible without silently changing CI status; add an explicit flag if callers later
+need either to fail.
 
 Ordinary `nupp check` reports configured trace lints and all `@jit` contract errors. It
 does not run a second LuaJIT process. Source predicates decide the common checks. When
@@ -315,6 +332,28 @@ checking.
 may accept the static `bc --check --json` artifact from the same build key or compute it
 after the run. A fingerprint mismatch reports two separate views instead of joining
 stale static facts to new code.
+
+### Manual function inspection in editors
+
+Expose the same static query at one source position as `nupp lsp trace-check --json
+FILE LINE COLUMN` and a `$/nupp/traceCheck` language-server request. The query selects
+the smallest enclosing whole function or method, checks it and its statically resolved
+checked callees exactly as `@jit` would, and reads the editor's unsaved overlay. It does
+not edit in a temporary annotation, launch a second checker, attach a trace hook, or
+persist a contract.
+
+The VS Code extension contributes **Nupp: Check Function for JIT Trace Blockers** to the
+Command Palette and editor context menu and offers the same operation as a lightbulb
+action inside a function. Findings appear in a dedicated, temporary **Nupp JIT Check**
+diagnostic collection with clickable blocker and call-path locations. The collection is
+cleared when that document changes or another manual query replaces it. A successful
+query says that no known static blocker was found for the selected profile without
+claiming that the function becomes or remains compiled.
+
+When the selected declaration may carry the annotation, the result offers **Add `@jit`
+to keep checking this function** as a separate source edit. The one-shot check is the
+investigation surface; adding `@jit` opts the function into continuous, transported,
+non-suppressible enforcement.
 
 Optimization remarks use the same reason identity when a pass rewrites or declines an
 NYI-avoidance transformation:
@@ -402,6 +441,8 @@ attempt is not an oracle for compiler checking.
   conditional unknown calls.
 - Update the annotation reference to the precise absence-of-blockers contract.
 - Add LSP hover and code actions showing the call path and specific repair.
+- Add the position-based one-shot trace query and CLI operation, sharing the same root
+  selection, fixed point, trace profile, and finding serializer as `@jit`.
 
 ### T4 — Runtime normalization and correlation
 
@@ -451,6 +492,8 @@ Tests must prove:
 - side-effect-free expected stops do not become warnings;
 - unknown raw VM reasons remain visible and receive no invented repair;
 - direct calls and recursive SCCs propagate blocker paths without infinite expansion;
+- the manual LSP/CLI query selects the smallest enclosing method, reads unsaved text,
+  returns the same findings as an equivalent `@jit` check, and changes no source;
 - dynamic calls remain risks rather than false blockers;
 - `jit.off` boundaries and `@aot` mutual exclusion retain their current semantics;
 - optimization level, target profile, hot reload, and body changes invalidate the right
@@ -469,6 +512,8 @@ This plan is complete when:
 - one versioned registry owns every static and observed trace reason;
 - `bc --check` deterministically checks exact generated loop bytecode;
 - `@jit` has a precise, transported absence-of-blockers contract;
+- VS Code and `nupp lsp trace-check` can inspect one function without persisting that
+  contract;
 - trace aborts map to stable source-level reasons without source instrumentation;
 - runtime evidence and sampling rank problems without affecting checking;
 - the flaky timing-dependent profiler test is removed;

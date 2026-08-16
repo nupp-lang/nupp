@@ -8,6 +8,14 @@ formatting, and code actions. The extension watches `.nupp` files in each worksp
 by Git, generators, or another editor invalidate the language server's
 incremental graph as well as changes made in an open VS Code document.
 
+Run **Nupp: Check Function for JIT Trace Blockers** from the command palette,
+editor context menu, or lightbulb to inspect the smallest function containing
+the cursor.
+The command follows statically resolved checked callees exactly as `@jit` does
+and marks blocker and risk sites in a temporary **Nupp JIT Check** diagnostic
+collection. It uses unsaved editor text, runs no program, changes no source, and
+clears its findings on the next edit or check.
+
 ## Code actions
 
 Quick fixes come from the checker, so the lightbulb offers exactly what the

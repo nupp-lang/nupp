@@ -138,7 +138,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                     others[#others + 1] = other.root
                 end
             end
-            local inc = incremental.new(entry.root, {folders = others})
+            local inc = incremental.new(entry.root, {folders = others, traceInspection = true})
             inc.env.host = host
             -- What the editor is showing is what every folder reads. A buffer open in
             -- one folder can be the module another folder requires, and a graph that
@@ -702,6 +702,79 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 root = s.currentRoot,
             }
         )
+    end
+
+    -- One-shot trace eligibility for the smallest checked function containing the
+    -- cursor. This reads the document overlay already checked by the language server;
+    -- it neither adds @jit nor compiles or executes a temporary program.
+    handlers["$/nupp/traceCheck"] = function(id, params)
+        local _, doc = documentAt(params)
+        local position = params and params.position
+        local offset = doc and position and offsetAtPosition(doc.text, position) or nil
+        local analysis = doc and doc.result and doc.result.traceAnalysis or nil
+        if not offset or not analysis then
+            respond(id, json.null)
+            return
+        end
+        local selected, selectedFrom, selectedTo
+        for _, info in ipairs(analysis.functions or {}) do
+            local from, to = tree.nodeBounds(info.node)
+            if from and to and offset >= from and offset <= to and (
+                not selected or to - from < selectedTo - selectedFrom
+            ) then
+                selected, selectedFrom, selectedTo = info, from, to
+            end
+        end
+        if not selected then
+            respond(id, json.null)
+            return
+        end
+        local findings = wire.array({})
+        for _, finding in ipairs(selected.traceFindings or {}) do
+            local from, to = tree.nodeBounds(finding.at or finding.callAt)
+            local range = nil
+            if from and to then
+                range = {start = positionAtOffset(doc.text, from), ["end"] = positionAtOffset(doc.text, to as integer),}
+            end
+            findings[
+                #findings + 1
+            ] = {
+                reason = finding.reason,
+                class = finding.class,
+                message = finding.message,
+                help = finding.help,
+                callPath = wire.array(finding.callPath or {}),
+                range = range,
+            }
+        end
+        local profile = analysis.profile
+        local addContract = nil
+        if not (selected.body and selected.body.jitRequired) then
+            local lineStart = selectedFrom
+            while lineStart > 1 and doc.text:sub(lineStart - 1, lineStart - 1) ~= "\n" do
+                lineStart = lineStart - 1
+            end
+            local indent = doc.text:sub(lineStart, selectedFrom - 1)
+            addContract = {
+                range = {
+                    start = positionAtOffset(doc.text, selectedFrom),
+                    ["end"] = positionAtOffset(doc.text, selectedFrom),
+                },
+                newText = "@jit\n" .. indent,
+            }
+        end
+        respond(id, {
+            name = selected.traceName,
+            range = {
+                start = positionAtOffset(doc.text, selectedFrom),
+                ["end"] = positionAtOffset(doc.text, selectedTo),
+            },
+            findings = findings,
+            traceProfile = profile,
+            reasonCatalog = analysis.reasonCatalog,
+            contract = selected.body and selected.body.jitRequired and "@jit" or "inspection",
+            addContract = addContract,
+        })
     end
 
     handlers["textDocument/completion"] = function(id, params)

@@ -1149,6 +1149,7 @@ type analysis.Queries = {
     free: function(summary: any, kinds: {string}): (boolean, string?),
     named: function(name: any): any,
     known: function(token: any): any,
+    callee: function(call: any): any,
     body: function(body: any): any
 }
 

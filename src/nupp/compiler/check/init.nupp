@@ -33,6 +33,7 @@ local nosuspendMod = require("nupp.compiler.check.nosuspend")
 local aotMod = require("nupp.compiler.check.aot")
 local effectregionsMod = require("nupp.compiler.check.effectregions")
 local analysis = require("nupp.compiler.analysis")
+local traceSource = require("nupp.compiler.trace_source")
 local narrow = require("nupp.compiler.check.narrow")
 local fixedWidthCheck = require("nupp.compiler.check.fixed_width")
 local calls = require("nupp.compiler.check.calls")
@@ -527,6 +528,37 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
         return nil
     end
 
+    local function localTrace(value)
+        if not value or cst.isToken(value) then
+            return nil
+        end
+        local body = value.kind == "funcbody" and value or (
+            value.kind == "funcExpr" or value.kind == "shortfn"
+        ) and value.body or nil
+        if value.kind == "name" and value.token and queries then
+            local known = queries.known(value.token)
+            body = known and known.body or nil
+        end
+        local findings = body and body.traceSummary and body.traceSummary.findings or nil
+        if not findings then
+            return nil
+        end
+        local stableFindings = {}
+        for _, finding in ipairs(findings) do
+            stableFindings[
+                #stableFindings + 1
+            ] = {
+                reason = finding.reason,
+                class = finding.class,
+                message = finding.message,
+                help = finding.help,
+                callPath = finding.callPath,
+            }
+        end
+
+        return stableFindings
+    end
+
     local function imported(value)
         local exact = value and not cst.isToken(value) and value.exactCallExport or nil
         if not exact and value and not cst.isToken(
@@ -544,7 +576,8 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
     local function publish(member, value)
         local summary = localSummary(value)
         local source = not summary and imported(value) or nil
-        if summary or source then
+        local traceFindings = localTrace(value) or source and source.traceFindings
+        if summary or source or traceFindings then
             local noAllocate, noRaise
             if source then
                 noAllocate, noRaise = source.noAllocate, source.noRaise
@@ -560,6 +593,10 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
                 ),
                 noAllocate = noAllocate,
                 noRaise = noRaise,
+                traceFindings = traceFindings,
+                traceProfileId = source and source.traceProfileId or require("nupp._trace").profile().id,
+                reasonCatalogId = source and source.reasonCatalogId or require("nupp._trace").CATALOG_ID,
+                reasonCatalogVersion = source and source.reasonCatalogVersion or require("nupp._trace").CATALOG_VERSION,
             }
         end
     end
@@ -2240,21 +2277,6 @@ function checkMod.check(
     for _, block in ipairs(result.root.blocks) do
         c.checkBlock(block, true)
     end
-    for _, hazard in ipairs(c.jitHazards) do
-        local body = hazard.body
-        local definition = body and body.jitDefinition or nil
-        if not hazard.suppressed and not (
-            body and body.jitDisabled
-        ) and not (
-            definition and definition.jitDisabled
-        ) and not (
-            hazard.disabledBody and hazard.disabledBody.jitDisabled
-        ) and not (hazard.disabledDefinition and hazard.disabledDefinition.jitDisabled) then
-            c.diag(body and body.jitRequired and "NUPP2707" or hazard.code, hazard.at, hazard.message, nil, {
-                help = hazard.help
-            })
-        end
-    end
     c.derives.finalize()
     auditScope(c.rootScope)
 
@@ -2297,6 +2319,23 @@ function checkMod.check(
     -- cleanup body is visible and proven non-raising by the same effect summaries
     -- used elsewhere. Everything less certain keeps the shared protected lowering.
     local effectQueries = analysis.queries(facts)
+    local needsTrace = opts and opts.traceInspection or #c.jitHazards > 0
+    if not needsTrace then
+        for _, info in ipairs(facts.functions or {}) do
+            if info.body and info.body.jitRequired then
+                needsTrace = true
+                break
+            end
+        end
+    end
+    if needsTrace and effectQueries then
+        traceSource.run(
+            result as nupp.compiler.trace_source.Target,
+            c as nupp.compiler.trace_source.Checker,
+            facts,
+            effectQueries
+        )
+    end
     local function cleanupNonRaising(cleanup): boolean
         if cleanup.kind == "field" then
             return cleanupNonRaising(cleanup.cleanup)

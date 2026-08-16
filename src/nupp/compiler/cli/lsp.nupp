@@ -328,6 +328,41 @@ local OPERATION_SPECS: {
             required = {"actions"},
         }
     ),
+    [
+        "trace-check"
+    ] = operationSpec(
+        "trace-check",
+        "Check the function at a position for LuaJIT trace blockers",
+        "nupp lsp trace-check [options] <file> <line> <column>",
+        {},
+        {
+            type = "object",
+            properties = {
+                functionName = {type = "string"},
+                contract = {type = "string"},
+                range = reportMod.RANGE,
+                findings = {
+                    type = "array",
+                    items = {
+                        type = "object",
+                        properties = {
+                            reason = {type = "string"},
+                            class = {type = "string"},
+                            message = {type = "string"},
+                            help = {type = "string"},
+                            callPath = {type = "array", items = {type = "string"}},
+                            range = reportMod.RANGE,
+                        },
+                        required = {"reason", "class"},
+                    },
+                },
+                traceProfile = {type = "object"},
+                reasonCatalog = {type = "object"},
+                addContract = {type = "object", properties = {range = reportMod.RANGE, newText = {type = "string"}},},
+            },
+            required = {"findings"},
+        }
+    ),
 }
 
 local command = spec.command{
@@ -342,6 +377,7 @@ local command = spec.command{
         "nupp lsp symbols [options] [--file FILE] [pattern]",
         "nupp lsp rename [options] [-w|--write] <file> <line> <column> <new-name>",
         "nupp lsp actions [options] [--only quickfix|refactor] <file> <line> <column>",
+        "nupp lsp trace-check [options] <file> <line> <column>",
     },
     universal = false,
     options = {
@@ -996,6 +1032,61 @@ local function runActions(client, opts)
     return true
 end
 
+local function runTraceCheck(client, opts)
+    local path, _, position, err = target(client, opts, 3)
+    if not path then
+        return nil, err
+    end
+    local result, requestErr = client.request("$/nupp/traceCheck", positionParams(path, position))
+    if requestErr then
+        return nil, requestErr
+    end
+    local value = {findings = jsonArray({})}
+    if result and result ~= json.null then
+        value.functionName = result.name
+        value.contract = result.contract
+        value.range = result.range and rangeValue(client, path, result.range) or nil
+        value.traceProfile = result.traceProfile
+        value.reasonCatalog = result.reasonCatalog
+        value.addContract = result.addContract and {
+            range = rangeValue(client, path, result.addContract.range),
+            newText = result.addContract.newText,
+        } or nil
+        for _, finding in ipairs(result.findings or {}) do
+            value.findings[
+                #value.findings + 1
+            ] = {
+                reason = finding.reason,
+                class = finding.class,
+                message = finding.message,
+                help = finding.help,
+                callPath = jsonArray(finding.callPath or {}),
+                range = finding.range and rangeValue(client, path, finding.range) or nil,
+            }
+        end
+    end
+    if opts.format == "json" then
+        jsonOutput(value)
+    elseif not value.functionName then
+        io.write("No checked function at that position\n")
+    elseif #value.findings == 0 then
+        io.write(value.functionName .. ": no catalogued trace blockers or risks\n")
+    else
+        io.write(
+            ("%s: %d trace finding%s\n"):format(value.functionName, #value.findings, #value.findings == 1 and "" or "s")
+        )
+        for _, finding in ipairs(value.findings) do
+            local pathText = #finding.callPath > 1 and " via " .. table.concat(finding.callPath, " -> ") or ""
+            io.write(("  %s %s%s: %s\n"):format(finding.class, finding.reason, pathText, finding.message or ""))
+            if finding.help then
+                io.write("    help: " .. finding.help .. "\n")
+            end
+        end
+    end
+
+    return true
+end
+
 local OPERATIONS = {
     inspect = runInspect,
     definition = runDefinition,
@@ -1003,6 +1094,7 @@ local OPERATIONS = {
     symbols = runSymbols,
     rename = runRename,
     actions = runActions,
+    ["trace-check"] = runTraceCheck,
 }
 
 local function dispatch(args: any): integer

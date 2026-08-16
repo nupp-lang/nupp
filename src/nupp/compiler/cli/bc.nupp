@@ -20,6 +20,7 @@ a gate -- no quiet machine, no threshold, and the same answer every time.
 
 local spec = require("nupp.compiler.cli.spec")
 local optionsMod = require("nupp.compiler.cli.options")
+local traceBytecode = require("nupp.compiler.trace_bytecode")
 
 -- The shared `--format` trio, plus the two questions this command answers.
 local function bcOptions(): {any}
@@ -71,6 +72,8 @@ local command = spec.command{
                                         description = "Why a loop holding this cannot be "
                                         .. "compiled. Absent when it can.",
                                     },
+                                    traceReason = {type = "string"},
+                                    traceReachability = {type = "string", enum = {"must", "may"}},
                                 },
                                 required = {"pc", "op", "text"},
                             },
@@ -83,6 +86,12 @@ local command = spec.command{
                 type = "integer",
                 description = "How many instructions sit in a loop that therefore never compiles.",
             },
+            blockers = {type = "integer"},
+            mustBlockers = {type = "integer"},
+            risks = {type = "integer"},
+            bytecodeFingerprint = {type = "string"},
+            traceProfile = {type = "object"},
+            reasonCatalog = {type = "object"},
         },
         required = {"file", "functions", "unrecordable"},
     },
@@ -90,139 +99,11 @@ local command = spec.command{
 runtime preamble all lands on line 1 and is folded away unless `--prologue`
 asks for it.
 
-`--check` marks every instruction LuaJIT cannot record that sits inside a loop,
-and exits 1 when there is one. Building a function is the usual cause: the loop
-holding it aborts trace recording and is blacklisted, so it runs interpreted
-however hot it gets. Nothing else reports that, because nothing about the
-program's answers changes.]],
+`--check` marks every instruction LuaJIT cannot record that sits inside a loop.
+It exits 1 when every repeatable path reaches one, because that loop cannot
+complete a root trace. A blocker reached on only some paths remains visible as
+advice without claiming every path stays interpreted.]],
 }
-
--- Building a function, and closing the upvalues one captured. LuaJIT records neither.
-local UNRECORDABLE = {FNEW = "builds a function", UCLO = "closes an upvalue",}
-
--- The back edge of each loop form. Each jumps backwards to the top of its own body, so
--- the instruction and its target bracket the body.
-local BACK_EDGE = {
-    FORL = true,
-    IFORL = true,
-    JFORL = true,
-    ITERL = true,
-    IITERL = true,
-    JITERL = true,
-    LOOP = true,
-    ILOOP = true,
-    JLOOP = true,
-}
-
---- Every instruction of one function, already decoded and located.
-local function instructionsOf(util: any, bc: any, fn: any): {any}
-    local out: {any} = {}
-    local pc = 0
-    while true do
-        local raw = util.funcbc(fn, pc)
-        if not raw then
-            return out
-        end
-        local text = bc.line(fn, pc, "")
-        -- `jit.bc` renders the whole line; the mnemonic is its second field.
-        local op = text:match("^%s*%d+%s+=?>?%s*([A-Z][A-Z0-9]*)") or "?"
-        local located = util.funcinfo(fn, pc)
-        out[
-            #out + 1
-        ] = {
-            pc = pc,
-            op = op,
-            text = (text:gsub("\n$", "")),
-            line = located and located.currentline or nil,
-            jump = tonumber(text:match("=> (%d+)")),
-        }
-        pc = pc + 1
-    end
-end
-
---- Marks the instructions a loop body covers. A back edge names the top of its own
---- body, so everything from there to the edge is inside it.
----
---- Also marks what some branch can jump over. A trace records the path it saw, so work
---- an iteration can skip is work the trace need not contain -- which is the difference
---- between a function built every time round and one built once behind a guard and
---- reused. The second is how a shared cleanup region is lowered, and reporting it would
---- be reporting a loop that demonstrably does compile.
----
---- Skipping over means only that: some forward jump lands past it. That is weaker than
---- proving the branch is cold, and deliberately so. Missing a real one costs what it
---- always cost; reporting a loop that compiles costs the report its credibility.
-local function markLoops(instructions: {any}): nil
-    for _, ins in ipairs(instructions) do
-        if BACK_EDGE[ins.op] and ins.jump then
-            for _, other in ipairs(instructions) do
-                if other.pc >= ins.jump - 1 and other.pc <= ins.pc then
-                    other.inLoop = true
-                end
-            end
-        end
-    end
-    -- Only a branch can skip anything. A loop header also jumps forward -- `FORI`
-    -- clears the whole body to reach the exit -- and counting that would mark every
-    -- instruction in every loop as skippable, which is the same as not checking at all.
-    --
-    -- A conditional branch in this bytecode is a test followed by its `JMP`, so that
-    -- pairing is what to look for.
-    for index, ins in ipairs(instructions) do
-        local previous = instructions[index - 1]
-        local conditional = ins.op == "JMP" and previous ~= nil and previous.op:sub(1, 2) == "IS"
-        if conditional and ins.jump and ins.jump - 1 > ins.pc then
-            for _, other in ipairs(instructions) do
-                if other.pc > ins.pc and other.pc < ins.jump - 1 then
-                    other.skippable = true
-                end
-            end
-        end
-    end
-end
-
---- Child functions are GC constants of their parent, reached by negative index.
-local function childrenOf(util: any, fn: any): {any}
-    local out: {any} = {}
-    local index = 0
-    while true do
-        local ok, constant = pcall(util.funck, fn, -(index + 1))
-        if not ok or constant == nil then
-            return out
-        end
-        if type(constant) == "proto" or type(constant) == "function" then
-            out[#out + 1] = constant
-        end
-        index = index + 1
-    end
-end
-
-local function collect(util: any, bc: any, fn: any, depth: integer, into: {any}, seen: any): nil
-    if seen[fn] then
-        return
-    end
-    seen[fn] = true
-    local info = util.funcinfo(fn)
-    local instructions = instructionsOf(util, bc, fn)
-    markLoops(instructions)
-    for _, ins in ipairs(instructions) do
-        if ins.inLoop and not ins.skippable then
-            ins.unrecordable = UNRECORDABLE[ins.op]
-        end
-    end
-    into[
-        #into + 1
-    ] = {
-        what = depth == 0 and "chunk" or "function",
-        depth = depth,
-        firstLine = info.linedefined,
-        lastLine = info.lastlinedefined,
-        instructions = instructions,
-    }
-    for _, child in ipairs(childrenOf(util, fn)) do
-        collect(util, bc, child, depth + 1, into, seen)
-    end
-end
 
 local function sourceLines(text: string): {string}
     local out: {string} = {}
@@ -240,8 +121,8 @@ local function run(parsed: any): integer
     end
     local path = paths[1]
 
-    local ok, util = pcall(require, "jit.util")
-    local okBc, bc = pcall(require, "jit.bc")
+    local ok = pcall(require, "jit.util")
+    local okBc = pcall(require, "jit.bc")
     if not ok or not okBc then
         io.stderr:write("nupp: bytecode needs LuaJIT's jit.util and jit.bc\n")
         return 1
@@ -267,8 +148,8 @@ local function run(parsed: any): integer
         return 1
     end
 
-    local functions: {any} = {}
-    collect(util, bc, chunk, 0, functions, {})
+    local analysis = traceBytecode.analyze(chunk)
+    local functions = analysis.functions
 
     local unrecordable = 0
     for _, fn in ipairs(functions) do
@@ -282,7 +163,19 @@ local function run(parsed: any): integer
     if (parsed.values.format or "text") == "json" then
         local json = require("cjson").new()
         json.encode_empty_table_as_object(false)
-        io.write(json.encode({file = path, functions = functions, unrecordable = unrecordable}) .. "\n")
+        io.write(
+            json.encode({
+                file = path,
+                functions = functions,
+                unrecordable = unrecordable,
+                blockers = analysis.blockers,
+                mustBlockers = analysis.mustBlockers,
+                risks = analysis.risks,
+                bytecodeFingerprint = analysis.bytecodeFingerprint,
+                traceProfile = analysis.profile,
+                reasonCatalog = analysis.reasonCatalog,
+            }) .. "\n"
+        )
     else
         local lines = sourceLines(source)
         -- The preamble all lands on line 1, so folding it is folding the run of
@@ -310,8 +203,13 @@ local function run(parsed: any): integer
                         end
                     end
                     io.write(indent .. "      " .. ins.text)
-                    if ins.unrecordable and parsed.values.check then
-                        io.write("   <-- this loop never compiles: " .. ins.unrecordable)
+                    if ins.traceReason and parsed.values.check then
+                        if ins.unrecordable then
+                            io.write("   <-- this loop never compiles: " .. ins.unrecordable)
+                            io.write((" [%s, must-reach]"):format(ins.traceReason))
+                        else
+                            io.write(("   <-- this path aborts recording: %s [may-reach]"):format(ins.traceReason))
+                        end
                     end
                     io.write("\n")
                 end
@@ -323,11 +221,11 @@ local function run(parsed: any): integer
         end
     end
 
-    if parsed.values.check and unrecordable > 0 then
+    if parsed.values.check and analysis.mustBlockers > 0 then
         io.stderr:write(
             (
                 "nupp: %d instruction%s in a loop that cannot compile\n"
-            ):format(unrecordable, unrecordable == 1 and "" or "s")
+            ):format(analysis.mustBlockers, analysis.mustBlockers == 1 and "" or "s")
         )
         return 1
     end

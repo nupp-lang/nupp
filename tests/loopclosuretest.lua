@@ -343,6 +343,27 @@ return hot
    assertEq(at.severity, "error", "and a build that stops")
 end
 
+function M.aJitFunctionHearsAResolvedCalleesBlocker()
+   local at = assertTraceLost([[
+local function helper(items: {integer}): nil
+   for _, item in ipairs(items) do
+      register(function(): integer return item end)
+   end
+end
+
+@jit
+local function hot(items: {integer}): nil
+   helper(items)
+end
+
+return hot
+]], "the contract follows a resolved checked callee", {})
+   assertEq(at.code, "NUPP2707", "the caller owns the broken contract")
+   assert(at.msg:find("hot -> helper", 1, true), "the call path is reported")
+   assert(at.msg:find("jit/loop-function-construction", 1, true),
+      "the normalized reason is reported")
+end
+
 function M.aDisabledFunctionSaysNothing()
    assertTraceQuiet([[
 local function cold(items: {integer}): nil
@@ -353,6 +374,50 @@ end
 
 jit.off(cold)
 ]], "a function taken off the JIT has no trace to lose")
+end
+
+function M.aJitCallerCannotCrossAnExplicitDisabledBoundary()
+   local at = assertTraceLost([[
+local function cold(value: integer): integer
+   return value + 1
+end
+
+jit.off(cold)
+
+@jit
+local function hot(value: integer): integer
+   return cold(value)
+end
+
+return hot
+]], "the annotation checks deliberate interpreter transitions", {})
+   assertEq(at.code, "NUPP2707", "the caller breaks its trace contract")
+   assert(at.msg:find("jit/disabled-callee", 1, true),
+      "the explicit boundary has a stable reason")
+end
+
+function M.recursiveCallGraphsReachAFixedPoint()
+   local at = assertTraceLost([[
+local function helper(value: integer): integer
+   if value > 0 then
+      return helper(value - 1)
+   end
+   for i = 1, 2 do
+      local capture = function(): integer return i end
+      value = value + capture()
+   end
+   return value
+end
+
+@jit
+local function hot(value: integer): integer
+   return helper(value)
+end
+
+return hot
+]], "a recursive edge terminates without losing the blocker", {})
+   assertEq(at.code, "NUPP2707", "the recursive callee breaks the contract")
+   assert(at.msg:find("hot -> helper", 1, true), "the bounded path is useful")
 end
 
 function M.theCapturingReportCanBeAllowed()

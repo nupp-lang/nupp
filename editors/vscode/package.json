@@ -25,7 +25,8 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onLanguage:nupp"
+    "onLanguage:nupp",
+    "onCommand:nupp.checkFunctionForJitTraceBlockers"
   ],
   "files": [
     "icon.png",
@@ -40,6 +41,22 @@
     "README.md"
   ],
   "contributes": {
+    "commands": [
+      {
+        "command": "nupp.checkFunctionForJitTraceBlockers",
+        "title": "Nupp: Check Function for JIT Trace Blockers",
+        "category": "Nupp"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "nupp.checkFunctionForJitTraceBlockers",
+          "when": "editorLangId == nupp",
+          "group": "navigation@20"
+        }
+      ]
+    },
     "configurationDefaults": {
       "[nupp]": {
         "editor.semanticHighlighting.enabled": false

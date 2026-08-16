@@ -34,7 +34,7 @@ answer.
 local zone = require("nupp.zone")
 local jitProfile = require("jit.profile")
 local jitUtil = require("jit.util")
-local vmdef = require("jit.vmdef")
+local traceRegistry = require("nupp._trace")
 
 local profile = {}
 
@@ -194,11 +194,29 @@ record profile.AbortSite
     --- the opcode's name.
     reason: string
 
+    --- Stable compiler identity and classification for the raw VM reason above.
+    reasonId: string
+
+    reasonClass: 'blocker' | 'risk' | 'stop'
+    rawReason: string
+
     --- "<file>:<line>" of the function being recorded when it aborted.
     location: string
 
     --- The zone path that was open, "" when none was.
     zonePath: string
+end
+
+--- The exact recorder configuration used to normalize a trace report.
+record profile.TraceProfile
+    id: string
+    luajitRevision: string
+    luajitVersion: integer
+    architecture: string
+    operatingSystem: string
+    enabledRecorderFeatures: {string}
+    bytecodeSchema: string
+    supported: boolean
 end
 
 --- What a trace session saw, as `TraceSession:stop` returns it.
@@ -220,6 +238,12 @@ record profile.TraceReport
     --- One row per distinct severity, reason, location and zone. Ordered by severity,
     --- then by count descending.
     sites: {profile.AbortSite}
+
+    --- The recorder and registry identities under which the events were interpreted.
+    traceProfile: profile.TraceProfile
+
+    reasonCatalogId: string
+    reasonCatalogVersion: integer
 
     metamethod __tostring: function(self): string
 end
@@ -251,6 +275,8 @@ record profile.TraceSession is profile.Session
 
     --- Blacklist events among them.
     blacklisted: integer
+
+    traceProfile: profile.TraceProfile
 
     --- The handler to hand back to `jit.attach` to detach it. Dropping the last
     --- reference to a handler does not remove it.
@@ -593,57 +619,11 @@ end
 -- Trace aborts
 -------------------------------------------------------------------------------
 
-local traceerr = vmdef.traceerr
-local bcnames = vmdef.bcnames
-
--- Opcode names come packed six characters each and space-padded, so the name is the
--- slice with its padding trimmed.
-local function opcodeName(opcode: integer): string
-    local start = opcode * 6 + 1
-    return (bcnames:sub(start, start + 5):gsub("%s+$", ""))
-end
-
--- The reason a trace aborted, as text. `traceerr` holds format strings, and the
--- argument that fills one in is the abort's own second operand — an opcode for the
--- unrecordable-bytecode errors, a number or a string for the rest.
-local function abortReason(errorCode: any, errorArg: any): string
-    if not errorCode then
-        return "abort"
-    end
-
-    local format = traceerr[errorCode as integer]
-    if not format then
-        return "error " .. tostring(errorCode)
-    end
-    if format:find("NYI: bytecode", 1, true) and type(errorArg) == "number" then
-        return "NYI: bytecode " .. opcodeName(errorArg as integer)
-    end
-    if errorArg == nil then
-        return format
-    end
-
-    local ok, filled = pcall(string.format, format, errorArg)
-
-    return ok and filled as string or format
-end
-
--- Trace formation reports the ordinary as an abort too: a loop that was left, recursion
--- in either direction, an inner loop found. None of those is the compiler refusing
--- anything, so they are separated out rather than counted.
-local function classify(reason: string): profile.Severity
+local function classify(reason: string, reasonClass: string): profile.Severity
     if reason:find("blacklist", 1, true) then
         return "blacklist"
     end
-    if reason:find("leaving loop", 1, true) then
-        return "info"
-    end
-    if reason:find("inner loop", 1, true) then
-        return "info"
-    end
-    if reason:find("down-recursion", 1, true) then
-        return "info"
-    end
-    if reason:find("up-recursion", 1, true) then
+    if reasonClass == "stop" then
         return "info"
     end
 
@@ -747,6 +727,7 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
     end
 
     local opts: profile.TraceOptions = options or {}
+    local selected = traceRegistry.profile()
     local session = new profile.TraceSession(
         includeBenign = opts.includeBenign or false,
         startedAt = os.time() as integer,
@@ -755,6 +736,16 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
         sites = {},
         totalAborts = 0,
         blacklisted = 0,
+        traceProfile = new profile.TraceProfile(
+            id = selected.id,
+            luajitRevision = selected.luajitRevision,
+            luajitVersion = selected.luajitVersion,
+            architecture = selected.architecture,
+            operatingSystem = selected.operatingSystem,
+            enabledRecorderFeatures = selected.enabledRecorderFeatures,
+            bytecodeSchema = selected.bytecodeSchema,
+            supported = selected.supported
+        ),
         callback = function()
         end
     )
@@ -768,8 +759,10 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
             return
         end
 
-        local reason = abortReason(errorCode, errorArg)
-        local severity = classify(reason)
+        local normalizedCode = type(errorCode) == "number" and errorCode as integer or nil
+        local normalizedArg = (type(errorArg) == "number" or type(errorArg) == "string") and errorArg or nil
+        local normalized, reason = traceRegistry.runtime(normalizedCode, normalizedArg)
+        local severity = classify(reason, normalized.class)
         if severity == "info" and not session.includeBenign then
             return
         end
@@ -792,6 +785,9 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
                 severity = severity,
                 count = 1,
                 reason = reason,
+                reasonId = normalized.id,
+                reasonClass = normalized.class,
+                rawReason = reason,
                 location = location,
                 zonePath = path
             )
@@ -867,7 +863,10 @@ function profile.TraceSession:stop(filename: string?): profile.TraceReport
         durationSec = (os.time() as integer) - self.startedAt,
         totalAborts = self.totalAborts,
         blacklisted = self.blacklisted,
-        sites = sites
+        sites = sites,
+        traceProfile = self.traceProfile,
+        reasonCatalogId = traceRegistry.CATALOG_ID,
+        reasonCatalogVersion = traceRegistry.CATALOG_VERSION
     )
     if filename then
         writeFile(filename, tostring(report))
