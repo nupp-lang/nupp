@@ -548,6 +548,12 @@ record scalarIR.LaneBody
     lanes: integer
     shape: string
     statements: {any}
+
+    --- Whether any explicit fixed-width operation was performed wider and
+    --- rounded, because this gang does not carry that element exactly. Three
+    --- instructions where an exact one is a single instruction, so a body full
+    --- of them gains far less from lanes than its operation count suggests.
+    rounded: boolean?
 end
 
 --- One whole admitted `@aot` function.

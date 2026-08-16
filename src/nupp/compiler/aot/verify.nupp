@@ -202,6 +202,7 @@ const verify.LANE_OPCODES = {
     ["vunary"] = true,
     ["vbitwise"] = true,
     ["vbits"] = true,
+    ["vround"] = true,
 }
 
 --- The two halves of one walk, declared before either is written. They are
@@ -610,6 +611,16 @@ laneWalk = function(node: lane.Expr, values: {[string]: string}, context: verify
             context,
             "a bitwise operand outside the bit vector"
         )
+    elseif node.op == "vround" then
+        -- The vector does not change: a rounding narrows the value and carries
+        -- it on where it was. A gang that carries the element exactly has
+        -- nothing to round, so asking is a malformed opcode rather than a
+        -- no-op.
+        laneHolds(
+            (shape.rounding or {})[node.element] == node.narrow and node.type == shape.vectorFor[node.element],
+            "a rounding this gang does not need or cannot do"
+        )
+        operands(node.args, node.type, 1, values, context, "a rounding of something that is not its own width")
     elseif node.op == "vbits" then
         laneHolds(
             admitted[

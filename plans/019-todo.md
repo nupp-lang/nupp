@@ -126,12 +126,27 @@ work makes sense in.
         1 for an `@aot` map loop that lowered scalar, naming the construct that
         stopped it. Needs an inverted marker for a deliberately scalar loop, and
         the one-top-level-map-loop shape stops being an error.
-  - [ ] mixed-width gangs. Selection is all-or-nothing today: one binary64
-        varying value drops the whole loop to four lanes. The rule is ISPC's --
-        fix a gang size from aggregate register pressure and let each value
-        occupy however many registers its element type needs, so a binary64
-        value in a gang of eight is four NEON registers and a binary32 one is
-        two. That needs mask widths to convert, which nothing does yet.
+  - [ ] mixed-width gangs. Half of this is done and the half that is left is
+        smaller than it was.
+        The sharp edge was not lane count: a loop mixing explicit binary32 with
+        one binary64 value got **no gang at all**, because the 32-bit gang
+        refused the binary64 value and the binary64 gang refused the explicit
+        binary32 operations. `mixedwidth.nupp` is that shape. It now lowers to
+        four lanes: the binary64 gang performs each binary32 operation in its own
+        lanes and rounds the result once, which is bit-identical to the native
+        instruction by the argument the scalar lowering already rests on.
+        `mixedwidth_main.lua` proves that over 4001 bodies across three bodies
+        from one source, with 688 taking the divergent exit.
+        Measured at 1.14x over forced scalar, against about 2x for a gang that
+        carries its element exactly -- a rounded operation is three instructions
+        where an exact one is one. That gap is what real mixed-width gangs would
+        close, and the IR now records `lanes.rounded` so `nupp aot` says when a
+        body paid it rather than leaving the operation count to imply otherwise.
+        What remains is the lane count: fix a gang size from aggregate register
+        pressure and let each value occupy however many registers its element
+        needs, so a binary64 value in a gang of eight is four NEON registers and
+        a binary32 one is two. That needs mask widths to convert, which nothing
+        does yet.
   - [ ] admit `nupp.math.f32.min`, `max`, and `fma`. The admitted operations are
         exact because a binary32 operation over binary32 operands computed in
         binary64 and rounded once is bit-identical to the native instruction

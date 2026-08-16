@@ -70,6 +70,20 @@ record aotLane.Shape
     --- converts out to this and back, which changes nothing because every
     --- uint32 is an exact binary64 value.
     bits: aotLane.Vector
+
+    --- The vector an element is rounded through when this gang carries it wider
+    --- than it is.
+    ---
+    --- A gang carrying binary32 in binary64 lanes can still perform an explicit
+    --- binary32 operation: compute it in the wider lanes and round the result
+    --- once to binary32. That is bit-identical to the native single-precision
+    --- instruction by the same argument the scalar lowering rests on -- 53 is at
+    --- least twice 24 plus 2 -- so it costs an instruction rather than an answer.
+    ---
+    --- Without it a loop mixing explicit binary32 with one binary64 value gets no
+    --- gang at all: the 32-bit gang refuses the binary64 value and the binary64
+    --- gang refuses the explicit binary32 operation.
+    rounding: {[aotLane.Element]: aotLane.Vector}?
 end
 
 --- A uniform value broadcast to every lane.
@@ -120,6 +134,9 @@ record aotLane.FieldLoad
     source: aotLane.Source?
 end
 
+--- The elementwise verbs a gang's arithmetic and comparisons are written with.
+type aotLane.BinaryVerb = 'add' | 'sub' | 'mul' | 'div' | 'lt' | 'le' | 'gt' | 'ge' | 'eq' | 'ne'
+
 --- Elementwise arithmetic, or an elementwise comparison producing a mask.
 ---
 --- The operation names its own vector type -- `vadd.f64x4`, `vlt.f32x8` -- so
@@ -136,7 +153,7 @@ record aotLane.Binary
     op: 'vbinary'
 
     --- What the operation does.
-    verb: 'add' | 'sub' | 'mul' | 'div' | 'lt' | 'le' | 'gt' | 'ge' | 'eq' | 'ne'
+    verb: aotLane.BinaryVerb
 
     args: {aotLane.Expr}
 
@@ -266,6 +283,29 @@ record aotLane.BitConvert
     source: aotLane.Source?
 end
 
+--- Rounding a value to a narrower element and carrying it on in the wider one.
+---
+--- The only lane operation that changes a value without changing its vector.
+--- What it costs is one conversion each way; what it buys is that an explicit
+--- fixed-width operation can happen in a gang that carries the value wider,
+--- which is the difference between four lanes and none for a loop that mixes
+--- widths.
+record aotLane.Round
+    op: 'vround'
+
+    --- The element the value is rounded to. The vector it is carried in does not
+    --- change, which is what makes this a rounding rather than a conversion.
+    element: aotLane.Element
+
+    --- The vector it goes out through, carried rather than looked up so the
+    --- emitter reads one node instead of the node and the gang.
+    narrow: aotLane.Vector
+
+    args: {aotLane.Expr}
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
 --- A lane local: a vector or mask bound earlier in this block.
 record aotLane.Local
     op: 'local'
@@ -294,7 +334,8 @@ const aotLane.SHAPES = {
         -- Integers ride in binary64 lanes because every int32 and uint32 is an
         -- exact binary64 value, which is also what ordinary Nupp does with them.
         vectorFor = {["f64"] = "f64x4", ["f32"] = "f64x4", ["i32"] = "f64x4", ["u32"] = "f64x4", ["bool"] = "m64x4"},
-        bits = "u32x4"
+        bits = "u32x4",
+        rounding = {["f32"] = "f32x4"}
     ),
     new aotLane.Shape(
         name = "f32x8",
@@ -356,6 +397,7 @@ type aotLane.Expr = aotLane.Splat
     | aotLane.Corrected
     | aotLane.Bitwise
     | aotLane.BitConvert
+    | aotLane.Round
     | aotLane.Local
 
 --- Declaring a lane local.

@@ -481,6 +481,14 @@ function emit.lane(node: lane.Expr | scalarIR.Expr): string
         return "((ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "})"
     elseif operation == "vbitwise" then
         return emit.laneBits(node as lane.Bitwise)
+    elseif operation == "vround" then
+        -- Out to the narrow element and straight back. One rounding, which is
+        -- what makes this the same answer as the native narrow instruction.
+        local rounded = node as lane.Round
+
+        return "__builtin_convertvector(__builtin_convertvector(" .. emit.lane(
+            rounded.args[1]
+        ) .. ", ks_" .. rounded.narrow .. "), ks_" .. vector .. ")"
     elseif operation == "vbits" then
         return "__builtin_convertvector(" .. emit.lane((node as lane.BitConvert).args[1]) .. ", ks_" .. vector .. ")"
     elseif operation == "vcorrected" then
@@ -714,6 +722,12 @@ local function vectorTypes(shape: lane.Shape): {string}
         vectors[vector] = true
     end
     vectors[shape.bits] = true
+    -- The narrow vectors a rounding goes out through. Emitted whether or not
+    -- this body rounds, like everything else in the prelude, and unused there
+    -- costs a typedef.
+    for _, vector in pairs(shape.rounding or {}) do
+        vectors[vector] = true
+    end
 
     for _, vector in ipairs(sortedKeys(vectors)) do
         if vector ~= shape.mask then

@@ -219,6 +219,17 @@ bench/kernel-subset-spike/mandelbrot.sh tecsbits
 luajit bench/kernel-subset-spike/tecsbits_main.lua
 ```
 
+Run the mixed-width differential, which is what admits an explicit binary32
+operation to a gang that carries binary32 in binary64 lanes. Its kernel is
+everything-binary32 except one binary64 running total, which is the shape
+neither gang could take before: the 32-bit one refuses the total and the
+binary64 one refused the explicit binary32 operations.
+
+```sh
+bench/kernel-subset-spike/mandelbrot.sh mixedwidth
+luajit bench/kernel-subset-spike/mixedwidth_main.lua
+```
+
 Measure the losing side, which is the row a backend change has to move:
 
 ```sh

@@ -81,7 +81,14 @@ local command = spec.command{
             lanes = {
                 type = "object",
                 description = "The gang the loop was lowered to, absent when it was not.",
-                properties = {shape = {type = "string"}, lanes = {type = "integer"}},
+                properties = {
+                    shape = {type = "string"},
+                    lanes = {type = "integer"},
+                    rounded = {
+                        type = "boolean",
+                        description = "Whether explicit fixed-width work was performed wider and rounded.",
+                    },
+                },
             },
             outcome = {
                 type = "string",
@@ -146,7 +153,11 @@ local function summarise(path: string, program: any): string
         program.intensity or 0,
         program.operations or 0,
         program.touchedBytes or 0,
-        how == "lowered" and (shape .. ", " .. tostring(program.lanes.lanes) .. " lanes") or shape,
+        how == "lowered" and (
+            shape .. ", " .. tostring(
+                program.lanes.lanes
+            ) .. " lanes" .. (program.lanes.rounded == true and ", rounding explicit fixed-width work" or "")
+        ) or shape,
         why
     )
 end

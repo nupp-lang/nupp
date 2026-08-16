@@ -28,6 +28,11 @@ record text.Operands
     type: string?
     verb: string?
     direction: string?
+
+    --- The element a rounding names, which is the only thing that tells two
+    --- roundings apart.
+    element: string?
+
     args: {any}
 end
 
@@ -54,6 +59,7 @@ const text.LIST_OPERANDS = {
     ["vbitwise"] = true,
     ["vbits"] = true,
     ["vcorrected"] = true,
+    ["vround"] = true,
     ["f32_fma"] = true,
 }
 
@@ -92,6 +98,8 @@ function text.displayOp(node: text.Operands): string
         return "v" .. tostring(node.verb)
     elseif op == "vbitwise" then
         return "vbit." .. tostring(node.verb)
+    elseif op == "vround" then
+        return "vround." .. tostring(node.element)
     end
 
     return op

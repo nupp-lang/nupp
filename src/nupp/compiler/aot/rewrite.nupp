@@ -50,6 +50,15 @@ record rewrite.State
 
     --- Reports a construct this pass cannot represent.
     reject: function(string): nil
+
+    --- Whether any explicit fixed-width operation had to be rounded because this
+    --- gang carries the element wider than it is.
+    ---
+    --- Worth knowing downstream: a rounded operation is three instructions where
+    --- an exact one is a single instruction, so the arithmetic-intensity
+    --- estimate -- which counts operations, not instructions -- overstates what
+    --- lanes will be worth for a body full of them.
+    rounded: boolean?
 end
 
 --- The scalar types that name a lane element.
@@ -466,6 +475,63 @@ end
 --- operations, the three corrected ones, bitwise work, and the closed math set.
 ---
 --- Separate from the dispatch above only because that one is long enough.
+--- An explicit fixed-width binary operation, in whatever width this gang has.
+---
+--- A gang that carries the element exactly performs it directly. A gang that
+--- carries it wider performs it wide and rounds the result once, which is
+--- bit-identical to the narrow instruction by the same argument the scalar
+--- lowering rests on: a binary32 operation over binary32 operands computed in
+--- binary64 and rounded once is what the native instruction produces, because 53
+--- is at least twice 24 plus 2.
+---
+--- Rounding rather than refusing is what lets a loop mixing explicit binary32
+--- with one binary64 value run four lanes instead of one. Without it neither
+--- gang takes it: the 32-bit one refuses the binary64 value and the binary64 one
+--- refuses the explicit binary32 operation.
+function rewrite.fixedWidth(
+    node: scalarIR.Expr,
+    verb: lane.BinaryVerb,
+    element: lane.Element,
+    state: rewrite.State
+): rewrite.Value
+    local shape = state.shape
+    local binary = node as scalarIR.Binary
+    local exact = rewrite.carriesExactly(state, element)
+    local narrow = (shape.rounding or {})[element]
+    if not exact and narrow == nil then
+        state.reject(
+            "an explicit " .. element .. " operation needs " .. element .. " lanes, and " .. shape.name .. " has none"
+        )
+    end
+
+    -- The operands are already this element, rounded where they came from a
+    -- fixed-width operation and exact where they came from a literal or a load.
+    -- Only the result needs rounding, which is the one place the wider lanes
+    -- would otherwise keep a value the narrow instruction would not.
+    local wide = shape.vectorFor[element] as string
+    local computed = new lane.Binary(
+        op = "vbinary",
+        verb = verb,
+        element = exact and element or "f64",
+        args = {numericVector(binary.left, element, state), numericVector(binary.right, element, state),},
+        type = wide,
+        source = node.source
+    )
+    if exact then
+        return computed
+    end
+    state.rounded = true
+
+    return new lane.Round(
+        op = "vround",
+        element = element,
+        narrow = narrow as string,
+        args = {computed},
+        type = wide,
+        source = node.source
+    )
+end
+
 function rewrite.arithmetic(node: scalarIR.Expr, state: rewrite.State): rewrite.Value
     local shape = state.shape
     local operation = node.op
@@ -473,33 +539,7 @@ function rewrite.arithmetic(node: scalarIR.Expr, state: rewrite.State): rewrite.
 
     local fixed = rewrite.FIXED[operation]
     if fixed ~= nil then
-        -- An explicit fixed-width operation rounds at every step. A gang
-        -- carrying the value wider would answer differently unless it narrowed
-        -- after each one, so it declines and lets a gang of the right width take
-        -- the loop.
-        if not rewrite.carriesExactly(state, fixed.element) then
-            state.reject(
-                "an explicit "
-                .. fixed.element
-                .. " operation needs "
-                .. fixed.element
-                .. " lanes, and "
-                .. shape.name
-                .. " has none"
-            )
-        end
-
-        return new lane.Binary(
-            op = "vbinary",
-            verb = fixed.verb,
-            element = fixed.element,
-            args = {
-                numericVector(binary.left, fixed.element, state),
-                numericVector(binary.right, fixed.element, state),
-            },
-            type = shape.vectorFor[fixed.element] as string,
-            source = node.source
-        )
+        return rewrite.fixedWidth(node, fixed.verb, fixed.element, state)
     end
 
     local corrected = rewrite.CORRECTED[operation]
@@ -1555,10 +1595,13 @@ function rewrite.loop(program: scalarIR.Program, shape: lane.Shape, reject: func
     )
     rewrite.markVarying(program.loop.statements, state)
 
+    local statements = rewrite.block(program.loop.statements, nil, nil, nil, new rewrite.BlockState(serial = 0), state)
+
     return new scalarIR.LaneBody(
         lanes = shape.lanes,
         shape = shape.name,
-        statements = rewrite.block(program.loop.statements, nil, nil, nil, new rewrite.BlockState(serial = 0), state)
+        statements = statements,
+        rounded = state.rounded == true
     )
 end
 
