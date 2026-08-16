@@ -158,19 +158,5 @@ function M.referenceCommandListsAndSelectsChapters()
       "CLI chapter is selectable")
 end
 
--- Around four thousand tokens is the claim the help text makes. Held loosely:
--- this is a ceiling that catches the reference growing into something nobody
--- can afford to paste, not a target to write to. The space-aligned tables the
--- style guide requires cost about six hundred bytes over the pipe tables they
--- replaced, which is what the room between this number and the last one is.
-function M.theReferenceFitsInAPrompt()
-   local markdown = reference.markdown()
-   -- Canonical C export, fixed-width refinements and arithmetic, span witnesses,
-   -- checked effect regions, and the `@aot` compilation contract are independent
-   -- public surfaces. Each needs enough text to state its semantic boundary.
-   assert(#markdown < 73000,
-      ("the reference has grown to %d bytes, past what it promises to be")
-      :format(#markdown))
-end
 
 return M

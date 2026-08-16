@@ -924,7 +924,7 @@ Usage:
   nupp reference [language|cli|all] [--format markdown|skill|json] [-o PATH]
 
 With no chapter, lists the available focused references. `all` is the
-complete language reference, around four thousand tokens, so it fits in a prompt
+complete language reference, around fifteen thousand tokens, meant to be pasted
 whole.
 
   nupp reference cli
