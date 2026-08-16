@@ -26,8 +26,11 @@ end
 
 -- Fusing `a * b + c` into one rounding is faster and gives a different answer,
 -- so it is asked for here rather than assumed. Without this line the kernel is
--- exact and reproducible across targets; with it, it is neither, and it is
--- roughly twice the speed.
+-- exact and reproducible across targets; with it, it is neither. Measured on
+-- Apple arm64 at 1024x768 and 256 iterations it is worth about six percent
+-- either way -- 75.8 against 71.1 MPix/s lane-parallel, 36.9 against 35.0
+-- forced scalar -- which is a real gain and not the doubling this comment used
+-- to claim. `mandelbrot_exact.nupp` is the same source without the line.
 @relax("fp-contract")
 @aot
 local function mandelbrot(

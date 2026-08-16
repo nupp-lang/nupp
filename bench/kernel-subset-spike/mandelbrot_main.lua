@@ -138,6 +138,9 @@ end
 
 local optimized = ffi.new("KsEscape[?]", count)
 local scalar = ffi.new("KsEscape[?]", count)
+-- Where the ordinary Nupp body writes when it is being timed rather than
+-- checked, so timing never shares a buffer with a correctness comparison.
+local interpreted = ffi.new("KsEscape[?]", count)
 lib.ks_mandelbrot(optimized, points, 1, count, MAX_ITERATIONS, count)
 lib.ks_mandelbrot_forced_scalar(scalar, points, 1, count, MAX_ITERATIONS, count)
 
@@ -266,12 +269,9 @@ if os.getenv("MANDELBROT_QUIET") then
       lib.ks_mandelbrot_forced_scalar(scalar, points, 1, count, MAX_ITERATIONS, count)
    end)
    bench("LuaJIT", function()
-      local total = 0
-      for index = 0, count - 1 do
-         total = total + recurrence(points[index].re, points[index].im)
-      end
-
-      return total
+      local writer = spans.writeCarray(interpreted, count)
+      ordinary.mandelbrot(writer, spans.fromCarray(points, count), 1, count, MAX_ITERATIONS)
+      writer:commit()
    end)
    os.exit(0)
 end
@@ -314,18 +314,19 @@ end)
 timed("forced-scalar C", function()
    lib.ks_mandelbrot_forced_scalar(scalar, points, 1, count, MAX_ITERATIONS, count)
 end)
--- The ordinary fallback for the binary32 program performs every rounding point
+-- The same function with AOT off, so the three rows differ in how the body was
+-- compiled and in nothing else. Timing the bare recurrence instead would drop
+-- the interior test the compiled bodies run, which is most of the work on this
+-- view, and would report LuaJIT as slower than it is.
+--
+-- The ordinary body for the binary32 program performs every rounding point
 -- through an FFI store and load, so it is timed over a prefix and reported as a
 -- per-pixel rate. That cost is the price of the explicitly binary32 source, not
 -- an artifact of measuring it: it is what this program costs with AOT off.
 local luaPixels = binary32 and math.min(count, 20000) or count
 timed("LuaJIT", function()
-   local total = 0
-   for index = 0, luaPixels - 1 do
-      local iterations = recurrence(points[index].re, points[index].im)
-      total = total + iterations
-   end
-
-   return total
+   local writer = spans.writeCarray(interpreted, luaPixels)
+   ordinary.mandelbrot(writer, spans.fromCarray(points, luaPixels), 1, luaPixels, MAX_ITERATIONS)
+   writer:commit()
 end, luaPixels)
 io.write("\n")

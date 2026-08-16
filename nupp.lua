@@ -756,6 +756,11 @@ nupp lsp            # start the language server]],
                   source = "docs/tooling/hot-reload.md",
                },
                {
+                  path = "guides/ahead-of-time",
+                  title = "Ahead-of-time compilation",
+                  source = "docs/tooling/aot.md",
+               },
+               {
                   path = "guides/optimization",
                   title = "Optimization",
                   source = "docs/tooling/optimization.md",
