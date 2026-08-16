@@ -332,6 +332,13 @@ record lower.Kernel
     --- own to name.
     loopSource: scalarIR.Source?
 
+    --- The loop counter, which is the only index a span access may use.
+    index: string
+
+    --- How many locals have been named, so two source scopes using one name get
+    --- two C names.
+    serial: integer
+
     context: lower.Context
 end
 
@@ -892,6 +899,395 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
     kernel.helperOrder[#kernel.helperOrder + 1] = helper
 
     return helper
+end
+
+--- An environment with the same entries, so a nested block cannot leak the
+--- names it introduces back out of itself.
+local function inherit(environment: {[string]: any}): {[string]: any}
+    local copied: {[string]: any} = {}
+    for name, bound in pairs(environment) do
+        copied[name] = bound
+    end
+
+    return copied
+end
+
+--- Introduces one local, refusing a name already in scope.
+---
+--- Shadowing is refused rather than renamed: the generated C has no scope to
+--- tell two bindings of one name apart, and quietly renaming would make the
+--- source and the C disagree about which one a later read meant.
+local function bind(
+    name: string,
+    valueType: scalarIR.Type,
+    mutable: boolean?,
+    at: cst.Node?,
+    environment: {[string]: any},
+    kernel: lower.Kernel
+): scalarIR.Binding
+    if environment[name] ~= nil then
+        kernel.context.reject(lower.site(at), "native locals may not shadow " .. name)
+    end
+    kernel.serial = kernel.serial + 1
+
+    local binding = new scalarIR.Binding(
+        kind = "local",
+        name = name,
+        type = valueType,
+        mutable = mutable,
+        cName = scalarIR.cIdentifier("v" .. tostring(kernel.serial), name),
+        source = lower.site(at)
+    )
+    environment[name] = binding
+
+    return binding
+end
+
+--- One `local` declaration, which may bind several names from one call.
+local function localStmt(
+    stat: cst.LocalStmt,
+    out: {scalarIR.Statement},
+    environment: {[string]: any},
+    kernel: lower.Kernel
+): nil
+    local context = kernel.context
+    local names = stat.names or {}
+    local exprs = stat.exprs or {}
+    if #names == 0 or #exprs == 0 then
+        context.reject(lower.site(stat), "native locals must be initialized")
+    end
+
+    local values: {scalarIR.Expr} = {}
+    if #exprs == 1 then
+        local only = lower.expression(exprs[1], environment, kernel.index, kernel)
+        if only.type == "multi" then
+            -- One call, several results. The names are bound together because
+            -- the call happens once, whatever it is later inlined into.
+            local call = only as scalarIR.HelperCall
+            local resultTypes = call.resultTypes or {}
+            if #resultTypes ~= #names then
+                context.reject(lower.site(stat), "multiple-result helper count does not match local names")
+            end
+
+            local bindings: {scalarIR.Binding} = {}
+            for position, token in ipairs(names) do
+                local annotated = lower.sourceValueType(
+                    lower.compactType(stat.types ~= nil and (stat.types as {cst.Node})[position] or nil)
+                )
+                local valueType = resultTypes[position]
+                if annotated ~= nil and annotated ~= valueType then
+                    context.reject(lower.site(stat), "native local annotation does not match")
+                end
+                bindings[position] = bind(token.text, valueType, nil, stat, environment, kernel)
+            end
+            out[
+                #out + 1
+            ] = new scalarIR.MultiLet(op = "multi_let", call = call, bindings = bindings, source = lower.site(stat))
+
+            return
+        end
+        values[1] = only
+    else
+        for _, expression in ipairs(exprs) do
+            local value = lower.expression(expression, environment, kernel.index, kernel)
+            if value.type == "multi" then
+                context.reject(lower.site(expression), "a multiple-result call must be the only initializer")
+            end
+            values[#values + 1] = value
+        end
+    end
+
+    if #values ~= #names then
+        context.reject(lower.site(stat), "native local initializer count must match names")
+    end
+    for position, token in ipairs(names) do
+        local spelling = lower.compactType(stat.types ~= nil and (stat.types as {cst.Node})[position] or nil)
+        local expected = spelling ~= "" and lower.sourceValueType(spelling) or values[position].type
+        if expected == nil then
+            context.reject(lower.site(stat), "native local annotation " .. spelling .. " is not admitted")
+        end
+
+        local value = lower.convert(values[position], expected as scalarIR.Type, lower.site(stat), context)
+        local binding = bind(
+            token.text,
+            expected as scalarIR.Type,
+            (value as scalarIR.ElementRef).mutable,
+            stat,
+            environment,
+            kernel
+        )
+        out[
+            #out + 1
+        ] = new scalarIR.Let(
+            op = "let",
+            name = token.text,
+            cName = binding.cName,
+            type = expected as scalarIR.Type,
+            value = value,
+            source = lower.site(stat)
+        )
+    end
+end
+
+--- One `output:set(index, value)`, which is the only call statement admitted.
+local function callStmt(
+    stat: cst.CallStmt,
+    out: {scalarIR.Statement},
+    environment: {[string]: any},
+    kernel: lower.Kernel
+): nil
+    local context = kernel.context
+    local call = stat.expr
+    local spanName = call ~= nil and call.kind == "methodCall" and lower.nameOf((call as cst.MethodCall).obj) or nil
+    local output = spanName ~= nil and kernel.params[spanName as string] or nil
+    local method = call ~= nil and call.kind == "methodCall" and (call as cst.MethodCall).name or nil
+    local args = call ~= nil and call.kind == "methodCall" and (
+        call as cst.MethodCall
+    ).args ~= nil and ((call as cst.MethodCall).args as cst.Args).exprs or {}
+    if output == nil or output.kind ~= "write_span" or method == nil or (method as lexer.Token).text ~= "set" then
+        context.reject(lower.site(stat), "a native call statement must be output:set(index, value)")
+    end
+    if #args ~= 2 or lower.nameOf(args[1]) ~= kernel.index then
+        context.reject(lower.site(call), "span stores must use the active loop index exactly")
+    end
+
+    local value = lower.expression(args[2], environment, kernel.index, kernel)
+    out[
+        #out + 1
+    ] = new scalarIR.Store(
+        op = "store",
+        span = spanName as string,
+        index = kernel.index,
+        value = lower.convert(value, output.element.type, lower.site(call), context),
+        source = lower.site(call)
+    )
+end
+
+--- Where one assignment puts its value.
+local function assignTarget(target: cst.Node, environment: {[string]: any}, kernel: lower.Kernel): scalarIR.Target
+    local context = kernel.context
+    if target.kind == "name" then
+        local binding = environment[tostring(lower.nameOf(target))]
+        if binding == nil or binding.kind ~= "local" then
+            context.reject(lower.site(target), "native assignment target must be a local")
+        end
+
+        return new scalarIR.Target(kind = "local", name = binding.name, cName = binding.cName, type = binding.type)
+    end
+
+    local indexed = target as cst.DotIndex
+    if target.kind ~= "dotIndex" or indexed.name == nil then
+        context.reject(lower.site(target), "native assignment targets are locals or mutable struct fields")
+    end
+
+    local object = lower.expression(indexed.obj as cst.Node, environment, kernel.index, kernel)
+    local layoutName = object.type:match("^ref:(.+)$")
+    local layout = layoutName ~= nil and kernel.layouts.byName[layoutName as string] or nil
+    if layout == nil or (object as scalarIR.ElementRef).mutable ~= true then
+        context.reject(lower.site(target), "native field assignment needs getMut(index)")
+    end
+
+    local wanted = (indexed.name as lexer.Token).text
+    local field: scalarIR.Field? = nil
+    for _, candidate in ipairs((layout as scalarIR.Layout).fields) do
+        if candidate.name == wanted then
+            field = candidate
+        end
+    end
+    if field == nil then
+        context.reject(lower.site(target), "unknown native struct field " .. wanted)
+    end
+
+    return new scalarIR.Target(
+        kind = "field",
+        object = object,
+        layout = layoutName as string,
+        field = (field as scalarIR.Field).name,
+        type = (field as scalarIR.Field).type
+    )
+end
+
+--- One assignment, which may write several targets at once.
+local function assignStmt(
+    stat: cst.AssignStmt,
+    out: {scalarIR.Statement},
+    environment: {[string]: any},
+    kernel: lower.Kernel
+): nil
+    local context = kernel.context
+    local exprs = stat.exprs or {}
+    local targets = stat.targets or {}
+
+    local values: {scalarIR.Expr} = {}
+    if #exprs == 1 then
+        local only = lower.expression(exprs[1], environment, kernel.index, kernel)
+        if only.type == "multi" then
+            context.reject(
+                lower.site(stat),
+                "multiple-result helpers initialize locals; ordinary multiple assignment uses explicit values"
+            )
+        end
+        values[1] = only
+    else
+        for _, expression in ipairs(exprs) do
+            values[#values + 1] = lower.expression(expression, environment, kernel.index, kernel)
+        end
+    end
+    if #values ~= #targets then
+        context.reject(lower.site(stat), "native assignment counts must match")
+    end
+
+    local assignments: {scalarIR.Assignment} = {}
+    for position, target in ipairs(targets) do
+        local lowered = assignTarget(target, environment, kernel)
+        assignments[
+            position
+        ] = new scalarIR.Assignment(
+            target = lowered,
+            value = lower.convert(values[position], lowered.type as scalarIR.Type, lower.site(stat), context)
+        )
+    end
+    out[#out + 1] = new scalarIR.Assign(op = "assign", values = assignments, source = lower.site(stat))
+end
+
+--- One numeric `for` bound.
+---
+--- An integer literal stays an integer rather than being written as a double
+--- for the emitter to cast back.
+local function forBound(bound: scalarIR.Expr, at: cst.Node?, kernel: lower.Kernel): scalarIR.Expr
+    if bound.op == "constant" then
+        local number = tonumber((bound as scalarIR.Constant).value)
+        if number ~= nil and number == math.floor(number as number) then
+            return new scalarIR.IntConstant(
+                op = "constant_i32",
+                value = tostring(number),
+                type = "i32",
+                source = bound.source
+            )
+        end
+    end
+    if bound.type ~= "i32" and bound.type ~= "u32" and bound.type ~= "f64" then
+        kernel.context.reject(lower.site(at), "native for bounds must be numeric")
+    end
+
+    return bound
+end
+
+--- One block of admitted statements, and everything under it.
+function lower.block(statements: {cst.Node}, environment: {[string]: any}, kernel: lower.Kernel): {scalarIR.Statement}
+    local context = kernel.context
+    local out: {scalarIR.Statement} = {}
+
+    --- One nested block, under its own scope.
+    local function nested(body: cst.Node?): {scalarIR.Statement}
+        local block = body as cst.Block?
+
+        return lower.block(block ~= nil and (block as cst.Block).stats or {}, inherit(environment), kernel)
+    end
+
+    for _, stat in ipairs(statements) do
+        local kind = stat.kind
+        if kind == "localStmt" then
+            localStmt(stat as cst.LocalStmt, out, environment, kernel)
+        elseif kind == "callStmt" then
+            callStmt(stat as cst.CallStmt, out, environment, kernel)
+        elseif kind == "assignStmt" then
+            assignStmt(stat as cst.AssignStmt, out, environment, kernel)
+        elseif kind == "ifStmt" then
+            local branch = stat as cst.IfStmt
+            local clauses: {scalarIR.Clause} = {}
+            for _, arm in ipairs(branch.clauses or {}) do
+                local condition = lower.expression(arm.cond as cst.Node, environment, kernel.index, kernel)
+                if condition.type ~= "bool" then
+                    context.reject(lower.site(arm.cond), "native branch conditions must be boolean")
+                end
+                clauses[
+                    #clauses + 1
+                ] = new scalarIR.Clause(condition = condition, body = nested(arm.body), source = lower.site(arm))
+            end
+
+            local elseClause = branch.elseClause
+            out[
+                #out + 1
+            ] = new scalarIR.If(
+                op = "if",
+                clauses = clauses,
+                elseBody = elseClause ~= nil and nested((elseClause as cst.ElseClause).body) or nil,
+                source = lower.site(stat)
+            )
+        elseif kind == "fornumStmt" then
+            -- A bounded nested loop with an integer induction variable. The
+            -- outer row loop already counts in an integer; a `while` over a
+            -- number local does the same job with a double, which is a worse
+            -- lowering of the same intent.
+            local loop = stat as cst.FornumStmt
+            if loop.step ~= nil then
+                context.reject(lower.site(stat), "a native nested for loop takes no explicit step")
+            end
+
+            local from = forBound(
+                lower.expression(loop.start as cst.Node, environment, kernel.index, kernel),
+                stat,
+                kernel
+            )
+            local to = forBound(
+                lower.expression(loop.stop as cst.Node, environment, kernel.index, kernel),
+                stat,
+                kernel
+            )
+            if loop.var == nil then
+                context.reject(lower.site(stat), "a native for loop needs an induction variable")
+            end
+
+            local inner = inherit(environment)
+            local binding = bind((loop.var as lexer.Token).text, "i32", nil, stat, inner, kernel)
+            out[
+                #out + 1
+            ] = new scalarIR.Fornum(
+                op = "fornum",
+                binding = binding,
+                from = from,
+                to = to,
+                body = lower.block(loop.body ~= nil and (loop.body as cst.Block).stats or {}, inner, kernel),
+                source = lower.site(stat)
+            )
+        elseif kind == "whileStmt" then
+            -- A nested loop the kernel controls itself, as distinct from the
+            -- outer row loop the prototype supplies. Nothing here bounds its
+            -- trip count: the condition is ordinary Nupp and termination is the
+            -- source's business, exactly as it is when the same function runs as
+            -- ordinary Nupp. That is a real difference from the outer loop,
+            -- whose bounds the IR carries and the verifier checks.
+            local loop = stat as cst.WhileStmt
+            local condition = lower.expression(loop.cond as cst.Node, environment, kernel.index, kernel)
+            if condition.type ~= "bool" then
+                context.reject(lower.site(loop.cond), "native loop conditions must be boolean")
+            end
+            out[
+                #out + 1
+            ] = new scalarIR.While(
+                op = "while",
+                condition = condition,
+                body = nested(loop.body),
+                source = lower.site(stat)
+            )
+        elseif kind == "doStmt" then
+            out[
+                #out + 1
+            ] = new scalarIR.Block(op = "block", body = nested((stat as cst.DoStmt).body), source = lower.site(stat))
+        elseif kind == "breakStmt" then
+            out[#out + 1] = new scalarIR.Break(op = "break", source = lower.site(stat))
+        elseif kind == "continueStmt" then
+            out[#out + 1] = new scalarIR.Continue(op = "continue", source = lower.site(stat))
+        else
+            context.reject(
+                lower.site(stat),
+                "statement kind " .. tostring(kind) .. " is not admitted in the native loop"
+            )
+        end
+    end
+
+    return out
 end
 
 return lower

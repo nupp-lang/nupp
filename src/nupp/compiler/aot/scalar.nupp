@@ -310,6 +310,11 @@ record scalarIR.Binding
     name: string
     cName: string
     type: scalarIR.Type
+
+    --- Whether what it was bound to may be written through, which is how a
+    --- name bound to `getMut(i)` stays writable at its uses.
+    mutable: boolean?
+
     source: scalarIR.Source?
 end
 
