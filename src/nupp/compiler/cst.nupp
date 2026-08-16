@@ -165,6 +165,14 @@ interface cst.Hints
     --- and the nested struct ctypes the spec's `$` placeholders consume.
     layoutOf: any
 
+    --- Compiler-owned SoA layout and lowering facts.
+    soaLayout: any
+
+    soaOperation: string?
+    soaRow: any
+    soaField: any
+    soaFieldProjection: any
+
     --- The severity of a `nupp.log` call generation may lower, as the runtime numbers
     --- them. Present only on a call whose format is a literal and whose `nupp` is the
     --- ambient one; lowering additionally needs statement position.

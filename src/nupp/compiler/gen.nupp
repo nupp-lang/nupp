@@ -1234,6 +1234,7 @@ function gen.generate(
     end
 
     local emit
+    local soaLoopBounds: {[any]: any} = {}
 
     local function sourceLine(node)
         if not node then
@@ -1250,6 +1251,96 @@ function gen.generate(
         end
 
         return nil
+    end
+
+    local function soaFieldTarget(target)
+        if not target or target.kind ~= "dotIndex" then
+            return nil, nil
+        end
+        local row = target.obj
+        if not row or not row.soaRow then
+            return nil, nil
+        end
+        if target.soaField then
+            return row, target.soaField.ordinal
+        end
+        local element = row.soaRow.element
+        local wanted = target.name and target.name.text
+        if element and element.tag == "nominal" and wanted then
+            for ordinal, name in ipairs(element.fieldOrder or {}) do
+                if name == wanted then
+                    return row, ordinal
+                end
+            end
+        end
+
+        return nil, nil
+    end
+
+    --- A numeric `for i = 1, rows.count` proves every `rows[i]` access in its
+    --- body in bounds. Recording the two source bindings lets generated hot loops
+    --- address the already-offset column directly, while every other expression
+    --- keeps its checked access and once-only evaluation rules.
+    local function soaUncheckedRow(row): boolean
+        local view = row and row.obj
+        local index = row and row.expr
+        return view ~= nil
+            and view.kind == "name"
+            and view.token ~= nil
+            and index ~= nil
+            and index.kind == "name"
+            and index.token ~= nil
+            and index.token.definition ~= nil
+            and view.token.definition ~= nil
+            and soaLoopBounds[
+            index.token.definition
+        ] == view.token.definition
+    end
+
+    local function soaSlot(view: string, ordinal: integer, index: string, unchecked: boolean): string
+        if unchecked then
+            return ("%s.columns[%d][%s.offset+%s-1]"):format(view, ordinal, view, index)
+        end
+        return ("%s.columns[%d][%s:checkedIndex(%s)]"):format(view, ordinal, view, index)
+    end
+
+    local function soaCountedLoop(node): any, any
+        if node.kind ~= "fornumStmt" or not node.var or node.step then
+            return nil, nil
+        end
+        local start = node.start
+        local stop = node.stop
+        local startToken = start and cst.firstToken(start) or nil
+        if not startToken or startToken.kind ~= "number" or tonumber(startToken.text) ~= 1 then
+            return nil, nil
+        end
+        if not stop
+            or stop.kind ~= "dotIndex"
+            or not stop.name
+            or stop.name.text ~= "count"
+            or not stop.obj
+            or stop.obj.kind ~= "name"
+            or not stop.obj.token
+        then
+            return nil, nil
+        end
+
+        return node.var.definition, stop.obj.token.definition
+    end
+
+    -- One captured lowering service keeps `emit` under Lua's 60-upvalue ceiling.
+    emitDepth.soa = {bounds = soaLoopBounds, unchecked = soaUncheckedRow, slot = soaSlot, countedLoop = soaCountedLoop,}
+
+    local function emitRuntimeLayout(spec, line, emitCtype)
+        needsLayout = true
+        layoutName = layoutName or reservedName("__nuppLayout")
+        e(("%s("):format(layoutName), line)
+        emitCtype()
+        e((", %q, %q, %q"):format(spec.name, spec.spec, spec.printed))
+        for _, nestedName in ipairs(spec.nested or {}) do
+            e((", %s"):format(nestedName))
+        end
+        e(")")
     end
 
     -- Plucking promises that a dotted operand is evaluated once. Calls in
@@ -2214,6 +2305,43 @@ function gen.generate(
         end
 
         local kind = x.kind
+        if kind == "assignStmt" and #(x.targets or {}) == 1 and #(x.exprs or {}) == 1 then
+            local target = x.targets[1]
+            local row, ordinal = soaFieldTarget(target)
+            if row and ordinal then
+                local viewName, indexName = nextTemp(), nextTemp()
+                e(("do const %s="):format(viewName), sourceLine(x))
+                emit(row.obj)
+                e(("; const %s="):format(indexName))
+                emit(row.expr)
+                e(("; %s="):format(emitDepth.soa.slot(viewName, ordinal, indexName, emitDepth.soa.unchecked(row))))
+                emit(x.exprs[1])
+                e(" end")
+                return
+            elseif target and target.soaRow then
+                emit(target.obj)
+                e(":set(", sourceLine(x))
+                emit(target.expr)
+                e(",")
+                emit(x.exprs[1])
+                e(")")
+                return
+            end
+        elseif kind == "compoundAssign" and x.target then
+            local row, ordinal = soaFieldTarget(x.target)
+            if row and ordinal then
+                local viewName, indexName = nextTemp(), nextTemp()
+                e(("do const %s="):format(viewName), sourceLine(x))
+                emit(row.obj)
+                e(("; const %s="):format(indexName))
+                emit(row.expr)
+                local slot = emitDepth.soa.slot(viewName, ordinal, indexName, emitDepth.soa.unchecked(row))
+                e(("; %s %s "):format(slot, x.op.kind), x.op.line)
+                emit(x.value)
+                e(" end")
+                return
+            end
+        end
         if kind == "block" and x.automaticOwners and #x.automaticOwners > 0 then
             emitChildren(x)
             return
@@ -3060,6 +3188,30 @@ function gen.generate(
                 assignTo(("%s%s[%s]"):format(prefix, safe and "?." or "", key))
             end
             e(" end")
+            return
+
+        elseif kind == "compoundAssign" and x.target and x.target.soaField then
+            local target = x.target
+            local row = target.obj
+            local view = row and row.obj
+            if view and row.expr then
+                local viewName, indexName = nextTemp(), nextTemp()
+                e(("do const %s="):format(viewName), sourceLine(x))
+                emit(view)
+                e(("; const %s="):format(indexName))
+                emit(row.expr)
+                local slot = emitDepth.soa.slot(
+                    viewName,
+                    target.soaField.ordinal,
+                    indexName,
+                    emitDepth.soa.unchecked(row)
+                )
+                e(("; %s %s "):format(slot, x.op.kind), x.op.line)
+                emit(x.value)
+                e(" end")
+            else
+                emitChildren(x)
+            end
             return
 
         elseif kind == "callStmt" and x.expr and x.expr.logIntrinsic then
@@ -4436,11 +4588,19 @@ function gen.generate(
 
         elseif kind == "whileStmt" or kind == "fornumStmt" or kind == "forinStmt" or kind == "repeatStmt" then
             local lastLine = nil
+            local loopIndex, loopView = emitDepth.soa.countedLoop(x)
+            local prior = loopIndex and emitDepth.soa.bounds[loopIndex] or nil
             for _, child in ipairs(x) do
                 if child == x.body then
+                    if loopIndex and loopView then
+                        emitDepth.soa.bounds[loopIndex] = loopView
+                    end
                     emitDepth.loop = emitDepth.loop + 1
                     emit(child)
                     emitDepth.loop = emitDepth.loop - 1
+                    if loopIndex then
+                        emitDepth.soa.bounds[loopIndex] = prior
+                    end
                 else
                     emit(child)
                 end
@@ -4585,21 +4745,147 @@ function gen.generate(
                 emitChildren(x)
             end
 
+        elseif kind == "call" and x.soaLayout and x.soaOperation then
+            local moduleName = compilerModuleName("nupp.soa")
+            local args = x.args and x.args.exprs or {}
+            local line = sourceLine(x)
+            if x.soaOperation == "allocate" then
+                local elementName, countName = nextTemp(), nextTemp()
+                e(
+                    (
+                        "(function(%s,%s)return %s._allocate(%s,%s,"
+                    ):format(elementName, countName, moduleName, elementName, countName),
+                    line
+                )
+                emitRuntimeLayout(x.soaLayout, line, function()
+                    e(elementName)
+                end)
+                e(")end)(")
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil")
+                end
+                e(",")
+                if args[2] then
+                    emit(args[2])
+                else
+                    e("nil")
+                end
+                e(")")
+            else
+                e(moduleName .. "._layout(", line)
+                emitRuntimeLayout(x.soaLayout, line, function()
+                    if args[1] then
+                        emit(args[1])
+                    else
+                        e("nil")
+                    end
+                end)
+                e(")")
+            end
+            return
+
+        elseif kind == "methodCall" and x.soaFieldProjection then
+            emit(x.obj)
+            e((":fieldBySlot(%d)"):format(x.soaFieldProjection.ordinal), sourceLine(x))
+            return
+
+        elseif kind == "dotIndex" and x.soaField then
+            local row = x.obj
+            local view = row and row.obj
+            if view and row.expr then
+                if view.kind == "name" then
+                    -- Keep the common loop form as a plain column load. A name is
+                    -- stable to evaluate twice. A canonical count-bounded loop uses
+                    -- its already-proved physical index; other expressions retain the
+                    -- checked access. Complex receivers use the wrapper below to
+                    -- preserve source evaluation order.
+                    emit(view)
+                    e((".columns[%d]["):format(x.soaField.ordinal), sourceLine(x))
+                    if emitDepth.soa.unchecked(row) then
+                        emit(view)
+                        e(".offset+")
+                        emit(row.expr)
+                        e("-1]")
+                    else
+                        emit(view)
+                        e(":checkedIndex(")
+                        emit(row.expr)
+                        e(")]")
+                    end
+                else
+                    local viewName, indexName = nextTemp(), nextTemp()
+                    e(
+                        (
+                            "(function(%s,%s)return %s.columns[%d][%s:checkedIndex(%s)] end)("
+                        ):format(viewName, indexName, viewName, x.soaField.ordinal, viewName, indexName),
+                        sourceLine(x)
+                    )
+                    emit(view)
+                    e(",")
+                    emit(row.expr)
+                    e(")")
+                end
+            else
+                emitChildren(x)
+            end
+            return
+
+        elseif kind == "bracketIndex" and x.soaRow then
+            emit(x.obj)
+            e(":get(", sourceLine(x))
+            emit(x.expr)
+            e(")")
+            return
+
+        elseif kind == "assignStmt" and #(
+            x.targets or {}
+        ) == 1 and x.targets[1] and x.targets[1].soaField and #(x.exprs or {}) == 1 then
+            local target = x.targets[1]
+            local row = target.obj
+            local view = row and row.obj
+            if view and row.expr then
+                local viewName, indexName = nextTemp(), nextTemp()
+                e(("do const %s="):format(viewName), sourceLine(x))
+                emit(view)
+                e(("; const %s="):format(indexName))
+                emit(row.expr)
+                e(
+                    (
+                        "; %s="
+                    ):format(
+                        emitDepth.soa.slot(viewName, target.soaField.ordinal, indexName, emitDepth.soa.unchecked(row))
+                    )
+                )
+                emit(x.exprs[1])
+                e(" end")
+            else
+                emitChildren(x)
+            end
+            return
+
+        elseif kind == "assignStmt" and #(
+            x.targets or {}
+        ) == 1 and x.targets[1] and x.targets[1].soaRow and #(x.exprs or {}) == 1 then
+            local target = x.targets[1]
+            emit(target.obj)
+            e(":set(", sourceLine(x))
+            emit(target.expr)
+            e(",")
+            emit(x.exprs[1])
+            e(")")
+            return
+
         elseif kind == "call" and x.layoutOf then
             -- The compiler knows the name and the field spellings; sizes, offsets and
             -- padding are this platform's, so the helper asks the FFI at run time and
             -- caches per ctype. Emitted at the call site, so a program that never asks
             -- carries nothing.
-            needsLayout = true
-            layoutName = layoutName or reservedName("__nuppLayout")
             local line = sourceLine(x)
-            e(("%s("):format(layoutName), line)
-            emit(x.args and x.args.exprs and x.args.exprs[1] or x.obj)
-            e((", %q, %q, %q"):format(x.layoutOf.name, x.layoutOf.spec, x.layoutOf.printed))
-            for _, nestedName in ipairs(x.layoutOf.nested) do
-                e((", %s"):format(nestedName))
-            end
-            e(")")
+            emitRuntimeLayout(x.layoutOf, line, function()
+                emit(x.args and x.args.exprs and x.args.exprs[1] or x.obj)
+            end)
             return
 
         elseif kind == "dotIndex" and x.compilerModule then
@@ -4862,21 +5148,24 @@ function gen.generate(
             .. "const nested = {...} local at = 0 "
             .. "const fields = {} "
             .. "for fname, ctype in spec:gmatch(\"([^:,]+):([^,]+)\") do "
-            .. "local own local shown = ctype "
+            .. "local own local fieldType local shown = ctype "
             .. "if ctype:sub(1, 1) == \"$\" then at = at + 1 own = nested[at] "
             .. "shown = ctype:sub(2) "
             .. "const repeats = shown:match(\"%%[(%%d+)%%]$\") "
-            .. "if repeats then own = __nuppFfi.sizeof(own) * tonumber(repeats) end "
+            .. "if repeats then fieldType = __nuppFfi.typeof(\"$ [\" .. repeats .. \"]\", own) "
+            .. "else fieldType = __nuppFfi.typeof(own) end "
             .. "elseif ctype:sub(-1) == \"*\" then own = \"void *\" "
             .. "else own = ctype end "
+            .. "if not fieldType then fieldType = __nuppFfi.typeof(own) end "
             .. "fields[#fields + 1] = {name = fname, ctype = shown, "
-            .. "offset = __nuppFfi.offsetof(ct, fname), size = type(own) == \"number\" and own or __nuppFfi.sizeof(own)} "
+            .. "offset = __nuppFfi.offsetof(ct, fname), size = __nuppFfi.sizeof(fieldType), "
+            .. "alignment = __nuppFfi.alignof(fieldType), pointerType = __nuppFfi.typeof(\"$ *\", fieldType)} "
             .. "end "
             .. "const size = __nuppFfi.sizeof(ct) "
             .. "for i = 1, #fields do "
             .. "const after = fields[i + 1] and fields[i + 1].offset or size "
             .. "fields[i].padding = after - fields[i].offset - fields[i].size end "
-            .. "const layout = {name = name, size = size, fields = fields, "
+            .. "const layout = {name = name, size = size, alignment = __nuppFfi.alignof(ct), fields = fields, "
             .. "fingerprint = printed .. \"|\" .. size} "
             .. "cache[ct] = layout return layout end end)(); "
         ):format(layoutName) .. code

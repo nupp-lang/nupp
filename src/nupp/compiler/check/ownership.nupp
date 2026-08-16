@@ -528,6 +528,17 @@ function ownership.install(c: state.Checker): ownership.Ops
                 ), facts.regionPath or ""
             end
         elseif expr.kind == "dotIndex" or expr.kind == "safeIndex" then
+            if expr.soaField and expr.obj and expr.obj.soaRow and expr.obj.obj then
+                local root, path = own.regionOf(expr.obj.obj)
+                if root then
+                    path = T.regionField(path, expr.soaField.name)
+                    local key = expr.obj.expr and c.infer(expr.obj.expr) or nil
+                    local exact = key and key.tag == "literal" and type(
+                        key.constant
+                    ) == "number" and key.constant % 1 == 0 and key.constant or nil
+                    return root, T.regionIndex(path, exact)
+                end
+            end
             local root, path = own.regionOf(expr.obj)
             local objectRef = c.refType(expr.obj)
             local objectType = objectRef and rawType(objectRef) or nil

@@ -216,6 +216,10 @@ type lexer.Token = {
     --- Other declarations contributing the same composed intersection member.
     additionalDefinitions: {any}?,
 
+    --- A resolved field token whose value is stored in a structure-of-arrays
+    --- column. Tooling reports this semantic identity without exposing storage.
+    soaColumn: any,
+
     -- Marks the formatter leaves on a token, in the pass that decides layout, for the
     -- pass that emits it. They say nothing about the program, and a token nobody has
     -- formatted carries none of them.

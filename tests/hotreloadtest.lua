@@ -529,6 +529,30 @@ function M.sessionReportsStructuralChangesAsRestartRequired()
    assertEq(result.reason.path, path)
 end
 
+function M.sessionRestartsBeforeAChangedSoALayoutCanReachLiveStorage()
+   local before = table.concat({
+      "local soa = require('nupp.soa')",
+      "local ffi = require('ffi')",
+      "local struct Particle",
+      "   x: float",
+      "   y: float",
+      "end",
+      "local function fingerprint(): string",
+      "   return soa.layoutof(ffi.typeof<Particle>()).fingerprint",
+      "end",
+      "return fingerprint",
+   }, "\n")
+   local dir = temporaryProject({["main.nupp"] = before})
+   local path = dir .. "/main.nupp"
+   local session = loadedCompilerSession(dir, path)
+
+   write(path, before:gsub("y: float", "y: int32"))
+   session:diskChanged(path, 2)
+   local result = session:prepare({path})
+   assertEq(result.kind, "restart-required")
+   assertEq(result.diagnostics[1].code, "NUPP5001")
+end
+
 function M.sessionRechecksLoadedModulesAfterDeclarationChanges()
    local dir = temporaryProject({
       ["globals.nupp"] = "global type Watched = number\n",

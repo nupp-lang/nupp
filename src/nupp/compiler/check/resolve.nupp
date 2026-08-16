@@ -362,12 +362,18 @@ function resolve.install(c: state.Checker): nil
         c.validateTypeBounds(t.typeParams, t.typeBounds, map, node)
 
         local origin = (t.origin or t) as T.Nominal
-        local storageGeneric = origin.moduleName == "nupp.span" and (
-            origin.name == "Span"
-            or origin.name == "FixedSpan"
-            or origin.name == "WriteSpan"
-            or origin.name == "FixedWriteSpan"
-            or origin.name == "WriteSplit"
+        local storageGeneric = (
+            origin.moduleName == "nupp.span" and (
+                origin.name == "Span"
+                or origin.name == "FixedSpan"
+                or origin.name == "WriteSpan"
+                or origin.name == "FixedWriteSpan"
+                or origin.name == "WriteSplit"
+            )
+        ) or (
+            origin.moduleName == "nupp.soa" and (
+                origin.name == "Array" or origin.name == "Span" or origin.name == "WriteSpan"
+            )
         )
         if not storageGeneric then
             local typePosition = 1

@@ -73,6 +73,7 @@ local RESOURCES = {
    {source = "src/nupp/profile.nupp", output = "nupp/compiler/nupp/profile.nupp"},
    {source = "src/nupp/span.nupp", output = "nupp/compiler/nupp/span.nupp"},
    {source = "src/nupp/heap.nupp", output = "nupp/compiler/nupp/heap.nupp"},
+   {source = "src/nupp/soa.nupp", output = "nupp/compiler/nupp/soa.nupp"},
    {source = "src/nupp/suspension.nupp", output = "nupp/compiler/nupp/suspension.nupp"},
    {source = "src/nupp/io/process.nupp", output = "nupp/compiler/nupp/io/process.nupp"},
    {source = "src/nupp/io/processtypes.nupp", output = "nupp/compiler/nupp/io/processtypes.nupp"},

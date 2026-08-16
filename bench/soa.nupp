@@ -1,0 +1,115 @@
+-- Compares compiler-lowered SoA rows with hand-written parallel cdata columns and
+-- the canonical AoS struct layout. Run from the repository root:
+--
+--   ./bin/nupp run bench/soa.nupp
+
+local soa = require("nupp.soa")
+local ffi = require("ffi")
+
+local struct Particle
+    x: float
+    y: float
+    dx: float
+    dy: float
+end
+
+local struct Scalar
+    value: float
+end
+
+local COUNT: integer = 100000
+local STEPS: integer = 30
+local ROUNDS: integer = 5
+local DT = 1 / 60
+
+local function median(values: {number}): number
+    table.sort(values)
+    return values[(#values + 1) // 2]
+end
+
+local function generatedSoA(): number
+    local particles = soa.allocate(ffi.typeof<Particle>(), COUNT)
+    local rows = particles:write()
+    for i = 1, rows.count do
+        rows[i].x = i
+        rows[i].y = i * 2
+        rows[i].dx = 0.1
+        rows[i].dy = 0.2
+    end
+    local started = os.clock()
+    for _ = 1, STEPS do
+        for i = 1, rows.count do
+            rows[i].x += rows[i].dx * DT
+            rows[i].y += rows[i].dy * DT
+        end
+    end
+    local elapsed = os.clock() - started
+    local sink = rows[COUNT].x
+    rows:commit()
+    return elapsed + sink * 0
+end
+
+local function handwrittenSoA(): number
+    unsafe do
+        local xs = carray(Scalar, COUNT)
+        local ys = carray(Scalar, COUNT)
+        local dxs = carray(Scalar, COUNT)
+        local dys = carray(Scalar, COUNT)
+        for i = 0, COUNT - 1 do
+            xs[i].value = i + 1
+            ys[i].value = (i + 1) * 2
+            dxs[i].value = 0.1
+            dys[i].value = 0.2
+        end
+        local started = os.clock()
+        for _ = 1, STEPS do
+            for i = 0, COUNT - 1 do
+                xs[i].value += dxs[i].value * DT
+                ys[i].value += dys[i].value * DT
+            end
+        end
+        return os.clock() - started + xs[COUNT - 1].value * 0
+    end
+end
+
+local function ordinaryAoS(): number
+    unsafe do
+        local particles = carray(Particle, COUNT)
+        for i = 0, COUNT - 1 do
+            particles[i].x = i + 1
+            particles[i].y = (i + 1) * 2
+            particles[i].dx = 0.1
+            particles[i].dy = 0.2
+        end
+        local started = os.clock()
+        for _ = 1, STEPS do
+            for i = 0, COUNT - 1 do
+                particles[i].x += particles[i].dx * DT
+                particles[i].y += particles[i].dy * DT
+            end
+        end
+        return os.clock() - started + particles[COUNT - 1].x * 0
+    end
+end
+
+local generated: {number} = {}
+local hand: {number} = {}
+local aos: {number} = {}
+for round = 0, ROUNDS do
+    local one = generatedSoA()
+    local two = handwrittenSoA()
+    local three = ordinaryAoS()
+    if round > 0 then
+        generated[#generated + 1] = one
+        hand[#hand + 1] = two
+        aos[#aos + 1] = three
+    end
+end
+
+local generatedTime = median(generated)
+local handTime = median(hand)
+local aosTime = median(aos)
+print(("generated SoA  %8.2f ms"):format(generatedTime * 1000))
+print(("hand SoA       %8.2f ms"):format(handTime * 1000))
+print(("ordinary AoS   %8.2f ms"):format(aosTime * 1000))
+print(("generated/hand %8.3fx"):format(generatedTime / handTime))

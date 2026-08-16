@@ -158,7 +158,7 @@ local comptime function summarize(info: nupp.reflect.Info): string
 end
 return comptime do return summarize(nupp.reflect(Pair)) end
 ]]
-   assertEq(run(src), "3:record:2:left:string,right:integer",
+   assertEq(run(src), "4:record:2:left:string,right:integer",
       "user comptime code reads the versioned descriptor graph")
 end
 

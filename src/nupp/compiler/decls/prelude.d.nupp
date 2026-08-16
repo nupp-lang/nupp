@@ -1212,6 +1212,24 @@ record nupp.reflect
         readonly [string]: any
     end
 
+    --- One top-level stored struct field available as a SoA column.
+    record SoAField
+        readonly name: string
+        readonly identity: string
+        readonly ordinal: integer
+        readonly type: integer?
+        readonly ctype: string?
+        readonly eligible: boolean
+    end
+
+    --- Target-independent semantic inputs to SoA storage derivation.
+    record SoAInfo
+        readonly schema: integer
+        readonly eligible: boolean
+        readonly reason: string?
+        readonly fields: {SoAField}
+    end
+
     --- An immutable compile-time description of one resolved semantic type.
     record Info
         readonly schema: integer
@@ -1222,6 +1240,7 @@ record nupp.reflect
         readonly qualifiedName: string
         readonly fields: {Field}
         readonly annotations: {Annotation}
+        readonly soa: SoAInfo
         readonly fingerprint: string
     end
 
@@ -4014,6 +4033,9 @@ local interface LayoutField
     --- Bytes the field itself occupies.
     size: integer
 
+    --- Required byte alignment of the field's C type.
+    alignment: integer
+
     --- Bytes of alignment padding after it.
     padding: integer
 end
@@ -4030,6 +4052,9 @@ local interface Layout
 
     --- Bytes one instance occupies, padding included.
     size: integer
+
+    --- Required byte alignment of the complete struct.
+    alignment: integer
 
     --- A canonical description of the fields and the size, for detecting drift between
     --- the layout that wrote data and the layout reading it.

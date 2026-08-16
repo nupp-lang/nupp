@@ -696,6 +696,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 generatedOwner = def and def.generatedOwner or nil,
                 generatedNamespace = def and def.generatedNamespace or nil,
                 generatedRecipeFingerprint = def and def.generatedRecipeFingerprint or nil,
+                soaColumn = tok.soaColumn,
                 -- Which project answered. With a folder per project, the same name can
                 -- be read under different configuration in two windows, and a caller
                 -- comparing two answers has to be able to see which is which.

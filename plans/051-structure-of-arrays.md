@@ -1,7 +1,61 @@
 # Structure-of-arrays storage
 
-Status: planned; ordinary storage and row semantics decided, implementation and
-Tecs acceptance remain
+Status: Nupp core implemented through S3; the trace gate passes. Direct AOT backend
+consumption and the external Tecs snapshot/derive port remain follow-up integration.
+
+## Implementation findings
+
+The core implementation landed as `nupp.soa` with compiler-recognized
+`allocate`, `layoutof`, row places, and resolved field projection. The owning array
+uses one over-aligned native slab and keeps the original allocation for cleanup. A
+shared view is freely borrowable; a writable view is the affine intersection of a
+non-generic write token and `WriteSpan<T>`. Keeping those responsibilities disjoint
+avoids making the general generic-supertype cache responsible for an ownership
+terminal.
+
+No general storage interface is needed in Nupp. `soa.Array<T>` is the concrete owner,
+and Tecs remains responsible for capacity, archetype movement, dirty state, and
+storage policy. The core now exposes `WriteSpan<T>:copyFrom(...)`: it checks both
+ranges before moving data and performs one contiguous `ffi.copy` per field. That is
+the primitive a Tecs SoA store needs for growth, swap/movement, and same-schema
+restore without materializing rows.
+
+SoA columns have two reflection layers:
+
+- `nupp.reflect(T).soa` publishes eligibility plus ordered semantic field identities,
+  ordinals, resolved type graph indexes, and C spellings for derives and tooling.
+- `soa.layoutof(ffi.typeof<T>())` adds target sizes, alignments, count-dependent
+  offsets, byte counts, and the versioned storage fingerprint. A live owner publishes
+  the same fingerprint and count without exposing a pointer.
+
+Nested structs and fixed arrays remain one top-level column. The layout helper must
+reconstruct their declared ctypes rather than use `typeof(sample.field)`: LuaJIT
+returns a reference ctype for field access, and a reference cannot form the typed
+column pointer.
+
+The canonical hot loop `for i = 1, rows.count` is also the bounds proof. Its body emits
+direct numeric column loads/stores using the view's slice offset; arbitrary indexes
+retain `checkedIndex`, and complex receivers retain a once-only expression wrapper.
+This needs no injected profiling code. `nupp bc --check` verifies traceability, while
+`bench/soa.nupp` permanently compares the lowered form with hand-written cdata. One
+representative traced run measured 3.13 ms generated versus 3.03 ms hand-written
+(1.033x, inside the ten-percent gate); the interpreter measured 539.93 ms versus
+934.96 ms.
+
+Checked AOT bodies retain the same semantic `soaField` identity and single-map-loop
+fact. The current AOT work in this repository is still an IR/backend spike rather
+than an end-to-end compiler path, so turning those facts into direct scalar and lane
+C remains S4 rather than being simulated in the Lua lowering.
+
+Hot reload already restarts for a changed struct/storage declaration before a patch
+can reinterpret an existing owner, and a dedicated regression test holds that
+boundary. There is no implicit migration.
+
+Tecs snapshots remain compatible by adapter, not by pretending the slab is AoS. The
+implemented reflection and field-wise copy cover the Nupp side. Tecs must still add
+`COLUMN_SOA`, snapshot version 2, one length-validated subframe per reflected field,
+and its application migration policies in the Tecs repository; that code is not
+part of this repository.
 
 ## Decision
 
@@ -143,9 +197,11 @@ sealed interface soa.WriteSpan<T> is soa.WriteToken
     field: function<F>(exclusive self: WriteSpan<T>, name: string): span.Writable<F> borrows (self)
     shared: function(borrows self: WriteSpan<T>): soa.Span<T> borrows (self)
     commit: nosuspend function(takes self: WriteSpan<T>): nil
+    copyFrom: function(exclusive self: WriteSpan<T>, targetFirst: integer,
+        borrows source: soa.Span<T>, sourceFirst: integer, count: integer): nil
 end
 
-type soa.Writable<T> = affine(soa.WriteSpan<T>, soa.destroyWriteSpan)
+type soa.Writable<T> = affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan)
 ```
 
 These signatures describe the contracts; `field` needs compiler resolution because

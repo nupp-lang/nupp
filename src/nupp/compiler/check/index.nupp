@@ -20,6 +20,31 @@ local fixedWidth = require("nupp.compiler.fixed_width")
 local isA = relations.isA
 local rawType = T.unwrapOwnership
 
+--- A type, as nupp.compiler.types builds them.
+local type Type = T.Type
+
+local function soaView(t: Type): Type?, boolean
+    if t.tag == "intersection" then
+        for _, member in ipairs(t.members) do
+            local element, writable = soaView(member)
+            if element then
+                return element, writable
+            end
+        end
+        return nil, false
+    elseif t.tag ~= "nominal" then
+        return nil, false
+    end
+    local nominal = t as T.Nominal
+    local origin = (nominal.origin or nominal) as T.Nominal
+    local moduleName = origin.moduleName or nominal.moduleName or origin.sealedModule
+    if moduleName ~= "nupp.soa" or (origin.name ~= "Span" and origin.name ~= "WriteSpan") then
+        return nil, false
+    end
+
+    return nominal.typeArgs and nominal.typeArgs[1] or nil, origin.name == "WriteSpan"
+end
+
 local index = {}
 
 -- Modules projected through builtin namespaces. The source path deliberately lives
@@ -27,9 +52,6 @@ local index = {}
 -- that table, so codegen replaces the whole expression with a private require binding.
 -- Recognition by the root's definition leaves a locally shadowed namespace alone.
 local COMPILER_MODULES: {[string]: string} = {["string.buffer"] = "string.buffer"}
-
---- A type, as nupp.compiler.types builds them.
-local type Type = T.Type
 
 --- A node of the tree being checked.
 local type Node = cst.Node
@@ -417,6 +439,35 @@ function index.install(c: state.Checker): state.ExprHandlers
         member.additionalDefinitions = fieldDefs
         local out = kind == "safeIndex" and T.optional(ft) or ft
         node.resolvedType = out
+        if kind == "dotIndex" and target.soaRow then
+            local row = target.soaRow
+            local element = row.element as Type
+            local ordinal = nil
+            if element.tag == "nominal" then
+                for position, name in ipairs(element.fieldOrder or {}) do
+                    if name == memberName then
+                        ordinal = position
+                        break
+                    end
+                end
+            end
+            if ordinal then
+                if writing and not row.writable then
+                    c.diag("NUPP2009", member, "SoA shared rows are read-only", nil, {
+                        help = "request an exclusive writable view from the owner"
+                    })
+                end
+                node.soaField = {name = memberName, ordinal = ordinal, writable = row.writable, element = element,}
+                member.soaColumn = {
+                    identity = (element as T.Nominal).name .. "." .. memberName,
+                    ordinal = ordinal,
+                    access = row.writable and "read-write" or "read-only",
+                }
+                if writing then
+                    node.fixedWidthPhysicalStore = true
+                end
+            end
+        end
         if not writing and fixedWidth.isValue(out) then
             if not (base.tag == "nominal" and base.declKind == "record") or target.fixedWidthTrusted == true then
                 c.fixedWidth.mark(node, out)
@@ -446,6 +497,21 @@ function index.install(c: state.Checker): state.ExprHandlers
         local ot = rawType(trackedObject)
         local writing = node.writeContext == true
         local it = c.infer(key)
+        local soaElement, soaWritable = soaView(ot)
+        if soaElement then
+            if not (it == T.any or isA(it, T.integer)) then
+                c.diag("NUPP2004", key, ("SoA row index must be integer, got %s"):format(T.tostring(it)))
+            end
+            if writing and not soaWritable then
+                c.diag("NUPP2009", node, "SoA shared rows are read-only", nil, {
+                    help = "request an exclusive writable view from the owner"
+                })
+            end
+            node.soaRow = {element = soaElement, writable = soaWritable}
+            node.containerTag = "soa"
+            node.fixedWidthPhysicalStore = writing
+            return soaElement
+        end
         local staticallyBounded = ot.tag == "carray" and ot.count ~= nil and it.tag == "literal" and type(
             it.constant
         ) == "number" and it.constant % 1 == 0 and it.constant >= 0 and it.constant < ot.count

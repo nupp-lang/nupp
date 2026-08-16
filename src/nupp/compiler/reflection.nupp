@@ -3,13 +3,14 @@
 local hash = require("nupp.compiler.build.hash")
 local stable = require("nupp.compiler.build.cache").stable
 local members = require("nupp.compiler.members")
+local T = require("nupp.compiler.types")
 
 local record reflection
     SCHEMA: integer
     describe: function(any, string?, boolean?): any
 end
 
-reflection.SCHEMA = 3
+reflection.SCHEMA = 4
 
 local function sortedNames(values)
     local names = {}
@@ -359,6 +360,44 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
             defaultValue = field.defaultValue,
             annotations = field.annotations or {},
         }
+    end
+    descriptor.soa = {schema = 1, eligible = false, reason = nil as string?, fields = {}}
+    if root and root.tag == "nominal" and root.declKind == "struct" then
+        descriptor.soa.eligible = #(root.fieldOrder or {}) > 0
+        if not descriptor.soa.eligible then
+            descriptor.soa.reason = "the struct declares no stored fields"
+        end
+        local reflectedByName = {}
+        for _, field in ipairs(rootType.fields or {}) do
+            reflectedByName[field.name] = field
+        end
+        for ordinal, name in ipairs(root.fieldOrder or {}) do
+            local fieldType = root.byname and root.byname[name] or nil
+            local definition = root.fieldDefs and root.fieldDefs[name] or nil
+            local ctype = fieldType and T.cName(fieldType) or nil
+            local eligible = ctype ~= nil and not (definition and definition.bitWidth)
+            if not eligible and descriptor.soa.eligible then
+                descriptor.soa.eligible = false
+                descriptor.soa.reason = definition and definition.bitWidth and (
+                    "field %q is a bitfield"
+                ):format(name) or ("field %q has no fixed C storage type"):format(name)
+            end
+            local reflected = reflectedByName[name] or {}
+            descriptor.soa.fields[
+                #descriptor.soa.fields + 1
+            ] = {
+                name = name,
+                ordinal = ordinal,
+                type = reflected.read or reflected.write,
+                ctype = ctype,
+                eligible = eligible,
+                identity = (qualifiedName or root.name) .. "." .. name,
+            }
+        end
+    elseif root and root.tag == "nominal" then
+        descriptor.soa.reason = ("%s is not a struct"):format(root.declKind)
+    else
+        descriptor.soa.reason = "the reflected type is not a nominal struct"
     end
     descriptor.fingerprint = hash.sha256("nupp.reflect\0v" .. tostring(reflection.SCHEMA) .. "\0" .. stable(descriptor))
     if includeSources then
