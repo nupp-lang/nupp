@@ -1,0 +1,253 @@
+--[[
+The scalar half of the AOT IR.
+
+One `@aot` body lowers to this: an admitted signature, the layouts its spans hold,
+and one loop over them. It is what the lane rewrite reads and what a body that
+declined lane lowering is emitted from directly.
+
+There is one record per operation and `Expr` is their union, discriminated by
+`op`, the way the concrete syntax tree is discriminated by `kind`. A pass that
+dispatches on the tag is checked against the vocabulary rather than trusted with
+it, and a module boundary that took `any` instead would put every one of these
+rules back in the consumer's hands -- which `--strict` refuses outright, and is
+right to.
+
+Numeric meaning is written down here rather than left to whatever a C compiler
+does. Ordinary Nupp arithmetic is binary64; `float`, `int32` and `uint32` are
+storage and establishment facts, so a physical load widens and a physical store
+narrows, and neither is an operator's business. The `f32_` and `i32_` operations
+are the released fixed-width surface, where the source asked for a width
+explicitly and the answer changes accordingly.
+]]
+
+local scalarIR = {}
+
+--- Where an operation came from, for a diagnostic that has to name it.
+record scalarIR.Source
+    line: integer
+    column: integer
+end
+
+--- The value types a scalar expression may have.
+---
+--- `f64` is what ordinary arithmetic produces. `f32`, `i32` and `u32` are
+--- refinements a value has to have been established in, not spellings it may
+--- claim. `bool` is what a comparison produces, and `multi` is a call with more
+--- than one result, which only a multiple binding may consume.
+type scalarIR.Type = 'f64' | 'f32' | 'i32' | 'u32' | 'bool' | 'multi' | string
+
+--- A finite decimal literal, always binary64.
+record scalarIR.Constant
+    op: 'constant'
+
+    --- Kept as written, so the emitter reproduces the literal rather than a
+    --- reformatting of it.
+    value: string
+
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- An exact integer literal, for a position that needs one.
+record scalarIR.IntConstant
+    op: 'constant_i32'
+    value: string
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- `true` or `false`.
+record scalarIR.Bool
+    op: 'bool'
+    value: boolean
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- A local, a uniform parameter, or a helper's parameter.
+---
+--- Three operations rather than one because they are emitted differently and
+--- because only a local may be assigned to.
+record scalarIR.Name
+    op: 'local' | 'uniform' | 'helper_param'
+    name: string
+
+    --- The name this takes in generated C, which is not the source name: two
+    --- source scopes may use one name and C has no scope to tell them apart.
+    cName: string?
+
+    mutable: boolean?
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- One element of a span holding scalars.
+record scalarIR.Load
+    op: 'load'
+    span: string
+
+    --- The loop index. Consecutive access is the whole of the lane rewrite's
+    --- licence to run several iterations at once, so nothing else is admitted.
+    index: string
+
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- A pointer to one element of a span holding reified structs.
+record scalarIR.ElementRef
+    op: 'element_ref'
+    span: string
+    index: string
+    layout: string
+
+    --- Whether this element may be written, which follows from whether its span
+    --- was declared exclusive.
+    mutable: boolean
+
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- One field of a struct element.
+record scalarIR.FieldLoad
+    op: 'field_load'
+    object: scalarIR.Expr
+    layout: string
+    field: string
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- Binary64 arithmetic, and the comparisons over it.
+---
+--- Not contracted and not reassociated: `a * b + c` is two roundings unless the
+--- source asked for one, because an AOT function's answer should be a property
+--- of what was written rather than of the target that compiled it.
+record scalarIR.Binary
+    op: 'add'
+        | 'sub'
+        | 'mul'
+        | 'div'
+        | 'mod'
+        | 'pow'
+        | 'lt'
+        | 'le'
+        | 'gt'
+        | 'ge'
+        | 'eq'
+        | 'ne'
+        | 'and'
+        | 'or'
+        | 'band'
+        | 'bor'
+        | 'bxor'
+        | 'lshift'
+        | 'rshift'
+        | 'arshift'
+    left: scalarIR.Expr
+    right: scalarIR.Expr
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- Negation, logical negation, and bitwise complement.
+record scalarIR.Unary
+    op: 'neg' | 'not' | 'bnot'
+    value: scalarIR.Expr
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- One operation from the closed math set.
+record scalarIR.Math
+    op: 'math'
+    intrinsic: string
+    args: {scalarIR.Expr}
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- One explicitly binary32 or wrapping int32 operation.
+---
+--- A binary32 operation over binary32 operands computed in binary64 and rounded
+--- once is bit-identical to the native single-precision instruction, because 53
+--- is at least twice 24 plus 2. That is what lets these lower directly rather
+--- than being a relaxation. `f32_min`, `f32_max` and `f32_fma` are not covered by
+--- that argument and carry a correction instead.
+record scalarIR.Fixed
+    op: 'f32_add' | 'f32_sub' | 'f32_mul' | 'f32_div' | 'i32_add' | 'i32_sub' | 'i32_mul'
+    left: scalarIR.Expr
+    right: scalarIR.Expr
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- `nupp.math.f32.sqrt`, which takes one operand.
+record scalarIR.FixedUnary
+    op: 'f32_sqrt'
+    value: scalarIR.Expr
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- `min`, `max` and `fma`, through the helper that repairs their NaN behaviour.
+record scalarIR.Corrected
+    op: 'f32_min' | 'f32_max' | 'f32_fma'
+
+    --- Present for the two-operand forms.
+    left: scalarIR.Expr?
+
+    right: scalarIR.Expr?
+
+    --- Present for the three-operand form.
+    args: {scalarIR.Expr}?
+
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- A conversion between representations.
+---
+--- These are where a width changes, and the only places it does. An operator
+--- never changes one, which is what keeps `float` a storage fact rather than an
+--- arithmetic type.
+record scalarIR.Convert
+    op: 'narrow_f64_f32' | 'widen_f32_f64' | 'int_to_f64' | 'numeric_cast'
+    value: scalarIR.Expr
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- A call to a visible pure helper.
+record scalarIR.HelperCall
+    op: 'helper_call'
+    helper: string
+    cName: string
+    args: {scalarIR.Expr}
+
+    --- One entry per result. More than one makes the call's own type `multi`.
+    resultTypes: {scalarIR.Type}?
+
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- Every scalar expression.
+type scalarIR.Expr = scalarIR.Constant
+    | scalarIR.IntConstant
+    | scalarIR.Bool
+    | scalarIR.Name
+    | scalarIR.Load
+    | scalarIR.ElementRef
+    | scalarIR.FieldLoad
+    | scalarIR.Binary
+    | scalarIR.Unary
+    | scalarIR.Math
+    | scalarIR.Fixed
+    | scalarIR.FixedUnary
+    | scalarIR.Corrected
+    | scalarIR.Convert
+    | scalarIR.HelperCall
+
+return scalarIR
