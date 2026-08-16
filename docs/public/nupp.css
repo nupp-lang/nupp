@@ -1,4 +1,7 @@
 :root {
+  /* The documentation theme starts at 16px; raise the site-wide rem scale by
+   * roughly 15% so prose and supporting UI read comfortably at normal zoom. */
+  font-size: 115%;
   --nupp-woodblock-vermilion: #a74732;
   --nupp-woodblock-vermilion-hover: #8d3829;
   --nuppdoc-light-accent: #55745b;
