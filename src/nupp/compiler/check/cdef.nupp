@@ -26,6 +26,29 @@ local cdef = {}
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
+-- C function types are pointer-shaped callables. Keep that provenance through
+-- nullable, pointer and fixed-array declarators so callbacks retain the existing
+-- JIT-boundary checks in every C-legal position.
+local function foreignCallbacks(t: Type): Type
+    if t.tag == "func" then
+        return T.foreignFunction(t)
+    elseif t.tag == "carray" then
+        return T.carray(foreignCallbacks(t.elem), t.count, t.countTerm)
+    elseif t.tag == "ptr" then
+        return T.ptr(foreignCallbacks(t.elem))
+    elseif t.tag == "const" then
+        return T.constOf(foreignCallbacks(t.inner))
+    elseif t.tag == "union" and t.hasNil and #(t.members or {}) == 2 then
+        local first, second = t.members[1], t.members[2]
+        local other = first == T.nil_ and second or first
+        if other and other.tag == "func" then
+            return T.optional(T.foreignFunction(other))
+        end
+    end
+
+    return t
+end
+
 local function stringLiteral(token): string?
     if not token then
         return nil
@@ -94,7 +117,8 @@ function cdef.install(
                 fieldName, declaredType, bitWidth = field.name, field.type, field.bitWidth
             end
             if fieldName then
-                local ft = c.resolveType(declaredType)
+                local ft = foreignCallbacks(c.resolveType(declaredType))
+                declaredType.resolvedType = ft
                 local text = fieldName.text
                 n.byname[text] = ft
                 n.writeByname[text] = ft
@@ -158,10 +182,7 @@ function cdef.install(
                 declared, pname, modeTok = p.type, p.name, p.modeTok
             end
             if declared then
-                local pt = c.resolveType(declared)
-                if pt.tag == "func" then
-                    pt = T.foreignFunction(pt)
-                end
+                local pt = foreignCallbacks(c.resolveType(declared))
                 declared.resolvedType = pt
                 local mode = modeTok and modeTok.text or "plain"
                 local relation = declared.kind == "tborrows" and declared as cst.Tborrows or nil
@@ -265,7 +286,7 @@ function cdef.install(
         local abiResult = nil
         if stat.ret then
             c.cdefReturn = true
-            local rt = c.resolveType(stat.ret)
+            local rt = foreignCallbacks(c.resolveType(stat.ret))
             c.cdefReturn = nil
             stat.ret.resolvedType = rt
             rets[1] = rt

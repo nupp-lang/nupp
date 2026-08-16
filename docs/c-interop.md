@@ -150,11 +150,12 @@ Coming the other way, every pointer that `import-c` produces is nullable
 from the building machine, so `long` and `size_t` are correct per platform.
 
 `import-c` handles scalars, named structs by value and by pointer, function
-pointers in parameter position, C varargs, object-like macros, and enum
-members. It leaves an `-- import-c: skipped` comment for what it will not
-translate: anonymous structs, unions, arrays, widths other than 8/16/32/64,
-function pointers in return or field position, function-like macros, and names
-that collide with Lua keywords.
+pointers in parameters, results, aggregate fields and nested declarators, fixed
+arrays, typedef-named anonymous structs and unions, C varargs, object-like
+macros, and enum members. Fixed arrays retain every bound (`T[N]`), including
+arrays nested in fields or behind pointers. It leaves an `-- import-c: skipped`
+comment for flexible arrays, anonymous-member promotion, unsupported scalar
+widths or calling conventions, and names that collide with Lua keywords.
 
 A declaration LuaJIT itself will not parse gets the same comment and does not
 take the header with it. That is commonly a struct laid out from a type whose
@@ -162,6 +163,35 @@ definition belongs to a header this import left alone. Those are counted on
 stderr as `N of M declarations skipped`, and the count is the part to read: one
 of thirty is a corner in the header, and most of thirty means the vocabulary
 broke upstream and the module is not worth keeping.
+
+### Header-only functions
+
+A `static inline` function has no exported symbol for LuaJIT to load. Emit a C
+bridge when importing one directly:
+
+```bash
+nupp import-c native/image.h --lib image \
+  --bridge-out build/generated/image_bridge.c \
+  -o src/native/image.nupp
+```
+
+The generated C includes the original header and exports deterministic private
+wrapper symbols. The Nupp module keeps the header's logical names, so callers do
+not use or depend on those symbols. Compile the emitted file into the library
+named by `--lib`, with the same include paths and definitions as the header.
+Ordinary imports generate no bridge or native artifact.
+
+`nupp import-c HEADER --inspect --json` reports each direct, bridged, type-only,
+or skipped declaration without writing a module. This is useful for reviewing
+coverage before adopting a binding.
+
+Function-like macros require an explicit value signature because C gives a
+macro no type. Configure them on a native dependency rather than translating
+their bodies into Nupp; the C compiler validates their expansion. A wrapper's
+parameters also ensure each Nupp argument is evaluated once even when the macro
+mentions it repeatedly. The initial macro bridge admits fixed-width numeric,
+floating-point and boolean values; pointer-bearing recipes need a handwritten
+binding where their ownership contract is explicit.
 
 An enum's members come across as named `int32` constants:
 

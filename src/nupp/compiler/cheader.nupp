@@ -108,6 +108,15 @@ local function nuppType(model, structs, resolver)
                 return T.optional(T.ptr(named))
             end
         end
+        if pointee and pointee.kind ~= "void" then
+            local element = nuppType(pointee, structs, resolver)
+            if element and element ~= T.any then
+                if readOnly then
+                    element = T.constOf(element)
+                end
+                return T.optional(T.ptr(element))
+            end
+        end
         if readOnly then
             return T.optional(T.constOf(T.voidptr))
         end
@@ -125,9 +134,17 @@ local function nuppType(model, structs, resolver)
         end
         return T.voidptr
     elseif kind == "enum" then
-        return T.int32
+        local pair = INT_BY_BITS[model.bits]
+        if not pair then
+            return T.any
+        end
+        return model.unsigned and pair[2] or pair[1]
     elseif kind == "array" then
-        return T.voidptr
+        local element = nuppType(model.of, structs, resolver)
+        if element and model.count then
+            return T.carray(element, model.count)
+        end
+        return T.any
     end
 
     return T.any

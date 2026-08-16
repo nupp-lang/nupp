@@ -249,6 +249,39 @@ function M.cdefCallbackParameter()
       "function type lowers to a C callback pointer:\n" .. code)
 end
 
+function M.nullableCallbacksWorkInEveryCDeclaratorPosition()
+   local source = table.concat({
+      "cdef struct callback_holder",
+      "   callback: function(int32)?",
+      "end",
+      "cdef function callback_get(): function(int32)?",
+      "cdef function callback_set(callback: function(int32)?)",
+   }, "\n")
+   assertClean(source)
+   local code, _, genDiags = compile(source)
+   assertEq(#genDiags, 0, "nullable callback declarations generate cleanly")
+   assert(code:find("void (*callback)(int32_t);", 1, true),
+      "callback field lowers to a function pointer:\n" .. code)
+   assert(code:find("void (*callback_get(void))(int32_t);", 1, true),
+      "callback result lowers to a function pointer:\n" .. code)
+end
+
+function M.fixedArrayFieldsKeepTheirCDeclaratorOrder()
+   local source = table.concat({
+      "cdef struct array_holder",
+      "   values: int32[4]",
+      "   callbacks: function(int32)?[2]",
+      "end",
+   }, "\n")
+   assertClean(source)
+   local code, _, genDiags = compile(source)
+   assertEq(#genDiags, 0, "fixed arrays generate cleanly")
+   assert(code:find("int32_t values[4];", 1, true),
+      "array field name precedes its bound:\n" .. code)
+   assert(code:find("void (*callbacks[2])(int32_t);", 1, true),
+      "array-of-callback declarator nests correctly:\n" .. code)
+end
+
 function M.cdefStructTyping()
    assertClean(table.concat({
       "cdef struct timeval",

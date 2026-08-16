@@ -2788,10 +2788,19 @@ function gen.generate(
             local fields = {}
             for _, entry in ipairs(x.entries) do
                 if entry.kind == "fieldDecl" then
-                    local ct = cdefCType(entry.type)
+                    -- A field name is part of a C declarator, not always a suffix.
+                    -- Function pointers and arrays put it inside `(*name)(...)` or
+                    -- before `[N]` respectively.
+                    local ct = entry.type.resolvedType and require(
+                        "nupp.compiler.cabi"
+                    ).declaration(entry.type.resolvedType, entry.name.text, "ffi")
+                    if not ct then
+                        local bare = cdefCType(entry.type)
+                        ct = bare and (bare .. " " .. entry.name.text) or nil
+                    end
                     if ct then
                         local width = entry.bitWidth and " : " .. entry.bitWidth.text or ""
-                        fields[#fields + 1] = ct .. " " .. entry.name.text .. width .. ";"
+                        fields[#fields + 1] = ct .. width .. ";"
                     else
                         diag(entry.name, "NUPP3003", "cdef field type has no C spelling")
                     end

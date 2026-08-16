@@ -57,6 +57,10 @@ interface cdecl.CType
     --- How wide a number or an enum is.
     bits: integer?
 
+    --- Its physical size in bytes when LuaJIT exposes one. Arrays use this to
+    --- preserve their element count without reconstructing C spelling.
+    size: integer?
+
     unsigned: boolean?
 
     --- Whether what a pointer points at is const.
@@ -69,6 +73,9 @@ interface cdecl.CType
     of: cdecl.CType?
 
     bytes: integer?
+
+    --- The fixed element count. Absent for an indeterminate array.
+    count: integer?
 
     --- The ctype id a struct reference keeps, so `structById` can find its members.
     id: integer?
@@ -227,31 +234,47 @@ decodeType = function(id)
         return {kind = "void"}
     elseif kind == CT_NUM then
         if bit.band(entry.info, CTF_BOOL) ~= 0 then
-            return {kind = "boolean", bits = (entry.size or 0) * 8}
+            return {kind = "boolean", bits = (entry.size or 0) * 8, size = entry.size}
         end
         if bit.band(entry.info, CTF_FP) ~= 0 then
-            return {kind = "float", bits = (entry.size or 0) * 8}
+            return {kind = "float", bits = (entry.size or 0) * 8, size = entry.size}
         end
-        return {kind = "integer", bits = (entry.size or 0) * 8, unsigned = bit.band(entry.info, CTF_UNSIGNED) ~= 0,}
+        return {
+            kind = "integer",
+            bits = (entry.size or 0) * 8,
+            size = entry.size,
+            unsigned = bit.band(entry.info, CTF_UNSIGNED) ~= 0,
+        }
     elseif kind == CT_PTR then
         local _, pointee = resolve(refOf(entry.info))
         return {
             kind = "pointer",
             to = decodeType(refOf(entry.info)),
             const = pointee and bit.band(pointee.info, CTF_CONST) ~= 0 or false,
+            size = entry.size,
         }
     elseif kind == CT_STRUCT then
-        return {kind = bit.band(entry.info, CTF_UNION) ~= 0 and "union" or "struct", id = rid, name = entry.name,}
+        return {
+            kind = bit.band(entry.info, CTF_UNION) ~= 0 and "union" or "struct",
+            id = rid,
+            name = entry.name,
+            size = entry.size,
+        }
     elseif kind == CT_ENUM then
         return {
             kind = "enum",
             name = entry.name,
             bits = (entry.size or 4) * 8,
+            size = entry.size or 4,
             unsigned = bit.band(entry.info, CTF_UNSIGNED) ~= 0,
         }
     elseif kind == CT_ARRAY then
         local element = decodeType(refOf(entry.info))
-        return {kind = "array", of = element, bytes = entry.size}
+        local count = nil
+        if entry.size and element.size and element.size > 0 and entry.size % element.size == 0 then
+            count = entry.size / element.size
+        end
+        return {kind = "array", of = element, bytes = entry.size, size = entry.size, count = count}
     elseif kind == CT_FUNC then
         return decodeFunction(entry)
     end
@@ -430,6 +453,7 @@ function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): 
     end
 
     local structs, functions, enums = {}, {}, {}
+    local anonymousStructs = {}
     for id = 1, MAX_CTYPE_ID do
         local entry = info(id)
         if entry and not before[id] then
@@ -439,6 +463,14 @@ function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): 
             -- point of declaring it.
             if kind == CT_ENUM then
                 enums[#enums + 1] = decodeEnum(id, entry)
+            elseif kind == CT_TYPEDEF and entry.name then
+                local rid, target = resolve(refOf(entry.info))
+                if target and kindOf(target.info) == CT_STRUCT and not target.name and not anonymousStructs[rid] then
+                    local declaration = decodeStruct(rid, target)
+                    declaration.name = entry.name
+                    structs[#structs + 1] = declaration
+                    anonymousStructs[rid] = true
+                end
             elseif entry.name then
                 if kind == CT_STRUCT then
                     structs[#structs + 1] = decodeStruct(id, entry)

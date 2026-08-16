@@ -48,7 +48,9 @@ local function optionalPointer(t: any): any?
     if t and t.tag == "union" and t.hasNil and #(t.members or {}) == 2 then
         local first, second = t.members[1], t.members[2]
         local other = first and first.tag == "nil" and second or first
-        if other and (other.tag == "ptr" or other.tag == "cstring" or other.tag == "voidptr") then
+        if other and (
+            other.tag == "ptr" or other.tag == "cstring" or other.tag == "voidptr" or other.tag == "func"
+        ) then
             return other
         end
     end
@@ -294,16 +296,16 @@ function cabi.prototype(signature: any, erased: boolean?): string?, string?
     if #params == 0 then
         params[1] = "void"
     end
-    local result = "void"
+    local named = signature.symbol .. "(" .. table.concat(params, ", ") .. ")"
     if signature.result then
-        local rendered, why = renderDeclaration(signature.result, "", false)
+        local rendered, why = renderDeclaration(signature.result, named, false)
         if not rendered then
             return nil, "result " .. tostring(why)
         end
-        result = rendered
+        return rendered .. ";"
     end
 
-    return result .. " " .. signature.symbol .. "(" .. table.concat(params, ", ") .. ");"
+    return "void " .. named .. ";"
 end
 
 local function macroName(name: string): string

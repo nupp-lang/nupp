@@ -373,7 +373,7 @@ local DEPENDENCY_KEYS: {
 }
 
 -- The generated FFI binding a C or Cargo dependency asks for by naming a header.
-local BINDING_KEYS = {"header", "library", "out"}
+local BINDING_KEYS = {"header", "library", "out", "bridge", "macros"}
 
 local function validateKeys(value, known, label)
     if type(value) ~= "table" then
@@ -793,6 +793,34 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             valid, err = validateKeys(dep.bindings, BINDING_KEYS, "dependencies." .. name .. ".bindings")
             if not valid then
                 return nil, err
+            end
+            if dep.bindings.bridge ~= nil and type(dep.bindings.bridge) ~= "boolean" then
+                return nil, "dependencies." .. name .. ".bindings.bridge must be a boolean"
+            end
+            if dep.bindings.macros ~= nil then
+                if type(dep.bindings.macros) ~= "table" then
+                    return nil, "dependencies." .. name .. ".bindings.macros must be a table"
+                end
+                for macro, recipe in pairs(dep.bindings.macros) do
+                    local prefix = "dependencies." .. name .. ".bindings.macros." .. tostring(macro)
+                    if type(macro) ~= "string" or macro == "" or type(recipe) ~= "table" then
+                        return nil, prefix .. " must name a signature table"
+                    end
+                    valid, err = validateKeys(recipe, {"parameters", "result"}, prefix)
+                    if not valid then
+                        return nil, err
+                    end
+                    if type(recipe.parameters) ~= "table" then
+                        return nil, prefix .. ".parameters must be an array of strings"
+                    end
+                    valid, err = validateArray(recipe.parameters, prefix .. ".parameters", "string")
+                    if not valid then
+                        return nil, err
+                    end
+                    if recipe.result ~= nil and type(recipe.result) ~= "string" then
+                        return nil, prefix .. ".result must be a string"
+                    end
+                end
             end
         end
         valid, err = validateArray(dep.dependencies, "dependencies." .. name .. ".dependencies", "string")

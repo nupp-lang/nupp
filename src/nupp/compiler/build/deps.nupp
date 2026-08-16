@@ -143,13 +143,21 @@ local function generateBinding(root, outDir, name, dep, base, libraryPath, extra
     if header:sub(1, 1) ~= "/" then
         header = join(base, header)
     end
-    local text, warnings = importc.import(header, {
+    local text, warnings, details = importc.import(header, {
         lib = binding.library or dep.load or libraryPath,
         cc = dep.cc,
         cppflags = extraCppflags or dep.cppflags,
+        bridge = binding.bridge,
+        macros = binding.macros,
+        bridgeInclude = binding.header,
     })
     if not text then
         return nil, table.concat(warnings or {}, "; ")
+    end
+    for _, disposition in ipairs(details and details.dispositions or {}) do
+        if disposition.reason == "invalid-macro-signature" then
+            return nil, "invalid C macro bridge " .. tostring(disposition.name)
+        end
     end
     for _, warning in ipairs(warnings or {}) do
         io.stderr:write("nupp: warning: " .. warning .. "\n")
@@ -163,7 +171,19 @@ local function generateBinding(root, outDir, name, dep, base, libraryPath, extra
         end
     end
 
-    return output
+    local bridge = nil
+    if details and details.bridgeSource then
+        bridge = join(root, join(outDir, "generated/" .. name .. "_bridge.c"))
+        local bridgeCurrent = readFile(bridge)
+        if bridgeCurrent ~= details.bridgeSource then
+            local ok, err = writeFile(bridge, details.bridgeSource)
+            if not ok then
+                return nil, err
+            end
+        end
+    end
+
+    return output, nil, bridge
 end
 
 local function buildC(root, outDir, name, dep, previous, childResults)
@@ -207,6 +227,39 @@ local function buildC(root, outDir, name, dep, previous, childResults)
         end
         pkgFlags = parsed
     end
+    local cppflags = {}
+    for _, flag in ipairs(dep.cppflags or {}) do
+        cppflags[#cppflags + 1] = flag
+    end
+    for _, dir in ipairs(dep.includeDirs or {}) do
+        cppflags[#cppflags + 1] = "-I" .. join(base, dir)
+    end
+    for _, flag in ipairs(pkgFlags) do
+        if flag:match("^-I") or flag:match("^-D") then
+            cppflags[#cppflags + 1] = flag
+        end
+    end
+    local hasMacroBridge = configuredBinding and configuredBinding.macros and next(configuredBinding.macros) ~= nil
+    local wantsLibrary = #sources > 0 or (configuredBinding and configuredBinding.bridge) or hasMacroBridge
+    local output = wantsLibrary and join(root, dep.out or join(outDir, "lib/" .. sharedLibraryName(name))) or nil
+    local binding, bindingErr, bridge = generateBinding(
+        root,
+        outDir,
+        name,
+        dep,
+        base,
+        dep.load or output or dep.pkgConfig,
+        cppflags
+    )
+    if bindingErr then
+        return nil, bindingErr
+    end
+    if bridge then
+        sources[#sources + 1] = bridge
+        nativeInputs[#nativeInputs + 1] = bridge
+        table.sort(sources)
+        table.sort(nativeInputs)
+    end
     local key = hash.digest(
         stable(
             dep
@@ -214,12 +267,14 @@ local function buildC(root, outDir, name, dep, previous, childResults)
             nativeInputs
         ) .. "\0" .. version .. "\0" .. stable(pkgFlags) .. "\0" .. stable(childResults)
     )
-    local output = nil
     if #sources > 0 then
-        output = join(root, dep.out or join(outDir, "lib/" .. sharedLibraryName(name)))
-        if not previous or previous.key ~= key or not exists(output) then
-            mkdir(dirname(output))
-            local stagedOutput = output .. ".tmp"
+        local builtOutput = output
+        if not builtOutput then
+            return nil, "C dependency " .. name .. " has sources but no library output"
+        end
+        if not previous or previous.key ~= key or not exists(builtOutput) then
+            mkdir(dirname(builtOutput))
+            local stagedOutput = builtOutput .. ".tmp"
             os.remove(stagedOutput)
             local argv = {compiler}
             local osName = (jit and jit.os or ""):lower()
@@ -235,6 +290,9 @@ local function buildC(root, outDir, name, dep, previous, childResults)
             argv[#argv + 1] = stagedOutput
             for _, dir in ipairs(dep.includeDirs or {}) do
                 argv[#argv + 1] = "-I" .. join(base, dir)
+            end
+            if bridge then
+                argv[#argv + 1] = "-I" .. base
             end
             for _, flag in ipairs(dep.cflags or {}) do
                 argv[#argv + 1] = flag
@@ -263,35 +321,11 @@ local function buildC(root, outDir, name, dep, previous, childResults)
             if not binary then
                 return nil, binaryErr
             end
-            local installed, installErr = writeFile(output, binary)
+            local installed, installErr = writeFile(builtOutput, binary)
             if not installed then
                 return nil, installErr
             end
         end
-    end
-    local cppflags = {}
-    for _, flag in ipairs(dep.cppflags or {}) do
-        cppflags[#cppflags + 1] = flag
-    end
-    for _, dir in ipairs(dep.includeDirs or {}) do
-        cppflags[#cppflags + 1] = "-I" .. join(base, dir)
-    end
-    for _, flag in ipairs(pkgFlags) do
-        if flag:match("^-I") or flag:match("^-D") then
-            cppflags[#cppflags + 1] = flag
-        end
-    end
-    local binding, bindingErr = generateBinding(
-        root,
-        outDir,
-        name,
-        dep,
-        base,
-        dep.load or output or dep.pkgConfig,
-        cppflags
-    )
-    if bindingErr then
-        return nil, bindingErr
     end
 
     return {key = key, output = output, binding = binding}

@@ -374,6 +374,33 @@ under `outDir/generated` so it participates in normal module resolution.
 while `**/` matches zero or more directories. `pkg-config` output honors shell
 quotes and backslash escapes, but is never expanded or executed by a shell.
 
+Header-only APIs opt into a generated bridge at the binding:
+
+```lua
+image = {
+   kind = "c",
+   sources = {"native/image.c"},
+   includeDirs = {"native/include"},
+   bindings = {
+      header = "native/include/image.h",
+      bridge = true,
+      macros = {
+         IMAGE_CLAMP = {
+            parameters = {"int32", "int32", "int32"},
+            result = "int32",
+         },
+      },
+   },
+}
+```
+
+`bridge = true` wraps eligible `static inline` definitions from the named
+header. Macro wrappers are generated only for the explicitly listed fixed-arity
+signatures. The deterministic translation unit is written beside the binding
+as `outDir/generated/NAME_bridge.c` and compiled into the dependency's shared
+library. A dependency containing only header functions still produces that
+library; disabling the bridge produces neither file nor compiler work.
+
 ## Rust dependencies
 
 `kind = "cargo"` delegates package resolution and locking to Cargo. The

@@ -1,6 +1,7 @@
 # Complete C header interoperation
 
-Status: planned
+Status: active — host direct imports and C-dependency bridges implemented;
+target extraction and cross-target completion remain planned
 
 ## Decision
 

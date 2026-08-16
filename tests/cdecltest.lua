@@ -25,6 +25,29 @@ function M.inspectionReturnsNeutralDeclarations()
    assertEq(callback.to.params[1].type.bits, 32)
 end
 
+function M.fixedArraysPreserveTheirRecursiveCounts()
+   local parsed, err = cdecl.inspect(
+      "struct NuppCdeclArrays { int values[4]; float matrix[2][3]; };")
+   assert(parsed, err)
+   local fields = parsed.structs[1].fields
+   assertEq(fields[1].type.kind, "array")
+   assertEq(fields[1].type.count, 4)
+   assertEq(fields[1].type.of.bits, 32)
+   assertEq(fields[2].type.count, 2)
+   assertEq(fields[2].type.of.count, 3)
+   assertEq(fields[2].type.of.of.bits, 32)
+end
+
+function M.typedefNamedAnonymousAggregatesUseTheTypedefIdentity()
+   local parsed, err = cdecl.inspect(
+      "typedef struct { float x; float y; } NuppCdeclAnonPoint;")
+   assert(parsed, err)
+   assertEq(#parsed.structs, 1)
+   assertEq(parsed.structs[1].name, "NuppCdeclAnonPoint")
+   assertEq(parsed.structs[1].kind, "struct")
+   assertEq(parsed.structs[1].fields[2].name, "y")
+end
+
 function M.preludeTypesAreNotExported()
    local parsed, err = cdecl.inspect(
       "struct NuppCdeclOwned { NuppCdeclPrelude *value; };",

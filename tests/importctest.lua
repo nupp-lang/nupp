@@ -12,6 +12,13 @@ local function assertContains(text, needle, label)
    end
 end
 
+local function assertEq(got, want, label)
+   if got ~= want then
+      error(("%s: want %s, got %s"):format(label or "mismatch",
+         tostring(want), tostring(got)), 2)
+   end
+end
+
 local M = {}
 
 local generated -- shared across cases (import once)
@@ -36,10 +43,10 @@ function M.importEmitsTypedDeclarations()
    assertContains(text, "ready: uint32 : 1")
    assertContains(text, "mode: uint32 : 3")
    assertContains(text, "cdef function mini_add(a: int32, b: int32): int32")
-   assertContains(text, "mini_name(): cstring")
-   assertContains(text, "mini_fill(p: miniPoint*, n: uint32)")
-   assertContains(text, "mini_len(s: cstring): uint64")
-   assertContains(text, "mini_printf(fmt: cstring, ...): int32", "C varargs")
+   assertContains(text, "mini_name(): cstring?")
+   assertContains(text, "mini_fill(p: miniPoint*?, n: uint32)")
+   assertContains(text, "mini_len(s: cstring?): uint64")
+   assertContains(text, "mini_printf(fmt: cstring?, ...): int32", "C varargs")
    assertContains(text,
       "mini_translate(p: miniPoint, dx: number, dy: number): miniPoint",
       "structs pass and return by value")
@@ -47,8 +54,103 @@ end
 
 function M.functionPointerParamsComeFromLuaJITsModel()
    assertContains(imported(),
-      "mini_each(fn: function(int32), n: int32)",
+      "mini_each(fn: function(int32)?, n: int32)",
       "callbacks use the same parsed declaration model as cheader")
+end
+
+function M.completeDirectDeclaratorsArePreserved()
+   local text, warnings = importc.import(
+      HERE .. "/fixtures/complete_c_interop.h")
+   assert(text, "complete declarator import failed: "
+      .. table.concat(warnings or {}, "; "))
+   assertContains(text, "cdef struct nupp_complete_context")
+   assertContains(text, "matrix: float[3][2]", "nested fixed arrays")
+   assertContains(text, "callback: function(int32)?", "callback field")
+   assertContains(text,
+      "nupp_complete_get_callback(): function(int32)?",
+      "callback result")
+   assertContains(text,
+      "nupp_complete_set_callbacks(callbacks: function(int32)?*?)",
+      "C array parameters adjust to pointers")
+   assertContains(text,
+      "nupp_complete_get_row(): int32[4]*?",
+      "pointer-to-array results retain their bound")
+
+   local result = parser.parse(text, "complete_c_interop.d.nupp")
+   assert(#result.errors == 0, "complete output must parse: "
+      .. (result.errors[1] and result.errors[1].msg or ""))
+   local diags = check.check(result, "complete_c_interop.d.nupp")
+   assert(#diags == 0, "complete output must check: "
+      .. (diags[1] and diags[1].msg or ""))
+end
+
+function M.staticInlineAndExplicitMacroBridgesCompileAndCall()
+   local ffi = require("ffi")
+   local dir = os.tmpname()
+   os.remove(dir)
+   os.execute("mkdir -p '" .. dir .. "'")
+   local library = dir .. (ffi.os == "OSX" and "/libbridge.dylib"
+      or "/libbridge.so")
+   local text, warnings, details = importc.import(
+      HERE .. "/fixtures/bridge.h", {
+         lib = library,
+         bridge = true,
+         macros = {
+            NUPP_BRIDGE_CLAMP = {
+               parameters = {"int32", "int32", "int32"},
+               result = "int32",
+            },
+            NUPP_BRIDGE_IGNORE = {
+               parameters = {"int32"},
+            },
+         },
+      })
+   assert(text, "bridge import failed: "
+      .. table.concat(warnings or {}, "; "))
+   assert(details and details.bridgeSource, "bridge C was not emitted")
+   assertEq(details.bridged, 4, "two inlines and two macro bridges")
+   assertContains(text, "local nupp_bridge_scale = __nupp_bridge_")
+   assertContains(text, "local NUPP_BRIDGE_CLAMP = __nupp_bridge_")
+   assertContains(text, "local NUPP_BRIDGE_IGNORE = __nupp_bridge_",
+      "void-result macro bridge")
+   assertContains(text, "cdef function nupp_bridge_exported(value: int32): int32",
+      "an inline body does not consume the declaration after it")
+
+   local source = dir .. "/bridge.c"
+   local handle = assert(io.open(source, "wb"))
+   handle:write(details.bridgeSource)
+   handle:close()
+   local command = ffi.os == "OSX"
+      and ("cc -dynamiclib -I. -o '%s' '%s'"):format(library, source)
+      or ("cc -shared -fPIC -I. -o '%s' '%s'"):format(library, source)
+   assert(os.execute(command) == 0, "generated bridge C must compile")
+
+   local symbols = {}
+   for _, disposition in ipairs(details.dispositions) do
+      if disposition.symbol then symbols[disposition.name] = disposition.symbol end
+   end
+   ffi.cdef(("int32_t %s(int32_t); int32_t %s(int32_t, int32_t, int32_t);")
+      :format(symbols.nupp_bridge_scale, symbols.NUPP_BRIDGE_CLAMP))
+   local native = ffi.load(library)
+   assertEq(native[symbols.nupp_bridge_scale](7), 21)
+   assertEq(native[symbols.NUPP_BRIDGE_CLAMP](20, 2, 9), 9)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.headerOnlyFunctionsHaveAnExplicitSkippedDisposition()
+   local text, warnings, details = importc.import(
+      HERE .. "/fixtures/bridge.h")
+   assert(text, "direct inspection import succeeds")
+   assertContains(text, "static inline needs --bridge-out")
+   assert(#warnings == 2, "each inline explains the required bridge")
+   assertEq(details.skipped, 2)
+   local bridgeRequired = 0
+   for _, disposition in ipairs(details.dispositions) do
+      if disposition.reason == "bridge-required" then
+         bridgeRequired = bridgeRequired + 1
+      end
+   end
+   assertEq(bridgeRequired, 2)
 end
 
 function M.macroConstants()
@@ -64,7 +166,7 @@ end
 function M.typedefsResolveThroughTheTranslationUnit()
    -- mini.h has no typedefs of its own; this exercises the resolver on a
    -- header whose vocabulary comes from elsewhere (size_t via stddef.h)
-   assertContains(imported(), "mini_len(s: cstring): uint64",
+   assertContains(imported(), "mini_len(s: cstring?): uint64",
       "size_t resolved to a base type")
 end
 
@@ -80,8 +182,8 @@ end
 
 function M.constBytePointersBecomeCstring()
    -- const char*/unsigned char* take a Lua string directly in LuaJIT
-   assertContains(imported(), "mini_len(s: cstring)")
-   assertContains(imported(), "mini_name(): cstring")
+   assertContains(imported(), "mini_len(s: cstring?)")
+   assertContains(imported(), "mini_name(): cstring?")
 end
 
 function M.libraryClauseIsEmitted()
@@ -186,7 +288,7 @@ function M.typedefsAreDeclaredInTheOrderCCanReadThem()
    local text, warnings = importc.import(HERE .. "/fixtures/chain.h")
    assert(text, "chain import failed: "
       .. table.concat(warnings or {}, "; "))
-   assertContains(text, "chain_len(s: cstring): uint64",
+   assertContains(text, "chain_len(s: cstring?): uint64",
       "the chain resolved to its base type")
 end
 

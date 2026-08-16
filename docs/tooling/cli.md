@@ -1325,18 +1325,20 @@ raw VM detail and its stable normalized reason identity.
 Generate typed Nupp bindings from a C header
 
 Usage:
-  nupp import-c [-o FILE] [-l NAME|--lib NAME] [--format text|json] <header.h>
+  nupp import-c [-o FILE] [-l NAME|--lib NAME] [--bridge-out FILE] [--inspect] [--format text|json] <header.h>
 
 Options:
-  -o FILE          Write the generated module to FILE
-  -l, --lib NAME   Name the native library loaded by the bindings
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to colour output: always, never, or auto (default)
-  --no-color       Never colour output; the same as --color=never
-  -h, --help       Show this help
+  -o FILE            Write the generated module to FILE
+  -l, --lib NAME     Name the native library loaded by the bindings
+  --bridge-out FILE  Emit C wrappers for eligible static inline functions
+  --inspect          Report declaration dispositions without writing output
+  --format FORMAT    Output format: text (default) or json
+  --json             Shorthand for --format json
+  --text             Shorthand for --format text
+  --schema           Print the JSON Schema of --json output and exit
+  --color[=WHEN]     When to colour output: always, never, or auto (default)
+  --no-color         Never colour output; the same as --color=never
+  -h, --help         Show this help
 ```
 
 It writes a committed, hand-editable module of `cdef` declarations. Without

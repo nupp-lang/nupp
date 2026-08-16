@@ -1870,10 +1870,24 @@ function calls.install(c: state.Checker): calls.Ops
             )
         end
         if node.cdefCall then
+            local function optionalFunction(t)
+                if t.tag == "func" then
+                    return t
+                end
+                if t.tag == "union" and t.hasNil and #(t.members or {}) == 2 then
+                    local first, second = t.members[1], t.members[2]
+                    local other = first == T.nil_ and second or first
+                    return other and other.tag == "func" and other or nil
+                end
+
+                return nil
+            end
+
             for j = 1, math.min(#ats, #params) do
                 local expected = rawType(params[j])
                 local actual = rawType(ats[j])
-                if expected.tag == "func" and expected.foreign and actual.tag == "func" and not actual.foreign then
+                local callback = optionalFunction(expected)
+                if callback and callback.foreign and actual.tag == "func" and not actual.foreign then
                     local argument = argNodes[j]
                     local disabledDefinition, disabledBody = nil, nil
                     if argument and argument.kind == "name" and argument.token then

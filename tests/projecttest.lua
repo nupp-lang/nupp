@@ -1532,6 +1532,83 @@ return {
    remove(dir)
 end
 
+function M.cDependencyBuildsHeaderOnlyBridges()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {
+      tiny = {kind = "c", bindings = {
+         header = "native/tiny.h",
+         bridge = true,
+         macros = {
+            TINY_CLAMP = {parameters = {"int32", "int32", "int32"},
+               result = "int32"},
+         },
+      }},
+   },
+   build = {outDir = "out", entries = {"main"}, dependencies = {"tiny"}},
+}
+]],
+      ["src/main.nupp"] = "return true\n",
+      ["native/tiny.h"] = [[
+#include <stdint.h>
+static inline int32_t tiny_triple(int32_t value) { return value * 3; }
+#define TINY_CLAMP(value, low, high) \
+   ((value) < (low) ? (low) : ((value) > (high) ? (high) : (value)))
+]],
+   })
+   assertEq(project.build(dir), 0)
+   local library = dir .. "/out/lib/" .. libraryName("tiny")
+   assert(exists(library), "header-only bridge shared library emitted")
+   assert(exists(dir .. "/out/generated/tiny_bridge.c"),
+      "deterministic bridge source emitted")
+   local binding = read(dir .. "/out/generated/tiny.nupp")
+   assert(binding:find("local tiny_triple = __nupp_bridge_", 1, true),
+      "inline exported under its logical name")
+   assert(binding:find("local TINY_CLAMP = __nupp_bridge_", 1, true),
+      "macro exported under its logical name")
+
+   local triple = binding:match("cdef function (__nupp_bridge_[%da-f]+)%(value: int32%)")
+   assert(triple, "physical inline symbol recorded")
+   local clamp = binding:match(
+      "cdef function (__nupp_bridge_[%da-f]+)%(arg0: int32, arg1: int32, arg2: int32%)")
+   assert(clamp, "physical macro symbol recorded")
+   local ffi = require("ffi")
+   ffi.cdef(("int32_t %s(int32_t); int32_t %s(int32_t, int32_t, int32_t);")
+      :format(triple, clamp))
+   local native = ffi.load(library)
+   assertEq(native[triple](4), 12)
+   assertEq(native[clamp](20, 2, 8), 8)
+   remove(dir)
+end
+
+function M.cDependencyRejectsInvalidMacroBridgeRecipes()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {
+      tiny = {kind = "c", bindings = {
+         header = "native/tiny.h",
+         macros = {
+            TINY_ADD = {parameters = {"int32"}, result = "int32"},
+         },
+      }},
+   },
+   build = {outDir = "out", entries = {"main"}, dependencies = {"tiny"}},
+}
+]],
+      ["src/main.nupp"] = "return true\n",
+      ["native/tiny.h"] = "#define TINY_ADD(a, b) ((a) + (b))\n",
+   })
+   assert(project.build(dir) ~= 0,
+      "a requested macro with the wrong arity must fail the dependency build")
+   assert(not exists(dir .. "/out/generated/tiny.nupp"),
+      "an invalid recipe is not installed as a partial binding")
+   remove(dir)
+end
+
 function M.cargoDependencyBuildsCdylib()
    local dir = tempProject({
       ["nupp.lua"] = [[

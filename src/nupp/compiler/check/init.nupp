@@ -139,6 +139,12 @@ local function reifiableField(t: Type, isCdef: boolean?): boolean
     if isCdef and (t.tag == "cstring" or t.tag == "voidptr") then
         return true
     end
+    -- A function type in a C declaration is a function pointer. It is valid in
+    -- fields and results as well as parameters; the C ABI renderer owns the
+    -- required `(*name)(...)` declarator spelling.
+    if isCdef and t.tag == "func" then
+        return true
+    end
     if t.tag == "nominal" and t.declKind == "struct" then
         return true
     end
@@ -159,7 +165,7 @@ local function reifiableField(t: Type, isCdef: boolean?): boolean
         if other.tag == "ptr" then
             return true
         end
-        if isCdef and (other == T.voidptr or other == T.cstring) then
+        if isCdef and (other == T.voidptr or other == T.cstring or other.tag == "func") then
             return true
         end
         return false

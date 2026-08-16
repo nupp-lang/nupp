@@ -11,12 +11,22 @@ local spec = require("nupp.compiler.cli.spec")
 local command = spec.command{
     name = "import-c",
     summary = "Generate typed Nupp bindings from a C header",
-    usage = {"nupp import-c [-o FILE] [-l NAME|--lib NAME] [--format text|json]" .. " <header.h>"},
+    usage = {
+        "nupp import-c [-o FILE] [-l NAME|--lib NAME] [--bridge-out FILE] [--inspect]"
+        .. " [--format text|json] <header.h>"
+    },
     options = require(
         "nupp.compiler.cli.options"
     ).join(
         {name = "-o", value = "FILE", key = "out", help = "Write the generated module to FILE"},
         {names = {"-l", "--lib"}, value = "NAME", key = "lib", help = "Name the native library loaded by the bindings"},
+        {
+            name = "--bridge-out",
+            value = "FILE",
+            key = "bridgeOut",
+            help = "Emit C wrappers for eligible static inline functions"
+        },
+        {name = "--inspect", key = "inspect", help = "Report declaration dispositions without writing output"},
         require("nupp.compiler.cli.options").format()
     ),
     schema = {
@@ -34,6 +44,11 @@ local command = spec.command{
                 .. "could not represent. Present whether or not it "
                 .. "succeeded; a warning is not a failure."
             },
+            bridgeOutput = {type = "string"},
+            direct = {type = "integer"},
+            bridged = {type = "integer"},
+            skipped = {type = "integer"},
+            dispositions = {type = "array", items = {type = "object"}},
         },
         required = {"ok", "warnings"},
     },
@@ -48,7 +63,10 @@ local function run(parsed: any): integer
     local asJson = parsed.values.format == "json"
     local reportMod = require("nupp.compiler.cli.report")
     local importc = require("nupp.compiler.importc")
-    local text, warnings = importc.import(header, {lib = parsed.values.lib})
+    local text, warnings, details = importc.import(header, {
+        lib = parsed.values.lib,
+        bridge = parsed.values.bridgeOut ~= nil,
+    })
     local function fail(): integer
         if asJson then
             reportMod.write({ok = false, warnings = warnings})
@@ -69,6 +87,41 @@ local function run(parsed: any): integer
             io.stderr:write("nupp: warning: " .. warning .. "\n")
         end
     end
+    if parsed.values.inspect then
+        if asJson then
+            reportMod.write({
+                ok = true,
+                warnings = warnings,
+                direct = details and details.direct or 0,
+                bridged = details and details.bridged or 0,
+                skipped = details and details.skipped or 0,
+                dispositions = details and details.dispositions or {},
+            })
+        else
+            io.write(
+                (
+                    "direct %d, bridged %d, skipped %d\n"
+                ):format(
+                    details and details.direct or 0,
+                    details and details.bridged or 0,
+                    details and details.skipped or 0
+                )
+            )
+        end
+
+        return 0
+    end
+
+    local bridgeOut = parsed.values.bridgeOut
+    if bridgeOut and details and details.bridgeSource then
+        local bridgeHandle, bridgeErr = io.open(bridgeOut, "wb")
+        if not bridgeHandle then
+            warnings[#warnings + 1] = tostring(bridgeErr)
+            return fail()
+        end
+        bridgeHandle:write(details.bridgeSource)
+        bridgeHandle:close()
+    end
     local out = parsed.values.out or ((header:match("([^/\\]+)%.h$") or "out") .. ".nupp")
     local handle, writeErr = io.open(out, "wb")
     if not handle then
@@ -82,7 +135,16 @@ local function run(parsed: any): integer
     handle:write(text)
     handle:close()
     if asJson then
-        reportMod.write({ok = true, output = out, warnings = warnings})
+        reportMod.write({
+            ok = true,
+            output = out,
+            bridgeOutput = bridgeOut and details and details.bridgeSource and bridgeOut or nil,
+            warnings = warnings,
+            direct = details and details.direct or 0,
+            bridged = details and details.bridged or 0,
+            skipped = details and details.skipped or 0,
+            dispositions = details and details.dispositions or {},
+        })
     else
         io.write(out .. "\n")
     end

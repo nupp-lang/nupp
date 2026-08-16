@@ -49,6 +49,26 @@ function M.pointersAndStructsDecode()
       "function(float, SinkPoint*?): number")
 end
 
+function M.completeDirectDeclaratorsDecode()
+   local res, err = cheaderMod.load(
+      HERE .. "/fixtures/complete_c_interop.h")
+   assert(res, "complete header must load: " .. tostring(err))
+   local parameter = res.exports.nupp_complete_use_context.params[1]
+   local pointer = parameter.members[1] == T.nil_ and parameter.members[2]
+      or parameter.members[1]
+   local context = pointer.elem
+   assertEq(context.name, "nupp_complete_context",
+      "typedef names the anonymous struct identity")
+   assertEq(T.tostring(context.byname.matrix), "float[3][2]")
+   assertEq(T.tostring(context.byname.callback), "function(int32)?")
+   assertEq(T.tostring(res.exports.nupp_complete_get_callback),
+      "function(): function(int32)?")
+   assertEq(T.tostring(res.exports.nupp_complete_set_callbacks),
+      "function((function(int32)?)*?)")
+   assertEq(T.tostring(res.exports.nupp_complete_get_row),
+      "function(): int32[4]*?")
+end
+
 function M.noPreprocessorNeededForASelfContainedHeader()
    -- the fixture has #ifndef/#include and still loads with no compiler
    local res, err = cheaderMod.load(HERE .. "/fixtures/sink.h")
