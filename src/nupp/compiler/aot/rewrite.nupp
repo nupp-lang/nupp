@@ -43,7 +43,7 @@ record rewrite.State
     refBindings: {[string]: any}
 
     --- Helper parameters bound to lane vectors while one call is inlined.
-    helperBindings: {[string]: lane.Expr}
+    helperBindings: {[string]: rewrite.Value?}
 
     --- Pure helpers by name, for inlining a call into the lane body.
     helpers: {[string]: any}
@@ -1122,6 +1122,412 @@ function rewrite.exit(statement: scalarIR.Statement, mask: lane.Expr, loopContex
         live = loopContext.live,
         executing = loopContext.executing,
         source = statement.source
+    )
+end
+
+--- Marks every local whose value depends on the iteration.
+---
+--- Two things make a local vary: a value that varies, and being assigned under
+--- a condition that varies -- because the lanes that took the branch and the
+--- lanes that did not then hold different values, whatever was assigned.
+---
+--- Runs to a fixed point. A local assigned a varying value inside a loop is
+--- varying on every iteration, including the ones already walked before the
+--- assignment was seen.
+function rewrite.markVarying(statements: {any}, state: rewrite.State): nil
+    --- One pass over a block, under whether control already varies here.
+    local function mark(body: {any}, controlled: boolean): nil
+        for _, statement in ipairs(body) do
+            local op = statement.op
+            if op == "let" then
+                if controlled or rewrite.varying(statement.value, state) then
+                    state.varyingLocals[statement.name] = true
+                end
+            elseif op == "multi_let" then
+                -- Every result of one call varies together: the call is inlined
+                -- whole, so if any argument varies then all of its results do.
+                -- Decided here rather than while rewriting, because a later read
+                -- of one of these names is rewritten on the answer.
+                if controlled or rewrite.varying(statement.call, state) then
+                    for _, bound in ipairs(statement.bindings) do
+                        state.varyingLocals[bound.name] = true
+                    end
+                end
+            elseif op == "assign" then
+                for _, entry in ipairs(statement.values) do
+                    if entry.target.kind == "local" and (controlled or rewrite.varying(entry.value, state)) then
+                        state.varyingLocals[entry.target.name] = true
+                    end
+                end
+            elseif op == "if" then
+                local branchControlled = controlled
+                for _, clause in ipairs(statement.clauses) do
+                    branchControlled = branchControlled or rewrite.varying(clause.condition, state)
+                    mark(clause.body, branchControlled)
+                end
+                if statement.elseBody ~= nil then
+                    mark(statement.elseBody, branchControlled)
+                end
+            elseif op == "while" then
+                mark(statement.body, controlled or rewrite.varying(statement.condition, state))
+            elseif op == "block" then
+                mark(statement.body, controlled)
+            elseif op == "fornum" then
+                local bounds = rewrite.varying(statement.from, state) or rewrite.varying(statement.to, state)
+                mark(statement.body, controlled or bounds)
+            end
+        end
+    end
+
+    --- How many locals are known to vary.
+    local function counted(): integer
+        local total: integer = 0
+        for _ in pairs(state.varyingLocals) do
+            total = total + 1
+        end
+
+        return total
+    end
+
+    local before = -1
+    while counted() ~= before do
+        before = counted()
+        mark(statements, false)
+    end
+end
+
+--- A uniform boolean, broadcast to every lane of the mask.
+function rewrite.boolMask(node: scalarIR.Expr, state: rewrite.State): lane.BoolSplat
+    return new lane.BoolSplat(op = "vbool_splat", args = {node}, type = state.shape.mask, source = node.source)
+end
+
+--- `node` as a vector of the type the gang uses for `want`, or for the node's
+--- own scalar type when the caller has no opinion.
+---
+--- A uniform value is broadcast. A varying one is rewritten and then checked
+--- against the width the caller asked for, because a gang that does not carry
+--- that element would otherwise silently produce a vector of the wrong one.
+function rewrite.numericVector(node: scalarIR.Expr, want: scalarIR.Type?, state: rewrite.State): rewrite.Value
+    local scalarType = want or node.type
+    local element = rewrite.asElement(scalarType) or "f64"
+    if not rewrite.varying(node, state) then
+        return rewrite.splat(node, element, state)
+    end
+
+    local value = rewrite.expression(node, state)
+    if value.type ~= rewrite.vectorFor(state, element) then
+        state.reject(
+            "a varying " .. tostring(
+                node.type
+            ) .. " cannot enter " .. tostring(rewrite.vectorFor(state, element)) .. " SIMD"
+        )
+    end
+
+    return value
+end
+
+--- One condition, as the mask of lanes that satisfy it.
+function rewrite.conditionMask(node: scalarIR.Expr, state: rewrite.State): lane.Expr
+    if not rewrite.varying(node, state) then
+        return rewrite.boolMask(node, state)
+    end
+
+    -- A mask, or the rewrite is refused: the check above is what lets this be
+    -- read as one downstream rather than as whatever the expression produced.
+    local value = rewrite.expression(node, state)
+    if value.type ~= state.shape.mask then
+        state.reject("a varying condition did not produce a mask")
+    end
+
+    return value as lane.Expr
+end
+
+--- The span element a name was bound to, if it was bound to one.
+---
+--- `span:get(i)` binds a reference that field accesses later go through. The
+--- reference itself has no lane-parallel form -- four elements are four
+--- addresses -- but every use of it does, so the binding is resolved at each
+--- use rather than emitted.
+function rewrite.resolveRef(node: scalarIR.Expr?, state: rewrite.State): scalarIR.ElementRef?
+    if node == nil then
+        return nil
+    end
+    if node.op == "element_ref" then
+        return node
+    end
+    if node.op == "local" then
+        return state.refBindings[(node as scalarIR.Name).name]
+    end
+
+    return nil
+end
+
+--- Rewrites a helper call to the helper's own result expressions, with each
+--- parameter bound to the lane vector its argument produced.
+---
+--- The helper body is already verified scalar IR over `helper_param` nodes, so
+--- nothing here decides what the helper means -- it decides only that this
+--- call's arguments are what its parameters are. Bindings are saved and restored
+--- around the call, so a helper called twice, or a helper calling another,
+--- cannot see the wrong ones.
+function rewrite.inlineHelper(node: scalarIR.HelperCall, state: rewrite.State): {rewrite.Value}
+    local helper = state.helpers[node.helper]
+    if helper == nil then
+        state.reject("a lane-parallel call has no visible helper")
+    end
+    if #node.args ~= #helper.params then
+        state.reject("a lane-parallel helper call has the wrong argument count")
+    end
+
+    local bound: {[string]: rewrite.Value} = {}
+    local saved: {[string]: rewrite.Value?} = {}
+    for position, param in ipairs(helper.params) do
+        bound[param.name] = rewrite.numericVector(node.args[position], param.type, state)
+    end
+    for name, value in pairs(bound) do
+        saved[name] = state.helperBindings[name]
+        state.helperBindings[name] = value
+    end
+
+    local values: {rewrite.Value} = {}
+    for position, value in ipairs(helper.values) do
+        values[position] = rewrite.expression(value, state)
+    end
+    for name in pairs(bound) do
+        state.helperBindings[name] = saved[name]
+    end
+
+    return values
+end
+
+--- The lane form of one multiple binding.
+---
+--- One declaration per result rather than one statement. The scalar form needs
+--- a single statement because a C call returns once; inlined, the results are
+--- ordinary expressions and there is nothing to hold together.
+local function multiLet(statement: any, state: rewrite.State): {any}
+    local varies = rewrite.varying(statement.call, state)
+    local values = varies and rewrite.inlineHelper(statement.call, state) or nil
+
+    local out: {any} = {}
+    for position, bound in ipairs(statement.bindings) do
+        -- A uniform call keeps its results as one call, taken apart by index.
+        -- No verifier rule and no emitter covers that form today, so a uniform
+        -- multiple binding inside a lane body is refused downstream rather than
+        -- here; no kernel has one.
+        local value = varies and (
+            values as {rewrite.Value}
+        )[
+            position
+        ] or {
+            op = "helper_result",
+            call = statement.call,
+            index = position,
+            type = bound.type,
+            source = statement.source,
+        }
+        out[
+            position
+        ] = {
+            op = "let",
+            name = bound.name,
+            cName = bound.cName,
+            value = value,
+            type = varies and value.type or bound.type,
+            source = statement.source,
+        }
+    end
+
+    return out
+end
+
+--- Where one assignment's lanes go, and what they are worth.
+local function laneAssignment(
+    entry: any,
+    statement: any,
+    mask: lane.Expr?,
+    statementMask: lane.Expr?,
+    loopContext: rewrite.LoopContext?,
+    state: rewrite.State
+): any
+    local target = entry.target
+    local targetVaries = target.kind == "field" or state.varyingLocals[target.name] == true
+    local varies = rewrite.varying(entry.value, state)
+    local value = varies and rewrite.expression(entry.value, state) or entry.value
+    if not varies and targetVaries then
+        value = rewrite.splat(entry.value, rewrite.asElement(entry.value.type) or "f64", state)
+    end
+
+    local assignmentMask = statementMask
+    if assignmentMask ~= nil and target.kind == "local" and rewrite.maySpeculate(target.name, mask, loopContext) then
+        assignmentMask = nil
+    end
+
+    -- The lane target is worked out once, then used both to read the old value
+    -- back for the select and to say where the store goes.
+    local laneTarget: any
+    if target.kind == "field" then
+        local object = rewrite.resolveRef(target.object, state)
+        if object == nil or object.index ~= state.index then
+            state.reject("a lane-parallel field store writes consecutive elements only")
+        end
+        laneTarget = new lane.FieldTarget(
+            kind = "vfield",
+            span = (object as scalarIR.ElementRef).span,
+            layout = target.layout,
+            field = target.field,
+            scalarType = target.type
+        )
+    else
+        laneTarget = new lane.LocalTarget(kind = "local", name = target.name, cName = target.cName)
+    end
+
+    return {
+        target = target.kind == "field" and laneTarget or target,
+        value = rewrite.assignedValue(value, laneTarget, assignmentMask, statement.source, state),
+    }
+end
+
+--- Rewrites a block of statements to run several iterations at once.
+---
+--- @param mask which lanes this block runs under, or nothing at the top level
+--- @param loopContext the enclosing lane loop, when there is one
+--- @param following which locals are read after this block
+--- @param block where the introduced mask bindings are numbered from
+function rewrite.block(
+    statements: {any},
+    mask: lane.Expr?,
+    loopContext: rewrite.LoopContext?,
+    following: {[string]: boolean}?,
+    block: rewrite.BlockState,
+    state: rewrite.State
+): {any}
+    local out: {any} = {}
+    local readsAfter = rewrite.readsAfter(statements, following or {})
+
+    --- Appends everything a nested block produced.
+    local function append(produced: {any}): nil
+        for _, statement in ipairs(produced) do
+            out[#out + 1] = statement
+        end
+    end
+
+    for position, statement in ipairs(statements) do
+        local statementMask = rewrite.activeMask(mask, loopContext, statement.source, state)
+        local op = statement.op
+        if op == "let" and statement.value.op == "element_ref" and statement.value.index == state.index then
+            state.refBindings[statement.name] = statement.value
+        elseif op == "let" then
+            out[#out + 1] = rewrite.let(statement, state)
+        elseif op == "multi_let" then
+            append(multiLet(statement, state))
+        elseif op == "assign" then
+            local assignments: {any} = {}
+            for index, entry in ipairs(statement.values) do
+                assignments[index] = laneAssignment(entry, statement, mask, statementMask, loopContext, state)
+            end
+            out[#out + 1] = {op = "vassign", values = assignments, source = statement.source}
+        elseif op == "store" then
+            state.reject("a lane-parallel loop stores through struct fields for now")
+        elseif op == "if" then
+            -- Each arm's mask is captured into its own binding before the arm
+            -- runs, so a body that assigns to a name the condition read cannot
+            -- change which lanes execute the statements after it.
+            local arms, remaining = rewrite.branchMasks(statement.clauses, statementMask, block, state)
+            for _, arm in ipairs(arms) do
+                out[
+                    #out + 1
+                ] = {
+                    op = "let",
+                    name = arm.binding.name,
+                    cName = arm.binding.cName,
+                    value = arm.entry,
+                    type = state.shape.mask,
+                    source = arm.clause.source,
+                }
+                append(
+                    rewrite.block(
+                        arm.clause.body,
+                        rewrite.maskLocal(arm.binding, arm.clause.source, state),
+                        loopContext,
+                        readsAfter[position],
+                        block,
+                        state
+                    )
+                )
+            end
+            if statement.elseBody ~= nil then
+                append(rewrite.block(statement.elseBody, remaining, loopContext, readsAfter[position], block, state))
+            end
+        elseif op == "block" then
+            append(rewrite.block(statement.body, statementMask, loopContext, readsAfter[position], block, state))
+        elseif op == "while" then
+            if not rewrite.varying(statement.condition, state) then
+                state.reject("a uniform inner while loop is not lane-controlled yet")
+            end
+
+            local context = rewrite.loopContext(statement, readsAfter[position] or {}, block, state)
+            local condition = rewrite.conditionMask(statement.condition, state)
+            out[
+                #out + 1
+            ] = new lane.While(
+                op = "vwhile",
+                live = context.live,
+                executing = context.executing,
+                initial = rewrite.maskAnd(statementMask, condition, statement.source, state),
+                condition = condition,
+                body = rewrite.block(
+                    statement.body,
+                    rewrite.maskLocal(context.executing, statement.source, state),
+                    context,
+                    nil,
+                    block,
+                    state
+                ),
+                source = statement.source
+            )
+        elseif op == "fornum" then
+            state.reject("a nested numeric loop is not lane-controlled yet")
+        elseif op == "break" or op == "continue" then
+            if loopContext == nil then
+                state.reject(tostring(op) .. " applies to the outer map loop and is not admitted")
+            end
+            out[#out + 1] = rewrite.exit(statement, statementMask as lane.Expr, loopContext as rewrite.LoopContext)
+        else
+            state.reject("statement " .. tostring(op) .. " has no lane-parallel form")
+        end
+    end
+
+    return out
+end
+
+--- Rewrites one verified loop body to run `shape.lanes` iterations at once.
+---
+--- Builds fresh IR and touches nothing else, so a declined attempt costs a retry
+--- and leaves no state behind for the next shape to trip over.
+---
+--- @param reject reports a construct this pass cannot represent
+function rewrite.loop(program: scalarIR.Program, shape: lane.Shape, reject: function(string): nil): scalarIR.LaneBody
+    local helpers: {[string]: any} = {}
+    for _, helper in ipairs(program.helpers or {}) do
+        helpers[helper.name] = helper
+    end
+
+    local state = new rewrite.State(
+        shape = shape,
+        index = program.loop.index,
+        varyingLocals = {},
+        refBindings = {},
+        helperBindings = {},
+        helpers = helpers,
+        reject = reject
+    )
+    rewrite.markVarying(program.loop.statements, state)
+
+    return new scalarIR.LaneBody(
+        lanes = shape.lanes,
+        shape = shape.name,
+        statements = rewrite.block(program.loop.statements, nil, nil, nil, new rewrite.BlockState(serial = 0), state)
     )
 end
 
