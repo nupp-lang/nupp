@@ -1,0 +1,237 @@
+--[[
+`nupp aot`: what an `@aot` function compiles to, and whether it vectorised.
+
+Two questions, and they are asked for different reasons.
+
+The first is what the backend actually did. An `@aot` body is compiled somewhere
+a reader cannot see, so `--emit ir` shows the verified IR, `--emit c` shows the
+generated C, and `--emit binding` shows the module that stands in front of it.
+Reading the C is how you tell a mask stack from a branch, and how you check that
+the loop you thought was register-resident is.
+
+The second is `--check`, and it exists for the same reason `nupp bc --check`
+does. Whether a loop ran several iterations at once is a performance property:
+no answer depends on it, no test fails when it stops happening, and an ordinary
+edit can quietly take it away. So it gets the same treatment -- a check that
+names the construct that stopped it and exits 1, rather than an annotation that
+turns a performance property into a build error for everyone.
+
+`--check` distinguishes three outcomes, and only one of them is a failure. A body
+that lowered is fine. A body that declined -- because the arithmetic per byte says
+lanes will not pay, or because the source wrote `@aot(lanes = false)` -- is fine,
+and saying so is the point of being able to decline. A body that wanted lanes and
+did not get them is the failure, and it is reported with the construct that
+refused.
+]]
+
+local aot = require("nupp.compiler.aot.compile")
+local optionsMod = require("nupp.compiler.cli.options")
+local spec = require("nupp.compiler.cli.spec")
+
+--- What this command accepts beyond the shared `--format` trio.
+local function aotOptions(): {any}
+    local list = optionsMod.format()
+    list[
+        #list + 1
+    ] = {
+        name = "--emit",
+        key = "emit",
+        value = "ARTIFACT",
+        choices = {"ir", "c", "binding"},
+        help = "Print one artifact: ir, c, or binding",
+    }
+    list[
+        #list + 1
+    ] = {
+        name = "--check",
+        key = "check",
+        help = "Exit non-zero for a map loop that wanted lanes and ran one iteration at a time",
+    }
+    list[
+        #list + 1
+    ] = {
+        name = "--library",
+        key = "library",
+        value = "PATH",
+        help = "Where the compiled object will be found, for the generated binding",
+    }
+
+    return list
+end
+
+local command = spec.command{
+    name = "aot",
+    summary = "Show what an @aot function compiles to",
+    usage = {"nupp aot [--emit ir|c|binding] [--check] [--library PATH] [--format text|json] <file>"},
+    intro = "Production `nupp build` still emits the ordinary Lua body; this reports what the "
+    .. "ahead-of-time backend would produce for the file.",
+    options = aotOptions(),
+    schema = {
+        type = "object",
+        description = "What one @aot function lowered to.",
+        properties = {
+            file = {type = "string"},
+            name = {type = "string"},
+            symbol = {type = "string"},
+            intensity = {
+                type = "object",
+                description = "Arithmetic per byte the loop body touches, and the two counts behind it.",
+                properties = {perByte = {type = "number"}, operations = {type = "number"}, bytes = {type = "number"},},
+            },
+            lanes = {
+                type = "object",
+                description = "The gang the loop was lowered to, absent when it was not.",
+                properties = {shape = {type = "string"}, lanes = {type = "integer"}},
+            },
+            outcome = {
+                type = "string",
+                enum = {"lowered", "declined", "refused"},
+                description = "Whether the loop vectorised, was not expected to, or wanted to and could not.",
+            },
+            refusals = {
+                type = "array",
+                description = "Why it ran one iteration at a time, when it wanted not to.",
+                items = {
+                    type = "object",
+                    properties = {
+                        file = {type = "string"},
+                        line = {type = "integer"},
+                        column = {type = "integer"},
+                        message = {type = "string"},
+                    },
+                },
+            },
+            ir = {type = "string"},
+            c = {type = "string"},
+            binding = {type = "string"},
+        },
+    },
+}
+
+--- Which of the three outcomes this body had.
+---
+--- `declined` and `refused` are deliberately not one answer. A loop nobody
+--- expected to vectorise and a loop that tried and could not are different
+--- facts, and a check that conflated them would either fail on the first or stay
+--- quiet about the second.
+local function outcome(program: any): string
+    if program.lanes ~= nil then
+        return "lowered"
+    end
+    if program.lanesDeclined == true then
+        return "declined"
+    end
+
+    return "refused"
+end
+
+--- One line saying what happened, for a person.
+local function summarise(path: string, program: any): string
+    local shape = program.lanes ~= nil and program.lanes.shape or "none"
+    local how = outcome(program)
+    local why = ""
+    if how == "declined" and program.thin == true then
+        why = ", too little arithmetic per byte for lanes to pay"
+    elseif how == "declined" then
+        why = ", declined by `@aot(lanes = false)`"
+    elseif how == "refused" then
+        why = ", ran one iteration at a time"
+    end
+
+    return (
+        "%s: %s, %.2f operations per byte (%d over %d), %s%s"
+    ):format(
+        path,
+        program.name,
+        program.intensity or 0,
+        program.operations or 0,
+        program.touchedBytes or 0,
+        how == "lowered" and (shape .. ", " .. tostring(program.lanes.lanes) .. " lanes") or shape,
+        why
+    )
+end
+
+local function run(parsed: any): integer
+    local paths: {string} = parsed.positional
+    if #paths ~= 1 then
+        return command:usageError("exactly one source file is required")
+    end
+
+    local path = paths[1]
+    local fs = require("nupp.compiler.fs")
+    local source, readErr = fs.readFile(path)
+    if source == nil then
+        io.stderr:write("nupp: " .. tostring(readErr) .. "\n")
+
+        return 1
+    end
+
+    -- A placeholder rather than a guess: where the object lands is a build
+    -- decision this command does not make, and a binding printed for reading
+    -- says so rather than naming a path nobody will produce.
+    local library = parsed.values.library or "<object>"
+    local artifacts, diagnostics = aot.artifacts(source as string, path, nil, library)
+    if artifacts == nil then
+        for _, problem in ipairs(diagnostics) do
+            io.stderr:write(aot.renderDiagnostic(problem) .. "\n")
+        end
+
+        return 1
+    end
+
+    local program = artifacts.program
+    local emit = parsed.values.emit
+    if parsed.values.format == "json" then
+        -- An absent list is an empty array rather than an empty object, so a
+        -- consumer reading `refusals` never has to handle two shapes.
+        local json = require("cjson").new()
+        json.encode_empty_table_as_object(false)
+
+        local refusals: {any} = {}
+        for position, problem in ipairs(program.laneRefusals or {}) do
+            refusals[position] = problem
+        end
+        io.write(
+            json.encode({
+                file = path,
+                name = program.name,
+                symbol = program.symbol,
+                intensity = {
+                    perByte = program.intensity,
+                    operations = program.operations,
+                    bytes = program.touchedBytes,
+                },
+                lanes = program.lanes ~= nil and {shape = program.lanes.shape, lanes = program.lanes.lanes} or nil,
+                outcome = outcome(program),
+                refusals = refusals,
+                ir = (emit == nil or emit == "ir") and artifacts.irText or nil,
+                c = (emit == nil or emit == "c") and artifacts.c or nil,
+                binding = (emit == nil or emit == "binding") and artifacts.binding or nil,
+            }) .. "\n"
+        )
+    elseif emit == "ir" then
+        io.write(artifacts.irText)
+    elseif emit == "c" then
+        io.write(artifacts.c)
+    elseif emit == "binding" then
+        io.write(artifacts.binding)
+    else
+        io.write(summarise(path, program) .. "\n")
+    end
+
+    if parsed.values.check and outcome(program) == "refused" then
+        -- stdout is buffered and stderr is not, so the summary would otherwise
+        -- arrive after the failure it summarises.
+        io.stdout:flush()
+        io.stderr:write(("nupp: %s ran one iteration at a time\n"):format(program.name))
+        for _, problem in ipairs(program.laneRefusals or {}) do
+            io.stderr:write("  " .. aot.renderDiagnostic(problem) .. "\n")
+        end
+
+        return 1
+    end
+
+    return 0
+end
+
+return new spec.Handler(spec = command, run = run)

@@ -45,6 +45,12 @@ local REGISTRY: {{
         end
     },
     {
+        name = "aot",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.aot")
+        end
+    },
+    {
         name = "bc",
         load = function(): specMod.Handler
             return require("nupp.compiler.cli.bc")

@@ -5,6 +5,7 @@ which is the text `nupp help <command>` prints, and the output it writes when
 it has any.
 
 - [`ast`](#ast): dump a Nupp file's parsed syntax tree
+- [`aot`](#aot): show what an `@aot` function compiles to
 - [`check`](#check): type-check source without emitting Lua
 - [`fmt`](#fmt): format Nupp source
 - [`build`](#build): build source files or a configured project target
@@ -198,6 +199,55 @@ chunk
             name "greet"
         } "}"
   eof ""
+```
+
+### `aot`
+
+```text [nupp aot --help]
+Show what an @aot function compiles to
+
+Usage:
+  nupp aot [--emit ir|c|binding] [--check] [--library PATH] [--format text|json] <file>
+
+Production `nupp build` still emits the ordinary Lua body; this reports what the ahead-of-time backend would produce for the file.
+
+Options:
+  --format FORMAT  Output format: text (default) or json
+  --json           Shorthand for --format json
+  --text           Shorthand for --format text
+  --emit ARTIFACT  Print one artifact: ir, c, or binding
+  --check          Exit non-zero for a map loop that wanted lanes and ran one
+                   iteration at a time
+  --library PATH   Where the compiled object will be found, for the generated
+                   binding
+  --schema         Print the JSON Schema of --json output and exit
+  --color[=WHEN]   When to colour output: always, never, or auto (default)
+  --no-color       Never colour output; the same as --color=never
+  -h, --help       Show this help
+```
+
+The bare command says what the backend decided: how much arithmetic the loop
+does per byte it touches, and which gang it was lowered to, if any.
+
+```text [nupp aot bench/kernel-subset-spike/mandelbrot.nupp]
+bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, 5.19 operations per byte (83 over 16), f64x4, 4 lanes
+```
+
+`--emit` prints one artifact. `ir` is the verified IR with the lane body beside
+the scalar one it was rewritten from, `c` is the generated C, and `binding` is
+the Nupp module that stands in front of it.
+
+`--check` is for the same category `nupp bc --check` covers: a performance
+property no answer depends on, which an ordinary edit can quietly take away. It
+distinguishes three outcomes and fails on one. A loop that lowered is fine. A
+loop that declined — because the arithmetic per byte says lanes will not pay, or
+because the source wrote `@aot(lanes = false)` — is fine. A loop that wanted
+lanes and ran one iteration at a time exits 1, naming the construct that
+stopped it.
+
+```text [nupp aot --check src/particles.nupp]
+nupp: advance ran one iteration at a time
+  src/particles.nupp:39:5: aot: a nested numeric loop is not lane-controlled yet
 ```
 
 ### `bc`
@@ -1532,6 +1582,7 @@ Usage:
 Commands:
   init             Create a project from a template
   ast              Dump a Nupp file's parsed syntax tree
+  aot              Show what an @aot function compiles to
   bc               Show the bytecode a Nupp file compiles to
   check            Type-check source without emitting Lua
   fmt              Format Nupp source

@@ -1135,6 +1135,36 @@ end
 --- varying on every iteration, including the ones already walked before the
 --- assignment was seen.
 function rewrite.markVarying(statements: {any}, state: rewrite.State): nil
+    --- Whether this block leaves its loop early under a condition that varies.
+    ---
+    --- Nested loops are not descended into: their `break` is theirs. A `break`
+    --- under a varying condition means lanes leave on different iterations, so
+    --- everything the loop assigns differs between them by the time it ends --
+    --- including a counter whose own arithmetic is uniform.
+    local function divergentExit(body: {any}, controlled: boolean): boolean
+        for _, statement in ipairs(body) do
+            local op = statement.op
+            if (op == "break" or op == "continue") and controlled then
+                return true
+            elseif op == "if" then
+                local branchControlled = controlled
+                for _, clause in ipairs(statement.clauses) do
+                    branchControlled = branchControlled or rewrite.varying(clause.condition, state)
+                    if divergentExit(clause.body, branchControlled) then
+                        return true
+                    end
+                end
+                if statement.elseBody ~= nil and divergentExit(statement.elseBody, branchControlled) then
+                    return true
+                end
+            elseif op == "block" and divergentExit(statement.body, controlled) then
+                return true
+            end
+        end
+
+        return false
+    end
+
     --- One pass over a block, under whether control already varies here.
     local function mark(body: {any}, controlled: boolean): nil
         for _, statement in ipairs(body) do
@@ -1169,7 +1199,8 @@ function rewrite.markVarying(statements: {any}, state: rewrite.State): nil
                     mark(statement.elseBody, branchControlled)
                 end
             elseif op == "while" then
-                mark(statement.body, controlled or rewrite.varying(statement.condition, state))
+                local diverges = rewrite.varying(statement.condition, state) or divergentExit(statement.body, false)
+                mark(statement.body, controlled or diverges)
             elseif op == "block" then
                 mark(statement.body, controlled)
             elseif op == "fornum" then

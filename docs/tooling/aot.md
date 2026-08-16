@@ -6,18 +6,17 @@ IR, and emits private C — and where the function is one numeric map loop, it
 also rewrites that loop to run several iterations at once. Nothing in the source
 names a lane, a mask, or a vector width.
 
-**Status.** The backend is implemented and lives under
-`src/nupp/compiler/aot/`. It is not wired into `nupp build`: production builds
-still emit the ordinary Lua body, and there is no `nupp aot` command. The
-driver that runs the backend end to end is test-only, under
-`bench/kernel-subset-spike/`. Everything below is real output from that driver
-on the committed kernels; the commands are the ones the repository actually
-has today. What `nupp build` will do with an `@aot` function — artifact
-policy, target dispatch, caching, inspection — is not decided yet.
+**Status.** The backend is implemented, lives under `src/nupp/compiler/aot/`,
+and is reachable from `nupp aot`. It is not wired into `nupp build`: production
+builds still emit the ordinary Lua body, no object is compiled, and nothing
+dispatches to one. What `nupp build` will do with an `@aot` function — artifact
+policy, target compilation, caching and validation — is not decided yet.
 
-What already ships is the front half: `nupp check` validates the target and the
-structural subset, so `@aot` on something the backend could not compile is an
-error today rather than a surprise later.
+What you can do today is see exactly what it would produce, and check that a
+loop still vectorises. `nupp check` validates the target and the structural
+subset, so `@aot` on something the backend could not compile is an error rather
+than a surprise later. Everything below is real output on the kernels committed
+under `bench/kernel-subset-spike/`.
 
 ## What the annotation buys
 
@@ -104,7 +103,18 @@ length guard is what proves the two spans can share one index, and the range
 guard is what lets the generated loop read its bounds without re-checking them
 every element.
 
-Compile and run it:
+Ask what the backend made of it:
+
+```bash
+nupp aot bench/kernel-subset-spike/mandelbrot.nupp
+```
+
+```text
+bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, 5.19 operations per byte (83 over 16), f64x4, 4 lanes
+```
+
+`--emit ir`, `--emit c` and `--emit binding` print the three artifacts. To
+compile and actually run it — which needs a C compiler and the spike's harness:
 
 ```bash
 bench/kernel-subset-spike/mandelbrot.sh mandelbrot
@@ -113,12 +123,6 @@ bench/kernel-subset-spike/mandelbrot.sh mandelbrot
 ```bash
 MANDELBROT_WIDTH=1024 MANDELBROT_HEIGHT=768 MANDELBROT_ITERATIONS=256 \
     luajit bench/kernel-subset-spike/mandelbrot_main.lua
-```
-
-To stop after the C so you can read it:
-
-```bash
-NUPP_NATIVE_MODE=emit-c bench/kernel-subset-spike/mandelbrot.sh mandelbrot
 ```
 
 ## The generated C
@@ -337,8 +341,7 @@ tried first and refuses the moment any varying value turns out to be binary64.
 You can see both answers per kernel:
 
 ```bash
-bench/kernel-subset-spike/generate.sh bench/kernel-subset-spike/mandelbrot.nupp \
-    /tmp/out --check-lanes
+nupp aot bench/kernel-subset-spike/mandelbrot.nupp
 ```
 
 ```
@@ -366,6 +369,20 @@ inner `while`, and per-lane `break` and `continue`.
 Where it cannot, the body still compiles: it keeps its scalar loop, and the
 refusal names the construct that stopped it. A loop that does not vectorize is a
 performance property, not a wrong answer, so it is not a build error.
+
+It is worth checking, though, for the same reason `nupp bc --check` is worth
+running: nothing else notices when it stops happening. `nupp aot --check` exits
+1 for a loop that wanted lanes and ran one iteration at a time, and names what
+refused it:
+
+```text
+nupp: advance ran one iteration at a time
+  src/particles.nupp:39:5: aot: a nested numeric loop is not lane-controlled yet
+```
+
+A loop that declined is not a failure — that is the point of being able to
+decline — so `@aot(lanes = false)` and a body below the intensity threshold both
+pass.
 
 ### Influencing it
 
@@ -480,6 +497,21 @@ an eight-lane tail are both covered.
 
 A closure, table, interpolated string, vararg, `goto`, dynamic call or unsafe
 operation inside an `@aot` body reports NUPP2903 at the construct.
+
+## What is not here yet
+
+Named so you can tell what you are looking at:
+
+- **`nupp build` integration.** No object is compiled, none is cached or
+  validated, and nothing dispatches to one. `nupp aot` shows what would be
+  produced; nothing consumes it.
+- **Mixed-width gangs.** Width selection is all-or-nothing: a single binary64
+  varying value drops the whole loop to four lanes, where the rule should be a
+  gang size fixed from register pressure with each value taking however many
+  registers its element needs.
+- **More than one `@aot` function per file.** The scan takes exactly one.
+- **A uniform multiple binding inside a lane body.** It produces a node the
+  verifier has no rule for, so it raises rather than declining lane lowering.
 
 ## See also
 
