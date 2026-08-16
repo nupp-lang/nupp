@@ -1531,4 +1531,59 @@ function rewrite.loop(program: scalarIR.Program, shape: lane.Shape, reject: func
     )
 end
 
+--- What one attempt at a gang width came to.
+record rewrite.Attempt
+    --- The gang that was tried.
+    shape: string
+
+    --- Why it was refused. Empty when it was taken.
+    refusals: {string}
+end
+
+--- The sentinel a refusal unwinds with, so a refused attempt is told apart from
+--- a real error rather than swallowing one.
+local REFUSED = {}
+
+--- Rewrites the loop to the widest gang that admits it.
+---
+--- Widest lane count first. The 32-bit gang refuses the moment any varying value
+--- turns out to be binary64, so a loop written with ordinary operators lands on
+--- four lanes exactly as it would have, and a loop whose values the source
+--- established as `float` or `int32` gets twice the lanes for the same
+--- registers. Each attempt builds fresh IR and touches nothing else, so a
+--- refused one costs a retry and leaves no state behind.
+---
+--- A body that cannot lower at any width is not an error: it keeps its scalar
+--- loop, and the refusals say which construct stopped it.
+---
+--- @return one entry per gang that was refused, widest first. Empty when the
+---   widest one took it.
+--- @raises when an attempt fails for any reason other than refusing the loop,
+---   which is a compiler bug rather than a width that does not fit
+function rewrite.select(program: scalarIR.Program): {rewrite.Attempt}
+    local attempts: {rewrite.Attempt} = {}
+    for position = #lane.SHAPES, 1, -1 do
+        local shape = lane.SHAPES[position]
+        local refusals: {string} = {}
+        local lowered: scalarIR.LaneBody? = nil
+        local ok, problem = pcall(function(): nil
+            lowered = rewrite.loop(program, shape, function(why: string): nil
+                refusals[#refusals + 1] = why
+                error(REFUSED, 0)
+            end)
+        end)
+        if ok then
+            program.lanes = lowered
+
+            return attempts
+        end
+        if problem ~= REFUSED then
+            error(problem, 0)
+        end
+        attempts[#attempts + 1] = new rewrite.Attempt(shape = shape.name, refusals = refusals)
+    end
+
+    return attempts
+end
+
 return rewrite

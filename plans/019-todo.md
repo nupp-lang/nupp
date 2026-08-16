@@ -68,16 +68,19 @@ work makes sense in.
       data-dependent inner `while` loops, per-lane `break`/`continue`, exact
       scalar tails, and a gang width chosen from the loop's own lane types.
       Production `nupp build` still emits the ordinary Lua body.
-      The IR, the verifier, the lane rewrite, the C emitter, the readable IR
-      form and the binding generator are under `src/nupp/compiler/aot/` as
-      typed Nupp; what is left in the spike is `parseKernel`, the front end
-      that reads the checked CST. Each move was proved by generated C, IR and
-      bindings staying byte-identical for every kernel.
-      What remains: move `parseKernel` behind the rest of the checker handoff
-      (layouts, span element types, ownership regions); consume the complete
-      checked ownership, alias, effect, layout, and numeric facts; then add
-      build policy, target compilation and dispatch, cache and artifact
-      validation, inspection, and diagnostics.
+      The whole backend is under `src/nupp/compiler/aot/` as typed Nupp: the
+      admitted subset, the front end, the IR, the verifier, the lane rewrite
+      and gang selection, the C emitter, the readable IR form, and the binding
+      generator. `bench/kernel-subset-spike/kernel_compiler.lua` went from
+      2885 lines to 170 and is now a driver -- parse, lower, verify, select a
+      gang, emit -- plus the differential harnesses. Every move was proved by
+      generated C, IR and bindings staying byte-identical for every kernel,
+      which is also what caught a duplicated rendering path and a
+      nondeterministic emitter.
+      What remains: consume the complete checked ownership, alias, effect,
+      layout, and numeric facts rather than re-deriving them from written type
+      text; then add build policy, target compilation and dispatch, cache and
+      artifact validation, inspection, and diagnostics.
       One latent hole found in passing: a uniform multiple binding inside a
       lane body produces a `helper_result` node that no verifier rule and no
       emitter covers, so it raises rather than declining lane lowering. No
@@ -97,10 +100,13 @@ work makes sense in.
       a second numeric operator tower. The full delivery plan is
       [aot-functions.md](038-aot-functions.md), and the rejected alternatives are
       recorded in [portable-vectors.md](037-portable-vectors.md).
-      When the lowering moves under `src/`, take the fixed-width intrinsic
-      identities from `nupp.compiler.scalar_intrinsics` rather than the second
-      table the spike keeps, so aliasing a standard member cannot mean one thing
-      to the checker and another to the backend.
+      The fixed-width intrinsic identities now come from
+      `nupp.compiler.scalar_intrinsics` rather than a second table, so aliasing
+      a standard member cannot mean one thing to the checker and another to the
+      backend. What is still text-based is the lookup itself: it resolves a
+      written dotted path, so an alias bound to a local name is not recognised.
+      That needs the checker's resolved identity, which is part of the handoff
+      above.
 - [ ] **Finish the SPMD gang-width decision.** The spike selects eight 32-bit
       lanes or four binary64 ones from the widths a loop's varying values need,
       and lowers the released `nupp.math.f32` and `nupp.math.i32` operations to
