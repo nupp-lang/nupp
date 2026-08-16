@@ -173,11 +173,8 @@ local function moduleTreeHtml(node, current, prefix, path, depth)
     return table.concat(parts)
 end
 
-local function sidebar(modules, current, prefix, pages, currentPath, mobileOutline)
+local function sidebar(modules, current, prefix, pages, currentPath)
     local out = {'<aside class="nuppdoc-sidebar" id="nuppdoc-sidebar"' .. ' aria-label="Page navigation"><ul>'}
-    if mobileOutline then
-        out[#out + 1] = mobileOutline
-    end
     local groups, byGroup = {}, {}
     for _, candidate in ipairs(pages or {}) do
         if candidate.path ~= "" and not candidate.module then
@@ -248,16 +245,9 @@ local function outlineEntries(items: {page.Entry}): string
     return table.concat(out)
 end
 
-local function mobileOutline(items: {page.Entry}?): string
-    return '<li class="nuppdoc-sidebar-section nuppdoc-mobile-outline">'
-        .. '<details open><summary>On this page</summary><ol>'
-        .. outlineEntries(items or {})
-        .. "</ol></details></li>"
-end
-
 local function outline(items: {page.Entry}?): string
     local out = {
-        '<aside class="nuppdoc-outline" aria-label="On this page">'
+        '<aside class="nuppdoc-outline" id="nuppdoc-outline" aria-label="On this page">'
         .. '<div class="nuppdoc-outline-title">On this page</div><ol>'
     }
     out[#out + 1] = outlineEntries(items or {})
@@ -509,6 +499,14 @@ function page.render(
             .. '</button>'
         actions[
             #actions + 1
+        ] = '<button class="nuppdoc-icon-link nuppdoc-mobile-outline-toggle"'
+            .. ' type="button" data-mobile-outline-toggle aria-controls="nuppdoc-outline"'
+            .. ' aria-expanded="false" aria-label="Open table of contents"'
+            .. ' title="Open table of contents">'
+            .. ICONS.menu
+            .. '</button>'
+        actions[
+            #actions + 1
         ] = '<button class="nuppdoc-icon-link nuppdoc-panel-toggle"'
             .. ' type="button" data-panel-toggle="sidebar"'
             .. ' aria-label="Toggle page navigation" title="Toggle page navigation">'
@@ -544,8 +542,7 @@ function page.render(
         current,
         prefix,
         pages,
-        route,
-        mobileOutline(items)
+        route
     )
     local right = home and "" or outline(items)
     local search = '<button class="nuppdoc-search-button" type="button"'
@@ -593,6 +590,8 @@ function page.render(
         and ""
         or '<button class="nuppdoc-sidebar-backdrop" type="button"'
         .. ' data-mobile-nav-close aria-label="Close page navigation"></button>'
+        .. '<button class="nuppdoc-outline-backdrop" type="button"'
+        .. ' data-mobile-outline-close aria-label="Close table of contents"></button>'
     ) .. '<div class="' .. shellClass .. '">' .. side .. '<main class="' .. contentClass .. '">' .. (
         home and "" or breadcrumbs(route, title, pages, prefix)
     ) .. body .. (
