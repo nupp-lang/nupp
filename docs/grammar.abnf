@@ -281,6 +281,12 @@ stat           =/ effectregionstat
 effectregionstat = (%s"noalloc" / %s"noraise") "do" block "end"
                                                 ; erased checked effect regions
 
+; `with` is contextual at statement position when Name and `=` or `:` follow.
+; Each binding acquires one affine owner and exposes a scoped borrow [CS-5].
+stat           =/ withstat
+withstat       = %s"with" withbinding *("," withbinding) "do" block "end"
+withbinding    = bindname "=" exp
+
 ; Typed declaration visibility is contextual [CS-5]. `local` is file-private,
 ; no modifier exports from the module, and `global` enters the project globals.
 stat           =/ typedeclstat
@@ -507,6 +513,8 @@ packunion      = typepack 1*("|" typepack)
 ;   adjacent statements `local type` and `Alias = value`, while level 1 reads
 ;   it as an alias. Put a newline or semicolon after `type` to select the Lua
 ;   meaning explicitly. Every bare declaration form is invalid Lua.
+;   `with` is likewise contextual at statement position only when the next
+;   tokens are a Name followed by `=` or `:`. Elsewhere it is an identifier.
 ;   `sealed` is a reserved level-1 keyword rather than a contextual name. It may
 ;   appear only immediately before `interface`, after an optional visibility
 ;   modifier: `local sealed interface Token`.

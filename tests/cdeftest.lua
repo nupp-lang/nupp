@@ -89,7 +89,7 @@ function M.countedPointersBuildOneCheckedWrapperOverThePhysicalBinding()
       "local writable = spans.writeCarray(p, 4)",
       "local readable = spans.fromCarray(v, 4)",
       "counted_integrate(writable, readable, 0.5 as float)",
-      "writable:commit()",
+      "drop writable",
    }, "\n")
    assertClean(source)
    local code, diags, genDiags = compile(source)
@@ -142,7 +142,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
       "      local readable = spans.fromCarray(input, 6):slice(2, 6)",
       "      counted_pointer_transform(parts.right, readable)",
       "   end",
-      "   writer:commit()",
+      "   drop writer",
       "end",
       "local offsetFirst, offsetLast: int32, int32",
       "do",
@@ -155,7 +155,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
       "   local emptyOutput = spans.writeCarray(output, 0)",
       "   local emptyInput = spans.fromCarray(input, 0)",
       "   counted_pointer_transform(emptyOutput, emptyInput)",
-      "   emptyOutput:commit()",
+      "   drop emptyOutput",
       "end",
       "local zeroCalls = counted_pointer_call_count()",
       "counted_pointer_reset()",
@@ -163,7 +163,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
       "   local independentOutput = spans.writeCarray(output, 3)",
       "   local independentInput = spans.fromCarray(input, 5)",
       "   counted_pointer_independent(independentOutput, independentInput)",
-      "   independentOutput:commit()",
+      "   drop independentOutput",
       "end",
       "local outputCount, inputCount, inputFirst: int32, int32, int32",
       "do",
@@ -180,8 +180,8 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
       "      local sourceReader = sourceWriter:shared()",
       "      counted_pointer_transform(destinationWriter, sourceReader)",
       "   end",
-      "   destinationWriter:commit()",
-      "   sourceWriter:commit()",
+      "   drop destinationWriter",
+      "   drop sourceWriter",
       "end",
       "local sharedRead = spans.fromCarray(sharedOutput, 2)",
       "return offsetFirst, offsetLast, transformCalls, zeroCalls,",
@@ -217,7 +217,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
    local unequalOk = pcall(transform, shortOutput, longInput)
    assertEq(unequalOk, false, "unequal shared counts raise before C")
    assertEq(tonumber(callCount()), 0, "unequal shared counts never enter C")
-   shortOutput:commit()
+   shortOutput:drop()
    os.execute("rm -rf '" .. dir .. "'")
 end
 

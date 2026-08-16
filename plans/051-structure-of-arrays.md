@@ -2,6 +2,7 @@
 
 Status: Nupp core implemented through S3; the trace gate passes. Direct AOT backend
 consumption and the external Tecs snapshot/derive port remain follow-up integration.
+Exact `with` extents and the `drop` naming cleanup are implemented.
 
 ## Implementation findings
 
@@ -32,6 +33,12 @@ Nested structs and fixed arrays remain one top-level column. The layout helper m
 reconstruct their declared ctypes rather than use `typeof(sample.field)`: LuaJIT
 returns a reference ctype for field access, and a reference cannot form the typed
 column pointer.
+
+Writable views now use `drop`, not `commit`: ending a view only releases its
+exclusive-borrow capability, because every store already targets the final column.
+The restored `with rows = array:write() do ... end` form gives that capability an
+exact non-escaping extent and feeds the same automatic cleanup region. Neither form
+flushes, gathers, copies, or boxes the SoA storage.
 
 The canonical hot loop `for i = 1, rows.count` is also the bounds proof. Its body emits
 direct numeric column loads/stores using the view's slice offset; arbitrary indexes
@@ -196,7 +203,7 @@ sealed interface soa.WriteSpan<T> is soa.WriteToken
     set: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
     field: function<F>(exclusive self: WriteSpan<T>, name: string): span.Writable<F> borrows (self)
     shared: function(borrows self: WriteSpan<T>): soa.Span<T> borrows (self)
-    commit: nosuspend function(takes self: WriteSpan<T>): nil
+    drop: nosuspend function(takes self: WriteSpan<T>): nil
     copyFrom: function(exclusive self: WriteSpan<T>, targetFirst: integer,
         borrows source: soa.Span<T>, sourceFirst: integer, count: integer): nil
 end
@@ -602,7 +609,7 @@ or why lane lowering declined it.
   `soa.layoutof` metadata without exposing pointers or provenance.
 - Implement overflow-checked aligned slab allocation and one affine owner.
 - Add shared and exclusive private-representation views with count, slicing, sharing,
-  commit, and automatic cleanup.
+  drop, exact `with` extents, and automatic cleanup.
 - Serialize only semantic descriptor facts in module interfaces and cache keys.
 
 ### S2 — Row and field places

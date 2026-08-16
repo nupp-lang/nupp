@@ -71,6 +71,17 @@ drop(another)
 Passing it to a `takes` parameter or returning it through an affine result moves
 the same obligation. A second use or move is rejected.
 
+Use [`with`](../with.md) when the value should instead have one exact extent:
+
+```nupp
+with session = openSession(1) do
+    inspect(session)
+end
+```
+
+The visible `session` is a non-escaping borrow. Its hidden owner always drops at
+the end of the body and cannot be moved or ended early.
+
 `affine(T)` is deliberately terminal-less. It may be forwarded to another
 owner or consuming parameter, returned, or released in `unsafe`; it cannot be
 dropped locally.

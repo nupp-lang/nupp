@@ -1,9 +1,8 @@
 # Automatic destruction for ordinary owners
 
 > **Status: implemented.** Locally droppable ordinary owners auto-destroy at
-> lexical scope exit. The standalone resource `with` syntax discussed in the
-> historical stages below was subsequently removed because `do` plus an
-> ordinary owner provides the same cleanup boundary with one ownership model.
+> lexical scope exit. `with` now layers an exact non-escaping borrowed extent
+> over that same cleanup model; it does not introduce another runtime.
 
 ## Decision
 

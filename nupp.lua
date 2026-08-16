@@ -374,7 +374,7 @@ local readable = spans.fromCarray(input, 256)
 local writable = spans.writeCarray(output, 256)
 
 transform(writable, readable)
-spans.commit(writable)
+drop writable
 
 local result = spans.fromCarray(output, 256)
 print(result:get(1))]],
@@ -507,6 +507,11 @@ nupp lsp            # start the language server]],
                   path = "concepts/ownership",
                   title = "Ownership",
                   source = "docs/start/ownership.md",
+               },
+               {
+                  path = "concepts/exact-affine-scopes",
+                  title = "Exact affine scopes",
+                  source = "docs/with.md",
                },
                {
                   path = "concepts/suspension",

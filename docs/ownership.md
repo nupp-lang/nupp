@@ -177,6 +177,10 @@ return, loop exit, outward `goto`, and errors. Bindings are acquired left to
 right and destroyed right to left. A successful move deactivates the source
 exactly once.
 
+[`with`](with.md) gives an owner a stricter exact extent. The acquisition moves
+into a hidden slot, the visible binding is a scoped borrow, and the same lexical
+cleanup machinery drops the hidden owner on every exit from the body.
+
 `nupp.attemptAll(value, operations...)` remains the ordinary way to author a
 single terminal that performs several independent operations. The affine type
 still records only that one terminal identity.

@@ -35,7 +35,7 @@ function system.run(): (float, uint32)
             end
         end
     end
-    writable:commit()
+    drop writable
 
     const readable = span.fromCarray(storage, 8)
 

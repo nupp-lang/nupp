@@ -160,7 +160,7 @@ function M.countedPointerLogicalSignaturesCrossModuleSummaries()
       "local writer = spans.writeCarray(output, 4)",
       "local reader = spans.fromCarray(input, 4)",
       "native.copy(writer, reader)",
-      "writer:commit()",
+      "drop writer",
    }, "\n"))
 
    local inc = incremental.new(dir)

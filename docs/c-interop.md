@@ -565,7 +565,7 @@ local heap = require("nupp.heap")
 local values = heap.allocate(ffi.typeof<int32>(), 1000000)
 local writable = values:write()
 writable:set(1, 42 as int32)
-writable:commit()
+drop writable
 ```
 
 ## C unions and bitfields

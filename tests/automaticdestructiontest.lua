@@ -1,6 +1,7 @@
 local parser = require("nupp.compiler.parser")
 local check = require("fragment")
 local gen = require("nupp.compiler.gen")
+local fmt = require("nupp.compiler.fmt")
 local envMod = require("nupp.compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -57,16 +58,89 @@ local PRELUDE = table.concat({
 
 local M = {}
 
-function M.withIsOnlyAnOrdinaryIdentifierNow()
+function M.withIsContextualAndScopesAnAffineOwner()
    local ordinary = parser.parse(
       "local with = function(value) return value end\nreturn with(1)",
       "automatic-destruction-test.g.nupp")
    assertEq(#ordinary.errors, 0)
 
-   local removed = parser.parse(
-      "with value = acquire() do print(value) end",
-      "automatic-destruction-test.g.nupp")
-   assert(#removed.errors > 0, "the removed resource-scope syntax must not parse")
+   local chunk = compile(PRELUDE .. table.concat({
+      "",
+      "with value = open_resource('w') do",
+      "   value.name = value.name",
+      "end",
+      "return calls",
+   }, "\n"))
+   assertEq(chunk(), "w")
+end
+
+function M.withAcquiresLeftToRightAndDropsInReverse()
+   local chunk = compile(PRELUDE .. table.concat({
+      "",
+      "with first = open_resource('a'), second = open_resource('b') do",
+      "   calls = calls .. 'x'",
+      "end",
+      "return calls",
+   }, "\n"))
+   assertEq(chunk(), "xba")
+end
+
+function M.withDropsOnRaisedAndReturnedExits()
+   local chunk = compile(PRELUDE .. table.concat({
+      "",
+      "local function returning(): string",
+      "   with value = open_resource('r') do return value.name end",
+      "end",
+      "local function raising()",
+      "   with value = open_resource('e') do error('body') end",
+      "end",
+      "local result = returning()",
+      "local ok = pcall(raising)",
+      "return result, ok, calls",
+   }, "\n"))
+   local result, ok, calls = chunk()
+   assertEq(result, "r")
+   assertEq(ok, false)
+   assertEq(calls, "re")
+end
+
+function M.withBindingCannotEscapeOrBeDroppedEarly()
+   assertEq(codes(PRELUDE .. table.concat({
+      "",
+      "local function escape(): Resource",
+      "   with value = open_resource('x') do return value end",
+      "end",
+   }, "\n")), "NUPP2608")
+
+   assertEq(codes(PRELUDE .. table.concat({
+      "",
+      "with value = open_resource('x') do drop value end",
+   }, "\n")), "NUPP2602")
+end
+
+function M.gotoCannotEnterAWithScope()
+   assertEq(codes(PRELUDE .. table.concat({
+      "",
+      "goto inside",
+      "with value = open_resource('x') do",
+      "   ::inside::",
+      "   print(value.name)",
+      "end",
+   }, "\n")), "NUPP2602")
+end
+
+function M.withFormatsWrappedBindingsIdempotently()
+   local source = "with first_resource = open_resource('a very long resource "
+      .. "name that forces wrapping'), second_resource = open_resource('another "
+      .. "very long resource name that forces wrapping') do\n"
+      .. "use(first_resource, second_resource)\nend"
+   local formatted, errors = fmt.format(source, "with-test.g.nupp")
+   assertEq(#errors, 0)
+   assert(formatted:find("with\n    first_resource", 1, true), formatted)
+   assert(formatted:find("\n    second_resource", 1, true), formatted)
+   assert(formatted:find("\ndo\n", 1, true), formatted)
+   local again = fmt.format(formatted, "with-test.g.nupp")
+   assertEq(again, formatted)
 end
 
 function M.fallthroughDestroysAnOrdinaryOwner()

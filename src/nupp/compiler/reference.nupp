@@ -1054,6 +1054,49 @@ return m
     ),
 
     new reference.Section(
+        title = "Exact affine scopes",
+        codes = {"NUPP2602", "NUPP2608", "NUPP2615"},
+        body = [=[
+`with name = acquire() do ... end` gives a terminal-bearing affine value one
+exact extent. The owner moves into a hidden slot and the visible name is a scoped
+borrow, so it cannot be moved, returned, stored, reassigned, captured by an
+escaping closure, or dropped early.
+
+The hidden owner drops on fallthrough, return, loop control, outward goto, and
+raised errors. Multiple acquisitions run left to right and drop right to left;
+each successful prefix remains protected if a later acquisition fails. `with`
+uses the same cleanup region as automatic lexical destruction.
+
+`with` is contextual at statement position when a name followed by `=` or `:`
+selects this form. Elsewhere it remains an ordinary identifier. Use a normal
+affine local plus `drop` when early release or ownership transfer is intended.
+]=],
+        example = [=[
+local m = {}
+
+local record Guard
+    active: boolean
+end
+
+local function finish(takes guard: Guard): nil
+    guard.active = false
+end
+
+local function acquire(): affine(Guard, finish)
+    return new Guard(active = true)
+end
+
+function m.run(): boolean
+    with guard = acquire() do
+        return guard.active
+    end
+end
+
+return m
+]=]
+    ),
+
+    new reference.Section(
         title = "C interop",
         codes = {"NUPP2203", "NUPP2101", "NUPP2502", "NUPP2514", "NUPP2602", "NUPP2619", "NUPP2707"},
         body = [=[

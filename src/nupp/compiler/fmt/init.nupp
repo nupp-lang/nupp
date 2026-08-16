@@ -362,7 +362,19 @@ local function annotate(root)
             markFunctionEnd(n)
         end
 
-        local openIdx, closeIdx = groupBounds(n)
+        local openIdx, closeIdx
+        if kind == "withStmt" then
+            for idx, child in ipairs(n) do
+                if child == n.withTok then
+                    openIdx = idx
+                elseif child == n.doTok then
+                    closeIdx = idx
+                    child.withHeaderClose = true
+                end
+            end
+        else
+            openIdx, closeIdx = groupBounds(n)
+        end
         local inner = group
         if openIdx then
             local openTok, closeTok = n[openIdx], n[closeIdx]
@@ -938,7 +950,9 @@ local function computeIndents(lines)
             -- A chain step continues the line above it wherever the chain sits:
             -- inside a broken group, a step at the group's own indent would read
             -- as an element of it rather than as the rest of one.
-            if (hang == 0 or tok.chainStep) and not tok.startsStat and not CLOSERS[tok.kind] then
+            if (
+                hang == 0 or tok.chainStep
+            ) and not tok.startsStat and not CLOSERS[tok.kind] and not tok.withHeaderClose then
                 depth = depth + 1 -- continuation of the previous line
             end
             line.indent = depth

@@ -19,12 +19,12 @@ end
 
 --- The consuming operation shared by every writable span representation.
 sealed interface span.WriteToken is span.CountedSpan
-    commit: nosuspend function(takes self: WriteToken): nil
+    drop: nosuspend function(takes self: WriteToken): nil
 end
 
 --- @export
 function span.destroyWriteSpan<T is span.WriteToken>(takes writable: T): nil
-    writable:commit()
+    writable:drop()
 end
 
 --- A checked, shared view over contiguous elements. Only this module can declare an
@@ -136,13 +136,12 @@ record span.WriteSplit<T>
 end
 
 --- An affine checked write range. Its live token keeps the source under an
---- incompatible-borrow barrier until `span.commit` or scope exit consumes it. Only
+--- incompatible-borrow barrier until `drop` or scope exit consumes it. Only
 --- this module can declare an implementation.
 --- @export
 sealed interface span.WriteSpan<T> is span.WriteToken
     readonly count: integer
     drop: nosuspend function(takes self: WriteSpan<T>): nil
-    commit: nosuspend function(takes self: WriteSpan<T>): nil
     getMut: function(exclusive self: WriteSpan<T>, index: integer): T* borrows (self)
     set: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
     ref: function(exclusive self: WriteSpan<T>): (T[?] borrows (self), integer)
@@ -180,8 +179,6 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
 
     --- Ends this affine write range. It is also the automatic scope-exit drop.
     drop: nosuspend function(takes self: WriteSpanImpl<T>): nil
-
-    commit: nosuspend function(takes self: WriteSpanImpl<T>): nil
 
     --- Returns a checked mutable element reference tied to this write borrow.
     --- @raises when index is outside 1 through count
@@ -275,7 +272,6 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
     readonly count: N
 
     drop: nosuspend function(takes self: FixedWriteSpanImpl<T, N>): nil
-    commit: nosuspend function(takes self: FixedWriteSpanImpl<T, N>): nil
 
     function getMut(exclusive self: FixedWriteSpanImpl<T, N>, index: integer): T* borrows (self)
         if index < 1 or index > (self.count as integer) then
@@ -356,30 +352,16 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
     end
 end
 
-function WriteSpanImpl.commit<T>(takes self: WriteSpanImpl<T>): nil
-    nosuspend do
-        local _raw = unsafe release self
-    end
-end
-
-function FixedWriteSpanImpl.commit<T, const N: integer>(takes self: FixedWriteSpanImpl<T, N>): nil
-    nosuspend do
-        local _raw = unsafe release self
-    end
-end
-
 function WriteSpanImpl.drop<T>(takes self: WriteSpanImpl<T>): nil
-    self:commit()
+    nosuspend do
+        local _raw = unsafe release self
+    end
 end
 
 function FixedWriteSpanImpl.drop<T, const N: integer>(takes self: FixedWriteSpanImpl<T, N>): nil
-    self:commit()
-end
-
---- Ends an affine write range and releases its exclusive-borrow barrier.
---- @export
-function span.commit<T>(takes writable: span.WriteSpan<T>): nil
-    writable:commit()
+    nosuspend do
+        local _raw = unsafe release self
+    end
 end
 
 --- Backwards-compatible names for the byte-specialized views.

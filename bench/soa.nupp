@@ -45,7 +45,8 @@ local function generatedSoA(): number
     end
     local elapsed = os.clock() - started
     local sink = rows[COUNT].x
-    rows:commit()
+    drop rows
+
     return elapsed + sink * 0
 end
 

@@ -136,7 +136,7 @@ sealed interface soa.CountedSpan
 end
 
 sealed interface soa.WriteToken is soa.CountedSpan
-    commit: nosuspend function(takes self: WriteToken): nil
+    drop: nosuspend function(takes self: WriteToken): nil
 end
 
 --- @export
@@ -146,7 +146,7 @@ end
 
 --- @export
 function soa.destroyWriteSpan<T is soa.WriteToken>(takes self: T): nil
-    self:commit()
+    self:drop()
 end
 
 --- A shared checked view over SoA rows.
@@ -345,17 +345,12 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
     end
 
     drop: nosuspend function(takes self: WriteSpanImpl<T>): nil
-    commit: nosuspend function(takes self: WriteSpanImpl<T>): nil
-end
-
-function WriteSpanImpl.commit<T>(takes self: WriteSpanImpl<T>): nil
-    nosuspend do
-        local _raw = unsafe release self
-    end
 end
 
 function WriteSpanImpl.drop<T>(takes self: WriteSpanImpl<T>): nil
-    self:commit()
+    nosuspend do
+        local _raw = unsafe release self
+    end
 end
 
 --- One owned native slab whose top-level struct fields occupy separate segments.

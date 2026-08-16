@@ -375,9 +375,10 @@ in a Lua string on the way there.
 Transfers are synchronous here. F2 replaces the mechanism and F3 adds the
 `suspend`; the surface above does not move.
 
-`with` had been removed from the language by the time this landed, so the
-ownership story is the lexical one: a `File` nobody binds reports NUPP2605, and
-one that goes out of scope is closed on fallthrough, early return and error.
+The ownership story is lexical: a `File` nobody binds reports NUPP2605, and one
+that goes out of scope is closed on fallthrough, early return and error. The
+restored `with file = ... do` form can additionally enforce one exact borrowed
+extent without changing the file representation or terminal.
 
 `DirectoryStream` did not land. `list` answers a table, which is the whole of
 what a caller needs until a directory is too large to hold, and streaming it

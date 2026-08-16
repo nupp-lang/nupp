@@ -57,6 +57,7 @@ local CATEGORIES = {
     cdefStruct = {declaration = true, ["type-declaration"] = true, struct = true, ["c-declaration"] = true,},
     doStmt = {block = true},
     unsafeStmt = {block = true},
+    withStmt = {block = true},
     ifStmt = {conditional = true},
     whileStmt = {loop = true},
     repeatStmt = {loop = true},

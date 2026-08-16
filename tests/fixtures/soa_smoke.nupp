@@ -11,8 +11,7 @@ end
 
 local function run(): number
     local particles = soa.allocate(ffi.typeof<Particle>(), 4)
-    do
-        local rows = particles:write()
+    with rows = particles:write() do
         for index = 1, rows.count do
             rows[index].x = index
             rows[index].y = index * 2
@@ -23,12 +22,12 @@ local function run(): number
 
         local replacement = new Particle(10, 20, 30, 40)
         rows[2] = replacement
-        rows:commit()
     end
 
     local rows = particles:read()
     local second: Particle = rows[2]
     local xs = rows:field("x")
+
     return rows[1].x + second.y + xs:get(4)
 end
 

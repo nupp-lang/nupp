@@ -219,6 +219,51 @@ function control.install(c: state.Checker): state.StatHandlers
 
     local handlers = {}
 
+    handlers.withStmt = function(stat: cst.WithStmt)
+        c.pushScope()
+        for _, binding in ipairs(stat.bindings or {}) do
+            local nameTok = binding.name
+            local acquired = c.infer(binding.expr as cst.Node)
+            local cleanups = acquired.tag == "affine" and acquired.cleanups or {}
+            binding.acquiredType = acquired
+            binding.ownerCleanups = cleanups
+            if ownershipKind(acquired) ~= "affine" or own.optionalOwned(acquired) then
+                c.diag("NUPP2602", binding.expr, "a 'with' acquisition must be a non-optional affine value")
+            elseif #cleanups == 0 then
+                c.diag("NUPP2615", binding.expr, "a 'with' acquisition needs an affine terminal", nil, {
+                    help = "name the terminal in affine(T, cleanup), or add a structural drop method"
+                })
+            end
+            if binding.type then
+                local declared = c.resolveType(binding.type)
+                local ok, why = isA(rawType(acquired), declared)
+                if not ok then
+                    c.diag(
+                        "NUPP2001",
+                        binding.expr,
+                        ("cannot initialize %s: %s"):format(nameTok and nameTok.text or "acquisition", why)
+                    )
+                end
+            end
+            if ownershipKind(acquired) == "affine" then
+                moveExpression(binding.expr, acquired, "with acquisition", "affine")
+            end
+            local visible = ownershipKind(acquired) == "affine" and T.borrowed(rawType(acquired)) or T.any
+            if nameTok then
+                c.bindVar(nameTok.text, visible, binding.type ~= nil, nameTok, nil, true)
+                local entry = c.scope.vars[nameTok.text]
+                if entry then
+                    entry.withBinding = binding
+                end
+            end
+        end
+        c.captureWatches[#c.captureWatches + 1] = {depth = c.scope.depth, captured = false}
+        c.checkBlock(stat.body, true)
+        stat.capturesEnclosing = c.captureWatches[#c.captureWatches].captured
+        c.captureWatches[#c.captureWatches] = nil
+        c.popScope()
+    end
+
     handlers.returnStmt = function(stat: cst.ReturnStmt)
         local annotated = c.retStack[#c.retStack]
         local annotatedPack = c.retPackStack[#c.retPackStack]

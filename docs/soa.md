@@ -14,11 +14,11 @@ local struct Position
 end
 
 local positions = soa.allocate(ffi.typeof<Position>(), 128)
-local rows = positions:write()
-for index = 1, rows.count do
-    rows[index].x += rows[index].velocity
+with rows = positions:write() do
+    for index = 1, rows.count do
+        rows[index].x += rows[index].velocity
+    end
 end
-rows:commit()
 ```
 
 ## Containers select the layout
@@ -68,12 +68,10 @@ local struct Particle
 end
 
 local particles = soa.allocate(ffi.typeof<Particle>(), 2)
-do
-    local rows = particles:write()
+with rows = particles:write() do
     rows[1] = new Particle(1, 2, 3, 4)
     rows[2].x = 10
     rows[2].y = 20
-    rows:commit()
 end
 
 local rows = particles:read()
@@ -86,9 +84,9 @@ Reading or writing the whole row gathers from or scatters to every column.
 Whole-row operations preserve value semantics: changing a gathered `Particle`
 does not mutate its source.
 
-`commit()` ends the exclusive borrow; it does not flush or copy data. Stores
-already wrote the columns. Leaving the view's scope also commits it through
-automatic
+Ending the `with` scope or explicitly using `drop` on an ordinary writable view
+ends the exclusive borrow; it does not flush or copy data. Stores already wrote
+the columns. Both forms use automatic
 [lexical destruction](ownership.md#consumption-and-lexical-destruction).
 
 A shared view rejects both direct field stores and whole-row stores. The
@@ -113,15 +111,14 @@ returns `span.Span<Field>`, and an exclusive row view returns
 ```nupp
 local span = require("nupp.span")
 
-do
-    local rows = particles:write()
-    local xs: span.Writable<float> = rows:field("x")
-    local ys: span.Writable<float> = rows:field("y")
-    xs:set(1, 3.5)
-    ys:set(1, 4.5)
-    xs:commit()
-    ys:commit()
-    rows:commit()
+with rows = particles:write() do
+    with
+        xs: span.WriteSpan<float> = rows:field("x"),
+        ys: span.WriteSpan<float> = rows:field("y")
+    do
+        xs:set(1, 3.5)
+        ys:set(1, 4.5)
+    end
 end
 
 local xs: span.Span<float> = particles:read():field("x")
@@ -139,12 +136,10 @@ indexes start at one, like the parent view.
 
 ```nupp
 local samples = soa.allocate(ffi.typeof<Position>(), 3)
-do
-    local rows = samples:write()
-    local middle = rows:slice(2, 2)
-    middle[1].x = 12.5
-    middle:commit()
-    rows:commit()
+with rows = samples:write() do
+    with middle = rows:slice(2, 2) do
+        middle[1].x = 12.5
+    end
 end
 
 local tail = samples:read():slice(2, 3)
@@ -164,17 +159,13 @@ both ranges before moving bytes, then performs one contiguous copy per field.
 local source = soa.allocate(ffi.typeof<Particle>(), 2)
 local target = soa.allocate(ffi.typeof<Particle>(), 4)
 
-do
-    local rows = source:write()
+with rows = source:write() do
     rows[1] = new Particle(1, 2, 3, 4)
     rows[2] = new Particle(5, 6, 7, 8)
-    rows:commit()
 end
 
-do
-    local rows = target:write()
+with rows = target:write() do
     rows:copyFrom(2, source:read(), 1, 2)
-    rows:commit()
 end
 
 assert(target:read()[3].dy == 8)

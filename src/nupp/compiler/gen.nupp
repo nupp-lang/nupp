@@ -59,6 +59,7 @@ local COVERAGE_STATEMENTS = {
     breakStmt = true,
     continueStmt = true,
     gotoStmt = true,
+    withStmt = true,
     unsafeStmt = true,
     noSuspendStmt = true,
     effectRegionStmt = true,
@@ -4145,7 +4146,7 @@ function gen.generate(
             region.capturesEnclosing = automaticCaptures(x.body, region.bindings)
             emit(region)
 
-        elseif kind == "cleanupRegion" then
+        elseif kind == "cleanupRegion" or kind == "withStmt" then
             ensureCleanupRuntime()
             local count = nextTemp()
             local ok = nextTemp()
@@ -4198,7 +4199,7 @@ function gen.generate(
                 local slot = cleanupCacheSites
                 local region = nextTemp()
                 local binding = x.bindings[1]
-                e("do const ", x.startTok and x.startTok.line or sourceLine(x))
+                e("do const ", (x.startTok or x.withTok) and (x.startTok or x.withTok).line or sourceLine(x))
                 e(("%s="):format(owners[1]), sourceLine(binding.expr))
                 local move = binding.expr and binding.expr.automaticOwnerMove or nil
                 local movedActive = move and activeWith(move) or nil
@@ -4248,7 +4249,10 @@ function gen.generate(
                 cleanupStack[#cleanupStack] = nil
                 e(("const %s=1;"):format(count))
             else
-                e(("do local %s=0; local "):format(count), x.startTok and x.startTok.line or sourceLine(x))
+                e(
+                    ("do local %s=0; local "):format(count),
+                    (x.startTok or x.withTok) and (x.startTok or x.withTok).line or sourceLine(x)
+                )
                 e(table.concat(owners, ","))
                 for j = 1, #(x.bindings or {}) do
                     if active[j] then

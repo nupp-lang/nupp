@@ -1,31 +1,30 @@
-# Explicit resource scopes — design record
+# Exact affine scopes — design record
 
-> **Historical design; syntax removed.** Automatic lexical destruction made
-> the standalone `with owner = acquire() do ... end` construct redundant, so
-> it is no longer part of the grammar. This file records the former design and
-> is not a language reference.
+> **Implemented again.** Automatic lexical destruction handles the general
+> case; `with owner = acquire() do ... end` remains valuable because it exposes
+> only a non-escaping borrow and therefore guarantees one exact extent. The
+> original design record below predates the current `affine(T, cleanup)`
+> vocabulary. [The language page](../docs/with.md) is authoritative.
 
-Status: removed language design. Result provenance, affine owned fields,
-default `@drop` contracts, and suspension checks now share the same resource
-model. Named lifetimes, stored borrowed fields, and the other items under
-[Open questions](#open-questions) remain deferred.
+Status: restored on the generalized automatic-cleanup region. Parser, checker,
+generator, formatter, semantic tokens, grammar, reference, ownership docs, and
+SoA examples cover the construct. Writable spans use `drop`, not `commit`:
+ending the capability performs no data flush or copy.
 
 ## Decision
 
 Nupp will keep resource ownership explicit:
 
-- `Owned<T, cleanup>` describes a value that carries an affine cleanup
+- `affine(T, cleanup)` describes a value that carries an affine cleanup
   obligation. It applies to pointer returns and arbitrary return
   types; the value does not need to inherit from or structurally implement a
   `Closeable` type.
-- An ordinary owned local is never silently closed merely because its lexical
-  scope ends. The checker continues to require an explicit drop on
-  every reachable path.
-- `with` is the only language construct that automatically closes owners. It
-  takes each owner at entry, exposes a non-escaping borrow in its body, and
-  discharges the cleanup obligation on every exit.
-- `drop`, a `takes` call, an owning return, and `intoRaw` remain the
-  manual lifetime controls.
+- An ordinary terminal-bearing affine local is destroyed automatically at its
+  lexical boundary unless its obligation moved elsewhere.
+- `with` takes each owner at entry, exposes a non-escaping borrow in its body,
+  and discharges the cleanup obligation on every exit.
+- `drop`, a `takes` call, an affine return, and `unsafe release` remain the
+  manual lifetime controls for values that need to move or end early.
 
 This is deliberately closer to Python context managers and Java
 try-with-resources than to unconditional C++ or Rust scope destruction. NUPP
@@ -34,23 +33,14 @@ drop is a compile error.
 
 ## Current boundary
 
-The initial implementation is deliberately narrow:
-
-- Ownership comes from `Owned<T>` on named function declarations and logical
-  owned outputs on `cdef` declarations.
-- Any non-optional owned type may be acquired, not just pointers.
-- An existing owner may be moved into a `with`.
-- Producers may take call-duration borrows.
-- A returned owner may retain a borrow of an input when it says so.
-- A visible binding may be captured by an ordinary closure as a tracked borrow,
-  but that closure may not escape the `with` lifetime; unstructured coroutine
-  capture remains rejected.
-- Nominal record fields may be `owned<T>` or `pinned<T>`; borrowed fields are
-  not supported.
-- No ownership-aware `assert` or other generic pass-through.
-
-Named lifetimes, stored borrowed fields, and ownership-preserving generic
-pass-throughs are deferred; see [Open questions](#open-questions).
+- Any non-optional terminal-bearing affine value may be acquired.
+- Multiple bindings acquire left to right and drop right to left.
+- The visible binding is a borrow: it cannot move, return, escape, be replaced,
+  or be dropped early.
+- Return, loop control, outward goto, and raised errors all cross the shared
+  cleanup region; goto cannot enter and bypass acquisition.
+- Affine result relations, scoped callbacks, field regions, and narrowing use
+  the same capability model as ordinary ownership.
 
 ## Goals
 
@@ -556,18 +546,15 @@ consuming close operation `@drop`; otherwise producers use
 
 ## Diagnostics
 
-`NUPP2610` through `NUPP2619` are reserved for explicit resource scopes. The
-initial diagnostics are:
+The restored construct reuses the general capability diagnostics rather than
+reserving another range:
 
 | Code | Meaning |
 | --- | --- |
-| `NUPP2610` | A `with` acquisition is not a non-optional owned value. |
-| `NUPP2611` | An acquired owner has no known cleanup functions. |
-| `NUPP2612` | A `with` borrow escapes by return, storage, an escaping closure, or coroutine capture. |
-| `NUPP2613` | A `with` binding is reassigned. |
-| `NUPP2614` | A visible `with` borrow is dropped or passed to `takes`. |
-| `NUPP2615` | A cleanup signature is invalid or a non-final step takes. |
-| `NUPP2616` | A returned owner retains a borrow of an input. |
+| `NUPP2602` | Acquisition is not a non-optional affine value, the visible borrow is dropped, or a goto enters the extent. |
+| `NUPP2608` | The visible borrow escapes by return, storage, or an escaping capture. |
+| `NUPP2615` | The acquisition has no valid terminal. |
+| `NUPP2008` | The visible immutable binding is reassigned. |
 | `NUPP2617` | A `goto` enters a `with` scope and bypasses acquisition. |
 
 When possible, diagnostics point to both the acquisition and invalid use. A

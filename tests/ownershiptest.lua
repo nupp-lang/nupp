@@ -730,7 +730,7 @@ function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
       "do",
       "   local writable = spans.writeCarray(storage, 4)",
       "   writable:set(1, 65)",
-      "   writable:commit()",
+      "   drop writable",
       "end",
    }, "\n"))
 end
@@ -745,7 +745,7 @@ function M.spansPreserveTheCArrayElementType()
       "end",
       "local writable = spans.writeCarray(storage, 4)",
       "writable:set(2, 42 as int32)",
-      "spans.commit(writable)",
+      "drop writable",
    }, "\n"))
 end
 
@@ -795,7 +795,7 @@ function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
       "   print(exact(shared))",
       "end",
       "writable:set(1, 42 as int32)",
-      "spans.commit(writable)",
+      "drop writable",
    }, "\n"))
 
    assertEq(codes(table.concat({
@@ -833,7 +833,7 @@ function M.spanRefsExposeOnlyTheCapabilityTheirViewOwns()
       "      write_values(pointer, count)",
       "   end",
       "   writable:set(1, 7 as int32)",
-      "   spans.commit(writable)",
+      "   drop writable",
       "end",
    }, "\n"))
 
@@ -853,7 +853,7 @@ function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
       "local storage = ffi.new<int32[4]>()",
       "local writable = spans.writeCarray(storage, 4)",
       "local pointer, count = writable:ref()",
-      "spans.commit(writable)",
+      "drop writable",
       "print(pointer, count)",
    }, "\n")), "NUPP2602", "a live mutable ref blocks consuming its writer")
 
@@ -864,8 +864,8 @@ function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
       "local shared = writable:shared()",
       "writable:set(1, 1 as int32)",
       "print(shared:get(1))",
-      "spans.commit(writable)",
-   }, "\n")), "NUPP2607 NUPP2602", "a shared downgrade blocks mutation and commit")
+      "drop writable",
+   }, "\n")), "NUPP2607 NUPP2602", "a shared downgrade blocks mutation and drop")
 end
 
 function M.writableSlicesAreAffineChildrenOfTheirWriter()
@@ -884,10 +884,10 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
       "end",
       "do",
       "   local empty = writable:slice(4, 3)",
-      "   spans.commit(empty)",
+      "   drop empty",
       "end",
       "writable:set(6, 14 as int32)",
-      "spans.commit(writable)",
+      "drop writable",
    }, "\n"))
 
    assertEq(codes(table.concat({
@@ -905,8 +905,8 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
       "local writable = spans.writeFixedCarray(storage, 4)",
       "local child: spans.Writable<int32> = writable:slice(2, 3)",
       "child:set(1, 7 as int32)",
-      "spans.commit(child)",
-      "spans.commit(writable)",
+      "drop child",
+      "drop writable",
    }, "\n"))
 end
 
@@ -921,7 +921,7 @@ function M.commonSpanRangesBorrowEveryInputWithoutBoxingOrConsumption()
       "for index = indices.first, indices.last do",
       "   output:set(index, input:get(index))",
       "end",
-      "spans.commit(output)",
+      "drop output",
    }, "\n"))
 
    assertClean(table.concat({
@@ -949,7 +949,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
       "   local writable = values:write()",
       "   writable:set(1, 42 as int32)",
       "   print(writable.count)",
-      "   writable:commit()",
+      "   drop writable",
       "end",
       "local readable = values:read()",
       "local value: int32 = readable:get(1)",
@@ -987,7 +987,7 @@ function M.heapArraysPreserveCountsAndCleanUpAtRuntime()
       "   if count > 0 then",
       "      local writable = values:write()",
       "      writable:set(count, 73 as int32)",
-      "      writable:commit()",
+      "      drop writable",
       "   end",
       "   local readable = values:read()",
       "   local value: int32 = 0",
@@ -1066,7 +1066,7 @@ function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
       "   split.left:set(1, 1 as int32)",
       "end",
       "writable:set(2, 2 as int32)",
-      "writable:commit()",
+      "drop writable",
    }, "\n"))
 end
 
@@ -1113,7 +1113,7 @@ function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
       "   do",
       "      local zeroing = values:write()",
       "      for i = 1, zeroing.count do zeroing:set(i, 0 as int32) end",
-      "      zeroing:commit()",
+      "      drop zeroing",
       "   end",
       "   do",
       "      local writable = values:write()",
@@ -1127,7 +1127,7 @@ function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
       "            nested.right:set(1, 33 as int32)",
       "         end",
       "      end",
-      "      writable:commit()",
+      "      drop writable",
       "   end",
       "   local readable = values:read()",
       "   return leftCount, rightCount, readable:get(1), readable:get(4)",
@@ -1177,7 +1177,7 @@ function M.tecsShapedColumnsPartitionIntoCheckedNativeKernelInputs()
       "      update_transforms(halves.left)",
       "      update_transforms(halves.right)",
       "   end",
-      "   writable:commit()",
+      "   drop writable",
       "end",
       "local readable = column:read()",
       "print(readable.count)",

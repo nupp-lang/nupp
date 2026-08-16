@@ -60,8 +60,7 @@ local M = {}
 function M.directFieldsAndWholeRowsKeepValueSemantics()
    local value, code = runs(PRELUDE .. [[
 local particles = soa.allocate(ffi.typeof<Particle>(), 4)
-do
-    local rows = particles:write()
+with rows = particles:write() do
     for index = 1, rows.count do
         rows[index].x = index
         rows[index].y = index * 2
@@ -70,7 +69,6 @@ do
         rows[index].x += rows[index].dx
     end
     rows[2] = new Particle(10, 20, 30, 40)
-    rows:commit()
 end
 local rows = particles:read()
 local copied: Particle = rows[2]
@@ -97,7 +95,7 @@ do
     local rows = particles:write()
     rows[1].x = 3
     rows[nextIndex()].x += 4
-    rows:commit()
+    drop rows
 end
 return calls * 10 + particles:read()[1].x
 ]])
@@ -135,12 +133,12 @@ local columns = soa.allocate(ffi.typeof<Particle>(), 1)
 do
     local rows = aos:write()
     rows:set(1, new Particle(1, 2, 3, 4))
-    rows:commit()
+    drop rows
 end
 do
     local rows = columns:write()
     rows[1] = new Particle(5, 6, 7, 8)
-    rows:commit()
+    drop rows
 end
 local ordinary = layoutof(Particle)
 local split = soa.layoutof(ffi.typeof<Particle>())
@@ -209,9 +207,9 @@ do
     local ys: span.Writable<float> = rows:field("y")
     xs:set(1, 3.5)
     ys:set(1, 4.5)
-    xs:commit()
-    ys:commit()
-    rows:commit()
+    drop xs
+    drop ys
+    drop rows
 end
 local rows = particles:read()
 local xs: span.Span<float> = rows:field("x")
@@ -274,10 +272,10 @@ do
     local rows = particles:write()
     local middle = rows:slice(2, 2)
     middle[1].x = 12.5
-    middle:commit()
+    drop middle
     rows[1].x = 1.5
     rows[3].x = 30.5
-    rows:commit()
+    drop rows
 end
 local rows = particles:read()
 local tail = rows:slice(2, 3)
@@ -295,12 +293,12 @@ do
     rows[1] = new Particle(1, 2, 3, 4)
     rows[2] = new Particle(5, 6, 7, 8)
     rows[3] = new Particle(9, 10, 11, 12)
-    rows:commit()
+    drop rows
 end
 do
     local rows = target:write()
     rows:copyFrom(2, source:read(), 1, 3)
-    rows:commit()
+    drop rows
 end
 local rows = target:read()
 return rows[2].x + rows[3].y + rows[4].dy
@@ -333,7 +331,7 @@ local one = soa.allocate(ffi.typeof<Particle>(), 1)
 local okDirect = pcall(function()
     local rows = one:write()
     rows[2].x = 1
-    rows:commit()
+    drop rows
 end)
 local okNegative = pcall(function()
     local invalid = soa.allocate(ffi.typeof<Particle>(), -1)

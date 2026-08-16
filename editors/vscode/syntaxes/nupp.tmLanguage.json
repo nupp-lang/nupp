@@ -412,6 +412,11 @@
           }
         },
         {
+          "comment": "with opens an affine scope only when a binding follows.",
+          "name": "keyword.control.nupp",
+          "match": "\\bwith\\b(?=[ \\t]+[A-Za-z_][A-Za-z0-9_]*[ \\t]*(?::|=))"
+        },
+        {
           "comment": "comptime changes when code runs, so it gets its own colour.",
           "name": "storage.modifier.directive.nupp",
           "match": "\\bcomptime\\b(?=[ \\t]+(?:do|function)\\b)"

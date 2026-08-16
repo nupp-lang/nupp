@@ -444,6 +444,15 @@ interface cst.Hints
     --- What an owner promised to release.
     ownerCleanups: any
 
+    --- The affine value acquired by a `with` binding.
+    acquiredType: any
+
+    --- The `with` binding a visible scoped borrow resolves to.
+    withBinding: any
+
+    --- Whether a `with` body reads a binding from an enclosing scope.
+    capturesEnclosing: boolean?
+
     --- Free cleanup bindings this node registers in the runtime linker.
     cleanupRegistrations: any
 
@@ -587,6 +596,29 @@ record cst.HandleStmt is cst.Hints
 
     --- The `end`.
     endTok: lexer.Token?
+end
+
+--- An exact affine extent, `with value = acquire() do ... end`.
+record cst.WithStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'withStmt'
+    withTok: lexer.Token?
+    bindings: {cst.WithBinding}
+    doTok: lexer.Token?
+    body: cst.Node?
+    endTok: lexer.Token?
+end
+
+--- One left-to-right acquisition in a `with` statement.
+record cst.WithBinding is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'withBinding'
+    name: lexer.Token?
+    type: cst.Node?
+    eq: lexer.Token?
+    expr: cst.Node?
 end
 
 --- An `if` and everything that belongs to it.
@@ -2375,6 +2407,8 @@ type cst.Node = cst.Chunk
     | cst.Block
     | cst.EmptyStmt
     | cst.HandleStmt
+    | cst.WithStmt
+    | cst.WithBinding
     | cst.IfStmt
     | cst.IfClause
     | cst.ElseifClause
@@ -2495,6 +2529,7 @@ type cst.Generic = cst.Funcbody | cst.Tfunc | cst.TypeAlias | cst.RecordDecl
 
 --- Statements and expressions whose nested block a pass walks into.
 type cst.Bodied = cst.UnsafeStmt
+    | cst.WithStmt
     | cst.DoStmt
     | cst.WhileStmt
     | cst.RepeatStmt

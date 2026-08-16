@@ -103,7 +103,7 @@ Type syntax:
 
 None of the level-1 introducers is reserved. `type`, `record`, `interface`,
 `struct`, `const`, `cdef`, `from`, `unsafe`, `continue`,
-`global`, `as`, `is`, `metamethod`, `takes`, `borrows`, `exclusive`, `retains`,
+`global`, `with`, `as`, `is`, `metamethod`, `takes`, `borrows`, `exclusive`, `retains`,
 `releases`, and `out` all keep their Lua meaning wherever a declaration cannot
 start:
 

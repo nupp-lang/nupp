@@ -400,6 +400,20 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return after.kind ~= "=" and after.kind ~= ","
     end
 
+    --- Whether contextual `with` begins an exact affine extent here.
+    local function startsWith(at: integer): boolean
+        local kw, name, after = tokens[at], tokens[at + 1], tokens[at + 2]
+        return kw ~= nil
+            and kw.kind == "name"
+            and kw.text == "with"
+            and name ~= nil
+            and name.kind == "name"
+            and after ~= nil
+            and (
+            after.kind == "=" or after.kind == ":"
+        )
+    end
+
     -- Consumes ':' as a type-annotation colon (formatted as "x: T").
 
     --- Consumes the `:` of an annotation, marked so it erases with the type it
@@ -2327,6 +2341,32 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if kind == ";" then
             local n = new cst.EmptyStmt(kind = "emptyStmt")
             add(n, advance())
+            return n
+
+        elseif startsWith(i) then
+            local n = new cst.WithStmt(kind = "withStmt")
+            n.withTok = add(n, advance())
+            n.bindings = {}
+            local function binding()
+                local b = new cst.WithBinding(kind = "withBinding")
+                b.name = add(b, expectName("in 'with' binding"))
+                if cur().kind == ":" then
+                    annotationColon(b, "in 'with' binding")
+                    b.type = add(b, parseType())
+                end
+                b.eq = add(b, expect("=", "in 'with' binding"))
+                b.expr = add(b, parseExp())
+                n.bindings[#n.bindings + 1] = add(n, b)
+            end
+
+            binding()
+            while cur().kind == "," do
+                add(n, advance())
+                binding()
+            end
+            n.doTok = add(n, expect("do", "after 'with' acquisitions"))
+            n.body = add(n, parseBlock())
+            n.endTok = add(n, expect("end", "to close 'with'"))
             return n
 
         elseif kind == "if" then

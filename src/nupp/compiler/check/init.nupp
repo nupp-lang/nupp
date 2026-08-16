@@ -2270,6 +2270,53 @@ function checkMod.check(
         end
     end
 
+    -- A goto may leave an exact extent because lowering drops before dispatch, but it
+    -- may not enter one and bypass acquisition.
+    local function auditWithGotos(block)
+        local labels, gotos = {}, {}
+        local function walk(node, regions)
+            if not node or cst.isToken(node) then
+                return
+            end
+            if node.kind == "funcbody" or node.kind == "shortfn" then
+                if node.body then
+                    auditWithGotos(node.body)
+                end
+                return
+            end
+            local active = regions
+            if node.kind == "withStmt" then
+                active = {}
+                for region in pairs(regions) do
+                    active[region] = true
+                end
+                active[node] = true
+            elseif node.kind == "labelStmt" and node.name then
+                labels[node.name.text] = labels[node.name.text] or {}
+                labels[node.name.text][#labels[node.name.text] + 1] = {node = node, regions = active}
+            elseif node.kind == "gotoStmt" and node.name then
+                gotos[#gotos + 1] = {node = node, regions = active}
+            end
+            for _, child in ipairs(node) do
+                walk(child, active)
+            end
+        end
+
+        walk(block, {})
+        for _, jump in ipairs(gotos) do
+            local targets = labels[jump.node.name.text]
+            local target = targets and targets[1]
+            if target then
+                for region in pairs(target.regions) do
+                    if not jump.regions[region] then
+                        c.diag("NUPP2602", jump.node, "goto cannot enter a 'with' scope")
+                        break
+                    end
+                end
+            end
+        end
+    end
+
     -- Said once, before anything is checked, so the answer does not depend on how far
     -- checking got.
     if filename and filename:match("%.lua$") then
@@ -2282,6 +2329,7 @@ function checkMod.check(
     -- can export them and module return types resolve.
     for _, block in ipairs(result.root.blocks) do
         c.checkBlock(block, true)
+        auditWithGotos(block)
     end
     c.derives.finalize()
     auditScope(c.rootScope)

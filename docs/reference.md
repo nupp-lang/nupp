@@ -964,6 +964,48 @@ Reports: `NUPP2603`, `NUPP2606`, `NUPP2607`, `NUPP2608`, `NUPP2609`, `NUPP2610`,
 `NUPP2611`, `NUPP2612`, `NUPP2613`, `NUPP2614`, `NUPP2615`. `nupp explain
 <code>` says more.
 
+### Exact affine scopes
+
+`with name = acquire() do ... end` gives a terminal-bearing affine value one
+exact extent. The owner moves into a hidden slot and the visible name is a scoped
+borrow, so it cannot be moved, returned, stored, reassigned, captured by an
+escaping closure, or dropped early.
+
+The hidden owner drops on fallthrough, return, loop control, outward goto, and
+raised errors. Multiple acquisitions run left to right and drop right to left;
+each successful prefix remains protected if a later acquisition fails. `with`
+uses the same cleanup region as automatic lexical destruction.
+
+`with` is contextual at statement position when a name followed by `=` or `:`
+selects this form. Elsewhere it remains an ordinary identifier. Use a normal
+affine local plus `drop` when early release or ownership transfer is intended.
+
+```nupp
+local m = {}
+
+local record Guard
+    active: boolean
+end
+
+local function finish(takes guard: Guard): nil
+    guard.active = false
+end
+
+local function acquire(): affine(Guard, finish)
+    return new Guard(active = true)
+end
+
+function m.run(): boolean
+    with guard = acquire() do
+        return guard.active
+    end
+end
+
+return m
+```
+
+Reports: `NUPP2602`, `NUPP2608`, `NUPP2615`. `nupp explain <code>` says more.
+
 ### C interop
 
 `cdef` declares C functions, structs, unions, and integer bitfields.

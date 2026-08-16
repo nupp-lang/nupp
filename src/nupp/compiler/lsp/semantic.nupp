@@ -240,6 +240,11 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
             mark(node.keyword, keywordType)
         elseif kind == "unsafeStmt" then
             mark(node.unsafeTok, keywordType)
+        elseif kind == "withStmt" then
+            mark(node.withTok, keywordType)
+            for _, binding in ipairs(node.bindings or {}) do
+                mark(binding.name, "variable")
+            end
         elseif kind == "noSuspendStmt" then
             mark(node.keywordTok, keywordType)
         elseif kind == "localFuncStmt" and node.isConst then

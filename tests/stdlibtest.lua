@@ -829,7 +829,7 @@ function M.stringBufferPointersBecomeCheckedSpans()
       "   do",
       "      local writable = spans.writeCarray(ptr, reserved as integer)",
       "      writable:set(1, 65)",
-      "      spans.commit(writable)",
+      "      drop writable",
       "   end",
       "end",
       "b:commit(1)",
