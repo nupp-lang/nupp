@@ -509,9 +509,16 @@ function M.hiddenDataDependenciesLoadLazily()
       assert(nupp.data.utf8.length("A€") == 2)
       return package.loaded.cjson ~= nil, package.loaded["lua-utf8"] ~= nil
    ]=]))
+   -- Both are cleared to prove the bootstrap loads them on first access, and
+   -- both are put back however this ends. A failure part way through used to
+   -- leave `cjson` unloaded for every later test in the process, which broke
+   -- whatever next asked for it rather than reporting itself.
+   local loadedJson, loadedUtf8 = package.loaded.cjson, package.loaded["lua-utf8"]
    package.loaded.cjson = nil
    package.loaded["lua-utf8"] = nil
    local ok, jsonLoaded, utf8Loaded = pcall(chunk)
+   package.loaded.cjson = package.loaded.cjson or loadedJson
+   package.loaded["lua-utf8"] = package.loaded["lua-utf8"] or loadedUtf8
    _G.nupp = previous
    assert(ok, jsonLoaded)
    assert(jsonLoaded and utf8Loaded, "access loads the hidden implementation modules")

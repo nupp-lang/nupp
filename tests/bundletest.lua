@@ -105,9 +105,16 @@ return loaded
    ))
    assert(text == again, "the payload depends on selected features, not ambient stub state")
 
+   -- The names are kept as a list rather than recovered from the saved table,
+   -- because a module that was not preloaded saves as nil and `pairs` does not
+   -- visit it. Restoring by iteration therefore left this test's stub opener
+   -- installed for every later `require` of it -- and cjson is exactly that
+   -- case, so the whole process afterwards got the string "cjson" where it
+   -- asked for the module.
+   local stubbed = {"cjson", "cjson.safe", "lpeg", "lua-utf8", "nupp.workers.native"}
    local savedPreloads, savedLoaded = {}, package.loaded.lpeg
    local savedPath, savedCpath = package.path, package.cpath
-   for _, name in ipairs({"cjson", "cjson.safe", "lpeg", "lua-utf8", "nupp.workers.native"}) do
+   for _, name in ipairs(stubbed) do
       savedPreloads[name] = package.preload[name]
       package.preload[name] = function() return name end
    end
@@ -129,7 +136,7 @@ return loaded
    assert(_G.__nuppHost == nil, "the private handshake is gone before user code")
    package.loaded.lpeg = savedLoaded
    package.path, package.cpath = savedPath, savedCpath
-   for name, opener in pairs(savedPreloads) do package.preload[name] = opener end
+   for _, name in ipairs(stubbed) do package.preload[name] = savedPreloads[name] end
    package.preload["nupp.embedded"] = nil
    os.execute("rm -rf '" .. dir .. "'")
 end

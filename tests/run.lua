@@ -8,6 +8,14 @@
 -- the file and line the error came from. Standard output and error from a test
 -- are held back unless it fails or --verbose asks for them. Lines are 1-based,
 -- as everywhere else; a Lua error carries no column, so none is invented.
+-- The JSON codec is taken once, before any suite loads. A suite may legitimately
+-- clear `package.loaded` to prove something loads lazily, and a suite that fails
+-- part way through such a proof leaves it cleared. Acquiring the codec after the
+-- run means one misbehaving suite turns the whole shard's report into "the shard
+-- wrote no report", which loses every other suite's result and reads like an
+-- infrastructure failure rather than the one test that broke.
+local newJson = require("cjson").new
+
 local runnerPath = arg[0]
 if package.config:sub(1, 1) == "\\" then
    runnerPath = runnerPath:gsub("^/([A-Za-z])(/)", function(drive, slash)
@@ -490,7 +498,7 @@ local function recordedTimings()
    local text = file:read("*a")
    file:close()
    local ok, decoded = pcall(function()
-      return require("cjson").new().decode(text)
+      return newJson().decode(text)
    end)
 
    return ok and type(decoded) == "table" and type(decoded.suites) == "table"
@@ -503,7 +511,7 @@ local function rememberTimings(records)
       local suite = tostring(record.suite)
       per[suite] = (per[suite] or 0) + (tonumber(record.durationMs) or 0)
    end
-   local json = require("cjson").new()
+   local json = newJson()
    json.encode_invalid_numbers(false)
    local encoded, text = pcall(json.encode, {suites = per})
    if not encoded then
@@ -592,7 +600,7 @@ local sharded = nil
 if #shard == 0 and not only and #suites > 1 and jobs ~= 1
    and not os.getenv("NUPP_COVERAGE_FILE") then
    do
-      local json = require("cjson").new()
+      local json = newJson()
       local count = math.min(jobs or defaultJobs(), #suites)
       local groups = planShards(suites, count, recordedTimings())
 
@@ -766,7 +774,7 @@ end
 local coverageFile = os.getenv("NUPP_COVERAGE_FILE")
 local coverage = coverageFile and rawget(_G, "__nuppCoverage") or nil
 if coverageFile and coverage then
-   local json = require("cjson").new()
+   local json = newJson()
    json.encode_empty_table_as_object(false)
    json.encode_invalid_numbers(false)
    local merged = {}
@@ -798,7 +806,7 @@ end
 if progressWidth ~= 0 then progressWrite("\n") end
 
 if asJson then
-   local json = require("cjson").new()
+   local json = newJson()
    json.encode_empty_table_as_object(false)
    json.encode_invalid_numbers(false)
    io.write(json.encode({ok = failed == 0, total = total, passed = passed,
