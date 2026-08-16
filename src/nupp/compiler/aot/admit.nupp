@@ -1,0 +1,166 @@
+--[[
+What an `@aot` body may be written out of.
+
+The admitted subset, as data. Every operator, storage type and intrinsic a
+kernel may name is here, and a construct with no entry is refused rather than
+guessed at -- so widening the subset is adding a row, and reading what the
+subset is does not mean reading a lowering pass.
+
+The fixed-width intrinsics are keyed by the canonical identity
+`nupp.compiler.scalar_intrinsics` assigns, not by the path the source wrote.
+The checker recognises those members by definition rather than by spelling, and
+keying on the identity is what keeps aliasing a standard member from meaning one
+thing to the checker and another to this backend.
+]]
+
+local scalar = require("nupp.compiler.scalar_intrinsics")
+
+local admit = {}
+
+--- The storage types a span element or a struct field may have.
+---
+--- `float`, `int32` and `uint32` are establishment facts rather than arithmetic
+--- types: a physical load widens and a physical store narrows, and nothing in
+--- between changes a width.
+const admit.STORAGE = {["float"] = "f32", ["int32"] = "i32", ["uint32"] = "u32"}
+
+--- Ordinary arithmetic, which is binary64 whatever the operands were stored as.
+const admit.ARITHMETIC = {["+"] = "add", ["-"] = "sub", ["*"] = "mul", ["/"] = "div", ["%"] = "mod", ["^"] = "pow",}
+
+--- The bitwise operators, which work on 32-bit patterns.
+const admit.BITWISE = {
+    ["&"] = "band",
+    ["|"] = "bor",
+    ["~"] = "bxor",
+    ["<<"] = "lshift",
+    [">>"] = "rshift",
+    ["~>>"] = "arshift",
+}
+
+--- The comparisons, which produce a boolean whatever they compared.
+const admit.COMPARISON = {["<"] = "lt", ["<="] = "le", [">"] = "gt", [">="] = "ge", ["=="] = "eq", ["~="] = "ne",}
+
+--- One admitted fixed-width intrinsic.
+record admit.Fixed
+    --- The canonical identity `scalar_intrinsics` gives this member.
+    identity: string
+
+    --- The IR operation it lowers to.
+    op: string
+
+    --- How many operands it takes.
+    arity: integer
+
+    --- The type every operand has to have been established in.
+    operand: string
+
+    --- What it produces.
+    result: string
+end
+
+--- The released fixed-width surface, by canonical identity.
+---
+--- These are ordinary Nupp calls with an exact Lua implementation in
+--- `nupp.math`, so admitting them adds no surface: it lets the same source say
+--- binary32 instead of binary64 and have the backend believe it. A binary32
+--- operation over binary32 operands computed in binary64 and rounded once is
+--- bit-identical to the native single-precision instruction, because 53 is at
+--- least twice 24 plus 2, so this lowering is exact rather than a relaxation.
+---
+--- `min`, `max` and `fma` are not covered by that argument. A differential over
+--- every interesting binary32 value found they disagree with `fminf`, `fmaxf`
+--- and `fmaf` in exactly one respect each and nowhere else: `nupp.math.f32`
+--- canonicalises every NaN where the instruction propagates a payload, and
+--- `min`/`max` return that canonical NaN where IEEE `minNum` returns the operand
+--- that is not NaN. Both are repaired by a select, so they are admitted with one
+--- rather than left out.
+const admit.FIXED = (function(): {[string]: admit.Fixed}
+    local byIdentity: {[string]: admit.Fixed} = {}
+    for _, entry in ipairs({
+        new admit.Fixed(identity = "f32.narrow", op = "narrow_f64_f32", arity = 1, operand = "f64", result = "f32"),
+        new admit.Fixed(identity = "f32.add", op = "f32_add", arity = 2, operand = "f32", result = "f32"),
+        new admit.Fixed(identity = "f32.sub", op = "f32_sub", arity = 2, operand = "f32", result = "f32"),
+        new admit.Fixed(identity = "f32.mul", op = "f32_mul", arity = 2, operand = "f32", result = "f32"),
+        new admit.Fixed(identity = "f32.div", op = "f32_div", arity = 2, operand = "f32", result = "f32"),
+        new admit.Fixed(identity = "f32.sqrt", op = "f32_sqrt", arity = 1, operand = "f32", result = "f32"),
+        new admit.Fixed(identity = "f32.min", op = "f32_min", arity = 2, operand = "f32", result = "f32"),
+        new admit.Fixed(identity = "f32.max", op = "f32_max", arity = 2, operand = "f32", result = "f32"),
+        new admit.Fixed(identity = "f32.fma", op = "f32_fma", arity = 3, operand = "f32", result = "f32"),
+        new admit.Fixed(identity = "i32.wrap", op = "numeric_cast", arity = 1, operand = "f64", result = "i32"),
+        new admit.Fixed(identity = "i32.add", op = "i32_add", arity = 2, operand = "i32", result = "i32"),
+        new admit.Fixed(identity = "i32.sub", op = "i32_sub", arity = 2, operand = "i32", result = "i32"),
+        new admit.Fixed(identity = "i32.mul", op = "i32_mul", arity = 2, operand = "i32", result = "i32"),
+    }) do
+        byIdentity[entry.identity] = entry
+    end
+
+    return byIdentity
+end)()
+
+--- One admitted operation from the closed math set.
+record admit.Math
+    --- The path the source writes.
+    path: string
+
+    --- What the IR calls it.
+    name: string
+
+    --- The fewest operands it takes.
+    min: integer
+
+    --- The most, or nothing where it is variadic.
+    max: integer?
+end
+
+--- The closed math set, by the path the source writes.
+const admit.MATH = (function(): {[string]: admit.Math}
+    local byPath: {[string]: admit.Math} = {}
+    for _, entry in ipairs({
+        new admit.Math(path = "math.sqrt", name = "sqrt", min = 1, max = 1),
+        new admit.Math(path = "math.abs", name = "abs", min = 1, max = 1),
+        new admit.Math(path = "math.floor", name = "floor", min = 1, max = 1),
+        new admit.Math(path = "math.ceil", name = "ceil", min = 1, max = 1),
+        new admit.Math(path = "math.min", name = "min", min = 2),
+        new admit.Math(path = "math.max", name = "max", min = 2),
+        new admit.Math(path = "math.sin", name = "sin", min = 1, max = 1),
+        new admit.Math(path = "math.cos", name = "cos", min = 1, max = 1),
+        new admit.Math(path = "math.tan", name = "tan", min = 1, max = 1),
+        new admit.Math(path = "math.asin", name = "asin", min = 1, max = 1),
+        new admit.Math(path = "math.acos", name = "acos", min = 1, max = 1),
+        new admit.Math(path = "math.atan", name = "atan", min = 1, max = 1),
+        new admit.Math(path = "math.atan2", name = "atan2", min = 2, max = 2),
+        new admit.Math(path = "math.sinh", name = "sinh", min = 1, max = 1),
+        new admit.Math(path = "math.cosh", name = "cosh", min = 1, max = 1),
+        new admit.Math(path = "math.tanh", name = "tanh", min = 1, max = 1),
+        new admit.Math(path = "math.exp", name = "exp", min = 1, max = 1),
+        new admit.Math(path = "math.log", name = "log", min = 1, max = 2),
+        new admit.Math(path = "math.pow", name = "pow", min = 2, max = 2),
+        new admit.Math(path = "math.fmod", name = "fmod", min = 2, max = 2),
+        new admit.Math(path = "math.deg", name = "deg", min = 1, max = 1),
+        new admit.Math(path = "math.rad", name = "rad", min = 1, max = 1),
+    }) do
+        byPath[entry.path] = entry
+    end
+
+    return byPath
+end)()
+
+--- The fixed-width intrinsic one dotted path names, if it names one.
+---
+--- The path goes through `scalar_intrinsics` first, so this backend and the
+--- checker agree about which member was written.
+function admit.fixed(path: string): admit.Fixed?
+    local identity = scalar.forPath(path)
+    if identity == nil then
+        return nil
+    end
+
+    return admit.FIXED[identity as string]
+end
+
+--- The math operation one dotted path names, if it names one.
+function admit.math(path: string): admit.Math?
+    return admit.MATH[path]
+end
+
+return admit

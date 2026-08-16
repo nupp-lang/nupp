@@ -9,6 +9,7 @@ package.path = root .. "/build/?.lua;" .. package.path
 
 local lane = require("nupp.compiler.aot.lane")
 local intensity = require("nupp.compiler.aot.intensity")
+local admit = require("nupp.compiler.aot.admit")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local irVerify = require("nupp.compiler.aot.verify")
 local irText = require("nupp.compiler.aot.text")
@@ -189,7 +190,7 @@ local function parseKernel(source, filename, checked)
          reject(body, "the map-kernel prototype must return nil")
       end
 
-      local storageTypes = {float = "f32", int32 = "i32", uint32 = "u32"}
+      local storageTypes = admit.STORAGE
       local layouts, layoutByName = {}, {}
       local function lowerLayout(name, at)
          if layoutByName[name] then return layoutByName[name] end
@@ -406,72 +407,11 @@ local function parseKernel(source, filename, checked)
       local helpers, helperByName, helperState = {}, {}, {}
       local lowerExpression, lowerHelper
 
-      local arithmetic = {
-         ["+"] = "add", ["-"] = "sub", ["*"] = "mul", ["/"] = "div",
-         ["%"] = "mod", ["^"] = "pow",
-      }
-      local bitwise = {
-         ["&"] = "band", ["|"] = "bor", ["~"] = "bxor",
-         ["<<"] = "lshift", [">>"] = "rshift", ["~>>"] = "arshift",
-      }
-      local comparisons = {
-         ["<"] = "lt", ["<="] = "le", [">"] = "gt", [">="] = "ge",
-         ["=="] = "eq", ["~="] = "ne",
-      }
-      -- The released fixed-width namespaces. These are ordinary Nupp calls with
-      -- an exact Lua implementation in nupp.math, so admitting them here adds no
-      -- surface: it lets the same source say binary32 instead of binary64 and
-      -- have the backend believe it. A binary32 operation over binary32 operands
-      -- computed in binary64 and rounded once is bit-identical to the native
-      -- single-precision instruction, because 53 >= 2 * 24 + 2, so this lowering
-      -- is exact rather than a relaxation.
-      local fixedIntrinsics = {
-         ["nupp.math.f32.narrow"] = {op = "narrow_f64_f32", arity = 1, from = "f64", result = "f32"},
-         ["nupp.math.f32.add"] = {op = "f32_add", arity = 2, from = "f32", result = "f32"},
-         ["nupp.math.f32.sub"] = {op = "f32_sub", arity = 2, from = "f32", result = "f32"},
-         ["nupp.math.f32.mul"] = {op = "f32_mul", arity = 2, from = "f32", result = "f32"},
-         ["nupp.math.f32.div"] = {op = "f32_div", arity = 2, from = "f32", result = "f32"},
-         ["nupp.math.f32.sqrt"] = {op = "f32_sqrt", arity = 1, from = "f32", result = "f32"},
-         -- These three are not covered by the double-rounding argument the
-         -- arithmetic above rests on. A differential over every interesting
-         -- binary32 value found that they disagree with fminf, fmaxf and fmaf
-         -- in exactly one respect each and nowhere else: nupp.math.f32
-         -- canonicalizes every NaN where the instruction propagates a payload,
-         -- and min/max return that canonical NaN where IEEE minNum returns the
-         -- operand that is not NaN. Both are repaired by a select, so they are
-         -- admitted with one rather than left out.
-         ["nupp.math.f32.min"] = {op = "f32_min", arity = 2, from = "f32", result = "f32"},
-         ["nupp.math.f32.max"] = {op = "f32_max", arity = 2, from = "f32", result = "f32"},
-         ["nupp.math.f32.fma"] = {op = "f32_fma", arity = 3, from = "f32", result = "f32"},
-         ["nupp.math.i32.wrap"] = {op = "numeric_cast", arity = 1, from = "f64", result = "i32"},
-         ["nupp.math.i32.add"] = {op = "i32_add", arity = 2, from = "i32", result = "i32"},
-         ["nupp.math.i32.sub"] = {op = "i32_sub", arity = 2, from = "i32", result = "i32"},
-         ["nupp.math.i32.mul"] = {op = "i32_mul", arity = 2, from = "i32", result = "i32"},
-      }
-      local mathIntrinsics = {
-         ["math.sqrt"] = {name = "sqrt", min = 1, max = 1},
-         ["math.abs"] = {name = "abs", min = 1, max = 1},
-         ["math.floor"] = {name = "floor", min = 1, max = 1},
-         ["math.ceil"] = {name = "ceil", min = 1, max = 1},
-         ["math.min"] = {name = "min", min = 2},
-         ["math.max"] = {name = "max", min = 2},
-         ["math.sin"] = {name = "sin", min = 1, max = 1},
-         ["math.cos"] = {name = "cos", min = 1, max = 1},
-         ["math.tan"] = {name = "tan", min = 1, max = 1},
-         ["math.asin"] = {name = "asin", min = 1, max = 1},
-         ["math.acos"] = {name = "acos", min = 1, max = 1},
-         ["math.atan"] = {name = "atan", min = 1, max = 1},
-         ["math.atan2"] = {name = "atan2", min = 2, max = 2},
-         ["math.sinh"] = {name = "sinh", min = 1, max = 1},
-         ["math.cosh"] = {name = "cosh", min = 1, max = 1},
-         ["math.tanh"] = {name = "tanh", min = 1, max = 1},
-         ["math.exp"] = {name = "exp", min = 1, max = 1},
-         ["math.log"] = {name = "log", min = 1, max = 2},
-         ["math.pow"] = {name = "pow", min = 2, max = 2},
-         ["math.fmod"] = {name = "fmod", min = 2, max = 2},
-         ["math.deg"] = {name = "deg", min = 1, max = 1},
-         ["math.rad"] = {name = "rad", min = 1, max = 1},
-      }
+      -- The admitted subset is `nupp.compiler.aot.admit`'s: what a kernel may be
+      -- written out of is compiler policy, not a property of this front end.
+      local arithmetic = admit.ARITHMETIC
+      local bitwise = admit.BITWISE
+      local comparisons = admit.COMPARISON
 
       lowerHelper = function(name, at)
          if helperState[name] == "lowering" then reject(at, "recursive native helpers are not admitted") end
@@ -677,7 +617,7 @@ local function parseKernel(source, filename, checked)
                args[#args + 1] = lowerExpression(arg, environment, activeIndex)
             end
             local qualified = dottedName(node.obj)
-            local fixed = qualified and fixedIntrinsics[qualified] or nil
+            local fixed = qualified and admit.fixed(qualified) or nil
             if fixed then
                if #args ~= fixed.arity then
                   reject(node, qualified .. " has an unsupported argument count")
@@ -687,9 +627,9 @@ local function parseKernel(source, filename, checked)
                   -- a constant may enter directly. Anything else must already
                   -- carry the refinement: this is where the front end refuses to
                   -- invent establishment the source never performed.
-                  if arg.op == "constant" and fixed.from ~= "f64" then
+                  if arg.op == "constant" and fixed.operand ~= "f64" then
                      local number = tonumber(arg.value)
-                     if fixed.from == "i32" then
+                     if fixed.operand == "i32" then
                         if not number or number % 1 ~= 0 or number < -2147483648 or number > 2147483647 then
                            reject(node, qualified .. " needs an exact int32 literal")
                         end
@@ -697,9 +637,9 @@ local function parseKernel(source, filename, checked)
                      else
                         args[i] = {op = "narrow_f64_f32", value = arg, type = "f32", source = arg.source}
                      end
-                  elseif arg.type ~= fixed.from then
+                  elseif arg.type ~= fixed.operand then
                      reject(node, qualified .. " argument " .. tostring(i) .. " is "
-                        .. tostring(arg.type) .. " and was never established as " .. fixed.from)
+                        .. tostring(arg.type) .. " and was never established as " .. fixed.operand)
                   end
                end
                if fixed.arity == 1 then
@@ -711,7 +651,7 @@ local function parseKernel(source, filename, checked)
                return {op = fixed.op, left = args[1], right = args[2],
                   type = fixed.result, source = site(node)}
             end
-            local intrinsic = qualified and mathIntrinsics[qualified] or nil
+            local intrinsic = qualified and admit.math(qualified) or nil
             if intrinsic then
                if #args < intrinsic.min or intrinsic.max and #args > intrinsic.max then
                   reject(node, qualified .. " has an unsupported argument count")
