@@ -561,6 +561,11 @@ record scalarIR.Program
     --- whether one was produced.
     wantsLanes: boolean?
 
+    --- Whether the source asked for fused multiply-add. Part of what the
+    --- function answers rather than only how fast it gets there, which is why
+    --- it travels with the IR rather than with the build.
+    fpContract: boolean?
+
     source: scalarIR.Source?
 end
 

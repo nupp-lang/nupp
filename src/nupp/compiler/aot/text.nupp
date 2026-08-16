@@ -1,0 +1,354 @@
+--[[
+The readable form of an AOT program.
+
+Not a serialisation format and not something the compiler reads back: this is
+what a person opens when they want to know what the front end actually admitted,
+and what a test asserts against when the claim is about the IR rather than about
+the machine code under it. It is the one place the whole program appears at once
+-- the signature, what ownership proved, the loop, and the lane rewrite beside
+the scalar body it came from.
+
+It keeps the spellings the vocabulary used before its families were given one tag
+each. `vand` rather than `vmask`, `vtobits` rather than `vbits`, because the
+reader wants the operation and not the record it happens to share.
+]]
+
+local lane = require("nupp.compiler.aot.lane")
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local text = {}
+
+--- Any operation rendered as its opcode over a list of operands.
+---
+--- The IR text walks every vocabulary at once, so it reads the few fields it
+--- needs through a shape that says what those are rather than through the union
+--- of every record that might carry them.
+record text.Operands
+    op: string
+    type: string?
+    verb: string?
+    direction: string?
+    args: {any}
+end
+
+--- Any operation rendered as its opcode over exactly two operands.
+record text.Pair
+    op: string
+    left: any
+    right: any
+end
+
+--- The opcodes whose operands are a list.
+---
+--- Everything else with operands has two, in `left` and `right`. `f32_fma` is
+--- the one corrected operation with three, which is why it appears here and its
+--- two-operand siblings do not.
+const text.LIST_OPERANDS = {
+    ["vsplat"] = true,
+    ["vbool_splat"] = true,
+    ["vselect"] = true,
+    ["vmask"] = true,
+    ["vshort"] = true,
+    ["vbinary"] = true,
+    ["vunary"] = true,
+    ["vbitwise"] = true,
+    ["vbits"] = true,
+    ["vcorrected"] = true,
+    ["f32_fma"] = true,
+}
+
+--- The opcodes that wrap one operand, held in `value`.
+const text.ONE_OPERAND = {
+    ["widen_f32_f64"] = true,
+    ["narrow_f64_f32"] = true,
+    ["int_to_f64"] = true,
+    ["numeric_cast"] = true,
+    ["neg"] = true,
+    ["not"] = true,
+    ["bnot"] = true,
+    ["f32_sqrt"] = true,
+}
+
+--- Where something came from, as the IR text writes it.
+---
+--- A missing position reads as the start of the file, which is what lowering
+--- already does for a construct with no token of its own.
+local function at(source: scalarIR.Source?): string
+    local site = source or new scalarIR.Source(line = 1, column = 1)
+
+    return ("@%d:%d"):format(site.line, site.column)
+end
+
+--- What one operation is called in the IR text.
+function text.displayOp(node: text.Operands): string
+    local op = node.op
+    if op == "vmask" then
+        return "vm" .. tostring(node.verb)
+    elseif op == "vshort" then
+        return "vshort_" .. tostring(node.verb)
+    elseif op == "vbits" then
+        return node.direction == "to" and "vtobits" or "vfrombits"
+    elseif op == "vbinary" or op == "vunary" then
+        return "v" .. tostring(node.verb)
+    elseif op == "vbitwise" then
+        return "vbit." .. tostring(node.verb)
+    end
+
+    return op
+end
+
+--- One expression, and everything under it.
+function text.expression(node: scalarIR.Expr | lane.Expr): string
+    local op = node.op
+    if op == "load" then
+        return "load:" .. node.type .. " " .. node.span .. "[" .. node.index .. "]"
+    elseif op == "element_ref" then
+        return "element_ref:" .. node.layout .. " " .. node.span .. "[" .. node.index .. "]"
+    elseif op == "field_load" then
+        return "field:" .. node.type .. " " .. text.expression(node.object) .. "." .. node.field
+    elseif op == "vfield_load" then
+        return "vfield:" .. node.type .. " " .. node.span .. "[i..i+" .. tostring(node.lanes - 1) .. "]." .. node.field
+    elseif op == "uniform" or op == "local" or op == "helper_param" then
+        return op .. ":" .. node.type .. " " .. (node as scalarIR.Name).name
+    elseif op == "constant_i32" then
+        return "constant:i32 " .. node.value
+    elseif op == "constant" then
+        return "constant:f64 " .. node.value
+    elseif op == "bool" then
+        return "bool " .. tostring(node.value)
+    elseif text.ONE_OPERAND[tostring(op)] == true then
+        return op .. "(" .. text.expression((node as scalarIR.Unary).value) .. ")"
+    end
+
+    --- The operands of one operation, in order.
+    local function operands(args: {any}): string
+        local rendered: {string} = {}
+        for position, argument in ipairs(args) do
+            rendered[position] = text.expression(argument)
+        end
+
+        return table.concat(rendered, ", ")
+    end
+
+    if op == "math" then
+        return "math." .. node.intrinsic .. "(" .. operands(node.args) .. ")"
+    elseif op == "vmath" then
+        return "vmath." .. node.intrinsic .. ":" .. node.type .. "(" .. operands(node.args) .. ")"
+    elseif op == "helper_call" then
+        return "call " .. node.helper .. "(" .. operands(node.args) .. ")"
+    elseif text.LIST_OPERANDS[tostring(op)] == true then
+        local listed = node as text.Operands
+
+        return text.displayOp(listed) .. ":" .. tostring(listed.type) .. "(" .. operands(listed.args) .. ")"
+    end
+
+    local pair = node as text.Pair
+
+    return op .. "(" .. text.expression(pair.left) .. ", " .. text.expression(pair.right) .. ")"
+end
+
+--- One assignment target, scalar or lane.
+local function target(assignment: any, lanes: integer): string
+    if assignment.target.kind == "local" then
+        return assignment.target.name
+    elseif assignment.target.kind == "vfield" then
+        return assignment.target.span .. "[i..i+" .. tostring(lanes - 1) .. "]." .. assignment.target.field
+    end
+
+    return text.expression(assignment.target.object) .. "." .. assignment.target.field
+end
+
+--- One block of statements, scalar or lane, indented by `depth`.
+---
+--- @param lanes how wide a lane store is, for a body that was rewritten
+function text.block(statements: {any}, depth: integer, lanes: integer): {string}
+    local lines: {string} = {}
+    local prefix = string.rep("  ", depth)
+
+    --- Appends the rendering of a nested block.
+    local function nested(body: {any}): nil
+        for _, line in ipairs(text.block(body, depth + 1, lanes)) do
+            lines[#lines + 1] = line
+        end
+    end
+
+    for _, statement in ipairs(statements) do
+        local op = statement.op
+        if op == "let" then
+            lines[
+                #lines + 1
+            ] = prefix .. "let " .. statement.name .. ":" .. statement.type .. " = " .. text.expression(statement.value)
+        elseif op == "multi_let" then
+            local names: {string} = {}
+            for position, bound in ipairs(statement.bindings) do
+                names[position] = bound.name .. ":" .. bound.type
+            end
+            lines[#lines + 1] = prefix .. "let " .. table.concat(names, ",") .. " = " .. text.expression(statement.call)
+        elseif op == "store" then
+            lines[
+                #lines + 1
+            ] = prefix .. "store " .. statement.span .. "[" .. statement.index .. "] = " .. text.expression(
+                statement.value
+            )
+        elseif op == "assign" or op == "vassign" then
+            local verb = op == "assign" and "set " or "vset "
+            for _, assignment in ipairs(statement.values) do
+                lines[
+                    #lines + 1
+                ] = prefix .. verb .. target(assignment, lanes) .. " = " .. text.expression(assignment.value)
+            end
+        elseif op == "vwhile" then
+            lines[
+                #lines + 1
+            ] = prefix .. "vwhile any " .. statement.live.name .. " = " .. text.expression(statement.initial)
+            lines[#lines + 1] = prefix .. "  executing " .. statement.executing.name
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "  retest " .. text.expression(statement.condition)
+            lines[#lines + 1] = prefix .. "end"
+        elseif op == "vbreak" or op == "vcontinue" then
+            lines[#lines + 1] = prefix .. op .. " " .. text.expression(statement.mask)
+        elseif op == "if" then
+            for position, clause in ipairs(statement.clauses) do
+                lines[
+                    #lines + 1
+                ] = prefix .. (position == 1 and "if " or "elseif ") .. text.expression(clause.condition)
+                nested(clause.body)
+            end
+            if statement.elseBody ~= nil then
+                lines[#lines + 1] = prefix .. "else"
+                nested(statement.elseBody)
+            end
+            lines[#lines + 1] = prefix .. "end"
+        elseif op == "fornum" then
+            lines[
+                #lines + 1
+            ] = prefix .. "for " .. statement.binding.name .. " = " .. text.expression(
+                statement.from
+            ) .. " .. " .. text.expression(statement.to)
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "end"
+        elseif op == "while" then
+            lines[#lines + 1] = prefix .. "while " .. text.expression(statement.condition)
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "end"
+        elseif op == "block" then
+            lines[#lines + 1] = prefix .. "block"
+            nested(statement.body)
+        else
+            lines[#lines + 1] = prefix .. op
+        end
+    end
+
+    return lines
+end
+
+--- What the signature and the ownership proofs say.
+local function preamble(program: scalarIR.Program): {string}
+    local lines: {
+        string
+    } = {"native-c-ir " .. tostring(scalarIR.VERSION), "function " .. program.name, "symbol " .. program.symbol,}
+
+    -- The contract is part of what the IR means and not a build setting,
+    -- because it decides what the function answers rather than only how fast it
+    -- gets there.
+    if program.fpContract == true then
+        lines[#lines + 1] = "contract fp-contract(fused)"
+    end
+
+    lines[#lines + 1] = "layouts"
+    for _, layout in ipairs(program.layouts or {}) do
+        local fields: {string} = {}
+        for position, field in ipairs(layout.fields) do
+            fields[position] = field.name .. ":" .. field.type
+        end
+        lines[#lines + 1] = "  " .. layout.name .. "{" .. table.concat(fields, ",") .. "}"
+    end
+
+    lines[#lines + 1] = "params"
+    for _, param in ipairs(program.params) do
+        if param.region ~= nil then
+            lines[
+                #lines + 1
+            ] = (
+                "  %s %s:%s region(%s) %s %s"
+            ):format(
+                param.kind,
+                param.name,
+                param.type,
+                tostring(param.region),
+                tostring(param.access),
+                at(param.source)
+            )
+        else
+            lines[
+                #lines + 1
+            ] = (
+                "  uniform %s:%s source(%s) %s"
+            ):format(param.name, param.type, tostring(param.sourceType), at(param.source))
+        end
+    end
+
+    lines[#lines + 1] = "aliasing"
+    for _, fact in ipairs(program.aliasFacts) do
+        lines[#lines + 1] = ("  %s %s %s proof(%s)"):format(fact.relation, fact.left, fact.right, fact.proof)
+    end
+
+    lines[#lines + 1] = "helpers"
+    for _, helper in ipairs(program.helpers or {}) do
+        lines[
+            #lines + 1
+        ] = ("  %s -> %s %s"):format(helper.name, table.concat(helper.resultTypes, ","), at(helper.source))
+    end
+
+    lines[#lines + 1] = "guards"
+    for _, guard in ipairs(program.guards) do
+        lines[#lines + 1] = ("  equal_count %s %s %s"):format(guard.left, guard.right, at(guard.source))
+    end
+
+    local rangeGuard = program.rangeGuard
+    if rangeGuard ~= nil then
+        local guard = rangeGuard as scalarIR.RangeGuard
+        lines[
+            #lines + 1
+        ] = ("  range %s %s count(%s) %s"):format(guard.first, guard.last, guard.count, at(guard.source))
+    end
+
+    lines[
+        #lines + 1
+    ] = (
+        "loop %s = %s .. %s count(%s) %s"
+    ):format(
+        program.loop.index,
+        tostring(program.loop.first),
+        tostring(program.loop.last),
+        program.loop.count,
+        at(program.loop.source)
+    )
+
+    return lines
+end
+
+--- One whole program, as text.
+---
+--- The lane body appears after the scalar one it was rewritten from, rather
+--- than in place of it, because the two being readable side by side is what
+--- makes a lane rewrite reviewable at all.
+function text.program(program: scalarIR.Program): string
+    local lines = preamble(program)
+    local lanes = program.lanes
+    local width = lanes ~= nil and (lanes as scalarIR.LaneBody).lanes or 0
+    for _, line in ipairs(text.block(program.loop.statements, 1, width)) do
+        lines[#lines + 1] = line
+    end
+    if lanes ~= nil then
+        local body = lanes as scalarIR.LaneBody
+        lines[#lines + 1] = "simd lanes(" .. tostring(body.lanes) .. ")"
+        for _, line in ipairs(text.block(body.statements, 1, body.lanes)) do
+            lines[#lines + 1] = line
+        end
+    end
+
+    return table.concat(lines, "\n") .. "\n"
+end
+
+return text
