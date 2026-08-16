@@ -1130,6 +1130,11 @@ local SHAPES = {
       -- Integers ride in binary64 lanes because every int32 and uint32 is an
       -- exact binary64 value, which is also what ordinary Nupp does with them.
       vectorFor = {f64 = "f64x4", f32 = "f64x4", i32 = "f64x4", u32 = "f64x4", bool = "m64x4"},
+      -- Bitwise work needs integer lanes. Every uint32 is an exact binary64
+      -- value, so converting a lane out and back changes nothing; it is a value
+      -- conversion rather than a bit reinterpretation, which is why the lane
+      -- count matches and the width does not.
+      bits = "u32x4",
       -- What a splat of a uniform scalar has to become first.
       widen = "f64",
    },
@@ -1138,6 +1143,9 @@ local SHAPES = {
       -- No f64 entry: a binary64 varying value cannot enter a 32-bit gang, and
       -- inventing a narrowing here would change an answer the source did not.
       vectorFor = {f32 = "f32x8", i32 = "i32x8", u32 = "i32x8", bool = "m32x8"},
+      -- Already integer lanes of the right width, so bitwise work needs no
+      -- conversion at all.
+      bits = "i32x8",
       widen = nil,
    },
 }
@@ -1324,6 +1332,10 @@ local function vectorizeLoop(ir, reject, shape)
    -- binary32 and int32 apart, so the arithmetic rows are chosen by the operand
    -- type at the use site and the comparison rows by what they compare.
    local VECTOR_ARITHMETIC = {add = "add", sub = "sub", mul = "mul", div = "div"}
+   -- Bitwise operations on flag words are what an entity query is made of, so
+   -- they lower rather than refusing the loop. Unary `bnot` has no right operand.
+   local LANE_BITWISE = {band = "and", bor = "or", bxor = "xor", bnot = "not",
+      lshift = "shl", rshift = "shr", arshift = "sar"}
    local VECTOR_COMPARISON = {lt = "lt", le = "le", gt = "gt", ge = "ge",
       eq = "eq", ne = "ne"}
    local FIXED_LANE = {
@@ -1517,6 +1529,23 @@ local function vectorizeLoop(ir, reject, shape)
          local chosen, vector = laneOp("sqrt", "f32")
          return {op = chosen, args = {numericVector(node.value, "f32")},
             element = "f32", type = vector, source = node.source}, true
+      elseif LANE_BITWISE[op] then
+         local bits = shape.bits
+         local function asBits(operand)
+            local vector = numericVector(operand, operand.type == "f64" and "f64" or "i32")
+            if vector.type == bits then return vector end
+            return {op = "vtobits." .. bits, args = {vector}, type = bits, source = node.source}
+         end
+         local args = {asBits(node.left)}
+         if node.right then args[2] = asBits(node.right) end
+         local computed = {op = "vbit." .. LANE_BITWISE[op] .. "." .. bits, args = args,
+            type = bits, source = node.source}
+         -- The result is an int32 in the gang's own carrier, so it converts back
+         -- the same way an integer field store does.
+         local carrier = lanesVectorType("i32")
+         if carrier == bits then return computed, true end
+         return {op = "vfrombits." .. carrier, args = {computed}, type = carrier,
+            source = node.source}, true
       elseif FIXED_CORRECTED[op] then
          local corrected = FIXED_CORRECTED[op]
          -- Same width rule as the plain fixed-width operations: a gang without
@@ -2058,8 +2087,10 @@ local function verifyIR(ir)
       local MASK = shape.mask
       -- Every vector type this gang may mention, so an opcode naming one that
       -- belongs to a different shape is caught rather than silently accepted.
-      local laneTypes = {[MASK] = true}
+      local laneTypes = {[MASK] = true, [shape.bits] = true}
       for _, vector in pairs(shape.vectorFor) do laneTypes[vector] = true end
+      local BITWISE_ARITY = {["and"] = 2, ["or"] = 2, xor = 2, shl = 2, shr = 2,
+         sar = 2, ["not"] = 1}
 
       local laneMath = {
          sqrt = true, abs = true, floor = true, ceil = true, min = true, max = true,
@@ -2146,6 +2177,21 @@ local function verifyIR(ir)
             verifyLaneExpr(node.args[1], values)
             verifyLaneExpr(node.args[2], values)
             verifyLaneExpr(node.args[3], values)
+         elseif node.op:match("^vbit%.") then
+            local verb, vector = node.op:match("^vbit%.(%a+)%.(%w+)$")
+            assert(vector == shape.bits and node.type == shape.bits
+               and BITWISE_ARITY[verb] == #node.args,
+               "invalid lane bitwise operation")
+            for _, argument in ipairs(node.args) do
+               assert(argument.type == shape.bits, "invalid lane bitwise operand")
+               verifyLaneExpr(argument, values)
+            end
+         elseif node.op:match("^vtobits%.") or node.op:match("^vfrombits%.") then
+            local vector = node.op:match("^v%a+bits%.(%w+)$")
+            assert(node.type == vector and laneTypes[vector] and #node.args == 1
+               and laneTypes[node.args[1].type] and node.args[1].type ~= vector,
+               "invalid lane bit conversion")
+            verifyLaneExpr(node.args[1], values)
          elseif node.op:match("^vcorrected%.") then
             local vector = node.op:match("^vcorrected%.(%w+)$")
             local helpers = {nupp_f32_min = 2, nupp_f32_max = 2, nupp_f32_fma = 3}
@@ -2457,6 +2503,25 @@ local function renderExpr(node)
       end
       return "((" .. ("ks_" .. node.type) .. "){" .. table.concat(parts, ", ") .. "})"
    end
+   local bitVerb, bitVector = node.op:match("^vbit%.(%a+)%.(%w+)$")
+   if bitVerb then
+      local BIT_OPERATOR = {["and"] = " & ", ["or"] = " | ", xor = " ^ ",
+         shl = " << ", shr = " >> "}
+      if bitVerb == "not" then return "(~" .. renderExpr(node.args[1]) .. ")" end
+      if bitVerb == "sar" then
+         -- Arithmetic shift of a value held as unsigned, matching nupp_arshift.
+         return "((" .. ("ks_" .. bitVector) .. ")(((ks_i" .. bitVector:sub(2) .. ")"
+            .. renderExpr(node.args[1]) .. ") >> (" .. renderExpr(node.args[2]) .. " & 31)))"
+      end
+      local operator = BIT_OPERATOR[bitVerb]
+      local right = renderExpr(node.args[2])
+      if bitVerb == "shl" or bitVerb == "shr" then right = "(" .. right .. " & 31)" end
+      return "(" .. renderExpr(node.args[1]) .. operator .. right .. ")"
+   end
+   local convertTo = node.op:match("^v%a+bits%.(%w+)$")
+   if convertTo then
+      return "__builtin_convertvector(" .. renderExpr(node.args[1]) .. ", ks_" .. convertTo .. ")"
+   end
    if node.op:match("^vcorrected%.") then
       -- One scalar helper call per lane, the same helper the scalar body calls,
       -- so the correction cannot be right in one form and wrong in the other.
@@ -2640,15 +2705,23 @@ local function renderC(ir)
    local shape = ir.lanes and SHAPE_BY_NAME[ir.lanes.shape] or SHAPES[1]
    local vectors = {}
    for _, vector in pairs(shape.vectorFor) do vectors[vector] = true end
-   local ELEMENT_C = {f64 = "double", f32 = "float", i32 = "int32_t"}
+   local ELEMENT_C = {f64 = "double", f32 = "float", i32 = "int32_t", u32 = "uint32_t"}
+   vectors[shape.bits] = true
    local MASK_C = {m64x4 = "long long", m32x8 = "int"}
    emit("typedef " .. MASK_C[shape.mask] .. " ks_" .. shape.mask
       .. " __attribute__((vector_size(32)));")
    for vector in pairs(vectors) do
       if vector ~= shape.mask then
          local element = vector:match("^(%a%d+)x")
+         local lanes = tonumber(vector:match("x(%d+)$"))
+         local width = tonumber(element:match("%d+")) / 8 * lanes
          emit("typedef " .. ELEMENT_C[element] .. " ks_" .. vector
-            .. " __attribute__((vector_size(32)));")
+            .. " __attribute__((vector_size(" .. tostring(math.floor(width)) .. ")));")
+         -- The signed companion of the bit vector, for arithmetic shift.
+         if vector == shape.bits and element:sub(1, 1) == "u" then
+            emit("typedef int" .. element:match("%d+") .. "_t ks_i" .. vector:sub(2)
+               .. " __attribute__((vector_size(" .. tostring(math.floor(width)) .. ")));")
+         end
       end
    end
    local ones, zeros = {}, {}
@@ -2663,7 +2736,7 @@ local function renderC(ir)
    emit("static inline __attribute__((unused)) bool ks_any(ks_" .. shape.mask .. " m)"
       .. " { return (" .. table.concat(anyTerms, " | ") .. ") != 0; }")
    for vector in pairs(vectors) do
-      if vector ~= shape.mask then
+      if vector ~= shape.mask and vector ~= shape.bits then
          local element = vector:match("^(%a%d+)x")
          local splatLanes = {}
          for _ = 1, shape.lanes do splatLanes[#splatLanes + 1] = "v" end

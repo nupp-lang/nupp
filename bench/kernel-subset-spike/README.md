@@ -79,9 +79,32 @@ wrapping int32 operation refuses a gang without lanes of its width rather than
 computing it wider, because that would drop a rounding point the source asked
 for.
 
+Bitwise operations on flag words lower too, because an entity query is made of
+them. A gang that carries integers in binary64 lanes converts a lane out to a
+32-bit integer vector and back, which changes nothing because every uint32 is an
+exact binary64 value; a 32-bit gang is already there and converts nothing.
+
 A scalar epilogue handles the remainder so no vector load can cross the end of a
 span. Nested numeric `for` loops, uniform inner loops, and helper calls
 currently refuse.
+
+## What a Tecs kernel still cannot do
+
+`kernels.nupp` is the shape this feature exists for, and running the
+vectorisation check over it is how to find out what it needs. Today it reports
+one thing:
+
+```
+kernels.nupp: ran one iteration at a time
+  statement multi_let has no lane-parallel form
+```
+
+A multiple-result helper call. Inlining that call by hand leaves the kernel
+lowering to four lanes, so helper calls in a lane body -- and multiple-result
+ones especially -- are the remaining gap between the admitted subset and the
+workload. `tecsbits.nupp` is that kernel with the call inlined, kept as the
+differential for the bitwise lane path; `tecsbits_main.lua` runs it over every
+bit position and six query masks against ordinary Nupp.
 
 Both the scalar IR and the rewritten lane IR are verified before C emission.
 The lane verifier checks vector types and arities, writable roots, layouts,
@@ -123,11 +146,14 @@ bench/kernel-subset-spike/simd.sh
 ```
 
 Run the corrected binary32 differential, which is what admits `min`, `max` and
-`fma` to the subset:
+`fma` to the subset, and the bitwise one, which admits the flag-word operations
+an entity query needs:
 
 ```sh
 bench/kernel-subset-spike/mandelbrot.sh corrected
 luajit bench/kernel-subset-spike/corrected_main.lua
+bench/kernel-subset-spike/mandelbrot.sh tecsbits
+luajit bench/kernel-subset-spike/tecsbits_main.lua
 ```
 
 It compares ordinary Nupp, forced-scalar C, and required-SIMD C byte-for-byte
