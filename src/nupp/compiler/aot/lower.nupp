@@ -1806,4 +1806,121 @@ function lower.kernelBody(application: lower.Application, context: lower.Context
     return declaration, funcbody
 end
 
+--- Lowers one whole `@aot` function to AOT IR.
+---
+--- The IR is what everything downstream is written from -- the verifier, the C,
+--- the wrapper -- so this is where the source stops being consulted. What the
+--- function is has been decided by the time this returns.
+function lower.program(
+    declarations: lower.Declarations,
+    application: lower.Application,
+    checked: boolean,
+    context: lower.Context
+): scalarIR.Program
+    local fn, body = lower.kernelBody(application, context)
+    local contract = lower.contract(application, body, checked, context)
+
+    local layouts = new lower.Layouts(ordered = {}, byName = {})
+    local signature = lower.parameters((body.params or {}) as {cst.Param}, declarations.structs, layouts, context)
+    if #signature.writes == 0 then
+        context.reject(lower.site(body), "the map-kernel prototype needs a writable span")
+    end
+    if #signature.reads == 0 then
+        context.reject(lower.site(body), "the map-kernel prototype needs a readable span")
+    end
+
+    local primary = signature.writes[1]
+    local regions, aliasFacts = lower.regions(signature.spans)
+
+    local statements = body.body ~= nil and (body.body as cst.Block).stats or {}
+    if #statements ~= 2 and #statements ~= 3 then
+        context.reject(
+            lower.site(body.body or body),
+            "the admitted body is a length guard, optional range guard, and one numeric loop"
+        )
+    end
+
+    local guards = lower.lengthGuards(
+        statements[1],
+        lower.guardClause(
+            statements[1],
+            "the first statement must be a single length-mismatch guard",
+            "a length guard must call error directly",
+            context
+        ),
+        signature,
+        context
+    )
+
+    local rangeGuard: scalarIR.RangeGuard? = nil
+    if #statements == 3 then
+        rangeGuard = lower.rangeGuard(
+            statements[2],
+            lower.guardClause(
+                statements[2],
+                "the optional second statement must be a range guard",
+                "a range guard must call error directly",
+                context
+            ),
+            signature,
+            context
+        )
+    end
+
+    local loop = statements[#statements]
+    local index = lower.loopIndex(loop, rangeGuard, signature, context)
+    local name = (fn.name as lexer.Token).text
+    local kernel = new lower.Kernel(
+        params = signature.byName,
+        layouts = layouts,
+        helperDecls = declarations.helpers,
+        helpers = {},
+        helperOrder = {},
+        helperState = {},
+        symbol = scalarIR.privateSymbol(name),
+        loopSource = lower.site(loop),
+        index = index,
+        serial = 0,
+        context = context
+    )
+
+    local environment: {[string]: any} = {}
+    for _, param in ipairs(signature.params) do
+        if param.kind == "uniform" then
+            environment[param.name] = param
+        end
+    end
+
+    local counted = loop as cst.FornumStmt
+    local body_ = lower.block(counted.body ~= nil and (counted.body as cst.Block).stats or {}, environment, kernel)
+    if #body_ == 0 then
+        context.reject(lower.site(counted.body or loop), "the native loop body may not be empty")
+    end
+
+    return new scalarIR.Program(
+        version = scalarIR.VERSION,
+        name = name,
+        symbol = scalarIR.privateSymbol(name),
+        fpContract = contract.fpContract,
+        wantsLanes = contract.wantsLanes,
+        lanesRequired = contract.lanesRequired,
+        params = signature.params,
+        layouts = layouts.ordered,
+        regions = regions,
+        aliasFacts = aliasFacts,
+        guards = guards,
+        rangeGuard = rangeGuard,
+        helpers = kernel.helperOrder,
+        loop = new scalarIR.Loop(
+            index = index,
+            first = rangeGuard ~= nil and (rangeGuard as scalarIR.RangeGuard).first or 1,
+            last = rangeGuard ~= nil and (rangeGuard as scalarIR.RangeGuard).last or primary.name,
+            count = primary.name,
+            statements = body_,
+            source = lower.site(loop)
+        ),
+        source = lower.site(fn)
+    )
+end
+
 return lower

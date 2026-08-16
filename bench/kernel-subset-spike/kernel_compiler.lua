@@ -9,7 +9,6 @@ package.path = root .. "/build/?.lua;" .. package.path
 
 local lane = require("nupp.compiler.aot.lane")
 local intensity = require("nupp.compiler.aot.intensity")
-local admit = require("nupp.compiler.aot.admit")
 local lower = require("nupp.compiler.aot.lower")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local irVerify = require("nupp.compiler.aot.verify")
@@ -24,7 +23,6 @@ local compiler = {}
 local STOP = {}
 
 local site = lower.site
-local privateSymbol = scalarIR.privateSymbol
 
 local function diagnostic(filename, node, message)
    local at = site(node)
@@ -38,12 +36,6 @@ local function renderDiagnostic(value)
 end
 
 compiler.renderDiagnostic = renderDiagnostic
-
-local function copyEnvironment(environment)
-   local copied = {}
-   for name, value in pairs(environment) do copied[name] = value end
-   return copied
-end
 
 local function parseKernel(source, filename, checked)
    local parsed = checked or parser.parse(source, filename)
@@ -79,137 +71,17 @@ local function parseKernel(source, filename, checked)
       end,
    }
 
+   -- Lowering the whole function is `nupp.compiler.aot.lower`'s. What is left
+   -- here is the driver: parse, lower, verify, try each gang width, emit.
    local ok, ir = pcall(function()
-      -- Finding the `@aot` function, and reading what it asked for, are
-      -- `nupp.compiler.aot.lower`'s. The scan is what production replaces with
-      -- the checker's own answer; everything it decides is already policy.
       local found = lower.scan(parsed.root, checked and true or false)
-      local applications = found.applications
-      local helperDecls, structDecls = found.helpers, found.structs
-      if #applications == 0 then
+      if #found.applications == 0 then
          reject(parsed.root, "no @aot function was found")
-      elseif #applications > 1 then
-         reject(applications[2].at, "this spike accepts exactly one @aot function")
+      elseif #found.applications > 1 then
+         reject(found.applications[2].at, "this spike accepts exactly one @aot function")
       end
 
-      local selected = applications[1]
-      local fn, body = lower.kernelBody(selected, loweringContext)
-      local contract = lower.contract(selected, body, checked and true or false, loweringContext)
-      local fpContract = contract.fpContract
-      local wantsLanes = contract.wantsLanes
-      local lanesRequired = contract.lanesRequired
-
-
-      -- Which structs may be reified and what a span holds is
-      -- `nupp.compiler.aot.lower`'s: a layout is a claim about memory, and the
-      -- shape it has to have is compiler policy.
-      local layoutState = {ordered = {}, byName = {}}
-      local layouts = layoutState.ordered
-
-      -- The prototype's shape is `nupp.compiler.aot.lower`'s: which parameters
-      -- are admitted, what ownership proved about them, and which guards make
-      -- the loop's bounds readable without checking them per element.
-      local signature = lower.parameters(
-         body.params or {}, structDecls, layoutState, loweringContext
-      )
-      local params, byName, spans = signature.params, signature.byName, signature.spans
-      if #signature.writes == 0 then reject(body, "the map-kernel prototype needs a writable span") end
-      if #signature.reads == 0 then reject(body, "the map-kernel prototype needs a readable span") end
-      local primary = signature.writes[1]
-      local regions, aliasFacts = lower.regions(spans)
-
-      local stats = body.body and body.body.stats or {}
-      if #stats ~= 2 and #stats ~= 3 then
-         reject(body.body or body, "the admitted body is a length guard, optional range guard, and one numeric loop")
-      end
-
-      local guards = lower.lengthGuards(
-         stats[1],
-         lower.guardClause(
-            stats[1],
-            "the first statement must be a single length-mismatch guard",
-            "a length guard must call error directly",
-            loweringContext
-         ),
-         signature,
-         loweringContext
-      )
-
-      local rangeGuard
-      local loop = stats[#stats]
-      if #stats == 3 then
-         rangeGuard = lower.rangeGuard(
-            stats[2],
-            lower.guardClause(
-               stats[2],
-               "the optional second statement must be a range guard",
-               "a range guard must call error directly",
-               loweringContext
-            ),
-            signature,
-            loweringContext
-         )
-      end
-      local index = lower.loopIndex(loop, rangeGuard, signature, loweringContext)
-
-      -- Lowering an expression, and a visible pure helper, are
-      -- `nupp.compiler.aot.lower`'s. What the source is allowed to say and what
-      -- the IR it becomes means are both compiler policy.
-      local kernel = {
-         params = byName,
-         layouts = layoutState,
-         helperDecls = helperDecls,
-         helpers = {},
-         helperOrder = {},
-         helperState = {},
-         symbol = privateSymbol(fn.name.text),
-         loopSource = site(loop),
-         index = index,
-         serial = 0,
-         context = loweringContext,
-      }
-      local helpers = kernel.helperOrder
-
-      local function lowerExpression(node, environment, activeIndex)
-         return lower.expression(node, environment, activeIndex, kernel)
-      end
-
-      -- Lowering a statement is `nupp.compiler.aot.lower`'s too, so the whole
-      -- admitted body -- what it may say and what it becomes -- is one module's.
-      local function lowerBlock(rawStats, environment)
-         return lower.block(rawStats or {}, environment, kernel)
-      end
-
-      local environment = {}
-      for _, param in ipairs(params) do
-         if param.kind == "uniform" then environment[param.name] = param end
-      end
-      local statements = lowerBlock(loop.body and loop.body.stats or {}, environment)
-      if #statements == 0 then reject(loop.body or loop, "the native loop body may not be empty") end
-
-      return {
-         version = 3,
-         name = fn.name.text,
-         symbol = privateSymbol(fn.name.text),
-         fpContract = fpContract,
-         wantsLanes = wantsLanes,
-         lanesRequired = lanesRequired,
-         params = params,
-         layouts = layouts,
-         regions = regions,
-         aliasFacts = aliasFacts,
-         guards = guards,
-         rangeGuard = rangeGuard,
-         helpers = helpers,
-         loop = {
-            index = index,
-            first = rangeGuard and rangeGuard.first or 1,
-            last = rangeGuard and rangeGuard.last or primary.name,
-            count = primary.name,
-            statements = statements, source = site(loop),
-         },
-         source = site(fn),
-      }
+      return lower.program(found, found.applications[1], checked and true or false, loweringContext)
    end)
 
    if not ok then
@@ -226,28 +98,6 @@ local function arithmeticIntensity(ir)
    local estimate = intensity.estimate(ir.loop.statements)
    return estimate.perByte, estimate.operations, estimate.bytes, estimate.worthwhile
 end
-
--- The released fixed-width scalar operations, as IR. Each is one binary32 or
--- wrapping int32 operation with an exact `nupp.math` implementation behind it,
--- which is what lets the backend emit the native instruction and still owe the
--- same answer as ordinary Nupp.
-local FIXED_BINARY = {
-   f32_add = "f32", f32_sub = "f32", f32_mul = "f32", f32_div = "f32",
-   i32_add = "i32", i32_sub = "i32", i32_mul = "i32",
-}
--- Operations whose native instruction is right about the value and wrong about
--- NaN, and the C helper that repairs it. Emitting the bare instruction would let
--- an AOT build change bits that `nupp.math.f32.toBits` can read back, so each
--- carries its correction rather than being left out of the subset.
-local FIXED_CORRECTED = {
-   f32_min = {element = "f32", arity = 2, helper = "nupp_f32_min"},
-   f32_max = {element = "f32", arity = 2, helper = "nupp_f32_max"},
-   f32_fma = {element = "f32", arity = 3, helper = "nupp_f32_fma"},
-}
-local FIXED_OPERATOR = {
-   f32_add = "+", f32_sub = "-", f32_mul = "*", f32_div = "/",
-   i32_add = "+", i32_sub = "-", i32_mul = "*",
-}
 
 --[[
 Lane-parallel lowering.
