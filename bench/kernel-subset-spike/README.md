@@ -219,6 +219,25 @@ bench/kernel-subset-spike/mandelbrot.sh tecsbits
 luajit bench/kernel-subset-spike/tecsbits_main.lua
 ```
 
+Compare the two generated C bodies of every kernel, which is the architectural
+question rather than the semantic one. The Lua differentials above prove the
+generated code against ordinary Nupp; this proves the lane body against the
+scalar body on whatever target compiled it, and needs nothing but a C compiler:
+
+```sh
+bench/kernel-subset-spike/crosscheck.sh
+```
+
+`NUPP_CHECK_TARGET` and `NUPP_CHECK_RUNNER` cross-compile and emulate, and
+`NUPP_CHECK_CFLAGS` selects a feature tier. A 32-byte vector is two SSE
+registers and one AVX2 register, so those are different instruction sequences
+and passing one says nothing about the other:
+
+```sh
+NUPP_CHECK_TARGET=x86_64-apple-macos11 NUPP_CHECK_RUNNER='arch -x86_64' \
+    NUPP_CHECK_CFLAGS=-mavx2 bench/kernel-subset-spike/crosscheck.sh
+```
+
 Run the mixed-width differential, which is what admits an explicit binary32
 operation to a gang that carries binary32 in binary64 lanes. Its kernel is
 everything-binary32 except one binary64 running total, which is the shape
