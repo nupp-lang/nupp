@@ -578,7 +578,12 @@ nupp lsp            # start the language server]],
                },
                {
                   path = "type-system/affine-types",
-                  title = "Affine types and ownership",
+                  title = "Affine types",
+                  source = "docs/type-system/affine-types.md",
+               },
+               {
+                  path = "type-system/ownership",
+                  title = "Ownership and borrowing",
                   source = "docs/ownership.md",
                   redirects = { "reference/ownership" },
                },

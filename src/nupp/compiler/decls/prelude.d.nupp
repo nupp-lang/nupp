@@ -21,23 +21,6 @@ This file is parsed and checked by `nupp` itself: the first dogfooded `.d.nupp`
 declaration file.
 ]]
 
---- A resource with one conventional structural terminal.
-local interface Drop
-    drop: nosuspend function(takes self: self): nil
-end
-
---- Invokes `Drop.drop`; used as the ordinary default const-function argument of
---- `Owned<T>`. This body is compiled as the bundled prelude implementation before
---- user-module code, through the same checker and generator as any package terminal.
-const __nuppDropDefault: nosuspend function<T is Drop>(takes value: T): nil
-
---- A transparent affine owner. Its second argument is a declaration identity, so two
---- cleanups with equal signatures still produce different ownership types.
-local type Owned<T, const cleanup: function = __nuppDropDefault> = affine(T, cleanup)
-
---- A deliberately terminal-less affine value which must be transferred or released.
-local type Transfer<T> = affine(T)
-
 --- Writes every argument to standard output, converted with `tostring`, separated by
 --- tabs and followed by a newline.
 ---
@@ -147,7 +130,7 @@ local rawlen: nosuspend function(v: any): integer
 --- @param t the table to change
 --- @param mt the new metatable, or nil to remove the current one
 --- @return `t`
-local setmetatable: function<T>(t: T, mt: metatable<T>?): T preserves t
+local setmetatable: function<T>(takes t: T, mt: metatable<T>?): T preserves t
 
 --- Returns the metatable of `v`, or the value of its `__metatable` field when it has
 --- one, or nil when there is no metatable.
@@ -162,7 +145,7 @@ local getmetatable: function<T>(v: T): metatable<T>?
 --- @param v the value to test
 --- @param msg the error to raise, "assertion failed!" by default
 --- @return `v`, now known not to be nil or false
-local assert: function<T>(v: T?, msg: any?): T preserves v
+local assert: function<T>(takes v: T?, msg: any?): T preserves v
 
 --- Raises `msg` as an error, unwinding to the nearest `pcall`. A string message is
 --- prefixed with a source position chosen by `level`: 1, the default, blames the caller
@@ -1671,6 +1654,17 @@ record nupp.UTF8Library
     truncate: function(text: string, maxBytes: integer): string
 end
 
+--- Exact internal cleanup policies for the prelude's resource interfaces.
+const __nuppDestroyByteView: nosuspend function(takes value: nupp.io.ByteView): nil
+
+const __nuppDestroyReader: nosuspend function(takes value: nupp.io.Reader): nil
+const __nuppDestroyWriter: nosuspend function(takes value: nupp.io.Writer): nil
+const __nuppDestroyBuffer: nosuspend function(takes value: nupp.io.Buffer): nil
+const __nuppDestroyFile: nosuspend function(takes value: nupp.io.Files.File): nil
+const __nuppDestroyTemporaryPath: nosuspend function(takes value: nupp.io.Files.TemporaryPath): nil
+const __nuppDestroyScalarReader: nosuspend function(takes value: nupp.io.ScalarReader): nil
+const __nuppDestroyScalarWriter: nosuspend function(takes value: nupp.io.ScalarWriter): nil
+
 --- Buffers, byte views, readers, writers, filesystem paths and URIs.
 record nupp.io
     --- An immutable snapshot of bytes.
@@ -1678,7 +1672,7 @@ record nupp.io
         --- Opens a reader over this snapshot.
         --- @param self this byte view
         --- @return the new reader
-        newReader: function(self: ByteView): Owned<Reader>
+        newReader: function(self: ByteView): affine(Reader, __nuppDestroyReader)
 
         --- Reports the number of bytes in this snapshot.
         --- @param self this byte view
@@ -1695,7 +1689,7 @@ record nupp.io
         --- @param offset the zero-based start, or zero when omitted
         --- @param count the number of bytes, or the rest of the view when omitted
         --- @return the retained subrange
-        view: function(self: ByteView, offset: integer?, count: integer?): Owned<ByteView>
+        view: function(self: ByteView, offset: integer?, count: integer?): affine(ByteView, __nuppDestroyByteView)
 
         --- Reports whether this snapshot has been released.
         --- @param self this byte view
@@ -1813,12 +1807,12 @@ record nupp.io
         --- Opens a reader over a snapshot of the current bytes.
         --- @param self this buffer
         --- @return the new reader
-        newReader: function(self: Buffer): Owned<Reader>
+        newReader: function(self: Buffer): affine(Reader, __nuppDestroyReader)
 
         --- Clears the buffer and opens a writer that targets it.
         --- @param self this buffer
         --- @return the new writer
-        newWriter: function(self: Buffer): Owned<Writer>
+        newWriter: function(self: Buffer): affine(Writer, __nuppDestroyWriter)
 
         --- Reports the logical byte length.
         --- @param self this buffer
@@ -1862,7 +1856,7 @@ record nupp.io
         --- @param offset the zero-based start, or zero when omitted
         --- @param count the number of bytes, or the rest of the buffer when omitted
         --- @return the retained byte view
-        view: function(self: Buffer, offset: integer?, count: integer?): Owned<ByteView>
+        view: function(self: Buffer, offset: integer?, count: integer?): affine(ByteView, __nuppDestroyByteView)
 
         --- Reports whether this buffer has been released.
         --- @param self this buffer
@@ -2134,12 +2128,12 @@ record nupp.io
             --- Opens a forward-only reader at the file's current position.
             --- @param self this file
             --- @return the new reader
-            newReader: nosuspend function(self: File): Owned<nupp.io.Reader>
+            newReader: nosuspend function(self: File): affine(nupp.io.Reader, __nuppDestroyReader)
 
             --- Opens a forward-only writer at the file's current position.
             --- @param self this file
             --- @return the new writer
-            newWriter: nosuspend function(self: File): Owned<nupp.io.Writer>
+            newWriter: nosuspend function(self: File): affine(nupp.io.Writer, __nuppDestroyWriter)
 
             --- Answers the file's byte length without moving the cursor.
             --- @param self this file
@@ -2414,7 +2408,7 @@ record nupp.io
             --- @param mode how it may be used, defaulting to reading
             --- @return the open file, or nil on failure
             --- @return a failure reason, when unsuccessful
-            open: function(path: string | nupp.io.Path, mode: Mode?): (Owned<File?>, string?)
+            open: function(path: string | nupp.io.Path, mode: Mode?): (affine(File?, __nuppDestroyFile), string?)
 
             --- Iterates a file's lines, closing it at the end.
             ---
@@ -2434,14 +2428,18 @@ record nupp.io
             --- @param options where to create it and how to name it
             --- @return the created path, or nil on failure
             --- @return a failure reason, when unsuccessful
-            createTemporaryFile: nosuspend function(options: TemporaryOptions?): (Owned<TemporaryPath?>, string?)
+            createTemporaryFile: nosuspend function(
+                options: TemporaryOptions?
+            ): (affine(TemporaryPath?, __nuppDestroyTemporaryPath), string?)
 
             --- Creates a uniquely named empty directory and hands over the
             --- obligation to remove or persist it.
             --- @param options where to create it and how to name it
             --- @return the created path, or nil on failure
             --- @return a failure reason, when unsuccessful
-            createTemporaryDirectory: nosuspend function(options: TemporaryOptions?): (Owned<TemporaryPath?>, string?)
+            createTemporaryDirectory: nosuspend function(
+                options: TemporaryOptions?
+            ): (affine(TemporaryPath?, __nuppDestroyTemporaryPath), string?)
 
             --- Reads the process's current working directory.
             --- @return the current directory, or nil on failure
@@ -2747,12 +2745,12 @@ record nupp.io
     --- @param initial initial bytes, an initial capacity, or nothing for an empty
     ---     buffer
     --- @return the new buffer
-    newBuffer: function(initial: integer | string?): Owned<Buffer>
+    newBuffer: function(initial: integer | string?): affine(Buffer, __nuppDestroyBuffer)
 
     --- Creates a forward-only reader over a string.
     --- @param text the bytes to read
     --- @return the new reader
-    newStringReader: function(text: string): Owned<Reader>
+    newStringReader: function(text: string): affine(Reader, __nuppDestroyReader)
 
     --- Creates a forward-only reader that consumes a byte queue, which is how a
     --- LuaJIT `string.buffer` joins this layer without a copy of everything in it.
@@ -2769,9 +2767,9 @@ record nupp.io
     ---
     --- @param source the bytes, snapshot, buffer, reader or queue to read
     --- @return the new reader
-    newScalarReader: function(source: string | ByteQueue): Owned<ScalarReader>
-        & function(borrows source: ByteView | Buffer): Owned<ScalarReader>
-        & function(takes source: Reader): Owned<ScalarReader>
+    newScalarReader: function(source: string | ByteQueue): affine(ScalarReader, __nuppDestroyScalarReader)
+        & function(borrows source: ByteView | Buffer): affine(ScalarReader, __nuppDestroyScalarReader)
+        & function(takes source: Reader): affine(ScalarReader, __nuppDestroyScalarReader)
 
     --- Creates a cursor for sized integer and float writes.
     ---
@@ -2782,9 +2780,9 @@ record nupp.io
     --- @param destination the buffer or writer to append to, or nothing for a fresh
     ---     buffer
     --- @return the new writer
-    newScalarWriter: function(): Owned<ScalarWriter>
-        & function(borrows destination: Buffer): Owned<ScalarWriter> borrows (destination)
-        & function(takes destination: Writer): Owned<ScalarWriter>
+    newScalarWriter: function(): affine(ScalarWriter, __nuppDestroyScalarWriter)
+        & function(borrows destination: Buffer): affine(ScalarWriter, __nuppDestroyScalarWriter) borrows (destination)
+        & function(takes destination: Writer): affine(ScalarWriter, __nuppDestroyScalarWriter)
 
     --- Filesystem metadata, directory contents, and the operations that move
     --- names rather than bytes.

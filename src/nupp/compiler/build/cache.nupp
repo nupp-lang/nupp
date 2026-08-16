@@ -119,7 +119,7 @@ type cache.State = {
     configHash: string?
 }
 
-local function jsonArray<T>(items: {T}): {T}
+local function jsonArray<T>(takes items: {T}): {T} preserves items
     return setmetatable(items, json.array_mt) as {T}
 end
 

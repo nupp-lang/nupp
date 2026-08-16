@@ -829,7 +829,7 @@ cdef function blockCreate(size: integer): block*
 
 cdef function blockFree(takes b: block*)
 
-local function blockNew(size: integer): Owned<block*, blockFree>
+local function blockNew(size: integer): affine(block*, blockFree)
     return blockCreate(size)
 end
 

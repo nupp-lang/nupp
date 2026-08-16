@@ -239,8 +239,8 @@ function M.processViewsSatisfyTheSharedContracts()
    assertClean(table.concat({
       "local process = require('nupp.io.process')",
       "local child, spawnReason = process.new({args = {'true'}})",
-      "assert(child, spawnReason)",
-      "print(child.pid)",
+      "local running = assert(child, spawnReason)",
+      "print(running.pid)",
    }, "\n"))
    assertClean(table.concat({
       "local process = require('nupp.io.process')",
@@ -402,8 +402,8 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
       "local files = nupp.io.files",
       "do",
       "    local file = files.open('input.txt') as nupp.io.Files.File",
-      "    local reader: Owned<nupp.io.Reader> = file:newReader()",
-      "    local writer: Owned<nupp.io.Writer> = file:newWriter()",
+      "    local reader = file:newReader()",
+      "    local writer = file:newWriter()",
       "    local bytes: string? = reader:read(16)",
       "    local wrote: boolean = writer:write('x')",
       "end",

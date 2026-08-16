@@ -591,12 +591,12 @@ function expr.install(c: state.Checker): nil
             node.fixedWidthCallableUntrusted = target.tag == "func" and true or nil
             if c.ownershipKind(target) then
                 if c.ownershipKind(target) == "pinned" and c.ownershipKind(source) ~= "pinned" then
-                    c.diag("NUPP2604", node, "a Pinned<T> value must be constructed with pin(pointer, anchor)")
+                    c.diag("NUPP2604", node, "a pinned(T) value must be constructed with nupp.pin(pointer, anchor)")
                 end
                 return target
             end
             if source.tag == "affine" then
-                return T.affine(target, source.cleanups, source.transferOnly)
+                return T.affine(target, source.cleanups, source.transferOnly, source.obligation)
             elseif c.ownershipKind(source) == "borrowed" then
                 return T.borrowed(target)
             elseif c.ownershipKind(source) == "pinned" then
@@ -814,7 +814,7 @@ function expr.install(c: state.Checker): nil
 
             local function aggregateType(valueT: Type): Type
                 if ownsElements then
-                    return T.affine(valueT, {})
+                    return T.affine(valueT, {}, true)
                 elseif #aggregateRoots > 0 then
                     if #aggregateRoots == 1 then
                         node.borrowOwner = aggregateRoots[1]

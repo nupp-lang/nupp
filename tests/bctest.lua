@@ -137,7 +137,7 @@ function M.aFunctionBuiltOnceBehindAGuardIsNotReported()
    local dir = project{["guarded.g.nupp"] = table.concat({
       "cdef function free(takes value: voidptr)",
       "cdef function malloc(size: uint64): voidptr",
-      "local function ownedMalloc(size: uint64): Owned<voidptr, free>",
+      "local function ownedMalloc(size: uint64): affine(voidptr, free)",
       "   return malloc(size)",
       "end",
       "",

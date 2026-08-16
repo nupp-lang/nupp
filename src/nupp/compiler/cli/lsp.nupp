@@ -27,7 +27,7 @@ json.decode_invalid_numbers(false)
 json.encode_empty_table_as_object(true)
 json.encode_invalid_numbers(false)
 
-local function jsonArray(items)
+local function jsonArray<T>(takes items: T): T preserves items
     return setmetatable(items, json.array_mt)
 end
 

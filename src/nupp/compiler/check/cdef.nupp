@@ -9,7 +9,7 @@ the reifiability test enforces.
 
 Ownership matters more here than anywhere: a C function that produces a resource
 is the one place the checker cannot see the cleanup for itself. It is stated in
-the type -- `Owned<T, cleanup>` on the return, `out p: Owned<T, cleanup>*` on an
+the type -- `affine(T, cleanup)` on the return, `out p: affine(T, cleanup)*` on an
 owning output slot, or `out p: T* borrows (source)` on a borrowed one -- and
 `Success<T, N>` on the return says which status means those outputs hold values.
 ]]
@@ -218,7 +218,7 @@ function cdef.install(
                             c.diag("NUPP2602", relation, "a borrowed output cannot also carry an affine terminal")
                         end
                     end
-                    -- `out p: Owned<T, cleanup>*` is the slot the callee writes,
+                    -- `out p: affine(T, cleanup)*` is the slot the callee writes,
                     -- holding a value the caller then owns. The contract is on the
                     -- slot's type rather than above the signature, so it sits where
                     -- the value it describes does and the ABI is unchanged.
@@ -235,7 +235,7 @@ function cdef.install(
                         c.diag(
                             "NUPP2602",
                             p,
-                            "an out parameter is written `out p: Owned<T, cleanup>*` "
+                            "an out parameter is written `out p: affine(T, cleanup)*` "
                             .. "or `out p: T* borrows (source)`"
                         )
                     elseif not slot or not pointerShaped(T.unwrapOwnership(slot)) then

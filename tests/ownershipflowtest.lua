@@ -14,7 +14,7 @@ local env = envMod.new(HERE .. "/..")
 local RESOURCE = table.concat({
    "cdef struct flow_resource value: int32 end",
    "cdef function flow_close(takes value: flow_resource*)",
-   "cdef function flow_open(): Owned<flow_resource*, flow_close>",
+   "cdef function flow_open(): affine(flow_resource*, flow_close)",
 }, "\n")
 
 local function diagnostics(source)
@@ -40,7 +40,7 @@ local value = assert(flow_open() as flow_resource*?)
 drop(value)
 ]]},
    {"scalar generic", true, [[
-local function id<T>(value: T): T preserves value return value end
+local function id<T>(takes value: T): T preserves value return value end
 local value = id(flow_open())
 drop(value)
 ]]},
@@ -89,12 +89,12 @@ local value = flow_open()
 unsafe do local raw: any = value end
 ]]},
    {"nominal affine field", true, [[
-local record Box item: Owned<flow_resource*, flow_close> end
+local record Box item: affine(flow_resource*, flow_close) end
 local box = new Box(item = flow_open())
 drop(box)
 ]]},
    {"partial move and residual cleanup", true, [[
-local record Box item: Owned<flow_resource*, flow_close> end
+local record Box item: affine(flow_resource*, flow_close) end
 local box = new Box(item = flow_open())
 local item = box.item
 drop(item)

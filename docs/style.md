@@ -32,7 +32,7 @@ Every page opens the same way.
 # Owned resources
 
 A file, a socket, a C allocation, or any other value produced by a function
-returning `Owned<T>` carries a cleanup obligation the checker will not let you
+returning `affine(T, cleanup)` carries a cleanup obligation the checker will not let you
 drop.
 An ordinary local discharges it at its scope boundary:
 
@@ -207,7 +207,7 @@ the prose around it:
   Lua] `.
 - Examples do not carry commentary in comments. Explain in prose above; use a
   comment only for something the prose cannot point at, like
-  `-- file is Borrowed<LuaFile> here`.
+  `-- file borrows its source here`.
 - Show the error too. A page that teaches a rule shows one program that breaks
   it and the code that reports it.
 - A `nupp` fence is highlighted text. Add `:playground` to make one editable and
@@ -366,7 +366,7 @@ The rules above apply inside `---` blocks, compressed.
 --- @param id the stable account identifier
 --- @return the open session
 --- @raises when the service refuses the connection
-local function openSession(id: uint64): Owned<Session, closeSession>
+local function openSession(id: uint64): affine(Session, closeSession)
 ```
 
 - **First line: one sentence, third person, ending in a period.** "Opens a
@@ -396,7 +396,7 @@ The rest is formatting, and none of it is negotiable per page:
    Not                                       Write
    ────────────────────────────────────────  ─────────────────────────────
    Two facts. `Drop` supplies cleanup,        `Drop` supplies cleanup;
-   and `Owned<T>` carries the                 `Owned<T>` carries the
+   and `affine(T, cleanup)` carries the                 `affine(T, cleanup)` carries the
    obligation.                               obligation.
   ```
 - Ordinary quotes, not curly, everywhere except inside prose already using

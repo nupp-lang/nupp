@@ -28,9 +28,11 @@ These names, and only these, resolve as bare builtin types:
 | `uint32` | An established unsigned 32-bit Lua integer |
 | `uint64` |  |
 
-`metatable<T>`, `ctype<T>`, `carray<T>`, `Owned<T>`, `Borrowed<T>`, and
-`Pinned<T>` are constructors rather than names. Each needs a type argument, and
-bare `metatable` is an unknown type name.
+`metatable<T>`, `ctype<T>`, and `carray<T>` use generic angle-bracket syntax.
+`affine(T, cleanup)`, `affine(T)`, and `pinned(T)` are built-in compile-time
+type-generator calls, not runtime calls. See [Affine types](affine-types.md).
+Bare `metatable` and the removed `Borrowed` and `Pinned` wrapper names are
+unknown types.
 
 ## `unknown`, the top type
 

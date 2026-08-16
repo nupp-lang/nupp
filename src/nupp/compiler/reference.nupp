@@ -931,7 +931,7 @@ return m
 
     new reference.Section(
         title = "Affine resources",
-        codes = {"NUPP2603", "NUPP2615"},
+        codes = {"NUPP2603", "NUPP2606", "NUPP2615"},
         body = [=[
 `affine(Representation[, cleanup])` constructs a transparent affine type, normally
 named with an ordinary alias such as `type HeldLock = affine(LockToken, unlock)`.
@@ -939,11 +939,10 @@ Its identity is the representation plus the const-function identity of its clean
 it allocates no wrapper. The cleanup must be exactly a
 `nosuspend function(takes Representation): nil`, and may raise.
 
-`Drop`, `Owned<T, cleanup>`, and `Transfer<T>` are ordinary prelude declarations.
-The default `Owned<T>` cleanup calls the structural `Drop.drop` member. An explicit
-cleanup is used for C pointers or a representation with several possible policies.
-`Transfer<T>` is `affine(T)`: it deliberately has no cleanup and can only be
-forwarded or released.
+`affine(T, cleanup)` and `affine(T)` are built-in compile-time type-generator
+calls, not runtime function or method calls. There is no global structural
+cleanup policy: a package names the exact cleanup function for its resource.
+`affine(T)` deliberately has no cleanup and can only be forwarded or released.
 
 A known affine local is destroyed at scope exit. `drop owner` invokes its selected
 terminal immediately. `unsafe adopt raw as SomeAffine` introduces an asserted fresh
@@ -959,8 +958,8 @@ generic narrowing. `T borrows (source)` ties a result or nominal field to a
 root. Closures borrow captured owners by default; `borrows (source)` declares
 that relation. `takes (source)` moves an owner into an affine, single-shot
 closure whose call or drop discharges it. A `scoped` callback proves borrowed
-captures cannot escape. `Owned<T>` in a callable field declares a fresh owning
-result.
+captures cannot escape. `affine(T, cleanup)` in a callable field declares a
+fresh owning result.
 
 Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds
 dynamic owners. `nupp.span` gives sealed, private-implementation `Span<T>` and
@@ -1003,7 +1002,11 @@ local record File
     end
 end
 
-function m.open(): Owned<File>
+local function closeFile(takes file: File): nil
+    file.closed = true
+end
+
+function m.open(): affine(File, closeFile)
     return new File(closed = false)
 end
 
@@ -1027,7 +1030,7 @@ return m
 time. `nupp import-c` ejects the same declarations as an editable module. Both
 preserve unions and bitfields.
 
-An output contract is written on the output value. `Owned<T, cleanup>*` on an
+An output contract is written on the output value. `affine(T, cleanup)*` on an
 `out` slot returns an affine value; `T* borrows (source)` returns a view tied to
 one or more shared inputs. `Success<T, N>` and `Failure<T, N>` on the C return
 describe when those output slots are initialized. All three wrappers erase from

@@ -89,7 +89,7 @@ print(file:read("*a"))
 ```
 
 Drop early, transfer it to a `takes` parameter, or return it from a function
-whose result is `Owned<T>` when automatic lexical destruction is not the
+whose result is `affine(T, cleanup)` when automatic lexical destruction is not the
 desired end:
 
 ```nupp

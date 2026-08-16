@@ -232,14 +232,13 @@ use reports the suppressible `deprecated` lint; completion and semantic tokens
 carry the LSP deprecated tag/modifier; hover shows the reason and replacement;
 and generated documentation retains the annotation. It emits no Lua.
 
-An owning result is written in the result type as `Owned<T>`, whose ordinary
-prelude default requires structural `Drop`, or `Owned<T, cleanup>`, which names
-an explicit const-function terminal. `Transfer<T>` is the explicit
-transfer-only form. See [Ownership and FFI safety](ownership.md).
+An owning result is written `affine(T, cleanup)`, where `cleanup` is one exact
+const-function identity. `affine(T)` is the explicit transfer-only form. See
+[Ownership and FFI safety](ownership.md).
 
 C outputs state their contracts in type position. A borrowed output is written
 `out view: T* borrows (source)`, and an owned output is written
-`out value: Owned<T, cleanup>*`. `Success<T, N>` or `Failure<T, N>` on the
+`out value: affine(T, cleanup)*`. `Success<T, N>` or `Failure<T, N>` on the
 return says which status means the outputs hold values. Both forms allocate and
 position the C output holder while presenting an ordinary Lua multiple return.
 
@@ -247,10 +246,9 @@ A declaration that never comes back, because it raises, exits, or loops forever,
 says so with `never` as its return type, not an annotation; see
 [primitives](type-system/primitives.md#never-the-bottom-type).
 
-Automatic lexical cleanup works over every public `affine(...)` type. `Owned<T>`
-uses structural `Drop`; an explicit cleanup belongs to that affine type, so
-different policies over the same runtime representation remain distinct static
-types.
+Automatic lexical cleanup works over every public `affine(...)` type. The
+cleanup belongs to that affine type, so different policies over the same
+runtime representation remain distinct static types.
 
 `@override` marks a member that replaces a default implementation an interface
 provides. It is required there, and equally an error on a member that replaces

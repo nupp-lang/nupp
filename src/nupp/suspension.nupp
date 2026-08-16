@@ -659,6 +659,10 @@ function suspension.Installed.drop(takes self: suspension.Installed): nil
     self:release()
 end
 
+function suspension.destroyInstalled(takes self: suspension.Installed): nil
+    self:drop()
+end
+
 --- Installs `handler` for suspensions performed on this coroutine.
 ---
 --- A scope rather than a callback, deliberately. Wrapping a body would make the extent
@@ -677,7 +681,7 @@ end
 ---
 --- @param handler what answers suspensions inside the scope
 --- @return the installation, which must be released
-function suspension.install(handler: suspension.Handler): Owned<suspension.Installed>
+function suspension.install(handler: suspension.Handler): affine(suspension.Installed, suspension.destroyInstalled)
     local co = running()
     local previous
     if co == nil then

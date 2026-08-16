@@ -853,9 +853,9 @@ end
 -- predicate over the same summaries.
 --
 -- Hand-rolled proofs are the thing to avoid rather than the duplicated walking. There
--- is no deoptimization here (plans/014-optimizations.md), so a proof that is subtly wrong
--- is a miscompilation with no runtime signal, and three of them are three chances.
--- These answer once.
+-- is no deoptimization here (plans/014-optimizations.md), so a proof that is subtly
+-- wrong is a miscompilation with no runtime signal, and three of them are three
+-- chances. These answer once.
 --
 -- Every question answers `true`, or `false` with the reason and the node to point at,
 -- because a pass that declines has to say why: a remark and a lint both need the

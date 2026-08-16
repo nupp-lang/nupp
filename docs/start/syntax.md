@@ -68,7 +68,7 @@ cdef struct timeval
 end -- C declarations
 cdef function usleep(usec: uint32): int32
 
-local function open(path: string): Owned<File, closeFile>
+local function open(path: string): affine(File, closeFile)
 end
 
 do

@@ -17,17 +17,26 @@ local free_nosuspend = free as nosuspend function(takes pointer: voidptr): nil
 local function finish_array(takes self: any): nil
     nosuspend do
         local raw = unsafe release self
-        local pointer = unsafe adopt raw.pointer as Owned<voidptr, free_nosuspend>
+        local pointer = unsafe adopt raw.pointer as affine(voidptr, free_nosuspend)
         free_nosuspend(pointer)
     end
 end
 
 local finish_array_nosuspend = finish_array as nosuspend function(takes self: any): nil
 
+sealed interface heap.ArrayToken
+    close: nosuspend function(takes self: ArrayToken): nil
+end
+
+--- @export
+function heap.destroyArray<T is heap.ArrayToken>(takes self: T): nil
+    self:close()
+end
+
 --- An owned contiguous native allocation whose logical count cannot be separated
 --- from its pointer in checked code.
 --- @export
-record heap.Array<T>
+record heap.Array<T> is heap.ArrayToken
     private pointer: T[?]
     readonly count: integer
 
@@ -40,7 +49,7 @@ record heap.Array<T>
     read: function(borrows self: Array<T>): span.Span<T> borrows (self)
 
     --- Borrows the whole allocation as an affine checked write span.
-    write: function(exclusive self: Array<T>): Owned<span.WriteSpan<T>> borrows (self)
+    write: function(exclusive self: Array<T>): span.Writable<T> borrows (self)
 end
 
 function heap.Array.read<T>(borrows self: heap.Array<T>): span.Span<T> borrows (self)
@@ -55,7 +64,7 @@ function heap.Array.drop<T>(takes self: heap.Array<T>): nil
     self:close()
 end
 
-function heap.Array.write<T>(exclusive self: heap.Array<T>): Owned<span.WriteSpan<T>> borrows (self)
+function heap.Array.write<T>(exclusive self: heap.Array<T>): span.Writable<T> borrows (self)
     return span.writeCarray(self.pointer, self.count)
 end
 
@@ -64,7 +73,7 @@ end
 --- @export
 --- @raises when count is negative, the byte size overflows a Lua integer, or malloc
 ---     fails
-function heap.allocate<T>(element: ctype<T>, count: integer): Owned<heap.Array<T>>
+function heap.allocate<T>(element: ctype<T>, count: integer): affine(heap.Array<T>, heap.destroyArray)
     if count < 0 then
         error("heap array count cannot be negative", 2)
     end

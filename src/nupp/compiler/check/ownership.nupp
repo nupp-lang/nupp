@@ -29,6 +29,10 @@ type ownership.Ops = {
     --- Which ownership qualifier a type carries, if any.
     ownershipKind: function(t: Type?): string?,
 
+    --- The canonical capability carried by a type and, when supplied, its
+    --- current flow entry.
+    capabilityOf: function(t: Type?, entry: any?): T.Capability,
+
     --- The entry an ownership fact is recorded on, following a narrowed copy back.
     ownershipState: function(entry: any): any,
 
@@ -96,8 +100,34 @@ function ownership.install(c: state.Checker): ownership.Ops
     local own = {}
     local pendingGenericCleanupBounds = {}
 
+    function own.capabilityOf(t, entry)
+        entry = own.ownershipState(entry)
+        t = t or (entry and entry.t) or T.any
+        local roots = {}
+        if entry then
+            if entry.borrowOwner then
+                roots[#roots + 1] = own.borrowRoot(entry.borrowOwner)
+            end
+            for _, root in ipairs(entry.borrowOwners or {}) do
+                roots[#roots + 1] = own.borrowRoot(root)
+            end
+        end
+
+        return T.capability(
+            t,
+            new T.CapabilityFacts(
+                roots = roots,
+                exclusive = entry and entry.exclusiveBorrow or nil,
+                regionRoot = entry and entry.regionRoot or nil,
+                regionPath = entry and entry.regionPath or nil,
+                anchor = entry and entry.pinAnchor or nil,
+                retention = entry and (entry.retentionIdentity or entry.retained) or nil
+            )
+        )
+    end
+
     function own.ownershipKind(t)
-        return t and (t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") and t.tag or nil
+        return t and T.capabilityKind(own.capabilityOf(t)) or nil
     end
 
     function own.ownershipState(entry)
@@ -142,7 +172,7 @@ function ownership.install(c: state.Checker): ownership.Ops
 
     -- Terminal lookup reaches through an optional owner, while the owner itself still
     -- carries the optional resource. Keeping those roles separate is what lets
-    -- `Owned<T?>` inherit T's terminal without ceasing to admit nil.
+    -- `affine(T?, cleanup)` inherit T's terminal without ceasing to admit nil.
     function own.resourceBehind(t)
         local resource = rawType(t)
         if resource.tag == "union" then
@@ -322,7 +352,9 @@ function ownership.install(c: state.Checker): ownership.Ops
                     and cleanupEntry.definition
                     or nil
                 cleanup.token = localDefinition and localDefinition.token or nil
-                cleanup.visibleBody = localDefinition and not c.declarationFile or nil
+                cleanup.visibleBody = localDefinition and (
+                    not c.declarationFile or c.result.moduleName == "nupp.prelude"
+                ) or nil
                 c.nosuspend.cleanup(cleanup, at)
             end
             local firstParam = cleanupFunc and cleanupFunc.params[1] or nil
@@ -334,7 +366,15 @@ function ownership.install(c: state.Checker): ownership.Ops
                     end
                 end
             end
-            if not cleanupT then
+            if not cleanupT and cleanup.key then
+                -- An instantiated exported affine alias carries the stable key of a
+                -- cleanup already checked in its defining module. The declaration's
+                -- local function type is intentionally not part of the importing
+                -- value namespace; requiring it again here made sound public aliases
+                -- unusable from another module. A directly written unknown function
+                -- never gets a key and still follows the diagnostic below.
+                goto continue
+            elseif not cleanupT then
                 c.diag(code, at, ("cleanup %q is not declared"):format(cleanup.name), nil, {
                     notes = {
                         "a cleanup is resolved here, where the owner "
@@ -364,6 +404,9 @@ function ownership.install(c: state.Checker): ownership.Ops
                 c.diag(code, at, ("terminal %q must be nosuspend"):format(cleanup.name))
             elseif cleanupFunc and j < #(cleanups or {}) and cleanupFunc.paramModes[1] == "takes" then
                 c.diag("NUPP2615", at, ("cleanup %q takes before the final step"):format(cleanup.name))
+            end
+            if cleanupT then
+                cleanup.validated = true
             end
             ::continue::
         end
@@ -545,7 +588,10 @@ function ownership.install(c: state.Checker): ownership.Ops
                 local state = own.ownershipState(entry)
                 if state and not seen[state] and (state.functionDepth or 0) == c.functionDepth and not state.moved then
                     seen[state] = true
-                    if own.ownershipKind(state.t) or state.retained or (state.activeBorrows or 0) > 0 then
+                    local capability = own.capabilityOf(state.t, state)
+                    if T.capabilityHasMovable(
+                        capability
+                    ) or #capability.loans > 0 or (state.activeBorrows or 0) > 0 then
                         return name
                     end
                 end
@@ -718,6 +764,7 @@ function ownership.install(c: state.Checker): ownership.Ops
     -- Also on the checker, so a pass in another module reaches them the same way the
     -- walk does.
     c.ownershipKind = own.ownershipKind
+    c.capabilityOf = own.capabilityOf
     c.ownershipState = own.ownershipState
     c.pointerShaped = own.pointerShaped
     c.moveExpression = own.moveExpression

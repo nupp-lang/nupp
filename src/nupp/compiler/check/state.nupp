@@ -370,6 +370,11 @@ record state.Checker
     --- Which ownership qualifier a type carries, if any.
     ownershipKind: function(t: Type?): string?
 
+    --- The complete obligation, loan, anchor, and retention facts carried by a
+    --- flow value. This is the checker-wide ownership query; callers should not
+    --- reconstruct a partial answer from wrapper tags and side fields.
+    capabilityOf: function(t: Type?, entry: any?): T.Capability
+
     --- The entry an ownership fact is recorded on, following a narrowed copy back to
     --- the binding it came from.
     ownershipState: function(entry: any): any

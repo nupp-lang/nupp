@@ -23,8 +23,6 @@ local state = require("nupp.compiler.check.state")
 local resolve = {}
 
 --- The ownership type constructors, by the name each is written with.
-local ownershipConstructors: {[string]: string} = {Borrowed = "borrowed", Pinned = "pinned",}
-
 -- The C status constructors. `Success<T, N>` says the call succeeded when it
 -- returned N, `Failure<T, N>` says it succeeded when it returned anything else.
 -- Both are about a C function's outputs rather than about T, so they are legal
@@ -516,14 +514,30 @@ function resolve.install(c: state.Checker): nil
                     return T.any
                 end
                 local cleanup = functionConstCleanups[terminal.id] or T.constFunctionCleanup(terminal)
-                local resolvingAlias = next(c.resolvingAlias) ~= nil
-                if terminal.tag == "constLiteral" and not resolvingAlias then
+                if terminal.tag == "constLiteral" then
                     cleanup = c.own.resolveCleanups({cleanup}, node, node)[1]
                 end
                 local result = T.affine(representation, {cleanup})
-                if terminal.tag == "constLiteral" and not resolvingAlias then
+                if terminal.tag == "constLiteral" then
                     c.own.validateCleanups(result, {cleanup}, node, "NUPP2615")
                 end
+                node.resolvedType = result
+                return result
+            elseif name == "pinned" then
+                local argumentCount = #(node.arguments or {})
+                if argumentCount ~= 1 then
+                    c.diag(
+                        "NUPP2421",
+                        node,
+                        ("pinned expects one pointer representation, got %d arguments"):format(argumentCount)
+                    )
+                    return T.any
+                end
+                local representation = c.resolveType(node.arguments[1])
+                if not pointerShaped(representation) then
+                    c.diag("NUPP2602", node, "pinned(T) requires a pointer-shaped T")
+                end
+                local result = T.pinned(representation)
                 node.resolvedType = result
                 return result
             end
@@ -958,18 +972,6 @@ function resolve.install(c: state.Checker): nil
 
                 return inner
             end
-            local ownership = ownershipConstructors[name]
-            if ownership and node.typeArgs and node.typeArgs[1] and not c.lookupType(name) then
-                local inner = c.resolveType(node.typeArgs[1])
-                if ownership == "pinned" and not pointerShaped(inner) then
-                    c.diag("NUPP2602", node, "Pinned<T> requires a pointer-shaped T")
-                end
-                if ownership == "borrowed" then
-                    return T.borrowed(inner)
-                end
-                return T.pinned(inner)
-            end
-
             local resolving = c.resolvingAlias[name]
             if resolving then
                 c.diag("NUPP2133", node, ("recursive type alias %q is not supported"):format(name))
@@ -1161,8 +1163,8 @@ function resolve.install(c: state.Checker): nil
             return T.boolean
         elseif kind == "tborrows" then
             -- the body returns the plain value; the borrow wrapper and the argument it
-            -- is tied to are applied to the function type, the same way Owned<T> wraps
-            -- an annotated return
+            -- is tied to are applied to the function type, the same way affine(T,
+            -- cleanup) wraps an annotated return
             return c.resolveType(node.type)
         elseif kind == "tpreserves" then
             -- The callable records the relation; this node contributes its payload.

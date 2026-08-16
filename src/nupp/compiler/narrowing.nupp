@@ -23,7 +23,7 @@ local type Type = T.Type
 
 --- `t` with every value that fits `rem` removed. An ownership qualifier wraps a value
 --- rather than being one, so the residue is rewrapped rather than dropped: narrowing an
---- `Owned<T?>` leaves an `Owned<T>`.
+--- `affine(T?, cleanup)` leaves an `affine(T, cleanup)`.
 ---
 --- Two members resist removal. A type parameter fits everything while it is
 --- unsubstituted, so subtracting from one would erase it; it is left alone. `boolean`
@@ -36,7 +36,7 @@ local type Type = T.Type
 function narrowing.subtract(t: Type, rem: Type): Type
     if t.tag == "affine" then
         local inner = narrowing.subtract(t.inner, rem)
-        return inner == t.inner and t or T.affine(inner, t.cleanups, t.transferOnly)
+        return inner == t.inner and t or T.affine(inner, t.cleanups, t.transferOnly, t.obligation)
     elseif t.tag == "borrowed" then
         local inner = narrowing.subtract(t.inner, rem)
         return inner == t.inner and t or T.borrowed(inner)

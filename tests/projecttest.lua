@@ -1472,7 +1472,7 @@ function M.namedCleanupsInvalidateIncrementalInterfaces()
          "cdef function create_c(): voidptr",
          "cdef function first_cleanup(takes value: voidptr)",
          "cdef function second_cleanup(takes value: voidptr)",
-         "local function create(): Owned<voidptr, " .. cleanup .. ">",
+         "local function create(): affine(voidptr, " .. cleanup .. ")",
          "   return create_c()",
          "end",
          "return { create = create }",

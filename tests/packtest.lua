@@ -345,10 +345,10 @@ function M.affinePackResultsCannotBeSilentlyDiscarded()
    local declaration = table.concat({
       "cdef function acquire_c(): voidptr",
       "cdef function release(takes value: voidptr)",
-      "local function acquire(): Owned<voidptr, release>",
+      "local function acquire(): affine(voidptr, release)",
       "   return acquire_c()",
       "end",
-      "local function make(): (number, Transfer<voidptr>)",
+      "local function make(): (number, affine(voidptr))",
       "   return 1, acquire()",
       "end",
    }, "\n")
@@ -360,7 +360,7 @@ function M.protectedCallOwnersAutoDestroyOnlyInTheSuccessArm()
    local declaration = table.concat({
       "cdef function acquire_c(): voidptr",
       "cdef function release(takes value: voidptr)",
-      "local function acquire(): Owned<voidptr, release>",
+      "local function acquire(): affine(voidptr, release)",
       "   return acquire_c()",
       "end",
    }, "\n")
@@ -385,11 +385,11 @@ function M.genericPackForwardingKeepsBorrowProvenance()
       "end",
       "cdef function resource_create(): resource*",
       "cdef function resource_free(takes value: resource*)",
-      "local function resource_new(): Owned<resource*, resource_free>",
+      "local function resource_new(): affine(resource*, resource_free)",
       "   return resource_create()",
       "end",
       "local function borrow(borrows value: resource*):",
-      "   Borrowed<resource*> borrows (value)",
+      "   resource* borrows (value)",
       "   return value",
       "end",
       "local function forward<A...>(...: A...): A...",
@@ -430,7 +430,7 @@ function M.typedVarargOwnershipChecksEveryOriginalArgument()
    local declaration = table.concat({
       "cdef struct resource value: int32 end",
       "cdef function resource_free(takes value: resource*)",
-      "cdef function resource_new(): Owned<resource*, resource_free>",
+      "cdef function resource_new(): affine(resource*, resource_free)",
    }, "\n")
    clean(declaration .. "\n" .. table.concat({
       "local function observe(borrows ...: resource*): nil end",

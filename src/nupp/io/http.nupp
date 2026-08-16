@@ -444,7 +444,7 @@ local function destroyBody(takes body: http.Body): nil
     end
 end
 
-local function makeBody(client: any, transfer: any): Owned<http.Body, destroyBody>
+local function makeBody(client: any, transfer: any): affine(http.Body, destroyBody)
     return new http.Body(_client = client, _transfer = transfer, _closed = false, _reading = false)
 end
 
@@ -494,7 +494,7 @@ record http.Response
     status: integer
     version: http.Version
     url: nupp.io.URI
-    body: Owned<http.Body>
+    body: affine(http.Body, destroyBody)
     _packed: string
     _values: {[string]: {string}}?
     _headers: {string: string}?
@@ -605,13 +605,22 @@ function http.Response.drop(takes self: http.Response): nil
     end
 end
 
+local function destroyResponse(takes self: http.Response): nil
+    nosuspend do
+        if not self._closed then
+            self._closed = true
+            self.body:drop()
+        end
+    end
+end
+
 local function makeResponse(
     status: integer,
     version: http.Version,
     url: nupp.io.URI,
     takes body: http.Body,
     packed: string
-): Owned<http.Response>
+): affine(http.Response, destroyResponse)
     return new http.Response(
         status = status,
         version = version,
@@ -659,7 +668,7 @@ record http.Client
     end
 end
 
-function http.Client:send(request: http.Request): (Owned<http.Response?>, string?)
+function http.Client:send(request: http.Request): (affine(http.Response?, destroyResponse), string?)
     if self._closed then
         return nil, "the HTTP client is closed"
     end
@@ -966,6 +975,10 @@ function http.Client.drop(takes self: http.Client): nil
     end
 end
 
+local function destroyClient(takes self: http.Client): nil
+    self:drop()
+end
+
 function http.reader(reader: nupp.io.Reader, length: integer?, contentType: string?): http.ReaderBody
     if length ~= nil then
         whole(length, "reader body length", 0)
@@ -988,7 +1001,7 @@ function http.file(path: string | nupp.io.Path, contentType: string?): http.File
     return new http.FileBody(path = path, contentType = contentType)
 end
 
-function http.newClient(options: http.Options?): (Owned<http.Client?>, string?)
+function http.newClient(options: http.Options?): (affine(http.Client?, destroyClient), string?)
     local copied = copiedOptions(options)
     local backend, reason = native.newClient(copied)
     if backend == nil then

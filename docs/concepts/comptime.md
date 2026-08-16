@@ -57,6 +57,12 @@ local value: Optional(string) = nil
 `comptime do ... end` evaluates one scoped expression inside otherwise runtime
 code. Compile-time-only declarations are erased and have no runtime value.
 
+Some built-in type operations use the same call-like spelling directly in type
+position. In particular, `affine(T, cleanup)`, `affine(T)`, and `pinned(T)` are
+compile-time type-generator calls, not runtime constructors. The programmable
+`nupp.types.affine` builder lets a comptime type function produce the same
+affine types while preserving a cleanup declaration's identity.
+
 The opaque handles have no runtime representation and are illegal in ordinary
 function signatures or values. `nupp.types` supplies immutable inspection and
 structural builders; it can preserve an existing nominal identity but cannot
@@ -123,3 +129,5 @@ read-only rules, and materialization boundary live on
   to generate code from a declaration.
 - [Type system overview](../type-system/overview.md): the finite type operators
   that remain direct language syntax.
+- [Affine types](../type-system/affine-types.md): the built-in generator and its
+  programmable comptime builder.

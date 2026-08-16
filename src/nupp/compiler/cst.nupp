@@ -2511,11 +2511,8 @@ cst.isToken = isToken
 --- than declares. Affine construction, release, and destruction are syntax now, so
 --- they deliberately do not appear here.
 ---
---- These are the only names Nupp itself puts at the top level, so each is also spelled
---- `nupp.`: a program that would rather say where a name comes from, or that has a
---- local
---- called `borrow`, needs a way to reach them anyway. The two spellings mean the same
---- thing and lower to the same code.
+--- Most helpers retain their historical top-level spelling. Pinning is intentionally
+--- introduced only as `nupp.pin`: a bare `pin` is an ordinary value name.
 local OWNERSHIP_INTRINSICS: {
     [string]: boolean
 } = {attemptAll = true, borrow = true, borrowFrom = true, partition = true, pin = true,}
@@ -2540,6 +2537,9 @@ function cst.ownershipIntrinsicSpelling(callee: cst.Node?): string?, boolean?
     end
     if callee.kind == "name" then
         local bare = callee.token and callee.token.text or ""
+        if bare == "pin" then
+            return nil, false
+        end
         return OWNERSHIP_INTRINSICS[bare] and bare or nil, false
     end
     if callee.kind ~= "dotIndex" then

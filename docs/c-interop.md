@@ -338,7 +338,7 @@ end
 
 cdef function buffer_free(takes buffer: nativeBuffer*) from"mini"
 
-cdef function buffer_create(size: uint64): Owned<nativeBuffer*, buffer_free> from"mini"
+cdef function buffer_create(size: uint64): affine(nativeBuffer*, buffer_free) from"mini"
 
 do
     local buffer = buffer_create(4096)
@@ -346,7 +346,7 @@ do
 end
 ```
 
-`Owned<nativeBuffer*, buffer_free>` says the caller receives one cleanup
+`affine(nativeBuffer*, buffer_free)` says the caller receives one cleanup
 obligation and names what discharges it. `takes` says `buffer_free` consumes
 it. The lexical owner guarantees cleanup across fallthrough, errors, and
 structured control flow.

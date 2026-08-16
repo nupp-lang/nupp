@@ -143,8 +143,10 @@ One page per idea, in the order they build on each other:
 - [Primitive types](primitives.md): the builtin names, unions, optionals,
   collections, and aliases.
 - [Records and structs](records.md): nominal tables and FFI cdata.
-- [Affine types and ownership](../ownership.md): transparent cleanup
-  obligations, moves, borrows, and lexical destruction.
+- [Affine types](affine-types.md): compile-time type construction, exact cleanup
+  identities, transfer-only values, and capability-preserving generics.
+- [Ownership](../ownership.md): moves, borrows, aggregates, pinning, and lexical
+  destruction.
 - [Interfaces](interfaces.md): structural satisfaction, `is`, and metamethods.
 - [Property capabilities](properties.md): independent read and write views.
 - [Unions](unions.md): literal sets, tagged unions, and exhaustiveness.

@@ -78,6 +78,16 @@ function functions.install(c: state.Checker): state.StatHandlers
             return false
         end
 
+        local function returnPreserves(name)
+            for _, result in ipairs(body.rets or {}) do
+                if result.kind == "tpreserves" and result.param and result.param.text == name then
+                    return true
+                end
+            end
+
+            return false
+        end
+
         local walk
         walk = function(node, nested)
             if not node or cst.isToken(node) then
@@ -109,6 +119,16 @@ function functions.install(c: state.Checker): state.StatHandlers
                             effect = "borrows"
                         elseif calleeT and calleeT.tag == "func" then
                             effect = calleeT.paramModes[j] or "plain"
+                            if effect == "takes" then
+                                for _, source in ipairs(calleeT.preservesResults or {}) do
+                                    if source == j then
+                                        -- A preserving callee transports this value; it
+                                        -- does not prove that its caller consumes it.
+                                        effect = "plain"
+                                        break
+                                    end
+                                end
+                            end
                         else
                             effect = "plain"
                         end
@@ -154,7 +174,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 for _, expr in ipairs(node.exprs or {}) do
                     local name = directName(expr)
                     if name then
-                        if body.ownCleanups then
+                        if returnPreserves(name) or body.ownCleanups then
                             raise(name, "takes")
                         elseif not returnBorrows(name) then
                             raise(name, "plain")
@@ -193,7 +213,28 @@ function functions.install(c: state.Checker): state.StatHandlers
     --- only a direct parameter on every explicit return path; conditionals and raising
     --- paths work because their successful returns are still visited, while calls,
     --- storage and selection do not accidentally become transparent.
-    local function preservationResults(body, paramNames, inferVisible, report)
+    local function couldCarryMovable(t)
+        if not t or t == T.any or t == T.unknown then
+            return true
+        end
+        if t.tag == "affine" or t.tag == "pinned" then
+            return true
+        elseif t.tag == "typevar" then
+            return not t.bound or couldCarryMovable(t.bound)
+        elseif t.tag == "union" or t.tag == "intersection" then
+            for _, member in ipairs(t.members or {}) do
+                if couldCarryMovable(member) then
+                    return true
+                end
+            end
+        elseif t.tag == "nominal" then
+            return t.affineFields ~= nil and #t.affineFields > 0
+        end
+
+        return false
+    end
+
+    local function preservationResults(body, paramNames, paramTypes, paramModes, inferVisible, report)
         local byname, results, explicit = {}, {}, {}
         for j, name in ipairs(paramNames or {}) do
             byname[name] = j
@@ -207,6 +248,15 @@ function functions.install(c: state.Checker): state.StatHandlers
                     end
                 else
                     results[result], explicit[result] = source, true
+                    if report and couldCarryMovable(paramTypes[source]) and paramModes[source] ~= "takes" then
+                        c.diag(
+                            "NUPP2606",
+                            ret.param,
+                            (
+                                "preserving capability-bearing parameter %q requires `takes %s`"
+                            ):format(ret.param.text, ret.param.text)
+                        )
+                    end
                 end
             end
         end
@@ -236,6 +286,25 @@ function functions.install(c: state.Checker): state.StatHandlers
             while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
                 expr = expr.expr
             end
+            if expr and expr.kind == "call" then
+                local source = expr.preservesArguments and expr.preservesArguments[1] or nil
+                if not source then
+                    local callee = expr.obj
+                    local calleeName = callee and callee.kind == "name" and callee.token.text or nil
+                    local callable = calleeName and c.lookupVar(calleeName) or nil
+                    source = callable
+                        and callable.tag == "func"
+                        and callable.preservesResults
+                        and callable.preservesResults[
+                        1
+                    ] or nil
+                end
+                local argument = source and expr.args and expr.args.exprs and expr.args.exprs[source] or nil
+                if argument then
+                    return directParameter(argument)
+                end
+            end
+
             return expr and expr.kind == "name" and expr.token and byname[expr.token.text] or nil
         end
 
@@ -654,7 +723,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         local yieldPack = body.yieldPack and c.resolvePack(body.yieldPack) or nil
         local resumePack = body.resumePack and c.resolvePack(body.resumePack) or nil
-        -- A method returning `Borrowed<T>` without naming a source borrows its
+        -- A method returning a borrowed value without naming a source borrows its
         -- receiver: there is only one thing it could mean, and spelling it out on every
         -- container accessor is noise. The result stays explicitly a borrow, so a
         -- method returning a plain value is unaffected, and the body returns the value
@@ -685,6 +754,12 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
                 ownsAResult = true
                 ownedReturns[j] = rawType(ret)
+            end
+        end
+        for j, result in ipairs(body.rets or {}) do
+            if result.kind == "tpreserves" and annotated and annotated[j] then
+                ownsAResult = true
+                ownedReturns[j] = rawType(annotated[j])
             end
         end
         -- Rebuilt so the adjustments above, which write through `rets`, reach the pack
@@ -934,7 +1009,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             retPack = T.pack(rets, retPack.tail, retPack.modes)
         end
 
-        local preservesResults = preservationResults(body, paramNames, typeParams ~= nil, true)
+        local preservesResults = preservationResults(body, paramNames, params, paramModes, typeParams ~= nil, true)
         local callable = T.func(
             params,
             rets,
@@ -1049,7 +1124,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         local resumePack = body and body.resumePack and c.resolvePack(body.resumePack) or nil
         c.popScope()
 
-        local preservesResults = preservationResults(body, paramNames, typeParams ~= nil, false)
+        local preservesResults = preservationResults(body, paramNames, params, modes, typeParams ~= nil, false)
 
         return T.func(
             params,

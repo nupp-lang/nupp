@@ -39,7 +39,7 @@ end
 local OWNED = table.concat({
    "cdef function free(takes value: voidptr)",
    "cdef function malloc(size: uint64): voidptr",
-   "local function ownedMalloc(size: uint64): Owned<voidptr, free>",
+   "local function ownedMalloc(size: uint64): affine(voidptr, free)",
    "   return malloc(size)",
    "end",
 }, "\n")
@@ -104,7 +104,7 @@ function M.theConstructsCarryingAReasonStillGenerate()
          "   local raw",
          "   unsafe do",
          "      raw = unsafe release value",
-         "      drop(unsafe adopt raw as Owned<voidptr, free>)",
+         "      drop(unsafe adopt raw as affine(voidptr, free))",
          "   end",
          "   n = n + 1",
          "end",

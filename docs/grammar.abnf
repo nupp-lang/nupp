@@ -269,9 +269,9 @@ annotatedstat  = annotation stat
 annotation     = "@" Name [annotationargs]
 annotationargs = "(" [annotationarg *("," annotationarg)] ")"
 annotationarg  = [Name "="] exp
-; Owned<T, cleanup> is an ordinary prelude affine type application, and Owned<T>
-; uses the prelude's structural Drop default. Transfer<T> is the terminal-less
-; prelude affine type. C outputs state borrowed provenance in their parameter
+; affine(T, cleanup) is a compile-time affine type-generator call.
+; affine(T) is the transfer-only form and has no cleanup. C outputs state
+; borrowed provenance in their parameter
 ; type and conditional initialization in the C status return type.
 
 stat           =/ unsafestat
@@ -418,7 +418,7 @@ primtype       = ["const"] primtype              ; read-only view [CS-15]
                / "(" type ")"
 typename       = Name *("." Name) ["<" typearg *("," typearg) ">"]
                  ["(" [type *("," type)] ")"] ; checked comptime type call [CS-24]
-; `affine(Representation [, Cleanup])` is the built-in affine type constructor.
+; `affine(Representation [, Cleanup])` is the built-in affine type generator.
 ; Its cleanup, when present, is a named function identity rather than a value.
 typearg        = type / typepack                 ; packs only where accepted [CS-21]
 tabletype      = "{" tablebody "}"
@@ -603,8 +603,8 @@ packunion      = typepack 1*("|" typepack)
 ;   parameters the value borrows from. The value may
 ;   not outlive any named argument, and no source may move while it is live.
 ;   On a method the source may be left out by
-;   writing the return as `Borrowed<T>`: the receiver is the only thing it
-;   could name. Where the result is also `Owned<T>`, it stays owned and holds
+;   adding a wrapper type: the receiver is the only thing it could name. Where
+;   the result is also `affine(T, cleanup)`, it stays affine and holds
 ;   the borrow as well, which is what a layered resource is.
 ;   A Nupp body must prove the declared result provenance. A bodyless
 ;   declaration remains a trusted boundary contract, as foreign ownership is.

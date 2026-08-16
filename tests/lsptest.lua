@@ -542,7 +542,7 @@ function M.hoverAndInspectExposeAutomaticCleanup()
       "end",
       "local function close_handle(value: Handle)",
       "end",
-      "local function open_handle(): Owned<Handle, close_handle>",
+      "local function open_handle(): affine(Handle, close_handle)",
       "   return new Handle(name = 'a')",
       "end",
       "local function work()",
@@ -1405,7 +1405,7 @@ function M.namedTerminalsHaveDefinitions()
    local source = table.concat({
       "cdef function free(takes value: voidptr)",
       "cdef function malloc(size: uint64): voidptr",
-      "local function ownedMalloc(size: uint64): Owned<voidptr, free>",
+      "local function ownedMalloc(size: uint64): affine(voidptr, free)",
       "   return malloc(size)",
       "end",
    }, "\n")
@@ -1417,7 +1417,7 @@ function M.namedTerminalsHaveDefinitions()
       { jsonrpc = "2.0", id = 10,
         method = "textDocument/definition",
         params = { textDocument = { uri = uri },
-           position = { line = 2, character = 57 } } },
+           position = { line = 2, character = 58 } } },
       { jsonrpc = "2.0", id = 2, method = "shutdown" },
       { jsonrpc = "2.0", method = "exit" },
    })

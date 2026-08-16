@@ -62,11 +62,11 @@ function M.explicitOpaqueOwnershipSurvivesGenericTypeTransforms()
    local source = T.affine(binder, nil, true)
    local rebound = generics.rebind(source, {[binder] = T.optional(T.string)})
    assertEq(rebound.transferOnly, true, "rebinding erased explicit transfer-only affinity")
-   assertEq(T.tostring(rebound), "affine<string?, transfer-only>")
+   assertEq(T.tostring(rebound), "affine(string?)")
 
    local normalized = generics.normalize(rebound).type
    assertEq(normalized.transferOnly, true, "normalization erased explicit transfer-only affinity")
-   assertEq(T.tostring(normalized), "affine<string?, transfer-only>")
+   assertEq(T.tostring(normalized), "affine(string?)")
 end
 
 -- Substituting the head is what makes a projection reducible; the two stay

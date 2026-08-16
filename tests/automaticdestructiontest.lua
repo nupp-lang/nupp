@@ -50,7 +50,7 @@ local PRELUDE = table.concat({
    "local function close_resource(takes value: Resource): nil",
    "   calls = calls .. value.name",
    "end",
-   "local function open_resource(name: string): Owned<Resource, close_resource>",
+   "local function open_resource(name: string): affine(Resource, close_resource)",
    "   return new Resource(name = name)",
    "end",
 }, "\n")
@@ -176,7 +176,7 @@ end
 function M.anOwningReturnTransfersResponsibility()
    local chunk = compile(PRELUDE .. table.concat({
       "",
-      "local function make(): Owned<Resource, close_resource>",
+      "local function make(): affine(Resource, close_resource)",
       "   local value = open_resource('r')",
       "   return value",
       "end",
@@ -190,7 +190,7 @@ end
 function M.capabilityPreservingGenericsTransferAutomaticResponsibility()
    local chunk = compile(PRELUDE .. table.concat({
       "",
-      "local function forward<T>(value: T): T preserves value",
+      "local function forward<T>(takes value: T): T preserves value",
       "   return value",
       "end",
       "local value = open_resource('f')",
@@ -203,7 +203,7 @@ end
 
 function M.opaqueOwnersStillNeedAnExplicitTerminal()
    local source = table.concat({
-      "local function begin(): Transfer<table> return {} end",
+      "local function begin(): affine(table) return {} end",
       "local value = begin()",
    }, "\n")
    assertEq(codes(source), "NUPP2603")
@@ -221,7 +221,7 @@ end
 function M.optionalOwnersDestroyOnlyWhenPresent()
    local chunk = compile(PRELUDE .. table.concat({
       "",
-      "local function maybe_open(present: boolean): Owned<Resource?, close_resource>",
+      "local function maybe_open(present: boolean): affine(Resource?, close_resource)",
       "   if present then return new Resource(name = 'p') end",
       "   return nil",
       "end",
@@ -253,7 +253,7 @@ function M.partialAcquisitionCleansOnlySuccessfulOwners()
    local chunk = compile(PRELUDE .. table.concat({
       "",
       "local function fail(): Resource error('acquire') end",
-      "local function failed_open(): Owned<Resource, close_resource> return fail() end",
+      "local function failed_open(): affine(Resource, close_resource) return fail() end",
       "local ok = pcall(function()",
       "   local first = open_resource('a')",
       "   local second = failed_open()",
@@ -270,7 +270,7 @@ function M.oneDeclarationRegistersEachSuccessfulAcquisition()
    local chunk = compile(PRELUDE .. table.concat({
       "",
       "local function fail(): Resource error('acquire') end",
-      "local function failed_open(): Owned<Resource, close_resource> return fail() end",
+      "local function failed_open(): affine(Resource, close_resource) return fail() end",
       "local ok = pcall(function()",
       "   local first, second = open_resource('m'), failed_open()",
       "   print(first.name, second.name)",
@@ -286,8 +286,8 @@ function M.partialFieldMovesAndReinitializationKeepExactObligations()
    local chunk = compile(PRELUDE .. table.concat({
       "",
       "local record Bundle",
-      "   first: Owned<Resource, close_resource>",
-      "   second: Owned<Resource, close_resource>",
+      "   first: affine(Resource, close_resource)",
+      "   second: affine(Resource, close_resource)",
       "end",
       "local function run()",
       "   local bundle = new Bundle(",

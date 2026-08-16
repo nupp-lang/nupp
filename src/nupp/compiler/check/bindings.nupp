@@ -97,7 +97,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             -- literal just as an annotated binding keeps its exact declared type.
             local bound = ann or init or T.any
             -- Keep the cleanup list discovered at the initializer even when the source
-            -- spells only `Owned<T>`.
+            -- spells only `affine(T, cleanup)`.
             if ann and init and ownershipKind(ann) == "affine" and ownershipKind(init) == "affine" then
                 bound = init
             end

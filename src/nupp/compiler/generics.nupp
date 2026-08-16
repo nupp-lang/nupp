@@ -70,11 +70,13 @@ end
 local function substCleanup(cleanup: T.Cleanup, map: Bindings, unmapped: string): T.Cleanup
     if cleanup.kind == "function" and cleanup.constTerm then
         local term = substConst(cleanup.constTerm, map)
-        return T.constFunctionCleanup(
+        local specialized = T.constFunctionCleanup(
             term,
             term.tag == "constLiteral" and nil or cleanup.name,
             cleanup.functionType and substWith(cleanup.functionType, map, unmapped) or nil
         )
+        specialized.validated = cleanup.validated
+        return specialized
     elseif cleanup.kind == "field" and cleanup.cleanup then
         return T.fieldCleanup(cleanup.field as string, substCleanup(cleanup.cleanup, map, unmapped))
     end

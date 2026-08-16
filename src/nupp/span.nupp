@@ -17,6 +17,16 @@ sealed interface span.CountedSpan
     readonly count: integer
 end
 
+--- The consuming operation shared by every writable span representation.
+sealed interface span.WriteToken is span.CountedSpan
+    commit: nosuspend function(takes self: WriteToken): nil
+end
+
+--- @export
+function span.destroyWriteSpan<T is span.WriteToken>(takes writable: T): nil
+    writable:commit()
+end
+
 --- A checked, shared view over contiguous elements. Only this module can declare an
 --- implementation, so the contract is proof that `ref()` and `count` agree.
 --- @export
@@ -129,7 +139,7 @@ end
 --- incompatible-borrow barrier until `span.commit` or scope exit consumes it. Only
 --- this module can declare an implementation.
 --- @export
-sealed interface span.WriteSpan<T> is span.CountedSpan
+sealed interface span.WriteSpan<T> is span.WriteToken
     readonly count: integer
     drop: nosuspend function(takes self: WriteSpan<T>): nil
     commit: nosuspend function(takes self: WriteSpan<T>): nil
@@ -141,7 +151,7 @@ sealed interface span.WriteSpan<T> is span.CountedSpan
         exclusive self: WriteSpan<T>,
         first: integer,
         last: integer?
-    ): Owned<span.WriteSpan<T>> borrows (self)
+    ): affine(span.WriteSpan<T>, span.destroyWriteSpan) borrows (self)
     @partition(left, right)
     splitAt: function(exclusive self: WriteSpan<T>, mid: integer): span.WriteSplit<T> borrows (self)
 end
@@ -152,6 +162,14 @@ sealed interface span.FixedWriteSpan<T, const N: integer> is span.WriteSpan<T>
     readonly count: N
     shared: function(borrows self: FixedWriteSpan<T, N>): span.FixedSpan<T, N> borrows (self)
 end
+
+--- An affine dynamic writable span.
+--- @export
+type span.Writable<T> = affine(span.WriteSpan<T>, span.destroyWriteSpan)
+
+--- An affine fixed-width writable span.
+--- @export
+type span.FixedWritable<T, const N: integer> = affine(span.FixedWriteSpan<T, N>, span.destroyWriteSpan)
 
 --- The sole runtime representation of a dynamic writable span.
 local record WriteSpanImpl<T> is span.WriteSpan<T>
@@ -207,11 +225,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
 
     --- Returns an affine writable subspan, inclusive at both ends.
     --- @raises when the requested range is outside this span
-    function slice(
-        exclusive self: WriteSpanImpl<T>,
-        first: integer,
-        last: integer?
-    ): Owned<span.WriteSpan<T>> borrows (self)
+    function slice(exclusive self: WriteSpanImpl<T>, first: integer, last: integer?): span.Writable<T> borrows (self)
         local finish = last or self.count
         if first < 1 or finish < first - 1 or finish > self.count then
             error("write span slice out of bounds", 2)
@@ -303,7 +317,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
         exclusive self: FixedWriteSpanImpl<T, N>,
         first: integer,
         last: integer?
-    ): Owned<span.WriteSpan<T>> borrows (self)
+    ): span.Writable<T> borrows (self)
         local finish = last or (self.count as integer)
         if first < 1 or finish < first - 1 or finish > (self.count as integer) then
             error("write span slice out of bounds", 2)
@@ -409,7 +423,7 @@ end
 --- committed.
 --- @export
 --- @raises when count is negative
-function span.writeCarray<T>(exclusive source: T[?], count: integer): Owned<span.WriteSpan<T>> borrows (source)
+function span.writeCarray<T>(exclusive source: T[?], count: integer): span.Writable<T> borrows (source)
     if count < 0 then
         error("write span count cannot be negative", 2)
     end
@@ -422,7 +436,7 @@ end
 function span.writeFixedCarray<T, const N: integer>(
     exclusive source: T[N],
     count: N
-): Owned<span.FixedWriteSpan<T, N>> borrows (source)
+): span.FixedWritable<T, N> borrows (source)
     return (
         new FixedWriteSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)
     ) as span.FixedWriteSpan<T, N>

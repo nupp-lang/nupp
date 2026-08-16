@@ -475,6 +475,10 @@ function workers.Worker.drop(takes self: workers.Worker): nil
     self:stop()
 end
 
+function workers.destroyWorker(takes self: workers.Worker): nil
+    self:drop()
+end
+
 local function receiveSelf(self: workers.Self): Frame?
     return pop(self.inbox, -1)
 end
@@ -524,7 +528,7 @@ end
 --- @return an owned worker that is stopped on every structured exit
 --- @raises when the entry is not a nonempty module name, or the worker state cannot
 --- be started
-function workers.spawn(entry: string): Owned<workers.Worker>
+function workers.spawn(entry: string): affine(workers.Worker, workers.destroyWorker)
     if type(entry) ~= "string" or entry == "" then
         error("nupp: a worker entry must be a nonempty module name", 2)
     end

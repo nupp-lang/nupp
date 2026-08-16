@@ -137,6 +137,10 @@ function resources.Set.drop(takes self)
     self:close()
 end
 
+local function destroySet(takes value: resources.Set): nil
+    value:drop()
+end
+
 --- Creates a set that owns whatever is adopted into it.
 ---
 --- The set closes automatically at its lexical boundary, discharging what it still
@@ -145,7 +149,7 @@ end
 --- @export
 --- @param label what the set is for, in diagnostics; omitted names it "resource"
 --- @return the empty set, owned by the caller
-function resources.set(label: string?): Owned<resources.Set>
+function resources.set(label: string?): affine(resources.Set, destroySet)
     return new resources.Set(label = label or "resource", _entries = {}, _closed = false)
 end
 
@@ -165,7 +169,7 @@ end
 --- @param mode the Lua file mode; omitted uses the Lua default
 --- @return the open file handle, owned by the caller
 --- @raises when the file cannot be opened
-function resources.openFile(path: string, mode: string?): Owned<LuaFile, close_file>
+function resources.openFile(path: string, mode: string?): affine(LuaFile, close_file)
     local file, reason = io.open(path, mode)
     if not file then
         error(reason or "file open failed")
@@ -183,7 +187,7 @@ end
 --- @param mode the Lua pipe mode; omitted uses the Lua default
 --- @return the process pipe, owned by the caller
 --- @raises when the process pipe cannot be opened
-function resources.openProcess(command: string, mode: string?): Owned<LuaFile, close_file>
+function resources.openProcess(command: string, mode: string?): affine(LuaFile, close_file)
     local file, reason = io.popen(command, mode)
     if not file then
         error(reason or "process open failed")
@@ -199,7 +203,7 @@ end
 --- @export
 --- @return the open temporary file handle, owned by the caller
 --- @raises when the temporary file cannot be created
-function resources.temporaryFile(): Owned<LuaFile, close_file>
+function resources.temporaryFile(): affine(LuaFile, close_file)
     local file = io.tmpfile()
     if not file then
         error("temporary file creation failed")

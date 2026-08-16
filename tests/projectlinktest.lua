@@ -425,9 +425,9 @@ return shapes
 end
 
 -- A module may be checked while resolving the consumer and then checked again while
--- building the dependency closure. Its ordinary structural Drop implementation must
--- retain the same source-defined terminal identity on both passes.
-function M.structuralDropSurvivesRepeatedModuleChecks()
+-- building the dependency closure. Its exact cleanup declaration must retain the
+-- same source-defined identity on both passes.
+function M.cleanupIdentitySurvivesRepeatedModuleChecks()
    withProject({
       ["nupp.lua"] = "return { include = { 'src' } }\n",
       ["main.nupp"] = [[
@@ -449,7 +449,11 @@ record res.File
     end
 end
 
-function res.open(): Owned<res.File>
+function res.closeFile(takes file: res.File): nil
+    file.closed = true
+end
+
+function res.open(): affine(res.File, res.closeFile)
     return new res.File(closed = false)
 end
 
@@ -502,7 +506,7 @@ local function closeFile(takes file: LuaFile): nil
     end
 end
 
-function res.open(path: string): Owned<LuaFile, closeFile>
+function res.open(path: string): affine(LuaFile, closeFile)
     local file = io.open(path, "r")
     if not file then error("cannot open " .. path) end
     return file
@@ -557,7 +561,7 @@ local function closeFile(takes file: LuaFile): nil
     end
 end
 
-function res.open(path: string): Owned<LuaFile, closeFile>
+function res.open(path: string): affine(LuaFile, closeFile)
     local file = io.open(path, "r")
     if not file then error("cannot open " .. path) end
     return file
@@ -595,7 +599,7 @@ function M.aMisspelledCleanupIsReportedAtItsDeclaration()
       ["src/res.g.nupp"] = [[
 local res = {}
 
-function res.open(path: string): Owned<LuaFile, closeFyle>
+function res.open(path: string): affine(LuaFile, closeFyle)
     local file = io.open(path, "r")
     if not file then error("cannot open " .. path) end
     return file

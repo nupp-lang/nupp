@@ -164,7 +164,7 @@ local function close(takes value: Handle): nil
    print(value.name)
 end
 
-local function open(name: string): Owned<Handle, close>
+local function open(name: string): affine(Handle, close)
    return new Handle(name = name)
 end
 

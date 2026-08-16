@@ -276,13 +276,16 @@ function control.install(c: state.Checker): state.StatHandlers
                     annotatedPack,
                     j
                 ) or (c.retStack[#c.retStack] and c.retStack[#c.retStack][j] or nil)
+                local ownReturns = c.ownReturnStack[#c.ownReturnStack]
+                local capabilityResult = expected and ownReturns and ownReturns[
+                    j
+                ] and rawType(expected).id == rawType(valueT).id
                 if #c.retStack == 0 then
                     c.diag("NUPP2603", stat.exprs[j] or stat, valueKind .. " value cannot be exported as module state")
-                elseif not expected or ownershipKind(expected) ~= valueKind then
+                elseif not expected or ownershipKind(expected) ~= valueKind and not capabilityResult then
                     c.diag("NUPP2603", stat.exprs[j] or stat, valueKind .. " return needs a matching annotation")
                 else
                     local source = ownershipState((c.ownershipEntry(stat.exprs[j])))
-                    local ownReturns = c.ownReturnStack[#c.ownReturnStack]
                     local promoted = ownReturns and ownReturns[j] and source and ownershipKind(source.t) ~= valueKind
                     if not promoted then
                         moveExpression(stat.exprs[j], valueT, "return", valueKind)

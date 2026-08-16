@@ -36,7 +36,7 @@ function M.narrowingRetainsExplicitOpaqueOwnership()
    local source = T.affine(T.optional(T.string), nil, true)
    local narrowed = narrowing.subtract(source, T.nil_)
    assertEq(narrowed.transferOnly, true, "narrowing erased explicit transfer-only affinity")
-   assertEq(T.tostring(narrowed), "affine<string, transfer-only>")
+   assertEq(T.tostring(narrowed), "affine(string)")
 end
 
 function M.nilCheckNarrowing()

@@ -699,15 +699,29 @@ local ENTRIES: {any} = {
         .. "forward the complete generic pack to a matching result or parameter.",
         wrong = "local record Resource\nend\n"
         .. "local function release(takes value: Resource): nil\nend\n"
-        .. "local function acquire(): Owned<Resource, release>\n"
+        .. "local function acquire(): affine(Resource, release)\n"
         .. "    return new Resource()\nend\nacquire()\nreturn acquire\n",
         right = "local record Resource\nend\n"
         .. "local function release(takes value: Resource): nil\nend\n"
-        .. "local function acquire(): Owned<Resource, release>\n"
+        .. "local function acquire(): affine(Resource, release)\n"
         .. "    return new Resource()\nend\n"
         .. "local value = acquire()\nrelease(value)\nreturn acquire\n",
         related = {"NUPP2602", "NUPP2603", "NUPP2010"},
         docs = "docs/type-system/packs.md#ownership-and-provenance",
+    },
+    {
+        code = "NUPP2606",
+        summary = "A preservation relation would lose or duplicate capability",
+        rule = "`preserves source` conserves the source's complete capability. "
+        .. "A source that may carry a cleanup, transfer-only obligation, pin, or "
+        .. "foreign retention must be taken, and each movable part must reach "
+        .. "exactly one related result.",
+        wrong = "local function forward<T>(borrows value: T): T preserves value\n"
+        .. "    return value\nend\nreturn forward\n",
+        right = "local function forward<T>(takes value: T): T preserves value\n"
+        .. "    return value\nend\nreturn forward\n",
+        related = {"NUPP2602", "NUPP2603", "NUPP2605"},
+        docs = "docs/ownership.md#generic-preservation",
     },
     {
         code = "NUPP2603",
@@ -716,8 +730,8 @@ local ENTRIES: {any} = {
         .. "matching ownership contract, or explicitly released in unsafe. "
         .. "Borrows likewise stay within the lifetime and suspension boundaries "
         .. "their provenance permits.",
-        wrong = "cdef function begin_request(): Transfer<voidptr>\n" .. "local request = begin_request()\nreturn 0\n",
-        right = "cdef function begin_request(): Transfer<voidptr>\n"
+        wrong = "cdef function begin_request(): affine(voidptr)\n" .. "local request = begin_request()\nreturn 0\n",
+        right = "cdef function begin_request(): affine(voidptr)\n"
         .. "cdef function submit_request(takes request: voidptr)\n"
         .. "local request = begin_request()\nsubmit_request(request)\nreturn 0\n",
         related = {"NUPP2601", "NUPP2602", "NUPP2605"},
@@ -730,11 +744,11 @@ local ENTRIES: {any} = {
         .. "`nosuspend function(takes Representation): nil`.",
         wrong = "local record Resource\nend\nlocal record Other\nend\n"
         .. "local function release(takes value: Other): nil\nend\n"
-        .. "local function acquire(): Owned<Resource, release>\n"
+        .. "local function acquire(): affine(Resource, release)\n"
         .. "    return new Resource()\nend\nreturn acquire\n",
         right = "local record Resource\nend\nlocal record Other\nend\n"
         .. "local function release(takes value: Resource): nil\nend\n"
-        .. "local function acquire(): Owned<Resource, release>\n"
+        .. "local function acquire(): affine(Resource, release)\n"
         .. "    return new Resource()\nend\nreturn acquire\n",
         related = {"NUPP2602", "NUPP2603"},
         docs = "docs/reference.md#owned-resources",

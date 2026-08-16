@@ -6,9 +6,9 @@ and automatic lexical destruction.
 
 The [ownership reference](../ownership.md) covers the complete model.
 
-## Structural `Drop`
+## Exact cleanup policies
 
-The ordinary prelude interface `Drop` requires one exact member:
+An affine type names one exact cleanup function:
 
 ```nupp:playground
 local record File
@@ -19,14 +19,22 @@ local record File
     end
 end
 
-local function openFile(): Owned<File>
+local function closeFile(takes file: File): nil
+    file.closed = true
+end
+
+local function openFile(): affine(File, closeFile)
     return new File(closed = false)
 end
 ```
 
-`Owned<T>` is itself an ordinary prelude affine type. Its default terminal calls
-`T.drop`, so `T` must structurally implement `Drop`. Neither `Owned` nor `Drop`
-is a compiler-known name.
+The cleanup identity is part of the static type and is erased from each runtime
+value. A package may delegate a cleanup to a method, but no method name or
+generic ownership alias is compiler-known.
+
+The parentheses are compile-time call syntax: `affine(File, closeFile)` invokes
+a built-in type generator while checking and produces a transparent type. It
+does not call `closeFile` or construct a runtime wrapper.
 
 A type with no canonical method names an explicit terminal instead:
 
@@ -39,7 +47,7 @@ local function closeSession(takes session: Session): nil
     print("closing", session.id)
 end
 
-local function openSession(id: integer): Owned<Session, closeSession>
+local function openSession(id: integer): affine(Session, closeSession)
     return new Session(id = id)
 end
 ```
@@ -63,7 +71,7 @@ drop(another)
 Passing it to a `takes` parameter or returning it through an affine result moves
 the same obligation. A second use or move is rejected.
 
-`Transfer<T>` is deliberately terminal-less. It may be forwarded to another
+`affine(T)` is deliberately terminal-less. It may be forwarded to another
 owner or consuming parameter, returned, or released in `unsafe`; it cannot be
 dropped locally.
 
@@ -94,8 +102,8 @@ every affine field on every path.
 
 ```nupp
 local record Bundle
-    first: Owned<Session, closeSession>
-    second: Owned<Session, closeSession>
+    first: affine(Session, closeSession)
+    second: affine(Session, closeSession)
 end
 
 local bundle = new Bundle(
@@ -117,7 +125,7 @@ boundary, use the explicit operators:
 ```nupp
 unsafe do
     local raw = unsafe release owner
-    local restored = unsafe adopt raw as Owned<voidptr, free>
+    local restored = unsafe adopt raw as affine(voidptr, free)
     drop restored
 end
 ```
@@ -141,5 +149,6 @@ not add runtime or nominal identity.
 
 ## Next
 
+- [Affine types](../type-system/affine-types.md)
 - [Ownership reference](../ownership.md)
 - [C interop](../c-interop.md)

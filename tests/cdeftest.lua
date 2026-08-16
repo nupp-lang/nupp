@@ -290,11 +290,11 @@ function M.ownershipOnACdefReturnRequiresAPointer()
    assertClean("cdef function good(): voidptr")
    assertClean("cdef struct blob\n   n: int32\nend\n"
       .. "cdef function release(takes b: blob*)\n"
-      .. "cdef function mk(): Owned<blob*, release>")
+      .. "cdef function mk(): affine(blob*, release)")
    -- Not a pointer, and so nothing `free` could accept either.
    assertEq((diagsOf(
       "cdef function free(takes value: voidptr)\n"
-      .. "cdef function bad(): Owned<int32, free>")), "NUPP2615:2 NUPP2203:2")
+      .. "cdef function bad(): affine(int32, free)")), "NUPP2615:2 NUPP2203:2")
 end
 
 function M.stringToCstringConversion()
@@ -386,7 +386,7 @@ function M.ownIsStaticAndDropIsExplicit()
    assertEq(run(table.concat({
       "cdef function free(takes p: voidptr)",
       "cdef function malloc(n: uint64): voidptr",
-      "local function ownedMalloc(n: uint64): Owned<voidptr, free>",
+      "local function ownedMalloc(n: uint64): affine(voidptr, free)",
       "   return malloc(n)",
       "end",
       "local p = ownedMalloc(64)",

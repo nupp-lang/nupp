@@ -197,9 +197,7 @@ local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?, control
             actual = rawType(actual)
         end
         local mode = specialized.paramModes and specialized.paramModes[j] or "plain"
-        if mode == "takes" and actual.tag ~= "affine" then
-            return nil, ("argument %d requires an owned value"):format(j)
-        elseif mode == "scoped" and (actual.tag == "affine" or actual.tag == "pinned") then
+        if mode == "scoped" and (actual.tag == "affine" or actual.tag == "pinned") then
             return nil, ("argument %d cannot borrow an affine value as a repeatable callback"):format(j)
         end
         local ok, why = isA(actual, params.head[j])
@@ -220,9 +218,7 @@ local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?, control
         for j = #params.head + 1, actualCount do
             local mode = tail.mode
             local actual = argPack.head[j]
-            if mode == "takes" and actual.tag ~= "affine" then
-                return nil, ("argument %d requires an owned value"):format(j)
-            elseif mode == "scoped" and (actual.tag == "affine" or actual.tag == "pinned") then
+            if mode == "scoped" and (actual.tag == "affine" or actual.tag == "pinned") then
                 return nil, ("argument %d cannot borrow an affine value as a repeatable callback"):format(j)
             end
             local ok, why = isA(argPack.head[j], tail.type)
@@ -1188,26 +1184,26 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             end
             if calleeT.affineFields and #calleeT.affineFields > 0 then
-                local cleanups, opaque = {}, false
+                local cleanups, obligations, transferOnly = {}, {}, false
                 for j = #calleeT.affineFields, 1, -1 do
                     local name = calleeT.affineFields[j]
                     local valueT = affineValues[name]
                     if c.ownershipKind(valueT) == "affine" then
-                        if #(valueT.cleanups or {}) == 0 then
-                            opaque = true
-                        else
-                            for _, cleanup in ipairs(valueT.cleanups) do
-                                cleanups[#cleanups + 1] = T.fieldCleanup(name, cleanup)
-                            end
+                        local capability = T.capability(valueT)
+                        transferOnly = transferOnly or T.capabilityTransferOnly(capability)
+                        if capability.obligation then
+                            obligations[#obligations + 1] = T.aggregateObligation({capability.obligation}, name)
+                        end
+                        for _, cleanup in ipairs(T.capabilityCleanups(capability)) do
+                            cleanups[#cleanups + 1] = T.fieldCleanup(name, cleanup)
                         end
                     elseif c.ownershipKind(valueT) == "pinned" then
-                        cleanups[#cleanups + 1] = T.dropFieldCleanup(name)
+                        local cleanup = T.dropFieldCleanup(name)
+                        cleanups[#cleanups + 1] = cleanup
+                        obligations[#obligations + 1] = T.cleanupObligation(cleanup, name)
                     end
                 end
-                if opaque then
-                    cleanups = {}
-                end
-                local owned = T.affine(calleeT, cleanups)
+                local owned = T.affine(calleeT, cleanups, transferOnly, T.aggregateObligation(obligations))
                 return owned, {owned}
             end
             if calleeT.fieldBorrowSources and next(calleeT.fieldBorrowSources) then
@@ -1269,6 +1265,50 @@ function calls.install(c: state.Checker): calls.Ops
         local ats = knownAts or {}
         local argPack
         local argNodes = {}
+        -- Parameter modes describe capability flow, so they also break an
+        -- otherwise identical overload tie. Ordinary and borrowed callbacks prefer
+        -- a scoped arm; values with movable capability prefer a taking arm.
+        local function modePreference(ft: T.Func, pack: T.Pack): integer
+            local score: integer = 0
+            for position, actual in ipairs(pack.head) do
+                local mode = ft.paramModes and ft.paramModes[position] or "plain"
+                local kind = c.ownershipKind(actual)
+                if mode == "scoped" and kind ~= "affine" and kind ~= "pinned" then
+                    score = score + 1
+                elseif mode == "takes" and (kind == "affine" or kind == "pinned") then
+                    score = score + 1
+                end
+            end
+
+            return score
+        end
+
+        local function retainPreferredModes(survivors, originals, choices, packs)
+            if #survivors < 2 then
+                return survivors, originals, choices
+            end
+            local scores, best = {}, 0 as integer
+            for position, candidate in ipairs(survivors) do
+                scores[position] = modePreference(candidate, packs[position])
+                best = math.max(best, scores[position])
+            end
+            if best == 0 then
+                return survivors, originals, choices
+            end
+            local preferred, preferredOriginals, preferredChoices = {}, {}, {}
+            for position, score in ipairs(scores) do
+                if score == best then
+                    preferred[#preferred + 1] = survivors[position]
+                    preferredOriginals[#preferredOriginals + 1] = originals[position]
+                    if choices then
+                        preferredChoices[#preferredChoices + 1] = choices[position]
+                    end
+                end
+            end
+
+            return preferred, preferredOriginals, choices and preferredChoices or nil
+        end
+
         if advanced then
             local rawArguments = {}
             local namedStarted = false
@@ -1479,6 +1519,11 @@ function calls.install(c: state.Checker): calls.Ops
                         rejections[#rejections + 1] = T.tostring(candidate) .. ": " .. (why or "arguments do not fit")
                     end
                 end
+                local preferencePacks = {}
+                for position, choice in ipairs(choices) do
+                    preferencePacks[position] = choice.pack
+                end
+                survivors, originals, choices = retainPreferredModes(survivors, originals, choices, preferencePacks)
                 node.overloadCandidates = overloads
                 if #survivors == 0 then
                     c.diag(
@@ -1569,6 +1614,11 @@ function calls.install(c: state.Checker): calls.Ops
                     rejections[#rejections + 1] = T.tostring(candidate) .. ": " .. (why or "rejected")
                 end
             end
+            local preferencePacks = {}
+            for position = 1, #survivors do
+                preferencePacks[position] = selectionPack
+            end
+            survivors, originals = retainPreferredModes(survivors, originals, nil, preferencePacks)
             node.overloadCandidates = overloads
             if #survivors == 0 then
                 c.diag(
@@ -1623,6 +1673,9 @@ function calls.install(c: state.Checker): calls.Ops
         local declaredParamPack, declaredRetPack = paramPack, retPack
         local paramModes = calleeT.paramModes or {}
         local preservesResults = calleeT.preservesResults or {}
+        if next(preservesResults) then
+            node.preservesArguments = preservesResults
+        end
         local preservedByParam = {}
         for result = 1, #calleeT.rets do
             local source = preservesResults[result]
@@ -1889,16 +1942,17 @@ function calls.install(c: state.Checker): calls.Ops
                 c.checkMetatableLiteral(argNodes[j], ats[j], tailSlot and (varargType or T.any) or params[j])
             end
             if mode == "takes" then
+                local takenKind = c.ownershipKind(ats[j])
                 local conditional = node.kind == "safeCall" or node.kind == "methodCall" and (
                     node.safeObj ~= nil or node.safeMethod ~= nil
                 )
-                if conditional then
+                if conditional and (takenKind == "affine" or takenKind == "pinned") then
                     c.diag(
                         "NUPP2602",
                         argNodes[j] or node,
                         "a conditional call cannot take ownership; narrow the callee or receiver first"
                     )
-                else
+                elseif takenKind == "affine" or takenKind == "pinned" then
                     local movedNode = cst.isToken(argNodes[j]) and node or argNodes[j]
                     local sourceArg = args[j]
                     if movedNode.affineAggregate then
@@ -1909,12 +1963,18 @@ function calls.install(c: state.Checker): calls.Ops
                             node.automaticOwnerMoves[#node.automaticOwnerMoves + 1] = move
                         end
                     else
-                        c.moveExpression(movedNode, ats[j], ("argument %d"):format(j))
+                        c.moveExpression(movedNode, ats[j], ("argument %d"):format(j), takenKind)
                         if movedNode.automaticOwnerMove then
                             node.automaticOwnerMoves = node.automaticOwnerMoves or {}
                             node.automaticOwnerMoves[#node.automaticOwnerMoves + 1] = movedNode.automaticOwnerMove
                         end
                     end
+                elseif takenKind == "borrowed" then
+                    c.diag(
+                        "NUPP2602",
+                        argNodes[j] or node,
+                        "a taking parameter cannot retain a borrowed value; use scoped for a callback"
+                    )
                 end
             elseif preservationResult then
                 local kind = c.ownershipKind(ats[j])
@@ -2090,7 +2150,7 @@ function calls.install(c: state.Checker): calls.Ops
                 if not node.cdefCall then
                     c.diag("NUPP2602", argNodes[j] or node, mode .. " is an imported C-function contract")
                 elseif c.ownershipKind(ats[j]) ~= "pinned" or not entry then
-                    c.diag("NUPP2602", argNodes[j] or node, mode .. " argument requires a named Pinned<T> handle")
+                    c.diag("NUPP2602", argNodes[j] or node, mode .. " argument requires a named pinned(T) handle")
                 elseif entry.moved then
                     -- The name expression already emitted the use-after-move.
                 elseif mode == "retains" then

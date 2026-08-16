@@ -209,6 +209,7 @@ record types.Cleanup
     functionType: types.Type?
     token: any
     visibleBody: boolean?
+    validated: boolean?
     field: string?
     cleanup: types.Cleanup?
 
@@ -226,6 +227,10 @@ record types.Affine
 
     --- Whether carrying no cleanup was asked for rather than arrived at.
     transferOnly: boolean?
+
+    --- Canonical obligation shape. `cleanups` remains the lowering order, while this
+    --- tree retains transfer-only aggregate children and component identity.
+    obligation: types.Obligation?
 end
 
 --- A borrowed value, which may not escape its lexical owner.
@@ -242,15 +247,62 @@ record types.Pinned
     inner: types.Type
 end
 
---- The non-forgettable facts carried beside one payload. This record is the semantic
---- scalar/pack carrier; wrapper types remain its allocation-free physical encoding.
+--- One statically accountable resource obligation. Aggregate children retain their
+--- component path so a partial move removes one subtree rather than flattening away a
+--- transfer-only leaf.
+record types.Obligation
+    kind: 'cleanup' | 'transfer-only' | 'aggregate'
+    cleanup: types.Cleanup?
+    children: {types.Obligation}?
+    component: string?
+end
+
+--- One rooted access relation carried by a flow value.
+record types.Loan
+    roots: {any}
+    access: 'shared' | 'exclusive'
+    regionRoot: any?
+    regionPath: string
+    component: string?
+end
+
+--- A strong Lua root paired with a pinned pointer component.
+record types.PinnedAnchor
+    root: any
+    component: string?
+end
+
+--- One outstanding foreign retain/release contract.
+record types.ForeignRetention
+    identity: any
+    component: string?
+end
+
+--- Flow facts supplied when the checker projects a canonical capability from
+--- its current state. Every field is optional so type-only callers pay for no
+--- fabricated flow identity.
+record types.CapabilityFacts
+    loans: {types.Loan}?
+    roots: {any}?
+    exclusive: boolean?
+    regionRoot: any
+    regionPath: string?
+    component: string?
+    anchors: {types.PinnedAnchor}?
+    anchor: any?
+    retentions: {types.ForeignRetention}?
+    retention: any?
+end
+
+--- The non-forgettable facts carried beside one payload. This is flow data, not a
+--- runtime wrapper. Wrapper types remain only as the allocation-free encoding from
+--- which the type-level part of this record is derived.
 record types.Capability
     id: string
-    obligation: 'none' | 'cleanup' | 'opaque' | 'pin'
-    cleanups: {types.Cleanup}
-    roots: {any}
-    retention: any
-    access: 'ordinary' | 'shared-borrow' | 'exclusive-borrow'
+    obligation: types.Obligation?
+    loans: {types.Loan}
+    anchors: {types.PinnedAnchor}
+    retentions: {types.ForeignRetention}
 end
 
 --- One value slot, independent of whether it came from a scalar expression or pack.
@@ -1513,7 +1565,60 @@ end
 --- author asked for rather than what resolution was left with -- a distinction a
 --- producer's result is held to, and one the interning key has to carry or the two
 --- would be one type.
-function types.affine(t: types.Type, cleanups: {types.Cleanup}?, transferOnly: boolean?): types.Type
+local function obligationId(obligation: types.Obligation?): string
+    if not obligation then
+        return "none"
+    end
+    if obligation.kind == "cleanup" then
+        return "cleanup(" .. (
+            obligation.cleanup and obligation.cleanup.id or "?"
+        ) .. ")@" .. (obligation.component or "")
+    elseif obligation.kind == "transfer-only" then
+        return "transfer@" .. (obligation.component or "")
+    elseif obligation.kind ~= "aggregate" then
+        return "none"
+    end
+    local children = {}
+    for j, child in ipairs(obligation.children or {}) do
+        children[j] = obligationId(child)
+    end
+
+    return "aggregate(" .. table.concat(children, ",") .. ")@" .. (obligation.component or "")
+end
+
+function types.cleanupObligation(cleanup: types.Cleanup, component: string?): types.Obligation
+    return new types.Obligation(kind = "cleanup", cleanup = cleanup, component = component)
+end
+
+function types.transferObligation(component: string?): types.Obligation
+    return new types.Obligation(kind = "transfer-only", component = component)
+end
+
+function types.aggregateObligation(children: {types.Obligation}, component: string?): types.Obligation
+    return new types.Obligation(kind = "aggregate", children = children, component = component)
+end
+
+local function obligationFrom(cleanups: {types.Cleanup}, transferOnly: boolean?): types.Obligation
+    local children = {}
+    for _, cleanup in ipairs(cleanups) do
+        children[#children + 1] = types.cleanupObligation(cleanup, cleanup.field)
+    end
+    if transferOnly or #children == 0 then
+        children[#children + 1] = types.transferObligation()
+    end
+    if #children == 1 and not children[1].component then
+        return children[1]
+    end
+
+    return types.aggregateObligation(children)
+end
+
+function types.affine(
+    t: types.Type,
+    cleanups: {types.Cleanup}?,
+    transferOnly: boolean?,
+    obligation: types.Obligation?
+): types.Type
     local list: {types.Cleanup} = {}
     local ids = {}
     for j, cleanup in ipairs(cleanups or {}) do
@@ -1521,7 +1626,11 @@ function types.affine(t: types.Type, cleanups: {types.Cleanup}?, transferOnly: b
         ids[j] = cleanup.id
     end
 
-    local internKey = "affine(" .. table.concat(ids, ",") .. ":" .. t.id .. (transferOnly and ":transfer" or "") .. ")"
+    obligation = obligation or obligationFrom(list, transferOnly)
+    local internKey = "affine(" .. table.concat(
+        ids,
+        ","
+    ) .. ":" .. t.id .. (transferOnly and ":transfer" or "") .. ":" .. obligationId(obligation) .. ")"
 
     local existing = interned(internKey)
     if existing then
@@ -1530,8 +1639,18 @@ function types.affine(t: types.Type, cleanups: {types.Cleanup}?, transferOnly: b
 
     return intern(
         internKey,
-        new types.Affine(tag = "affine", inner = t, cleanups = list, transferOnly = transferOnly == true)
+        new types.Affine(
+            tag = "affine",
+            inner = t,
+            cleanups = list,
+            transferOnly = transferOnly == true,
+            obligation = obligation
+        )
     )
+end
+
+function types.obligationFor(t: types.Type): types.Obligation?
+    return t.tag == "affine" and t.obligation or nil
 end
 
 function types.borrowed(t: types.Type): types.Type
@@ -1567,43 +1686,120 @@ function types.unwrapOwnership(t: types.Type): types.Type
     return t
 end
 
---- Exposes one canonical capability view over the existing erased wrapper encoding.
---- Roots and retention are flow identities and are supplied by the checker rather than
---- interned into structural payload types.
-local function capability(t: types.Type, roots: {any}?, retention: any?): types.Capability
-    local obligation: 'none' | 'cleanup' | 'opaque' | 'pin' = "none"
-    local access: 'ordinary' | 'shared-borrow' | 'exclusive-borrow' = "ordinary"
-    local cleanups: {types.Cleanup} = {}
-    if t.tag == "affine" then
-        cleanups = t.cleanups
-        obligation = #cleanups > 0 and "cleanup" or "opaque"
-    elseif t.tag == "borrowed" then
-        access = "shared-borrow"
-    elseif t.tag == "pinned" then
-        obligation = "pin"
-    end
-    local rootList, seenRoots = {}, {}
-    for _, root in ipairs(roots or {}) do
-        if root ~= nil and not seenRoots[root] then
-            seenRoots[root] = true
-            rootList[#rootList + 1] = root
+local function sortedFlowValues(values: {any}?): {any}
+    local result, seen = {}, {}
+    for _, value in ipairs(values or {}) do
+        if value ~= nil and not seen[value] then
+            seen[value] = true
+            result[#result + 1] = value
         end
     end
-    table.sort(rootList, function(left: any, right: any): boolean
+    table.sort(result, function(left: any, right: any): boolean
         return flowIdentity(left) < flowIdentity(right)
     end)
-    local ids = {}
-    for j, cleanup in ipairs(cleanups) do
-        ids[j] = cleanup.id
+
+    return result
+end
+
+local function loanId(loan: types.Loan): string
+    local roots = {}
+    for j, root in ipairs(loan.roots) do
+        roots[j] = tostring(flowIdentity(root))
     end
-    local rootIds = {}
-    for j, root in ipairs(rootList) do
-        rootIds[j] = tostring(flowIdentity(root))
+
+    return loan.access .. ":" .. tostring(
+        flowIdentity(loan.regionRoot)
+    ) .. ":" .. loan.regionPath .. ":" .. table.concat(roots, ",") .. "@" .. (loan.component or "")
+end
+
+local function anchorId(anchor: types.PinnedAnchor): string
+    return tostring(flowIdentity(anchor.root)) .. "@" .. (anchor.component or "")
+end
+
+local function retentionId(retention: types.ForeignRetention): string
+    return tostring(flowIdentity(retention.identity)) .. "@" .. (retention.component or "")
+end
+
+--- Exposes one canonical capability view over the existing erased wrapper encoding
+--- plus flow facts supplied by the checker. An empty loan set is ordinary access.
+function types.capability(t: types.Type, facts: types.CapabilityFacts?): types.Capability
+    facts = facts or new types.CapabilityFacts()
+    local obligation = types.obligationFor(t)
+    local loans: {types.Loan} = {}
+    for _, loan in ipairs(facts.loans or {}) do
+        loans[#loans + 1] = loan
     end
-    local id = obligation .. ":" .. access .. ":" .. table.concat(
-        ids,
-        ","
-    ) .. ":roots=" .. table.concat(rootIds, ",") .. ":retention=" .. tostring(flowIdentity(retention))
+    local roots = sortedFlowValues(facts.roots)
+    if t.tag == "borrowed" or #roots > 0 or facts.regionRoot then
+        loans[
+            #loans + 1
+        ] = new types.Loan(
+            roots = roots,
+            access = facts.exclusive and "exclusive" or "shared",
+            regionRoot = facts.regionRoot or roots[1],
+            regionPath = facts.regionPath or "",
+            component = facts.component
+        )
+    end
+    for j = 2, #loans do
+        local value, k = loans[j], j - 1
+        while k > 0 and loanId(value) < loanId(loans[k]) do
+            loans[k + 1] = loans[k]
+            k = k - 1
+        end
+        loans[k + 1] = value
+    end
+
+    local anchors: {types.PinnedAnchor} = {}
+    for _, anchor in ipairs(facts.anchors or {}) do
+        anchors[#anchors + 1] = anchor
+    end
+    if t.tag == "pinned" and #anchors == 0 then
+        anchors[1] = new types.PinnedAnchor(root = facts.anchor or t, component = facts.component)
+    end
+    for j = 2, #anchors do
+        local value, k = anchors[j], j - 1
+        while k > 0 and anchorId(value) < anchorId(anchors[k]) do
+            anchors[k + 1] = anchors[k]
+            k = k - 1
+        end
+        anchors[k + 1] = value
+    end
+
+    local retentions: {types.ForeignRetention} = {}
+    for _, retention in ipairs(facts.retentions or {}) do
+        retentions[#retentions + 1] = retention
+    end
+    if facts.retention then
+        retentions[
+            #retentions + 1
+        ] = new types.ForeignRetention(identity = facts.retention, component = facts.component)
+    end
+    for j = 2, #retentions do
+        local value, k = retentions[j], j - 1
+        while k > 0 and retentionId(value) < retentionId(retentions[k]) do
+            retentions[k + 1] = retentions[k]
+            k = k - 1
+        end
+        retentions[k + 1] = value
+    end
+
+    local loanIds, anchorIds, retentionIds = {}, {}, {}
+    for j, loan in ipairs(loans) do
+        loanIds[j] = loanId(loan)
+    end
+    for j, anchor in ipairs(anchors) do
+        anchorIds[j] = anchorId(anchor)
+    end
+    for j, retention in ipairs(retentions) do
+        retentionIds[j] = retentionId(retention)
+    end
+    local id = obligationId(
+        obligation
+    ) .. ":loans=" .. table.concat(
+        loanIds,
+        ";"
+    ) .. ":anchors=" .. table.concat(anchorIds, ";") .. ":retentions=" .. table.concat(retentionIds, ";")
     local found = capabilityArena[id]
     if found then
         return found
@@ -1611,29 +1807,196 @@ local function capability(t: types.Type, roots: {any}?, retention: any?): types.
     local made = new types.Capability(
         id = id,
         obligation = obligation,
-        cleanups = cleanups,
-        roots = rootList,
-        retention = retention,
-        access = access
+        loans = loans,
+        anchors = anchors,
+        retentions = retentions
     )
     capabilityArena[id] = made
 
     return made
 end
 
-local function valueSlot(t: types.Type, roots: {any}?, retention: any?): types.ValueSlot
-    return new types.ValueSlot(payload = types.unwrapOwnership(t), capability = capability(t, roots, retention))
+function types.capabilityKind(capability: types.Capability): string?
+    if capability.obligation then
+        return "affine"
+    elseif #capability.anchors > 0 or #capability.retentions > 0 then
+        return "pinned"
+    elseif #capability.loans > 0 then
+        return "borrowed"
+    end
+
+    return nil
+end
+
+function types.capabilityHasMovable(capability: types.Capability): boolean
+    return capability.obligation ~= nil or #capability.anchors > 0 or #capability.retentions > 0
+end
+
+local function collectObligationCleanups(obligation: types.Obligation?, into: {types.Cleanup}): nil
+    if not obligation then
+        return
+    end
+    if obligation.kind == "cleanup" and obligation.cleanup then
+        into[#into + 1] = obligation.cleanup
+    else
+        for _, child in ipairs(obligation.children or {}) do
+            collectObligationCleanups(child, into)
+        end
+    end
+end
+
+function types.capabilityCleanups(capability: types.Capability): {types.Cleanup}
+    local cleanups: {types.Cleanup} = {}
+    collectObligationCleanups(capability.obligation, cleanups)
+    return cleanups
+end
+
+local function obligationHasTransfer(obligation: types.Obligation?): boolean
+    if not obligation then
+        return false
+    end
+    if obligation.kind == "transfer-only" then
+        return true
+    elseif obligation.kind == "cleanup" then
+        return false
+    elseif obligation.kind ~= "aggregate" then
+        return false
+    end
+    for _, child in ipairs(obligation.children or {}) do
+        if obligationHasTransfer(child) then
+            return true
+        end
+    end
+
+    return false
+end
+
+function types.capabilityTransferOnly(capability: types.Capability): boolean
+    return obligationHasTransfer(capability.obligation)
+end
+
+function types.valueSlot(t: types.Type, facts: types.CapabilityFacts?): types.ValueSlot
+    return new types.ValueSlot(payload = types.unwrapOwnership(t), capability = types.capability(t, facts))
+end
+
+local function preservedPath(t: types.Type, target: types.Type, seen: {[any]: boolean}?): {string}?
+    if types.unwrapOwnership(t).id == target.id then
+        return {}
+    end
+    t = types.unwrapOwnership(t)
+    seen = seen or {}
+    if seen[t] then
+        return nil
+    end
+    seen[t] = true
+    local found: {string}? = nil
+    local function consider(name: string, child: types.Type)
+        local suffix = preservedPath(child, target, seen)
+        if suffix then
+            local path = {name}
+            for _, segment in ipairs(suffix) do
+                path[#path + 1] = segment
+            end
+            if found then
+                found = nil
+                return false
+            end
+            found = path
+        end
+
+        return true
+    end
+
+    if t.tag == "nominal" then
+        for name in pairs(t.fieldDefs or {}) do
+            local child = t.byname[name]
+            if child and not consider(name, child) then
+                return nil
+            end
+        end
+    elseif t.tag == "shape" then
+        for _, field in ipairs(t.fields) do
+            local child = field.type or field.read or field.write
+            if child and not consider(field.name, child) then
+                return nil
+            end
+        end
+    elseif t.tag == "tuple" then
+        for j, child in ipairs(t.elems) do
+            if not consider(tostring(j), child) then
+                return nil
+            end
+        end
+    elseif t.tag == "union" then
+        for _, member in ipairs(t.members) do
+            if member ~= types.nil_ then
+                local path = preservedPath(member, target, seen)
+                if path then
+                    if found and table.concat(found, ".") ~= table.concat(path, ".") then
+                        return nil
+                    end
+                    found = path
+                end
+            end
+        end
+    end
+    seen[t] = nil
+
+    return found
+end
+
+local function cleanupAtPath(cleanup: types.Cleanup, path: {string}): types.Cleanup
+    for j = #path, 1, -1 do
+        cleanup = types.fieldCleanup(path[j], cleanup)
+    end
+    return cleanup
+end
+
+local function obligationAtPath(obligation: types.Obligation, path: {string}): types.Obligation
+    local component = table.concat(path, ".")
+    if obligation.kind == "cleanup" and obligation.cleanup then
+        return types.cleanupObligation(cleanupAtPath(obligation.cleanup, path), component)
+    elseif obligation.kind == "transfer-only" then
+        return types.transferObligation(component)
+    end
+    local children = {}
+    for j, child in ipairs(obligation.children or {}) do
+        children[j] = obligationAtPath(child, path)
+    end
+
+    return types.aggregateObligation(children, component)
 end
 
 --- Replaces only the payload of `source`, retaining its complete static capability.
---- This is the scalar counterpart of substituting a value inside a pack slot.
+--- When generic substitution placed the payload in one aggregate field, moves the
+--- capability into that field instead of pretending its cleanup accepts the outer
+--- record. Ambiguous or absent placements remain a scalar result and are rejected by
+--- the ordinary return check.
 function types.withOwnershipPayload(source: types.Type, payload: types.Type): types.Type
-    local slot = valueSlot(source)
-    if slot.capability.obligation == "cleanup" or slot.capability.obligation == "opaque" then
-        return types.affine(payload, slot.capability.cleanups)
-    elseif slot.capability.access == "shared-borrow" then
+    local slot = types.valueSlot(source)
+    if slot.capability.obligation then
+        local path = preservedPath(payload, slot.payload)
+        if path and #path > 0 then
+            local cleanups = {}
+            for j, cleanup in ipairs(types.capabilityCleanups(slot.capability)) do
+                cleanups[j] = cleanupAtPath(cleanup, path)
+            end
+            return types.affine(
+                payload,
+                cleanups,
+                types.capabilityTransferOnly(slot.capability),
+                obligationAtPath(slot.capability.obligation, path)
+            )
+        end
+        return types.affine(
+            payload,
+            types.capabilityCleanups(slot.capability),
+            types.capabilityTransferOnly(slot.capability),
+            slot.capability.obligation
+        )
+    elseif #slot.capability.loans > 0 then
         return types.borrowed(payload)
-    elseif slot.capability.obligation == "pin" then
+    elseif #slot.capability.anchors > 0 then
         return types.pinned(payload)
     end
 
@@ -2772,13 +3135,13 @@ function types.tostring(t: types.Type): string
         return elem .. "*"
     elseif tag == "affine" then
         local terminal = t.cleanups and t.cleanups[1]
-        return "affine<" .. types.tostring(
+        return "affine(" .. types.tostring(
             t.inner
-        ) .. (terminal and ", terminal " .. (terminal.name or terminal.id) or ", transfer-only") .. ">"
+        ) .. (terminal and ", " .. (terminal.name or terminal.id) or "") .. ")"
     elseif tag == "borrowed" then
-        return "Borrowed<" .. types.tostring(t.inner) .. ">"
+        return types.tostring(t.inner)
     elseif tag == "pinned" then
-        return "Pinned<" .. types.tostring(t.inner) .. ">"
+        return "pinned(" .. types.tostring(t.inner) .. ")"
     elseif tag == "typevar" then
         return t.name
     elseif tag == "typeHandle" then

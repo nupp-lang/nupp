@@ -194,13 +194,17 @@ local record Session
     end
 end
 
-local function openSession(): Owned<Session>
+local function closeSession(takes session: Session): nil
+    session.closed = true
+end
+
+local function openSession(): affine(Session, closeSession)
     return new Session(closed = false)
 end
 ```
 
-The ordinary structural `Drop` method supplies `Owned<T>`'s default terminal.
-An ordinary local is destroyed automatically:
+The exact `closeSession` identity is carried statically. An ordinary local is
+destroyed automatically:
 
 ```nupp
 do
