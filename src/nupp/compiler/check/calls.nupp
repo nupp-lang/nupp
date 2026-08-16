@@ -1179,12 +1179,7 @@ function calls.install(c: state.Checker): calls.Ops
                 c.moveExpression(root.node, root.type, "affine record construction", c.ownershipKind(root.type))
             end
             if #aggregateRoots > 0 then
-                node.returnBorrowOwners = {[1] = aggregateRoots}
-                if #aggregateRoots == 1 then
-                    node.borrowOwner = aggregateRoots[1]
-                else
-                    node.borrowOwners = aggregateRoots
-                end
+                c.own.capabilityFacts(node).roots = aggregateRoots
             end
             if calleeT.affineFields and #calleeT.affineFields > 0 then
                 local cleanups, obligations, transferOnly = {}, {}, false
@@ -1660,12 +1655,7 @@ function calls.install(c: state.Checker): calls.Ops
                 if #args > 0 and source == args[#args] and j >= #args then
                     expandedIndex = j - #args + 1
                 end
-                local owners = source.returnBorrowOwners and source.returnBorrowOwners[expandedIndex] or nil
-                if not owners and source.borrowOwner then
-                    owners = {source.borrowOwner}
-                elseif not owners and source.borrowOwners then
-                    owners = source.borrowOwners
-                end
+                local owners = c.own.capabilityFacts(source, expandedIndex, false).roots
                 argumentBorrowOwners[j] = owners
             end
         end
@@ -1784,21 +1774,36 @@ function calls.install(c: state.Checker): calls.Ops
         -- as provenance rather than being duplicated ownership obligations.
         -- Rebuild the result pack before any caller observes either its scalar view or
         -- its expansion.
-        if next(preservesResults) and not retPack.alternatives then
-            local adjusted = {}
-            for j, result in ipairs(retPack.head) do
-                local source = preservesResults[j]
-                adjusted[
-                    j
-                ] = source and ats[
-                    source
-                ] and T.withOwnershipPayload(
-                    ats[source],
-                    rawType(result),
-                    calleeT.preservesPaths and calleeT.preservesPaths[j] or nil
-                ) or result
+        if next(preservesResults) then
+            local function preservePack(pack: T.Pack): T.Pack
+                if pack.alternatives then
+                    local alternatives = {}
+                    for j, alternative in ipairs(pack.alternatives) do
+                        alternatives[j] = preservePack(alternative)
+                    end
+                    return T.packUnion(alternatives)
+                end
+                local adjusted = {}
+                for j, result in ipairs(pack.head) do
+                    local source = preservesResults[j]
+                    local path = calleeT.preservesPaths and calleeT.preservesPaths[j] or nil
+                    if source and ats[source] and not path then
+                        -- A projection or mapped result can remain symbolic when the
+                        -- function type is interned and become concrete only after this
+                        -- call's substitution. Recover its path at that point. A path
+                        -- recorded on the generic declaration wins when two distinct
+                        -- binders happen to instantiate as the same concrete type.
+                        path = T.preservationPath(rawType(result), rawType(params[source]))
+                    end
+                    adjusted[
+                        j
+                    ] = source and ats[source] and T.withOwnershipPayload(ats[source], rawType(result), path) or result
+                end
+
+                return T.pack(adjusted, pack.tail, pack.modes)
             end
-            retPack = T.pack(adjusted, retPack.tail, retPack.modes)
+
+            retPack = preservePack(retPack)
             rets = retPack.head
         end
 
@@ -2030,6 +2035,7 @@ function calls.install(c: state.Checker): calls.Ops
             elseif mode == "exclusive" then
                 local entry, nameNode = c.ownershipEntry(argNodes[j])
                 entry = c.ownershipState(entry)
+                local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
                 local regionRoot, regionPath = c.regionOf(argNodes[j])
                 if regionRoot and regionPath ~= nil then
                     for _, prior in ipairs(exclusiveRegions) do
@@ -2037,7 +2043,9 @@ function calls.install(c: state.Checker): calls.Ops
                             c.diag(
                                 "NUPP2607",
                                 argNodes[j] or node,
-                                "exclusive arguments overlap the same writable region"
+                                "exclusive arguments overlap the same writable region",
+                                nil,
+                                c.own.conflictDetails(regionRoot, regionPath)
                             )
                             break
                         end
@@ -2046,15 +2054,10 @@ function calls.install(c: state.Checker): calls.Ops
                 end
                 if c.ownershipKind(ats[j]) == "borrowed" then
                     local sole
-                    if entry and entry.exclusiveBorrow then
+                    if entryFacts and entryFacts.exclusive then
                         sole = (entry.activeBorrows or 0) == 0
                     else
-                        local roots = {}
-                        if entry and entry.borrowOwner then
-                            roots[1] = entry.borrowOwner
-                        elseif entry and entry.borrowOwners then
-                            roots = entry.borrowOwners
-                        end
+                        local roots = entryFacts and entryFacts.roots or {}
                         sole = #roots > 0
                         for _, root in ipairs(roots) do
                             -- One live borrow is this named argument itself. Any more
@@ -2069,8 +2072,9 @@ function calls.install(c: state.Checker): calls.Ops
                         sole = true
                         for activePath, count in pairs(regionRoot.activeRegions or {}) do
                             local own = entry
-                                and entry.regionRoot == regionRoot
-                                and entry.regionPath == regionPath
+                                and entryFacts
+                                and entryFacts.regionRoot == regionRoot
+                                and entryFacts.regionPath == regionPath
                                 and 1
                                 or 0
                             if (
@@ -2089,14 +2093,18 @@ function calls.install(c: state.Checker): calls.Ops
                         c.diag(
                             "NUPP2607",
                             argNodes[j] or node,
-                            "an exclusive parameter needs the sole live borrowed view"
+                            "an exclusive parameter needs the sole live borrowed view",
+                            nil,
+                            c.own.conflictDetails(regionRoot or entry, regionPath)
                         )
                     end
                 elseif entry and (entry.activeBorrows or 0) > 0 then
                     c.diag(
                         "NUPP2607",
                         nameNode or argNodes[j],
-                        "an exclusive parameter cannot invalidate a value while a " .. "derived borrow is live"
+                        "an exclusive parameter cannot invalidate a value while a " .. "derived borrow is live",
+                        nil,
+                        c.own.conflictDetails(entry, regionPath)
                     )
                 end
             elseif mode == "borrows" then
@@ -2104,7 +2112,8 @@ function calls.install(c: state.Checker): calls.Ops
                 -- shared use of the source itself cannot overlap a dependent writer.
                 local entry, nameNode = c.ownershipEntry(argNodes[j])
                 entry = c.ownershipState(entry)
-                if not (entry and entry.exclusiveBorrow and (entry.activeBorrows or 0) == 0) then
+                local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
+                if not (entry and entryFacts and entryFacts.exclusive and (entry.activeBorrows or 0) == 0) then
                     local regionRoot, regionPath = c.regionOf(argNodes[j])
                     local roots = entry and {entry} or c.own.provenanceOwners(argNodes[j])
                     for _, root in ipairs(roots) do
@@ -2113,8 +2122,9 @@ function calls.install(c: state.Checker): calls.Ops
                             blocked = false
                             for activePath, count in pairs(regionRoot.activeExclusiveRegions or {}) do
                                 local own = entry
-                                    and entry.regionRoot == regionRoot
-                                    and entry.regionPath == regionPath
+                                    and entryFacts
+                                    and entryFacts.regionRoot == regionRoot
+                                    and entryFacts.regionPath == regionPath
                                     and 1
                                     or 0
                                 if (
@@ -2134,7 +2144,9 @@ function calls.install(c: state.Checker): calls.Ops
                             c.diag(
                                 "NUPP2607",
                                 nameNode or argNodes[j] or node,
-                                "a shared argument cannot overlap a live exclusive view"
+                                "a shared argument cannot overlap a live exclusive view",
+                                nil,
+                                c.own.conflictDetails(regionRoot or root, regionPath, true)
                             )
                             break
                         end
@@ -2171,15 +2183,16 @@ function calls.install(c: state.Checker): calls.Ops
                 elseif entry.moved then
                     -- The name expression already emitted the use-after-move.
                 elseif mode == "retains" then
-                    if entry.retained then
+                    local entryFacts = c.own.capabilityFacts(entry)
+                    if entryFacts.retention then
                         c.diag("NUPP2602", nameNode or argNodes[j], "C already retains this pinned handle")
                     else
-                        entry.retained = true
+                        entryFacts.retention = entry
                     end
-                elseif not entry.retained then
+                elseif not c.own.capabilityFacts(entry).retention then
                     c.diag("NUPP2602", nameNode or argNodes[j], "releases argument is not currently retained by C")
                 else
-                    entry.retained = false
+                    c.own.capabilityFacts(entry).retention = nil
                 end
             end
         end
@@ -2195,22 +2208,15 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                 end
                 if owners then
-                    node.returnBorrowOwners = node.returnBorrowOwners or {}
-                    node.returnBorrowOwners[result] = owners
-                    if result == 1 then
-                        if #owners == 1 then
-                            node.borrowOwner = owners[1]
-                        else
-                            node.borrowOwners = owners
-                        end
-                    end
+                    c.own.capabilityFacts(node, result).roots = owners
                 end
                 local sourceNode = argNodes[source]
                 local entry = sourceNode and c.ownershipEntry(sourceNode)
                 entry = c.ownershipState(entry)
                 if entry then
-                    node.returnOwnershipStates = node.returnOwnershipStates or {}
-                    node.returnOwnershipStates[result] = {retained = entry.retained or nil, ownershipOrigin = entry,}
+                    local resultFacts = c.own.capabilityFacts(node, result)
+                    resultFacts.origin = entry
+                    resultFacts.retention = c.own.capabilityFacts(entry, nil, false).retention
                 end
             end
         end
@@ -2262,11 +2268,9 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             end
             if #owners == 1 then
-                node.borrowOwner = owners[1]
-                node.returnBorrowOwners = {[1] = owners}
+                c.own.capabilityFacts(node).roots = owners
             elseif #owners > 1 then
-                node.borrowOwners = owners
-                node.returnBorrowOwners = {[1] = owners}
+                c.own.capabilityFacts(node).roots = owners
             end
             local exclusiveResult = calleeT.borrowsParam and calleeT.paramModes[calleeT.borrowsParam] == "exclusive"
             if not exclusiveResult then
@@ -2278,7 +2282,7 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             end
             if exclusiveResult and #owners > 0 then
-                node.returnExclusiveBorrows = {[1] = true}
+                c.own.capabilityFacts(node).exclusive = true
             end
             local resultRoot, resultPath, consistent = nil, nil, true
             for _, source in ipairs(sources) do
@@ -2295,9 +2299,9 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             end
             if consistent and resultRoot and resultPath and resultPath ~= "" then
-                node.regionRoot = resultRoot
-                node.regionPath = resultPath
-                node.returnRegionPaths = {[1] = resultPath}
+                local resultFacts = c.own.capabilityFacts(node)
+                resultFacts.regionRoot = resultRoot
+                resultFacts.regionPath = resultPath
             end
         end
         -- A pack used in both parameter and result position is a transparent forwarding
@@ -2316,8 +2320,7 @@ function calls.install(c: state.Checker): calls.Ops
                     local source = inputStart + j - #declaredRetPack.head - 1
                     local owners = argumentBorrowOwners[source]
                     if owners then
-                        node.returnBorrowOwners = node.returnBorrowOwners or {}
-                        node.returnBorrowOwners[j] = owners
+                        c.own.capabilityFacts(node, j).roots = owners
                     end
                 end
             end
@@ -2335,8 +2338,7 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                 end
                 if #owners > 0 then
-                    node.returnBorrowOwners = node.returnBorrowOwners or {}
-                    node.returnBorrowOwners[output.returnIndex] = owners
+                    c.own.capabilityFacts(node, output.returnIndex).roots = owners
                 end
             end
         end

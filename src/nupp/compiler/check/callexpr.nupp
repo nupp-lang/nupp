@@ -601,7 +601,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag("NUPP2602", node, "borrow expects one live owned value")
                 end
                 node.ownershipIntrinsic = "borrow"
-                node.borrowOwner = c.borrowRoot((c.ownershipEntry(args[1])))
+                c.own.capabilityFacts(node).roots = {c.borrowRoot((c.ownershipEntry(args[1])))}
                 return T.borrowed(rawType(valueT))
             elseif intrinsic == "borrowFrom" then
                 local valueT = args[1] and c.infer(args[1]) or T.any
@@ -616,7 +616,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag("NUPP2604", node, "borrowFrom requires an unsafe do block")
                 end
                 node.ownershipIntrinsic = "borrowFrom"
-                node.borrowOwner = c.borrowRoot(source)
+                c.own.capabilityFacts(node).roots = {c.borrowRoot(source)}
                 return T.borrowed(rawType(valueT))
             elseif intrinsic == "partition" then
                 if args[1] then
@@ -643,18 +643,61 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag("NUPP2604", node, "partition requires an unsafe do block")
                 end
                 node.ownershipIntrinsic = "partition"
-                node.regionRoot = root or c.borrowRoot(parent)
-                node.returnBorrowOwners = {[1] = {parent}, [2] = {parent}}
-                node.returnExclusiveBorrows = {[1] = true, [2] = true}
-                node.returnRegionPaths = {
-                    [1] = T.regionPartition(parentPath, "left"),
-                    [2] = T.regionPartition(parentPath, "right"),
-                }
+                local partitionRoot = root or c.borrowRoot(parent)
+                local leftFacts = c.own.capabilityFacts(node, 1)
+                leftFacts.roots = {parent}
+                leftFacts.exclusive = true
+                leftFacts.regionRoot = partitionRoot
+                leftFacts.regionPath = T.regionPartition(parentPath, "left")
+                local rightFacts = c.own.capabilityFacts(node, 2)
+                rightFacts.roots = {parent}
+                rightFacts.exclusive = true
+                rightFacts.regionRoot = partitionRoot
+                rightFacts.regionPath = T.regionPartition(parentPath, "right")
                 local left = T.borrowed(rawType(leftT))
                 local right = T.borrowed(rawType(rightT))
                 node.valuePack = T.pack({left, right})
                 c.lastCallRets = {left, right}
                 return left
+            elseif intrinsic == "region" then
+                if args[1] then
+                    c.infer(args[1])
+                end
+                local childT = args[2] and c.infer(args[2]) or T.any
+                local parent = args[1] and c.ownershipEntry(args[1]) or nil
+                local root, parentPath = args[1] and c.regionOf(args[1]) or nil, ""
+                if root then
+                    local _, foundPath = c.regionOf(args[1])
+                    parentPath = foundPath or ""
+                end
+                local firstT = args[3] and c.infer(args[3]) or nil
+                local lastT = args[4] and c.infer(args[4]) or nil
+                local first = firstT and firstT.tag == "literal" and type(
+                    firstT.constant
+                ) == "number" and firstT.constant % 1 == 0 and firstT.constant or nil
+                local last = lastT and lastT.tag == "literal" and type(
+                    lastT.constant
+                ) == "number" and lastT.constant % 1 == 0 and lastT.constant or nil
+                if #args ~= 4 or not parent then
+                    c.diag("NUPP2602", node, "region expects a named parent, child, first index, and last index")
+                elseif c.ownershipKind(childT) then
+                    c.diag("NUPP2602", node, "region child must not already carry ownership")
+                elseif first and last and last < first - 1 then
+                    c.diag("NUPP2602", node, "region range ends before it begins")
+                end
+                if c.unsafeDepth == 0 then
+                    c.diag("NUPP2604", node, "region requires an unsafe do block after runtime bounds validation")
+                end
+                node.ownershipIntrinsic = "region"
+                local regionFacts = c.own.capabilityFacts(node, 1)
+                regionFacts.roots = {parent}
+                regionFacts.exclusive = true
+                regionFacts.regionRoot = root or c.borrowRoot(parent)
+                regionFacts.regionPath = T.regionRange(parentPath, first, last)
+                local child = T.borrowed(rawType(childT))
+                node.valuePack = T.pack({child})
+                c.lastCallRets = {child}
+                return child
             elseif intrinsic == "pin" then
                 local pointerT = args[1] and c.infer(args[1]) or T.any
                 if args[2] then
@@ -664,7 +707,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag("NUPP2602", node, "pin expects a pointer and its managed anchor")
                 end
                 if c.unsafeDepth == 0 then
-                    local pointerOwner = args[1] and args[1].borrowOwner
+                    local pointerRoots = args[1] and c.own.capabilityFacts(args[1], nil, false).roots
+                    local pointerOwner = pointerRoots and pointerRoots[1]
                     local anchorEntry = args[2] and c.ownershipEntry(args[2])
                     if c.ownershipKind(pointerT) ~= "borrowed" or not pointerOwner or pointerOwner ~= anchorEntry then
                         c.diag(
@@ -1376,10 +1420,20 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local expected = node.argumentPack and T.packAt(node.argumentPack, 2) or nil
                 local requested = expected and expected.tag == "typeobject" and expected.of or nil
                 if requested and requested.id ~= rawType(capabilityType).id then
+                    local fix = c.edits.typeFix(argExprs[2], T.tostring(rawType(capabilityType)))
+                    local related = entry.definition and c.related(
+                        entry.definition,
+                        "erased handle policy was established here"
+                    ) or nil
                     c.diag(
                         "NUPP2613",
                         argExprs[2] or node,
-                        "dynamic handle recovery requests a different type or cleanup policy"
+                        "dynamic handle recovery requests a different type or cleanup policy",
+                        fix and {fix} or nil,
+                        {
+                            help = "recover the representation recorded by the handle",
+                            related = related and {related} or nil,
+                        }
                     )
                 else
                     local capability = c.capabilityOf(capabilityType)
@@ -1552,10 +1606,19 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     node.dynamicTypePolicy = table.concat(policy, "|")
                     node.resourceCapability = adopted
                 else
+                    local related = entry and entry.definition and c.related(
+                        entry.definition,
+                        "value supplied to the dynamic store is declared here"
+                    ) or nil
                     c.diag(
                         "NUPP2612",
                         actualArgs[1] or node,
-                        "dynamic.Store.put requires a self-contained capability with an exact cleanup policy"
+                        "dynamic.Store.put requires a self-contained capability with an exact cleanup policy",
+                        nil,
+                        {
+                            help = "remove borrows, pins, foreign retention, or transfer-only leaves before enrolling the value",
+                            related = related and {related} or nil,
+                        }
                     )
                 end
             elseif owner.tag == "nominal" and owner.dynamicStore and member.text == "take" then
@@ -1641,6 +1704,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             elseif receiverMode == "exclusive" then
                 local entry, nameNode = c.ownershipEntry(receiver)
                 entry = c.ownershipState(entry)
+                local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
                 local regionRoot, regionPath = c.regionOf(receiver)
                 local roots = entry and {entry} or c.own.provenanceOwners(receiver)
                 if #roots == 0 then
@@ -1652,8 +1716,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                             blocked = false
                             for activePath, count in pairs(regionRoot.activeRegions or {}) do
                                 local own = entry
-                                    and entry.regionRoot == regionRoot
-                                    and entry.regionPath == regionPath
+                                    and entryFacts
+                                    and entryFacts.regionRoot == regionRoot
+                                    and entryFacts.regionPath == regionPath
                                     and 1
                                     or 0
                                 if (
@@ -1673,24 +1738,26 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                             c.diag(
                                 "NUPP2607",
                                 nameNode or receiver,
-                                "an exclusive receiver cannot invalidate a value while a derived borrow is live"
+                                "an exclusive receiver cannot invalidate a value while a derived borrow is live",
+                                nil,
+                                c.own.conflictDetails(regionRoot or root, regionPath)
                             )
                             break
                         end
                     end
                 end
-                node.returnExclusiveBorrows = {[1] = true}
-                if regionRoot and regionPath and regionPath ~= "" then
-                    node.regionRoot = regionRoot
-                    node.regionPath = regionPath
-                    node.regionExclusive = true
-                    if c.ownershipKind(first) then
-                        node.returnRegionPaths = {[1] = regionPath}
+                if c.ownershipKind(first) then
+                    local resultFacts = c.own.capabilityFacts(node, 1)
+                    resultFacts.exclusive = true
+                    if regionRoot and regionPath and regionPath ~= "" then
+                        resultFacts.regionRoot = regionRoot
+                        resultFacts.regionPath = regionPath
                     end
                 end
             elseif receiverMode == "borrows" then
                 local entry, nameNode = c.ownershipEntry(receiver)
                 entry = c.ownershipState(entry)
+                local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
                 local regionRoot, regionPath = c.regionOf(receiver)
                 local roots = entry and {entry} or c.own.provenanceOwners(receiver)
                 for _, root in ipairs(roots) do
@@ -1699,8 +1766,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         blocked = false
                         for activePath, count in pairs(regionRoot.activeExclusiveRegions or {}) do
                             local own = entry
-                                and entry.regionRoot == regionRoot
-                                and entry.regionPath == regionPath
+                                and entryFacts
+                                and entryFacts.regionRoot == regionRoot
+                                and entryFacts.regionPath == regionPath
                                 and 1
                                 or 0
                             if (
@@ -1720,15 +1788,17 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         c.diag(
                             "NUPP2607",
                             nameNode or receiver,
-                            "a shared receiver cannot overlap a live exclusive view"
+                            "a shared receiver cannot overlap a live exclusive view",
+                            nil,
+                            c.own.conflictDetails(regionRoot or root, regionPath, true)
                         )
                         break
                     end
                 end
                 if regionRoot and regionPath and regionPath ~= "" and c.ownershipKind(first) then
-                    node.regionRoot = regionRoot
-                    node.regionPath = regionPath
-                    node.returnRegionPaths = {[1] = regionPath}
+                    local resultFacts = c.own.capabilityFacts(node)
+                    resultFacts.regionRoot = regionRoot
+                    resultFacts.regionPath = regionPath
                 end
             end
             if optional then

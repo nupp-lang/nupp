@@ -440,10 +440,8 @@ function operators.install(c: state.Checker): state.ExprHandlers
                     return leftPayload
                 end
                 local roots = c.own.provenanceOwners(lhs)
-                if #roots == 1 then
-                    node.borrowOwner = roots[1]
-                elseif #roots > 1 then
-                    node.borrowOwners = roots
+                if #roots > 0 then
+                    c.own.capabilityFacts(node).roots = roots
                 end
                 if c.unsafeDepth == 0 then
                     c.diag("NUPP2604", node, "unchecked pointer arithmetic requires unsafe do; use a span for bounds")

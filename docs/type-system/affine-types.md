@@ -101,10 +101,12 @@ end
 ```
 
 The checker substitutes the complete capability into the unique `T` component of
-`Box<T>`. It recursively handles records, tuples, optionals, unions, and result packs.
-Cleanup obligations, pins, and retentions move once; root and
-region provenance remains available to derived views. A result with two possible
-`T` components is ambiguous and reports `NUPP2606` instead of guessing.
+`Box<T>`. It recursively handles records, tuples, optionals, unions, intersections,
+identity-mapped and projected types, callable records, closures, and result packs.
+Cleanup obligations, pins, and retentions move once; root and region provenance
+remains available to derived views. Callable assignment preserves this relation
+exactly. A result with two possible `T` components is ambiguous and reports
+`NUPP2606` instead of guessing.
 
 This does not require higher-kinded generics. `Box<T>` is an ordinary first-order
 application, while `preserves` supplies the separate conservation proof. HKT would

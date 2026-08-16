@@ -222,27 +222,24 @@ function bindings.install(c: state.Checker): state.StatHandlers
             if boundEntry and initNode and initNode.coroutineStatusName then
                 boundEntry.coroutineStatusName = initNode.coroutineStatusName
             end
-            local returnBorrowOwners = nil
+            local returnRoots = nil
             local returnExclusiveBorrow = false
             local returnRegionPath = nil
             local returnPartitionFields = nil
-            local returnOwnershipState = nil
             local exprCount = #initializers
             local expandedCall = exprCount > 0 and initializers[exprCount] or nil
-            if expandedCall and expandedCall.returnExclusiveBorrows and j >= exprCount then
-                returnExclusiveBorrow = expandedCall.returnExclusiveBorrows[j - exprCount + 1] or false
-            end
-            if expandedCall and expandedCall.returnRegionPaths and j >= exprCount then
-                returnRegionPath = expandedCall.returnRegionPaths[j - exprCount + 1]
+            local returnFacts = expandedCall and j >= exprCount and c.own.capabilityFacts(
+                expandedCall,
+                j - exprCount + 1,
+                false
+            ) or nil
+            if returnFacts then
+                returnRoots = returnFacts.roots
+                returnExclusiveBorrow = returnFacts.exclusive or false
+                returnRegionPath = returnFacts.regionPath
             end
             if expandedCall and expandedCall.returnPartitionFields and j >= exprCount then
                 returnPartitionFields = expandedCall.returnPartitionFields[j - exprCount + 1]
-            end
-            if expandedCall and expandedCall.returnBorrowOwners and j >= exprCount then
-                returnBorrowOwners = expandedCall.returnBorrowOwners[j - exprCount + 1]
-            end
-            if expandedCall and expandedCall.returnOwnershipStates and j >= exprCount then
-                returnOwnershipState = expandedCall.returnOwnershipStates[j - exprCount + 1]
             end
             if boundEntry then
                 boundEntry.partitionFields = returnPartitionFields or (initNode and initNode.partitionFields) or nil
@@ -376,88 +373,103 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 boundEntry.moved = true -- declared storage, no live affine value
             end
             local boundKind = ownershipKind(bound)
-            if boundEntry and returnOwnershipState then
-                boundEntry.retained = returnOwnershipState.retained
-                boundEntry.retentionIdentity = returnOwnershipState.ownershipOrigin
+            if boundEntry and returnFacts and returnFacts.origin then
+                c.own.capabilityFacts(boundEntry).retention = returnFacts.retention
             end
             if boundEntry and expandedCall and expandedCall.resourceCapability and j == exprCount then
                 boundEntry.resourceCapability = expandedCall.resourceCapability
             end
             if boundEntry and returnRegionPath then
-                local regionRoot = expandedCall
-                    and expandedCall.regionRoot
-                    or returnBorrowOwners
-                    and returnBorrowOwners[
-                    1
-                ]
-                boundEntry.regionRoot = regionRoot
-                boundEntry.regionPath = returnRegionPath
+                local regionRoot = returnFacts and returnFacts.regionRoot or returnRoots and returnRoots[1]
+                local boundFacts = c.own.capabilityFacts(boundEntry)
+                boundFacts.regionRoot = regionRoot
+                boundFacts.regionPath = returnRegionPath
                 if regionRoot then
                     regionRoot.activeRegions = regionRoot.activeRegions or {}
                     regionRoot.activeRegions[returnRegionPath] = (regionRoot.activeRegions[returnRegionPath] or 0) + 1
                 end
             elseif boundEntry and initNode then
                 local regionRoot, regionPath = c.regionOf(initNode)
-                local carriesRegion = boundKind ~= nil
-                    or initNode.regionExclusive
-                    or initNode.borrowOwner ~= nil
-                    or initNode.borrowOwners ~= nil
+                local initFacts = c.own.capabilityFacts(initNode, nil, false)
+                local carriesRegion = boundKind ~= nil or initFacts.exclusive or initFacts.roots ~= nil
                 if carriesRegion and regionRoot and regionPath and regionPath ~= "" then
-                    boundEntry.regionRoot = regionRoot
-                    boundEntry.regionPath = regionPath
+                    local boundFacts = c.own.capabilityFacts(boundEntry)
+                    boundFacts.regionRoot = regionRoot
+                    boundFacts.regionPath = regionPath
                     regionRoot.activeRegions = regionRoot.activeRegions or {}
                     regionRoot.activeRegions[regionPath] = (regionRoot.activeRegions[regionPath] or 0) + 1
-                    if initNode.regionExclusive then
+                    if initFacts.exclusive then
                         returnExclusiveBorrow = true
                     end
                 end
             end
             if boundEntry and (
                 boundKind == "borrowed" or boundKind == "affine"
-            ) and returnBorrowOwners and #returnBorrowOwners == 1 then
-                boundEntry.borrowOwner = returnBorrowOwners[1]
-                returnBorrowOwners[1].activeBorrows = (returnBorrowOwners[1].activeBorrows or 0) + 1
+            ) and returnRoots and #returnRoots == 1 then
+                local boundFacts = c.own.capabilityFacts(boundEntry)
+                boundFacts.roots = {returnRoots[1]}
+                returnRoots[1].activeBorrows = (returnRoots[1].activeBorrows or 0) + 1
+                returnRoots[1].activeBorrowSites = returnRoots[1].activeBorrowSites or {}
+                returnRoots[1].activeBorrowSites[boundEntry] = nameTok
                 if returnExclusiveBorrow then
-                    boundEntry.exclusiveBorrow = true
-                    returnBorrowOwners[
-                        1
-                    ].activeExclusiveBorrows = (returnBorrowOwners[1].activeExclusiveBorrows or 0) + 1
+                    boundFacts.exclusive = true
+                    returnRoots[1].activeExclusiveBorrows = (returnRoots[1].activeExclusiveBorrows or 0) + 1
                 end
             elseif boundEntry and (
                 boundKind == "borrowed" or boundKind == "affine"
-            ) and initNode and initNode.borrowOwner then
-                boundEntry.borrowOwner = initNode.borrowOwner
-                initNode.borrowOwner.activeBorrows = (initNode.borrowOwner.activeBorrows or 0) + 1
+            ) and initNode and c.own.capabilityFacts(
+                initNode,
+                nil,
+                false
+            ).roots and #c.own.capabilityFacts(initNode, nil, false).roots == 1 then
+                local owner = c.own.capabilityFacts(initNode, nil, false).roots[1]
+                local boundFacts = c.own.capabilityFacts(boundEntry)
+                boundFacts.roots = {owner}
+                owner.activeBorrows = (owner.activeBorrows or 0) + 1
+                owner.activeBorrowSites = owner.activeBorrowSites or {}
+                owner.activeBorrowSites[boundEntry] = nameTok
                 if returnExclusiveBorrow then
-                    boundEntry.exclusiveBorrow = true
-                    initNode.borrowOwner.activeExclusiveBorrows = (initNode.borrowOwner.activeExclusiveBorrows or 0) + 1
+                    boundFacts.exclusive = true
+                    owner.activeExclusiveBorrows = (owner.activeExclusiveBorrows or 0) + 1
                 end
             end
             if boundEntry and (
                 boundKind == "borrowed" or boundKind == "affine"
-            ) and returnBorrowOwners and #returnBorrowOwners > 1 then
-                boundEntry.borrowOwners = returnBorrowOwners
-                for _, owner in ipairs(returnBorrowOwners) do
+            ) and returnRoots and #returnRoots > 1 then
+                local boundFacts = c.own.capabilityFacts(boundEntry)
+                boundFacts.roots = returnRoots
+                for _, owner in ipairs(returnRoots) do
                     owner.activeBorrows = (owner.activeBorrows or 0) + 1
+                    owner.activeBorrowSites = owner.activeBorrowSites or {}
+                    owner.activeBorrowSites[boundEntry] = nameTok
                     if returnExclusiveBorrow then
                         owner.activeExclusiveBorrows = (owner.activeExclusiveBorrows or 0) + 1
                     end
                 end
-                boundEntry.exclusiveBorrow = returnExclusiveBorrow or nil
+                boundFacts.exclusive = returnExclusiveBorrow or nil
             elseif boundEntry and (
                 boundKind == "borrowed" or boundKind == "affine"
-            ) and initNode and initNode.borrowOwners then
-                boundEntry.borrowOwners = initNode.borrowOwners
-                for _, owner in ipairs(initNode.borrowOwners) do
+            ) and initNode and c.own.capabilityFacts(
+                initNode,
+                nil,
+                false
+            ).roots and #c.own.capabilityFacts(initNode, nil, false).roots > 1 then
+                local initRoots = c.own.capabilityFacts(initNode, nil, false).roots
+                local boundFacts = c.own.capabilityFacts(boundEntry)
+                boundFacts.roots = initRoots
+                for _, owner in ipairs(initRoots) do
                     owner.activeBorrows = (owner.activeBorrows or 0) + 1
+                    owner.activeBorrowSites = owner.activeBorrowSites or {}
+                    owner.activeBorrowSites[boundEntry] = nameTok
                     if returnExclusiveBorrow then
                         owner.activeExclusiveBorrows = (owner.activeExclusiveBorrows or 0) + 1
                     end
                 end
-                boundEntry.exclusiveBorrow = returnExclusiveBorrow or nil
+                boundFacts.exclusive = returnExclusiveBorrow or nil
             end
-            if boundEntry and boundEntry.regionRoot and boundEntry.regionPath and boundEntry.exclusiveBorrow then
-                local root, path = boundEntry.regionRoot, boundEntry.regionPath
+            local boundFacts = boundEntry and c.own.capabilityFacts(boundEntry, nil, false) or nil
+            if boundFacts and boundFacts.regionRoot and boundFacts.regionPath and boundFacts.exclusive then
+                local root, path = boundFacts.regionRoot, boundFacts.regionPath
                 root.activeExclusiveRegions = root.activeExclusiveRegions or {}
                 root.activeExclusiveRegions[path] = (root.activeExclusiveRegions[path] or 0) + 1
             end

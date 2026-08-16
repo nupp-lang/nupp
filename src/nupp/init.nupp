@@ -15,7 +15,8 @@ parsing-expression grammars compiled at either phase), and `nupp.reflect`
 (semantic type descriptors and reflection-driven keyed codecs).
 
 Borrowing operations also live under this global: `nupp.borrow`,
-`nupp.borrowFrom`, and `nupp.pin`. Ownership itself is expressed by built-in
+`nupp.borrowFrom`, `nupp.region`, and `nupp.pin`. `nupp.region` is the unsafe audited
+bridge from runtime-validated bounds to a checked child interval. Ownership itself is expressed by built-in
 compile-time type-generator calls such as `affine(T, cleanup)`, `affine(T)`,
 and `pinned(T)`, while `drop`, `unsafe adopt`, and `unsafe release` are language
 operations over affine values.

@@ -445,27 +445,14 @@ interface cst.Hints
     --- The cleanup list this declaration's owning first result carries.
     ownCleanups: any
 
-    --- The owner a borrow came from.
-    borrowOwner: any
+    --- Canonical roots, access, region, anchor, and retention facts for this value.
+    capabilityFacts: any
 
-    --- Every owner a borrow came from.
-    borrowOwners: any
-
-    --- The owners each returned borrow came from.
-    returnBorrowOwners: any
-
-    --- Returned borrows that reserve exclusive access to those owners.
-    returnExclusiveBorrows: any
-
-    --- Disjoint writable region identities transported by returned values.
-    returnRegionPaths: any
+    --- Canonical capability facts for each returned value slot.
+    resultCapabilityFacts: any
 
     --- Aggregate field partitions transported by returned values.
     returnPartitionFields: any
-
-    regionRoot: any
-    regionPath: string?
-    regionExclusive: boolean?
 
     --- Writable region suffixes carried by aggregate fields.
     partitionFields: any
@@ -479,8 +466,6 @@ interface cst.Hints
     receiverMode: string?
 
     --- Capability state transported by a `preserves` result, per result slot.
-    returnOwnershipStates: any
-
     --- This call is a statement, so a named capability preserved through an ignored
     --- result stays at its source rather than transferring into temporary storage.
     discardingResults: boolean?
@@ -2531,7 +2516,7 @@ cst.isToken = isToken
 --- introduced only as `nupp.pin`: a bare `pin` is an ordinary value name.
 local OWNERSHIP_INTRINSICS: {
     [string]: boolean
-} = {attemptAll = true, borrow = true, borrowFrom = true, partition = true, pin = true,}
+} = {attemptAll = true, borrow = true, borrowFrom = true, partition = true, region = true, pin = true,}
 
 --- The ownership intrinsic a callee is written as, before anything asks what the names
 --- in it resolve to. Answers nil for a callee of any other shape.

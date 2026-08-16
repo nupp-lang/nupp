@@ -131,6 +131,22 @@ function M.scalarGenericPreservationMovesItsInputExactlyOnce()
    }, "\n")), "NUPP2601")
 end
 
+function M.genericPreservationAgreesAcrossBranchSpecificReturns()
+   assertClean(table.concat({
+      RESOURCE,
+      "local function id<T>(takes value: T): T preserves value return value end",
+      "local function choose<T>(takes value: T, flag: boolean): T preserves value",
+      "   if flag then",
+      "      return value",
+      "   else",
+      "      return id(value)",
+      "   end",
+      "end",
+      "local forwarded = choose(resource_new(), true)",
+      "drop(forwarded)",
+   }, "\n"))
+end
+
 function M.fixedPackPreservationCarriesTheExactResultSlot()
    assertClean(table.concat({
       RESOURCE,
@@ -165,6 +181,31 @@ function M.genericPreservationMovesCapabilitiesIntoAggregateResults()
       "   return new Pair(left = value, right = value)",
       "end",
    }, "\n")), "NUPP2606 NUPP2602", "a relation cannot guess between repeated components or duplicate a move")
+end
+
+function M.genericPreservationReducesIdentityMappedResults()
+   assertClean(table.concat({
+      "local type View<T> = {readonly [K in keyof T]: T.[K]}",
+      "local record Box<T>",
+      "   value: T",
+      "end",
+      "local function box<T>(takes value: T): View<Box<T>> preserves value",
+      "   return new Box(value = value)",
+      "end",
+      RESOURCE,
+      "local boxed = box(resource_new())",
+      "drop(boxed)",
+   }, "\n"))
+end
+
+function M.callableAssignmentCannotEraseAPreservationRelation()
+   assertEq(codes(table.concat({
+      "local function preserving<T>(takes value: T): T preserves value",
+      "   return value",
+      "end",
+      "local plain: function<T>(takes value: T): T = preserving",
+      "print(plain)",
+   }, "\n")), "NUPP2001")
 end
 
 function M.assertPreservesAndNarrowsAnOptionalOwner()
@@ -567,7 +608,7 @@ function M.dynamicErasureAndBorrowEscapesHaveDedicatedDiagnostics()
 end
 
 function M.loopBackEdgesCannotConsumeAnOuterCapabilityConditionally()
-   assertEq(codes(table.concat({
+   local _, diags = checked(table.concat({
       RESOURCE,
       "local function run(flag: boolean): nil",
       "   local value = resource_new()",
@@ -575,7 +616,9 @@ function M.loopBackEdgesCannotConsumeAnOuterCapabilityConditionally()
       "      drop(value)",
       "   end",
       "end",
-   }, "\n")), "NUPP2609")
+   }, "\n"))
+   assertEq(diags[1] and diags[1].code, "NUPP2609")
+   assertEq(#(diags[1].related or {}), 1, "loop diagnostic names its back edge")
 end
 
 function M.generalRegionsDistinguishSiblingFieldsAndExactIndexes()
@@ -598,6 +641,31 @@ function M.generalRegionsDistinguishSiblingFieldsAndExactIndexes()
    assertEq(codes(indexed .. "\nlocal i: integer = 1\ntogether(values[i], values[i])"), "NUPP2607")
    assertEq(codes(indexed .. "\nlocal i: integer = 1\ntogether(values[i], values[1])"), "NUPP2607")
    assertEq(codes(indexed .. "\nlocal value = {}\ntogether(value, value)"), "NUPP2607")
+end
+
+function M.checkedRegionIntervalsProveOnlyActualDisjointness()
+   local prelude = table.concat({
+      "local function together(exclusive left: int32[?], exclusive right: int32[?]): nil end",
+      "local values = ffi.new<int32[4]>()",
+      "unsafe do",
+   }, "\n")
+   assertClean(prelude .. table.concat({
+      "",
+      "   local left = nupp.region(values, values, 1, 2)",
+      "   local right = nupp.region(values, values, 3, 4)",
+      "   together(left, right)",
+      "end",
+   }, "\n"))
+   local result, diags = checked(prelude .. table.concat({
+      "",
+      "   local left = nupp.region(values, values, 1, 3)",
+      "   local right = nupp.region(values, values, 3, 4)",
+      "   together(left, right)",
+      "end",
+   }, "\n"))
+   assert(result)
+   assertEq(diags[1] and diags[1].code, "NUPP2607")
+   assertEq(#(diags[1].related or {}), 1, "overlap names the earlier checked region")
 end
 
 function M.publicContractsAreExplicitOnlyForCapabilityBearingParameters()
@@ -645,7 +713,10 @@ function M.dynamicRecoveryKeepsAndChecksTheStoredCapabilityPolicy()
       "   if value then drop(value) end",
       "end",
    }, "\n"))
-   assertEq(codes(prelude .. "\nlocal recovered = dynamic.recover(erased, SocketState)"), "NUPP2613")
+   local _, mismatch = checked(prelude .. "\nlocal recovered = dynamic.recover(erased, SocketState)")
+   assertEq(mismatch[1] and mismatch[1].code, "NUPP2613")
+   assertEq(mismatch[1].fixes[1].title, "change the type to `FileState`")
+   assertEq(#(mismatch[1].related or {}), 1, "policy mismatch names the enrolled handle")
 end
 function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
    assertClean(table.concat({

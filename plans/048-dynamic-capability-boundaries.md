@@ -1,9 +1,9 @@
 # Dynamic capability boundaries
 
-> Core implementation landed. `nupp.dynamic` provides affine stores, exact injected cleanup
-> programs, typed and erased generation-checked handles, checked recovery, and
-> structured `NUPP2611`-`NUPP2614` failures. The HTTP body path now uses private
-> typed native contracts instead of erasing its client and transfer to `any`.
+> Implemented. `nupp.dynamic` provides affine stores, exact injected cleanup
+> programs, typed and erased generation-checked handles, checked recovery, live-policy
+> hot-reload transactions, and structured `NUPP2611`-`NUPP2614` failures. The HTTP
+> body path uses private typed native contracts instead of erased ownership state.
 
 ## Decision
 

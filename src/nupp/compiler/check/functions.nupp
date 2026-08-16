@@ -256,9 +256,11 @@ function functions.install(c: state.Checker): state.StatHandlers
                             ):format(ret.param.text, ret.param.text)
                         )
                     end
-                    if report and resultTypes[
-                        result
-                    ] and not T.preservationPath(resultTypes[result], paramTypes[source]) then
+                    local resultType = resultTypes[result]
+                    if resultType and resultType.tag == "neutral" then
+                        resultType = require("nupp.compiler.generics").normalize(resultType).type
+                    end
+                    if report and resultType and not T.preservationPath(resultType, paramTypes[source]) then
                         c.diag(
                             "NUPP2606",
                             ret,
@@ -707,7 +709,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                     -- The body owns the caller's sole view for this call. It may
                     -- forward that capability to another exclusive call, provided
                     -- no element/reference borrow derived from the parameter is live.
-                    c.scope.vars[p.name.text].exclusiveBorrow = true
+                    c.own.capabilityFacts(c.scope.vars[p.name.text]).exclusive = true
                 end
             else
                 vararg = true

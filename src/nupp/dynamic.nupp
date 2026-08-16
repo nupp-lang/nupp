@@ -8,6 +8,13 @@ generation, and policy are checked before a value or cleanup is touched.
 
 local dynamic = {}
 
+local STORE_REGISTRY_KEY = "__nuppDynamicStores"
+local stores: any = _G[STORE_REGISTRY_KEY]
+if not stores then
+    stores = setmetatable({}, {__mode = "k"})
+    _G[STORE_REGISTRY_KEY] = stores
+end
+
 --- A structured static or runtime dynamic-custody failure.
 record dynamic.Error
     code: string
@@ -148,6 +155,7 @@ function dynamic.StoreState.drop(takes self)
         return
     end
     self.destroyed = true
+    stores[self] = nil
     local first: any = nil
     local suppressed = 0
     for slot, entry in pairs(self.entries) do
@@ -178,7 +186,10 @@ end
 type dynamic.Store = affine(dynamic.StoreState, destroyStore)
 
 function dynamic.newStore(): dynamic.Store
-    return new dynamic.StoreState(entries = {}, generations = {}, nextSlot = 1, destroyed = false)
+    local store = new dynamic.StoreState(entries = {}, generations = {}, nextSlot = 1, destroyed = false)
+    stores[store] = true
+
+    return store
 end
 
 function dynamic.erase<T>(handle: dynamic.Handle<T>): dynamic.ErasedHandle
@@ -214,6 +225,23 @@ end
 --- @raises only if this standard-library intrinsic is invoked without compiler lowering
 function dynamic.recover<T>(handle: dynamic.ErasedHandle, expected: Type<T>): (dynamic.Handle<T>?, dynamic.Error?)
     error("dynamic.recover must be lowered by the compiler", 2)
+end
+
+-- The hot-reload runtime asks only whether a stable policy has live custody. Values,
+-- cleanup functions, slots, and handles remain private to this module.
+_G.__nuppDynamicPolicyCount = function(policy: string): integer
+    local count: integer = 0
+    for store in pairs(stores) do
+        if not store.destroyed then
+            for _, entry in pairs(store.entries) do
+                if entry.policy == policy then
+                    count = count + 1
+                end
+            end
+        end
+    end
+
+    return count
 end
 
 return dynamic

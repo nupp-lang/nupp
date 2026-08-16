@@ -291,6 +291,13 @@ local function memberIsA(have: Type, want: Type): boolean
         if (haveReceiverMode == "takes") ~= (wantReceiverMode == "takes") then
             return false
         end
+        for result = 1, math.max(#have.rets, #want.rets) do
+            local haveSource = have.preservesResults and have.preservesResults[result]
+            local wantSource = want.preservesResults and want.preservesResults[result]
+            if (haveSource == 1) ~= (wantSource == 1) then
+                return false
+            end
+        end
         local hp, wp = {}, {}
         for j = 2, #have.params do
             hp[#hp + 1] = have.params[j]
@@ -312,6 +319,18 @@ local function memberIsA(have: Type, want: Type): boolean
         for j = 2, #want.params do
             wn[#wn + 1] = want.paramNames and want.paramNames[j] or ""
         end
+        local function shiftedPreserves(ft)
+            local shifted = {}
+            for result = 1, #ft.rets do
+                local source = ft.preservesResults and ft.preservesResults[result]
+                if source and source > 1 then
+                    shifted[result] = source - 1
+                end
+            end
+
+            return next(shifted) and shifted or nil
+        end
+
         return (isA(
             T.func(
                 hp,
@@ -335,7 +354,8 @@ local function memberIsA(have: Type, want: Type): boolean
                 -- Both sides keep the qualifier, so dropping the receiver to
                 -- compare shapes does not also drop the suspension check.
                 have.noYield,
-                hn
+                hn,
+                shiftedPreserves(have)
             ),
             T.func(
                 wp,
@@ -357,7 +377,8 @@ local function memberIsA(have: Type, want: Type): boolean
                 want.yieldPack,
                 want.resumePack,
                 want.noYield,
-                wn
+                wn,
+                shiftedPreserves(want)
             )
         ))
     end
@@ -524,6 +545,55 @@ local function sameCleanups(a: {T.Cleanup}?, b: {T.Cleanup}?): boolean
     return true
 end
 
+--- Materializes the common symbolic identity-mapped view without substituting its
+--- open field types. Full mapped reduction still belongs to `generics`; this narrow
+--- representation rule lets a generic record body satisfy its readonly/writeonly
+--- projection before call-site substitution.
+local function symbolicMappedView(t: Type): Type?
+    if t.tag ~= "neutral" or t.op ~= "mapped" or t.remap then
+        return nil
+    end
+    local keys, value = t.keys, t.value
+    local subject = keys and keys.tag == "neutral" and keys.op == "keyof" and keys.subject or nil
+    if not subject
+        or not value
+        or value.tag ~= "neutral"
+        or value.op ~= "member"
+        or value.subject ~= subject
+        or value.key ~= t.binder
+    then
+        return nil
+    end
+    local fields = {}
+    if subject.tag == "nominal" then
+        for name in pairs(subject.fieldDefs or {}) do
+            local member = subject.byname[name]
+            fields[
+                #fields + 1
+            ] = {
+                name = name,
+                read = t.capability == "read" and member or nil,
+                write = t.capability == "write" and member or nil,
+            }
+        end
+    elseif subject.tag == "shape" then
+        for _, field in ipairs(subject.fields) do
+            local member = field.type or field.read or field.write
+            fields[
+                #fields + 1
+            ] = {
+                name = field.name,
+                read = t.capability == "read" and member or nil,
+                write = t.capability == "write" and member or nil,
+            }
+        end
+    else
+        return nil
+    end
+
+    return T.shape(fields)
+end
+
 --- Decides `isA` for one pair, without consulting the cache.
 ---
 --- The order of the rules is the doctrine: ownership first, then unions, then the
@@ -537,6 +607,21 @@ local function check(a: Type, b: Type): boolean, string?
         return true
     end
     if atag == "neutral" or btag == "neutral" then
+        -- A mapped/member/comptime term is neutral only until its inputs become
+        -- reducible. Generic declarations commonly retain binders while their keys
+        -- and aggregate shape are already closed, so normalize before deciding that a
+        -- term is genuinely blocked.
+        local generic = require("nupp.compiler.generics")
+        local reducedA = atag == "neutral" and generic.normalize(a).type or a
+        local reducedB = btag == "neutral" and generic.normalize(b).type or b
+        if reducedA ~= a or reducedB ~= b then
+            return isA(reducedA, reducedB)
+        end
+        reducedA = symbolicMappedView(a) or a
+        reducedB = symbolicMappedView(b) or b
+        if reducedA ~= a or reducedB ~= b then
+            return isA(reducedA, reducedB)
+        end
         return false, ("blocked type term %s is not identical to %s"):format(T.tostring(a), T.tostring(b))
     end
     -- `never` is uninhabited, so a value of it (there being none) fits anywhere.
@@ -1163,6 +1248,19 @@ local function check(a: Type, b: Type): boolean, string?
             local resumeOk = a.resumePack and b.resumePack and relations.packIsA(b.resumePack, a.resumePack)
             if not yieldOk or not resumeOk then
                 return false, ("%s is not a %s (coroutine protocol)"):format(T.tostring(a), T.tostring(b))
+            end
+        end
+        -- A preservation relation is linear flow information, not a covariant return
+        -- detail. Forgetting one strands the source capability; inventing one lets a
+        -- caller duplicate it. Callable assignment therefore keeps the exact
+        -- result-to-parameter mapping after generic instantiation.
+        for result = 1, math.max(#a.rets, #b.rets) do
+            local as = a.preservesResults and a.preservesResults[result]
+            local bs = b.preservesResults and b.preservesResults[result]
+            if as ~= bs then
+                return false, (
+                    "%s is not a %s (return %d preservation relation)"
+                ):format(T.tostring(a), T.tostring(b), result)
             end
         end
         return true

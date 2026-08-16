@@ -1128,7 +1128,11 @@ function checkMod.check(
                         .. "dropped, returned, or released with unsafe release"
                     ):format(name)
                 )
-            elseif not entry.ownershipOrigin and state.retained and not state.moved then
+            elseif not entry.ownershipOrigin and c.own.capabilityFacts(
+                state,
+                nil,
+                false
+            ).retention and not state.moved then
                 c.diag(
                     "NUPP2603",
                     entry.definition and entry.definition.token,
@@ -1652,8 +1656,8 @@ function checkMod.check(
             return discarded
         end
         for j = first, #pack.head do
-            local state = at and at.returnOwnershipStates and at.returnOwnershipStates[j]
-            if affineType(pack.head[j]) and not (state and state.ownershipOrigin) then
+            local facts = at and c.own.capabilityFacts(at, j, false) or nil
+            if affineType(pack.head[j]) and not (facts and facts.origin) then
                 discarded = true
             end
         end

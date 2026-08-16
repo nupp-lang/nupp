@@ -125,11 +125,25 @@ function hotreload.module(name: string): any
     if state.staging then
         error("nupp hot reload: patch names unloaded module " .. name, 2)
     end
-    module = {name = name, slots = {}, definitions = {}, loaded = false}
+    module = {name = name, slots = {}, definitions = {}, policies = {}, loaded = false}
     state.modules[name] = module
     state.bySlots[module.slots] = module
 
     return module.slots
+end
+
+--- Records one dynamic-custody policy used by a generated module. During staging the
+--- candidate set stays private until every live persistent store admits the change.
+function hotreload.policy(slots: any, key: string): nil
+    local module = moduleForSlots(slots)
+    local staging = state.staging
+    if not staging then
+        module.policies[key] = true
+        return
+    end
+    local policies = staging.policies[module] or {}
+    staging.policies[module] = policies
+    policies[key] = true
 end
 
 --- Marks a module's initial registration complete after its chunk returns.
@@ -215,12 +229,25 @@ function hotreload.stage(source: string, baseGeneration: integer): any?, string?
     if not chunk then
         return nil, tostring(loadError)
     end
-    local staging = {baseGeneration = baseGeneration, candidates = {}, byKey = {}}
+    local staging = {baseGeneration = baseGeneration, candidates = {}, byKey = {}, policies = {}}
     state.staging = staging
     local ok, reason = pcall(chunk)
     state.staging = nil
     if not ok then
         return nil, tostring(reason)
+    end
+    local changedModules = {}
+    for _, candidate in ipairs(staging.candidates) do
+        changedModules[candidate.module] = true
+    end
+    local policyCount = _G.__nuppDynamicPolicyCount
+    for module in pairs(changedModules) do
+        local candidatePolicies = staging.policies[module] or {}
+        for policy in pairs(module.policies or {}) do
+            if not candidatePolicies[policy] and policyCount and policyCount(policy) > 0 then
+                return nil, "live dynamic capability policy changed; drain its store entries before reloading"
+            end
+        end
     end
     state.preparedSerial = state.preparedSerial + 1
 
@@ -229,6 +256,7 @@ function hotreload.stage(source: string, baseGeneration: integer): any?, string?
         generation = baseGeneration + 1,
         serial = state.preparedSerial,
         candidates = staging.candidates,
+        policies = staging.policies,
         committed = false,
     }
 end
@@ -247,6 +275,9 @@ function hotreload.commit(prepared: any): integer?, string?
     -- these direct array writes, so no dispatch can observe a partial vector.
     for _, candidate in ipairs(prepared.candidates) do
         candidate.module.slots[candidate.index] = candidate.implementation
+    end
+    for module, policies in pairs(prepared.policies or {}) do
+        module.policies = policies
     end
     prepared.committed = true
     state.generation = prepared.generation

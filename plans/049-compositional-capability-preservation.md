@@ -1,9 +1,10 @@
 # Compositional capability preservation
 
-> Aggregate preservation landed. Callable contracts retain the unique result-shape path, and
-> preservation transports complete capabilities through aggregate generic results
-> without copying movable obligations. The closure, mapped/projection, and join
-> extensions below remain future phases.
+> Implemented. Callable contracts retain their exact result/source relation through
+> assignment and overloads. Preservation transports complete capabilities through
+> aggregates, packs and alternatives, unions/intersections, mapped/projected types,
+> closures, callable records, and branch-consistent returns without copying movable
+> obligations.
 
 ## Decision
 

@@ -196,18 +196,35 @@ An unconstrained `T` may carry a movable capability, so a preserving public
 function spells `takes`. Ordinary copyable values still pass through the same
 function without becoming affine. `preserves` never copies an obligation and
 never changes runtime representation. Preservation follows one unambiguous path
-through records, tuples, optionals, unions, and result packs. If
-the source type appears in two result components, the checker will not guess which
+through records, tuples, optionals, unions, intersections, identity-mapped and
+projected types, callable records, closures, and result packs. Callable assignment
+keeps the exact result-to-parameter relation: it cannot erase or invent preservation.
+If the source type appears in two result components, the checker will not guess which
 component owns the obligation.
 
 ## Regions and loop-carried capabilities
 
-Loans use a general place path: stable fields, constant or unknown indexes, and
-audited checked partitions. Sibling fields and
-different constant indexes are disjoint. A parent overlaps every descendant, and
-unknown dynamic indexes overlap unless an existing integer proof distinguishes
-them. `nupp.span` splitting uses the same algebra rather than receiving ownership
-privilege from method names.
+Loans use a general place path: stable fields, tuple slots, dereferences, constant or
+unknown indexes, checked intervals, and audited partitions. Sibling fields, tuple
+slots, different constant indexes, and non-overlapping exact intervals are disjoint.
+A parent overlaps every descendant. Unknown indexes, bounds, and pointer arithmetic
+widen conservatively.
+
+After validating runtime bounds, audited unsafe library code can attach an exact
+interval to a child view:
+
+```nupp
+unsafe do
+    local left = nupp.region(storage, leftView, 1, 8)
+    local right = nupp.region(storage, rightView, 9, 16)
+    writeBoth(left, right)
+end
+```
+
+`nupp.region(parent, child, first, last)` erases to `child`; it grants no bounds
+check of its own and therefore requires `unsafe do`. Dynamic bounds produce an
+unknown overlapping interval. `nupp.span` splitting uses the same algebra rather
+than receiving ownership privilege from method names.
 
 A loop back edge must re-enter its header with the same obligation, roots, access,
 pin, retention, and live-region shape. Iteration-local borrows end before the edge.
@@ -241,6 +258,12 @@ representation witness against the complete stored representation-and-cleanup ke
 values, external borrows, pins, and foreign retentions cannot be enrolled because
 store destruction could not discharge them. `unsafe release`/`unsafe adopt` remains
 the manual-proof alternative.
+
+In watch mode, the host—not the patched module—owns a store that must survive reload.
+Generated modules publish their stable policy keys to the hot-reload transaction.
+A cleanup-body edit behind the same declaration identity uses the patched function
+slot. Removing or changing a policy with live entries rejects the patch without
+invalidating its handles; drain those entries first.
 
 ## Public capability contracts
 

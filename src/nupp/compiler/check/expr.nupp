@@ -352,11 +352,9 @@ function expr.install(c: state.Checker): nil
                 })
             end
             node.immutablePath = entry and entry.constant == true or false
-            if entry and entry.borrowOwner then
-                node.borrowOwner = entry.borrowOwner
-            end
-            if entry and entry.borrowOwners then
-                node.borrowOwners = entry.borrowOwners
+            local capabilityFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
+            if capabilityFacts and capabilityFacts.roots then
+                c.own.capabilityFacts(node).roots = capabilityFacts.roots
             end
             if entry then
                 local state = c.ownershipState(entry)
@@ -380,7 +378,7 @@ function expr.install(c: state.Checker): nil
                         context.body.borrowCaptures[#context.body.borrowCaptures + 1] = capture
                     end
                     if capture then
-                        node.borrowOwner = capture.root
+                        c.own.capabilityFacts(node).roots = {capture.root}
                         capturedType = T.borrowed(rawType(entry.t))
                     elseif not node.ownershipCaptureReported then
                         -- The branch above is what proves it has one.
@@ -651,11 +649,7 @@ function expr.install(c: state.Checker): nil
                 for _, capture in ipairs(captures) do
                     roots[#roots + 1] = capture.root
                 end
-                if #roots == 1 then
-                    node.borrowOwner = roots[1]
-                else
-                    node.borrowOwners = roots
-                end
+                c.own.capabilityFacts(node).roots = roots
                 if not c.ownershipKind(inferred) then
                     inferred = T.borrowed(inferred)
                 end
@@ -799,7 +793,7 @@ function expr.install(c: state.Checker): nil
                         aggregateMoves[#aggregateMoves + 1] = value.automaticOwnerMove
                     end
                 else
-                    local roots = value.borrowOwners or (value.borrowOwner and {value.borrowOwner}) or {}
+                    local roots = c.own.capabilityFacts(value, nil, false).roots or {}
                     for _, root in ipairs(roots) do
                         if not rootSeen[root] then
                             rootSeen[root] = true
@@ -816,11 +810,7 @@ function expr.install(c: state.Checker): nil
                 if ownsElements then
                     return T.affine(valueT, {}, true)
                 elseif #aggregateRoots > 0 then
-                    if #aggregateRoots == 1 then
-                        node.borrowOwner = aggregateRoots[1]
-                    else
-                        node.borrowOwners = aggregateRoots
-                    end
+                    c.own.capabilityFacts(node).roots = aggregateRoots
                     return T.borrowed(valueT)
                 end
 
@@ -942,11 +932,7 @@ function expr.install(c: state.Checker): nil
                 for _, capture in ipairs(captures) do
                     roots[#roots + 1] = capture.root
                 end
-                if #roots == 1 then
-                    node.borrowOwner = roots[1]
-                else
-                    node.borrowOwners = roots
-                end
+                c.own.capabilityFacts(node).roots = roots
                 if not c.ownershipKind(inferred) then
                     inferred = T.borrowed(inferred)
                 end

@@ -154,7 +154,7 @@ function control.install(c: state.Checker): state.StatHandlers
                         state = state,
                         moved = state.moved or false,
                         movedAt = state.movedAt,
-                        retained = state.retained or false,
+                        retained = own.capabilityFacts(state, nil, false).retention ~= nil,
                         capability = own.capabilityOf(state.t, state).id,
                         activeBorrows = state.activeBorrows or 0,
                         activeExclusiveBorrows = state.activeExclusiveBorrows or 0,
@@ -200,14 +200,17 @@ function control.install(c: state.Checker): state.StatHandlers
             capabilityChanged = capabilityChanged or regionSignature(
                 state.activeRegions
             ) ~= item.activeRegions or regionSignature(state.activeExclusiveRegions) ~= item.activeExclusiveRegions
-            if state.moved ~= item.moved or (state.retained or false) ~= item.retained or capabilityChanged then
+            if state.moved ~= item.moved or (
+                own.capabilityFacts(state, nil, false).retention ~= nil
+            ) ~= item.retained or capabilityChanged then
                 c.diag(
                     "NUPP2609",
                     state.movedAt or at,
                     "loop back edge changes a live capability from the state at the loop header",
                     nil,
                     {
-                        help = "finish the capability inside each iteration, move it into an explicit loop-carried place, or make this path leave the loop"
+                        help = "finish the capability inside each iteration, move it into an explicit loop-carried place, or make this path leave the loop",
+                        related = {c.related(at, "this repeatable loop creates the back edge")},
                     }
                 )
             end
@@ -320,12 +323,22 @@ function control.install(c: state.Checker): state.StatHandlers
             end
             if ownershipKind(valueT) == "borrowed" and not (j == 1 and c.borrowReturnStack[#c.borrowReturnStack]) then
                 local expr = stat.exprs[j] or stat
+                local root = provenanceOwners(expr)[1]
+                local related = root and root.definition and c.related(
+                    root.definition,
+                    "borrowed source is declared here"
+                ) or nil
                 local ownReturns = c.ownReturnStack[#c.ownReturnStack]
                 local ownCode = ownReturns and ownReturns[j] and "NUPP2616" or nil
                 c.diag(
                     ownCode or "NUPP2608",
                     expr,
-                    ownCode and "an owning result cannot retain an input borrow" or "borrowed value cannot be returned"
+                    ownCode and "an owning result cannot retain an input borrow" or "borrowed value cannot be returned",
+                    nil,
+                    {
+                        help = "return a value owned by the caller, or declare the result with `borrows (source)`",
+                        related = related and {related} or nil,
+                    }
                 )
             elseif ownershipKind(valueT) == "affine" or ownershipKind(valueT) == "pinned" then
                 -- The branch above is what proves it has one.
@@ -701,7 +714,7 @@ function control.install(c: state.Checker): state.StatHandlers
         if cond then
             local ownershipBefore = ownershipSnapshot()
             for _, item in ipairs(ownershipBefore) do
-                item.retained = item.state.retained or false
+                item.retained = own.capabilityFacts(item.state, nil, false).retention ~= nil
             end
             c.infer(cond)
             local facts = analyzeCond(cond)
@@ -719,7 +732,7 @@ function control.install(c: state.Checker): state.StatHandlers
         -- repeat scope extends over the until condition
         local ownershipBefore = ownershipSnapshot()
         for _, item in ipairs(ownershipBefore) do
-            item.retained = item.state.retained or false
+            item.retained = own.capabilityFacts(item.state, nil, false).retention ~= nil
         end
         c.pushScope()
         c.loops.push(stat.body)
@@ -899,7 +912,7 @@ function control.install(c: state.Checker): state.StatHandlers
         c.numericOperand(et, to, "for")
         local ownershipBefore = ownershipSnapshot()
         for _, item in ipairs(ownershipBefore) do
-            item.retained = item.state.retained or false
+            item.retained = own.capabilityFacts(item.state, nil, false).retention ~= nil
         end
         c.pushScope()
         c.scope.completionScope = stat.body
@@ -993,7 +1006,7 @@ function control.install(c: state.Checker): state.StatHandlers
         end
         local ownershipBefore = ownershipSnapshot()
         for _, item in ipairs(ownershipBefore) do
-            item.retained = item.state.retained or false
+            item.retained = own.capabilityFacts(item.state, nil, false).retention ~= nil
         end
         c.pushScope()
         c.scope.completionScope = stat.body

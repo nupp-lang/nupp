@@ -33,6 +33,9 @@ type ownership.Ops = {
     --- current flow entry.
     capabilityOf: function(t: Type?, entry: any?): T.Capability,
 
+    --- The authoritative mutable facts from which `capabilityOf` is projected.
+    capabilityFacts: function(entry: any, result: integer?, create: boolean?): T.CapabilityFacts,
+
     --- The entry an ownership fact is recorded on, following a narrowed copy back.
     ownershipState: function(entry: any): any,
 
@@ -84,6 +87,9 @@ type ownership.Ops = {
 
     regionContains: function(parent: string?, child: string?): boolean,
 
+    --- Related-location details for the first live borrow overlapping a region.
+    conflictDetails: function(root: any, path: string?, exclusiveOnly: boolean?): any,
+
     --- Records that an expression's owner has been handed over.
     moveExpression: function(
         expr: any,
@@ -101,31 +107,36 @@ type ownership.Ops = {
 function ownership.install(c: state.Checker): ownership.Ops
     local own = {}
     local pendingGenericCleanupBounds = {}
+    local emptyCapabilityFacts = new T.CapabilityFacts()
+
+    function own.capabilityFacts(entry, result, create)
+        entry = own.ownershipState(entry)
+        if not entry then
+            return emptyCapabilityFacts
+        end
+        if not entry.capabilityFacts and create ~= false then
+            entry.capabilityFacts = new T.CapabilityFacts()
+        end
+        if result then
+            local existing = entry.resultCapabilityFacts and entry.resultCapabilityFacts[result]
+            if existing then
+                return existing
+            elseif create == false then
+                return result == 1 and entry.capabilityFacts or emptyCapabilityFacts
+            end
+            entry.resultCapabilityFacts = entry.resultCapabilityFacts or {}
+            entry.resultCapabilityFacts[result] = (result == 1 and entry.capabilityFacts) or new T.CapabilityFacts()
+            return entry.resultCapabilityFacts[result]
+        end
+
+        return entry.capabilityFacts or emptyCapabilityFacts
+    end
 
     function own.capabilityOf(t, entry)
         entry = own.ownershipState(entry)
         t = t or (entry and entry.t) or T.any
-        local roots = {}
-        if entry then
-            if entry.borrowOwner then
-                roots[#roots + 1] = own.borrowRoot(entry.borrowOwner)
-            end
-            for _, root in ipairs(entry.borrowOwners or {}) do
-                roots[#roots + 1] = own.borrowRoot(root)
-            end
-        end
 
-        return T.capability(
-            t,
-            new T.CapabilityFacts(
-                roots = roots,
-                exclusive = entry and entry.exclusiveBorrow or nil,
-                regionRoot = entry and entry.regionRoot or nil,
-                regionPath = entry and entry.regionPath or nil,
-                anchor = entry and entry.pinAnchor or nil,
-                retention = entry and (entry.retentionIdentity or entry.retained) or nil
-            )
-        )
+        return T.capability(t, entry and own.capabilityFacts(entry, nil, false) or nil)
     end
 
     function own.ownershipKind(t)
@@ -139,9 +150,11 @@ function ownership.install(c: state.Checker): ownership.Ops
     function own.borrowRoot(entry)
         entry = own.ownershipState(entry)
         local seen = {}
-        while entry and entry.borrowOwner and not seen[entry] do
+        local roots = entry and own.capabilityFacts(entry, nil, false).roots or nil
+        while entry and roots and roots[1] and not seen[entry] do
             seen[entry] = true
-            entry = own.ownershipState(entry.borrowOwner)
+            entry = own.ownershipState(roots[1])
+            roots = entry and own.capabilityFacts(entry, nil, false).roots or nil
         end
 
         return entry
@@ -450,6 +463,23 @@ function ownership.install(c: state.Checker): ownership.Ops
         return T.regionContains(parent, child)
     end
 
+    function own.conflictDetails(root, path, exclusiveOnly)
+        for borrowed, site in pairs(root and root.activeBorrowSites or {}) do
+            local borrowedFacts = own.capabilityFacts(borrowed, nil, false)
+            if not borrowed.moved and (
+                not exclusiveOnly or borrowedFacts.exclusive
+            ) and (not path or own.regionsOverlap(path, borrowedFacts.regionPath or "")) then
+                local related = c.related(site, "overlapping borrow is declared here")
+                return {
+                    help = "end the overlapping borrow before requesting this access",
+                    related = related and {related} or nil,
+                }
+            end
+        end
+
+        return {help = "end the overlapping borrow before requesting this access"}
+    end
+
     function own.regionOf(expr)
         while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
             expr = expr.expr
@@ -457,17 +487,28 @@ function ownership.install(c: state.Checker): ownership.Ops
         if not expr then
             return nil, nil
         end
-        if expr.regionRoot then
-            return expr.regionRoot, expr.regionPath or ""
+        local exprFacts = own.capabilityFacts(expr, nil, false)
+        if exprFacts.regionRoot then
+            return exprFacts.regionRoot, exprFacts.regionPath or ""
         end
         if expr.kind == "name" then
             local entry = own.ownershipState(c.lookupEntry(expr.token.text))
             if entry then
-                expr.regionExclusive = entry.exclusiveBorrow or nil
-                return entry.regionRoot or own.borrowRoot(entry.borrowOwner or entry), entry.regionPath or ""
+                local facts = own.capabilityFacts(entry, nil, false)
+                if facts.exclusive then
+                    own.capabilityFacts(expr).exclusive = true
+                end
+                return facts.regionRoot or own.borrowRoot(
+                    facts.roots and facts.roots[1] or entry
+                ), facts.regionPath or ""
             end
         elseif expr.kind == "dotIndex" or expr.kind == "safeIndex" then
             local root, path = own.regionOf(expr.obj)
+            local objectRef = c.refType(expr.obj)
+            local objectType = objectRef and rawType(objectRef) or nil
+            if root and objectType and objectType.tag == "ptr" then
+                path = T.regionDeref(path)
+            end
             local fields = expr.obj.partitionFields
             if not fields and expr.obj.kind == "name" then
                 local entry = own.ownershipState(c.lookupEntry(expr.obj.token.text))
@@ -475,7 +516,7 @@ function ownership.install(c: state.Checker): ownership.Ops
             end
             local suffix = fields and fields[expr.name.text] or nil
             if root and suffix then
-                expr.regionExclusive = true
+                own.capabilityFacts(expr).exclusive = true
                 local side = suffix == "L" and "left" or suffix == "R" and "right" or suffix
                 return root, T.regionPartition(path, side)
             elseif root then
@@ -489,6 +530,14 @@ function ownership.install(c: state.Checker): ownership.Ops
                 local exact = key and key.tag == "literal" and type(
                     key.constant
                 ) == "number" and key.constant % 1 == 0 and key.constant or nil
+                local referenced = c.refType(expr.obj)
+                local objectType = referenced and rawType(referenced) or nil
+                if objectType and objectType.tag == "tuple" and exact and exact >= 1 and exact <= #objectType.elems then
+                    return root, T.regionTupleSlot(path, exact)
+                end
+                if objectType and objectType.tag == "ptr" then
+                    path = T.regionDeref(path)
+                end
                 return root, T.regionIndex(path, exact)
             end
             return root, path
@@ -509,15 +558,14 @@ function ownership.install(c: state.Checker): ownership.Ops
         if not expr then
             return nil
         end
-        if expr.borrowOwner then
-            return own.borrowRoot(expr.borrowOwner)
-        end
-        if expr.returnBorrowOwners and expr.returnBorrowOwners[1] and #expr.returnBorrowOwners[1] > 0 then
-            return own.borrowRoot(expr.returnBorrowOwners[1][1])
+        local exprRoots = own.capabilityFacts(expr, nil, false).roots
+        if exprRoots and exprRoots[1] then
+            return own.borrowRoot(exprRoots[1])
         end
         if expr.kind == "name" then
             local entry = own.ownershipState(c.lookupEntry(expr.token.text))
-            return own.borrowRoot(entry and (entry.borrowOwner or entry))
+            local roots = entry and own.capabilityFacts(entry, nil, false).roots or nil
+            return own.borrowRoot(entry and (roots and roots[1] or entry))
         elseif expr.kind == "dotIndex"
             or expr.kind == "safeIndex"
             or expr.kind == "bracketIndex"
@@ -557,17 +605,9 @@ function ownership.install(c: state.Checker): ownership.Ops
         if expr.kind == "newExpr" then
             return own.provenanceOwners(expr.call, out, seen)
         end
-        if expr.borrowOwners then
-            for _, owner in ipairs(expr.borrowOwners) do
-                owner = own.borrowRoot(owner)
-                if owner and not seen[owner] then
-                    seen[owner], out[#out + 1] = true, owner
-                end
-            end
-            return out
-        end
-        if expr.returnBorrowOwners and expr.returnBorrowOwners[1] then
-            for _, owner in ipairs(expr.returnBorrowOwners[1]) do
+        local exprRoots = own.capabilityFacts(expr, nil, false).roots
+        if exprRoots then
+            for _, owner in ipairs(exprRoots) do
                 owner = own.borrowRoot(owner)
                 if owner and not seen[owner] then
                     seen[owner], out[#out + 1] = true, owner
@@ -624,42 +664,48 @@ function ownership.install(c: state.Checker): ownership.Ops
     --- live writer from another shared reader without weakening ordinary borrow
     --- accounting.
     function own.releaseBorrowLinks(entry)
-        if entry.regionRoot and entry.regionPath then
-            local active = entry.regionRoot.activeRegions
-            if active and active[entry.regionPath] then
-                active[entry.regionPath] = math.max(0, active[entry.regionPath] - 1)
-                if active[entry.regionPath] == 0 then
-                    active[entry.regionPath] = nil
+        entry = own.ownershipState(entry)
+        -- Narrowed bindings share their declaration's flow state but do not acquire a
+        -- second loan. Leaving the narrowing scope must therefore not release the
+        -- declaration's roots.
+        if entry.ownershipOrigin then
+            return
+        end
+        if not entry.capabilityFacts then
+            return
+        end
+        local facts = own.capabilityFacts(entry, nil, false)
+        if facts.regionRoot and facts.regionPath then
+            local active = facts.regionRoot.activeRegions
+            if active and active[facts.regionPath] then
+                active[facts.regionPath] = math.max(0, active[facts.regionPath] - 1)
+                if active[facts.regionPath] == 0 then
+                    active[facts.regionPath] = nil
                 end
             end
-            if entry.exclusiveBorrow then
-                local exclusive = entry.regionRoot.activeExclusiveRegions
-                if exclusive and exclusive[entry.regionPath] then
-                    exclusive[entry.regionPath] = math.max(0, exclusive[entry.regionPath] - 1)
-                    if exclusive[entry.regionPath] == 0 then
-                        exclusive[entry.regionPath] = nil
+            if facts.exclusive then
+                local exclusive = facts.regionRoot.activeExclusiveRegions
+                if exclusive and exclusive[facts.regionPath] then
+                    exclusive[facts.regionPath] = math.max(0, exclusive[facts.regionPath] - 1)
+                    if exclusive[facts.regionPath] == 0 then
+                        exclusive[facts.regionPath] = nil
                     end
                 end
             end
         end
-        if entry.borrowOwner then
-            entry.borrowOwner.activeBorrows = math.max(0, (entry.borrowOwner.activeBorrows or 1) - 1)
-            if entry.exclusiveBorrow then
-                entry.borrowOwner.activeExclusiveBorrows = math.max(
-                    0,
-                    (entry.borrowOwner.activeExclusiveBorrows or 1) - 1
-                )
+        for _, owner in ipairs(facts.roots or {}) do
+            if owner.activeBorrowSites then
+                owner.activeBorrowSites[entry] = nil
             end
-            entry.borrowOwner = nil
-        end
-        for _, owner in ipairs(entry.borrowOwners or {}) do
             owner.activeBorrows = math.max(0, (owner.activeBorrows or 1) - 1)
-            if entry.exclusiveBorrow then
+            if facts.exclusive then
                 owner.activeExclusiveBorrows = math.max(0, (owner.activeExclusiveBorrows or 1) - 1)
             end
         end
-        entry.borrowOwners = nil
-        entry.exclusiveBorrow = nil
+        facts.roots = nil
+        facts.exclusive = nil
+        facts.regionRoot = nil
+        facts.regionPath = nil
     end
 
     function own.moveExpression(expr, t, reason, expectedKind, allowPartial)
@@ -754,7 +800,7 @@ function ownership.install(c: state.Checker): ownership.Ops
                 c.diag("NUPP2602", nameNode, ("owner %q cannot move while it is borrowed"):format(nameNode.token.text))
                 return false
             end
-            if expectedKind == "pinned" and entry.retained then
+            if expectedKind == "pinned" and own.capabilityFacts(entry, nil, false).retention then
                 c.diag(
                     "NUPP2602",
                     nameNode,

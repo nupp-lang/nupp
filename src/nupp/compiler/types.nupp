@@ -282,6 +282,9 @@ end
 --- its current state. Every field is optional so type-only callers pay for no
 --- fabricated flow identity.
 record types.CapabilityFacts
+    --- Flow identity from which a preserved result moved its obligation.
+    origin: any?
+
     loans: {types.Loan}?
     roots: {any}?
     exclusive: boolean?
@@ -1908,8 +1911,22 @@ function types.regionTupleSlot(path: string?, slot: integer): string
     return regionAppend(path, "T", tostring(slot))
 end
 
+function types.regionDeref(path: string?): string
+    return regionAppend(path, "D", "")
+end
+
 function types.regionIndex(path: string?, index: integer?): string
     return regionAppend(path, index and "I" or "U", index and tostring(index) or "")
+end
+
+--- A checked inclusive integer interval below a rooted allocation. Unknown bounds
+--- widen to the same conservative segment as a dynamic index.
+function types.regionRange(path: string?, first: integer?, last: integer?): string
+    if not first or not last then
+        return regionAppend(path, "U", "")
+    end
+
+    return regionAppend(path, "R", tostring(first) .. ":" .. tostring(last))
 end
 
 function types.regionPartition(path: string?, side: 'left' | 'right'): string
@@ -1957,7 +1974,26 @@ function types.regionsOverlap(left: string?, right: string?): boolean
         if x.kind == "U" or y.kind == "U" then
             return true
         end
-        if x.kind ~= y.kind or x.value ~= y.value then
+        if x.kind == "R" and y.kind == "R" then
+            local xf, xl = x.value:match("^(-?%d+):(-?%d+)$")
+            local yf, yl = y.value:match("^(-?%d+):(-?%d+)$")
+            if not xf or not yf then
+                return true
+            end
+            if tonumber(xl) < tonumber(yf) or tonumber(yl) < tonumber(xf) then
+                return false
+            end
+        elseif x.kind == "R" and y.kind == "I" or x.kind == "I" and y.kind == "R" then
+            local range, index = x.kind == "R" and x or y, x.kind == "I" and x or y
+            local first, last = range.value:match("^(-?%d+):(-?%d+)$")
+            local at = tonumber(index.value)
+            if not first or not at then
+                return true
+            end
+            if at < tonumber(first) or at > tonumber(last) then
+                return false
+            end
+        elseif x.kind ~= y.kind or x.value ~= y.value then
             return false
         end
     end
@@ -2033,7 +2069,12 @@ local function preservedPath(t: types.Type, target: types.Type, seen: {[any]: bo
                 return nil
             end
         end
-    elseif t.tag == "union" then
+    elseif t.tag == "union" or t.tag == "intersection" then
+        -- A union chooses one representation arm and an intersection describes one
+        -- value through several views. Neither introduces a runtime component of its
+        -- own, so every arm that carries the source must agree on the path beneath it.
+        -- Arms that do not mention a generic source are harmless widenings: the
+        -- preserving implementation still returns the actual source value.
         for _, member in ipairs(t.members) do
             if member ~= types.nil_ then
                 local path = preservedPath(member, target, seen)
@@ -2044,6 +2085,23 @@ local function preservedPath(t: types.Type, target: types.Type, seen: {[any]: bo
                     found = path
                 end
             end
+        end
+    elseif t.tag == "neutral" and t.op == "mapped" and not t.remap then
+        -- Preserve through the still-symbolic identity mapped form
+        -- `{readonly [K in keyof S]: S.[K]}`. Its keys and member projection are
+        -- structurally known even when a field value still mentions a binder, so
+        -- waiting for call-site reduction would wrongly reject the declaration.
+        local keys = t.keys
+        local value = t.value
+        local subject = keys and keys.tag == "neutral" and keys.op == "keyof" and keys.subject or nil
+        if subject
+            and value
+            and value.tag == "neutral"
+            and value.op == "member"
+            and value.subject == subject
+            and value.key == t.binder
+        then
+            found = preservedPath(subject, target, seen)
         end
     end
     seen[t] = nil

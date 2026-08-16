@@ -866,9 +866,10 @@ Parameter modes describe calls: `takes` consumes; `borrows` is call-scoped;
 `exclusive` also requires sole access; `retains`/`releases` describe C holding a
 pointer across calls.
 
-`T preserves value` moves an exact capability through one unambiguous scalar or
-aggregate result path. `T borrows (source)` ties a result or nominal field to a
-root. Closures borrow captured owners by default. `takes (source)` makes a
+`T preserves value` moves an exact capability through one unambiguous scalar,
+aggregate, union/intersection, mapped, projected, or callable result path. Callable
+assignment keeps that relation exactly. `T borrows (source)` ties a result or nominal
+field to a root. Closures borrow captured owners by default. `takes (source)` makes a
 single-shot closure; `scoped` proves callback captures cannot escape.
 
 Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds
@@ -880,8 +881,10 @@ with its private pointer. Suspension cannot strand an obligation.
 from the writer, excluding overlapping access. An exclusive parameter may be
 forwarded while no derived borrow is live.
 
-Fields, tuple slots, exact indexes, and ranges use one region algebra; unknown
-indexes overlap. Loop back edges restore their complete capability state.
+Fields, tuple slots, dereferences, exact indexes, and ranges use one region algebra;
+unknown indexes and bounds overlap. After checking runtime bounds, unsafe library code
+uses `nupp.region(parent, child, first, last)` to attach an exact interval; the call
+erases to `child`. Loop back edges restore their complete capability state.
 `WriteSpan.splitAt(mid)` creates audited disjoint regions. `countedBy(count)` maps
 cdef pointer/count parameters to checked spans.
 
@@ -894,8 +897,10 @@ raises the first failure with the rest suppressed. Local names shadow helpers.
 
 Capabilities cannot disappear into `any`. `nupp.dynamic` holds self-contained
 cleanup capabilities behind copyable generation-checked handles; `recover` checks
-an erased handle's policy and `take` restores its exact capability. Public APIs
-spell modes and result relations only for capability-bearing values.
+an erased handle's policy and `take` restores its exact capability. Watch-mode policy
+changes are rejected while matching entries are live; cleanup-body changes keep their
+stable identity and use the patched function slot. Public APIs spell modes and result
+relations only for capability-bearing values.
 
 ```nupp
 local m = {}

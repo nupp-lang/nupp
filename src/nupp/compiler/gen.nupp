@@ -603,6 +603,7 @@ function gen.generate(
         captures = {},
         only = hot.only,
         structure = {},
+        policies = {},
         libraries = hot.libraries or {},
     } or nil
 
@@ -3345,6 +3346,12 @@ function gen.generate(
                     e("nil")
                 end
                 e(" end)()")
+            elseif x.ownershipIntrinsic == "region" then
+                if args[2] then
+                    emit(args[2])
+                else
+                    e("nil", line)
+                end
             elseif x.ownershipIntrinsic == "pin" then
                 e("{pointer=", line)
                 if args[1] then
@@ -3568,6 +3575,9 @@ function gen.generate(
             return
 
         elseif kind == "methodCall" and x.dynamicPutCleanups then
+            if hotState and x.dynamicTypePolicy then
+                hotState.policies[x.dynamicTypePolicy] = true
+            end
             local line = sourceLine(x)
             local args = x.args and x.args.exprs or {}
             local activeNames, seen = {}, {}
@@ -4904,7 +4914,17 @@ function gen.generate(
         ) .. code
     end
     if hotState then
-        code = ("local %s=_G.__nuppHotReload.module(%q); "):format(hotState.slotsExpr, hotState.module) .. code
+        local policies = {}
+        for policy in pairs(hotState.policies) do
+            policies[#policies + 1] = policy
+        end
+        table.sort(policies)
+        for j, policy in ipairs(policies) do
+            policies[j] = ("_G.__nuppHotReload.policy(%s,%q); "):format(hotState.slotsExpr, policy)
+        end
+        code = (
+            "local %s=_G.__nuppHotReload.module(%q); "
+        ):format(hotState.slotsExpr, hotState.module) .. table.concat(policies) .. code
     end
     local metadata = coverageOn and {path = coveragePath, sites = (coverageSites or {}) as {any}} or nil
     local hotMetadata = nil

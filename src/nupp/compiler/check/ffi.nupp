@@ -158,10 +158,8 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                             node,
                             "a pointer into managed storage needs a named or preserved lifetime root"
                         )
-                    elseif #roots == 1 then
-                        node.borrowOwner = roots[1]
                     else
-                        node.borrowOwners = roots
+                        c.own.capabilityFacts(node).roots = roots
                     end
                     return T.borrowed(argT)
                 end
@@ -476,7 +474,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             end
             local entry = args[1] and c.ownershipEntry(args[1]) or nil
             entry = c.ownershipState(entry)
-            if c.ownershipKind(valueT) or entry and entry.retained then
+            if c.ownershipKind(valueT) or entry and c.own.capabilityFacts(entry, nil, false).retention then
                 c.diag(
                     "NUPP2603",
                     args[1] or node,

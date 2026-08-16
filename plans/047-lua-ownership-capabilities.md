@@ -1,8 +1,9 @@
 # Lua ownership capabilities
 
-> Core implementation landed. The checker uses the canonical capability query for obligations,
-> loans, anchors, retentions, erasure, preservation, regions, and suspension. The
-> old public ownership-policy aliases and borrowed/pinned wrapper spellings are gone.
+> Implemented. The checker stores per-value roots, access, regions, anchors, and
+> retentions in canonical `CapabilityFacts`; obligation, move, and active-loan state
+> have one query path. The old public ownership-policy aliases and borrowed/pinned
+> wrapper spellings are gone.
 
 ## Decision
 
@@ -282,7 +283,7 @@ Two independently gated plans build on the canonical record:
   anchors, fixes its `takes` parameter direction, and carries relationships through
   aggregates, packs, unions, closures, and module summaries.
 - [`050-general-capability-regions.md`](050-general-capability-regions.md) defines
-  place paths, overlap, audited splitting, loop-header fixpoint, back-edge rules, and
+  place paths, overlap, audited splitting, exact loop-header invariants, back-edge rules, and
   the exact boundary between ownership-specific span logic and unrelated C, effect,
   storage, allocation, and AOT behavior.
 

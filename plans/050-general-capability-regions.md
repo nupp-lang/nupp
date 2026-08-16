@@ -1,8 +1,10 @@
 # General capability regions
 
-> Core implementation landed. One stable segment algebra now answers fields, exact/unknown
-> index, parent/descendant, and audited partition overlap. Loop back edges compare
-> complete capability and live-region state; unrelated span compiler behavior remains.
+> Implemented with an intentionally exact loop invariant. One stable segment algebra
+> answers fields, tuple slots, dereferences, exact/unknown indexes, checked intervals,
+> parent/descendant, and audited partition overlap. Loop back edges must reproduce the
+> header's complete capability and live-region state; Nupp does not infer a changing
+> loop-carried lifetime. Unrelated span compiler behavior remains.
 
 ## Decision
 
@@ -74,8 +76,8 @@ exclusive pair.left
 Two exact constant indexes are disjoint when their integer values differ. Two dynamic
 indexes overlap unless the checker has a dominating proof that their exact values
 differ. Two checked ranges are disjoint only when their bounds facts prove
-non-overlap. An unknown index, unchecked pointer arithmetic, or unknown dereference
-widens to the nearest rooted parent allocation.
+non-overlap. An unknown index, unchecked pointer arithmetic, or unknown dereference is
+an overlapping unknown child beneath the nearest rooted parent allocation.
 
 An exclusive parameter lends the caller's sole region to the callee. A result written
 `T borrows (source)` becomes an exclusive child when the selected source parameter is
@@ -110,10 +112,11 @@ to delete them.
 
 ## Control-flow joins and loops
 
-Region flow uses a finite forward dataflow fixpoint. A loop header joins the entry edge
-with every back edge until root sets, access modes, and region paths stop changing.
-The join is conservative but may not invent or discard a movable capability to force
-convergence.
+Region flow uses an exact back-edge invariant. A loop header compares the entry edge
+with each repeatable back edge. Changing root sets, access modes, region paths, or
+obligation shapes is rejected instead of widened into an inferred loop-carried
+lifetime. This keeps the model local and avoids a second lifetime-parameter language;
+code that genuinely carries a capability uses an explicit loop-carried place.
 
 Every back edge must return the same live obligation shape expected at the header. A
 shared or exclusive child created inside an iteration must end before the back edge
@@ -121,14 +124,10 @@ unless the header explicitly carries the same region state. Cleanup or transfer-
 leaves created in an iteration must likewise be discharged, returned, or moved into an
 explicit loop-carried place before the edge.
 
-Loop-carried roots union at the header. Differing dynamic indexes widen to their
-common parent region unless an existing integer proof establishes one stable index or
-disjoint checked ranges. A proof that indexes differ within one iteration says nothing
-about different iterations: the earlier child must be dead at the back edge or a loop
-invariant must prove cross-iteration disjointness.
-
-Widening records the incoming paths and the back edge that lost precision. Diagnostics
-therefore point to the actual loop-carried conflict rather than only the later access.
+Differing dynamic indexes do not acquire a cross-iteration proof. The earlier child
+must be dead at the back edge or checking reports `NUPP2609`, relating the repeatable
+loop. Within one iteration, exact unequal indexes and checked non-overlapping intervals
+remain disjoint.
 
 ## Integer-proof boundary
 
@@ -137,7 +136,7 @@ dominance. It does not add a theorem prover. A new fact producer must be indepen
 sound, reusable outside ownership, and covered by its own narrowing tests before
 regions trust it.
 
-When proof is unavailable, widening is the answer. `unsafe` remains available for
+When proof is unavailable, an unknown overlapping path is the answer. `unsafe` remains available for
 pointer arithmetic whose root and bounds are externally guaranteed, but unsafe code
 does not manufacture a reusable safe region fact without the audited splitting
 intrinsic.
@@ -164,8 +163,8 @@ Reserve two ownership-family codes:
 | `NUPP2609` | a loop back edge changes roots, obligations, or region state unsafely |
 
 `NUPP2607` identifies both paths, their nearest common parent, access modes, and the
-last use keeping each child live. `NUPP2609` identifies the header expectation, back
-edge, widened path, and obligation or borrow that failed to end. Both land with
+last use keeping each child live. `NUPP2609` identifies the changed capability and
+relates the repeatable loop that creates its back edge. Both land with
 `nupp explain`, corrections, generated reference entries, related locations, and
 `docs/diagnostics.md` rows.
 
@@ -188,14 +187,14 @@ edge, widened path, and obligation or borrow that failed to end. Both land with
 ### R2 — Indexes and checked ranges
 
 - Consume existing constant, equality, range, and dominance facts.
-- Implement exact-index, range, unknown-index, and pointer widening.
+- Implement exact-index, range, unknown-index, and conservative pointer paths.
 - Add the audited splitting intrinsic and its runtime bounds validation.
 
-### R3 — Loop fixpoint
+### R3 — Exact loop invariant
 
-- Join roots, access, regions, and obligation shapes at loop headers.
+- Compare roots, access, regions, and obligation shapes at loop headers.
 - Enforce back-edge lifetime and obligation invariants.
-- Record widening provenance for diagnostics.
+- Relate the repeatable back edge in diagnostics.
 - Run the entire R0 corpus as a blocking no-new-rejections gate.
 
 ### R4 — Span ownership migration
@@ -223,9 +222,19 @@ Use the baseline methodology from plan 047:
 - native-kernel generated code and runtime benchmarks may not regress.
 
 Add focused checker benchmarks for a thousand fixed fields, nested projections, a hot
-loop with iteration-local borrows, dynamic indexes that widen, and checked ranges that
-remain disjoint. Report dataflow iterations per loop so a time result cannot hide a
-failure to converge precisely.
+loop with iteration-local borrows, unknown dynamic indexes, and checked ranges that
+remain disjoint.
+
+The implementation gate ran `bench/ownership-checker.lua` for 15 rounds at 1,000
+fields on the same compiler cache and machine against merge base `789c4c09`. The
+compatible workload's median full check moved from 675.0 ms to 683.9 ms, a 1.3%
+increase; its median warm project check fell from 141.3 ms to 136.6 ms. Private-body
+edits remained within measurement noise (177.5 ms to 180.5 ms), public invalidation
+fell from 176.0 ms to 174.1 ms, and the exact invalidation counts remained 0/2, 1/1,
+and 2/0 checked/reused. The public summary remained 319 bytes. Peak measured Lua GC
+growth rose from 77,692 KiB to 81,005 KiB, a 4.3% increase within the 10% gate. The
+mapped/region workload also completed with stable private-edit fingerprints and a
+1,097-byte public summary.
 
 ## Verification matrix
 
@@ -235,12 +244,12 @@ Tests must prove:
 - fixed sibling fields and tuple slots are disjoint;
 - parents overlap descendants;
 - exact unequal indexes and proven ranges are disjoint;
-- unknown indexes and pointer arithmetic widen to a safe parent;
+- unknown indexes and pointer arithmetic remain overlapping below a safe parent;
 - shared children block invalidation but permit compatible shared mutation;
 - exclusive children block every overlapping access;
 - audited splits publish disjoint siblings only after bounds validation;
 - iteration-local children end before the back edge;
-- loop-carried children converge or report `NUPP2609` with the widening edge;
+- loop-carried children reproduce the header or report `NUPP2609` with the back edge;
 - every R0 compiler, stdlib, span, kernel, and AOT fixture still checks;
 - unrelated span compiler branches remain intact;
 - public region summaries are stable and stale paths are rejected;
