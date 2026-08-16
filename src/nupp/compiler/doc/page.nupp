@@ -246,12 +246,17 @@ local function outlineEntries(items: {page.Entry}): string
 end
 
 local function outline(items: {page.Entry}?): string
+    local entries = outlineEntries(items or {})
     local out = {
         '<aside class="nuppdoc-outline" aria-label="On this page">'
+        .. '<div class="nuppdoc-outline-desktop">'
         .. '<div class="nuppdoc-outline-title">On this page</div><ol>'
     }
-    out[#out + 1] = outlineEntries(items or {})
-    out[#out + 1] = "</ol></aside>"
+    out[#out + 1] = entries
+    out[#out + 1] = '</ol></div><details class="nuppdoc-mobile-outline">'
+        .. "<summary>On this page</summary><ol>"
+    out[#out + 1] = entries
+    out[#out + 1] = "</ol></details></aside>"
 
     return table.concat(out)
 end

@@ -2087,6 +2087,8 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(module:find('<li class="nuppdoc-outline-section"><details open><summary>'
       .. '<a href="#functions" title="Functions">Functions</a></summary><ol><li>'
       .. '<a href="#math.add" title="add">add</a>', 1, true), module)
+   assert(module:find('<details class="nuppdoc-mobile-outline"><summary>On this page</summary>',
+      1, true), module)
    local moduleMarkdown = readFile(dir .. "/site/modules/math.md")
    local markdownTypesAt = assert(moduleMarkdown:find("\n## Types\n", 1, true))
    local markdownFunctionsAt = assert(moduleMarkdown:find(
@@ -2253,6 +2255,8 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(css:find("%-%-example%-project%-accent:#315f58"), css)
    assert(css:find("clip%-path:circle%(50%% at 50%% 50%%%)"), css)
    assert(css:find("filter:drop%-shadow"), css)
+   assert(css:find("nuppdoc%-mobile%-outline"), css)
+   assert(css:find("nuppdoc%-shell%{display:flex;flex%-direction:column%}"), css)
    -- one mechanism clears the sticky header; two would stack into twice the gap
    assert(css:find(
       "scroll-margin-top:calc(var(--nuppdoc-header-height) + 1.4rem)",
