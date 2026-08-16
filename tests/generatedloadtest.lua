@@ -67,6 +67,35 @@ function M.capturingUpToTheLimitIsAccepted()
    assert(loadstring(code, "@within-limit"), "generated code should load")
 end
 
+-- `new R(field = value)` lowers from what the checker resolved rather than from what
+-- the call wrote, so an unchecked construction is one the generator writes out as the
+-- call it was spelled as -- which is not Lua. Entries standing after a computed key
+-- used to go unchecked, and this is where that surfaced.
+function M.constructionsAfterAComputedKeyAreLowered()
+   local code, diags = generate(table.concat({
+      "local m = {}",
+      "",
+      "record m.R",
+      "    f: integer",
+      "end",
+      "",
+      "local t = {[\"a\"] = new m.R(f = 1), [\"b\"] = new m.R(f = 2)}",
+      "",
+      "function m.second(): integer",
+      "    return t[\"b\"].f",
+      "end",
+      "",
+      "return m",
+   }, "\n") .. "\n")
+   assert(#diags == 0, "expected no diagnostic, got " .. (diags[1] and diags[1].msg or ""))
+   local chunk, err = loadstring(code, "@computed-key")
+   assert(chunk, "generated code should load: " .. tostring(err) .. "\n---\n" .. code)
+   -- Loading proves it is Lua; running proves the second entry is an instance rather
+   -- than whatever calling the record's own table would have produced.
+   local second = chunk().second()
+   assert(second == 2, "the entry after the computed key: " .. tostring(second))
+end
+
 -- Ordinary files carry no cost and no report.
 function M.anOrdinaryFileReportsNothing()
    local code, diags = generate(table.concat({

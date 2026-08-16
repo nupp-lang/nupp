@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Check every entry of a table constructor, not only the ones before its first
+  computed key. A `[k] = v` entry settles what the constructor's type is -- a
+  generic table -- and the checker answered with that type as soon as it saw
+  one, which left every entry past it unvisited. So a mistake in one went
+  unreported, and a `new R(field = value)` standing after one reached the
+  generator with nothing resolved: a construction lowers from the fields the
+  checker bound rather than from the arguments as written, so it was written
+  out as the call it was spelled as, and `{["a"] = new R(f = 1), ["b"] = new
+  R(f = 2)}` failed to compile with NUPP3005. Positional construction past a
+  computed key had the quieter version of the same fault -- it generated Lua
+  that parsed and called the record's own table at run time.
 - Create a project from a template with `nupp init`. A template is a directory
   tree with one `template.lua` at its root, and the same format serves a
   built-in, a directory named with `--from`, and a repository spelled

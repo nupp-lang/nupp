@@ -211,22 +211,6 @@ work makes sense in.
       bounded generics, nested type namespaces, and `self` directly into their
       landed nupp forms
 
-## Compiler bugs
-
-- [ ] **A `const` module table with more than one keyed `new` entry does not
-      compile inside `src/`.**
-      `const m.T = {["a"] = new m.R(f = 1), ["b"] = new m.R(f = 2)}` reports
-      NUPP3005 "generated code does not load: ')' expected near '='" pointing at
-      the second entry, so a named argument survived into the generated Lua. One
-      keyed entry compiles. A `const` array of `new` compiles
-      (`aotLane.SHAPES`). The same file checked from outside `src/` compiles,
-      with or without `--strict`, which is what makes this specific to the
-      self-hosted stage build rather than to the construct.
-      Worked around in `src/nupp/compiler/aot/admit.nupp` by building the tables
-      in an immediately-invoked function from an array, which is the shape
-      `aotLane.SHAPE_BY_NAME` already uses. The workaround is fine; the bug is
-      that a correct program in the compiler's own sources silently needs one.
-
 ## Performance and incrementality
 
 - [ ] **A cleanup region whose body writes an enclosing local still builds a

@@ -754,6 +754,7 @@ function expr.install(c: state.Checker): nil
             local positional, named = {}, {}
             local aggregateMoves, aggregateRoots = {}, {}
             local ownsElements = false
+            local computedKey = false
             local rootSeen = {}
             if node.affineAggregateContext then
                 node.affineAggregate = true
@@ -849,8 +850,17 @@ function expr.install(c: state.Checker): nil
                     if value then
                         tableValue(value, c.infer(value))
                     end
-                    return aggregateType(T.table_) -- computed keys: generic table in v0
+                    -- A computed key settles what the constructor's type is, but not
+                    -- what the rest of it means: the entries past it are expressions
+                    -- this pass owes a check and the generator owes a lowering.
+                    -- Answering here left them uninferred, so a `new R(field = v)`
+                    -- standing after one reached the generator with no fields resolved
+                    -- and was written out as a plain call.
+                    computedKey = true
                 end
+            end
+            if computedKey then
+                return aggregateType(T.table_) -- computed keys: generic table in v0
             end
             if #named > 0 and #positional == 0 then
                 return aggregateType(T.shape(named, nil, true))

@@ -258,6 +258,20 @@ function M.andOrIdioms()
    -- check cleanly; restored when the facts engine lands.
 end
 
+-- A computed key settles what a table constructor's type is -- a generic table --
+-- and says nothing about the entries standing after it. Those used to go
+-- unvisited, so anything wrong in one went unreported and anything the generator
+-- needed the checker to resolve was never resolved.
+function M.entriesAfterAComputedKeyAreStillChecked()
+   assertEq((diagsOf("local t = {['a'] = 1, ['b'] = 'no' + 1}")), "NUPP2003:1")
+   assertEq((diagsOf("local t = {['a'] = 1, b = 'no' + 1}")), "NUPP2003:1")
+   assertEq((diagsOf("local t = {['a'] = 1, 'no' + 1}")), "NUPP2003:1")
+   -- Every entry, not only the one after the first computed key.
+   assertEq((diagsOf("local t = {['a'] = 1, ['b'] = 'no' + 1, ['c'] = 'no' + 1}")),
+      "NUPP2003:1 NUPP2003:1")
+   assertClean("local t = {['a'] = 1, ['b'] = 2}")
+end
+
 function M.cleanPrograms()
    assertClean("local x: number = 1 + 2")
    assertClean("local s: string = 'a' .. 1")
