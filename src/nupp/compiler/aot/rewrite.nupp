@@ -128,4 +128,88 @@ function rewrite.comparisonElement(left: scalarIR.Expr, right: scalarIR.Expr): l
     return "f64"
 end
 
+--- A rewritten value: a vector where the expression varied with the loop index,
+--- and the scalar it already was where it did not.
+type rewrite.Value = lane.Expr | scalarIR.Expr
+
+--- The scalar operations that become one elementwise lane operation, and the
+--- verb each becomes. Comparisons are separate because their result is a mask
+--- whatever they compare, so the width comes from the operands rather than the
+--- operation.
+const rewrite.ARITHMETIC = {["add"] = "add", ["sub"] = "sub", ["mul"] = "mul", ["div"] = "div",}
+
+const rewrite.COMPARISON = {["lt"] = "lt", ["le"] = "le", ["gt"] = "gt", ["ge"] = "ge", ["eq"] = "eq", ["ne"] = "ne",}
+
+--- Bitwise operations on flag words, which an entity query is made of.
+const rewrite.BITWISE = {
+    ["band"] = "and",
+    ["bor"] = "or",
+    ["bxor"] = "xor",
+    ["bnot"] = "not",
+    ["lshift"] = "shl",
+    ["rshift"] = "shr",
+    ["arshift"] = "sar",
+}
+
+--- The explicitly fixed-width operations, and the element each happens in.
+const rewrite.FIXED = {
+    ["f32_add"] = {verb = "add", element = "f32"},
+    ["f32_sub"] = {verb = "sub", element = "f32"},
+    ["f32_mul"] = {verb = "mul", element = "f32"},
+    ["f32_div"] = {verb = "div", element = "f32"},
+    ["i32_add"] = {verb = "add", element = "i32"},
+    ["i32_sub"] = {verb = "sub", element = "i32"},
+    ["i32_mul"] = {verb = "mul", element = "i32"},
+}
+
+--- The three whose native instruction is right about the value and wrong about
+--- NaN, with the helper that repairs each.
+const rewrite.CORRECTED = {
+    ["f32_min"] = {helper = "nupp_f32_min", arity = 2},
+    ["f32_max"] = {helper = "nupp_f32_max", arity = 2},
+    ["f32_fma"] = {helper = "nupp_f32_fma", arity = 3},
+}
+
+--- Whether an expression's value depends on which iteration this is.
+---
+--- The whole rewrite turns on this. A varying value becomes a vector; a uniform
+--- one stays scalar and broadcasts where it meets one, which is what keeps a
+--- loop-invariant subexpression out of every lane.
+function rewrite.varying(node: scalarIR.Expr, state: rewrite.State): boolean
+    if node == nil then
+        return false
+    end
+    local operation = node.op
+    if operation == "element_ref" or operation == "load" then
+        return (node as scalarIR.Load).index == state.index
+    elseif operation == "local" then
+        local name = (node as scalarIR.Name).name
+
+        return state.varyingLocals[name] == true or state.refBindings[name] ~= nil
+    elseif operation == "helper_param" then
+        return state.helperBindings[(node as scalarIR.Name).name] ~= nil
+    elseif operation == "uniform" or operation == "constant" or operation == "constant_i32" or operation == "bool" then
+        return false
+    elseif operation == "field_load" then
+        return rewrite.varying((node as scalarIR.FieldLoad).object, state)
+    end
+
+    -- Anything else varies exactly when one of its operands does.
+    local binary = node as scalarIR.Binary
+    if binary.left ~= nil or binary.right ~= nil then
+        return rewrite.varying(binary.left, state) or rewrite.varying(binary.right, state)
+    end
+    local unary = node as scalarIR.Unary
+    if unary.value ~= nil then
+        return rewrite.varying(unary.value, state)
+    end
+    for _, argument in ipairs((node as scalarIR.Math).args or {}) do
+        if rewrite.varying(argument, state) then
+            return true
+        end
+    end
+
+    return false
+end
+
 return rewrite

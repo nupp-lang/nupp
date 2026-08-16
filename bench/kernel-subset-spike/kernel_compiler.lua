@@ -1147,33 +1147,19 @@ local function vectorizeLoop(ir, reject, shape)
    local helperByName = {}
    for _, helper in ipairs(ir.helpers or {}) do helperByName[helper.name] = helper end
 
+   -- `nupp.compiler.aot.rewrite` owns this: whether a value depends on the
+   -- iteration is the decision the whole rewrite turns on, so it belongs with
+   -- the vocabulary rather than beside the loop that reads it.
+   local rewriteState = {
+      shape = shape,
+      index = index,
+      varyingLocals = varyingLocals,
+      refBindings = refBindings,
+      helperBindings = helperBindings,
+      reject = function(why) reject(nil, why) end,
+   }
    local function exprVarying(node)
-      if node == nil then return false end
-      local op = node.op
-      if op == "helper_param" then
-         return helperBindings[node.name] ~= nil
-      end
-      if op == "element_ref" or op == "load" then
-         return node.index == index
-      elseif op == "local" then
-         return varyingLocals[node.name] == true or refBindings[node.name] ~= nil
-      elseif op == "uniform" or op == "constant" or op == "constant_i32"
-         or op == "bool" then
-         return false
-      elseif op == "field_load" then
-         return exprVarying(node.object)
-      elseif node.left or node.right then
-         return exprVarying(node.left) or exprVarying(node.right)
-      elseif node.value then
-         return exprVarying(node.value)
-      elseif node.args then
-         for _, arg in ipairs(node.args) do
-            if exprVarying(arg) then return true end
-         end
-         return false
-      end
-
-      return false
+      return rewriteRules.varying(node, rewriteState)
    end
 
    local function markBlock(statements, controlled)
