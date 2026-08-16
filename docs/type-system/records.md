@@ -376,7 +376,9 @@ Both are nominal. Two records with identical fields are different types, and
 neither is assignable to the other. A record does erode into a structural shape
 with the same fields, so width subtyping works one way only.
 
-## Records remain ordinary Lua tables
+## FAQ
+
+### Are records classes or ordinary Lua tables?
 
 A record declaration creates the table and metatable pattern ordinary Lua code
 already uses. It adds a nominal type to checking but no class runtime or hidden
@@ -385,7 +387,7 @@ instance wrapper. The [record lowering](#records) uses a table and
 contracts](../metamethods.md#declaring-a-contract) remain explicit when an API
 needs operator behavior.
 
-## Methods do not require a shared interface
+### Do methods require a shared interface?
 
 An instance reaches its inline methods through the record table, so a concrete
 record API does not need an interface merely to call `file:read()`. Use an
@@ -393,7 +395,7 @@ record API does not need an interface merely to call `file:read()`. Use an
 types must satisfy the same structural contract, not as plumbing between a
 record and an ownership view of that record.
 
-## Constructor policies do not wrap instances
+### Does an affine constructor wrap the record instance?
 
 An affine constructor result adds a checker obligation to the record it already
 builds. The value keeps the record's methods and runtime identity, while

@@ -395,7 +395,9 @@ configuration, [ownership](start/ownership.md) for the resource workflow, and
 the [ownership reference](ownership.md) for output parameters, callbacks,
 pinning, and raw-pointer escape hatches.
 
-## Checked bindings still use LuaJIT FFI
+## FAQ
+
+### Does checked C interop replace LuaJIT FFI?
 
 Nupp does not replace LuaJIT FFI or insert a foreign-call runtime. A checked
 [`cdef` binding](#hand-write-a-small-binding) lowers to `ffi.cdef`, a namespace
@@ -403,7 +405,7 @@ lookup, and the same native call. The [typed FFI
 operations](#typed-ffi-operations) likewise retain their LuaJIT representation
 while the checker validates their type arguments.
 
-## Headers leave lifetime behavior unspecified
+### Does importing a header capture ownership?
 
 A C declaration says that a value is a pointer, but not whether the caller
 must free it, whether the callee retains it, or how long a derived pointer
@@ -412,7 +414,7 @@ behavior](#describe-lifetime-behavior) after importing a header. The [ownership
 reference](ownership.md#borrowing-and-pinning) defines the corresponding
 borrowing, pinning, retention, and cleanup contracts.
 
-## Ownership contracts preserve the native ABI
+### Do ownership contracts change the native ABI?
 
 `affine(T, cleanup)`, `borrows`, `exclusive`, and `countedBy` describe checked
 relationships around a call; they do not add fields or change its C signature.

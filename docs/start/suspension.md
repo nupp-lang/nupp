@@ -251,7 +251,9 @@ positions. The checker follows their callback bodies and reports a suspension
 that reaches the C boundary. The runtime names the operation when an unknown C
 API hides the boundary from static analysis.
 
-## Suspension requires library cooperation
+## FAQ
+
+### Can Nupp suspend any blocking function?
 
 Nupp does not turn an arbitrary blocking Lua or C call into a park. A library
 registers readiness through [suspension
@@ -259,7 +261,7 @@ handlers](suspension-handlers.md#hosts-supply-scheduling-policy), and only that
 suspension-aware path can yield control to its host. The checker rejects a
 yield through a [non-yieldable C boundary](#c-call-boundaries).
 
-## Suspensions do not become futures
+### Does a suspending call return a future?
 
 A suspension-aware call returns its declared result after the wait, so callers
 do not unwrap a future or acquire a second function type. The compiler tracks
@@ -267,7 +269,7 @@ the possibility of suspension separately through [call
 propagation](#suspension-propagates-through-calls), while `nosuspend` function
 types express the stronger callback guarantee.
 
-## Cancellation runs lexical cleanup
+### Does cancellation run affine cleanup?
 
 A handler cancels a parked operation by unwinding its coroutine stack. That
 unwind performs [automatic lexical

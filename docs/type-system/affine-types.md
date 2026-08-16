@@ -152,7 +152,9 @@ application, while `preserves` supplies the separate conservation proof. HKT wou
 only be relevant to an API abstracting over `Box` itself as a constructor and would
 not replace that proof.
 
-## GC finalizer cleanup costs about 10 times as much
+## FAQ
+
+### Are GC finalizers as cheap as affine cleanup?
 
 `ffi.gc` attaches runtime finalization to every resource and makes the garbage
 collector discover and dispatch its cleanup. `luajit bench/ownership.lua`
@@ -174,7 +176,7 @@ owns each native resource, while [borrowing and
 pinning](../ownership.md#borrowing-and-pinning) keep derived pointers attached
 to their backing storage.
 
-## Manual cleanup does not prove every path
+### Why not call cleanup manually?
 
 Calling `close`, `unlock`, or `free` directly works only when every return,
 raised error, and transfer follows the protocol. An
@@ -185,7 +187,7 @@ or a use after the value moved, while
 destruction](../ownership.md#consumption-and-lexical-destruction) handles each
 scope exit.
 
-## Ordinary values remain GC-managed
+### Does every Nupp value use ownership?
 
 Ownership is opt-in. Strings, numbers, tables, and records without a
 nontrivial capability retain ordinary Lua behavior and need no ownership
@@ -196,7 +198,7 @@ retention. A record constructor likewise remains ordinary unless its [result
 introduces a
 policy](../type-system/records.md#constructors-and-result-policies).
 
-## Native values keep their ABI representation
+### Does an affine type change the runtime representation?
 
 An affine type adds no runtime wrapper, cleanup field, tag, or vtable. It
 erases to its representation, so a C pointer remains a C pointer and a struct

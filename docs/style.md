@@ -154,9 +154,12 @@ the fact.
 | Where the escape hatches are | Escape hatches |
 | How fast an intrinsic call is | Intrinsic call cost |
 
-Sentence case. No trailing colons or question marks. A question as a heading
-is a fact you have not committed to yet, so skip FAQ framing. Stop at H3;
-reaching H4 usually means the page should split.
+Sentence case. No trailing colons or question marks outside an FAQ. A page may
+end with `## FAQ` when several recurring questions need short answers before
+the reader enters the complete reference. Each entry is an H3 containing one
+full question and ending in a question mark. Outside that section, a question
+as a heading is a fact the page has not committed to yet. Stop at H3; reaching
+H4 usually means the page should split.
 
 ## Openings
 
