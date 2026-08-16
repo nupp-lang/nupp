@@ -8,6 +8,8 @@ local root = here .. "../.."
 package.path = root .. "/build/?.lua;" .. package.path
 
 local ffi = require("ffi")
+local lane = require("nupp.compiler.aot.lane")
+local intensity = require("nupp.compiler.aot.intensity")
 local parser = require("nupp.compiler.parser")
 local cst = require("nupp.compiler.cst")
 
@@ -1071,100 +1073,12 @@ local function parseKernel(source, filename, checked)
    return ir, diagnostics
 end
 
---- Arithmetic operations per byte the loop body touches, from the scalar IR.
----
---- Lane lowering is a large win where a loop is register-resident and a large
---- loss where it streams memory: measured against their own scalar bodies,
---- Mandelbrot is about 2x faster with four lanes while a component update is
---- between a tenth and four fifths of its scalar speed, whatever the layout or
---- element width. What separates them is how much arithmetic there is to
---- amortize assembling and taking apart the vectors, so that is what this
---- counts.
----
---- Statements inside a data-dependent inner loop are weighted, because they run
---- many times per iteration of the loop being lowered and the trip count is not
---- a static fact. The weight is a stand-in for that count, not a claim about it.
-local INNER_LOOP_WEIGHT = 8
-
---- Below this many arithmetic operations per byte, lane lowering is declined.
----
---- Calibrated against the kernels in this directory, whose measured outcomes sit
---- on either side of a gap of more than ten times: Mandelbrot estimates about
---- 5.2 and runs about twice its scalar speed, while the component updates
---- estimate between 0.17 and 0.43 and run between a tenth and four fifths of
---- theirs. One is round and comfortably inside that gap. It is an estimate
---- standing in for a measurement, so `@aot(lanes = true)` and
---- `@aot(lanes = false)` override it in either direction.
-local LANE_INTENSITY_THRESHOLD = 1.0
-
-local ARITHMETIC = {
-   add = true, sub = true, mul = true, div = true, neg = true, mod = true,
-   pow = true, math = true, band = true, bor = true, bxor = true, bnot = true,
-   lshift = true, rshift = true, arshift = true,
-   f32_add = true, f32_sub = true, f32_mul = true, f32_div = true,
-   f32_sqrt = true, f32_min = true, f32_max = true, f32_fma = true,
-   i32_add = true, i32_sub = true, i32_mul = true,
-}
-
-local ELEMENT_BYTES = {f32 = 4, i32 = 4, u32 = 4, f64 = 8}
-
---- Counts one loop body: arithmetic operations, and the distinct span fields it
---- reads or writes. A field read twice is one load, because the second is in a
---- register; a field both read and written costs both.
+-- Declared in `nupp.compiler.aot.intensity`, which is where this decision
+-- belongs: whether a loop is worth running several iterations at once is
+-- compiler policy, not a property of this spike.
 local function arithmeticIntensity(ir)
-   local operations, touched = 0, {}
-
-   local countExpr
-   countExpr = function(node, weight)
-      if type(node) ~= "table" or not node.op then return end
-      if ARITHMETIC[node.op] then operations = operations + weight end
-      if node.op == "field_load" then
-         touched["r:" .. tostring(node.layout) .. "." .. tostring(node.field)] = node.type
-      elseif node.op == "load" then
-         touched["r:" .. tostring(node.span)] = node.type
-      end
-      countExpr(node.left, weight)
-      countExpr(node.right, weight)
-      countExpr(node.value, weight)
-      countExpr(node.object, weight)
-      for _, argument in ipairs(node.args or {}) do countExpr(argument, weight) end
-   end
-
-   local countBlock
-   countBlock = function(statements, weight)
-      for _, statement in ipairs(statements or {}) do
-         countExpr(statement.value, weight)
-         countExpr(statement.call, weight)
-         countExpr(statement.condition, weight)
-         countExpr(statement.from, weight)
-         countExpr(statement.to, weight)
-         for _, assignment in ipairs(statement.values or {}) do
-            countExpr(assignment.value, weight)
-            local target = assignment.target
-            if target and target.kind == "field" then
-               touched["w:" .. tostring(target.layout) .. "." .. tostring(target.field)] = target.type
-            end
-         end
-         for _, clause in ipairs(statement.clauses or {}) do
-            countExpr(clause.condition, weight)
-            countBlock(clause.body, weight)
-         end
-         countBlock(statement.elseBody, weight)
-         -- An inner loop runs an unknown number of times, so what is inside it
-         -- counts for more than what is beside it.
-         local inner = statement.op == "while" or statement.op == "fornum"
-         countBlock(statement.body, inner and weight * INNER_LOOP_WEIGHT or weight)
-      end
-   end
-
-   countBlock(ir.loop.statements, 1)
-   local bytes = 0
-   for _, elementType in pairs(touched) do
-      bytes = bytes + (ELEMENT_BYTES[elementType] or 8)
-   end
-   if bytes == 0 then return operations, operations, 0 end
-
-   return operations / bytes, operations, bytes
+   local estimate = intensity.estimate(ir.loop.statements)
+   return estimate.perByte, estimate.operations, estimate.bytes, estimate.worthwhile
 end
 
 -- The released fixed-width scalar operations, as IR. Each is one binary32 or
@@ -1222,32 +1136,9 @@ last element of a span may be the last byte of a page.
 
 --- The lane shapes this backend can choose between. Both are 32 bytes wide, so
 --- a group costs the same registers either way and only the lane count differs.
-local SHAPES = {
-   {
-      name = "f64x4", lanes = 4, mask = "m64x4", suffix = "64",
-      -- Every scalar type an f64 gang admits, and the vector type it lives in.
-      -- Integers ride in binary64 lanes because every int32 and uint32 is an
-      -- exact binary64 value, which is also what ordinary Nupp does with them.
-      vectorFor = {f64 = "f64x4", f32 = "f64x4", i32 = "f64x4", u32 = "f64x4", bool = "m64x4"},
-      -- Bitwise work needs integer lanes. Every uint32 is an exact binary64
-      -- value, so converting a lane out and back changes nothing; it is a value
-      -- conversion rather than a bit reinterpretation, which is why the lane
-      -- count matches and the width does not.
-      bits = "u32x4",
-      -- What a splat of a uniform scalar has to become first.
-      widen = "f64",
-   },
-   {
-      name = "f32x8", lanes = 8, mask = "m32x8", suffix = "32",
-      -- No f64 entry: a binary64 varying value cannot enter a 32-bit gang, and
-      -- inventing a narrowing here would change an answer the source did not.
-      vectorFor = {f32 = "f32x8", i32 = "i32x8", u32 = "i32x8", bool = "m32x8"},
-      -- Already integer lanes of the right width, so bitwise work needs no
-      -- conversion at all.
-      bits = "i32x8",
-      widen = nil,
-   },
-}
+-- Declared in `nupp.compiler.aot.lane`, which is where this backend is going.
+-- Keeping a second copy here is how the two would disagree about what a gang is.
+local SHAPES = lane.SHAPES
 
 local SHAPE_BY_NAME = {}
 for _, entry in ipairs(SHAPES) do SHAPE_BY_NAME[entry.name] = entry end
@@ -3303,8 +3194,9 @@ function compiler.compile(source, filename, checked)
    -- The lane-parallel pass runs on verified scalar IR: what it rewrites has
    -- already been proved to mean something, so a refusal here is only ever
    -- about lowering it several iterations at a time.
-   ir.intensity, ir.operations, ir.touchedBytes = arithmeticIntensity(ir)
-   if not ir.lanesRequired and ir.intensity < LANE_INTENSITY_THRESHOLD then
+   local worthwhile
+   ir.intensity, ir.operations, ir.touchedBytes, worthwhile = arithmeticIntensity(ir)
+   if not ir.lanesRequired and not worthwhile then
       ir.wantsLanes = false
       ir.thin = true
    end

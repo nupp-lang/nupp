@@ -1,0 +1,327 @@
+--[[
+The lane-parallel half of the AOT IR, and what makes it valid.
+
+An `@aot` body of one top-level numeric map loop may run several iterations at
+once. This is the vocabulary that rewrite produces and the rule for what counts
+as a well-formed instance of it.
+
+There is one record per operation and `Expr` is their union, discriminated by
+`op`, exactly as the concrete syntax tree is discriminated by `kind`. That is the
+point of writing it here rather than as untyped tables: a pass that dispatches on
+`op` is checked against the vocabulary rather than trusted with it, and an
+operation whose operands are the wrong width stops being something a verifier has
+to remember to look for.
+
+Generated C is a backend representation and not the safety boundary. Every span
+access, region relationship, conversion, and lane operation has to exist here,
+verified, before anything is emitted -- so this module answers to the ownership
+and alias facts the checker proved, and invents none of its own.
+
+A vector type is written `<element>x<lanes>`: `f64x4` is four binary64 lanes,
+`m32x8` is a mask over eight 32-bit ones. Every gang is 32 bytes wide, so the
+lane count follows the element width and the two are never independent.
+]]
+
+local aotLane = {}
+
+--- Where an operation came from, for a diagnostic that has to name it.
+record aotLane.Source
+    line: integer
+    column: integer
+end
+
+--- A vector type name. Not an enumeration: a shape names the vectors it uses and
+--- the verifier checks membership against that shape, so a width one target
+--- admits is not silently valid on another.
+type aotLane.Vector = string
+
+--- The element types a lane may carry.
+---
+--- `i32` and `u32` are the same lanes and differ only in the operations applied
+--- to them, and `bool` is not an element at all -- it is what a comparison
+--- produces. Both are here because a field's storage type is looked up directly:
+--- collapsing them would mean the lookup had to translate first, and a lookup
+--- that translates is a place the two halves can disagree about a width.
+type aotLane.Element = 'f64' | 'f32' | 'i32' | 'u32' | 'bool'
+
+--- One gang: how many iterations run at once, and which vector type each element
+--- is carried in. Both shapes are 32 bytes, so four binary64 lanes and eight
+--- 32-bit ones cost the same registers.
+record aotLane.Shape
+    --- The name this shape is known by, and what a diagnostic calls it.
+    name: string
+
+    --- Iterations per group.
+    lanes: integer
+
+    --- The mask vector. One lane per iteration, all bits set or none.
+    mask: aotLane.Vector
+
+    --- The vector each element type is carried in. An element absent from here
+    --- cannot enter this gang at all, which is how a binary64 value keeps a
+    --- 32-bit gang from taking a loop it would change the answers of.
+    vectorFor: {[aotLane.Element]: aotLane.Vector}
+
+    --- Where bitwise work happens. A gang carrying integers in binary64 lanes
+    --- converts out to this and back, which changes nothing because every
+    --- uint32 is an exact binary64 value.
+    bits: aotLane.Vector
+end
+
+--- A uniform value broadcast to every lane.
+record aotLane.Splat
+    op: 'vsplat'
+
+    --- The scalar expression, in the scalar IR's own vocabulary.
+    args: {any}
+
+    --- The element the scalar was brought to before broadcasting.
+    element: aotLane.Element
+
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
+--- A uniform boolean broadcast to a mask: all bits set, or none.
+record aotLane.BoolSplat
+    op: 'vbool_splat'
+    args: {any}
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
+--- One field of consecutive span elements, gathered into a vector.
+---
+--- Consecutive is the whole of it: the index must be the loop's own, so no lane
+--- reads an element another lane wrote and nothing has to prove it did not.
+record aotLane.FieldLoad
+    op: 'vfield_load'
+
+    --- The span parameter read from.
+    span: string
+
+    --- The reified struct its elements are.
+    layout: string
+
+    --- The field within that struct.
+    field: string
+
+    --- How many consecutive elements, which is the gang's lane count.
+    lanes: integer
+
+    --- The field's storage type, which decides the vector it loads into.
+    scalarType: aotLane.Element
+
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
+--- Elementwise arithmetic, or an elementwise comparison producing a mask.
+---
+--- The operation names its own vector type -- `vadd.f64x4`, `vlt.f32x8` -- so
+--- there is no operation whose operand width has to be inferred, and a mismatched
+--- pair is a malformed opcode rather than a check somebody has to remember.
+record aotLane.Binary
+    --- `v<verb>.<vector>`.
+    op: string
+
+    args: {aotLane.Expr}
+
+    --- The element the operands are, which is not the result type for a
+    --- comparison.
+    element: aotLane.Element
+
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
+--- Elementwise negation or square root.
+record aotLane.Unary
+    op: string
+    args: {aotLane.Expr}
+    element: aotLane.Element
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
+--- Mask combination: `vmand`, `vmor`, `vmnot`.
+record aotLane.MaskOp
+    op: 'vmand' | 'vmor' | 'vmnot'
+    args: {aotLane.Expr}
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
+--- A short-circuit `and` or `or`, evaluated on both sides.
+---
+--- Admissible only with a proof that the right side is pure and total, because
+--- both sides run for every lane. `effect` carries that proof rather than the
+--- pass inferring it from the shape of the expression, which would make a future
+--- effectful right side quietly eager.
+record aotLane.ShortCircuit
+    op: 'vshort_and' | 'vshort_or'
+    args: {aotLane.Expr}
+
+    --- The proof. Only `pure_total` admits eager evaluation.
+    effect: 'pure_total'
+
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
+--- Per-lane choice. The inactive lanes keep what they had, which is what makes a
+--- conditional a mask rather than a branch.
+---
+--- It has to be a real select. Multiplying by a zero mask is not one: an escaped
+--- lane's value overflows to infinity, and zero times infinity is NaN, so the
+--- lane that was supposed to be frozen is destroyed instead.
+record aotLane.Select
+    op: 'vselect'
+
+    --- Mask, then the value for active lanes, then the value for inactive ones.
+    args: {aotLane.Expr}
+
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
+--- A closed math operation, one scalar call per lane.
+record aotLane.Math
+    op: 'vmath'
+
+    --- Which operation, from the admitted closed set.
+    intrinsic: string
+
+    args: {aotLane.Expr}
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
+--- A binary32 operation whose native instruction is right about the value and
+--- wrong about NaN, expanded through the helper that repairs it.
+---
+--- `min`, `max` and `fma` are the three. A differential over every interesting
+--- binary32 value found they disagree with `fminf`, `fmaxf` and `fmaf` in
+--- exactly two respects: `nupp.math.f32` canonicalizes every NaN where the
+--- instruction propagates a payload, and min and max answer with that canonical
+--- NaN where IEEE `minNum` answers with whichever operand is not NaN.
+record aotLane.Corrected
+    --- `vcorrected.<vector>`.
+    op: string
+
+    --- The C helper that performs the correction, shared with the scalar body so
+    --- the two cannot be right in one form and wrong in the other.
+    helper: string
+
+    args: {aotLane.Expr}
+    element: aotLane.Element
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
+--- A bitwise operation on flag words: `vbit.<verb>.<vector>`.
+---
+--- An entity query is made of these, so they lower rather than refusing the
+--- loop. Shift counts are masked and a logical shift stays unsigned, as the
+--- scalar helpers do.
+record aotLane.Bitwise
+    op: string
+    args: {aotLane.Expr}
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
+--- Conversion into or out of the gang's bit vector. Exact in both directions,
+--- because every value it converts is exactly representable on both sides.
+record aotLane.BitConvert
+    --- `vtobits.<vector>` or `vfrombits.<vector>`.
+    op: string
+
+    args: {aotLane.Expr}
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
+--- A lane local: a vector or mask bound earlier in this block.
+record aotLane.Local
+    op: 'local'
+    name: string
+    cName: string
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
+--- The gangs this backend chooses between.
+---
+--- Both are 32 bytes, so a group costs the same registers either way and only
+--- the lane count differs. Ordinary Nupp arithmetic is binary64, so a loop
+--- written with operators gets four lanes; one whose values the source
+--- established as `float` and `int32` through `nupp.math` gets eight.
+---
+--- Selection is all-or-nothing today: a single binary64 varying value drops the
+--- whole loop to four lanes. The rule it stands in for is a gang size chosen
+--- from aggregate register pressure, with each value occupying however many
+--- registers its element needs, which wants mask widths to convert.
+const aotLane.SHAPES = {
+    new aotLane.Shape(
+        name = "f64x4",
+        lanes = 4,
+        mask = "m64x4",
+        -- Integers ride in binary64 lanes because every int32 and uint32 is an
+        -- exact binary64 value, which is also what ordinary Nupp does with them.
+        vectorFor = {["f64"] = "f64x4", ["f32"] = "f64x4", ["i32"] = "f64x4", ["u32"] = "f64x4", ["bool"] = "m64x4"},
+        bits = "u32x4"
+    ),
+    new aotLane.Shape(
+        name = "f32x8",
+        lanes = 8,
+        mask = "m32x8",
+        -- No `f64` entry: a binary64 varying value cannot enter a 32-bit gang,
+        -- and narrowing one here would change an answer the source did not.
+        vectorFor = {["f32"] = "f32x8", ["i32"] = "i32x8", ["u32"] = "i32x8", ["bool"] = "m32x8"},
+        bits = "i32x8"
+    ),
+}
+
+--- Below this many arithmetic operations per byte a loop body touches, lane
+--- lowering is declined.
+---
+--- Lane lowering is a large win where a loop stays in registers and a large loss
+--- where it streams memory: measured against their own scalar bodies, Mandelbrot
+--- runs about twice its scalar speed with four lanes while a component update
+--- runs between a tenth and four fifths of its. Neither layout nor element width
+--- moves that, so what separates them is how much arithmetic there is to
+--- amortize assembling and taking apart the vectors.
+---
+--- The kernels this was calibrated against sit either side of a gap of more than
+--- ten times, so the number is round rather than tuned. It is an estimate
+--- standing in for a measurement, which is why the source overrides it in either
+--- direction.
+const aotLane.INTENSITY_THRESHOLD = 1.0
+
+--- What operations inside a data-dependent inner loop count for.
+---
+--- They run many times per iteration of the loop being lowered and the trip
+--- count is not a static fact, so this stands in for that count rather than
+--- claiming it.
+const aotLane.INNER_LOOP_WEIGHT = 8
+
+--- Every lane-typed expression.
+---
+--- A scalar expression may appear where a uniform value is wanted; it is not in
+--- this union, and the verifier hands it to the scalar rules instead.
+type aotLane.Expr = aotLane.Splat
+    | aotLane.BoolSplat
+    | aotLane.FieldLoad
+    | aotLane.Binary
+    | aotLane.Unary
+    | aotLane.MaskOp
+    | aotLane.ShortCircuit
+    | aotLane.Select
+    | aotLane.Math
+    | aotLane.Corrected
+    | aotLane.Bitwise
+    | aotLane.BitConvert
+    | aotLane.Local
+
+return aotLane

@@ -71,7 +71,18 @@ work makes sense in.
       Move that IR and C backend under
       `src/`; consume the complete checked ownership, alias, effect, layout, and
       numeric facts; then add build policy, target compilation and dispatch,
-      cache and artifact validation, inspection, and diagnostics. The public
+      cache and artifact validation, inspection, and diagnostics.
+      Two things about how, both learned by starting it. The backend
+      re-derives facts because they are not published, not because it was
+      lazy: it matched `span%.WriteSpan<(.+)>` against written type text
+      because the checker computed the resolved parameter type and dropped
+      the association. So each fact is published first, then consumed in the
+      spike against the differentials that already exist, and only then does
+      the code that used to derive it move. And the port wants vertical
+      slices rather than layers -- the records only do work where producer
+      and consumer are both Nupp, so a verifier ported alone still receives
+      untyped tables and re-checks everything by hand. Lane rewrite, lane
+      verification and lane emission move together. The public
       surface stays ordinary scalar Nupp: do not add explicit vector values or
       a second numeric operator tower. The full delivery plan is
       [aot-functions.md](038-aot-functions.md), and the rejected alternatives are

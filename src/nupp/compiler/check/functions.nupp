@@ -670,6 +670,12 @@ function functions.install(c: state.Checker): state.StatHandlers
                 ) or (expectedParams and expectedParams[#params + 1]) or T.any
                 if p.type then
                     c.fixedWidth.storageOnly(p.type, pt, "a parameter")
+                    -- Kept on the node the type was written at, so a later pass
+                    -- reads what this resolved to rather than the spelling. The
+                    -- AOT backend decided what a parameter was by matching the
+                    -- written text, which an alias, a qualified name, or a
+                    -- generic instantiation would have taken past it.
+                    p.type.resolvedType = pt
                 end
                 params[#params + 1] = pt
                 paramNames[#params] = p.name.text
