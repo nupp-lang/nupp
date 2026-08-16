@@ -64,8 +64,14 @@ end
 -- exits 1, rather than an annotation that turns it into a build error for
 -- everyone. `@aot(lanes = false)` is how a deliberately scalar body says so.
 if arg[3] == "--check-lanes" then
+   io.write(("%s: %.2f arithmetic operations per byte (%d over %d)\n"):format(
+      input, artifacts.ir.intensity, artifacts.ir.operations, artifacts.ir.touchedBytes))
    if artifacts.ir.lanes then
       io.write(("%s: lowered to %d lanes\n"):format(input, artifacts.ir.lanes.lanes))
+      os.exit(0)
+   end
+   if artifacts.ir.thin then
+      io.write(("%s: declined, too little arithmetic per byte for lanes to pay\n"):format(input))
       os.exit(0)
    end
    if artifacts.ir.lanesDeclined then

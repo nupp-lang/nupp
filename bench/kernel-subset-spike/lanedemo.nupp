@@ -11,7 +11,9 @@ local struct Particle
     vy: float
 end
 
-@aot
+-- Forced: this file demonstrates the lane form, so it needs one whatever the
+-- estimate says about whether it would be worth having.
+@aot(lanes = true)
 local function advance(
     exclusive particles: span.WriteSpan<Particle>,
     borrows source: span.Span<Particle>,

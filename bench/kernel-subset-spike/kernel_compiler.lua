@@ -176,6 +176,7 @@ local function parseKernel(source, filename, checked)
       -- it compiles scalar, and the vectorisation check is what has something to
       -- say about it.
       local wantsLanes = body.lanesDeclined ~= true
+      local lanesRequired = body.lanesRequired == true
       if not checked then
          for _, link in ipairs(selected.chain) do
             local written = link.name and link.name.text
@@ -184,8 +185,9 @@ local function parseKernel(source, filename, checked)
                   local name = arg.name and arg.name.text
                   if name == "lanes" then
                      if arg.expr and arg.expr.kind == "falseExpr" then wantsLanes = false end
+                     if arg.expr and arg.expr.kind == "trueExpr" then lanesRequired = true end
                   else
-                     reject(link, "@aot takes lanes = false or nothing")
+                     reject(link, "@aot takes lanes = true, lanes = false, or nothing")
                   end
                end
             elseif written == "relax" then
@@ -1043,6 +1045,7 @@ local function parseKernel(source, filename, checked)
          symbol = privateSymbol(fn.name.text),
          fpContract = fpContract,
          wantsLanes = wantsLanes,
+         lanesRequired = lanesRequired,
          params = params,
          layouts = layouts,
          regions = regions,
@@ -1066,6 +1069,102 @@ local function parseKernel(source, filename, checked)
       return nil, diagnostics
    end
    return ir, diagnostics
+end
+
+--- Arithmetic operations per byte the loop body touches, from the scalar IR.
+---
+--- Lane lowering is a large win where a loop is register-resident and a large
+--- loss where it streams memory: measured against their own scalar bodies,
+--- Mandelbrot is about 2x faster with four lanes while a component update is
+--- between a tenth and four fifths of its scalar speed, whatever the layout or
+--- element width. What separates them is how much arithmetic there is to
+--- amortize assembling and taking apart the vectors, so that is what this
+--- counts.
+---
+--- Statements inside a data-dependent inner loop are weighted, because they run
+--- many times per iteration of the loop being lowered and the trip count is not
+--- a static fact. The weight is a stand-in for that count, not a claim about it.
+local INNER_LOOP_WEIGHT = 8
+
+--- Below this many arithmetic operations per byte, lane lowering is declined.
+---
+--- Calibrated against the kernels in this directory, whose measured outcomes sit
+--- on either side of a gap of more than ten times: Mandelbrot estimates about
+--- 5.2 and runs about twice its scalar speed, while the component updates
+--- estimate between 0.17 and 0.43 and run between a tenth and four fifths of
+--- theirs. One is round and comfortably inside that gap. It is an estimate
+--- standing in for a measurement, so `@aot(lanes = true)` and
+--- `@aot(lanes = false)` override it in either direction.
+local LANE_INTENSITY_THRESHOLD = 1.0
+
+local ARITHMETIC = {
+   add = true, sub = true, mul = true, div = true, neg = true, mod = true,
+   pow = true, math = true, band = true, bor = true, bxor = true, bnot = true,
+   lshift = true, rshift = true, arshift = true,
+   f32_add = true, f32_sub = true, f32_mul = true, f32_div = true,
+   f32_sqrt = true, f32_min = true, f32_max = true, f32_fma = true,
+   i32_add = true, i32_sub = true, i32_mul = true,
+}
+
+local ELEMENT_BYTES = {f32 = 4, i32 = 4, u32 = 4, f64 = 8}
+
+--- Counts one loop body: arithmetic operations, and the distinct span fields it
+--- reads or writes. A field read twice is one load, because the second is in a
+--- register; a field both read and written costs both.
+local function arithmeticIntensity(ir)
+   local operations, touched = 0, {}
+
+   local countExpr
+   countExpr = function(node, weight)
+      if type(node) ~= "table" or not node.op then return end
+      if ARITHMETIC[node.op] then operations = operations + weight end
+      if node.op == "field_load" then
+         touched["r:" .. tostring(node.layout) .. "." .. tostring(node.field)] = node.type
+      elseif node.op == "load" then
+         touched["r:" .. tostring(node.span)] = node.type
+      end
+      countExpr(node.left, weight)
+      countExpr(node.right, weight)
+      countExpr(node.value, weight)
+      countExpr(node.object, weight)
+      for _, argument in ipairs(node.args or {}) do countExpr(argument, weight) end
+   end
+
+   local countBlock
+   countBlock = function(statements, weight)
+      for _, statement in ipairs(statements or {}) do
+         countExpr(statement.value, weight)
+         countExpr(statement.call, weight)
+         countExpr(statement.condition, weight)
+         countExpr(statement.from, weight)
+         countExpr(statement.to, weight)
+         for _, assignment in ipairs(statement.values or {}) do
+            countExpr(assignment.value, weight)
+            local target = assignment.target
+            if target and target.kind == "field" then
+               touched["w:" .. tostring(target.layout) .. "." .. tostring(target.field)] = target.type
+            end
+         end
+         for _, clause in ipairs(statement.clauses or {}) do
+            countExpr(clause.condition, weight)
+            countBlock(clause.body, weight)
+         end
+         countBlock(statement.elseBody, weight)
+         -- An inner loop runs an unknown number of times, so what is inside it
+         -- counts for more than what is beside it.
+         local inner = statement.op == "while" or statement.op == "fornum"
+         countBlock(statement.body, inner and weight * INNER_LOOP_WEIGHT or weight)
+      end
+   end
+
+   countBlock(ir.loop.statements, 1)
+   local bytes = 0
+   for _, elementType in pairs(touched) do
+      bytes = bytes + (ELEMENT_BYTES[elementType] or 8)
+   end
+   if bytes == 0 then return operations, operations, 0 end
+
+   return operations / bytes, operations, bytes
 end
 
 -- The released fixed-width scalar operations, as IR. Each is one binary32 or
@@ -3204,6 +3303,11 @@ function compiler.compile(source, filename, checked)
    -- The lane-parallel pass runs on verified scalar IR: what it rewrites has
    -- already been proved to mean something, so a refusal here is only ever
    -- about lowering it several iterations at a time.
+   ir.intensity, ir.operations, ir.touchedBytes = arithmeticIntensity(ir)
+   if not ir.lanesRequired and ir.intensity < LANE_INTENSITY_THRESHOLD then
+      ir.wantsLanes = false
+      ir.thin = true
+   end
    ir.lanesDeclined = not ir.wantsLanes
    if ir.wantsLanes then
       -- Try the shapes widest lane count first. The 32-bit gang refuses the

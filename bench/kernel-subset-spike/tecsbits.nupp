@@ -15,7 +15,9 @@ local struct Motion
     drag: float
 end
 
-@aot
+-- Forced: this kernel exists to prove the bitwise lane path, and a component
+-- update is exactly the shape the intensity estimate declines.
+@aot(lanes = true)
 local function advance(
     exclusive transforms: span.WriteSpan<Transform2D>,
     borrows motions: span.Span<Motion>,

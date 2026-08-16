@@ -118,10 +118,34 @@ element width moves it. `columns.nupp` is kept as the standing measurement of
 the losing side, because a backend change that claims to fix this has to move
 that row.
 
-Nothing in the compiler decides this today: lane lowering is attempted wherever
-the shape admits it, and `@aot(lanes = false)` is how a loop that measured worse
-says so. Whether that default is right, and whether the pass should decline a
-shape it can predict will lose, is open.
+So the pass estimates it, from the arithmetic a loop performs per byte it
+touches, and declines below a threshold. `--check-lanes` prints the number
+beside the decision, and the estimates sit either side of a gap of more than ten
+times:
+
+```
+ Kernel                  ops/byte   decision
+ ──────────────────────  ────────   ───────────────────────
+ mandelbrot                  5.19   lowered to 4 lanes
+ mandelbrot_f32              5.12   lowered to 8 lanes
+ tecsbits                    0.43   declined
+ kernels                     0.39   declined
+ lanedemo                    0.29   declined
+ columns                     0.17   declined
+ corrected                   0.12   declined
+```
+
+Statements inside a data-dependent inner loop are weighted, because they run many
+times per iteration and the trip count is not a static fact. The weight stands in
+for that count rather than claiming it, which is why this is an estimate and why
+`@aot(lanes = true)` and `@aot(lanes = false)` override it in either direction.
+The kernels here that exist to exercise the lane path -- `corrected`, `tecsbits`
+and `lanedemo` -- all carry the first, because a differential for a lane form
+needs a lane form whatever it would cost in production.
+
+The estimate is deliberately static. Measuring at build time would pick better
+and would make two builds of one source disagree, which the artifact cache
+cannot have.
 
 ## What a Tecs kernel still cannot do
 

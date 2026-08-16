@@ -266,12 +266,13 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     json.memberOrder = {"unknown", "name", "omit", "omitEmpty"}
 
     local aot = registry:get("aot")
-    -- `lanes = false` is the only setting, and it declines lane lowering rather
-    -- than requesting it. Requesting it was `simd = true`, withdrawn because the
-    -- independence it claimed to assert is a theorem of the admitted subset;
-    -- what it delivered was a build error rather than silently scalar code, and
-    -- a check command answers that without a language surface.
-    aot.members = {lanes = member("lanes", optional(typesApi.literal(false, typesApi.boolean)), true),}
+    -- Absent, the compiler decides from how much arithmetic the loop does per
+    -- byte it touches: lane lowering wins on a register-resident loop and loses
+    -- on one that streams memory. `lanes = true` and `lanes = false` override
+    -- that in either direction. Neither requires the lowering to succeed --
+    -- that was `simd = true`, withdrawn because it turned a performance
+    -- property into a build error.
+    aot.members = {lanes = member("lanes", optional(typesApi.boolean), true),}
     aot.memberOrder = {"lanes"}
 
     local debug = registry:get("debug")

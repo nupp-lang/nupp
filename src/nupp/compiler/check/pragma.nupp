@@ -213,14 +213,16 @@ function pragma.install(c: state.Checker): state.StatHandlers
                     c.diag("NUPP2901", annotationName, "@aot and @jit name different compilers for one body")
                 end
                 targetBody.aotRequired = true
-                -- Lane lowering is attempted for every `@aot` body whose shape
-                -- admits it. `lanes = false` declines it for a body that is
-                -- deliberately scalar, so the vectorisation check stays quiet
-                -- about it; it says nothing about whether the body compiles.
+                -- Absent, the compiler decides whether lane lowering is worth
+                -- it. `lanes = false` declines it for a body that measured worse
+                -- lane-parallel; `lanes = true` takes it whatever the estimate
+                -- says. Neither says anything about whether the body compiles.
                 local values = (stat as any).annotationValues
                 local lanes = values and values.lanes
                 if lanes and lanes.expr and lanes.expr.kind == "falseExpr" then
                     targetBody.lanesDeclined = true
+                elseif lanes and lanes.expr and lanes.expr.kind == "trueExpr" then
+                    targetBody.lanesRequired = true
                 end
             end
             if stat.stat then

@@ -26,7 +26,9 @@ local struct Result
     fused: float
 end
 
-@aot
+-- Forced: this kernel exists to prove the lane form of three operations, so
+-- it has to have one. Its arithmetic per byte is far below where lanes pay.
+@aot(lanes = true)
 local function corrected(
     exclusive results: span.WriteSpan<Result>,
     borrows samples: span.Span<Sample>,

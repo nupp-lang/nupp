@@ -85,6 +85,10 @@ interface cst.Hints
     --- report a loop that is deliberately scalar.
     lanesDeclined: boolean?
 
+    --- `@aot(lanes = true)` takes lane lowering whatever the arithmetic-intensity
+    --- estimate says, for a body whose measurement disagrees with it.
+    lanesRequired: boolean?
+
     --- Whether an `@aot` body has the one-top-level-numeric-loop shape that lane
     --- lowering can take. Recorded by the subset pass so the vectorisation check
     --- can ask which bodies it should have anything to say about.

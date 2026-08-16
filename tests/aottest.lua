@@ -142,16 +142,30 @@ end
 return {scalar = scalar}
 ]], "", "a deliberately scalar body declines lane lowering")
 
-   -- The setting only accepts literal false. It is not a lane-count knob in
-   -- either direction.
+   -- The setting overrides an estimate in either direction, so both literals
+   -- are accepted. Neither is a lane-count knob.
    reports([[
 @aot(lanes = true)
+local function forced(count: integer): number
+    local total = 0.0
+    for i = 1, count do
+        total = total + i
+    end
+
+    return total
+end
+
+return {forced = forced}
+]], "", "a body may take lane lowering whatever the estimate says")
+
+   reports([[
+@aot(lanes = 4)
 local function wrong(value: number): number
     return value
 end
 
 return {wrong = wrong}
-]], "NUPP2115", "lanes accepts only literal false")
+]], "NUPP2115", "lanes is not a lane count")
 end
 
 function M.simdAcceptsOnlyTheRequiredSetting()
