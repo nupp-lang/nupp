@@ -10,3 +10,5 @@ host/target/
 vendor/
 tests/build/
 /src/**/*.lua
+_stage2/
+_stage1/

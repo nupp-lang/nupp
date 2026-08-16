@@ -1,3 +1,0 @@
-local greeting = require("greeting")
-
-print(greeting.forName("world"))
