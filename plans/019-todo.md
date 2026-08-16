@@ -65,8 +65,9 @@ work makes sense in.
       lowers and verifies scalar and lane IR, emits private C, and differentially
       checks ordinary Nupp, forced-scalar C, and SIMD C. Its lane IR now proves
       nested mask stacks, pure-and-total short-circuit expressions,
-      data-dependent inner `while` loops, per-lane `break`/`continue`, and exact
-      scalar tails. Production `nupp build` still emits the ordinary Lua body.
+      data-dependent inner `while` loops, per-lane `break`/`continue`, exact
+      scalar tails, and a gang width chosen from the loop's own lane types.
+      Production `nupp build` still emits the ordinary Lua body.
       Move that IR and C backend under
       `src/`; consume the complete checked ownership, alias, effect, layout, and
       numeric facts; then add build policy, target compilation and dispatch,
@@ -75,6 +76,38 @@ work makes sense in.
       a second numeric operator tower. The full delivery plan is
       [aot-functions.md](038-aot-functions.md), and the rejected alternatives are
       recorded in [portable-vectors.md](037-portable-vectors.md).
+      When the lowering moves under `src/`, take the fixed-width intrinsic
+      identities from `nupp.compiler.scalar_intrinsics` rather than the second
+      table the spike keeps, so aliasing a standard member cannot mean one thing
+      to the checker and another to the backend.
+- [ ] **Finish the SPMD gang-width decision.** The spike selects eight 32-bit
+      lanes or four binary64 ones from the widths a loop's varying values need,
+      and lowers the released `nupp.math.f32` and `nupp.math.i32` operations to
+      native instructions. On Apple arm64 at 1024x768 and 256 iterations the
+      binary32 Mandelbrot runs at about 119 MPix/s against 72 for the binary64
+      body and 35 for forced-scalar C, which is the same for both kernels --
+      the gain is lane density, not cheaper arithmetic. What is unfinished:
+  - [ ] mixed-width gangs. Selection is all-or-nothing today: one binary64
+        varying value drops the whole loop to four lanes. The real rule is
+        ISPC's -- fix a gang size from aggregate register pressure and let each
+        value occupy however many registers its element type needs, so a
+        binary64 value in a gang of eight is four NEON registers and a binary32
+        one is two. That needs mask widths to convert, which nothing does yet.
+  - [ ] amend [portable-vectors.md](037-portable-vectors.md), whose width rule
+        still reads "the widest lane type the loop actually uses". That is right
+        for a uniform-type loop and wrong for a mixed one, and it predates the
+        measurement above.
+  - [ ] admit `nupp.math.f32.min`, `max`, and `fma`. The admitted operations are
+        exact because a binary32 operation over binary32 operands computed in
+        binary64 and rounded once is bit-identical to the native instruction
+        (53 >= 2 * 24 + 2). These three are not covered by that argument: their
+        `nupp.math` implementations canonicalize NaNs and compensate rounding in
+        ways `fmin`, `fmax` and `fmadd` may not match. Each owes a differential
+        test over signed zero, NaN payloads, and subnormals before it enters.
+  - [ ] account for the gap to the historical explicit-vector result. Lane
+        density alone predicted about 130 MPix/s and the measurement is 119.
+        The remainder is unexplained; the mask and select sequence and the
+        interior test are the places to look.
 
 ## Dialect interop (`import-tl`)
 
