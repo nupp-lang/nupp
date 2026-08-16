@@ -139,10 +139,22 @@ work makes sense in.
         `nupp.math` implementations canonicalize NaNs and compensate rounding in
         ways `fmin`, `fmax` and `fmadd` may not match. Each owes a differential
         test over signed zero, NaN payloads, and subnormals before it enters.
-  - [ ] account for the gap to the historical explicit-vector result. Lane
-        density alone predicted about 130 MPix/s and the measurement is 119.
-        The remainder is unexplained; the mask and select sequence and the
-        interior test are the places to look.
+  - [x] account for the gap to the historical explicit-vector result. There is
+        no gap: the model was wrong, not the lowering. `divergence.lua` read each
+        pixel's reported iteration count, but the kernel's interior test sets
+        that to the cap and then runs the loop zero times, so the whole cardioid
+        counted as maximally expensive. Since the cardioid is contiguous, that
+        made every gang touching it look equally slow at four lanes and at
+        eight, and hid exactly the divergence widening introduces. Costing an
+        interior pixel at zero, the eight-lane ceiling is 1.81x at cap 64, 1.68x
+        at 256, 1.60x at 1024 and 1.58x at 4096 -- against measured ratios of
+        1.72, 1.60, 1.52 and 1.42. The lowering runs at 90 to 95 percent of what
+        the algorithm allows, and the remainder is the per-pixel gather and
+        scatter, which costs the same however many lanes share it.
+        Replacing the lane-extract-and-or in `ks_any` with
+        `__builtin_reduce_or` was tried and is not worth it: Clang already
+        lowers the extract chain, and the generated function grew from 225 to
+        232 instructions.
 
 ## Dialect interop (`import-tl`)
 

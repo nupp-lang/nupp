@@ -301,6 +301,11 @@ loop with a data-dependent exit. The loop is traceable — `nupp bc --check` on
 this kernel is clean — so this is LuaJIT compiling it and still losing, not
 LuaJIT giving up.
 
+**Lane-parallel over scalar C is 2.0×** on four lanes — worth checking against
+what the algorithm allows rather than against the lane count. `divergence.lua`
+in the spike measures that: at this cap the four-lane ceiling is 1.22× the ideal
+work, so 2.0× against scalar is close to what four lanes can be.
+
 The same program written in explicit binary32 gets eight lanes for the same
 registers:
 
@@ -316,6 +321,21 @@ That is a different program with different escape counts, and it is the source
 that says so. The LuaJIT row collapses because explicit binary32 in ordinary
 Nupp performs each rounding point through an FFI store and load — which is the
 price of the source, not an artifact of measuring it.
+
+Eight lanes over four is 1.64×, not 2×, and that is the algorithm rather than
+the lowering. A gang runs until its slowest lane retires, so widening it takes
+that maximum over more pixels. Measured on this view the eight-lane ceiling is
+1.68× at 256 iterations, falling to 1.58× at 4096 as escape counts spread
+further apart — against measured ratios of 1.60× and 1.42×. The lowering runs at
+90 to 95 percent of what the algorithm allows; the remainder is the per-pixel
+gather and scatter, which costs the same however many lanes share it.
+
+```bash
+MANDELBROT_ITERATIONS=256 luajit bench/kernel-subset-spike/divergence.lua
+```
+
+The lesson generalises: a divergent loop is the case lane lowering is worst at,
+and the width you get is not the speedup you get.
 
 ## Automatic vectorisation
 
