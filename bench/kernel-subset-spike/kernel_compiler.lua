@@ -2762,8 +2762,15 @@ local function renderC(ir)
    for lane = 0, shape.lanes - 1 do anyTerms[#anyTerms + 1] = "m[" .. lane .. "]" end
    emit("static inline __attribute__((unused)) bool ks_any(ks_" .. shape.mask .. " m)"
       .. " { return (" .. table.concat(anyTerms, " | ") .. ") != 0; }")
-   for vector in pairs(vectors) do
-      if vector ~= shape.mask and vector ~= shape.bits then
+   -- A splat and a select are wanted for every vector that carries values, and
+   -- for nothing else. The bit vector is not one of them in a binary64 gang --
+   -- it is half the width and has no mask to pair with -- but in a 32-bit gang
+   -- it is also where integers live, so membership of `vectorFor` is the test
+   -- rather than whether it happens to be `shape.bits`.
+   local carriers = {}
+   for _, vector in pairs(shape.vectorFor) do carriers[vector] = true end
+   for vector in pairs(carriers) do
+      if vector ~= shape.mask then
          local element = vector:match("^(%a%d+)x")
          local splatLanes = {}
          for _ = 1, shape.lanes do splatLanes[#splatLanes + 1] = "v" end
