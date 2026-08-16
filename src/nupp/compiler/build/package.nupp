@@ -22,6 +22,22 @@ local resourceOutput = modulesMod.resourceOutput
 
 local package_ = {}
 
+-- Component source assembly deliberately uses a runtime format string. The
+-- arguments are compiler metadata rather than a user-facing typed format, so
+-- routing these calls through the compile-time format contract adds no safety.
+local function interpolate(format: string, ...: any): string
+    return string.format(format, ...)
+end
+
+local function stringArray(values: {string}?): string
+    local quoted = {}
+    for _, value in ipairs(values or {}) do
+        quoted[#quoted + 1] = interpolate("%q", value)
+    end
+
+    return "{" .. table.concat(quoted, ",") .. "}"
+end
+
 --- Runtime contract between a compiler-owned payload and host. Container format
 --- compatibility remains `PAYLOAD_VERSION`; target C layout has its own ABI.
 local hostAbiVersion = 1
@@ -90,11 +106,24 @@ local function bundleText(
     modules: {[string]: ModuleRecord}?,
     workerDispatch: boolean?,
     runtimeModules: {string}?,
-    hostFeatures: {string}?
+    hostFeatures: {string}?,
+    component: boolean?
 ): string?, string?, {string}?
     local outDir = target.outDir or "build"
     local mainName, mainPath = entryModule(root, outDir, target)
-    local chunks = {banner or ""}
+    local chunks = component and {
+        "-- NUPP-COMPONENT 1\n",
+        interpolate(
+            "return {format=1,hostAbi=%d,entry=%q,layoutTarget=%s,exports=%s,requiredHostFeatures=%s,install=function()\n",
+            hostAbiVersion,
+            mainName,
+            target.layoutTarget and interpolate("%q", target.layoutTarget) or "nil",
+            stringArray(target.exports),
+            stringArray(hostFeatures)
+        ),
+    } or {banner or ""}
+    local collisionIndex
+    local installedModules = {}
 
     if hostFeatures then
         local selected = {}
@@ -116,20 +145,27 @@ local function bundleText(
                 "if not __nuppHostFeatures[%q] then error(%q, 0) end\n"
             ):format(feature, "nupp: payload requires host feature " .. feature)
         end
-        local preloads = {
-            {feature = "cjson", modules = {"cjson", "cjson.safe"}},
-            {feature = "lpeg", modules = {"lpeg"}},
-            {feature = "lua-utf8", modules = {"lua-utf8"}},
-            {feature = "workers", modules = {"nupp.workers.native"}},
-        }
-        for _, feature in ipairs(preloads) do
-            if not selected[feature.feature] then
-                for _, moduleName in ipairs(feature.modules) do
-                    chunks[#chunks + 1] = ("package.preload[%q] = nil\n"):format(moduleName)
+        if not component then
+            local preloads = {
+                {feature = "cjson", modules = {"cjson", "cjson.safe"}},
+                {feature = "lpeg", modules = {"lpeg"}},
+                {feature = "lua-utf8", modules = {"lua-utf8"}},
+                {feature = "workers", modules = {"nupp.workers.native"}},
+            }
+            for _, feature in ipairs(preloads) do
+                if not selected[feature.feature] then
+                    for _, moduleName in ipairs(feature.modules) do
+                        chunks[#chunks + 1] = ("package.preload[%q] = nil\n"):format(moduleName)
+                    end
                 end
             end
+            chunks[#chunks + 1] = "rawset(_G, \"__nuppHost\", nil)\n"
         end
-        chunks[#chunks + 1] = "rawset(_G, \"__nuppHost\", nil)\nend\n"
+        chunks[#chunks + 1] = "end\n"
+    end
+    if component then
+        collisionIndex = #chunks + 1
+        chunks[collisionIndex] = ""
     end
 
     -- The modules this build compiled, under the names it compiled them as.
@@ -151,6 +187,7 @@ local function bundleText(
         if not text then
             return nil, readErr
         end
+        installedModules[#installedModules + 1] = rock.name
         chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(rock.name)
         chunks[#chunks + 1] = text
         chunks[#chunks + 1] = "\nend\n"
@@ -164,11 +201,12 @@ local function bundleText(
     table.sort(names)
     for _, name in ipairs(names) do
         local path = (built[name] as nupp.compiler.build.cache.ModuleRecord).output
-        if path and normalize(path) ~= normalize(mainPath) then
+        if path and (component or normalize(path) ~= normalize(mainPath)) then
             local text, readErr = readFile(path)
             if not text then
                 return nil, readErr
             end
+            installedModules[#installedModules + 1] = name
             chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(name)
             chunks[#chunks + 1] = text
             chunks[#chunks + 1] = "\nend\n"
@@ -187,6 +225,7 @@ local function bundleText(
             if not text then
                 return nil, readErr
             end
+            installedModules[#installedModules + 1] = name
             chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(name)
             chunks[#chunks + 1] = text
             chunks[#chunks + 1] = "\nend\n"
@@ -223,18 +262,80 @@ local function bundleText(
     table.sort(resources, function(a, b)
         return a.name < b.name
     end)
-    chunks[#chunks + 1] = 'package.preload["nupp.embedded"] = function()\n'
-    chunks[#chunks + 1] = "return {\n"
-    for _, resource in ipairs(resources) do
-        chunks[#chunks + 1] = ("[%q] = %s,\n"):format(resource.name, longString(resource.text))
+    if not component or #resources > 0 then
+        installedModules[#installedModules + 1] = "nupp.embedded"
+        chunks[#chunks + 1] = 'package.preload["nupp.embedded"] = function()\n'
+        chunks[#chunks + 1] = "return {\n"
+        for _, resource in ipairs(resources) do
+            chunks[#chunks + 1] = ("[%q] = %s,\n"):format(resource.name, longString(resource.text))
+        end
+        chunks[#chunks + 1] = "}\nend\n"
     end
-    chunks[#chunks + 1] = "}\nend\n"
 
-    local mainText, mainErr = readFile(mainPath)
-    if not mainText then
-        return nil, mainErr
+    local mainText
+    if not component or built[mainName] == nil then
+        local mainErr
+        mainText, mainErr = readFile(mainPath)
+        if not mainText then
+            return nil, mainErr
+        end
     end
-    if workerDispatch then
+    if component then
+        if built[mainName] == nil then
+            installedModules[#installedModules + 1] = mainName
+            chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(mainName)
+            chunks[#chunks + 1] = assert(mainText)
+            chunks[#chunks + 1] = "\nend\n"
+        end
+
+        local collision = {"do\nlocal __nuppLoaded = package.loaded\nlocal __nuppPreload = package.preload\n",}
+        for _, name in ipairs(installedModules) do
+            collision[
+                #collision + 1
+            ] = interpolate(
+                "if __nuppLoaded[%q] ~= nil or __nuppPreload[%q] ~= nil then error(%q, 0) end\n",
+                name,
+                name,
+                "nupp: component module collision: " .. name
+            )
+        end
+        collision[#collision + 1] = "local __nuppPublic = rawget(_G, \"__nuppComponentExports\") or {}\n"
+        for _, name in ipairs(target.exports or {}) do
+            collision[
+                #collision + 1
+            ] = interpolate(
+                "if __nuppPublic[%q] then error(%q, 0) end\n",
+                name,
+                "nupp: component export collision: " .. name
+            )
+        end
+        collision[#collision + 1] = "rawset(_G, \"__nuppComponentExports\", __nuppPublic)\n"
+        for _, name in ipairs(target.exports or {}) do
+            collision[#collision + 1] = interpolate("__nuppPublic[%q] = true\n", name)
+        end
+        collision[#collision + 1] = "end\n"
+        chunks[assert(collisionIndex)] = table.concat(collision)
+
+        chunks[#chunks + 1] = "local __nuppExports = {}\n"
+        for _, name in ipairs(target.exports or {}) do
+            local moduleName, member = name:match("^(.*)%.([^.]+)$")
+            chunks[
+                #chunks + 1
+            ] = interpolate(
+                "__nuppExports[%q] = function(...) local __nuppModule = require(%q); "
+                .. "local __nuppCallable = __nuppModule[%q]; "
+                .. "if type(__nuppCallable) ~= \"function\" then error(%q, 0) end; "
+                .. "return __nuppCallable(...) end\n",
+                name,
+                moduleName,
+                member,
+                "nupp: component export is not callable: " .. name
+            )
+        end
+        chunks[
+            #chunks + 1
+        ] = interpolate("return {start=function() return require(%q) end,exports=__nuppExports}\nend}\n", mainName)
+    elseif workerDispatch then
         -- A worker runs the same immutable payload in a fresh state, but selects
         -- another preloaded module instead of executing the ordinary entry. This
         -- branch is emitted only for the host-backed workers feature, so worker-free
@@ -255,6 +356,12 @@ end
 local function bundleOutput(root: string, target: Target, name: string): string
     local outDir = target.outDir or "build"
     return join(root, target.output or join(outDir, name .. ".lua"))
+end
+
+--- Where a `component` target writes its versioned in-memory artifact.
+local function componentOutput(root: string, target: Target, name: string): string
+    local outDir = target.outDir or "build"
+    return join(root, target.output or join(outDir, name .. ".nuppc"))
 end
 
 --- Where one binary platform writes its raw stamped executable.
@@ -552,6 +659,7 @@ package_.longString = longString
 package_.entryModule = entryModule
 package_.bundleText = bundleText
 package_.bundleOutput = bundleOutput
+package_.componentOutput = componentOutput
 package_.binaryOutput = binaryOutput
 package_.stampFile = stampFile
 package_.posixArchive = posixArchive

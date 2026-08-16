@@ -32,7 +32,7 @@ reads, so a consumer that asks for one gets an answer rather than `any`.
 --- Everything is optional because a target inherits the `build` table's keys and
 --- overrides the ones it names, so the merged result is what has to be complete.
 type manifest.Target = {
-    --- "modules", "bundle", "binary" or "docs"; absent means "modules".
+    --- "modules", "bundle", "binary", "component" or "docs"; absent means "modules".
     kind: string?,
 
     description: string?,
@@ -48,6 +48,9 @@ type manifest.Target = {
     platformOutputs: {[string]: string}?,
 
     entries: {string}?,
+
+    --- Dotted module functions published by a component target.
+    exports: {string}?,
     sources: {string}?,
     resources: {string | manifest.Resource}?,
     dependencies: {string}?,
@@ -221,6 +224,7 @@ local DOCS_KEYS = {
     "kind",
     "dependencies",
     "entries",
+    "exports",
     "resources",
     "output",
     "stub",
@@ -280,6 +284,7 @@ local TARGET_KEYS = {
     "platforms",
     "platformOutputs",
     "entries",
+    "exports",
     "sources",
     "resources",
     "dependencies",
@@ -451,8 +456,8 @@ local function validateTarget(target, label, dependencies)
         return nil, label .. " must be a table"
     end
     local kind = target.kind or "modules"
-    if kind ~= "modules" and kind ~= "docs" and kind ~= "bundle" and kind ~= "binary" then
-        return nil, label .. ".kind must be \"modules\", \"bundle\", \"binary\", or \"docs\""
+    if kind ~= "modules" and kind ~= "docs" and kind ~= "bundle" and kind ~= "binary" and kind ~= "component" then
+        return nil, label .. ".kind must be \"modules\", \"bundle\", \"binary\", \"component\", or \"docs\""
     end
     if kind ~= "docs" then
         local valid, err = validateKeys(target, TARGET_KEYS, label)
@@ -584,7 +589,7 @@ local function validateTarget(target, label, dependencies)
         target.entries,
         label .. ".entries",
         "string",
-        kind == "modules" or kind == "bundle" or kind == "binary"
+        kind == "modules" or kind == "bundle" or kind == "binary" or kind == "component"
     )
     if not valid then
         return nil, err
@@ -594,6 +599,23 @@ local function validateTarget(target, label, dependencies)
         if not valid then
             return nil, err
         end
+    end
+    valid, err = validateArray(target.exports, label .. ".exports", "string")
+    if not valid then
+        return nil, err
+    end
+    if target.exports ~= nil and kind ~= "component" then
+        return nil, label .. ".exports is only valid for a component target"
+    end
+    local seenExports = {}
+    for index, export in ipairs(target.exports or {}) do
+        if not export:match("^[%a_][%w_%.]*%.[%a_][%w_]*$") then
+            return nil, label .. ".exports[" .. index .. "] must name a dotted module function"
+        end
+        if seenExports[export] then
+            return nil, label .. ".exports[" .. index .. "] duplicates " .. export
+        end
+        seenExports[export] = true
     end
     valid, err = validateArray(target.sources, label .. ".sources", "string", kind == "docs")
     if not valid then

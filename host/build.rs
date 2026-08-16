@@ -48,6 +48,10 @@ fn main() {
     let luajit = build_luajit(&out);
     verify_notice(&luajit.join("COPYRIGHT"), "LuaJIT-COPYRIGHT.txt");
     let include = luajit.join("src");
+    println!(
+        "cargo:rustc-env=NUPP_LUAJIT_VMDEF={}",
+        include.join("jit/vmdef.lua").display()
+    );
 
     // ENABLE_CJSON_GLOBAL is off: the compiler reaches cjson through require,
     // and a global installed by the host would be present in a stamped binary

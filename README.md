@@ -34,4 +34,9 @@ Compiler and lint output includes stable codes, source spans, related
 locations, repair help, and structured fixes; see
 [docs/diagnostics.md](docs/diagnostics.md).
 
+Nupp can also be linked as an application language: a C host can create or
+attach a LuaJIT state, load inert checked components from memory, call named
+exports through GC-safe handles, and keep ownership of its event loop. See the
+[embedding guide](docs/embedding.md).
+
 <img src="docs/public/images/nupp.png" alt="Nupp" width="460" align="center"/>

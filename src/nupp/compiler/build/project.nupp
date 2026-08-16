@@ -138,6 +138,7 @@ local targetConfig = tasks.targetConfig
 local buildDependencies = deps.build
 local buildModules = modules.build
 local bundleText, bundleOutput = packaging.bundleText, packaging.bundleOutput
+local componentOutput = packaging.componentOutput
 local binaryOutput = packaging.binaryOutput
 local stampFile = packaging.stampFile
 
@@ -255,7 +256,12 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             checkOnly = opts.checkOnly,
             output = opts.outDir,
         }))
-    elseif target.kind and target.kind ~= "modules" and target.kind ~= "bundle" and target.kind ~= "binary" then
+    elseif target.kind
+        and target.kind ~= "modules"
+        and target.kind ~= "bundle"
+        and target.kind ~= "binary"
+        and target.kind ~= "component"
+    then
         -- A bundle is a modules build plus one more file, and a binary is a bundle
         -- stamped into a stub, so both fall through to the same path and finish
         -- themselves at the end of it.
@@ -368,7 +374,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     -- A bundle is a modules build and then one more file: everything it just compiled,
     -- folded into a chunk that runs with nothing beside it.
-    if target.kind == "bundle" or target.kind == "binary" then
+    if target.kind == "bundle" or target.kind == "binary" or target.kind == "component" then
         report:at("bundle")
         report:step("bundling " .. (target.name or target.kind))
         local runtimeModules = {}
@@ -391,7 +397,10 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             newState.modules,
             resolvedEffects["native.workers"] == true,
             runtimeModules,
-            target.kind == "binary" and target.stub == "nupp" and requiredHostFeatures or nil
+            (
+                (target.kind == "binary" and target.stub == "nupp") or target.kind == "component"
+            ) and requiredHostFeatures or nil,
+            target.kind == "component"
         )
         if not text then
             io.stderr:write("nupp: " .. tostring(bundleErr) .. "\n")
@@ -430,7 +439,11 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 newState.outputs[archive] = true
             end
         else
-            output = bundleOutput(root, target, name)
+            output = target.kind == "component" and componentOutput(
+                root,
+                target,
+                name
+            ) or bundleOutput(root, target, name)
             local written, writeErr = writeFile(output, text)
             if not written then
                 io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")

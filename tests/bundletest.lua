@@ -86,6 +86,90 @@ return greet
 
 local M = {}
 
+local COMPONENT_MANIFEST = [[
+return {
+   include = {"src"},
+   build = {
+      kind = "component",
+      outDir = "build",
+      entries = {"app.main"},
+      exports = {"game.answer"},
+   },
+}
+]]
+
+function M.aComponentInstallsBeforeItsEntryRuns()
+   local dir = tempProject({
+      ["nupp.lua"] = COMPONENT_MANIFEST,
+      ["src/app/main.g.nupp"] = [[
+assert(component_started == nil)
+component_started = true
+return true
+]],
+      ["src/game.g.nupp"] = [[
+local game = {}
+function game.answer(value: integer): integer
+   return value + 1
+end
+return game
+]],
+   })
+   local out, ok = run(dir, "'" .. NUPP .. "' build")
+   assert(ok, "the component target builds: " .. out)
+   local artifact = readFile(dir .. "/build/component.nuppc")
+   local marker = "-- NUPP-COMPONENT 1"
+   assert(artifact and artifact:sub(1, #marker) == marker, "the component has a version marker")
+
+   local script = [[
+_G.__nuppHost = {hostAbi = 1, hostFeatures = {}}
+local descriptor = assert(loadfile("build/component.nuppc"))()
+assert(component_started == nil)
+local component = descriptor.install()
+assert(component_started == nil)
+assert(component.exports["game.answer"](41) == 42)
+assert(component_started == nil)
+component.start()
+assert(component_started == true)
+]]
+   local scriptFile = assert(io.open(dir .. "/run.lua", "wb"))
+   scriptFile:write(script)
+   scriptFile:close()
+   local ran, ranOk = run(dir, "luajit run.lua")
+   assert(ranOk, "an installed component starts explicitly: " .. ran)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.componentsShareOneRuntimeAndRejectNameCollisions()
+   local dir = tempProject({
+      ["build/one/main.lua"] = "return {call=function(n) return n + 1 end}\n",
+      ["build/two/main.lua"] = "return {call=function(n) return n + 2 end}\n",
+   })
+   local function artifact(entry, exported)
+      local path = dir .. "/build/" .. entry:gsub("%.", "/") .. ".lua"
+      local text = assert(packaging.bundleText(dir, {}, {
+         kind = "component", outDir = "build", entries = {entry}, exports = {exported},
+      }, nil, {[entry] = {output = path}}, false, {}, {}, true))
+      return text
+   end
+   local one = assert(loadstring(artifact("one.main", "one.main.call")))()
+   local two = assert(loadstring(artifact("two.main", "two.main.call")))()
+   local collision = assert(loadstring(artifact("one.main", "one.main.other")))()
+   local savedHost, savedPublic = _G.__nuppHost, _G.__nuppComponentExports
+   _G.__nuppHost = {hostAbi = 1, hostFeatures = {}}
+   local first = one.install()
+   local second = two.install()
+   assert(first.exports["one.main.call"](40) == 41)
+   assert(second.exports["two.main.call"](40) == 42)
+   local installed, problem = pcall(collision.install)
+   assert(not installed and tostring(problem):find("component module collision: one.main", 1, true),
+      "a colliding component is refused before replacing the first")
+   assert(first.exports["one.main.call"](1) == 2, "the prior component remains installed")
+   package.loaded["one.main"], package.loaded["two.main"] = nil, nil
+   package.preload["one.main"], package.preload["two.main"] = nil, nil
+   _G.__nuppHost, _G.__nuppComponentExports = savedHost, savedPublic
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.compilerHostPreambleMasksUniversalStubFeaturesBeforeUserCode()
    local dir = tempProject({
       ["build/main.lua"] = [[

@@ -18,6 +18,11 @@ strip = true
 name = "nupp-host"
 path = "src/main.rs"
 
+[lib]
+name = "nupp"
+path = "src/lib.rs"
+crate-type = ["rlib", "staticlib", "cdylib"]
+
 [features]
 default = []
 cjson = []

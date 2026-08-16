@@ -8,34 +8,22 @@
 //! The container is specified in `docs/distribution.md`; this is its first
 //! implementation, and deliberately its simplest.
 
-use sha2::{Digest, Sha256};
 use std::os::raw::c_int;
 
-mod lua;
-#[cfg(feature = "workers")]
-mod mcode;
-mod payload;
-#[cfg(feature = "workers")]
-mod workers;
-
-use lua::Lua;
+use nupp::Runtime;
 
 const EXIT_USAGE: c_int = 2;
 
 fn main() {
     #[cfg(feature = "workers")]
-    mcode::reserve();
+    nupp::reserve_worker_mcode();
+    nupp::retain_native_provider();
     let arguments: Vec<String> = std::env::args().collect();
     let status = run(&arguments);
     std::process::exit(status);
 }
 
 fn run(arguments: &[String]) -> c_int {
-    // Give release LTO real references to the selected provider entry points.
-    // build.rs exports those retained symbols so LuaJIT resolves them via ffi.C.
-    #[cfg(any(feature = "native-files", feature = "native-process"))]
-    nupp_native::retain_c_abi_exports();
-
     let exe = match std::env::current_exe() {
         Ok(path) => path,
         Err(error) => {
@@ -47,10 +35,10 @@ fn run(arguments: &[String]) -> c_int {
         }
     };
 
-    match payload::read(&exe) {
+    match nupp::read_payload(&exe) {
         Ok(Some(chunk)) => {
             #[cfg(feature = "workers")]
-            workers::set_payload(chunk.clone());
+            nupp::set_worker_payload(chunk.clone());
             let name = format!("@{}", exe.display());
             execute(&chunk, &name, &arguments[1..])
         }
@@ -65,7 +53,10 @@ fn run(arguments: &[String]) -> c_int {
 /// No payload: run the Lua file named first, so a stub is useful on its own.
 fn interpret(arguments: &[String]) -> c_int {
     if arguments.len() < 2 {
-        eprintln!("nupp-host: no payload; usage: {} <file.lua> [args...]", arguments[0]);
+        eprintln!(
+            "nupp-host: no payload; usage: {} <file.lua> [args...]",
+            arguments[0]
+        );
         return EXIT_USAGE;
     }
     let path = &arguments[1];
@@ -81,28 +72,23 @@ fn interpret(arguments: &[String]) -> c_int {
 
 /// Loads and runs one chunk, with `arg` set from `forwarded`.
 fn execute(chunk: &[u8], name: &str, forwarded: &[String]) -> c_int {
-    let lua = match Lua::new() {
-        Some(lua) => lua,
-        None => {
+    let runtime = match Runtime::new(true) {
+        Ok(runtime) => runtime,
+        Err(_) => {
             eprintln!("nupp: cannot create a Lua state");
             return 1;
         }
     };
-    lua.open_libraries();
-    lua.set_arg(forwarded);
-    match lua.run(chunk, name) {
+    let arguments = forwarded.to_vec();
+    if let Err(message) = runtime.set_arguments(&arguments) {
+        eprintln!("{message}");
+        return 1;
+    }
+    match runtime.run(chunk, name) {
         Ok(()) => 0,
         Err(message) => {
             eprintln!("{message}");
             1
         }
     }
-}
-
-/// The first eight bytes of a payload's SHA-256, as the trailer records it.
-pub fn digest_prefix(bytes: &[u8]) -> [u8; 8] {
-    let digest = Sha256::digest(bytes);
-    let mut prefix = [0u8; 8];
-    prefix.copy_from_slice(&digest[..8]);
-    prefix
 }

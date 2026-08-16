@@ -1,6 +1,20 @@
 # Embed Nupp as an application language
 
-Status: planned
+Status: in progress
+
+Implemented in the first runtime slice:
+
+- reusable owned and attached runtime core consumed by `nupp-host`;
+- static and dynamic `libnupp` artifacts with a versioned C header;
+- host feature, module and copied-resource registration before load freeze;
+- deterministic `component` targets with separate install and start phases;
+- module/export collision and compiler-host compatibility checks;
+- named export lookup, copied scalar/string values and GC-rooted handles;
+- explicit shutdown, structured errors and wrong-thread/lifecycle checks;
+- a compiled C example and embedding guide.
+
+Production AOT artifact loading, the in-process compiler service, host-driven
+hot reload and packaged multi-platform SDK discovery remain later phases below.
 
 ## Decision
 
