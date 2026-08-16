@@ -1,25 +1,31 @@
 --[[
-What makes lane IR well formed.
+What makes AOT IR well formed.
 
 Generated C is a backend representation and not the safety boundary. Every span
 access, region relationship, conversion, and lane operation has to exist here,
 verified, before anything is emitted -- so a rewrite that produced something this
 rejects is a compiler bug caught before it becomes a miscompilation, and the
-spike's own tests deliberately corrupt lane IR to prove these rules fire.
+spike's own tests deliberately corrupt IR to prove these rules fire.
 
-Two rules do most of the work and are worth stating separately from the code.
+Four rules do most of the work and are worth stating separately from the code.
 
-An operation names its own vector type -- `vadd.f64x4`, `vlt.f32x8` -- so there
-is no operation whose operand width has to be inferred. A mismatched pair is a
-malformed opcode rather than a check somebody has to remember to write.
+An index is the loop counter or it is refused. Every load, every store, every
+element reference names `loop.index` and nothing else, which is the whole of the
+licence to run several iterations at once and the whole of the argument that a
+span access is in bounds.
+
+A width changes only at a conversion. `float`, `int32` and `uint32` are storage
+and establishment facts, so an operator never quietly rounds one; a narrowing
+that is not written down is one that cannot happen.
+
+A lane operation names its own vector type -- `vadd.f64x4`, `vlt.f32x8` -- so
+there is no operation whose operand width has to be inferred. A mismatched pair
+is a malformed opcode rather than a check somebody has to remember to write.
 
 A gang names the vectors it uses, and membership is checked against that gang
 rather than against a list of every width the backend knows. A vector one shape
 admits is not silently valid in another, which is what keeps a binary64 value
 from entering a 32-bit gang that would change its answers.
-
-The scalar half is not here yet. Where a lane expression holds a uniform scalar,
-this hands it back to the caller's scalar rules through `verifyScalar`.
 ]]
 
 local lane = require("nupp.compiler.aot.lane")
@@ -27,34 +33,44 @@ local scalarIR = require("nupp.compiler.aot.scalar")
 
 local verify = {}
 
---- What the lane rules need from the rest of the IR.
+--- What every rule needs to know about the function being verified.
 ---
---- Passed in rather than reached for, because this module verifies lane IR and
---- should not also decide what a span or a layout is.
+--- Passed rather than reached for, so a rule cannot quietly depend on more of
+--- the program than it says it does.
+record verify.Scope
+    --- Span and uniform parameters by name.
+    spans: {[string]: scalarIR.Param}
+
+    --- Reified struct layouts by name.
+    layouts: {[string]: scalarIR.Layout}
+
+    --- Visible pure helpers by name.
+    helpers: {[string]: scalarIR.Helper}
+
+    --- Which spans may be written, which follows from which were declared
+    --- exclusive.
+    writes: {[string]: boolean}
+
+    --- The loop counter, and the only index an access may use.
+    index: string
+end
+
+--- What the lane rules need beyond the scope.
 record verify.Context
     --- The gang this body was lowered to.
     shape: lane.Shape
 
-    --- Span parameters by name, for checking that a lane load reads one that
-    --- exists and a lane store writes one that may be written.
-    spans: {[string]: any}
-
-    --- Reified struct layouts by name, for checking a field's storage type.
-    layouts: {[string]: any}
-
-    --- The scalar rules, for a uniform value appearing inside a lane
-    --- expression.
-    verifyScalar: function(lane.Expr | scalarIR.Expr, {[string]: string}): nil
+    scope: verify.Scope
 end
 
---- Reports lane IR that cannot mean anything.
+--- Reports IR that cannot mean anything.
 ---
 --- Raised rather than returned: reaching one is a compiler bug and there is no
 --- partial answer worth carrying on with.
 ---
 --- @raises always, with what was wrong
-local function invalid(why: string): nil
-    error("invalid lane IR: " .. why, 0)
+local function refuse(why: string): nil
+    error(why, 0)
 end
 
 --- Asserts one rule.
@@ -62,22 +78,25 @@ end
 --- @raises when the rule does not hold
 local function holds(condition: boolean, why: string): nil
     if not condition then
-        invalid(why)
+        refuse(why)
     end
 end
 
---- Every vector this gang may mention, so an opcode naming one that belongs to a
---- different shape is caught rather than quietly accepted.
-local function laneTypes(shape: lane.Shape): {[string]: boolean}
-    local admitted: {[string]: boolean} = {}
-    admitted[shape.mask] = true
-    admitted[shape.bits] = true
-    for _, vector in pairs(shape.vectorFor) do
-        admitted[vector] = true
-    end
-
-    return admitted
+--- Asserts one rule about lane IR, which names itself in the report.
+local function laneHolds(condition: boolean, why: string): nil
+    holds(condition, "invalid lane IR: " .. why)
 end
+
+--- The largest value a 32-bit pattern can hold, for a literal standing in for
+--- one.
+const verify.UINT32_MAX = 4294967295
+
+--- The types an arithmetic comparison may relate.
+const verify.NUMERIC = {["f64"] = true, ["f32"] = true, ["i32"] = true, ["u32"] = true}
+
+--- The storage types a span field may have. Narrower widths load into one of
+--- these rather than appearing here themselves.
+const verify.FIELD_STORAGE = {["f32"] = true, ["i32"] = true, ["u32"] = true}
 
 --- The arity of each bitwise verb. `not` is the only unary one.
 const verify.BITWISE_ARITY = {["and"] = 2, ["or"] = 2, ["xor"] = 2, ["shl"] = 2, ["shr"] = 2, ["sar"] = 2, ["not"] = 1,}
@@ -85,8 +104,64 @@ const verify.BITWISE_ARITY = {["and"] = 2, ["or"] = 2, ["xor"] = 2, ["shl"] = 2,
 --- The correcting binary32 helpers, and how many operands each takes.
 const verify.CORRECTED_ARITY = {["nupp_f32_min"] = 2, ["nupp_f32_max"] = 2, ["nupp_f32_fma"] = 3,}
 
---- The closed math set a lane may call, one scalar call per lane.
-const verify.LANE_MATH = {
+--- The element each explicitly fixed-width binary operation works in.
+const verify.FIXED_BINARY = {
+    ["f32_add"] = "f32",
+    ["f32_sub"] = "f32",
+    ["f32_mul"] = "f32",
+    ["f32_div"] = "f32",
+    ["i32_add"] = "i32",
+    ["i32_sub"] = "i32",
+    ["i32_mul"] = "i32",
+}
+
+--- The opcodes that convert between representations, which is where -- and
+--- only where -- a width changes.
+const verify.CONVERSIONS = {
+    ["narrow_f64_f32"] = true,
+    ["widen_f32_f64"] = true,
+    ["int_to_f64"] = true,
+    ["numeric_cast"] = true,
+}
+
+--- Every binary64 operation, comparison, and bitwise operation.
+const verify.BINARY_OPCODES = {
+    ["add"] = true,
+    ["sub"] = true,
+    ["mul"] = true,
+    ["div"] = true,
+    ["mod"] = true,
+    ["pow"] = true,
+    ["band"] = true,
+    ["bor"] = true,
+    ["bxor"] = true,
+    ["lshift"] = true,
+    ["rshift"] = true,
+    ["arshift"] = true,
+    ["lt"] = true,
+    ["le"] = true,
+    ["gt"] = true,
+    ["ge"] = true,
+    ["eq"] = true,
+    ["ne"] = true,
+    ["and"] = true,
+    ["or"] = true,
+}
+
+--- The element and arity of each corrected binary32 operation.
+const verify.FIXED_CORRECTED = {
+    ["f32_min"] = {element = "f32", arity = 2},
+    ["f32_max"] = {element = "f32", arity = 2},
+    ["f32_fma"] = {element = "f32", arity = 3},
+}
+
+--- The closed math set a body may call.
+---
+--- One table for both halves, because a lane math operation is emitted as one
+--- scalar call per lane: anything the scalar rules admit is admissible in lanes
+--- by construction, and a second list would only be a chance for the two to
+--- disagree.
+const verify.MATH = {
     ["sqrt"] = true,
     ["abs"] = true,
     ["floor"] = true,
@@ -111,9 +186,9 @@ const verify.LANE_MATH = {
     ["rad"] = true,
 }
 
---- Every opcode this vocabulary knows, beside the arithmetic and comparison
---- ones a shape generates.
-const verify.FIXED_OPCODES = {
+--- Every lane opcode this vocabulary knows, beside the arithmetic and
+--- comparison ones a shape generates.
+const verify.LANE_OPCODES = {
     ["local"] = true,
     ["vsplat"] = true,
     ["vbool_splat"] = true,
@@ -129,38 +204,255 @@ const verify.FIXED_OPCODES = {
     ["vbits"] = true,
 }
 
---- The storage types a span field may have. Narrower widths load into one of
---- these rather than appearing here themselves.
-const verify.FIELD_STORAGE = {["f32"] = true, ["i32"] = true, ["u32"] = true}
+--- The two halves of one walk, declared before either is written. They are
+--- local because the lane half calls the scalar one: a module function has to
+--- carry its types where it is defined, which a mutually recursive pair cannot
+--- do for the other.
+local scalarWalk: function(scalarIR.Expr, {[string]: string}, verify.Scope): nil
+
+local laneWalk: function(lane.Expr, {[string]: string}, verify.Context): nil
+
+--- Whether an operand may take part in a bitwise operation.
+---
+--- A value established as 32-bit may. So may a literal that already denotes a
+--- 32-bit pattern, which is how a mask is written without a cast; anything else
+--- would be a binary64 value silently truncated.
+local function bitOperand(value: scalarIR.Expr): boolean
+    if value.type == "i32" or value.type == "u32" then
+        return true
+    end
+    if value.op == "constant" then
+        local number = tonumber(value.value)
+
+        return number ~= nil and number >= 0 and number <= verify.UINT32_MAX and number % 1 == 0
+    end
+
+    return false
+end
+
+--- Checks a conversion, which is the only place a width changes.
+local function convert(node: scalarIR.Convert, values: {[string]: string}, scope: verify.Scope): nil
+    local from = node.value.type
+    if node.op == "narrow_f64_f32" then
+        holds(node.type == "f32" and from == "f64", "invalid narrowing conversion")
+    elseif node.op == "widen_f32_f64" then
+        holds(node.type == "f64" and from == "f32", "invalid widening conversion")
+    elseif node.op == "int_to_f64" then
+        holds(node.type == "f64" and (from == "i32" or from == "u32"), "invalid integer promotion")
+    else
+        holds(
+            (node.type == "i32" or node.type == "u32") and (from == "f64" or from == "i32" or from == "u32"),
+            "invalid numeric cast"
+        )
+    end
+    scalarWalk(node.value, values, scope)
+end
+
+--- Checks a read of one scalar element.
+local function load(node: scalarIR.Load, scope: verify.Scope): nil
+    local root = scope.spans[node.span]
+    holds(root ~= nil, "invalid load root")
+
+    local span = root as scalarIR.Param
+    holds(
+        (
+            span.kind == "read_span" or span.kind == "write_span"
+        ) and node.type == span.type and node.type:match("^struct:") == nil,
+        "invalid load root"
+    )
+    holds(node.index == scope.index, "unbounded load index")
+end
+
+--- Checks a pointer to one struct element.
+---
+--- Whether it may be written is not this expression's claim to make: it follows
+--- from whether the span was declared exclusive, and disagreeing with that is
+--- how a shared borrow would become a write.
+local function elementRef(node: scalarIR.ElementRef, scope: verify.Scope): nil
+    local root = scope.spans[node.span]
+    local layoutName = node.type:match("^ref:(.+)$")
+    holds(root ~= nil and layoutName ~= nil, "invalid struct element root")
+
+    local span = root as scalarIR.Param
+    holds(
+        span.type == "struct:" .. tostring(layoutName) and scope.layouts[tostring(layoutName)] ~= nil,
+        "invalid struct element root"
+    )
+    holds(node.mutable == (span.kind == "write_span") and node.index == scope.index, "invalid struct element access")
+end
+
+--- Checks a corrected binary32 operation, whose operands live in `args` or in
+--- `left` and `right` depending on how many there are.
+local function corrected(node: scalarIR.Corrected, values: {[string]: string}, scope: verify.Scope): nil
+    local rule = verify.FIXED_CORRECTED[tostring(node.op)]
+    local element = rule.element
+    if rule.arity == 3 then
+        local args = node.args or {}
+        holds(node.type == element and #args == 3, "invalid fused operation")
+        for _, argument in ipairs(args) do
+            holds(argument.type == element, "invalid fused operand")
+            scalarWalk(argument, values, scope)
+        end
+
+        return
+    end
+
+    local left, right = node.left, node.right
+    holds(
+        node.type == element and left ~= nil and left.type == element and right ~= nil and right.type == element,
+        "invalid corrected binary operation"
+    )
+    scalarWalk(left as scalarIR.Expr, values, scope)
+    scalarWalk(right as scalarIR.Expr, values, scope)
+end
+
+--- Checks one binary64 operation, comparison, or bitwise operation.
+local function binary(node: scalarIR.Binary, values: {[string]: string}, scope: verify.Scope): nil
+    local op = node.op
+    if op == "add" or op == "sub" or op == "mul" or op == "div" or op == "mod" or op == "pow" then
+        holds(node.type == "f64" and node.left.type == "f64" and node.right.type == "f64", "invalid arithmetic")
+    elseif op == "band" or op == "bor" or op == "bxor" or op == "lshift" or op == "rshift" or op == "arshift" then
+        holds(node.type == "i32" and bitOperand(node.left) and bitOperand(node.right), "invalid bitwise operation")
+    elseif op == "lt" or op == "le" or op == "gt" or op == "ge" or op == "eq" or op == "ne" then
+        local mixed = verify.NUMERIC[node.left.type] == true and verify.NUMERIC[node.right.type] == true
+        holds(node.type == "bool" and (node.left.type == node.right.type or mixed), "invalid comparison")
+    else
+        holds(
+            node.type == "bool" and node.left.type == "bool" and node.right.type == "bool",
+            "invalid boolean operation"
+        )
+    end
+    scalarWalk(node.left, values, scope)
+    scalarWalk(node.right, values, scope)
+end
+
+scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: verify.Scope): nil
+    holds(node ~= nil and node.type ~= nil, "untyped IR expression")
+
+    -- Several operations share one record, so a branch that admits a family
+    -- names the record its opcodes all denote. A single-tag branch narrows on
+    -- its own and says nothing extra.
+    local op = node.op
+    if verify.CONVERSIONS[tostring(op)] == true then
+        convert(node as scalarIR.Convert, values, scope)
+    elseif op == "load" then
+        load(node, scope)
+    elseif op == "element_ref" then
+        elementRef(node, scope)
+    elseif op == "field_load" then
+        local layout = scope.layouts[node.layout]
+        holds(layout ~= nil and (layout.fieldTypes or {})[node.field] == node.type, "invalid struct field load")
+        scalarWalk(node.object, values, scope)
+    elseif op == "uniform" then
+        local param = scope.spans[node.name]
+        holds(param ~= nil, "invalid uniform")
+        holds(
+            (param as scalarIR.Param).kind == "uniform" and node.type == (param as scalarIR.Param).type,
+            "invalid uniform"
+        )
+    elseif op == "local" or op == "helper_param" then
+        local named = node as scalarIR.Name
+        holds(values[named.name] == node.type, "invalid local value")
+    elseif verify.FIXED_BINARY[tostring(op)] ~= nil then
+        local element = verify.FIXED_BINARY[tostring(op)]
+        local pair = node as scalarIR.Fixed
+        holds(
+            node.type == element and pair.left.type == element and pair.right.type == element,
+            "invalid fixed-width binary operation"
+        )
+        scalarWalk(pair.left, values, scope)
+        scalarWalk(pair.right, values, scope)
+    elseif op == "f32_sqrt" then
+        holds(node.type == "f32" and node.value.type == "f32", "invalid binary32 square root")
+        scalarWalk(node.value, values, scope)
+    elseif verify.FIXED_CORRECTED[tostring(op)] ~= nil then
+        corrected(node as scalarIR.Corrected, values, scope)
+    elseif op == "constant_i32" then
+        holds(node.type == "i32", "integer constant type")
+    elseif op == "constant" then
+        holds(node.type == "f64" and tonumber(node.value) ~= nil, "invalid constant")
+    elseif op == "bool" then
+        holds(node.type == "bool" and type(node.value) == "boolean", "invalid boolean")
+    elseif op == "neg" or op == "not" or op == "bnot" then
+        local operand = (node as scalarIR.Unary).value
+        scalarWalk(operand, values, scope)
+        local expected = op == "neg" and "f64" or op == "not" and "bool" or "i32"
+        holds(node.type == expected, "invalid unary result")
+        if op == "bnot" then
+            holds(bitOperand(operand), "invalid bitwise operand")
+        end
+    elseif op == "math" then
+        holds(node.type == "f64", "invalid math result")
+        holds(verify.MATH[node.intrinsic] == true, "unknown math intrinsic")
+        for _, argument in ipairs(node.args) do
+            holds(argument.type == "f64", "invalid math argument")
+            scalarWalk(argument, values, scope)
+        end
+    elseif op == "helper_call" then
+        local found = scope.helpers[node.helper]
+        holds(found ~= nil, "invalid helper call")
+
+        local helper = found as scalarIR.Helper
+        holds(
+            #node.args == #helper.params and (node.type == helper.resultType or node.type == "multi"),
+            "invalid helper call"
+        )
+        for position, argument in ipairs(node.args) do
+            holds(argument.type == helper.params[position].type, "invalid helper argument")
+            scalarWalk(argument, values, scope)
+        end
+    elseif verify.BINARY_OPCODES[tostring(op)] == true then
+        binary(node as scalarIR.Binary, values, scope)
+    else
+        refuse("unknown expression opcode " .. tostring(op))
+    end
+end
+
+--- Checks one scalar expression, and everything under it.
+---
+--- @param node the expression
+--- @param values locals in scope, by name, to their type
+--- @param scope what the rules need from the rest of the program
+--- @raises when the expression is not well formed
+function verify.expression(node: scalarIR.Expr, values: {[string]: string}, scope: verify.Scope): nil
+    scalarWalk(node, values, scope)
+end
+
+--- Every vector this gang may mention, so an opcode naming one that belongs to
+--- a different shape is caught rather than quietly accepted.
+local function laneTypes(shape: lane.Shape): {[string]: boolean}
+    local admitted: {[string]: boolean} = {}
+    admitted[shape.mask] = true
+    admitted[shape.bits] = true
+    for _, vector in pairs(shape.vectorFor) do
+        admitted[vector] = true
+    end
+
+    return admitted
+end
 
 --- Builds the arithmetic and comparison signatures this gang admits.
 ---
 --- Derived from the shape rather than written out, so an opcode for a width the
 --- gang does not carry simply has no entry and fails to match.
 local function laneSignatures(shape: lane.Shape): ({[string]: any}, {[string]: any})
-    local binary: {[string]: any} = {}
-    local unary: {[string]: any} = {}
+    local binaries: {[string]: any} = {}
+    local unaries: {[string]: any} = {}
     for element, vector in pairs(shape.vectorFor) do
         if vector ~= shape.mask then
             for _, verb in ipairs({"add", "sub", "mul", "div"}) do
-                binary[verb .. "." .. element] = {result = vector, operand = vector}
+                binaries[verb .. "." .. element] = {result = vector, operand = vector}
             end
             for _, verb in ipairs({"lt", "le", "gt", "ge", "eq", "ne"}) do
-                binary[verb .. "." .. element] = {result = shape.mask, operand = vector}
+                binaries[verb .. "." .. element] = {result = shape.mask, operand = vector}
             end
-            unary["neg." .. element] = {result = vector, operand = vector}
-            unary["sqrt." .. element] = {result = vector, operand = vector}
+            unaries["neg." .. element] = {result = vector, operand = vector}
+            unaries["sqrt." .. element] = {result = vector, operand = vector}
         end
     end
 
-    return binary, unary
+    return binaries, unaries
 end
-
---- The two halves of one walk, so each is declared before either is written.
---- They are local because they call each other: a module function has to carry
---- its types where it is defined, which neither of a mutually recursive pair can
---- do for the other.
-local walk: function(lane.Expr, {[string]: string}, verify.Context): nil
 
 --- Checks a short-circuit mask.
 ---
@@ -169,15 +461,15 @@ local walk: function(lane.Expr, {[string]: string}, verify.Context): nil
 local function shortCircuit(node: lane.ShortCircuit, values: {[string]: string}, context: verify.Context): nil
     -- Both sides run for every lane, so eager evaluation needs the proof rather
     -- than the shape of the expression.
-    holds(node.effect == "pure_total", "a short-circuit mask without its effect proof")
-    holds(
+    laneHolds(node.effect == "pure_total", "a short-circuit mask without its effect proof")
+    laneHolds(
         #node.args == 2 and node.args[
             1
         ].type == context.shape.mask and node.args[2].type == context.shape.mask and node.type == context.shape.mask,
         "a short-circuit mask over something that is not a mask"
     )
-    walk(node.args[1], values, context)
-    walk(node.args[2], values, context)
+    laneWalk(node.args[1], values, context)
+    laneWalk(node.args[2], values, context)
 end
 
 --- Checks the operands of an operation that takes a vector of one width.
@@ -189,20 +481,20 @@ local function operands(
     context: verify.Context,
     why: string
 ): nil
-    holds(#args == count, why)
+    laneHolds(#args == count, why)
     for _, argument in ipairs(args) do
-        holds(argument.type == want, why)
-        walk(argument, values, context)
+        laneHolds(argument.type == want, why)
+        laneWalk(argument, values, context)
     end
 end
 
-walk = function(node: lane.Expr, values: {[string]: string}, context: verify.Context): nil
+laneWalk = function(node: lane.Expr, values: {[string]: string}, context: verify.Context): nil
     local shape = context.shape
     local admitted = laneTypes(shape)
-    local binary, unary = laneSignatures(shape)
+    local binaries, unaries = laneSignatures(shape)
     local mask = shape.mask
 
-    holds(node ~= nil and node.type ~= nil, "an expression with no type")
+    laneHolds(node ~= nil and node.type ~= nil, "an expression with no type")
 
     -- The tag is checked before anything narrows on it. `node` is declared to be
     -- one of these records, but it arrives across a boundary that does not
@@ -211,14 +503,16 @@ walk = function(node: lane.Expr, values: {[string]: string}, context: verify.Con
     -- branch that rejects an unknown opcode dead code, in the one function whose
     -- whole purpose is rejecting what it does not know.
     if not admitted[node.type] then
-        -- A uniform scalar inside a lane expression. Not this module's rules.
-        context.verifyScalar(node, values)
+        -- A uniform scalar inside a lane expression. Its type is not one this
+        -- gang carries, which is exactly what makes it a scalar, so the scalar
+        -- rules are the ones that apply.
+        scalarWalk(node as scalarIR.Expr, values, context.scope)
 
         return
     end
 
-    holds(
-        verify.FIXED_OPCODES[tostring(node.op)] == true,
+    laneHolds(
+        verify.LANE_OPCODES[tostring(node.op)] == true,
         "an operation this vocabulary has no rule for: " .. tostring(node.op)
     )
 
@@ -227,23 +521,25 @@ walk = function(node: lane.Expr, values: {[string]: string}, context: verify.Con
     -- comparing thirty enumerated opcodes by hand would prove the same thing
     -- and read like a table.
     if node.op == "local" then
-        holds(values[node.name] == node.type, "a lane local of the wrong type")
+        laneHolds(values[node.name] == node.type, "a lane local of the wrong type")
     elseif node.op == "vsplat" then
-        holds(
+        laneHolds(
             #node.args == 1 and node.type ~= mask and shape.vectorFor[node.element] == node.type,
             "a splat that does not carry its element"
         )
-        context.verifyScalar(node.args[1], values)
+        scalarWalk(node.args[1], values, context.scope)
     elseif node.op == "vbool_splat" then
-        holds(node.type == mask and #node.args == 1, "a boolean splat that is not a mask")
-        context.verifyScalar(node.args[1], values)
+        laneHolds(node.type == mask and #node.args == 1, "a boolean splat that is not a mask")
+        scalarWalk(node.args[1], values, context.scope)
     elseif node.op == "vfield_load" then
-        local root = context.spans[node.span]
-        local layout = context.layouts[node.layout]
-        holds(
+        local root = context.scope.spans[node.span]
+        local layout = context.scope.layouts[node.layout]
+        laneHolds(
             root ~= nil and root.type == "struct:" .. tostring(
                 node.layout
-            ) and layout ~= nil and layout.fieldTypes[
+            ) and layout ~= nil and (
+                layout.fieldTypes or {}
+            )[
                 node.field
             ] == node.scalarType and verify.FIELD_STORAGE[
                 node.scalarType
@@ -251,8 +547,8 @@ walk = function(node: lane.Expr, values: {[string]: string}, context: verify.Con
             "a lane load that does not match its span, field, or width"
         )
     elseif node.op == "vbinary" then
-        local signature = binary[node.verb .. "." .. tostring(node.element)]
-        holds(signature ~= nil and node.type == signature.result, "a binary operation this gang does not admit")
+        local signature = binaries[node.verb .. "." .. tostring(node.element)]
+        laneHolds(signature ~= nil and node.type == signature.result, "a binary operation this gang does not admit")
         operands(
             node.args,
             signature.operand,
@@ -262,8 +558,8 @@ walk = function(node: lane.Expr, values: {[string]: string}, context: verify.Con
             "a binary operation whose operands are not its own width"
         )
     elseif node.op == "vunary" then
-        local signature = unary[node.verb .. "." .. tostring(node.element)]
-        holds(signature ~= nil and node.type == signature.result, "a unary operation this gang does not admit")
+        local signature = unaries[node.verb .. "." .. tostring(node.element)]
+        laneHolds(signature ~= nil and node.type == signature.result, "a unary operation this gang does not admit")
         operands(
             node.args,
             signature.operand,
@@ -275,34 +571,34 @@ walk = function(node: lane.Expr, values: {[string]: string}, context: verify.Con
     elseif node.op == "vmask" then
         local count = node.verb == "not" and 1 or 2
         operands(node.args, mask, count, values, context, "a mask operation over something that is not a mask")
-        holds(node.type == mask, "a mask operation that does not produce a mask")
+        laneHolds(node.type == mask, "a mask operation that does not produce a mask")
     elseif node.op == "vshort" then
         shortCircuit(node, values, context)
     elseif node.op == "vselect" then
-        holds(
+        laneHolds(
             #node.args == 3 and node.args[
                 1
             ].type == mask and node.args[2].type == node.type and node.args[3].type == node.type,
             "a select whose arms disagree, or whose condition is not a mask"
         )
-        walk(node.args[1], values, context)
-        walk(node.args[2], values, context)
-        walk(node.args[3], values, context)
+        laneWalk(node.args[1], values, context)
+        laneWalk(node.args[2], values, context)
+        laneWalk(node.args[3], values, context)
     elseif node.op == "vmath" then
-        holds(
-            node.type == shape.vectorFor["f64"] and verify.LANE_MATH[node.intrinsic] == true,
+        laneHolds(
+            node.type == shape.vectorFor["f64"] and verify.MATH[node.intrinsic] == true,
             "a math operation outside the closed set, or not in binary64 lanes"
         )
         operands(node.args, node.type, #node.args, values, context, "a math argument of the wrong width")
     elseif node.op == "vcorrected" then
-        holds(
+        laneHolds(
             node.type == "f32x8" and verify.CORRECTED_ARITY[node.helper] == #node.args,
             "a corrected operation with the wrong helper or arity"
         )
         operands(node.args, node.type, #node.args, values, context, "a corrected operand of the wrong width")
     elseif node.op == "vbitwise" then
         local verb = node.verb
-        holds(
+        laneHolds(
             node.type == shape.bits and verify.BITWISE_ARITY[verb] ~= nil,
             "a bitwise operation outside the gang's bit vector"
         )
@@ -315,15 +611,15 @@ walk = function(node: lane.Expr, values: {[string]: string}, context: verify.Con
             "a bitwise operand outside the bit vector"
         )
     elseif node.op == "vbits" then
-        holds(
+        laneHolds(
             admitted[
                 node.type
             ] == true and #node.args == 1 and admitted[node.args[1].type] == true and node.args[1].type ~= node.type,
             "a bit conversion that does not change vector"
         )
-        walk(node.args[1], values, context)
+        laneWalk(node.args[1], values, context)
     else
-        invalid("an operation this vocabulary has no rule for")
+        refuse("invalid lane IR: an operation this vocabulary has no rule for")
     end
 end
 
@@ -331,10 +627,424 @@ end
 ---
 --- @param node the expression
 --- @param values lane locals in scope, by name, to their vector type
---- @param context what the lane rules need from the rest of the IR
+--- @param context the gang, and what the rules need from the rest of the program
 --- @raises when the expression is not well formed lane IR
-function verify.expression(node: lane.Expr, values: {[string]: string}, context: verify.Context): nil
-    walk(node, values, context)
+function verify.laneExpression(node: lane.Expr, values: {[string]: string}, context: verify.Context): nil
+    laneWalk(node, values, context)
+end
+
+--- An environment with the same entries, so a nested scope cannot leak the
+--- names it introduces back out of itself.
+local function inherit(values: {[string]: string}): {[string]: string}
+    local copied: {[string]: string} = {}
+    for name, entry in pairs(values) do
+        copied[name] = entry
+    end
+
+    return copied
+end
+
+--- Checks one assignment target and the value going into it.
+local function assignment(
+    entry: scalarIR.Assignment,
+    values: {[string]: string},
+    scope: verify.Scope,
+    stored: {[string]: boolean}
+): nil
+    local target = entry.target
+    if target.kind == "local" then
+        holds(values[tostring(target.name)] == target.type, "invalid local assignment target")
+    else
+        local layout = scope.layouts[tostring(target.layout)]
+        local object = target.object
+        holds(
+            object ~= nil and (
+                object as scalarIR.ElementRef
+            ).mutable == true and layout ~= nil and (
+                layout as scalarIR.Layout
+            ).fieldTypes ~= nil and (
+                (layout as scalarIR.Layout).fieldTypes or {}
+            )[tostring(target.field)] == target.type,
+            "invalid field assignment target"
+        )
+        scalarWalk(object as scalarIR.Expr, values, scope)
+    end
+    holds(entry.value.type == target.type, "assignment type mismatch")
+    scalarWalk(entry.value, values, scope)
+end
+
+--- Checks one block of scalar statements, and everything under it.
+---
+--- `stored` accumulates which outputs were written, because a kernel whose
+--- output is never assigned is a kernel that silently did nothing.
+local function block(
+    statements: {scalarIR.Statement},
+    inherited: {[string]: string},
+    scope: verify.Scope,
+    stored: {[string]: boolean}
+): nil
+    local values = inherit(inherited)
+    for _, statement in ipairs(statements) do
+        if statement.op == "let" then
+            holds(values[statement.name] == nil and statement.type == statement.value.type, "invalid local declaration")
+            scalarWalk(statement.value, values, scope)
+            values[statement.name] = statement.type
+        elseif statement.op == "multi_let" then
+            scalarWalk(statement.call, values, scope)
+
+            local resultTypes = statement.call.resultTypes or {}
+            holds(
+                statement.call.type == "multi" and #statement.bindings == #resultTypes,
+                "invalid multiple-result declaration"
+            )
+            for position, bound in ipairs(statement.bindings) do
+                holds(
+                    values[bound.name] == nil and bound.type == resultTypes[position],
+                    "invalid multiple-result binding"
+                )
+                values[bound.name] = bound.type
+            end
+        elseif statement.op == "store" then
+            holds(scope.writes[statement.span] == true and statement.index == scope.index, "invalid store root")
+            scalarWalk(statement.value, values, scope)
+            holds(statement.value.type == (scope.spans[statement.span] as scalarIR.Param).type, "store type mismatch")
+            stored[statement.span] = true
+        elseif statement.op == "assign" then
+            for _, entry in ipairs(statement.values) do
+                assignment(entry, values, scope, stored)
+            end
+        elseif statement.op == "if" then
+            for _, clause in ipairs(statement.clauses) do
+                holds(clause.condition.type == "bool", "non-boolean branch")
+                scalarWalk(clause.condition, values, scope)
+                block(clause.body, values, scope, stored)
+            end
+            if statement.elseBody ~= nil then
+                block(statement.elseBody or {}, values, scope, stored)
+            end
+        elseif statement.op == "fornum" then
+            for _, bound in ipairs({statement.from, statement.to}) do
+                holds(bound.type == "i32" or bound.type == "u32" or bound.type == "f64", "non-numeric for bound")
+                scalarWalk(bound, values, scope)
+            end
+            holds(statement.binding.type == "i32", "for induction variable type")
+
+            local inner = inherit(values)
+            inner[statement.binding.name] = "i32"
+            block(statement.body, inner, scope, stored)
+        elseif statement.op == "while" then
+            holds(statement.condition.type == "bool", "non-boolean loop condition")
+            scalarWalk(statement.condition, values, scope)
+            block(statement.body, values, scope, stored)
+        elseif statement.op == "block" then
+            block(statement.body, values, scope, stored)
+        else
+            holds(statement.op == "break" or statement.op == "continue", "unknown statement opcode")
+        end
+    end
+end
+
+--- Checks one block of lane statements, and everything under it.
+---
+--- `loopContext` is the lane loop this block is inside, or nothing at the top.
+--- A `break` or `continue` names the masks it retires from, and they have to be
+--- that loop's: retiring from a loop this statement is not in would be control
+--- flow that no mask expresses.
+local function laneBlock(
+    statements: {any},
+    inherited: {[string]: string},
+    context: verify.Context,
+    loopContext: any
+): nil
+    local mask = context.shape.mask
+    local values = inherit(inherited)
+    for _, statement in ipairs(statements) do
+        if statement.op == "let" then
+            laneHolds(
+                values[statement.name] == nil and statement.type == statement.value.type,
+                "invalid lane local declaration"
+            )
+            laneWalk(statement.value, values, context)
+            values[statement.name] = statement.type
+        elseif statement.op == "vassign" then
+            for _, entry in ipairs(statement.values) do
+                local target = entry.target
+                laneWalk(entry.value, values, context)
+                if target.kind == "local" then
+                    laneHolds(values[target.name] == entry.value.type, "invalid lane local assignment")
+                else
+                    local root = context.scope.spans[target.span]
+                    local layout = context.scope.layouts[target.layout]
+                    laneHolds(
+                        target.kind == "vfield"
+                        and root ~= nil
+                        and root.kind == "write_span"
+                        and root.type == "struct:"
+                        .. tostring(
+                            target.layout
+                        ) and layout ~= nil and (
+                            layout.fieldTypes or {}
+                        )[
+                            target.field
+                        ] == target.scalarType and verify.FIELD_STORAGE[
+                            target.scalarType
+                        ] == true and entry.value.type == context.shape.vectorFor[target.scalarType],
+                        "invalid lane field assignment"
+                    )
+                end
+            end
+        elseif statement.op == "vwhile" then
+            laneHolds(
+                statement.live.type == mask
+                and statement.executing.type == mask
+                and statement.live.name ~= statement.executing.name
+                and values[
+                    statement.live.name
+                ] == nil and values[statement.executing.name] == nil,
+                "invalid lane-loop mask bindings"
+            )
+            laneWalk(statement.initial, values, context)
+            laneWalk(statement.condition, values, context)
+            laneHolds(
+                statement.initial.type == mask and statement.condition.type == mask,
+                "invalid lane-loop condition"
+            )
+
+            local inner = inherit(values)
+            inner[statement.live.name] = mask
+            inner[statement.executing.name] = mask
+            laneBlock(statement.body, inner, context, statement)
+        elseif statement.op == "vbreak" or statement.op == "vcontinue" then
+            laneHolds(
+                loopContext ~= nil
+                and statement.live.name == loopContext.live.name
+                and statement.executing.name == loopContext.executing.name,
+                "lane loop control escaped its loop"
+            )
+            laneWalk(statement.mask, values, context)
+            laneHolds(statement.mask.type == mask, "lane loop control needs a mask")
+        else
+            refuse("unknown lane statement opcode " .. tostring(statement.op))
+        end
+    end
+end
+
+--- Indexes the layouts, filling in each one's fields by name.
+local function layoutsByName(program: scalarIR.Program): {[string]: scalarIR.Layout}
+    local layouts: {[string]: scalarIR.Layout} = {}
+    for _, layout in ipairs(program.layouts or {}) do
+        holds(layouts[layout.name] == nil and layout.cName ~= nil and #layout.fields > 0, "invalid native layout")
+
+        local fields: {[string]: scalarIR.Type} = {}
+        for _, field in ipairs(layout.fields) do
+            holds(fields[field.name] == nil and verify.FIELD_STORAGE[field.type] == true, "invalid native layout field")
+            fields[field.name] = field.type
+        end
+        layout.fieldTypes = fields
+        layouts[layout.name] = layout
+    end
+
+    return layouts
+end
+
+--- What the signature says, checked against itself.
+---
+--- Returns the parameters by name, the regions by name, which spans may be
+--- written, and the primary output the loop is bounded by.
+local function signature(
+    program: scalarIR.Program,
+    layouts: {[string]: scalarIR.Layout}
+): ({[string]: scalarIR.Param}, {[string]: scalarIR.Param}, {[string]: boolean}, scalarIR.Param)
+    local byName: {[string]: scalarIR.Param} = {}
+    local byRegion: {[string]: scalarIR.Param} = {}
+    local writes: {[string]: boolean} = {}
+    local primary: scalarIR.Param? = nil
+    for _, param in ipairs(program.params) do
+        holds(byName[param.name] == nil, "duplicate IR parameter")
+        holds(
+            param.kind == "write_span" or param.kind == "read_span" or param.kind == "uniform",
+            "unknown IR parameter kind"
+        )
+        if param.kind == "uniform" then
+            holds(verify.NUMERIC[param.type] == true and param.region == nil, "invalid IR uniform")
+        else
+            local structName = param.type:match("^struct:(.+)$")
+            local element = verify.FIELD_STORAGE[
+                param.type
+            ] == true or structName ~= nil and layouts[tostring(structName)] ~= nil
+            holds(element and param.region ~= nil and byRegion[tostring(param.region)] == nil, "invalid IR span")
+            holds(param.access == (param.kind == "write_span" and "readwrite" or "read"), "invalid IR region access")
+            byRegion[tostring(param.region)] = param
+            if param.kind == "write_span" then
+                writes[param.name] = true
+                primary = primary or param
+            end
+        end
+        byName[param.name] = param
+    end
+    holds(
+        primary ~= nil and program.loop.count == (primary as scalarIR.Param).name,
+        "loop is not bounded by its primary output"
+    )
+
+    return byName, byRegion, writes, primary as scalarIR.Param
+end
+
+--- The regions and the alias facts over them.
+---
+--- The matrix is required to be complete rather than merely consistent: a pair
+--- with no fact would be a pair whose `restrict` nobody justified, and the
+--- count is what catches that.
+local function regions(program: scalarIR.Program, byRegion: {[string]: scalarIR.Param}): nil
+    local declared: {[string]: boolean} = {}
+    for _, region in ipairs(program.regions) do
+        local param = byRegion[region.id]
+        holds(param ~= nil and declared[region.id] == nil, "invalid or duplicate region declaration")
+
+        local span = param as scalarIR.Param
+        holds(region.param == span.name and region.access == span.access, "region declaration mismatch")
+        holds(region.proof == tostring(span.ownership) .. "_borrow", "invalid region proof")
+        declared[region.id] = true
+    end
+
+    local count = 0
+    for id in pairs(byRegion) do
+        holds(declared[id] == true, "undeclared parameter region")
+        count = count + 1
+    end
+
+    local seen: {[string]: boolean} = {}
+    for _, fact in ipairs(program.aliasFacts) do
+        holds(
+            byRegion[fact.left] ~= nil and byRegion[fact.right] ~= nil and fact.left ~= fact.right,
+            "alias fact references an invalid region"
+        )
+
+        local key = fact.left < fact.right and fact.left .. ":" .. fact.right or fact.right .. ":" .. fact.left
+        holds(seen[key] == nil, "duplicate alias fact")
+
+        local hasWrite = (
+            byRegion[fact.left] as scalarIR.Param
+        ).kind == "write_span" or (byRegion[fact.right] as scalarIR.Param).kind == "write_span"
+        holds(fact.relation == (hasWrite and "disjoint" or "may_alias"), "invalid alias relationship")
+        holds(fact.proof == (hasWrite and "exclusive_borrow" or "shared_borrows"), "invalid alias proof")
+        seen[key] = true
+    end
+    holds(#program.aliasFacts == count * (count - 1) / 2, "incomplete alias matrix")
+end
+
+--- The loop's bounds, and the length agreements that make them cover every
+--- span rather than only the one they were written against.
+local function bounds(program: scalarIR.Program, byName: {[string]: scalarIR.Param}, primary: scalarIR.Param): nil
+    local rangeGuard = program.rangeGuard
+    if rangeGuard ~= nil then
+        local guard = rangeGuard as scalarIR.RangeGuard
+        holds(
+            program.loop.first == guard.first and program.loop.last == guard.last and guard.count == primary.name,
+            "loop range proof mismatch"
+        )
+        holds(
+            byName[
+                guard.first
+            ] ~= nil and (
+                byName[guard.first] as scalarIR.Param
+            ).sourceType == "integer" and byName[
+                guard.last
+            ] ~= nil and (byName[guard.last] as scalarIR.Param).sourceType == "integer",
+            "range proof does not use integer uniforms"
+        )
+    else
+        holds(program.loop.first == 1 and program.loop.last == primary.name, "invalid full-span loop")
+    end
+
+    local guarded: {[string]: boolean} = {}
+    for _, guard in ipairs(program.guards) do
+        holds(guard.op == "equal_count" and guard.left == primary.name, "invalid IR guard")
+        holds(byName[guard.right] ~= nil and (byName[guard.right] as scalarIR.Param).region ~= nil, "guarded non-span")
+        guarded[guard.right] = true
+    end
+    for _, param in ipairs(program.params) do
+        if param.region ~= nil and param.name ~= primary.name then
+            holds(guarded[param.name] == true, "unguarded IR span")
+        end
+    end
+end
+
+--- The helper bodies, each of which is one return list and nothing else.
+local function helperBodies(program: scalarIR.Program, scope: verify.Scope): nil
+    for _, helper in ipairs(program.helpers or {}) do
+        local values: {[string]: string} = {}
+        for _, param in ipairs(helper.params) do
+            holds(values[param.name] == nil, "duplicate helper parameter")
+            values[param.name] = param.type
+        end
+        holds(
+            #helper.values == #helper.resultTypes and helper.resultType == helper.resultTypes[1],
+            "helper result mismatch"
+        )
+        for position, value in ipairs(helper.values) do
+            holds(value.type == helper.resultTypes[position], "helper result type mismatch")
+            scalarWalk(value, values, scope)
+        end
+    end
+end
+
+--- Checks one whole AOT program, and everything under it.
+---
+--- @param program the lowered function
+--- @return the same program, so a caller may verify and use it in one step
+--- @raises when anything about it is not well formed
+function verify.program(program: scalarIR.Program): scalarIR.Program
+    holds(program.version == scalarIR.VERSION, "unknown native C IR version")
+    holds(program.symbol == scalarIR.privateSymbol(program.name), "private symbol does not match function identity")
+
+    local layouts = layoutsByName(program)
+    local byName, byRegion, writes, primary = signature(program, layouts)
+    bounds(program, byName, primary)
+    regions(program, byRegion)
+
+    local helpers: {[string]: scalarIR.Helper} = {}
+    for _, helper in ipairs(program.helpers or {}) do
+        holds(helpers[helper.name] == nil, "duplicate IR helper")
+        helpers[helper.name] = helper
+    end
+
+    local scope = new verify.Scope(
+        spans = byName,
+        layouts = layouts,
+        helpers = helpers,
+        writes = writes,
+        index = program.loop.index
+    )
+    helperBodies(program, scope)
+
+    local uniforms: {[string]: string} = {}
+    for _, param in ipairs(program.params) do
+        if param.kind == "uniform" then
+            uniforms[param.name] = param.type
+        end
+    end
+
+    local stored: {[string]: boolean} = {}
+    block(program.loop.statements, uniforms, scope, stored)
+    for output in pairs(writes) do
+        if (byName[output] as scalarIR.Param).type:match("^struct:") == nil then
+            holds(stored[output] == true, "scalar IR output is never stored")
+        end
+    end
+
+    local lanes = program.lanes
+    if lanes ~= nil then
+        local body = lanes as scalarIR.LaneBody
+        local shape = lane.SHAPE_BY_NAME[body.shape]
+        holds(
+            program.wantsLanes == true and shape ~= nil and body.lanes == (shape as lane.Shape).lanes,
+            "invalid lane width or missing SIMD contract"
+        )
+        laneBlock(body.statements, uniforms, new verify.Context(shape = shape as lane.Shape, scope = scope), nil)
+    end
+
+    return program
 end
 
 return verify

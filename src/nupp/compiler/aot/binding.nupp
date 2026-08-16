@@ -3,7 +3,7 @@ The Nupp module that stands in front of a compiled `@aot` function.
 
 Generated C is not callable from Nupp on its own: something has to declare the
 symbol, hand a span's pointer across, and say what the caller may pass. That is
-this, and it is written from the same signature the C was, so the two cannot
+this, and it is written from the same program the C was, so the two cannot
 drift apart.
 
 Three things happen here that are worth stating outright.
@@ -99,9 +99,9 @@ end
 --- Spans arrive as `voidptr` and their shared length as one trailing count,
 --- which is what the generated C takes. The ownership annotations are carried
 --- across so the unsafe call is still governed by them.
-function binding.foreign(signature: scalarIR.Signature, library: string): {string}
+function binding.foreign(program: scalarIR.Program, library: string): {string}
     local params: {string} = {}
-    for _, param in ipairs(signature.params) do
+    for _, param in ipairs(program.params) do
         if param.kind == "write_span" then
             params[#params + 1] = "exclusive " .. param.name .. ": voidptr"
         elseif param.kind == "read_span" then
@@ -112,7 +112,7 @@ function binding.foreign(signature: scalarIR.Signature, library: string): {strin
     end
     params[#params + 1] = "count: uint64"
 
-    local lines: {string} = {"cdef function " .. signature.symbol .. "("}
+    local lines: {string} = {"cdef function " .. program.symbol .. "("}
     for position, param in ipairs(params) do
         lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
     end
@@ -191,28 +191,28 @@ function binding.spanArguments(params: {scalarIR.Param}): ({string}, {string}, s
 end
 
 --- The checked wrapper the caller actually sees.
-function binding.wrapper(signature: scalarIR.Signature): {string}
+function binding.wrapper(program: scalarIR.Program): {string}
     local params: {string} = {}
-    for position, param in ipairs(signature.params) do
+    for position, param in ipairs(program.params) do
         params[position] = logical(param)
     end
 
-    local lines: {string} = {"local function " .. signature.name .. "("}
+    local lines: {string} = {"local function " .. program.name .. "("}
     for position, param in ipairs(params) do
         lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
     end
     lines[#lines + 1] = "): nil"
-    for _, line in ipairs(binding.range(signature.rangeGuard)) do
+    for _, line in ipairs(binding.range(program.rangeGuard)) do
         lines[#lines + 1] = line
     end
 
-    local taken, arguments, primary = binding.spanArguments(signature.params)
+    local taken, arguments, primary = binding.spanArguments(program.params)
     for _, line in ipairs(taken) do
         lines[#lines + 1] = line
     end
     arguments[#arguments + 1] = tostring(primary)
     lines[#lines + 1] = "    unsafe do"
-    lines[#lines + 1] = "        " .. signature.symbol .. "(" .. table.concat(arguments, ", ") .. ")"
+    lines[#lines + 1] = "        " .. program.symbol .. "(" .. table.concat(arguments, ", ") .. ")"
     lines[#lines + 1] = "    end"
     lines[#lines + 1] = "end"
 
@@ -221,7 +221,7 @@ end
 
 --- The whole generated module: structs, their layout checks, the foreign
 --- declaration, the wrapper, and what all of it exports.
-function binding.module(signature: scalarIR.Signature, library: string): string
+function binding.module(program: scalarIR.Program, library: string): string
     local lines: {
         string
     } = {"-- Generated from verified test-only native C IR.", "", "local span = require(\"nupp.span\")", "",}
@@ -232,21 +232,21 @@ function binding.module(signature: scalarIR.Signature, library: string): string
         end
     end
 
-    local layouts = signature.layouts or {}
+    local layouts = program.layouts or {}
     for _, layout in ipairs(layouts) do
         append(binding.struct(layout))
         lines[#lines + 1] = ""
-        append(binding.layoutReporters(signature.symbol, layout, library))
-        append(binding.layoutChecks(signature.symbol, layout))
+        append(binding.layoutReporters(program.symbol, layout, library))
+        append(binding.layoutChecks(program.symbol, layout))
         lines[#lines + 1] = ""
     end
 
-    append(binding.foreign(signature, library))
+    append(binding.foreign(program, library))
     lines[#lines + 1] = ""
-    append(binding.wrapper(signature))
+    append(binding.wrapper(program))
     lines[#lines + 1] = ""
 
-    local exports: {string} = {signature.name .. " = " .. signature.name}
+    local exports: {string} = {program.name .. " = " .. program.name}
     for _, layout in ipairs(layouts) do
         exports[#exports + 1] = layout.name .. " = " .. layout.name
     end

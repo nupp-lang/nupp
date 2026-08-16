@@ -22,6 +22,29 @@ explicitly and the answer changes accordingly.
 
 local scalarIR = {}
 
+--- What this vocabulary is on.
+---
+--- Carried in the IR and checked when it is read back, so an IR written by an
+--- older compiler is refused rather than half-understood.
+const scalarIR.VERSION = 3
+
+--- The C symbol one `@aot` function exports.
+---
+--- Derived rather than chosen, and derived in one place, because the generated
+--- C, the foreign declaration, and the layout reporters all have to agree about
+--- it and none of them is in a position to check the others.
+function scalarIR.privateSymbol(name: string): string
+    local snake = name:gsub("(%u)(%u%l)", "%1_%2"):gsub("(%l)(%u)", "%1_%2")
+
+    return "ks_" .. snake:gsub("[^%w_]", "_"):lower()
+end
+
+--- The C name of one local, which is not its source name: two source scopes may
+--- use one name and C has no scope to tell them apart.
+function scalarIR.cIdentifier(prefix: string, name: string): string
+    return prefix .. "_" .. name:gsub("[^%w_]", "_")
+end
+
 --- Where an operation came from, for a diagnostic that has to name it.
 record scalarIR.Source
     line: integer
@@ -278,11 +301,23 @@ record scalarIR.Let
     source: scalarIR.Source?
 end
 
+--- A name the body introduced, as the environment records it.
+---
+--- Not an expression: reading one produces a `local`, and this is what that
+--- `local` was resolved against.
+record scalarIR.Binding
+    kind: 'local'
+    name: string
+    cName: string
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
 --- One binding per result of a call that returns several.
 record scalarIR.MultiLet
     op: 'multi_let'
     call: scalarIR.HelperCall
-    bindings: {any}
+    bindings: {scalarIR.Binding}
     source: scalarIR.Source?
 end
 
@@ -325,7 +360,7 @@ end
 
 record scalarIR.Fornum
     op: 'fornum'
-    binding: any
+    binding: scalarIR.Binding
     from: scalarIR.Expr
     to: scalarIR.Expr
     body: {scalarIR.Statement}
@@ -379,6 +414,11 @@ record scalarIR.Layout
     name: string
     cName: string
     fields: {scalarIR.Field}
+
+    --- The same fields by name, filled in when the layout is verified so a
+    --- later lookup is one index rather than a scan.
+    fieldTypes: {[string]: scalarIR.Type}?
+
     source: scalarIR.Source?
 end
 
@@ -410,24 +450,118 @@ record scalarIR.Param
     name: string
     type: scalarIR.Type
     sourceType: string?
+
+    --- Spans only: the borrow region this parameter is, which alias facts and
+    --- region declarations refer to by name.
+    region: string?
+
+    --- What the body may do through it, which follows from the borrow.
+    access: ('read' | 'readwrite')?
+
+    --- Which borrow the source wrote, so the region declaration can cite it.
+    ownership: ('exclusive' | 'shared')?
+
     source: scalarIR.Source?
 end
 
---- What one admitted `@aot` function offers its callers.
+--- One span's borrow, restated as something the backend can name.
+record scalarIR.Region
+    id: string
+    param: string
+    access: 'read' | 'readwrite'
+
+    --- The borrow this region's access was derived from, carried so the claim
+    --- can be checked rather than assumed.
+    proof: string
+
+    source: scalarIR.Source?
+end
+
+--- What ownership settled about one pair of regions.
 ---
---- The compiled object and the generated wrapper are both written from this, so
---- the two cannot disagree about the symbol, the order of the parameters, or
---- what a span holds.
-record scalarIR.Signature
-    --- The Nupp name the wrapper exposes.
+--- Two shared borrows may overlap; anything involving an exclusive one may not.
+--- This is where that becomes a fact the C compiler is allowed to use, and the
+--- verifier requires the matrix to be complete rather than partial: a pair with
+--- no fact would be a pair whose `restrict` nobody justified.
+record scalarIR.AliasFact
+    relation: 'disjoint' | 'may_alias'
+    left: string
+    right: string
+    proof: 'exclusive_borrow' | 'shared_borrows'
+end
+
+--- A length agreement the source proved between two spans.
+record scalarIR.Guard
+    op: 'equal_count'
+    left: string
+    right: string
+    source: scalarIR.Source?
+end
+
+--- One visible pure helper the body may call.
+record scalarIR.Helper
     name: string
+    cName: string
+    params: {scalarIR.Name}
 
-    --- The exported C symbol, which is not the Nupp name.
+    --- One expression per result. A helper is a return list and nothing else,
+    --- which is what makes inlining it into a lane body sound.
+    values: {scalarIR.Expr}
+
+    resultType: scalarIR.Type
+    resultTypes: {scalarIR.Type}
+    source: scalarIR.Source?
+end
+
+--- The single loop an admitted body is.
+---
+--- `first` is `1` for a whole span and the name of a proved bound otherwise.
+record scalarIR.Loop
+    index: string
+    first: integer | string
+    last: string
+
+    --- The span whose length bounds the loop, which is the primary output.
+    count: string
+
+    statements: {scalarIR.Statement}
+    source: scalarIR.Source?
+end
+
+--- The lane-parallel rewrite of the loop body, when one was made and kept.
+record scalarIR.LaneBody
+    lanes: integer
+    shape: string
+    statements: {any}
+end
+
+--- One whole admitted `@aot` function.
+---
+--- Everything downstream -- the generated C, the generated wrapper, the
+--- verifier -- is written from this and only this, so none of them can disagree
+--- about what the function is.
+record scalarIR.Program
+    --- Bumped when the shape changes, so an IR written by an older compiler is
+    --- refused rather than half-understood.
+    version: integer
+
+    name: string
     symbol: string
-
     params: {scalarIR.Param}
     layouts: {scalarIR.Layout}?
+    regions: {scalarIR.Region}
+    aliasFacts: {scalarIR.AliasFact}
+    guards: {scalarIR.Guard}
+    helpers: {scalarIR.Helper}?
+    loop: scalarIR.Loop
     rangeGuard: scalarIR.RangeGuard?
+    lanes: scalarIR.LaneBody?
+
+    --- Whether lane lowering was asked for at all, which is separate from
+    --- whether one was produced.
+    wantsLanes: boolean?
+
+    source: scalarIR.Source?
 end
 
 return scalarIR

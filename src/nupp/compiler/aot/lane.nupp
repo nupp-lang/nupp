@@ -307,6 +307,16 @@ const aotLane.SHAPES = {
     ),
 }
 
+--- The same gangs by name, for a body that says which one it was lowered to.
+const aotLane.SHAPE_BY_NAME = (function(): {[string]: aotLane.Shape}
+    local byName: {[string]: aotLane.Shape} = {}
+    for _, shape in ipairs(aotLane.SHAPES) do
+        byName[shape.name] = shape
+    end
+
+    return byName
+end)()
+
 --- Below this many arithmetic operations per byte a loop body touches, lane
 --- lowering is declined.
 ---
