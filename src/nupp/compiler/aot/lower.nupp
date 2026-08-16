@@ -259,4 +259,639 @@ function lower.spanElement(
     )
 end
 
+--- The name one node writes, if it is a bare name.
+function lower.nameOf(node: cst.Node?): string?
+    if node == nil or node.kind ~= "name" then
+        return nil
+    end
+
+    local token = (node as cst.NameExpr).token
+
+    return token ~= nil and (token as lexer.Token).text or nil
+end
+
+--- The dotted path one node writes, if it is a chain of names.
+---
+--- `math.sqrt` and `nupp.math.f32.add` are how the admitted intrinsics are
+--- written, and anything with a call or an index in it is not one of them.
+function lower.dottedName(node: cst.Node?): string?
+    if node == nil then
+        return nil
+    end
+    if node.kind == "name" then
+        return lower.nameOf(node)
+    end
+    if node.kind == "dotIndex" then
+        local indexed = node as cst.DotIndex
+        if indexed.name == nil then
+            return nil
+        end
+
+        local base = lower.dottedName(indexed.obj)
+
+        return base ~= nil and (base as string) .. "." .. (indexed.name as lexer.Token).text or nil
+    end
+
+    return nil
+end
+
+--- One name in scope, as the environment records it.
+record lower.Bound
+    kind: 'local' | 'uniform' | 'helper_param'
+    name: string
+    type: scalarIR.Type
+    cName: string?
+    mutable: boolean?
+    source: scalarIR.Source?
+end
+
+--- What lowering one kernel's body needs to know.
+record lower.Kernel
+    --- Span and uniform parameters by name, as the signature admitted them.
+    params: {[string]: any}
+
+    --- The layouts reified so far.
+    layouts: lower.Layouts
+
+    --- Visible pure helper declarations by name.
+    helperDecls: {[string]: any}
+
+    --- Helpers lowered so far, by name and in the order they were reached.
+    helpers: {[string]: scalarIR.Helper}
+
+    helperOrder: {scalarIR.Helper}
+
+    --- Which helpers are part way through lowering, so a cycle is caught rather
+    --- than followed.
+    helperState: {[string]: string}
+
+    --- The kernel's exported symbol, which its helpers are named after.
+    symbol: string
+
+    --- Where the kernel loop was written, for a refusal that has no node of its
+    --- own to name.
+    loopSource: scalarIR.Source?
+
+    context: lower.Context
+end
+
+--- The largest 32-bit pattern, for a literal standing in for one.
+const lower.UINT32_MAX = 4294967295
+
+--- The bounds of int32, for a literal that has to be exactly representable.
+const lower.INT32_MIN = -2147483648
+
+const lower.INT32_MAX = 2147483647
+
+--- Whether a value may take part in a bitwise operation.
+---
+--- A value established as 32-bit may. So may an exact nonnegative literal that
+--- already denotes a 32-bit pattern, which is how a mask is written without a
+--- cast.
+local function bitOperand(value: scalarIR.Expr): boolean
+    if value.type == "i32" or value.type == "u32" then
+        return true
+    end
+    if value.op ~= "constant" then
+        return false
+    end
+
+    local number = tonumber((value as scalarIR.Constant).value)
+
+    return number ~= nil and number >= 0 and number <= lower.UINT32_MAX and number % 1 == 0
+end
+
+--- One operand of ordinary arithmetic, which is binary64.
+---
+--- A fixed-width value widens here, which is the same thing ordinary Nupp does:
+--- an operator is binary64 and a narrower value entering one is a conversion,
+--- not a narrower operation.
+local function promote(value: scalarIR.Expr, at: cst.Node?, context: lower.Context): scalarIR.Expr
+    local widened = lower.conversion(value, "f64", value.source)
+    if widened == nil then
+        context.reject(lower.site(at), "arithmetic operands must both be numeric")
+    end
+
+    return widened as scalarIR.Expr
+end
+
+--- A load that a physical narrow width widens out of.
+---
+--- This is where storage becomes an ordinary Nupp number, and the only place a
+--- widening happens without the source asking. Reading a `float` field gives a
+--- number, exactly as it does through the Lua body.
+local function widenLoad(loaded: scalarIR.Expr, source: scalarIR.Source?): scalarIR.Expr
+    if loaded.type ~= "f32" then
+        return loaded
+    end
+
+    return new scalarIR.Convert(op = "widen_f32_f64", value = loaded, type = "f64", source = source)
+end
+
+--- One `span:get(i)` or `span:getMut(i)`.
+---
+--- The index has to be the loop's own, exactly. Consecutive access is the whole
+--- of the licence to run several iterations at once, and an index this backend
+--- cannot prove consecutive is one it will not admit.
+local function spanRead(node: cst.MethodCall, activeIndex: string?, kernel: lower.Kernel): scalarIR.Expr
+    local context = kernel.context
+    local spanName = lower.nameOf(node.obj)
+    local param = spanName ~= nil and kernel.params[spanName as string] or nil
+    local args = node.args ~= nil and (node.args as cst.Args).exprs or {}
+    local method = node.name ~= nil and (node.name as lexer.Token).text or ""
+    local readable = param ~= nil and (
+        param.kind == "read_span" and method == "get" or param.kind == "write_span" and method == "getMut"
+    )
+    if not readable then
+        context.reject(lower.site(node), "span reads use input:get(index) or output:getMut(index)")
+    end
+    if activeIndex == nil or #args ~= 1 or lower.nameOf(args[1]) ~= activeIndex then
+        context.reject(lower.site(node), "span loads must use the active loop index exactly")
+    end
+
+    local element = param.element
+    local index = activeIndex as string
+    if element.kind == "struct" then
+        return new scalarIR.ElementRef(
+            op = "element_ref",
+            span = spanName as string,
+            index = index,
+            layout = element.layout.name,
+            mutable = param.kind == "write_span",
+            type = "ref:" .. element.layout.name,
+            source = lower.site(node)
+        )
+    end
+
+    return widenLoad(
+        new scalarIR.Load(
+            op = "load",
+            span = spanName as string,
+            index = index,
+            type = element.type,
+            source = lower.site(node)
+        ),
+        lower.site(node)
+    )
+end
+
+--- One field of a struct element.
+local function fieldRead(node: cst.DotIndex, object: scalarIR.Expr, kernel: lower.Kernel): scalarIR.Expr
+    local context = kernel.context
+    local layoutName = object.type:match("^ref:(.+)$")
+    local layout = layoutName ~= nil and kernel.layouts.byName[layoutName as string] or nil
+    if layout == nil then
+        context.reject(lower.site(node), "native field access needs a reified struct element")
+    end
+
+    local wanted = (node.name as lexer.Token).text
+    local field: scalarIR.Field? = nil
+    for _, candidate in ipairs((layout as scalarIR.Layout).fields) do
+        if candidate.name == wanted then
+            field = candidate
+        end
+    end
+    if field == nil then
+        context.reject(lower.site(node), "struct " .. tostring(layoutName) .. " has no field " .. wanted)
+    end
+
+    return widenLoad(
+        new scalarIR.FieldLoad(
+            op = "field_load",
+            object = object,
+            layout = layoutName as string,
+            field = (field as scalarIR.Field).name,
+            type = (field as scalarIR.Field).type,
+            source = lower.site(node)
+        ),
+        lower.site(node)
+    )
+end
+
+--- One binary operator.
+local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr, kernel: lower.Kernel): scalarIR.Expr
+    local context = kernel.context
+    local written = (node.op as lexer.Token).text
+    local source = lower.site(node)
+
+    local arithmetic = admit.ARITHMETIC[written]
+    if arithmetic ~= nil then
+        return new scalarIR.Binary(
+            op = arithmetic as any,
+            left = promote(left, node, context),
+            right = promote(right, node, context),
+            type = "f64",
+            source = source
+        )
+    end
+
+    local bitwise = admit.BITWISE[written]
+    if bitwise ~= nil then
+        if not bitOperand(left) or not bitOperand(right) then
+            context.reject(source, "bitwise operands must be fixed 32-bit values or nonnegative uint32 literals")
+        end
+
+        return new scalarIR.Binary(op = bitwise as any, left = left, right = right, type = "i32", source = source)
+    end
+
+    local comparison = admit.COMPARISON[written]
+    if comparison ~= nil then
+        local numeric = {["f64"] = true, ["f32"] = true, ["i32"] = true, ["u32"] = true}
+        if left.type ~= right.type and not (numeric[left.type] and numeric[right.type]) then
+            context.reject(source, "comparison operands must have compatible types")
+        end
+
+        return new scalarIR.Binary(op = comparison as any, left = left, right = right, type = "bool", source = source)
+    end
+
+    if written == "and" or written == "or" then
+        if left.type ~= "bool" or right.type ~= "bool" then
+            context.reject(source, "native and/or operands must both be boolean")
+        end
+
+        return new scalarIR.Binary(op = written as any, left = left, right = right, type = "bool", source = source)
+    end
+
+    context.reject(source, "operator " .. tostring(written) .. " is not admitted")
+
+    return left
+end
+
+--- One call to a fixed-width intrinsic.
+---
+--- This is where the front end refuses to invent establishment the source never
+--- performed: an operand has to already carry the refinement, or be an exact
+--- literal, which establishes one by being written.
+local function fixedCall(
+    node: cst.Node,
+    path: string,
+    fixed: admit.Fixed,
+    args: {scalarIR.Expr},
+    kernel: lower.Kernel
+): scalarIR.Expr
+    local context = kernel.context
+    local source = lower.site(node)
+    if #args ~= fixed.arity then
+        context.reject(source, path .. " has an unsupported argument count")
+    end
+
+    for position, argument in ipairs(args) do
+        if argument.op == "constant" and fixed.operand ~= "f64" then
+            local literal = argument as scalarIR.Constant
+            local number = tonumber(literal.value)
+            if fixed.operand == "i32" then
+                local exact = number ~= nil
+                    and number % 1 == 0
+                    and number >= lower.INT32_MIN
+                    and number <= lower.INT32_MAX
+                if not exact then
+                    context.reject(source, path .. " needs an exact int32 literal")
+                end
+                args[
+                    position
+                ] = new scalarIR.IntConstant(
+                    op = "constant_i32",
+                    value = literal.value,
+                    type = "i32",
+                    source = literal.source
+                )
+            else
+                args[
+                    position
+                ] = new scalarIR.Convert(
+                    op = "narrow_f64_f32",
+                    value = argument,
+                    type = "f32",
+                    source = argument.source
+                )
+            end
+        elseif argument.type ~= fixed.operand then
+            context.reject(
+                source,
+                path .. " argument " .. tostring(
+                    position
+                ) .. " is " .. tostring(argument.type) .. " and was never established as " .. fixed.operand
+            )
+        end
+    end
+
+    if fixed.arity == 1 then
+        if fixed.op == "f32_sqrt" then
+            return new scalarIR.FixedUnary(op = "f32_sqrt", value = args[1], type = fixed.result, source = source)
+        end
+
+        return new scalarIR.Convert(op = fixed.op as any, value = args[1], type = fixed.result, source = source)
+    end
+    if fixed.arity == 3 then
+        return new scalarIR.Corrected(op = fixed.op as any, args = args, type = fixed.result, source = source)
+    end
+    if fixed.op == "f32_min" or fixed.op == "f32_max" then
+        return new scalarIR.Corrected(
+            op = fixed.op as any,
+            left = args[1],
+            right = args[2],
+            type = fixed.result,
+            source = source
+        )
+    end
+
+    return new scalarIR.Fixed(
+        op = fixed.op as any,
+        left = args[1],
+        right = args[2],
+        type = fixed.result,
+        source = source
+    )
+end
+
+--- One call into the closed math set, whose operands are all binary64.
+local function mathCall(
+    node: cst.Node,
+    path: string,
+    intrinsic: admit.Math,
+    args: {scalarIR.Expr},
+    kernel: lower.Kernel
+): scalarIR.Expr
+    local context = kernel.context
+    local source = lower.site(node)
+    if #args < intrinsic.min or intrinsic.max ~= nil and #args > (intrinsic.max as integer) then
+        context.reject(source, path .. " has an unsupported argument count")
+    end
+    for position, argument in ipairs(args) do
+        local widened = lower.conversion(argument, "f64", argument.source)
+        if widened == nil then
+            context.reject(source, path .. " arguments must be numeric")
+        end
+        args[position] = widened as scalarIR.Expr
+    end
+
+    return new scalarIR.Math(op = "math", intrinsic = intrinsic.name, args = args, type = "f64", source = source)
+end
+
+--- One call, which is an intrinsic or a visible pure helper and nothing else.
+local function call(
+    node: cst.Call,
+    environment: {[string]: any},
+    activeIndex: string?,
+    kernel: lower.Kernel
+): scalarIR.Expr
+    local context = kernel.context
+    local args: {scalarIR.Expr} = {}
+    for _, argument in ipairs(node.args ~= nil and (node.args as cst.Args).exprs or {}) do
+        args[#args + 1] = lower.expression(argument, environment, activeIndex, kernel)
+    end
+
+    local path = lower.dottedName(node.obj)
+    local fixed = path ~= nil and admit.fixed(path as string) or nil
+    if fixed ~= nil then
+        return fixedCall(node, path as string, fixed as admit.Fixed, args, kernel)
+    end
+
+    local intrinsic = path ~= nil and admit.math(path as string) or nil
+    if intrinsic ~= nil then
+        return mathCall(node, path as string, intrinsic as admit.Math, args, kernel)
+    end
+
+    local helperName = lower.nameOf(node.obj)
+    if helperName == nil then
+        context.reject(lower.site(node), "call target " .. tostring(path) .. " is not an admitted intrinsic or helper")
+    end
+
+    local helper = lower.helper(helperName as string, node, kernel)
+    if #args ~= #helper.params then
+        context.reject(lower.site(node), "native helper argument count does not match")
+    end
+    for position, argument in ipairs(args) do
+        args[position] = lower.helperArgument(argument, helper.params[position].type, lower.site(node), context)
+    end
+
+    return new scalarIR.HelperCall(
+        op = "helper_call",
+        helper = helper.name,
+        cName = helper.cName,
+        args = args,
+        type = #helper.resultTypes == 1 and helper.resultType or "multi",
+        resultTypes = helper.resultTypes,
+        source = lower.site(node)
+    )
+end
+
+--- One unary operator.
+local function unary(node: cst.Unop, value: scalarIR.Expr, kernel: lower.Kernel): scalarIR.Expr
+    local written = (node.op as lexer.Token).text
+    local source = lower.site(node)
+    if written == "-" and value.type == "f64" then
+        return new scalarIR.Unary(op = "neg", value = value, type = "f64", source = source)
+    elseif written == "not" and value.type == "bool" then
+        return new scalarIR.Unary(op = "not", value = value, type = "bool", source = source)
+    elseif written == "~" and bitOperand(value) then
+        return new scalarIR.Unary(op = "bnot", value = value, type = "i32", source = source)
+    end
+
+    kernel.context.reject(source, "unary operator " .. tostring(written) .. " is not admitted for this type")
+
+    return value
+end
+
+--- One admitted expression, and everything under it.
+---
+--- @param environment the names in scope, by name
+--- @param activeIndex the loop counter, where one is in scope
+function lower.expression(
+    node: cst.Node,
+    environment: {[string]: any},
+    activeIndex: string?,
+    kernel: lower.Kernel
+): scalarIR.Expr
+    local context = kernel.context
+    if node == nil then
+        context.reject(kernel.loopSource, "an expression is missing")
+    end
+    node = node as cst.Node
+
+    local kind = node.kind
+    -- Parentheses and a cast carry no operation: the tree already has the
+    -- grouping, and a cast the checker admitted has already been proved.
+    if kind == "paren" or kind == "castExpr" then
+        local inner = kind == "paren" and (node as cst.Paren).expr or (node as cst.CastExpr).expr
+
+        return lower.expression(inner as cst.Node, environment, activeIndex, kernel)
+    elseif kind == "name" then
+        local name = lower.nameOf(node)
+        local bound = name ~= nil and environment[name as string] or nil
+        if bound == nil then
+            context.reject(lower.site(node), "value " .. tostring(name) .. " is not available in native code")
+        end
+
+        -- A name keeps whatever refinement its binding holds. Only a physical
+        -- load widens eagerly, because that is where ordinary Nupp turns storage
+        -- into a number; widening here as well would make an established `float`
+        -- local unreadable as one.
+        local op = bound.kind == "uniform" and "uniform" or bound.kind == "helper_param" and "helper_param" or "local"
+
+        return new scalarIR.Name(
+            op = op as any,
+            name = name as string,
+            type = bound.type,
+            cName = bound.cName,
+            mutable = bound.mutable,
+            source = lower.site(node)
+        )
+    elseif kind == "number" then
+        local token = (node as cst.NumberLit).token
+        local value = token ~= nil and (token as lexer.Token).text or ""
+        if tonumber(value) == nil then
+            context.reject(lower.site(node), "the kernel needs a finite decimal numeric literal")
+        end
+
+        return new scalarIR.Constant(op = "constant", value = value, type = "f64", source = lower.site(node))
+    elseif kind == "trueExpr" or kind == "falseExpr" then
+        return new scalarIR.Bool(op = "bool", value = kind == "trueExpr", type = "bool", source = lower.site(node))
+    elseif kind == "unop" and (node as cst.Unop).op ~= nil then
+        local operator = node as cst.Unop
+
+        return unary(operator, lower.expression(operator.operand as cst.Node, environment, activeIndex, kernel), kernel)
+    elseif kind == "methodCall" then
+        return spanRead(node as cst.MethodCall, activeIndex, kernel)
+    elseif kind == "dotIndex" and (node as cst.DotIndex).name ~= nil then
+        local indexed = node as cst.DotIndex
+
+        return fieldRead(indexed, lower.expression(indexed.obj as cst.Node, environment, activeIndex, kernel), kernel)
+    elseif kind == "binop" and (node as cst.Binop).op ~= nil then
+        local operator = node as cst.Binop
+
+        return binary(
+            operator,
+            lower.expression(operator.lhs as cst.Node, environment, activeIndex, kernel),
+            lower.expression(operator.rhs as cst.Node, environment, activeIndex, kernel),
+            kernel
+        )
+    elseif kind == "call" then
+        return call(node as cst.Call, environment, activeIndex, kernel)
+    end
+
+    context.reject(lower.site(node), "expression kind " .. tostring(kind) .. " is not admitted")
+
+    return new scalarIR.Bool(op = "bool", value = false, type = "bool", source = lower.site(node))
+end
+
+--- The IR type one helper signature spelling denotes.
+---
+--- A helper takes and returns ordinary Nupp values, so `float` here is binary64
+--- rather than an establishment: a helper that wanted binary32 would have to say
+--- so in a way this subset does not yet have.
+function lower.helperValueType(spelling: string): scalarIR.Type?
+    if spelling == "boolean" then
+        return "bool"
+    elseif spelling == "number" or spelling == "float" or spelling == "integer" then
+        return "f64"
+    elseif spelling == "uint32" then
+        return "u32"
+    elseif spelling == "int32" then
+        return "i32"
+    end
+
+    return nil
+end
+
+--- Lowers one visible pure helper, on first reach.
+---
+--- A helper is a parameter list and one return list over those parameters, and
+--- nothing else. That is what makes inlining it into a lane body substitution
+--- rather than a transformation.
+function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalarIR.Helper
+    local context = kernel.context
+    if kernel.helperState[name] == "lowering" then
+        context.reject(lower.site(at), "recursive native helpers are not admitted")
+    end
+
+    local known = kernel.helpers[name]
+    if known ~= nil then
+        return known as scalarIR.Helper
+    end
+
+    local declaration = kernel.helperDecls[name]
+    if declaration == nil then
+        context.reject(lower.site(at), "call target " .. name .. " is not a visible pure helper")
+    end
+    kernel.helperState[name] = "lowering"
+
+    local body = declaration.body
+    if body == nil
+        or body.generics ~= nil
+        or body.varargParam ~= nil
+        or body.captureTakes ~= nil
+        or body.captureBorrows ~= nil
+    then
+        context.reject(lower.site(declaration), "native helpers must be non-generic, non-variadic, and non-capturing")
+    end
+
+    local resultTypes: {scalarIR.Type} = {}
+    for _, result in ipairs(body.rets or {}) do
+        local resultType = lower.helperValueType(lower.compactType(result))
+        if resultType == nil then
+            context.reject(lower.site(result), "native helper results are numeric or boolean values")
+        end
+        resultTypes[#resultTypes + 1] = resultType as scalarIR.Type
+    end
+    if #resultTypes == 0 then
+        context.reject(lower.site(body), "native helpers need at least one result")
+    end
+
+    local params: {scalarIR.Name} = {}
+    local environment: {[string]: any} = {}
+    for _, raw in ipairs(body.params or {}) do
+        local paramName = raw.name ~= nil and (raw.name as lexer.Token).text or nil
+        local paramType = lower.helperValueType(lower.compactType(raw.type))
+        if paramName == nil or paramType == nil or raw.modeTok ~= nil then
+            context.reject(lower.site(raw), "native helper parameters are unowned numeric or boolean values")
+        end
+        if environment[paramName as string] ~= nil then
+            context.reject(lower.site(raw), "duplicate helper parameter " .. (paramName as string))
+        end
+
+        local param = new scalarIR.Name(
+            op = "helper_param",
+            name = paramName as string,
+            type = paramType as scalarIR.Type,
+            cName = scalarIR.cIdentifier("a", paramName as string),
+            source = lower.site(raw)
+        )
+        params[#params + 1] = param
+        environment[paramName as string] = param
+    end
+
+    local statements = body.body ~= nil and (body.body as cst.Block).stats or {}
+    local returned = statements[1]
+    local single = #statements == 1 and returned ~= nil and returned.kind == "returnStmt" and #(
+        (returned as cst.ReturnStmt).exprs or {}
+    ) == #resultTypes
+    if not single then
+        context.reject(lower.site(body.body or body), "a native helper body is one matching return list")
+    end
+
+    local helper = new scalarIR.Helper(
+        name = name,
+        cName = kernel.symbol .. "_helper_" .. scalarIR.privateSymbol(name):sub(4),
+        params = params,
+        values = {},
+        resultType = resultTypes[1],
+        resultTypes = resultTypes,
+        source = lower.site(declaration)
+    )
+    kernel.helpers[name] = helper
+
+    for position, result in ipairs((returned as cst.ReturnStmt).exprs or {}) do
+        local value = lower.expression(result, environment, nil, kernel)
+        if value.type ~= resultTypes[position] then
+            context.reject(lower.site(returned), "native helper result type does not match")
+        end
+        helper.values[position] = value
+    end
+    kernel.helperState[name] = "done"
+    kernel.helperOrder[#kernel.helperOrder + 1] = helper
+
+    return helper
+end
+
 return lower
