@@ -1,0 +1,212 @@
+--[[
+Compiling one `@aot` function, end to end.
+
+Parse, lower, verify, decide whether lanes pay, choose a gang, verify again,
+emit. Everything it does is a step some other module owns; what it owns is the
+order, and the two places that order matters.
+
+The lane rewrite runs on verified scalar IR. What it rewrites has already been
+proved to mean something, so a refusal from it is only ever about running the
+loop several iterations at a time -- never about whether the loop meant anything
+in the first place. And the rewritten IR is verified again before it is emitted,
+because a rewrite that produced something malformed is a compiler bug and this is
+where it stops being one.
+
+A body that cannot lower lane-parallel still compiles. It keeps its scalar loop
+and carries the refusals, because whether a loop vectorised is a performance
+property: no answer depends on it, so it is something to report rather than
+something to fail a build over.
+]]
+
+local bindingRules = require("nupp.compiler.aot.binding")
+local emit = require("nupp.compiler.aot.emit")
+local intensity = require("nupp.compiler.aot.intensity")
+local lower = require("nupp.compiler.aot.lower")
+local parser = require("nupp.compiler.parser")
+local rewrite = require("nupp.compiler.aot.rewrite")
+local scalarIR = require("nupp.compiler.aot.scalar")
+local text = require("nupp.compiler.aot.text")
+local verify = require("nupp.compiler.aot.verify")
+
+local compile = {}
+
+--- One reason a source was not admitted, at the position it was written.
+record compile.Diagnostic
+    file: string
+    line: integer
+    column: integer
+    message: string
+end
+
+--- Everything compiling one function produces.
+record compile.Artifacts
+    --- The verified IR, which is what the other three were written from.
+    program: scalarIR.Program
+
+    --- The IR's readable form.
+    irText: string
+
+    --- The C.
+    c: string
+
+    --- The Nupp module that stands in front of the compiled C.
+    binding: string
+end
+
+--- One diagnostic, as a line a person reads.
+function compile.renderDiagnostic(problem: compile.Diagnostic): string
+    return ("%s:%d:%d: aot: %s"):format(problem.file, problem.line, problem.column, problem.message)
+end
+
+--- The sentinel a refusal unwinds with, so it is told apart from a real error
+--- rather than swallowing one.
+local REFUSED = {}
+
+--- Lowers one source to verified scalar IR.
+---
+--- @param source the text, used when `parsed` is not supplied
+--- @param filename what diagnostics name
+--- @param parsed an already-parsed tree, which is how the checker hands one over
+--- @return the IR, or nothing and the reasons it was refused
+--- @raises when the IR the source lowered to is not well formed, which is a
+---   compiler bug rather than something about the source
+function compile.lower(
+    source: string,
+    filename: string,
+    parsed: parser.ParseResult?
+): (scalarIR.Program?, {compile.Diagnostic})
+    local tree = parsed or parser.parse(source, filename)
+    local diagnostics: {compile.Diagnostic} = {}
+    if #tree.errors > 0 then
+        for _, problem in ipairs(tree.errors) do
+            diagnostics[
+                #diagnostics + 1
+            ] = new compile.Diagnostic(
+                file = filename,
+                line = problem.line or 1,
+                column = problem.col or 1,
+                message = "syntax error: " .. problem.msg
+            )
+        end
+
+        return nil, diagnostics
+    end
+
+    local context = new lower.Context(reject = function(at: scalarIR.Source?, message: string): nil
+        diagnostics[
+            #diagnostics + 1
+        ] = new compile.Diagnostic(
+            file = filename,
+            line = at ~= nil and (at as scalarIR.Source).line or 1,
+            column = at ~= nil and (at as scalarIR.Source).column or 1,
+            message = message
+        )
+        error(REFUSED, 0)
+    end)
+
+    -- The checker records `@aot` as a fact on the body; without it the
+    -- annotation is read off the tree, which is what lets this run on a tree the
+    -- checker never saw.
+    local wasChecked = parsed ~= nil
+    local ok, program = pcall(function(): scalarIR.Program
+        local found = lower.scan(tree.root, wasChecked)
+        if #found.applications == 0 then
+            context.reject(nil, "no @aot function was found")
+        elseif #found.applications > 1 then
+            context.reject(lower.site(found.applications[2].at), "one @aot function per file for now")
+        end
+
+        return lower.program(found, found.applications[1], wasChecked, context)
+    end)
+
+    if not ok then
+        if program ~= REFUSED then
+            error(program, 0)
+        end
+
+        return nil, diagnostics
+    end
+
+    return verify.program(program as scalarIR.Program), diagnostics
+end
+
+--- Decides whether to run the loop several iterations at once, and does it.
+---
+--- Two answers, in order. Whether lanes pay at all is an estimate from the
+--- arithmetic the loop does per byte it touches, which the source may override
+--- in either direction. Then the widest gang that admits the loop is taken.
+---
+--- @param filename what a refusal names
+function compile.lanes(program: scalarIR.Program, filename: string): nil
+    local estimate = intensity.estimate(program.loop.statements)
+    program.intensity = estimate.perByte
+    program.operations = estimate.operations
+    program.touchedBytes = estimate.bytes
+    if program.lanesRequired ~= true and not estimate.worthwhile then
+        program.wantsLanes = false
+        program.thin = true
+    end
+    program.lanesDeclined = program.wantsLanes ~= true
+    if program.wantsLanes ~= true then
+        return
+    end
+
+    -- Only the narrowest gang's refusals are kept. A loop that cannot lower at
+    -- all cannot lower in any width, and the binary64 refusal is the one that
+    -- names the construct rather than the width.
+    local attempts = rewrite.select(program)
+    local refusals: {compile.Diagnostic} = {}
+    for _, attempt in ipairs(attempts) do
+        refusals = {}
+        for _, why in ipairs(attempt.refusals) do
+            refusals[
+                #refusals + 1
+            ] = new compile.Diagnostic(
+                file = filename,
+                line = program.loop.source ~= nil and (program.loop.source as scalarIR.Source).line or 1,
+                column = program.loop.source ~= nil and (program.loop.source as scalarIR.Source).column or 1,
+                message = why
+            )
+        end
+    end
+
+    if program.lanes == nil then
+        program.laneRefusals = refusals
+        -- Lanes were wanted and not taken, which is the case a vectorisation
+        -- check has something to say about. Declining is the other case.
+        program.lanesDeclined = false
+
+        return
+    end
+
+    verify.program(program)
+end
+
+--- Compiles one source to everything a build would need from it.
+---
+--- @param library where the compiled object will be found, which the generated
+---   module loads
+--- @return the artifacts, or nothing and the reasons the source was refused
+function compile.artifacts(
+    source: string,
+    filename: string,
+    parsed: parser.ParseResult?,
+    library: string
+): (compile.Artifacts?, {compile.Diagnostic})
+    local lowered, diagnostics = compile.lower(source, filename, parsed)
+    if lowered == nil then
+        return nil, diagnostics
+    end
+
+    local program = lowered as scalarIR.Program
+    compile.lanes(program, filename)
+
+    return new compile.Artifacts(
+        program = program,
+        irText = text.program(program),
+        c = emit.program(program),
+        binding = bindingRules.module(program, library)
+    ), diagnostics
+end
+
+return compile

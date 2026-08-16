@@ -579,6 +579,25 @@ record scalarIR.Program
     --- Whether it is taken whatever the arithmetic-intensity estimate says.
     lanesRequired: boolean?
 
+    --- Arithmetic operations per byte the loop body touches, and the two counts
+    --- it came from. What decides whether running several iterations at once is
+    --- worth assembling and taking apart the vectors.
+    intensity: number?
+
+    operations: number?
+    touchedBytes: number?
+
+    --- Whether lane lowering was declined rather than attempted and refused.
+    --- The two are different: a declined loop is one nobody expected to
+    --- vectorise, and a refused one is a loop that wanted to and could not.
+    lanesDeclined: boolean?
+
+    --- Whether it was declined by the intensity estimate specifically.
+    thin: boolean?
+
+    --- Why the loop ran one iteration at a time, when it wanted not to.
+    laneRefusals: {any}?
+
     --- Whether the source asked for fused multiply-add. Part of what the
     --- function answers rather than only how fast it gets there, which is why
     --- it travels with the IR rather than with the build.
