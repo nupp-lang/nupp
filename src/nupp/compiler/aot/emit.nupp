@@ -16,6 +16,7 @@ would otherwise miss on every build and a fingerprint would call two identical
 programs different.
 ]]
 
+local lane = require("nupp.compiler.aot.lane")
 local scalarIR = require("nupp.compiler.aot.scalar")
 
 local emit = {}
@@ -358,6 +359,175 @@ function emit.mathFrom(intrinsic: string, parts: {string}): string
     end
 
     return (name as string) .. "(" .. table.concat(parts, ", ") .. ")"
+end
+
+--- How many lane temporaries this function has named so far.
+---
+--- Reset by `emit.begin`, because the same IR has to render the same C. A
+--- counter that carried across functions would make one function's text depend
+--- on what was compiled before it, and an artifact cache keyed on the source
+--- would then be wrong rather than merely cold.
+local laneTemporary = 0
+
+--- Starts one function's emission.
+function emit.begin(): nil
+    laneTemporary = 0
+end
+
+--- Expands a vector operation one lane at a time, each operand evaluated once.
+---
+--- Without the temporaries every operand is rendered into every lane slot, so a
+--- vector expression is recomputed once per lane to take one element out of it,
+--- and nesting multiplies that. It is what made a memory-bound kernel eight
+--- times slower lane-parallel than scalar.
+---
+--- @param build the scalar expression for one lane, given the temporaries
+---   holding the operand vectors and which lane this is
+function emit.perLane(vector: string, args: {any}, build: function({string}, integer): string): string
+    laneTemporary = laneTemporary + 1
+
+    local names: {string} = {}
+    local bindings: {string} = {}
+    for position, argument in ipairs(args) do
+        names[position] = ("lt%d_%d"):format(laneTemporary, position)
+        bindings[position] = ("ks_%s %s = %s;"):format(vector, names[position], emit.lane(argument))
+    end
+
+    local _, lanes = emit.vectorParts(vector)
+    local parts: {string} = {}
+    for index = 0, lanes - 1 do
+        parts[index + 1] = build(names, index)
+    end
+
+    return "({ " .. table.concat(bindings, " ") .. " (ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "}; })"
+end
+
+--- Every operand of one lane operation, each taken from the same lane.
+local function atLane(names: {string}, index: integer): {string}
+    local parts: {string} = {}
+    for position, name in ipairs(names) do
+        parts[position] = name .. "[" .. tostring(index) .. "]"
+    end
+
+    return parts
+end
+
+--- One lane expression, as a C expression.
+---
+--- Anything that is not a lane form falls through to `emit.scalar`: a uniform
+--- inside a lane expression is the same value it would be in a scalar body, and
+--- rendering it twice would be two chances for the two to differ.
+function emit.lane(node: lane.Expr | scalarIR.Expr): string
+    local operation = node.op
+    local vector = tostring(node.type)
+
+    if operation == "vmask" then
+        local mask = node as lane.MaskOp
+        if mask.verb == "not" then
+            return "(~" .. emit.lane(mask.args[1]) .. ")"
+        else
+            return "(" .. emit.lane(
+                mask.args[1]
+            ) .. (mask.verb == "and" and " & " or " | ") .. emit.lane(mask.args[2]) .. ")"
+        end
+    elseif operation == "vshort" then
+        -- Both sides already ran: the rewrite proved them total before it turned
+        -- the short circuit into a mask, so this is the bitwise combination and
+        -- not a branch.
+        local short = node as lane.ShortCircuit
+
+        return "(" .. emit.lane(
+            short.args[1]
+        ) .. (short.verb == "and" and " & " or " | ") .. emit.lane(short.args[2]) .. ")"
+    elseif operation == "vbinary" then
+        local operator = node as lane.Binary
+
+        return "(" .. emit.lane(
+            operator.args[1]
+        ) .. tostring(emit.LANE_VERB[operator.verb]) .. emit.lane(operator.args[2]) .. ")"
+    elseif operation == "vunary" then
+        local operator = node as lane.Unary
+        if operator.verb == "neg" then
+            return "(-" .. emit.lane(operator.args[1]) .. ")"
+        else
+            -- Elementwise, through the width's own library call, so the lane
+            -- form is the same operation the scalar one performs.
+            local element, lanes = emit.vectorParts(vector)
+            local call = element == "f32" and "sqrtf(" or "sqrt("
+            local parts: {string} = {}
+            for index = 0, lanes - 1 do
+                parts[index + 1] = call .. emit.lane(operator.args[1]) .. "[" .. tostring(index) .. "])"
+            end
+
+            return "((ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "})"
+        end
+    elseif operation == "vsplat" then
+        return "ks_splat_" .. vector .. "(" .. emit.lane((node as lane.Splat).args[1]) .. ")"
+    elseif operation == "vbool_splat" then
+        return "ks_bool_mask(" .. emit.lane((node as lane.BoolSplat).args[1]) .. ")"
+    elseif operation == "vselect" then
+        local args = (node as lane.Select).args
+
+        return "ks_sel_" .. vector .. "(" .. emit.lane(
+            args[1]
+        ) .. ", " .. emit.lane(args[2]) .. ", " .. emit.lane(args[3]) .. ")"
+    elseif operation == "vfield_load" then
+        local load = node as lane.FieldLoad
+        local parts: {string} = {}
+        for index = 0, load.lanes - 1 do
+            parts[index + 1] = "p_" .. load.span .. "[i + " .. tostring(index) .. "]." .. load.field
+        end
+
+        return "((ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "})"
+    elseif operation == "vbitwise" then
+        return emit.laneBits(node as lane.Bitwise)
+    elseif operation == "vbits" then
+        return "__builtin_convertvector(" .. emit.lane((node as lane.BitConvert).args[1]) .. ", ks_" .. vector .. ")"
+    elseif operation == "vcorrected" then
+        -- One scalar helper call per lane, the same helper the scalar body
+        -- calls, so the correction cannot be right in one form and wrong in the
+        -- other.
+        local call = node as lane.Corrected
+
+        return emit.perLane(vector, call.args, function(names: {string}, index: integer): string
+            return call.helper .. "(" .. table.concat(atLane(names, index), ", ") .. ")"
+        end)
+    elseif operation == "vmath" then
+        -- One scalar call per lane, rendered through the ordinary math path so
+        -- the lane-parallel form cannot drift from the scalar one. Clang
+        -- recognises the shape and uses a vector library call where it has one.
+        local call = node as lane.Math
+
+        return emit.perLane(vector, call.args, function(names: {string}, index: integer): string
+            return emit.mathFrom(call.intrinsic, atLane(names, index))
+        end)
+    end
+
+    return emit.scalar(node as scalarIR.Expr)
+end
+
+--- The bitwise family, on the gang's bit vector.
+---
+--- A shift count is masked to 31 the way `nupp.math.i32` masks it. An arithmetic
+--- shift reinterprets the operand as signed first, because the bit vector is
+--- unsigned and C's `>>` would otherwise fill with zeros.
+function emit.laneBits(node: lane.Bitwise): string
+    local verb = node.verb
+    local vector = tostring(node.type)
+    if verb == "not" then
+        return "(~" .. emit.lane(node.args[1]) .. ")"
+    elseif verb == "sar" then
+        return "((ks_" .. vector .. ")(((ks_i" .. vector:sub(
+            2
+        ) .. ")" .. emit.lane(node.args[1]) .. ") >> (" .. emit.lane(node.args[2]) .. " & 31)))"
+    end
+
+    local right = emit.lane(node.args[2])
+    if verb == "shl" or verb == "shr" then
+        right = "(" .. right .. " & 31)"
+    end
+
+    return "(" .. emit.lane(node.args[1]) .. tostring(emit.BITWISE[verb]) .. right .. ")"
 end
 
 --- One reified struct, as a C type whose layout the wrapper checks.
