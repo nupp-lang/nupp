@@ -343,6 +343,22 @@ return hot
    assertEq(at.severity, "error", "and a build that stops")
 end
 
+function M.aJitFunctionAlsoHearsALiftableClosure()
+   local at = assertTraceLost([[
+@jit
+local function hot(values: {integer}): nil
+   for _, value in ipairs(values) do
+      register(function(): integer return 1 end)
+   end
+end
+
+return hot
+]], "FNEW is a blocker whether or not the closure captures", {})
+   assertEq(at.code, "NUPP2707", "the contract, not the repairable lint")
+   assert(at.msg:find("built once per iteration", 1, true),
+      "the source explanation remains specific")
+end
+
 function M.aJitFunctionHearsAResolvedCalleesBlocker()
    local at = assertTraceLost([[
 local function helper(items: {integer}): nil

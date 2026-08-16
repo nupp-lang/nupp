@@ -32,6 +32,8 @@ For looking something up rather than learning it:
   suspension effects, cancellation, and structured concurrency.
 - [Tooling](start/tooling.md): the checker, build system, formatter, language
   server, documentation generator, and profiler.
+- [LuaJIT trace checking](tooling/jit-trace-checking.md): deterministic blockers,
+  `@jit` contracts, editor inspection, and observed abort reasons.
 - [The `nupp` standard library](stdlib.md): JSON, UTF-8, buffers, readers,
   writers, paths, URIs, identifiers, hashes, checksums, math and vectors.
 - [Reflection](concepts/reflection.md): comptime semantic descriptors, runtime

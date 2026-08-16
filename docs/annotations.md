@@ -210,6 +210,10 @@ boundary and is therefore also an error when reached from an `@jit` body.
 Compile-time-only helpers use the `comptime function` declaration modifier
 rather than an annotation.
 
+The [LuaJIT trace-checking guide](tooling/jit-trace-checking.md) shows every current
+blocker, risk, expected stop, warning, call-path error, bytecode verdict, editor query,
+and runtime reason.
+
 `@syntax("name")` is editor metadata for a local or const binding. It accepts
 any literal syntax name and does not change the binding's type. The bundled VS
 Code extension recognizes JSON, GLSL, Lua, Nupp, and PEG when the initializer

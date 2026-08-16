@@ -132,6 +132,9 @@ popping somebody else's zone.
 
 ## Finding what the compiler refused
 
+For the deterministic source, bytecode, editor, and runtime reason catalog—with
+examples of every current diagnostic—see [LuaJIT trace checking](jit-trace-checking.md).
+
     nupp run --jit-aborts app.nupp
 
 That writes `jit-aborts.csv`:

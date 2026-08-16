@@ -745,6 +745,11 @@ nupp lsp            # start the language server]],
                   source = "docs/tooling/profiling.md",
                },
                {
+                  path = "guides/jit-trace-checking",
+                  title = "LuaJIT trace checking",
+                  source = "docs/tooling/jit-trace-checking.md",
+               },
+               {
                   path = "guides/hot-reload",
                   title = "Hot reload",
                   source = "docs/tooling/hot-reload.md",

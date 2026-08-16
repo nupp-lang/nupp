@@ -10,6 +10,7 @@ about what your code means.
 | `check` | Type-check the project | cli.md |
 | `build` | Compile to Lua, incrementally | build.md |
 | `run` | Compile and run; profile behind a flag | profiling.md |
+| `bc --check` | Find deterministic LuaJIT recorder blockers | ../tooling/jit-trace-checking.md |
 | `test` | Build, then run the configured suite | testing.md |
 | `fmt` | Format; fixed style | fmt.md |
 | `doc` | Generate an API site from the parse | doc.md |
@@ -129,9 +130,10 @@ nupp run --jit-aborts app.nupp   # what the JIT refused  -> jit-aborts.csv
 ```
 
 The second answers a question a sampling profiler structurally cannot: whether
-the hot code was compiled at all. [Profiling](../tooling/profiling.md) explains
-both channels, and [optimization](../tooling/optimization.md) covers `-O`
-levels and remarks.
+the hot code was compiled at all. [Trace checking](../tooling/jit-trace-checking.md)
+shows every static and runtime reason with repairs, [profiling](../tooling/profiling.md)
+explains both measurement channels, and [optimization](../tooling/optimization.md)
+covers `-O` levels and remarks.
 
 ## Hot reload
 

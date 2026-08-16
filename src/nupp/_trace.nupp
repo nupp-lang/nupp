@@ -46,7 +46,7 @@ local records: {
         id = "jit/loop-function-construction",
         class = "blocker",
         opcodes = {FNEW = true},
-        source = {["jit-loop-closure"] = true},
+        source = {["jit-loop-closure"] = true, ["loop-invariant-closure"] = true},
         explanation = "LuaJIT has no recorder for constructing a function",
         repair = "declare one function outside the loop and pass what varies to it",
         lint = "NUPP2515",

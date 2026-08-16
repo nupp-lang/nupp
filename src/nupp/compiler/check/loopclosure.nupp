@@ -189,15 +189,26 @@ function loopclosure.install(c: state.Checker): loopclosure.Ops
 
             return
         end
-        c.diag(
-            "NUPP2505",
-            at,
-            "this function is built once per iteration but does not use the "
+        local message = "this function is built once per iteration but does not use the "
             .. "iteration, so every one of them is the same function, and "
-            .. "building one is what keeps the loop from compiling",
-            nil,
-            {help = "declare it once above the loop and pass the name"}
-        )
+            .. "building one is what keeps the loop from compiling"
+        local help = "declare it once above the loop and pass the name"
+        -- Keep the repairable source lint as the ordinary presentation, but publish
+        -- the recorder fact too. `@jit` must reject every FNEW, not only one whose
+        -- closure captures the iteration, and the one-shot query must agree.
+        c.jitHazards[
+            #c.jitHazards + 1
+        ] = {
+            code = "loop-invariant-closure",
+            at = at,
+            body = watch.enclosingBody,
+            message = message,
+            help = help,
+            suppressed = not (watch.enclosingBody and watch.enclosingBody.jitRequired),
+        }
+        if not (watch.enclosingBody and watch.enclosingBody.jitRequired) then
+            c.diag("NUPP2505", at, message, nil, {help = help})
+        end
     end
 
     return ops

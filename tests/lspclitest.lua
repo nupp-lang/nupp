@@ -149,6 +149,31 @@ function M.traceCheckInspectsOneFunctionWithoutAddingAContract()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.traceCheckIncludesARepairableNoncapturingClosure()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return {include = {"."}}\n',
+      ["hot.g.nupp"] = table.concat({
+         "local function hot(values: {integer}): nil",
+         "   for _, value in ipairs(values) do",
+         "      register(function(): integer return 1 end)",
+         "   end",
+         "end",
+         "return hot",
+         "",
+      }, "\n"),
+   })
+   local checked = json.decode(capture(dir,
+      "lsp trace-check --json hot.g.nupp 2 4"))
+   local found
+   for _, finding in ipairs(checked.findings) do
+      if finding.reason == "jit/loop-function-construction" then found = finding end
+   end
+   assert(found and found.class == "blocker",
+      "manual inspection agrees with bytecode and @jit for every FNEW: "
+      .. json.encode(checked))
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.traceCheckFollowsAnExactImportedCallee()
    local dir = tempProject({
       ["nupp.lua"] = 'return {include = {"."}}\n',
