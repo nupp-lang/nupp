@@ -10,6 +10,7 @@ package.path = root .. "/build/?.lua;" .. package.path
 local ffi = require("ffi")
 local lane = require("nupp.compiler.aot.lane")
 local intensity = require("nupp.compiler.aot.intensity")
+local laneVerify = require("nupp.compiler.aot.verify")
 local parser = require("nupp.compiler.parser")
 local cst = require("nupp.compiler.cst")
 
@@ -1317,11 +1318,11 @@ local function vectorizeLoop(ir, reject, shape)
 
    local function maskAnd(left, right, source)
       if not left then return right end
-      return {op = "vmand", args = {left, right}, type = MASK, source = source}
+      return {op = "vmask", verb = "and", args = {left, right}, type = MASK, source = source}
    end
 
    local function maskNot(value, source)
-      return {op = "vmnot", args = {value}, type = MASK, source = source}
+      return {op = "vmask", verb = "not", args = {value}, type = MASK, source = source}
    end
 
    local function activeMask(mask, loopContext, source)
@@ -1365,7 +1366,7 @@ local function vectorizeLoop(ir, reject, shape)
       if not vector then
          reject(nil, "a varying " .. tostring(element) .. " cannot enter " .. shape.name .. " SIMD")
       end
-      return "v" .. verb .. "." .. vector, vector
+      return verb, vector
    end
 
    --- Rewrites `node` to a vector of the type the gang uses for `want`, or for
@@ -1550,7 +1551,7 @@ local function vectorizeLoop(ir, reject, shape)
          local chosen, vector = laneOp(verb, element)
          local left = numericVector(node.left, element)
          local right = numericVector(node.right, element)
-         return {op = chosen, args = {left, right}, element = element,
+         return {op = "vbinary", verb = chosen, args = {left, right}, element = element,
             type = VECTOR_COMPARISON[op] and MASK or vector, source = node.source}, true
       elseif op == "and" or op == "or" then
          -- Every expression admitted by this spike is pure and total: span
@@ -1558,37 +1559,37 @@ local function vectorizeLoop(ir, reject, shape)
          -- calls resolve to the closed math set. Record that fact in the opcode
          -- rather than quietly treating arbitrary future expressions as eager.
          return {
-            op = op == "and" and "vshort_and" or "vshort_or",
+            op = "vshort", verb = op == "and" and "and" or "or",
             args = {conditionMask(node.left), conditionMask(node.right)},
             type = MASK, effect = "pure_total", source = node.source,
          }, true
       elseif op == "not" then
-         return {op = "vmnot", args = {rewriteExpr(node.value)}, type = MASK,
+         return {op = "vmask", verb = "not", args = {rewriteExpr(node.value)}, type = MASK,
             source = node.source}, true
       elseif op == "neg" then
          local chosen, vector = laneOp("neg", node.type)
-         return {op = chosen, args = {numericVector(node.value, node.type)},
+         return {op = "vunary", verb = chosen, args = {numericVector(node.value, node.type)},
             element = node.type, type = vector, source = node.source}, true
       elseif op == "f32_sqrt" then
          local chosen, vector = laneOp("sqrt", "f32")
-         return {op = chosen, args = {numericVector(node.value, "f32")},
+         return {op = "vunary", verb = chosen, args = {numericVector(node.value, "f32")},
             element = "f32", type = vector, source = node.source}, true
       elseif LANE_BITWISE[op] then
          local bits = shape.bits
          local function asBits(operand)
             local vector = numericVector(operand, operand.type == "f64" and "f64" or "i32")
             if vector.type == bits then return vector end
-            return {op = "vtobits." .. bits, args = {vector}, type = bits, source = node.source}
+            return {op = "vbits", direction = "to", args = {vector}, type = bits, source = node.source}
          end
          local args = {asBits(node.left)}
          if node.right then args[2] = asBits(node.right) end
-         local computed = {op = "vbit." .. LANE_BITWISE[op] .. "." .. bits, args = args,
+         local computed = {op = "vbitwise", verb = LANE_BITWISE[op], args = args,
             type = bits, source = node.source}
          -- The result is an int32 in the gang's own carrier, so it converts back
          -- the same way an integer field store does.
          local carrier = lanesVectorType("i32")
          if carrier == bits then return computed, true end
-         return {op = "vfrombits." .. carrier, args = {computed}, type = carrier,
+         return {op = "vbits", direction = "from", args = {computed}, type = carrier,
             source = node.source}, true
       elseif FIXED_CORRECTED[op] then
          local corrected = FIXED_CORRECTED[op]
@@ -1609,14 +1610,14 @@ local function vectorizeLoop(ir, reject, shape)
             args[1] = numericVector(node.left, corrected.element)
             args[2] = numericVector(node.right, corrected.element)
          end
-         return {op = "vcorrected." .. vector, helper = corrected.helper, args = args,
+         return {op = "vcorrected", helper = corrected.helper, args = args,
             element = corrected.element, type = vector, source = node.source}, true
       elseif op == "math" then
          local args = {}
          for i, arg in ipairs(node.args) do
             args[i] = numericVector(arg, "f64")
          end
-         local _, vector = laneOp("math", "f64")
+         local _, vector = laneOp("add", "f64")
          return {op = "vmath", intrinsic = node.intrinsic, args = args,
             type = vector, source = node.source}, true
       elseif op == "helper_param" then
@@ -2186,103 +2187,17 @@ local function verifyIR(ir)
          end
       end
 
+      -- The lane rules live in `nupp.compiler.aot.verify`, against the typed
+      -- vocabulary. This is the adapter: it hands over what those rules need
+      -- from the rest of the IR rather than letting them reach for it.
+      local laneContext = {
+         shape = shape,
+         spans = byName,
+         layouts = layouts,
+         verifyScalar = function(node, values) verifyExpr(node, values) end,
+      }
       local function verifyLaneExpr(node, values)
-         assert(node and node.type, "untyped lane expression")
-         if not laneTypes[node.type] then
-            verifyExpr(node, values)
-         elseif node.op == "local" then
-            assert(values[node.name] == node.type, "invalid lane local")
-         elseif node.op == "vsplat" then
-            assert(#node.args == 1 and node.type ~= MASK and laneTypes[node.type]
-               and node.element and node.args[1].type == node.element
-               and shape.vectorFor[node.element] == node.type,
-               "invalid lane splat")
-            verifyExpr(node.args[1], values)
-         elseif node.op == "vbool_splat" then
-            assert(node.type == MASK and #node.args == 1 and node.args[1].type == "bool",
-               "invalid boolean mask splat")
-            verifyExpr(node.args[1], values)
-         elseif node.op == "vfield_load" then
-            local root = byName[node.span]
-            local layout = layouts[node.layout]
-            assert(root and root.type == "struct:" .. tostring(node.layout)
-               and layout and layout.fieldTypes[node.field] == node.scalarType
-               and (node.scalarType == "f32" or node.scalarType == "i32"
-                  or node.scalarType == "u32")
-               and node.lanes == shape.lanes
-               and node.type == shape.vectorFor[node.scalarType],
-               "invalid lane field load")
-         elseif laneBinary[node.op] then
-            local signature = laneBinary[node.op]
-            assert(#node.args == 2 and node.type == signature.result
-               and node.args[1].type == signature.operand
-               and node.args[2].type == signature.operand,
-               "invalid lane binary operation")
-            verifyLaneExpr(node.args[1], values)
-            verifyLaneExpr(node.args[2], values)
-         elseif node.op == "vmand" or node.op == "vmor"
-            or node.op == "vshort_and" or node.op == "vshort_or"
-         then
-            assert(node.type == MASK and #node.args == 2
-               and node.args[1].type == MASK and node.args[2].type == MASK,
-               "invalid lane mask operation")
-            if node.op == "vshort_and" or node.op == "vshort_or" then
-               assert(node.effect == "pure_total", "short-circuit mask lost its effect proof")
-            end
-            verifyLaneExpr(node.args[1], values)
-            verifyLaneExpr(node.args[2], values)
-         elseif node.op == "vmnot" then
-            assert(node.type == MASK and #node.args == 1 and node.args[1].type == MASK,
-               "invalid lane mask negation")
-            verifyLaneExpr(node.args[1], values)
-         elseif laneUnary[node.op] then
-            local signature = laneUnary[node.op]
-            assert(node.type == signature.result and #node.args == 1
-               and node.args[1].type == signature.operand,
-               "invalid lane unary operation")
-            verifyLaneExpr(node.args[1], values)
-         elseif node.op == "vselect" then
-            assert(#node.args == 3 and node.args[1].type == MASK
-               and node.args[2].type == node.type and node.args[3].type == node.type,
-               "invalid lane select")
-            verifyLaneExpr(node.args[1], values)
-            verifyLaneExpr(node.args[2], values)
-            verifyLaneExpr(node.args[3], values)
-         elseif node.op:match("^vbit%.") then
-            local verb, vector = node.op:match("^vbit%.(%a+)%.(%w+)$")
-            assert(vector == shape.bits and node.type == shape.bits
-               and BITWISE_ARITY[verb] == #node.args,
-               "invalid lane bitwise operation")
-            for _, argument in ipairs(node.args) do
-               assert(argument.type == shape.bits, "invalid lane bitwise operand")
-               verifyLaneExpr(argument, values)
-            end
-         elseif node.op:match("^vtobits%.") or node.op:match("^vfrombits%.") then
-            local vector = node.op:match("^v%a+bits%.(%w+)$")
-            assert(node.type == vector and laneTypes[vector] and #node.args == 1
-               and laneTypes[node.args[1].type] and node.args[1].type ~= vector,
-               "invalid lane bit conversion")
-            verifyLaneExpr(node.args[1], values)
-         elseif node.op:match("^vcorrected%.") then
-            local vector = node.op:match("^vcorrected%.(%w+)$")
-            local helpers = {nupp_f32_min = 2, nupp_f32_max = 2, nupp_f32_fma = 3}
-            assert(node.type == vector and laneTypes[vector] and vector ~= MASK
-               and helpers[node.helper] == #node.args,
-               "invalid corrected lane operation")
-            for _, argument in ipairs(node.args) do
-               assert(argument.type == vector, "invalid corrected lane operand")
-               verifyLaneExpr(argument, values)
-            end
-         elseif node.op == "vmath" then
-            assert(node.type == shape.vectorFor.f64 and laneMath[node.intrinsic],
-               "invalid lane math operation")
-            for _, arg in ipairs(node.args) do
-               assert(arg.type == node.type, "invalid lane math argument")
-               verifyLaneExpr(arg, values)
-            end
-         else
-            error("unknown lane expression opcode " .. tostring(node.op))
-         end
+         laneVerify.expression(node, values, laneContext)
       end
 
       local function verifyLaneBlock(statements, inherited, loopContext)
@@ -2396,6 +2311,25 @@ local function irLines(ir)
       ir.loop.index, tostring(ir.loop.first), tostring(ir.loop.last), ir.loop.count,
       ir.loop.source.line, ir.loop.source.column
    )
+   -- The IR text keeps the spellings the vocabulary used before its families
+   -- were given one tag each, because it is read by people and by tests and
+   -- neither is served by `vmask` where the operation is an `and`.
+   local function displayOp(node)
+      if node.op == "vmask" then
+         return "vm" .. node.verb
+      elseif node.op == "vshort" then
+         return "vshort_" .. node.verb
+      elseif node.op == "vbits" then
+         return node.direction == "to" and "vtobits" or "vfrombits"
+      elseif node.op == "vbinary" or node.op == "vunary" then
+         return "v" .. node.verb
+      elseif node.op == "vbitwise" then
+         return "vbit." .. node.verb
+      end
+
+      return node.op
+   end
+
    local function expression(node)
       if node.op == "load" then return "load:" .. node.type .. " " .. node.span .. "[" .. node.index .. "]" end
       if node.op == "element_ref" then return "element_ref:" .. node.layout .. " " .. node.span .. "[" .. node.index .. "]" end
@@ -2435,7 +2369,7 @@ local function irLines(ir)
       if node.args then
          local args = {}
          for _, arg in ipairs(node.args) do args[#args + 1] = expression(arg) end
-         return node.op .. ":" .. node.type .. "(" .. table.concat(args, ", ") .. ")"
+         return displayOp(node) .. ":" .. node.type .. "(" .. table.concat(args, ", ") .. ")"
       end
       return node.op .. "(" .. expression(node.left) .. ", " .. expression(node.right) .. ")"
    end
@@ -2553,21 +2487,19 @@ local function perLane(vector, args, render, build)
 end
 
 local function renderExpr(node)
-   local LANE_BINARY = {vmand = " & ", vmor = " | ",
-      vshort_and = " & ", vshort_or = " | "}
-   if LANE_BINARY[node.op] then
-      return "(" .. renderExpr(node.args[1]) .. LANE_BINARY[node.op]
+   if (node.op == "vmask" or node.op == "vshort") and node.verb ~= "not" then
+      return "(" .. renderExpr(node.args[1]) .. (node.verb == "and" and " & " or " | ")
          .. renderExpr(node.args[2]) .. ")"
    end
-   local verb, vector = node.op:match("^v(%a+)%.(%w+)$")
-   if verb and LANE_VERB[verb] then
-      return "(" .. renderExpr(node.args[1]) .. LANE_VERB[verb]
+   if node.op == "vbinary" then
+      return "(" .. renderExpr(node.args[1]) .. LANE_VERB[node.verb]
          .. renderExpr(node.args[2]) .. ")"
    end
-   if verb == "neg" then
+   local verb, vector = node.verb, node.type
+   if node.op == "vunary" and verb == "neg" then
       return "(-" .. renderExpr(node.args[1]) .. ")"
    end
-   if verb == "sqrt" then
+   if node.op == "vunary" and verb == "sqrt" then
       -- Elementwise, through the width's own library call so the lane form is
       -- the same operation the scalar one performs.
       local scalar = vector:match("^(%a%d+)x")
@@ -2585,7 +2517,7 @@ local function renderExpr(node)
    if node.op == "vbool_splat" then
       return "ks_bool_mask(" .. renderExpr(node.args[1]) .. ")"
    end
-   if node.op == "vmnot" then
+   if node.op == "vmask" and node.verb == "not" then
       return "(~" .. renderExpr(node.args[1]) .. ")"
    end
    if node.op == "vselect" then
@@ -2599,8 +2531,8 @@ local function renderExpr(node)
       end
       return "((" .. ("ks_" .. node.type) .. "){" .. table.concat(parts, ", ") .. "})"
    end
-   local bitVerb, bitVector = node.op:match("^vbit%.(%a+)%.(%w+)$")
-   if bitVerb then
+   local bitVerb, bitVector = node.verb, node.type
+   if node.op == "vbitwise" then
       local BIT_OPERATOR = {["and"] = " & ", ["or"] = " | ", xor = " ^ ",
          shl = " << ", shr = " >> "}
       if bitVerb == "not" then return "(~" .. renderExpr(node.args[1]) .. ")" end
@@ -2614,14 +2546,14 @@ local function renderExpr(node)
       if bitVerb == "shl" or bitVerb == "shr" then right = "(" .. right .. " & 31)" end
       return "(" .. renderExpr(node.args[1]) .. operator .. right .. ")"
    end
-   local convertTo = node.op:match("^v%a+bits%.(%w+)$")
-   if convertTo then
+   local convertTo = node.type
+   if node.op == "vbits" then
       return "__builtin_convertvector(" .. renderExpr(node.args[1]) .. ", ks_" .. convertTo .. ")"
    end
-   if node.op:match("^vcorrected%.") then
+   if node.op == "vcorrected" then
       -- One scalar helper call per lane, the same helper the scalar body calls,
       -- so the correction cannot be right in one form and wrong in the other.
-      local vector = node.op:match("^vcorrected%.(%w+)$")
+      local vector = node.type
       return perLane(vector, node.args, renderExpr, function(names, lane)
          local args = {}
          for i, name in ipairs(names) do args[i] = name .. "[" .. lane .. "]" end

@@ -124,7 +124,7 @@ do
       "pure short-circuit expression lost its verified mask operation")
    local function findShort(node)
       if type(node) ~= "table" then return nil end
-      if node.op == "vshort_and" then return node end
+      if node.op == "vshort" and node.verb == "and" then return node end
       for _, value in pairs(node) do
          local found = findShort(value)
          if found then return found end

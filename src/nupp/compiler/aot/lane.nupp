@@ -122,8 +122,17 @@ end
 --- there is no operation whose operand width has to be inferred, and a mismatched
 --- pair is a malformed opcode rather than a check somebody has to remember.
 record aotLane.Binary
-    --- `v<verb>.<vector>`.
-    op: string
+    --- One tag, with the verb and the width as fields.
+    ---
+    --- The opcode used to carry both -- `vadd.f64x4` -- which reads well and
+    --- cannot be dispatched on: narrowing a union needs a literal tag, and a
+    --- generated string is not one. Nor can a consumer test the record
+    --- nominally, because `is` compares metatables and IR arriving from outside
+    --- has none. Comparing this tag does both.
+    op: 'vbinary'
+
+    --- What the operation does.
+    verb: 'add' | 'sub' | 'mul' | 'div' | 'lt' | 'le' | 'gt' | 'ge' | 'eq' | 'ne'
 
     args: {aotLane.Expr}
 
@@ -137,7 +146,9 @@ end
 
 --- Elementwise negation or square root.
 record aotLane.Unary
-    op: string
+    op: 'vunary'
+
+    verb: 'neg' | 'sqrt'
     args: {aotLane.Expr}
     element: aotLane.Element
     type: aotLane.Vector
@@ -146,7 +157,9 @@ end
 
 --- Mask combination: `vmand`, `vmor`, `vmnot`.
 record aotLane.MaskOp
-    op: 'vmand' | 'vmor' | 'vmnot'
+    op: 'vmask'
+
+    verb: 'and' | 'or' | 'not'
     args: {aotLane.Expr}
     type: aotLane.Vector
     source: aotLane.Source?
@@ -159,7 +172,9 @@ end
 --- pass inferring it from the shape of the expression, which would make a future
 --- effectful right side quietly eager.
 record aotLane.ShortCircuit
-    op: 'vshort_and' | 'vshort_or'
+    op: 'vshort'
+
+    verb: 'and' | 'or'
     args: {aotLane.Expr}
 
     --- The proof. Only `pure_total` admits eager evaluation.
@@ -206,8 +221,7 @@ end
 --- instruction propagates a payload, and min and max answer with that canonical
 --- NaN where IEEE `minNum` answers with whichever operand is not NaN.
 record aotLane.Corrected
-    --- `vcorrected.<vector>`.
-    op: string
+    op: 'vcorrected'
 
     --- The C helper that performs the correction, shared with the scalar body so
     --- the two cannot be right in one form and wrong in the other.
@@ -225,7 +239,9 @@ end
 --- loop. Shift counts are masked and a logical shift stays unsigned, as the
 --- scalar helpers do.
 record aotLane.Bitwise
-    op: string
+    op: 'vbitwise'
+
+    verb: 'and' | 'or' | 'xor' | 'shl' | 'shr' | 'sar' | 'not'
     args: {aotLane.Expr}
     type: aotLane.Vector
     source: aotLane.Source?
@@ -234,8 +250,12 @@ end
 --- Conversion into or out of the gang's bit vector. Exact in both directions,
 --- because every value it converts is exactly representable on both sides.
 record aotLane.BitConvert
-    --- `vtobits.<vector>` or `vfrombits.<vector>`.
-    op: string
+    --- Only the binary64 gang converts: a 32-bit gang already carries integers
+    --- in the vector its bitwise work happens in, so there is nothing to cross.
+    op: 'vbits'
+
+    --- Into the bit vector, or back out of it.
+    direction: 'to' | 'from'
 
     args: {aotLane.Expr}
     type: aotLane.Vector

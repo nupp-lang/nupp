@@ -1,0 +1,340 @@
+--[[
+What makes lane IR well formed.
+
+Generated C is a backend representation and not the safety boundary. Every span
+access, region relationship, conversion, and lane operation has to exist here,
+verified, before anything is emitted -- so a rewrite that produced something this
+rejects is a compiler bug caught before it becomes a miscompilation, and the
+spike's own tests deliberately corrupt lane IR to prove these rules fire.
+
+Two rules do most of the work and are worth stating separately from the code.
+
+An operation names its own vector type -- `vadd.f64x4`, `vlt.f32x8` -- so there
+is no operation whose operand width has to be inferred. A mismatched pair is a
+malformed opcode rather than a check somebody has to remember to write.
+
+A gang names the vectors it uses, and membership is checked against that gang
+rather than against a list of every width the backend knows. A vector one shape
+admits is not silently valid in another, which is what keeps a binary64 value
+from entering a 32-bit gang that would change its answers.
+
+The scalar half is not here yet. Where a lane expression holds a uniform scalar,
+this hands it back to the caller's scalar rules through `verifyScalar`.
+]]
+
+local lane = require("nupp.compiler.aot.lane")
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local verify = {}
+
+--- What the lane rules need from the rest of the IR.
+---
+--- Passed in rather than reached for, because this module verifies lane IR and
+--- should not also decide what a span or a layout is.
+record verify.Context
+    --- The gang this body was lowered to.
+    shape: lane.Shape
+
+    --- Span parameters by name, for checking that a lane load reads one that
+    --- exists and a lane store writes one that may be written.
+    spans: {[string]: any}
+
+    --- Reified struct layouts by name, for checking a field's storage type.
+    layouts: {[string]: any}
+
+    --- The scalar rules, for a uniform value appearing inside a lane
+    --- expression.
+    verifyScalar: function(lane.Expr | scalarIR.Expr, {[string]: string}): nil
+end
+
+--- Reports lane IR that cannot mean anything.
+---
+--- Raised rather than returned: reaching one is a compiler bug and there is no
+--- partial answer worth carrying on with.
+---
+--- @raises always, with what was wrong
+local function invalid(why: string): nil
+    error("invalid lane IR: " .. why, 0)
+end
+
+--- Asserts one rule.
+---
+--- @raises when the rule does not hold
+local function holds(condition: boolean, why: string): nil
+    if not condition then
+        invalid(why)
+    end
+end
+
+--- Every vector this gang may mention, so an opcode naming one that belongs to a
+--- different shape is caught rather than quietly accepted.
+local function laneTypes(shape: lane.Shape): {[string]: boolean}
+    local admitted: {[string]: boolean} = {}
+    admitted[shape.mask] = true
+    admitted[shape.bits] = true
+    for _, vector in pairs(shape.vectorFor) do
+        admitted[vector] = true
+    end
+
+    return admitted
+end
+
+--- The arity of each bitwise verb. `not` is the only unary one.
+const verify.BITWISE_ARITY = {["and"] = 2, ["or"] = 2, ["xor"] = 2, ["shl"] = 2, ["shr"] = 2, ["sar"] = 2, ["not"] = 1,}
+
+--- The correcting binary32 helpers, and how many operands each takes.
+const verify.CORRECTED_ARITY = {["nupp_f32_min"] = 2, ["nupp_f32_max"] = 2, ["nupp_f32_fma"] = 3,}
+
+--- The closed math set a lane may call, one scalar call per lane.
+const verify.LANE_MATH = {
+    ["sqrt"] = true,
+    ["abs"] = true,
+    ["floor"] = true,
+    ["ceil"] = true,
+    ["min"] = true,
+    ["max"] = true,
+    ["sin"] = true,
+    ["cos"] = true,
+    ["tan"] = true,
+    ["asin"] = true,
+    ["acos"] = true,
+    ["atan"] = true,
+    ["atan2"] = true,
+    ["sinh"] = true,
+    ["cosh"] = true,
+    ["tanh"] = true,
+    ["exp"] = true,
+    ["log"] = true,
+    ["pow"] = true,
+    ["fmod"] = true,
+    ["deg"] = true,
+    ["rad"] = true,
+}
+
+--- Every opcode this vocabulary knows, beside the arithmetic and comparison
+--- ones a shape generates.
+const verify.FIXED_OPCODES = {
+    ["local"] = true,
+    ["vsplat"] = true,
+    ["vbool_splat"] = true,
+    ["vfield_load"] = true,
+    ["vmask"] = true,
+    ["vshort"] = true,
+    ["vselect"] = true,
+    ["vmath"] = true,
+    ["vcorrected"] = true,
+    ["vbinary"] = true,
+    ["vunary"] = true,
+    ["vbitwise"] = true,
+    ["vbits"] = true,
+}
+
+--- The storage types a span field may have. Narrower widths load into one of
+--- these rather than appearing here themselves.
+const verify.FIELD_STORAGE = {["f32"] = true, ["i32"] = true, ["u32"] = true}
+
+--- Builds the arithmetic and comparison signatures this gang admits.
+---
+--- Derived from the shape rather than written out, so an opcode for a width the
+--- gang does not carry simply has no entry and fails to match.
+local function laneSignatures(shape: lane.Shape): ({[string]: any}, {[string]: any})
+    local binary: {[string]: any} = {}
+    local unary: {[string]: any} = {}
+    for element, vector in pairs(shape.vectorFor) do
+        if vector ~= shape.mask then
+            for _, verb in ipairs({"add", "sub", "mul", "div"}) do
+                binary[verb .. "." .. element] = {result = vector, operand = vector}
+            end
+            for _, verb in ipairs({"lt", "le", "gt", "ge", "eq", "ne"}) do
+                binary[verb .. "." .. element] = {result = shape.mask, operand = vector}
+            end
+            unary["neg." .. element] = {result = vector, operand = vector}
+            unary["sqrt." .. element] = {result = vector, operand = vector}
+        end
+    end
+
+    return binary, unary
+end
+
+--- The two halves of one walk, so each is declared before either is written.
+--- They are local because they call each other: a module function has to carry
+--- its types where it is defined, which neither of a mutually recursive pair can
+--- do for the other.
+local walk: function(lane.Expr, {[string]: string}, verify.Context): nil
+
+--- Checks a short-circuit mask.
+---
+--- Its own function because narrowing needs one tag compared at a time, and both
+--- spellings share every rule.
+local function shortCircuit(node: lane.ShortCircuit, values: {[string]: string}, context: verify.Context): nil
+    -- Both sides run for every lane, so eager evaluation needs the proof rather
+    -- than the shape of the expression.
+    holds(node.effect == "pure_total", "a short-circuit mask without its effect proof")
+    holds(
+        #node.args == 2 and node.args[
+            1
+        ].type == context.shape.mask and node.args[2].type == context.shape.mask and node.type == context.shape.mask,
+        "a short-circuit mask over something that is not a mask"
+    )
+    walk(node.args[1], values, context)
+    walk(node.args[2], values, context)
+end
+
+--- Checks the operands of an operation that takes a vector of one width.
+local function operands(
+    args: {lane.Expr},
+    want: string,
+    count: integer,
+    values: {[string]: string},
+    context: verify.Context,
+    why: string
+): nil
+    holds(#args == count, why)
+    for _, argument in ipairs(args) do
+        holds(argument.type == want, why)
+        walk(argument, values, context)
+    end
+end
+
+walk = function(node: lane.Expr, values: {[string]: string}, context: verify.Context): nil
+    local shape = context.shape
+    local admitted = laneTypes(shape)
+    local binary, unary = laneSignatures(shape)
+    local mask = shape.mask
+
+    holds(node ~= nil and node.type ~= nil, "an expression with no type")
+
+    -- The tag is checked before anything narrows on it. `node` is declared to be
+    -- one of these records, but it arrives across a boundary that does not
+    -- enforce that, and the checker is entitled to prove the last `is` in a
+    -- chain over an exhausted union statically true -- which would make the
+    -- branch that rejects an unknown opcode dead code, in the one function whose
+    -- whole purpose is rejecting what it does not know.
+    if not admitted[node.type] then
+        -- A uniform scalar inside a lane expression. Not this module's rules.
+        context.verifyScalar(node, values)
+
+        return
+    end
+
+    holds(
+        verify.FIXED_OPCODES[tostring(node.op)] == true,
+        "an operation this vocabulary has no rule for: " .. tostring(node.op)
+    )
+
+    -- Narrowed by record rather than by opcode. The tags are literal, so `is`
+    -- proves which record this is and the fields it carries follow from that;
+    -- comparing thirty enumerated opcodes by hand would prove the same thing
+    -- and read like a table.
+    if node.op == "local" then
+        holds(values[node.name] == node.type, "a lane local of the wrong type")
+    elseif node.op == "vsplat" then
+        holds(
+            #node.args == 1 and node.type ~= mask and shape.vectorFor[node.element] == node.type,
+            "a splat that does not carry its element"
+        )
+        context.verifyScalar(node.args[1], values)
+    elseif node.op == "vbool_splat" then
+        holds(node.type == mask and #node.args == 1, "a boolean splat that is not a mask")
+        context.verifyScalar(node.args[1], values)
+    elseif node.op == "vfield_load" then
+        local root = context.spans[node.span]
+        local layout = context.layouts[node.layout]
+        holds(
+            root ~= nil and root.type == "struct:" .. tostring(
+                node.layout
+            ) and layout ~= nil and layout.fieldTypes[
+                node.field
+            ] == node.scalarType and verify.FIELD_STORAGE[
+                node.scalarType
+            ] == true and node.lanes == shape.lanes and node.type == shape.vectorFor[node.scalarType],
+            "a lane load that does not match its span, field, or width"
+        )
+    elseif node.op == "vbinary" then
+        local signature = binary[node.verb .. "." .. tostring(node.element)]
+        holds(signature ~= nil and node.type == signature.result, "a binary operation this gang does not admit")
+        operands(
+            node.args,
+            signature.operand,
+            2,
+            values,
+            context,
+            "a binary operation whose operands are not its own width"
+        )
+    elseif node.op == "vunary" then
+        local signature = unary[node.verb .. "." .. tostring(node.element)]
+        holds(signature ~= nil and node.type == signature.result, "a unary operation this gang does not admit")
+        operands(
+            node.args,
+            signature.operand,
+            1,
+            values,
+            context,
+            "a unary operation whose operand is not its own width"
+        )
+    elseif node.op == "vmask" then
+        local count = node.verb == "not" and 1 or 2
+        operands(node.args, mask, count, values, context, "a mask operation over something that is not a mask")
+        holds(node.type == mask, "a mask operation that does not produce a mask")
+    elseif node.op == "vshort" then
+        shortCircuit(node, values, context)
+    elseif node.op == "vselect" then
+        holds(
+            #node.args == 3 and node.args[
+                1
+            ].type == mask and node.args[2].type == node.type and node.args[3].type == node.type,
+            "a select whose arms disagree, or whose condition is not a mask"
+        )
+        walk(node.args[1], values, context)
+        walk(node.args[2], values, context)
+        walk(node.args[3], values, context)
+    elseif node.op == "vmath" then
+        holds(
+            node.type == shape.vectorFor["f64"] and verify.LANE_MATH[node.intrinsic] == true,
+            "a math operation outside the closed set, or not in binary64 lanes"
+        )
+        operands(node.args, node.type, #node.args, values, context, "a math argument of the wrong width")
+    elseif node.op == "vcorrected" then
+        holds(
+            node.type == "f32x8" and verify.CORRECTED_ARITY[node.helper] == #node.args,
+            "a corrected operation with the wrong helper or arity"
+        )
+        operands(node.args, node.type, #node.args, values, context, "a corrected operand of the wrong width")
+    elseif node.op == "vbitwise" then
+        local verb = node.verb
+        holds(
+            node.type == shape.bits and verify.BITWISE_ARITY[verb] ~= nil,
+            "a bitwise operation outside the gang's bit vector"
+        )
+        operands(
+            node.args,
+            shape.bits,
+            verify.BITWISE_ARITY[verb],
+            values,
+            context,
+            "a bitwise operand outside the bit vector"
+        )
+    elseif node.op == "vbits" then
+        holds(
+            admitted[
+                node.type
+            ] == true and #node.args == 1 and admitted[node.args[1].type] == true and node.args[1].type ~= node.type,
+            "a bit conversion that does not change vector"
+        )
+        walk(node.args[1], values, context)
+    else
+        invalid("an operation this vocabulary has no rule for")
+    end
+end
+
+--- Checks one lane expression, and everything under it.
+---
+--- @param node the expression
+--- @param values lane locals in scope, by name, to their vector type
+--- @param context what the lane rules need from the rest of the IR
+--- @raises when the expression is not well formed lane IR
+function verify.expression(node: lane.Expr, values: {[string]: string}, context: verify.Context): nil
+    walk(node, values, context)
+end
+
+return verify
