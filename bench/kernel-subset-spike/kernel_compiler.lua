@@ -1242,9 +1242,10 @@ local function vectorizeLoop(ir, reject, shape)
       return {op = "vbool_splat", args = {node}, type = MASK, source = node.source}
    end
 
+   -- The mask combinators are the compiler's: which lanes a statement applies
+   -- to is part of what lane IR means, not bookkeeping this loop invents.
    local function maskLocal(binding, source)
-      return {op = "local", name = binding.name, cName = binding.cName,
-         type = MASK, source = source}
+      return rewriteRules.maskLocal(binding, source, rewriteState)
    end
 
    local function internalMask(label, source)
@@ -1257,25 +1258,15 @@ local function vectorizeLoop(ir, reject, shape)
    end
 
    local function maskAnd(left, right, source)
-      if not left then return right end
-      return {op = "vmask", verb = "and", args = {left, right}, type = MASK, source = source}
+      return rewriteRules.maskAnd(left, right, source, rewriteState)
    end
 
    local function maskNot(value, source)
-      return {op = "vmask", verb = "not", args = {value}, type = MASK, source = source}
+      return rewriteRules.maskNot(value, source, rewriteState)
    end
 
    local function activeMask(mask, loopContext, source)
-      if not loopContext then return mask end
-      local executing = maskLocal(loopContext.executing, source)
-      if not mask then return executing end
-      if mask.op == "local" and mask.name == loopContext.executing.name then
-         return mask
-      end
-      -- A branch mask records which lanes entered the branch. The executing
-      -- mask records which of those lanes have not since broken or continued.
-      -- Both facts are needed for every later statement in a nested block.
-      return maskAnd(mask, executing, source)
+      return rewriteRules.activeMask(mask, loopContext, source, rewriteState)
    end
 
    -- Scalar opcode to lane opcode. The f64 gang carries every scalar type in
@@ -1423,160 +1414,7 @@ local function vectorizeLoop(ir, reject, shape)
 
    --- Rewrites one expression, returning it unchanged when it is uniform.
    rewriteExpr = function(node)
-      if not exprVarying(node) then return node, false end
-      local op = node.op
-      if op == "local" then
-         return {op = "local", name = node.name, cName = node.cName,
-            type = lanesVectorType(node.type) or reject(nil, "varying local of unsupported type"),
-            source = node.source}, true
-      elseif op == "field_load" then
-         local object = resolveRef(node.object)
-         if not object or object.index ~= index then
-            reject(nil, "a lane-parallel field load reads consecutive elements only")
-         end
-         -- A field's storage type decides the lane type it loads into. The f64
-         -- gang widens every one of them; the 32-bit gang loads float storage
-         -- straight into binary32 lanes, which is the whole point of it.
-         local scalarType = node.type
-         local vector = lanesVectorType(scalarType)
-            or reject(nil, "a " .. tostring(scalarType) .. " field cannot enter " .. shape.name)
-         local loaded = {
-            op = "vfield_load", span = object.span, layout = object.layout,
-            field = node.field, lanes = LANES, scalarType = scalarType,
-            type = vector, source = node.source,
-         }
-         return loaded, true
-      elseif op == "widen_f32_f64" or op == "int_to_f64" then
-         -- Widening is exact, so the lane form is whatever the value already
-         -- was: in the f64 gang the load produced binary64 and there is nothing
-         -- left to do, and in a 32-bit gang the value stays in its own lanes so
-         -- that `narrow(load)` -- the idiom that re-establishes a float field
-         -- the front end widened -- comes back to exactly the loaded lanes.
-         --
-         -- Nothing is lost by not rejecting here. A binary64 consumer asks for
-         -- an f64 lane operation, and a gang without f64 lanes refuses that.
-         local inner = rewriteExpr(node.value)
-         return inner, true
-      elseif VECTOR_ARITHMETIC[op] or VECTOR_COMPARISON[op] or FIXED_LANE[op] then
-         local verb, element
-         if FIXED_LANE[op] then
-            verb, element = FIXED_LANE[op][1], FIXED_LANE[op][2]
-            -- An explicit binary32 or wrapping int32 operation rounds at every
-            -- step. A gang that carries the value in wider lanes would compute
-            -- a different answer than the source asked for unless it narrowed
-            -- after each one, so it declines instead and lets a gang of the
-            -- right width take the loop.
-            if shape.vectorFor[element] ~= element .. "x" .. tostring(shape.lanes) then
-               reject(nil, "an explicit " .. element .. " operation needs "
-                  .. element .. " lanes, and " .. shape.name .. " has none")
-            end
-         elseif VECTOR_ARITHMETIC[op] then
-            -- Ordinary operators are binary64 and the scalar IR already typed
-            -- them that way, so the element is the result type.
-            verb, element = VECTOR_ARITHMETIC[op], node.type
-         else
-            -- A comparison's own type is bool; its width comes from what it
-            -- compares. Mixed operands were widened by the front end.
-            verb = VECTOR_COMPARISON[op]
-            if node.left.type == node.right.type then
-               element = node.left.type
-            elseif rewriteRules.constantFits(node.right, node.left.type) then
-               element = node.left.type
-            elseif rewriteRules.constantFits(node.left, node.right.type) then
-               element = node.right.type
-            else
-               element = "f64"
-            end
-         end
-         local chosen, vector = laneOp(verb, element)
-         local left = numericVector(node.left, element)
-         local right = numericVector(node.right, element)
-         return {op = "vbinary", verb = chosen, args = {left, right}, element = element,
-            type = VECTOR_COMPARISON[op] and MASK or vector, source = node.source}, true
-      elseif op == "and" or op == "or" then
-         -- Every expression admitted by this spike is pure and total: span
-         -- bounds were proved before this pass, arithmetic does not trap, and
-         -- calls resolve to the closed math set. Record that fact in the opcode
-         -- rather than quietly treating arbitrary future expressions as eager.
-         return {
-            op = "vshort", verb = op == "and" and "and" or "or",
-            args = {conditionMask(node.left), conditionMask(node.right)},
-            type = MASK, effect = "pure_total", source = node.source,
-         }, true
-      elseif op == "not" then
-         return {op = "vmask", verb = "not", args = {rewriteExpr(node.value)}, type = MASK,
-            source = node.source}, true
-      elseif op == "neg" then
-         local chosen, vector = laneOp("neg", node.type)
-         return {op = "vunary", verb = chosen, args = {numericVector(node.value, node.type)},
-            element = node.type, type = vector, source = node.source}, true
-      elseif op == "f32_sqrt" then
-         local chosen, vector = laneOp("sqrt", "f32")
-         return {op = "vunary", verb = chosen, args = {numericVector(node.value, "f32")},
-            element = "f32", type = vector, source = node.source}, true
-      elseif LANE_BITWISE[op] then
-         local bits = shape.bits
-         local function asBits(operand)
-            local vector = numericVector(operand, operand.type == "f64" and "f64" or "i32")
-            if vector.type == bits then return vector end
-            return {op = "vbits", direction = "to", args = {vector}, type = bits, source = node.source}
-         end
-         local args = {asBits(node.left)}
-         if node.right then args[2] = asBits(node.right) end
-         local computed = {op = "vbitwise", verb = LANE_BITWISE[op], args = args,
-            type = bits, source = node.source}
-         -- The result is an int32 in the gang's own carrier, so it converts back
-         -- the same way an integer field store does.
-         local carrier = lanesVectorType("i32")
-         if carrier == bits then return computed, true end
-         return {op = "vbits", direction = "from", args = {computed}, type = carrier,
-            source = node.source}, true
-      elseif FIXED_CORRECTED[op] then
-         local corrected = FIXED_CORRECTED[op]
-         -- Same width rule as the plain fixed-width operations: a gang without
-         -- lanes of this width would have to compute it wider and drop a
-         -- rounding the source asked for.
-         local vector = lanesVectorType(corrected.element)
-         if vector ~= corrected.element .. "x" .. tostring(shape.lanes) then
-            reject(nil, "an explicit " .. corrected.element .. " operation needs "
-               .. corrected.element .. " lanes, and " .. shape.name .. " has none")
-         end
-         local args = {}
-         if corrected.arity == 3 then
-            for i, argument in ipairs(node.args) do
-               args[i] = numericVector(argument, corrected.element)
-            end
-         else
-            args[1] = numericVector(node.left, corrected.element)
-            args[2] = numericVector(node.right, corrected.element)
-         end
-         return {op = "vcorrected", helper = corrected.helper, args = args,
-            element = corrected.element, type = vector, source = node.source}, true
-      elseif op == "math" then
-         local args = {}
-         for i, arg in ipairs(node.args) do
-            args[i] = numericVector(arg, "f64")
-         end
-         local _, vector = laneOp("add", "f64")
-         return {op = "vmath", intrinsic = node.intrinsic, args = args,
-            type = vector, source = node.source}, true
-      elseif op == "helper_param" then
-         local bound = helperBindings[node.name]
-         if not bound then reject(nil, "a helper parameter escaped its call") end
-         return bound, true
-      elseif op == "helper_call" then
-         local inlined = inlineHelper(node)
-         if #inlined ~= 1 then reject(nil, "a multiple-result helper is not one value") end
-         return inlined[1], true
-      elseif op == "numeric_cast" or op == "narrow_f64_f32" then
-         -- Storage conversions remain attached to the scalar field target. The
-         -- vector value keeps its gang's element type until each lane is stored,
-         -- exactly like ordinary Nupp widens a physical load and narrows a
-         -- physical store. In a 32-bit gang the source already established the
-         -- value, so there is likewise nothing left for this to do.
-         return rewriteExpr(node.value), true
-      end
-      reject(nil, "operation " .. tostring(op) .. " has no lane-parallel form")
+      return rewriteRules.expression(node, rewriteState)
    end
 
    --- Rewrites a block under an execution mask. `mask` is nil at the top level,
