@@ -2257,6 +2257,7 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(css:find("filter:drop%-shadow"), css)
    assert(css:find("nuppdoc%-mobile%-outline"), css)
    assert(css:find("nuppdoc%-shell%{display:flex;flex%-direction:column%}"), css)
+   assert(css:find("nuppdoc%-content%{order:2;min%-width:0%}"), css)
    -- one mechanism clears the sticky header; two would stack into twice the gap
    assert(css:find(
       "scroll-margin-top:calc(var(--nuppdoc-header-height) + 1.4rem)",
