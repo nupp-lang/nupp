@@ -68,10 +68,20 @@ work makes sense in.
       data-dependent inner `while` loops, per-lane `break`/`continue`, exact
       scalar tails, and a gang width chosen from the loop's own lane types.
       Production `nupp build` still emits the ordinary Lua body.
-      Move that IR and C backend under
-      `src/`; consume the complete checked ownership, alias, effect, layout, and
-      numeric facts; then add build policy, target compilation and dispatch,
-      cache and artifact validation, inspection, and diagnostics.
+      The IR, the verifier, the lane rewrite, the C emitter, the readable IR
+      form and the binding generator are under `src/nupp/compiler/aot/` as
+      typed Nupp; what is left in the spike is `parseKernel`, the front end
+      that reads the checked CST. Each move was proved by generated C, IR and
+      bindings staying byte-identical for every kernel.
+      What remains: move `parseKernel` behind the rest of the checker handoff
+      (layouts, span element types, ownership regions); consume the complete
+      checked ownership, alias, effect, layout, and numeric facts; then add
+      build policy, target compilation and dispatch, cache and artifact
+      validation, inspection, and diagnostics.
+      One latent hole found in passing: a uniform multiple binding inside a
+      lane body produces a `helper_result` node that no verifier rule and no
+      emitter covers, so it raises rather than declining lane lowering. No
+      kernel has one, which is why nothing caught it.
       Two things about how, both learned by starting it. The backend
       re-derives facts because they are not published, not because it was
       lazy: it matched `span%.WriteSpan<(.+)>` against written type text
