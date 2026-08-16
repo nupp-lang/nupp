@@ -152,6 +152,51 @@ application, while `preserves` supplies the separate conservation proof. HKT wou
 only be relevant to an API abstracting over `Box` itself as a constructor and would
 not replace that proof.
 
+## GC finalizers remain a safety net
+
+A GC finalizer can eventually release an unreachable resource, but it cannot
+guarantee when that happens. It also cannot prevent use after close, prove that
+exactly one unlock or ownership transfer occurs, or keep a
+[borrowed pointer](../ownership.md#borrowing-and-pinning) attached to its
+backing storage. These guarantees matter at a
+[C and FFI boundary](../c-interop.md#describe-lifetime-behavior), where the
+garbage collector does not know a native library's ownership, pinning, or
+cleanup contract.
+[Lexical destruction](../ownership.md#consumption-and-lexical-destruction)
+provides the deterministic contract; a finalizer can remain a last-resort
+safety net.
+
+## Manual cleanup does not prove every path
+
+Calling `close`, `unlock`, or `free` directly works only when every return,
+raised error, and transfer follows the protocol. An
+[affine terminal](../ownership.md#terminal-contract) makes that protocol part of
+the type. The checker then rejects a forgotten obligation, a second consumption,
+or a use after the value moved, while
+[automatic lexical
+destruction](../ownership.md#consumption-and-lexical-destruction) handles each
+scope exit.
+
+## Ordinary values remain GC-managed
+
+Ownership is opt-in. Strings, numbers, tables, and records without a
+nontrivial capability retain ordinary Lua behavior and need no ownership
+annotation. Explicit
+[public capability contracts](../ownership.md#public-capability-contracts)
+apply only when an API carries an obligation, root, exclusive access, pin, or
+retention. A record constructor likewise remains ordinary unless its [result
+introduces a
+policy](../type-system/records.md#constructors-and-result-policies).
+
+## Native values keep their ABI representation
+
+An affine type adds no runtime wrapper, cleanup field, tag, or vtable. It
+erases to its representation, so a C pointer remains a C pointer and a struct
+keeps the [layout declared at the boundary](../c-interop.md#type-mapping).
+Imported functions can state their [lifetime
+behavior](../c-interop.md#describe-lifetime-behavior) directly, and the checker
+enforces the contract around the same LuaJIT FFI call.
+
 ## Next
 
 - [Ownership](../ownership.md) covers moves, borrows, lexical destruction,
