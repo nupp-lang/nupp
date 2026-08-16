@@ -154,7 +154,7 @@ not replace that proof.
 
 ## FAQ
 
-### Are GC finalizers as cheap as affine cleanup?
+### Why does Nupp need ownership tracking when LuaJIT already has GC finalizers?
 
 `ffi.gc` attaches runtime finalization to every resource and makes the garbage
 collector discover and dispatch its cleanup. `luajit bench/ownership.lua`
