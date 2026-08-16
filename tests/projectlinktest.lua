@@ -618,8 +618,8 @@ end
 
 -- A constructor rides the nominal, which is the road a metamethod contract
 -- already travels, and lands on the record's runtime table, which is the one
--- thing about a record that a consuming module already reaches. Nothing is
--- registered and nothing is looked up by name at run time.
+-- thing about a record that a consuming module already reaches. Its result
+-- policy rides the same entry, including the stable terminal identity.
 function M.aConstructorCrossesAModuleBoundary()
    withProject({
       ["src/model.g.nupp"] = [[
@@ -629,9 +629,13 @@ record model.Account
     name: string
     balance: number
 
-    constructor(self, name: string, opening: number)
+    constructor(self, name: string, opening: number): affine(model.Account, model.Account.destroy)
         self.name = name
         self.balance = opening
+    end
+
+    function destroy(takes self): nil
+        self.balance = 0
     end
 end
 
@@ -641,8 +645,9 @@ return model
 local model = require("model")
 
 local a = new model.Account("Ada", 42)
+drop(a)
 
-return a.balance
+return 0
 ]],
    }, function(dir)
       local env = projectEnv(dir)

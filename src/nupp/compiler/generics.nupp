@@ -1730,6 +1730,7 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
             j
         ] = {
             signature = specialized,
+            result = entry and entry.result and substWith(entry.result, map, PRESERVE) or nil,
             declaration = entry and entry.declaration or nil,
             index = entry and entry.index or j,
         }

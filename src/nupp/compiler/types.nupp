@@ -867,8 +867,9 @@ record types.Nominal
     selfType: types.Type?
 
     --- Constructor call contracts and their source/runtime provenance, kept aligned in
-    --- declaration order. Generic instantiation substitutes the signatures while
-    --- preserving each entry's declaration and generated member index.
+    --- declaration order. Each entry also carries the result policy introduced by
+    --- successful construction. Generic instantiation substitutes the signatures and
+    --- policy while preserving each entry's declaration and generated member index.
     constructors: {types.Func}?
 
     constructorEntries: {any}?

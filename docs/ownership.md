@@ -122,7 +122,31 @@ function identity, not a runtime callback value or a string.
 Runtime representation equality does not imply an implicit conversion from
 `T` to an affine type over `T`; that would let aliases mint duplicate cleanup
 obligations. Ownership can be introduced by a fresh annotated function result,
-a declared C output, a transfer, or audited adoption:
+a record constructor result, a declared C output, a transfer, or audited
+adoption:
+
+```nupp
+local record File
+    descriptor: integer
+
+    constructor(self, descriptor: integer): affine(File, File.destroy)
+        self.descriptor = descriptor
+    end
+
+    function destroy(takes self): nil
+        nativeClose(self.descriptor)
+    end
+end
+
+local file = new File(nativeOpen("notes.txt"))
+```
+
+The constructor still builds and returns `File`; its result annotation adds the
+obligation at that fresh introduction point. Methods on `File` remain available
+directly because the affine type has the same representation.
+
+Audited adoption is reserved for boundaries where no typed producer can state
+the policy:
 
 ```nupp
 unsafe do

@@ -76,6 +76,17 @@ local instantiateNominal = generics.instantiate
 local specializeSelf = generics.specializeSelf
 local dropSelf = generics.dropSelf
 
+--- Applies a constructor's declared policy to the concrete nominal instance it built.
+--- Validation has already proved that the policy erases to this declaration, so only
+--- the affine shell can survive here; the representation itself comes from inference.
+local function constructorResult(result: Type?, instance: T.Nominal): Type
+    if result and result.tag == "affine" then
+        return T.affine(instance, result.cleanups, result.transferOnly, result.obligation)
+    end
+
+    return instance
+end
+
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
@@ -859,6 +870,8 @@ function calls.install(c: state.Checker): calls.Ops
                 local builtSignatures, bySignature = {}, {}
                 local entries = calleeT.constructorEntries or {}
                 for index, signature in ipairs(constructors) do
+                    local entry = entries[index]
+                    local result = constructorResult(entry and entry.result or nil, calleeT)
                     local typeParams, typeBounds, anyBound = {}, {}, false
                     for j, tv in ipairs(signature.typeParams or {}) do
                         typeParams[#typeParams + 1] = tv
@@ -874,7 +887,7 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                     local built = T.func(
                         signature.params,
-                        {calleeT},
+                        {result},
                         signature.vararg,
                         signature.paramModes,
                         nil,
@@ -887,7 +900,7 @@ function calls.install(c: state.Checker): calls.Ops
                         signature.varargType,
                         nil,
                         signature.paramPack,
-                        T.pack({calleeT}),
+                        T.pack({result}),
                         signature.packParams,
                         signature.yieldPack,
                         signature.resumePack,
@@ -895,7 +908,7 @@ function calls.install(c: state.Checker): calls.Ops
                         signature.paramNames
                     )
                     builtSignatures[#builtSignatures + 1] = built
-                    bySignature[built] = entries[index] or {index = index, signature = signature}
+                    bySignature[built] = entry or {index = index, signature = signature, result = calleeT}
                 end
                 local callable = T.intersection(builtSignatures)
                 local first, rets, pack = ops.inferCall(node, callable, argsNode)
@@ -910,12 +923,14 @@ function calls.install(c: state.Checker): calls.Ops
                     unifyPack(entry.signature.paramPack, node.argumentPack, map)
                     ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds, map, node)
                     local instance = instantiateNominal(calleeT, map)
-                    first, rets, pack = instance, {instance}, T.pack({instance})
+                    local declaredResult = entry.result and substType(entry.result, map) or nil
+                    local result = constructorResult(declaredResult, instance)
+                    first, rets, pack = result, {result}, T.pack({result})
                     if node.signatureType and node.signatureType.tag == "func" then
                         local selectedSignature = node.signatureType
                         node.signatureType = T.func(
                             selectedSignature.params,
-                            {instance},
+                            {result},
                             selectedSignature.vararg,
                             selectedSignature.paramModes,
                             selectedSignature.predicate,
@@ -928,7 +943,7 @@ function calls.install(c: state.Checker): calls.Ops
                             selectedSignature.varargType,
                             selectedSignature.noreturn,
                             selectedSignature.paramPack,
-                            T.pack({instance}),
+                            T.pack({result}),
                             nil,
                             selectedSignature.yieldPack,
                             selectedSignature.resumePack,

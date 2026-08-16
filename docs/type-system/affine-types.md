@@ -51,6 +51,45 @@ Both forms erase to `T`; neither evaluates `T` or calls `cleanup` when the type
 is constructed. Cleanup runs only when a runtime value of the generated type is
 explicitly dropped or reaches automatic lexical destruction.
 
+## Constructors can introduce the policy
+
+A record constructor may make the affine view the default result of `new`:
+
+```nupp
+local record File
+    descriptor: integer
+
+    constructor(self, descriptor: integer): affine(File, File.destroy)
+        self.descriptor = descriptor
+    end
+
+    function read(self, count: integer): string
+        return nativeRead(self.descriptor, count)
+    end
+
+    function destroy(takes self): nil
+        nativeClose(self.descriptor)
+    end
+end
+
+do
+    local file = new File(nativeOpen("notes.txt"))
+    print(file:read(128)) -- The affine value uses File directly.
+end -- Calls File.destroy exactly once.
+```
+
+The result annotation does not replace `File` with a wrapper. It says that this
+constructor introduces one `File.destroy` obligation on the `File` it already
+builds. Consequently `file:read(...)` needs no common interface, forwarding
+object, or conversion. `File.destroy` is a normal method declaration whose
+function identity is used by the type and whose function value is registered
+for lexical destruction.
+
+The annotation must contain exactly one result and erase to the record being
+constructed. Omitting it preserves ordinary GC-managed construction. Constructor
+overloads may state different policies; argument overload selection happens
+first, and the selected entry supplies its result policy.
+
 ## Why parentheses instead of angle brackets
 
 Angle brackets apply a declared generic type such as `Box<T>`. Parentheses call

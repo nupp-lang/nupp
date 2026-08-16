@@ -450,6 +450,8 @@ not break a tie. The winner supplies its complete result pack, predicates,
 A record may declare several constructors with distinct parameter packs.
 `new T(...)` selects one with the same overload rule and emits a direct call to
 that constructor's indexed runtime function; no dispatcher exists at run time.
+The selected constructor also supplies its result policy, so one overload may
+return `T` while another returns `affine(T, T.destroy)`.
 
 Repeated method names likewise form an overload set without an annotation.
 Each body remains a separate method entry. A colon call selects exactly one and
@@ -531,7 +533,15 @@ A `constructor(self, ...)` body is what `new T(...)` runs. The instance exists
 before the body and is returned after it; `self` names that instance rather than
 becoming a call argument. Distinct parameter packs may be overloaded. Declaring
 one closes direct construction, and every required field must be assigned or
-defaulted. Invalid constructor declarations are **NUPP2208**.
+defaulted.
+
+A constructor with no result annotation returns the ordinary record type. An
+annotation may state the policy introduced by successful construction:
+`constructor(self, ...): affine(T, T.destroy)`. It must be exactly one value and
+must erase to `T`, because the generated body returns the instance it allocated;
+it cannot claim to have built another representation, a borrow, or a pin. Inline
+method signatures are hoisted, so the terminal may be declared later in the same
+record. Invalid constructor declarations are **NUPP2208**.
 
 A stored field may spell `name: T = value`, where the value is a closed scalar
 or table constant fitting `T`. Omitted construction fields and constructor
@@ -571,8 +581,29 @@ record m.Diagonal
     end
 end
 
+local closed = 0
+record m.File
+    path: string
+
+    constructor(self, path: string): affine(m.File, m.File.destroy)
+        self.path = path
+    end
+
+    function read(self): string
+        return self.path
+    end
+
+    function destroy(takes self): nil
+        closed += 1
+    end
+end
+
 local corner = new m.Diagonal(3)
 local origin = new m.Point(x = 0, y = 0)
+do
+    local file = new m.File("notes.txt")
+    print(file:read())
+end -- Calls m.File.destroy once.
 print(corner.x, origin:lengthSquared())
 
 return m

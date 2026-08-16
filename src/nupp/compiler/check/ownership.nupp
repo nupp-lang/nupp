@@ -252,6 +252,31 @@ function ownership.install(c: state.Checker): ownership.Ops
         return key
     end
 
+    -- A method or static declared in a nominal body is hoisted onto that nominal rather
+    -- than into the lexical value table. Resolve the owner through the ordinary type
+    -- scopes, then its declared member, so `File.destroy` works both inside and after
+    -- the declaration without leaking a block-local `File` beyond its scope.
+    local function declaredFunctionEntry(name)
+        local direct = c.lookupEntry(name) or c.qualifiedFunctionEntries[name]
+        if direct then
+            return direct
+        end
+        local ownerName, member = name:match("^(.*)%.([^.]*)$")
+        local owner = ownerName and c.lookupType(ownerName) or nil
+        if not owner or owner.tag ~= "nominal" then
+            return nil
+        end
+        local functionType = owner.byname and owner.byname[member] or owner.staticByname and owner.staticByname[member]
+        local definition = owner.fieldDefs and owner.fieldDefs[
+            member
+        ] or owner.staticFieldDefs and owner.staticFieldDefs[member]
+        if not functionType or not definition then
+            return nil
+        end
+
+        return {t = functionType, definition = definition}
+    end
+
     -- The same key a cleanup is registered under, for a caller that wants to name a
     -- cleanup without declaring one -- a const function argument is that caller. It
     -- has to be the same key, or a terminal written in the type would compare unequal
@@ -262,7 +287,7 @@ function ownership.install(c: state.Checker): ownership.Ops
     -- after binding the function. That matters for a top-level owner, which can be
     -- discharged before a module-level registration appended near the return runs.
     function own.cleanupKeyFor(name)
-        local entry = c.lookupEntry(name) or c.qualifiedFunctionEntries[name]
+        local entry = declaredFunctionEntry(name)
         local definition = entry and entry.definition or nil
         if not definition then
             return nil, nil
@@ -284,7 +309,7 @@ function ownership.install(c: state.Checker): ownership.Ops
     end
 
     local function resolvedFunctionCleanup(name, at, registrationNode, after, knownType)
-        local entry = c.lookupEntry(name)
+        local entry = declaredFunctionEntry(name)
         local definition = entry and entry.definition or nil
         local definitionModule = definition
             and definition.filename
@@ -353,7 +378,7 @@ function ownership.install(c: state.Checker): ownership.Ops
             end
             local cleanupT = cleanup.functionType or c.lookupVar(cleanup.name)
             local cleanupFunc = cleanupT and cleanupT.tag == "func" and cleanupT or nil
-            local cleanupEntry = c.lookupEntry(cleanup.name) or c.qualifiedFunctionEntries[cleanup.name]
+            local cleanupEntry = declaredFunctionEntry(cleanup.name)
             local cVoidTerminal = cleanupFunc
                 and #cleanupFunc.rets == 0
                 and cleanupFunc.retPack.tail == nil

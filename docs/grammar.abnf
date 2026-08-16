@@ -321,7 +321,7 @@ propertycap    = %s"readonly" / %s"writeonly"  ; contextual before a member;
                                                 ; absent grants both capabilities
 metamethoddecl = "metamethod" Name ":" functype
 inlinemethod   = "function" Name funcbody       ; implicit self receiver
-constructordecl = %s"constructor" funcbody      ; no runtime dispatcher [CS-20]
+constructordecl = %s"constructor" funcbody      ; optional result is the construction policy [CS-20]
 matchesdecl    = %s"matches" exp "end"          ; interface runtime test [CS-20]
 
 ; C declarations [CS-10]: "cdef" is contextual. Fields and parameters use

@@ -1614,10 +1614,11 @@ end
 
 --- `constructor(self, ...) ... end` in a declaration body: what `new T(...)` runs.
 ---
---- It has no name and no return type. The instance is made before the body runs and
---- returned after it, so the body's whole job is to fill the fields in. The receiver
---- is written out the way a method's is, and is no more an argument than a method's
---- is: `new T(...)` passes what follows it.
+--- It has no name. The instance is made before the body runs and returned after it,
+--- so the body's whole job is to fill the fields in. An optional result annotation
+--- may state the affine policy introduced by construction, but must erase to the
+--- instance representation. The receiver is written out the way a method's is, and is
+--- no more an argument than a method's is: `new T(...)` passes what follows it.
 record cst.ConstructorDecl is cst.Hints
     {cst.Node | lexer.Token}
 

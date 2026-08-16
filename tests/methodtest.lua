@@ -860,6 +860,102 @@ function M.genericConstructorsRemainOverloadedAfterInstantiation()
    }, "\n")), "ready:42")
 end
 
+function M.constructorResultsMayIntroduceAnAffinePolicy()
+   assertEq(run(table.concat({
+      "local closed = 0",
+      "local record File",
+      "    path: string",
+      "    constructor(self, path: string): affine(File, File.destroy)",
+      "        self.path = path",
+      "    end",
+      "    function read(self): string",
+      "        return self.path",
+      "    end",
+      "    function destroy(takes self): nil",
+      "        closed += 1",
+      "    end",
+      "end",
+      "do",
+      "    local file = new File('notes.txt')",
+      "    assert(file:read() == 'notes.txt')",
+      "end",
+      "return closed",
+   }, "\n")), 1)
+end
+
+function M.constructorOverloadsSelectTheirResultPolicy()
+   assertEq(run(table.concat({
+      "local closed = 0",
+      "local record File",
+      "    label: string",
+      "    constructor(self, kind: 'managed'): affine(File, File.destroy)",
+      "        self.label = kind",
+      "    end",
+      "    constructor(self, kind: 'plain'): File",
+      "        self.label = kind",
+      "    end",
+      "    function destroy(takes self): nil",
+      "        closed += 1",
+      "    end",
+      "end",
+      "do local managed = new File('managed') end",
+      "do local plain = new File('plain') end",
+      "return closed",
+   }, "\n")), 1)
+end
+
+function M.genericConstructorResultsUseTheInferredInstance()
+   assertEq(run(table.concat({
+      "local closed = 0",
+      "local record Box<T>",
+      "    value: T",
+      "    constructor(self, value: T): affine(Box, Box.destroy)",
+      "        self.value = value",
+      "    end",
+      "    function destroy(takes self): nil closed += 1 end",
+      "end",
+      "do",
+      "    local box = new Box('ready')",
+      "    local text: string = box.value",
+      "end",
+      "return closed",
+   }, "\n")), 1)
+end
+
+function M.constructorResultsKeepTheConstructedRepresentation()
+   assertEq(diagsOf(table.concat({
+      "local record Other end",
+      "local record File",
+      "    constructor(self): Other end",
+      "end",
+   }, "\n")), "NUPP2208:3")
+   assertEq(diagsOf(table.concat({
+      "local record File",
+      "    constructor(self): File, string end",
+      "end",
+   }, "\n")), "NUPP2208:2")
+end
+
+function M.inlineCleanupIdentitiesFollowTheRecordsTypeScope()
+   assertClean(table.concat({
+      "local record File",
+      "    function destroy(takes self): nil end",
+      "end",
+      "local type OwnedFile = affine(File, File.destroy)",
+      "local function open(): OwnedFile return new File() end",
+      "do local file = open() end",
+   }, "\n"))
+   assertEq(diagsOf(table.concat({
+      "do",
+      "    local record Hidden",
+      "        function destroy(takes self): nil end",
+      "    end",
+      "end",
+      "local record Visible end",
+      "local type Invalid = affine(Visible, Hidden.destroy)",
+   }, "\n")), "NUPP2131:7")
+end
+
 -- Declaring a constructor closes the literal form. Leaving it open beside one
 -- would let every invariant the constructor establishes be walked around.
 function M.aConstructorClosesTheLiteralForm()

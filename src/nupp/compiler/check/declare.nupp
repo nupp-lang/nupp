@@ -925,15 +925,6 @@ function declare.install(
             )
             return
         end
-        if e.body and e.body.rets and #e.body.rets > 0 then
-            c.diag(
-                "NUPP2208",
-                e.body.rets[1],
-                "a constructor returns the value it builds, so it declares no " .. "return type",
-                nil,
-                {help = "remove the return annotation"}
-            )
-        end
         -- Either spelling of a function is accepted, and what each may say differs. A
         -- constructor hands back the instance the body filled in, so the expression
         -- form has nowhere to put its expression: everywhere else `-> e` means return
@@ -964,6 +955,53 @@ function declare.install(
         -- A funcbody's type is a function, whatever a body in general may be.
         local ft = c.checkFuncbody(e.body, n) as T.Func
         c.raises.check(e, e.body)
+
+        -- The implicit result remains the nominal instance. An explicit result may add
+        -- the affine policy that `new` introduces, but it cannot change what the
+        -- constructor allocated: the annotation is erased and the generated body
+        -- still returns `self`.
+        local constructorResult: Type = n
+        local explicitResult = e.body and e.body.returnPack ~= nil
+        if explicitResult then
+            local resultPack = ft.retPack
+            if resultPack.alternatives or resultPack.tail or #resultPack.head ~= 1 then
+                c.diag(
+                    "NUPP2208",
+                    e.body.returnPack,
+                    "a constructor result is one value: the instance it builds",
+                    nil,
+                    {help = ("write `%s` or `affine(%s, cleanup)`"):format(n.name, n.name)}
+                )
+            else
+                local declared = resultPack.head[1]
+                local representation = T.unwrapOwnership(declared)
+                local origin = representation.tag == "nominal" and (
+                    representation.origin or representation
+                ) or representation
+                local owner = n.origin or n
+                if origin ~= owner then
+                    c.diag(
+                        "NUPP2208",
+                        e.body.rets and e.body.rets[1] or e.body.returnPack,
+                        (
+                            "a %s constructor builds %s, so its result cannot be %s"
+                        ):format(n.name, n.name, T.tostring(declared)),
+                        nil,
+                        {help = ("write `%s` or `affine(%s, cleanup)`"):format(n.name, n.name)}
+                    )
+                elseif declared.tag ~= "affine" and declared ~= representation then
+                    c.diag(
+                        "NUPP2208",
+                        e.body.rets and e.body.rets[1] or e.body.returnPack,
+                        "a constructor may introduce an affine obligation, not a borrowed or pinned view",
+                        nil,
+                        {help = ("write `%s` or `affine(%s, cleanup)`"):format(n.name, n.name)}
+                    )
+                else
+                    constructorResult = declared
+                end
+            end
+        end
 
         for _, prior in ipairs(n.constructorEntries or {}) do
             if prior.signature.paramPack.id == ft.paramPack.id then
@@ -1027,7 +1065,7 @@ function declare.install(
         n.constructors[#n.constructors + 1] = ft
         n.constructorEntries = n.constructorEntries or {}
         local index = #n.constructorEntries + 1
-        n.constructorEntries[index] = {signature = ft, declaration = e, index = index}
+        n.constructorEntries[index] = {signature = ft, result = constructorResult, declaration = e, index = index,}
         e.constructorIndex = index
         e.ownerNominal = n
     end
@@ -1417,6 +1455,8 @@ function declare.install(
 
             local inlineSignatures: {[string]: {any}} = {}
             local staticSignatures: {[string]: {any}} = {}
+            local inlineDeclarations: {[string]: any} = {}
+            local staticDeclarations: {[string]: any} = {}
             for _, e in ipairs(stat.entries) do
                 if e.kind == "inlineMethod" then
                     local receiver = hasReceiver(e.body, stat.declKind)
@@ -1424,9 +1464,11 @@ function declare.install(
                     local signature = c.signatureOf(e.body, receiver and n or nil)
                     local name = e.name.text
                     local groups = receiver and inlineSignatures or staticSignatures
+                    local declarations = receiver and inlineDeclarations or staticDeclarations
                     local group = groups[name] or {}
                     group[#group + 1] = signature
                     groups[name] = group
+                    declarations[name] = declarations[name] or e
                 end
             end
             for name, localSignatures in pairs(inlineSignatures) do
@@ -1474,6 +1516,30 @@ function declare.install(
                 n.staticWriteByname[name] = combined
                 n.overloadedStatics[name] = #signatures > 1
             end
+            -- Publish each inline definition on its nominal before any member body is
+            -- checked, so a type-position const-function argument may resolve a later
+            -- `R.destroy` as its affine terminal. The name still denotes an ordinary
+            -- function declaration and stable function identity; constructors receive
+            -- no private cleanup namespace.
+            local function publishInlineFunctions(signaturesByName, declarations, kind)
+                for name, signatures in pairs(signaturesByName) do
+                    local declared = #signatures == 1 and signatures[1] or T.intersection(signatures)
+                    local entryNode = declarations[name]
+                    local definition = c.definition(entryNode.name, kind)
+                    definition.type = declared
+                    entryNode.inlineDefinition = definition
+                    if kind == "method" then
+                        n.fieldDefs[name] = n.fieldDefs[name] or definition
+                        n.writeFieldDefs[name] = n.writeFieldDefs[name] or definition
+                    else
+                        n.staticFieldDefs[name] = n.staticFieldDefs[name] or definition
+                        n.staticWriteFieldDefs[name] = n.staticWriteFieldDefs[name] or definition
+                    end
+                end
+            end
+
+            publishInlineFunctions(inlineSignatures, inlineDeclarations, "method")
+            publishInlineFunctions(staticSignatures, staticDeclarations, "function")
             local localMembers, localMetamethods = {}, {}
             for _, e in ipairs(stat.entries) do
                 if e.kind == "fieldDecl" then
@@ -1851,7 +1917,7 @@ function declare.install(
                             )
                         end
                     end
-                    local definition = c.definition(e.name, receiver and "method" or "function")
+                    local definition = e.inlineDefinition or c.definition(e.name, receiver and "method" or "function")
                     definition.type = ft
                     local entry = {
                         signature = ft,

@@ -3832,6 +3832,10 @@ function gen.generate(
             local planned = dispatch and dispatch.byNode[x] or nil
             if dispatch and planned then
                 dispatch.emit(planned)
+                for _, registration in ipairs(x.name and x.name.cleanupRegistrations or {}) do
+                    local cleanup = registration.cleanup
+                    e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
+                end
                 return
             end
             local body = x.body
@@ -3891,6 +3895,10 @@ function gen.generate(
                 end
             end
             e("end", endTok and endTok.line or nil)
+            for _, registration in ipairs(x.name and x.name.cleanupRegistrations or {}) do
+                local cleanup = registration.cleanup
+                e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
+            end
             return
 
         elseif kind == "funcStmt" and x.structOwner and x.memberName then

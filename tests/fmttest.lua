@@ -70,6 +70,23 @@ function M.constructionBracesStandOffTheirType()
    assertEq(fmt1("f{a = 1}"), "f{a = 1}\n")
 end
 
+function M.constructorResultPoliciesFormatAsFunctionResults()
+   assertEq(fmt1(table.concat({
+      "local record File",
+      "constructor(self,path:string):affine(File,File.destroy)",
+      "self.path=path",
+      "end",
+      "end",
+   }, "\n")), table.concat({
+      "local record File",
+      "    constructor(self, path: string): affine(File, File.destroy)",
+      "        self.path = path",
+      "    end",
+      "end",
+      "",
+   }, "\n"))
+end
+
 function M.methodCallParensDefaultOn()
    assertEq(fmt1("obj:m{a = 1}"), "obj:m({a = 1})\n")
    assertEq(fmt1('obj:m"lit"'), 'obj:m("lit")\n')

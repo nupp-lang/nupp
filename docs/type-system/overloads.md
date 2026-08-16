@@ -402,6 +402,12 @@ return fromNumber.text, fromText.text
 the selected constructor body. Duplicate constructor parameter packs are
 **NUPP2208**.
 
+The selected entry supplies its whole result policy as well as its body. One
+parameter pack may return `File`, while another returns
+`affine(File, File.destroy)`. Results never participate in overload selection:
+the arguments choose an entry first, then that entry's result becomes the type
+of `new File(...)`.
+
 ## Untyped callers need an explicit facade
 
 The hidden method slots are compiler ABI, not source-level Lua member names.

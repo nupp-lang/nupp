@@ -1086,8 +1086,11 @@ local ENTRIES: {any} = {
         .. "the declaration it claims. That guarantee is the reason to "
         .. "prefer a constructor over a literal, so declaring one closes "
         .. "the literal form for that declaration. An interface builds "
-        .. "nothing and cannot carry one, and there is one constructor per "
-        .. "declaration until overloads arrive with intersection types.",
+        .. "nothing and cannot carry one. Constructors may be overloaded by "
+        .. "parameter pack. A result annotation is the successful construction "
+        .. "policy: it must be one value that erases to the record itself, such "
+        .. "as `affine(T, T.destroy)`, because the body still returns the instance "
+        .. "it allocated.",
         wrong = "local record Account\n    name: string\n    balance: number\n"
         .. "\n    constructor(self, name: string)\n        self.name = name\n"
         .. "    end\nend\n\nreturn Account\n",

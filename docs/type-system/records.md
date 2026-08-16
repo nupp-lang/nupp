@@ -85,6 +85,49 @@ local function register<P is Shape>(shape: Type<P>)
 Construction is by name. A record has no positional form, because field order
 in a table is not meaningful.
 
+### Constructors and result policies
+
+A constructor creates `self` before its body runs, fills that instance, and
+returns it after the body succeeds:
+
+```nupp
+local record File
+    path: string
+
+    constructor(self, path: string): affine(File, File.destroy)
+        self.path = path
+    end
+
+    function read(self): string
+        return self.path
+    end
+
+    function destroy(takes self): nil
+        os.remove(self.path)
+    end
+end
+
+local file = new File("scratch.txt")
+print(file:read())
+```
+
+With no result annotation, `new File(...)` has the ordinary `File` type. An
+explicit result states a policy introduced by successful construction. It must
+be one value that erases to `File`; `affine(File, File.destroy)` is valid because
+it changes the obligation, not the runtime representation. A different record,
+a borrowed view, a pinned view, or a result pack is rejected.
+
+The cleanup may be an instance method on the same record. Inline signatures are
+hoisted before constructor results resolve, and `File.destroy` is the ordinary
+function identity stored on the record table. The affine view remains a `File`
+at runtime and exposes `File`'s methods directly—there is no `NativeFile`
+wrapper or shared interface.
+
+Constructor overload selection includes the complete result policy. Overloads
+still differ by parameter pack, never by result alone; after argument selection,
+the winning overload determines whether the value is ordinary, affine with a
+cleanup, or transfer-only.
+
 ### Field defaults
 
 A stored record or struct field may declare a constant construction default:
