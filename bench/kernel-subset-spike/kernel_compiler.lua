@@ -11,6 +11,7 @@ local lane = require("nupp.compiler.aot.lane")
 local intensity = require("nupp.compiler.aot.intensity")
 local laneVerify = require("nupp.compiler.aot.verify")
 local rewriteRules = require("nupp.compiler.aot.rewrite")
+local emitRules = require("nupp.compiler.aot.emit")
 local parser = require("nupp.compiler.parser")
 local cst = require("nupp.compiler.cst")
 
@@ -2435,10 +2436,10 @@ local function renderExpr(node)
       return perLane(node.type, node.args, renderExpr, function(names, lane)
          local args = {}
          for i, name in ipairs(names) do
-            args[i] = {op = "raw", text = name .. "[" .. lane .. "]"}
+            args[i] = name .. "[" .. lane .. "]"
          end
 
-         return renderExpr({op = "math", intrinsic = node.intrinsic, args = args})
+         return emitRules.mathFrom(node.intrinsic, args)
       end)
    end
    if FIXED_BINARY[node.op] then
@@ -2464,68 +2465,9 @@ local function renderExpr(node)
       end
       return corrected.helper .. "(" .. table.concat(parts, ", ") .. ")"
    end
-   if node.op == "raw" then return node.text end
-   if node.op == "narrow_f64_f32" then return "(float)(" .. renderExpr(node.value) .. ")" end
-   if node.op == "widen_f32_f64" then return "((double)" .. renderExpr(node.value) .. ")" end
-   if node.op == "int_to_f64" then return "((double)" .. renderExpr(node.value) .. ")" end
-   if node.op == "numeric_cast" then
-      return "((" .. (node.type == "u32" and "uint32_t" or "int32_t") .. ")" .. renderExpr(node.value) .. ")"
-   end
-   if node.op == "load" then return cIdentifier("p", node.span) .. "[i]" end
-   if node.op == "element_ref" then return "(&" .. cIdentifier("p", node.span) .. "[i])" end
-   if node.op == "field_load" then return "(" .. renderExpr(node.object) .. "->" .. node.field .. ")" end
-   if node.op == "uniform" then return cIdentifier("p", node.name) end
-   if node.op == "local" or node.op == "helper_param" then return node.cName end
-   if node.op == "constant_i32" then return "INT32_C(" .. tostring(math.floor(tonumber(node.value))) .. ")" end
-   if node.op == "constant" then return doubleLiteral(node.value) end
-   if node.op == "bool" then return node.value and "true" or "false" end
-   if node.op == "neg" then return "(-(" .. renderExpr(node.value) .. "))" end
-   if node.op == "not" then return "(!(" .. renderExpr(node.value) .. "))" end
-   if node.op == "bnot" then return "((int32_t)(~nupp_u32(" .. renderExpr(node.value) .. ")))" end
-   if node.op == "band" or node.op == "bor" or node.op == "bxor" then
-      local op = node.op == "band" and "&" or node.op == "bor" and "|" or "^"
-      return "((int32_t)(nupp_u32(" .. renderExpr(node.left) .. ") " .. op
-         .. " nupp_u32(" .. renderExpr(node.right) .. ")))"
-   end
-   if node.op == "lshift" or node.op == "rshift" or node.op == "arshift" then
-      local left = "nupp_u32(" .. renderExpr(node.left) .. ")"
-      local shift = "(nupp_u32(" .. renderExpr(node.right) .. ") & 31u)"
-      if node.op == "lshift" then return "((int32_t)(" .. left .. " << " .. shift .. "))" end
-      if node.op == "rshift" then return "((int32_t)(" .. left .. " >> " .. shift .. "))" end
-      return "nupp_arshift(" .. left .. ", " .. shift .. ")"
-   end
-   if node.op == "mod" then return "fmod(" .. renderExpr(node.left) .. ", " .. renderExpr(node.right) .. ")" end
-   if node.op == "pow" then return "pow(" .. renderExpr(node.left) .. ", " .. renderExpr(node.right) .. ")" end
-   if cBinary[node.op] then
-      return "(" .. renderExpr(node.left) .. " " .. cBinary[node.op] .. " " .. renderExpr(node.right) .. ")"
-   end
-   if node.op == "math" then
-      local args = {}
-      for _, arg in ipairs(node.args) do args[#args + 1] = renderExpr(arg) end
-      if node.intrinsic == "min" or node.intrinsic == "max" then
-         local call = "nupp_" .. node.intrinsic .. "2(" .. args[1] .. ", " .. args[2] .. ")"
-         for i = 3, #args do call = "nupp_" .. node.intrinsic .. "2(" .. call .. ", " .. args[i] .. ")" end
-         return call
-      end
-      if node.intrinsic == "log" and #args == 2 then
-         return "(log(" .. args[1] .. ") / log(" .. args[2] .. "))"
-      end
-      if node.intrinsic == "deg" then return "(" .. args[1] .. " * (180.0 / M_PI))" end
-      if node.intrinsic == "rad" then return "(" .. args[1] .. " * (M_PI / 180.0))" end
-      local cName = ({
-         sqrt = "sqrt", abs = "fabs", floor = "floor", ceil = "ceil",
-         sin = "sin", cos = "cos", tan = "tan", asin = "asin", acos = "acos",
-         atan = "atan", atan2 = "atan2", sinh = "sinh", cosh = "cosh", tanh = "tanh",
-         exp = "exp", log = "log", pow = "pow", fmod = "fmod",
-      })[node.intrinsic]
-      return cName .. "(" .. table.concat(args, ", ") .. ")"
-   end
-   if node.op == "helper_call" then
-      local args = {}
-      for _, arg in ipairs(node.args) do args[#args + 1] = renderExpr(arg) end
-      return node.cName .. "(" .. table.concat(args, ", ") .. ")"
-   end
-   error("cannot render expression " .. tostring(node.op))
+   -- Everything scalar is `nupp.compiler.aot.emit`'s. Only the lane forms above
+   -- remain here, and they reach scalars through the same entry.
+   return emitRules.scalar(node)
 end
 
 local function cType(typeName)
@@ -2554,6 +2496,14 @@ local function cParams(ir)
    end
    params[#params + 1] = "size_t count"
    return table.concat(params, ", ")
+end
+
+--- A set's keys in a fixed order.
+local function sortedKeys(set)
+   local names = {}
+   for key in pairs(set) do names[#names + 1] = key end
+   table.sort(names)
+   return names
 end
 
 local function renderC(ir)
@@ -2604,7 +2554,10 @@ local function renderC(ir)
    local MASK_C = {m64x4 = "long long", m32x8 = "int"}
    emit("typedef " .. MASK_C[shape.mask] .. " ks_" .. shape.mask
       .. " __attribute__((vector_size(32)));")
-   for vector in pairs(vectors) do
+   -- Sorted, because `pairs` over a set does not order it the same way in two
+   -- processes, and the same IR has to render the same text or an artifact cache
+   -- keyed by it misses on every build.
+   for _, vector in ipairs(sortedKeys(vectors)) do
       if vector ~= shape.mask then
          local element = vector:match("^(%a%d+)x")
          local lanes = tonumber(vector:match("x(%d+)$"))
@@ -2636,7 +2589,7 @@ local function renderC(ir)
    -- rather than whether it happens to be `shape.bits`.
    local carriers = {}
    for _, vector in pairs(shape.vectorFor) do carriers[vector] = true end
-   for vector in pairs(carriers) do
+   for _, vector in ipairs(sortedKeys(carriers)) do
       if vector ~= shape.mask then
          local element = vector:match("^(%a%d+)x")
          local splatLanes = {}

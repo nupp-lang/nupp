@@ -1,0 +1,369 @@
+--[[
+Rendering verified AOT IR as C.
+
+Generated C is a backend representation and not the safety boundary. Everything
+this prints was proved before it ran -- span bounds, region relationships,
+conversions, lane widths -- so nothing here decides anything, and a rule that
+looks like it belongs in this file almost certainly belongs in the verifier
+instead.
+
+Two things it does owe. Numeric meaning has to survive: an ordinary operator is
+binary64 and is not contracted or reassociated unless the source asked, a
+physical store narrows and a physical load widens, and the explicitly
+fixed-width operations round where the source said they would. And the same IR
+has to render the same text every time, because an artifact cache keyed by it
+would otherwise miss on every build and a fingerprint would call two identical
+programs different.
+]]
+
+local lane = require("nupp.compiler.aot.lane")
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local emit = {}
+
+--- The C spelling of each ordinary binary operator.
+---
+--- Comparisons are here too: in C they produce `int` rather than a boolean, but
+--- every use this subset admits is a condition, and the IR has already typed
+--- the result.
+const emit.BINARY = {
+    ["add"] = "+",
+    ["sub"] = "-",
+    ["mul"] = "*",
+    ["div"] = "/",
+    ["lt"] = "<",
+    ["le"] = "<=",
+    ["gt"] = ">",
+    ["ge"] = ">=",
+    ["eq"] = "==",
+    ["ne"] = "!=",
+    ["and"] = "&&",
+    ["or"] = "||",
+}
+
+--- The C spelling of each elementwise lane verb.
+---
+--- Vector extensions give these their elementwise meaning, so a lane operation
+--- is written as though it were scalar and the width comes from the operand
+--- types rather than from the operator.
+const emit.LANE_VERB = {
+    ["add"] = " + ",
+    ["sub"] = " - ",
+    ["mul"] = " * ",
+    ["div"] = " / ",
+    ["lt"] = " < ",
+    ["le"] = " <= ",
+    ["gt"] = " > ",
+    ["ge"] = " >= ",
+    ["eq"] = " == ",
+    ["ne"] = " != ",
+}
+
+--- The C spelling of each bitwise verb, on the gang's bit vector.
+---
+--- `sar` is absent: an arithmetic shift needs the operand reinterpreted as
+--- signed first, so it is not one operator.
+const emit.BITWISE = {["and"] = " & ", ["or"] = " | ", ["xor"] = " ^ ", ["shl"] = " << ", ["shr"] = " >> ",}
+
+--- The C type each IR type is spelled as.
+const emit.SCALAR_C = {
+    ["bool"] = "bool",
+    ["f64"] = "double",
+    ["f32"] = "float",
+    ["i32"] = "int32_t",
+    ["u32"] = "uint32_t",
+}
+
+--- The C element type behind each vector.
+const emit.VECTOR_ELEMENT_C = {["f64"] = "double", ["f32"] = "float", ["i32"] = "int32_t", ["u32"] = "uint32_t",}
+
+--- The C type of one IR type.
+---
+--- A vector renders as the typedef the prelude emitted for it, and a pointer to
+--- a reified struct as that struct's own C name.
+---
+--- @raises when the IR names a type this backend has no spelling for
+function emit.cType(typeName: string): string
+    local scalar = emit.SCALAR_C[typeName]
+    if scalar ~= nil then
+        return scalar as string
+    end
+    local layout = typeName:match("^ref:(.+)$")
+    if layout ~= nil then
+        return "Ks" .. (layout as string) .. " *"
+    end
+    if typeName:match("^[fmiu]%d+x%d+$") ~= nil then
+        return "ks_" .. typeName
+    end
+
+    error("no C type for " .. tostring(typeName), 0)
+end
+
+--- The element and lane count a vector name states.
+---
+--- The name is the authority rather than a table beside it, because the two
+--- would otherwise be able to disagree about what `f32x8` means.
+---
+--- @raises when the name is not a vector type
+function emit.vectorParts(vector: string): (string, integer)
+    local element = vector:match("^(%a%d+)x")
+    local lanes = tonumber(vector:match("x(%d+)$"))
+    if element == nil or lanes == nil then
+        error("not a vector type: " .. tostring(vector), 0)
+    end
+
+    return element as string, lanes as integer
+end
+
+--- A binary64 literal, spelled so C reads back exactly what Nupp meant.
+---
+--- A whole number needs its point, or C makes it an `int` and integer division
+--- silently replaces the binary64 the source wrote.
+function emit.doubleLiteral(value: string): string
+    if value:match("^-?%d+$") ~= nil then
+        return value .. ".0"
+    end
+
+    return value
+end
+
+--- One scalar expression, as a C expression.
+---
+--- Parenthesised generously: the IR carries the tree, C would reparse it by
+--- precedence, and the two do not have to agree for this to be right.
+function emit.scalar(node: scalarIR.Expr): string
+    local operation = node.op
+
+    if operation == "constant" then
+        return emit.doubleLiteral((node as scalarIR.Constant).value)
+    elseif operation == "constant_i32" then
+        local number = tonumber((node as scalarIR.IntConstant).value) or 0
+
+        return "INT32_C(" .. tostring(math.floor(number)) .. ")"
+    elseif operation == "bool" then
+        return (node as scalarIR.Bool).value and "true" or "false"
+    elseif operation == "uniform" then
+        return "p_" .. (node as scalarIR.Name).name
+    elseif operation == "local" or operation == "helper_param" then
+        return (node as scalarIR.Name).cName or ""
+    elseif operation == "load" then
+        return "p_" .. (node as scalarIR.Load).span .. "[i]"
+    elseif operation == "element_ref" then
+        return "(&p_" .. (node as scalarIR.ElementRef).span .. "[i])"
+    elseif operation == "field_load" then
+        local field = node as scalarIR.FieldLoad
+
+        return "(" .. emit.scalar(field.object) .. "->" .. field.field .. ")"
+    elseif operation == "neg" then
+        return "(-(" .. emit.scalar((node as scalarIR.Unary).value) .. "))"
+    elseif operation == "not" then
+        return "(!(" .. emit.scalar((node as scalarIR.Unary).value) .. "))"
+    elseif operation == "narrow_f64_f32" then
+        return "(float)(" .. emit.scalar((node as scalarIR.Convert).value) .. ")"
+    elseif operation == "widen_f32_f64" or operation == "int_to_f64" then
+        return "((double)" .. emit.scalar((node as scalarIR.Convert).value) .. ")"
+    elseif operation == "numeric_cast" then
+        local target = node.type == "u32" and "uint32_t" or "int32_t"
+
+        return "((" .. target .. ")" .. emit.scalar((node as scalarIR.Convert).value) .. ")"
+    end
+
+    local operator = emit.BINARY[operation]
+    if operator ~= nil then
+        local binary = node as scalarIR.Binary
+
+        return "(" .. emit.scalar(binary.left) .. " " .. (operator as string) .. " " .. emit.scalar(binary.right) .. ")"
+    end
+
+    return emit.scalarCall(node)
+end
+
+--- The scalar forms that render as a call rather than an operator: the closed
+--- math set, the fixed-width operations, and the corrected three.
+---
+--- @raises when the IR names an operation this backend cannot render
+function emit.scalarCall(node: scalarIR.Expr): string
+    local operation = node.op
+
+    -- C float arithmetic is single-rounded -- it does not promote to double --
+    -- so this is the binary32 operation the source asked for, and the casts say
+    -- so rather than relying on the operands already being float.
+    local fixed = {["f32_add"] = "+", ["f32_sub"] = "-", ["f32_mul"] = "*", ["f32_div"] = "/",}
+    local operator = fixed[operation]
+    if operator ~= nil then
+        local binary = node as scalarIR.Binary
+
+        return "((float)(" .. emit.scalar(
+            binary.left
+        ) .. ") " .. (operator as string) .. " (float)(" .. emit.scalar(binary.right) .. "))"
+    end
+
+    -- Wrapping happens in unsigned, where overflow is defined, and comes back.
+    local wrapping = {["i32_add"] = "+", ["i32_sub"] = "-", ["i32_mul"] = "*"}
+    operator = wrapping[operation]
+    if operator ~= nil then
+        local binary = node as scalarIR.Binary
+
+        return "((int32_t)(nupp_u32(" .. emit.scalar(
+            binary.left
+        ) .. ") " .. (operator as string) .. " nupp_u32(" .. emit.scalar(binary.right) .. ")))"
+    end
+
+    if operation == "f32_sqrt" then
+        return "sqrtf(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
+    end
+
+    local corrected = {["f32_min"] = "nupp_f32_min", ["f32_max"] = "nupp_f32_max", ["f32_fma"] = "nupp_f32_fma",}
+    local helper = corrected[operation]
+    if helper ~= nil then
+        local parts: {string} = {}
+        local three = node as scalarIR.Corrected
+        if three.args ~= nil then
+            for position, argument in ipairs(three.args as {scalarIR.Expr}) do
+                parts[position] = emit.scalar(argument)
+            end
+        else
+            local binary = node as scalarIR.Binary
+            parts[1] = emit.scalar(binary.left)
+            parts[2] = emit.scalar(binary.right)
+        end
+
+        return (helper as string) .. "(" .. table.concat(parts, ", ") .. ")"
+    end
+
+    return emit.scalarBits(node)
+end
+
+--- The bitwise family, the closed math set, and a helper call.
+---
+--- Bitwise work happens in unsigned, where overflow and shifts are defined, and
+--- comes back as int32. Shift counts are masked to 31 the way `nupp.math.i32`
+--- masks them, and an arithmetic shift goes through a helper because C's `>>`
+--- on a negative signed value is implementation-defined.
+---
+--- @raises when the IR names an operation this backend cannot render
+function emit.scalarBits(node: scalarIR.Expr): string
+    local operation = node.op
+    local binary = node as scalarIR.Binary
+
+    if operation == "bnot" then
+        return "((int32_t)(~nupp_u32(" .. emit.scalar((node as scalarIR.Unary).value) .. ")))"
+    end
+
+    local bitwise = {["band"] = "&", ["bor"] = "|", ["bxor"] = "^"}
+    local operator = bitwise[operation]
+    if operator ~= nil then
+        return "((int32_t)(nupp_u32(" .. emit.scalar(
+            binary.left
+        ) .. ") " .. (operator as string) .. " nupp_u32(" .. emit.scalar(binary.right) .. ")))"
+    end
+
+    if operation == "lshift" or operation == "rshift" or operation == "arshift" then
+        local left = "nupp_u32(" .. emit.scalar(binary.left) .. ")"
+        local shift = "(nupp_u32(" .. emit.scalar(binary.right) .. ") & 31u)"
+        if operation == "lshift" then
+            return "((int32_t)(" .. left .. " << " .. shift .. "))"
+        elseif operation == "rshift" then
+            return "((int32_t)(" .. left .. " >> " .. shift .. "))"
+        end
+
+        return "nupp_arshift(" .. left .. ", " .. shift .. ")"
+    end
+
+    if operation == "mod" then
+        return "fmod(" .. emit.scalar(binary.left) .. ", " .. emit.scalar(binary.right) .. ")"
+    end
+    if operation == "pow" then
+        return "pow(" .. emit.scalar(binary.left) .. ", " .. emit.scalar(binary.right) .. ")"
+    end
+
+    if operation == "helper_call" then
+        local call = node as scalarIR.HelperCall
+        local parts: {string} = {}
+        for position, argument in ipairs(call.args) do
+            parts[position] = emit.scalar(argument)
+        end
+
+        return call.cName .. "(" .. table.concat(parts, ", ") .. ")"
+    end
+
+    if operation == "math" then
+        return emit.math(node as scalarIR.Math)
+    end
+
+    error("no C form for scalar operation " .. tostring(operation), 0)
+end
+
+--- One operation from the closed math set.
+---
+--- `min` and `max` go through helpers rather than `fmin`/`fmax`, because Lua's
+--- answer for them is a comparison and not IEEE `minNum`. `deg` and `rad` are
+--- multiplications rather than library calls, and a two-argument `log` is a
+--- ratio, which is what ordinary Nupp computes.
+---
+--- @raises when the intrinsic is outside the closed set
+function emit.math(node: scalarIR.Math): string
+    local parts: {string} = {}
+    for position, argument in ipairs(node.args) do
+        parts[position] = emit.scalar(argument)
+    end
+
+    return emit.mathFrom(node.intrinsic, parts)
+end
+
+--- The same, over arguments that are already rendered.
+---
+--- The lane expansion needs this: it renders each argument vector once into a
+--- temporary and then indexes it per lane, so what it has are strings. Passing
+--- them back through the expression renderer meant wrapping each in a fictional
+--- node that had to be a member of the IR without being anything the IR means.
+---
+--- @raises when the intrinsic is outside the closed set
+function emit.mathFrom(intrinsic: string, parts: {string}): string
+    if intrinsic == "min" or intrinsic == "max" then
+        local call = "nupp_" .. intrinsic .. "2(" .. parts[1] .. ", " .. parts[2] .. ")"
+        for position = 3, #parts do
+            call = "nupp_" .. intrinsic .. "2(" .. call .. ", " .. parts[position] .. ")"
+        end
+
+        return call
+    end
+    if intrinsic == "log" and #parts == 2 then
+        return "(log(" .. parts[1] .. ") / log(" .. parts[2] .. "))"
+    end
+    if intrinsic == "deg" then
+        return "(" .. parts[1] .. " * (180.0 / M_PI))"
+    end
+    if intrinsic == "rad" then
+        return "(" .. parts[1] .. " * (M_PI / 180.0))"
+    end
+
+    local named = {
+        ["sqrt"] = "sqrt",
+        ["abs"] = "fabs",
+        ["floor"] = "floor",
+        ["ceil"] = "ceil",
+        ["sin"] = "sin",
+        ["cos"] = "cos",
+        ["tan"] = "tan",
+        ["asin"] = "asin",
+        ["acos"] = "acos",
+        ["atan"] = "atan",
+        ["atan2"] = "atan2",
+        ["sinh"] = "sinh",
+        ["cosh"] = "cosh",
+        ["tanh"] = "tanh",
+        ["exp"] = "exp",
+        ["log"] = "log",
+        ["pow"] = "pow",
+        ["fmod"] = "fmod",
+    }
+    local name = named[intrinsic]
+    if name == nil then
+        error("no C form for math operation " .. tostring(intrinsic), 0)
+    end
+
+    return (name as string) .. "(" .. table.concat(parts, ", ") .. ")"
+end
+
+return emit
