@@ -257,11 +257,18 @@ same rule rather than introducing ownership-specific generic syntax.
 
 ### Can a type function create a nominal type?
 
-A type function can assemble a structural result or return an existing nominal
-type, but it cannot declare a new record, interface, method, or module member.
-[Records and structs](records.md) receive identity from declarations, and
-[associated types](associated-types.md) attach declaration-owned type answers
-without allowing an evaluator to forge a new nominal name.
+No. A comptime function is intentionally a type generator rather than a full
+syntax or declaration macro. It can assemble a structural result or return an
+existing nominal type, but it cannot inject a record, interface, method, name,
+or module member. That keeps compile-time code from silently expanding the
+program's public or runtime surface.
+
+Nominal identity comes from an explicit declaration site, which keeps it stable
+across repeated evaluation, caches, incremental rebuilds, and module
+boundaries. [Records and structs](records.md) receive identity from those
+declarations. [Associated types](associated-types.md) provide computed answers
+owned by a declaration without granting comptime code control over names,
+visibility, declaration order, runtime tables, metatables, or ABI layouts.
 
 ## Next
 
