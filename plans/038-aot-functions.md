@@ -1066,11 +1066,27 @@ gang that costs about what it saves. That is not a wrong answer and not a
 refusal, which is why nothing caught it: the arithmetic-intensity gate asks
 about memory, and a body dominated by rounding passes it.
 
-Mixed-width gangs fix both halves at once, because carrying binary32 values in
-binary32 lanes is what makes the operation native rather than something to round
-back. Whoever takes this should expect the win to come mostly from removing the
-conversions rather than from adding lanes, and should measure against these
-three rather than against the two the plan originally implied.
+Mixed-width gangs recover the rounding half and not the lane half, which is the
+correction to the sentence above them: carrying binary32 in binary32 lanes makes
+the operation native, and it does not make room for more iterations. A binary64
+value needs 64-bit lanes whatever else the loop holds, so four is what fits in 32
+bytes.
+
+That half is now taken. `mixed4` and `mixed2` replace the binary64 gangs and
+carry each value at its own width, and the same three kernels now measure:
+
+```
+ Kernel          Gang     Before   After
+ ──────────────  ───────  ──────   ─────
+ mixedwidth      mixed4   1.06x    2.57x
+ mixedwidth_f64  mixed4   2.46x    2.45x
+ mixedwidth_f32  f32x8    4.72x    4.72x
+```
+
+The kernel that mixes widths now runs at what the same loop runs at with nothing
+to round, which is the whole of what this was worth. The 1.9x still between it
+and the all-binary32 kernel is the lane count, and reaching it wants either a
+wider register file or one value spanning two registers.
 
 ### What the checks have to cover first
 

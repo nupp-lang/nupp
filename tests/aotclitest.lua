@@ -160,7 +160,7 @@ function M.aRegisterResidentLoopReportsItsGangAndWidth()
    local dir = project{["compute.nupp"] = COMPUTE}
    local out, code = run(dir, "compute.nupp")
    test.equal(code, 0, out)
-   assert(out:find("f64x4", 1, true), "the gang is named: " .. out)
+   assert(out:find("mixed4", 1, true), "the gang is named: " .. out)
    assert(out:find("4 lanes", 1, true), "the width is named: " .. out)
    assert(out:find("operations per byte", 1, true), "the estimate behind the decision is shown: " .. out)
 end
@@ -228,7 +228,7 @@ function M.jsonCarriesTheOutcomeAndTheEstimate()
    test.equal(only.name, "escapes")
    test.equal(only.symbol, "ks_escapes")
    test.equal(only.outcome, "lowered")
-   test.equal(only.lanes.shape, "f64x4")
+   test.equal(only.lanes.shape, "mixed4")
    test.equal(only.lanes.lanes, 4)
    assert(only.intensity.perByte > 1.0, "the estimate is above the threshold it was judged by")
    test.equal(#only.refusals, 0, "a lowered loop has nothing to explain")
@@ -320,7 +320,7 @@ function M.everyAotFunctionInAFileIsCompiled()
    test.equal(#decoded.functions, 2, "both functions are reported")
    test.equal(decoded.functions[1].name, "scale", "in source order")
    test.equal(decoded.functions[2].name, "brighten")
-   test.equal(decoded.functions[1].lanes.shape, "f64x4", "ordinary arithmetic takes four lanes")
+   test.equal(decoded.functions[1].lanes.shape, "mixed4", "ordinary arithmetic takes four lanes")
    test.equal(decoded.functions[2].lanes.shape, "f32x8", "explicit binary32 takes eight")
 
    -- One struct declared once, both gangs present, and each function bringing
@@ -352,7 +352,7 @@ function M.theBaselineX86TierGetsTheNarrowGang()
    test.equal(code, 0, "plain x86-64 vectorises rather than refusing\n" .. out)
    local decoded = require("cjson").decode(out)
    test.equal(decoded.target.tier, "baseline", "and did not quietly promise instructions nobody asked for")
-   test.equal(decoded.functions[1].lanes.shape, "f64x2")
+   test.equal(decoded.functions[1].lanes.shape, "mixed2")
    test.equal(decoded.functions[1].lanes.lanes, 2,
       "half the lanes of AVX, which is the point: a smaller win, not no win")
 
@@ -367,7 +367,7 @@ function M.aWiderTierGetsTheWiderGang()
    local decoded = require("cjson").decode(out)
    test.equal(decoded.target.triple, "x86_64-unknown-linux-gnu")
    test.equal(decoded.target.tier, "avx2", "the tier is reported, because it changed the answer")
-   test.equal(decoded.functions[1].lanes.shape, "f64x4")
+   test.equal(decoded.functions[1].lanes.shape, "mixed4")
    test.equal(decoded.functions[1].lanes.lanes, 4)
 end
 
@@ -378,8 +378,8 @@ function M.theWidestGangThatFitsWins()
    local dir = project{["compute.nupp"] = COMPUTE}
    local out = select(1, run(dir, "--json --target x86_64-unknown-linux-gnu --features avx2 compute.nupp"))
    local decoded = require("cjson").decode(out)
-   test.equal(decoded.functions[1].lanes.shape, "f64x4",
-      "not f64x2, which also fits and holds half as much")
+   test.equal(decoded.functions[1].lanes.shape, "mixed4",
+      "not mixed2, which also fits and holds half as much")
 end
 
 function M.armHasOneTierAndNeedsNoSelection()
@@ -388,7 +388,7 @@ function M.armHasOneTierAndNeedsNoSelection()
    test.equal(code, 0, out)
    local decoded = require("cjson").decode(out)
    test.equal(decoded.target.tier, "neon", "its 16-byte registers are mandatory, so there is nothing to opt into")
-   test.equal(decoded.functions[1].lanes.shape, "f64x4")
+   test.equal(decoded.functions[1].lanes.shape, "mixed4")
 end
 
 function M.anUnknownTargetOrTierIsRejected()

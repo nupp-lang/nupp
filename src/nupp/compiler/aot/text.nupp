@@ -60,6 +60,8 @@ const text.LIST_OPERANDS = {
     ["vbits"] = true,
     ["vcorrected"] = true,
     ["vround"] = true,
+    ["vmask_cast"] = true,
+    ["vconvert"] = true,
     ["f32_fma"] = true,
 }
 
@@ -94,6 +96,10 @@ function text.displayOp(node: text.Operands): string
         return "vshort_" .. tostring(node.verb)
     elseif op == "vbits" then
         return node.direction == "to" and "vtobits" or "vfrombits"
+    elseif op == "vmask_cast" then
+        return "vmask." .. tostring(node.type)
+    elseif op == "vconvert" then
+        return "vconv." .. tostring(node.type)
     elseif op == "vbinary" or op == "vunary" then
         return "v" .. tostring(node.verb)
     elseif op == "vbitwise" then

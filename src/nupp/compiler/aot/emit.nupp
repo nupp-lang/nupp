@@ -490,6 +490,16 @@ function emit.lane(node: lane.Expr | scalarIR.Expr): string
         return "__builtin_convertvector(__builtin_convertvector(" .. emit.lane(
             rounded.args[1]
         ) .. ", ks_" .. rounded.narrow .. "), ks_" .. vector .. ")"
+    elseif operation == "vconvert" then
+        -- The arithmetic conversion, not a reinterpretation: widening is exact
+        -- and narrowing rounds once, which is what the source asked for at the
+        -- point it changed width.
+        return "__builtin_convertvector(" .. emit.lane((node as lane.Convert).args[1]) .. ", ks_" .. vector .. ")"
+    elseif operation == "vmask_cast" then
+        -- A mask lane is all ones or all zeros, so widening sign-extends -1 to
+        -- -1 and narrowing truncates it to -1. Both preserve exactly the two
+        -- values a mask has, which is what makes this a conversion.
+        return "__builtin_convertvector(" .. emit.lane((node as lane.MaskCast).args[1]) .. ", ks_" .. vector .. ")"
     elseif operation == "vbits" then
         return "__builtin_convertvector(" .. emit.lane((node as lane.BitConvert).args[1]) .. ", ks_" .. vector .. ")"
     elseif operation == "vcorrected" then
@@ -712,15 +722,25 @@ end
 --- Emitted whole, and marked unused below, so a kernel that uses one shape does
 --- not fail `-Werror` for a conversion the other shape would have needed.
 local function vectorTypes(shape: lane.Shape): {string}
-    -- The mask is as wide as the gang, which is not always 32 bytes: the same
-    -- shapes exist at 16 for a target whose widest register class is that.
-    local lines: {
-        string
-    } = {
-        "typedef " .. tostring(
-            emit.MASK_C[shape.mask]
-        ) .. " ks_" .. shape.mask .. " __attribute__((vector_size(" .. tostring(shape.bytes) .. ")));",
-    }
+    -- Every mask this gang uses, not only the one its algebra runs at. A gang
+    -- carrying elements at several widths produces masks at several widths,
+    -- because a comparison yields one bit per lane as wide as what it compared.
+    -- The width comes from the mask's own name rather than from the gang, which
+    -- is the widest of them and not all of them.
+    local masks: {[string]: boolean} = {[shape.mask] = true}
+    for _, mask in pairs(shape.maskFor or {}) do
+        masks[mask] = true
+    end
+    local lines: {string} = {}
+    for _, mask in ipairs(sortedKeys(masks)) do
+        local maskElement, maskLanes = emit.vectorParts(mask)
+        local maskWidth = tostring(math.floor((tonumber(maskElement:match("%d+")) or 0) / 8 * maskLanes))
+        lines[
+            #lines + 1
+        ] = "typedef " .. tostring(
+            emit.MASK_C[mask]
+        ) .. " ks_" .. mask .. " __attribute__((vector_size(" .. maskWidth .. ")));"
+    end
 
     local vectors: {[string]: boolean} = {}
     for _, vector in pairs(shape.vectorFor) do
@@ -817,6 +837,11 @@ local function vectorHelpers(shape: lane.Shape): {string}
     for _, vector in ipairs(sortedKeys(carriers)) do
         if vector ~= shape.mask then
             local element = tostring(vector:match("^(%a%d+)x"))
+            -- A select blends through the mask's own integer lanes, so the mask
+            -- has to be as wide as what it selects between. That is the gang's
+            -- own mask where it carries one width, and this element's where it
+            -- carries several.
+            local blend = tostring((shape.maskFor or {})[element as lane.Element] or shape.mask)
             lines[
                 #lines + 1
             ] = unused .. "ks_" .. vector .. " ks_splat_" .. vector .. "(" .. tostring(
@@ -836,7 +861,7 @@ local function vectorHelpers(shape: lane.Shape): {string}
                 .. " ks_sel_"
                 .. vector
                 .. "(ks_"
-                .. shape.mask
+                .. blend
                 .. " m, ks_"
                 .. vector
                 .. " a, ks_"
@@ -844,9 +869,9 @@ local function vectorHelpers(shape: lane.Shape): {string}
                 .. " b) { return (ks_"
                 .. vector
                 .. ")((m & (ks_"
-                .. shape.mask
+                .. blend
                 .. ")a) | (~m & (ks_"
-                .. shape.mask
+                .. blend
                 .. ")b)); }"
         end
     end

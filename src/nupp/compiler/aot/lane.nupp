@@ -79,6 +79,22 @@ record aotLane.Shape
     --- uint32 is an exact binary64 value.
     bits: aotLane.Vector
 
+    --- The mask a comparison of that element produces, where it is not the
+    --- gang's own.
+    ---
+    --- A comparison yields one bit per lane as wide as the values compared, so a
+    --- gang carrying elements at several widths produces masks at several
+    --- widths. Everything the mask algebra does -- and, not, testing whether any
+    --- lane is live -- happens at the gang's own `mask`, and a comparison that
+    --- produced a different one converts to it immediately. Converting at the
+    --- two boundaries keeps one width in the middle, where a mask typed per
+    --- element everywhere would have every combination of two masks asking which
+    --- width it was.
+    ---
+    --- Absent for a gang that carries everything in one width, which is every
+    --- gang that is not mixed.
+    maskFor: {[aotLane.Element]: aotLane.Vector}?
+
     --- The vector an element is rounded through when this gang carries it wider
     --- than it is.
     ---
@@ -92,6 +108,39 @@ record aotLane.Shape
     --- gang at all: the 32-bit gang refuses the binary64 value and the binary64
     --- gang refuses the explicit binary32 operation.
     rounding: {[aotLane.Element]: aotLane.Vector}?
+end
+
+--- One mask at another mask's width.
+---
+--- Masks are all-ones or all-zeros per lane, so widening is a sign extension and
+--- narrowing is a truncation, and both preserve exactly those two values. That
+--- is why this is a conversion rather than a shuffle, and why it costs one
+--- instruction.
+record aotLane.MaskCast
+    op: 'vmask_cast'
+
+    --- The mask being converted.
+    args: {aotLane.Expr}
+
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
+--- One value at another lane width.
+---
+--- A gang that carries every element in one vector needs none of these: a
+--- binary32 value already sat in the binary64 lanes a binary64 consumer wanted.
+--- A gang that carries each element at its own width has to convert where the
+--- two meet, and the conversion is the arithmetic one -- widening is exact,
+--- narrowing rounds once, which is what the source said either way.
+record aotLane.Convert
+    op: 'vconvert'
+
+    --- The value being converted.
+    args: {aotLane.Expr}
+
+    type: aotLane.Vector
+    source: aotLane.Source?
 end
 
 --- A uniform value broadcast to every lane.
@@ -342,15 +391,17 @@ end
 --- however many registers its element needs, which wants mask widths to convert.
 const aotLane.SHAPES = {
     new aotLane.Shape(
-        name = "f64x4",
+        name = "mixed4",
         lanes = 4,
         bytes = 32,
         mask = "m64x4",
         -- Integers ride in binary64 lanes because every int32 and uint32 is an
         -- exact binary64 value, which is also what ordinary Nupp does with them.
-        vectorFor = {["f64"] = "f64x4", ["f32"] = "f64x4", ["i32"] = "f64x4", ["u32"] = "f64x4", ["bool"] = "m64x4"},
-        bits = "u32x4",
-        rounding = {["f32"] = "f32x4"}
+        -- Binary32 does not: it rode there too until measuring showed what that
+        -- cost, and it has its own lanes now.
+        vectorFor = {["f64"] = "f64x4", ["f32"] = "f32x4", ["i32"] = "f64x4", ["u32"] = "f64x4", ["bool"] = "m64x4"},
+        maskFor = {["f32"] = "m32x4"},
+        bits = "u32x4"
     ),
     new aotLane.Shape(
         name = "f32x8",
@@ -363,13 +414,13 @@ const aotLane.SHAPES = {
         bits = "i32x8"
     ),
     new aotLane.Shape(
-        name = "f64x2",
+        name = "mixed2",
         lanes = 2,
         bytes = 16,
         mask = "m64x2",
-        vectorFor = {["f64"] = "f64x2", ["f32"] = "f64x2", ["i32"] = "f64x2", ["u32"] = "f64x2", ["bool"] = "m64x2"},
-        bits = "u32x2",
-        rounding = {["f32"] = "f32x2"}
+        vectorFor = {["f64"] = "f64x2", ["f32"] = "f32x2", ["i32"] = "f64x2", ["u32"] = "f64x2", ["bool"] = "m64x2"},
+        maskFor = {["f32"] = "m32x2"},
+        bits = "u32x2"
     ),
     new aotLane.Shape(
         name = "f32x4",
@@ -431,6 +482,8 @@ type aotLane.Expr = aotLane.Splat
     | aotLane.Bitwise
     | aotLane.BitConvert
     | aotLane.Round
+    | aotLane.MaskCast
+    | aotLane.Convert
     | aotLane.Local
 
 --- Declaring a lane local.

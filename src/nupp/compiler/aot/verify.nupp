@@ -203,6 +203,8 @@ const verify.LANE_OPCODES = {
     ["vbitwise"] = true,
     ["vbits"] = true,
     ["vround"] = true,
+    ["vconvert"] = true,
+    ["vmask_cast"] = true,
 }
 
 --- The two halves of one walk, declared before either is written. They are
@@ -428,6 +430,16 @@ local function laneTypes(shape: lane.Shape): {[string]: boolean}
     for _, vector in pairs(shape.vectorFor) do
         admitted[vector] = true
     end
+    -- The masks a comparison produces before it is brought to the gang's own,
+    -- which exist only where the gang carries more than one width. Leaving them
+    -- out does not refuse them: a type this does not admit is read as a scalar,
+    -- and the scalar walk then reports a lane opcode it has never heard of.
+    for _, mask in pairs(shape.maskFor or {}) do
+        admitted[mask] = true
+    end
+    for _, vector in pairs(shape.rounding or {}) do
+        admitted[vector] = true
+    end
 
     return admitted
 end
@@ -444,8 +456,11 @@ local function laneSignatures(shape: lane.Shape): ({[string]: any}, {[string]: a
             for _, verb in ipairs({"add", "sub", "mul", "div"}) do
                 binaries[verb .. "." .. element] = {result = vector, operand = vector}
             end
+            -- A comparison's result is a mask as wide as what it compared,
+            -- which is the gang's own only where the gang carries one width.
+            local produced = (shape.maskFor or {})[element] or shape.mask
             for _, verb in ipairs({"lt", "le", "gt", "ge", "eq", "ne"}) do
-                binaries[verb .. "." .. element] = {result = shape.mask, operand = vector}
+                binaries[verb .. "." .. element] = {result = produced, operand = vector}
             end
             unaries["neg." .. element] = {result = vector, operand = vector}
             unaries["sqrt." .. element] = {result = vector, operand = vector}
@@ -576,11 +591,21 @@ laneWalk = function(node: lane.Expr, values: {[string]: string}, context: verify
     elseif node.op == "vshort" then
         shortCircuit(node, values, context)
     elseif node.op == "vselect" then
+        -- The condition is a mask as wide as the lanes it chooses between, which
+        -- is the gang's own where it carries one width and the element's where
+        -- it carries several. A select is bitwise, so a narrower or wider mask
+        -- would select the wrong bits rather than fail to compile.
+        local selectMask = mask
+        for element, carried in pairs(shape.vectorFor) do
+            if carried == node.type then
+                selectMask = ((shape.maskFor or {})[element] or mask) as string
+            end
+        end
         laneHolds(
             #node.args == 3 and node.args[
                 1
-            ].type == mask and node.args[2].type == node.type and node.args[3].type == node.type,
-            "a select whose arms disagree, or whose condition is not a mask"
+            ].type == selectMask and node.args[2].type == node.type and node.args[3].type == node.type,
+            "a select whose arms disagree, or whose condition is not a mask of their width"
         )
         laneWalk(node.args[1], values, context)
         laneWalk(node.args[2], values, context)
@@ -621,6 +646,29 @@ laneWalk = function(node: lane.Expr, values: {[string]: string}, context: verify
             "a rounding this gang does not need or cannot do"
         )
         operands(node.args, node.type, 1, values, context, "a rounding of something that is not its own width")
+    elseif node.op == "vconvert" then
+        laneHolds(
+            admitted[
+                node.type
+            ] == true and #node.args == 1 and admitted[node.args[1].type] == true and node.args[1].type ~= node.type,
+            "a conversion that does not change vector"
+        )
+        laneWalk(node.args[1], values, context)
+    elseif node.op == "vmask_cast" then
+        -- Between two of this gang's own masks, and never to the one it already
+        -- is. A cast that changed nothing would be an instruction the IR asked
+        -- for and could not account for.
+        local masks: {[string]: boolean} = {[shape.mask] = true}
+        for _, mask in pairs(shape.maskFor or {}) do
+            masks[mask] = true
+        end
+        laneHolds(
+            masks[
+                node.type
+            ] == true and #node.args == 1 and masks[node.args[1].type] == true and node.args[1].type ~= node.type,
+            "a mask conversion outside this gang's masks"
+        )
+        laneWalk(node.args[1], values, context)
     elseif node.op == "vbits" then
         laneHolds(
             admitted[

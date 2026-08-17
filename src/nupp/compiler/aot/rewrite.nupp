@@ -421,11 +421,15 @@ expression = function(node: scalarIR.Expr, state: rewrite.State): rewrite.Value
             source = node.source
         )
     elseif operation == "widen_f32_f64" or operation == "int_to_f64" then
-        -- Widening is exact, so the lane form is whatever the value already was.
-        -- Nothing is lost by not refusing here: a binary64 consumer asks for an
-        -- f64 lane operation, and a gang without f64 lanes refuses that.
-        return expression((node as scalarIR.Convert).value, state)
-    elseif operation == "numeric_cast" or operation == "narrow_f64_f32" then
+        -- Widening is exact. Where the gang carries both elements in one vector
+        -- the value is already in the lanes a binary64 consumer wants and this
+        -- is nothing; where it carries them apart, it is the conversion.
+        return rewrite.atWidth(expression((node as scalarIR.Convert).value, state), "f64", state)
+    elseif operation == "narrow_f64_f32" then
+        -- Narrowing rounds once, which is what the source asked for, and lands
+        -- in whatever lanes this gang keeps binary32 in.
+        return rewrite.atWidth(expression((node as scalarIR.Convert).value, state), "f32", state)
+    elseif operation == "numeric_cast" then
         -- Storage conversions stay attached to the field they store through, the
         -- way ordinary Nupp widens a physical load and narrows a physical store.
         return expression((node as scalarIR.Convert).value, state)
@@ -629,14 +633,18 @@ function rewrite.arithmetic(node: scalarIR.Expr, state: rewrite.State): rewrite.
         -- compares.
         local element = rewrite.comparisonElement(binary.left, binary.right)
 
-        return new lane.Binary(
+        local compared = new lane.Binary(
             op = "vbinary",
             verb = comparison,
             element = element,
             args = {numericVector(binary.left, element, state), numericVector(binary.right, element, state),},
-            type = shape.mask,
+            type = rewrite.nativeMask(shape, element),
             source = node.source
         )
+
+        -- Straight to the gang's own width, so everything downstream combines
+        -- masks of one type and only the two boundaries know there are more.
+        return rewrite.maskAt(compared, shape.mask, node.source)
     end
 
     state.reject("operation " .. tostring(operation) .. " has no lane-parallel form")
@@ -729,6 +737,58 @@ record rewrite.LoopContext
     --- Names whose value is read after the loop, so speculating on them would be
     --- observable.
     observable: {[string]: boolean}
+end
+
+--- One value in the lanes this gang keeps that element in.
+---
+--- Nothing where it is already there, which is every gang carrying one width and
+--- every value already at the right one. A uniform stays uniform: it is a scalar
+--- the C converts where it is broadcast, not a vector to convert first.
+function rewrite.atWidth(value: rewrite.Value, element: lane.Element, state: rewrite.State): rewrite.Value
+    local want = state.shape.vectorFor[element]
+    if want == nil or value.type == nil or value.type == want then
+        return value
+    end
+    -- A vector name is what tells a lane value from a uniform one that stayed
+    -- scalar. A uniform needs no conversion: it is broadcast at the width it is
+    -- broadcast into.
+    if tostring(value.type):match("^[fmiu]%d+x%d+$") == nil then
+        return value
+    end
+
+    return new lane.Convert(op = "vconvert", args = {value as lane.Expr}, type = want as string, source = value.source)
+end
+
+--- The mask width a select between values of this vector needs.
+---
+--- A select is bitwise over the lanes it chooses between, so its mask has to be
+--- as wide as they are.
+function rewrite.selectMask(shape: lane.Shape, vector: string): string
+    for element, carried in pairs(shape.vectorFor) do
+        if carried == vector then
+            return rewrite.nativeMask(shape, element)
+        end
+    end
+
+    return shape.mask
+end
+
+--- The mask a comparison of this element produces before any conversion.
+function rewrite.nativeMask(shape: lane.Shape, element: lane.Element?): string
+    local native = element ~= nil and (shape.maskFor or {})[element as lane.Element] or nil
+
+    return (native or shape.mask) as string
+end
+
+--- One mask at the width something else needs it in.
+---
+--- Nothing where it is already that width, which is every gang that carries one.
+function rewrite.maskAt(value: lane.Expr, want: string, source: lane.Source?): lane.Expr
+    if value.type == want then
+        return value
+    end
+
+    return new lane.MaskCast(op = "vmask_cast", args = {value}, type = want, source = source)
 end
 
 --- Reads a mask binding as an expression.
@@ -1075,7 +1135,11 @@ function rewrite.assignedValue(
 
     return new lane.Select(
         op = "vselect",
-        args = {assignmentMask as lane.Expr, value, previous},
+        args = {
+            rewrite.maskAt(assignmentMask as lane.Expr, rewrite.selectMask(state.shape, value.type), source),
+            value,
+            previous,
+        },
         type = value.type,
         source = source
     )

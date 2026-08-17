@@ -418,10 +418,16 @@ at a function boundary.
 ```
  Tier      Widest vector   Gangs             Default for
  ────────  ─────────────   ───────────────   ───────────
- baseline  16 bytes        f64x2, f32x4      x86-64, i686
+ baseline  16 bytes        mixed2, f32x4     x86-64, i686
  avx2      32 bytes        all four
  neon      32 bytes        all four          aarch64
 ```
+
+A `mixed` gang carries each value at its own element width — binary64 in 64-bit
+lanes, binary32 in 32-bit ones — so an explicit binary32 operation is a native
+single-precision instruction rather than a wide one rounded back. `f32x8` and
+`f32x4` carry everything 32-bit and hold twice the iterations, which is why they
+are tried first and why a loop with any binary64 value cannot have them.
 
 x86-64 defaults to `baseline`, so a loop written with ordinary operators gets
 two lanes there and four at `avx2`. The conservative default is deliberate: a
@@ -861,14 +867,12 @@ Named so you can tell what you are looking at:
   is still named with the path the build wrote, so it has the problem `@aot`
   code no longer has. The `@` mechanism is general and would fix it; nothing has
   been changed there yet.
-- **Mixed-width gangs.** Width selection is all-or-nothing within a width: a
-  single binary64 varying value drops the whole loop to the binary64 gang, and
-  every explicit binary32 operation in it is then computed wide and rounded
-  back. Measured on `bench/kernel-subset-spike/mixedwidth.sh`, that costs about
-  4.5× — 2.3× from the rounding and 1.9× from the halved lane count, so the
-  larger half is the rounding. A loop shaped that way gets a gang that costs
-  roughly what it saves (1.06× over its own scalar body). Carrying each value at
-  its own width would remove both.
+- **Eight lanes with a binary64 value in the loop.** A binary64 value needs
+  64-bit lanes, so four is what fits in 32 bytes. Reaching eight means either a
+  wider register file or letting one value span two registers, which is a
+  decision nobody has taken. Measured on
+  `bench/kernel-subset-spike/mixedwidth.sh`, that is the remaining 1.9× between
+  a mixed gang and an all-binary32 one.
 - **Multiversioning.** A build pins one feature tier. Dispatching between
   several at run time, so one binary uses AVX2 where it is present and the
   baseline where it is not, is a separate decision nobody has taken.
