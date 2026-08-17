@@ -611,6 +611,27 @@ targets = {
 still emitted and is still what runs. A module with no `@aot` function produces
 no artifact at all.
 
+### What an artifact is keyed on
+
+Each artifact is recorded under a key covering everything that can change its
+bytes: the verified IR, the version of the IR vocabulary, the numeric-contract
+version, the target triple and feature tier, the backend, and the compiler's own
+fingerprint. A rebuild that computes the same key leaves the file alone.
+
+The key is over the IR rather than the source, so two sources that lower to one
+program share one artifact and a comment edit is not a rebuild. The
+numeric-contract version is separate from the IR version on purpose: two
+compilers can agree about every field of a program and disagree about whether an
+operator contracts, and an artifact built under one contract must not be reused
+under another.
+
+The key is evidence, never authority. A build compares it, then checks that the
+file it describes is still on disk with the bytes it claims; a deleted or edited
+artifact is written again rather than believed because a digest agreed. Losing
+the record costs one rebuild and changes no answer, which is what lets
+`aot=require` put executable code on disk later without the cache becoming
+load-bearing.
+
 ## What is not here yet
 
 Named so you can tell what you are looking at:

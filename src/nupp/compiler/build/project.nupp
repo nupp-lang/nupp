@@ -353,7 +353,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         report:at("aot")
         report:step("emitting ahead-of-time C")
 
-        local emitted, aotErr = aotPolicy.emitC(root, outDir, config.include or {})
+        local emitted, aotErr = aotPolicy.emitC(root, outDir, config.include or {}, (
+            oldState.aot or {}
+        ) as {[string]: string})
         report:clear()
         if emitted == nil then
             io.stderr:write("nupp: " .. tostring(aotErr) .. "\n")
@@ -362,9 +364,12 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
         -- Recorded like any other output, so `nupp clean` removes it and a
         -- rebuild knows it is there.
+        local keys: {[string]: string} = {}
         for _, one in ipairs(emitted as {any}) do
             newState.outputs[one.output] = true
+            keys[one.source] = one.key
         end
+        newState.aot = keys
     end
 
     local detectedEffects = native.dependencyEffects(root, config, target, result.effects)

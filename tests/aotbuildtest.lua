@@ -141,6 +141,90 @@ function M.emitCWritesTheCBesideTheBuild()
       "the ordinary Lua body is still emitted: emit-c adds an artifact, it does not replace one")
 end
 
+--- The key one source's artifact was recorded under, or nothing.
+local function key(dir)
+   local state = read(dir .. "/build/native/.nupp-state.json")
+   if not state then return nil end
+   local recorded = state:match('"aot":(%b{})')
+   if not recorded then return nil end
+   return recorded:match('kernel%.nupp":"([0-9a-f]+)"')
+end
+
+--- When a path was last written, or nothing.
+local function modified(path)
+   for _, flags in ipairs({"-f %m", "-c %Y"}) do
+      local pipe = assert(io.popen(("stat %s %q 2>/dev/null"):format(flags, path)))
+      local stamp = tonumber(pipe:read("*l"))
+      pipe:close()
+      if stamp then return stamp end
+   end
+   return nil
+end
+
+function M.anUnchangedArtifactIsNotRewritten()
+   local dir = project("emit-c")
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   local first = assert(modified(dir .. "/build/native/aot/src/kernel.c"), "the artifact was written")
+
+   -- A second's granularity is all `stat` promises, so a rewrite has to land in
+   -- a later second to be visible. Waiting is what makes the assertion mean
+   -- something rather than pass on a coarse clock.
+   os.execute("sleep 1.1")
+   out, code = build(dir)
+   test.equal(code, 0, out)
+   test.equal(modified(dir .. "/build/native/aot/src/kernel.c"), first,
+      "an artifact whose key still matches is left alone rather than rewritten")
+end
+
+function M.aMissingArtifactIsWrittenAgain()
+   local dir = project("emit-c")
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   local first = assert(read(dir .. "/build/native/aot/src/kernel.c"))
+   assert(key(dir), "the build recorded what it built the artifact under")
+
+   -- The recorded key still matches, so a build that trusted it would leave
+   -- nothing behind. The key is evidence about bytes that have to be there.
+   os.remove(dir .. "/build/native/aot/src/kernel.c")
+   out, code = build(dir)
+   test.equal(code, 0, out)
+   test.equal(read(dir .. "/build/native/aot/src/kernel.c"), first,
+      "a deleted artifact comes back rather than being believed on a digest")
+end
+
+function M.anEditedArtifactIsOverwritten()
+   local dir = project("emit-c")
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   local first = assert(read(dir .. "/build/native/aot/src/kernel.c"))
+
+   local handle = assert(io.open(dir .. "/build/native/aot/src/kernel.c", "wb"))
+   handle:write("/* not what the compiler wrote */\n")
+   handle:close()
+
+   out, code = build(dir)
+   test.equal(code, 0, out)
+   test.equal(read(dir .. "/build/native/aot/src/kernel.c"), first,
+      "an artifact whose bytes disagree with its key is written again")
+end
+
+function M.theKeyIsOverTheIRRatherThanTheSource()
+   local dir = project("emit-c")
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   local before = assert(key(dir), "a key was recorded")
+
+   local handle = assert(io.open(dir .. "/src/kernel.nupp", "ab"))
+   handle:write("\n-- A comment, which changes no instruction.\n")
+   handle:close()
+
+   out, code = build(dir)
+   test.equal(code, 0, out)
+   test.equal(key(dir), before,
+      "two sources that lower to one program share one artifact: a comment is not a rebuild")
+end
+
 function M.requireIsRefusedRatherThanPromised()
    local dir = project("require")
    local out, code = build(dir)

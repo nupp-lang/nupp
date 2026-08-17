@@ -24,12 +24,43 @@ cannot be wrong about which source produced which artifact.
 
 local compile = require("nupp.compiler.aot.compile")
 local fs = require("nupp.compiler.fs")
+local cache = require("nupp.compiler.build.cache")
+local hash = require("nupp.compiler.build.hash")
+local scalarIR = require("nupp.compiler.aot.scalar")
 local targets = require("nupp.compiler.aot.target")
 
 local aot = {}
 
 --- The policies a target may select.
 const aot.POLICIES = {["off"] = true, ["emit-c"] = true}
+
+--- Which backend produced an artifact.
+---
+--- Part of the key because two backends can lower one IR to two correct
+--- answers, and an artifact from either must not be mistaken for the other's.
+const aot.BACKEND = "generated-c"
+
+--- The key one artifact was built under.
+---
+--- Everything that can change the bytes: the verified IR, the vocabulary it is
+--- written in, what its arithmetic means, the target it was chosen for, the
+--- backend that lowered it, and the compiler that did all of that.
+---
+--- Deliberately not the source text. Two sources that lower to one IR produce
+--- one artifact, and a comment edit is not a rebuild.
+function aot.key(irText: string, selected: targets.Target): string
+    return hash.digest(
+        cache.stable({
+            ir = irText,
+            irVersion = scalarIR.VERSION,
+            numericContract = scalarIR.NUMERIC_CONTRACT,
+            triple = selected.triple,
+            tier = selected.tier,
+            backend = aot.BACKEND,
+            compiler = cache.toolFingerprint(),
+        })
+    )
+end
 
 --- What one source produced.
 record aot.Emitted
@@ -41,6 +72,9 @@ record aot.Emitted
 
     --- How many `@aot` functions it holds.
     functions: integer
+
+    --- The key it was built under, which the next build compares against.
+    key: string
 end
 
 --- Whether a source is worth parsing for `@aot` at all.
@@ -63,7 +97,12 @@ end
 --- @param outDir where the build is writing, which the C goes beside
 --- @return what was written, or nothing and the first reason it could not be
 --- @raises never; a source the subset refuses is reported, not thrown
-function aot.emitC(root: string, outDir: string, roots: {string}): ({aot.Emitted}?, string?)
+function aot.emitC(
+    root: string,
+    outDir: string,
+    roots: {string},
+    previous: {[string]: string}
+): ({aot.Emitted}?, string?)
     -- The host's target, at its architecture's default tier. A build that wants
     -- another one will say so once there is a manifest key for it; until then
     -- the honest default is the machine the build is running on, conservatively
@@ -99,13 +138,27 @@ function aot.emitC(root: string, outDir: string, roots: {string}): ({aot.Emitted
                     else
                         local relative = source:gsub("^" .. root:gsub("%p", "%%%0") .. "/?", "")
                         local output = outDir .. "/aot/" .. relative:gsub("%.nupp$", ".c")
-                        local ok, err = fs.writeFile(output, artifacts.c)
-                        if not ok then
-                            return nil, tostring(err)
+                        local key = aot.key(artifacts.irText, selected as targets.Target)
+
+                        -- The recorded key is evidence, not authority: what it
+                        -- describes has to still be on disk with the bytes it
+                        -- claims. A deleted or edited artifact is written again
+                        -- rather than believed because a digest agreed.
+                        local reused = previous[source] == key and fs.readFile(output) == artifacts.c
+                        if not reused then
+                            local ok, err = fs.writeFile(output, artifacts.c)
+                            if not ok then
+                                return nil, tostring(err)
+                            end
                         end
                         emitted[
                             #emitted + 1
-                        ] = new aot.Emitted(source = source, output = output, functions = #artifacts.programs)
+                        ] = new aot.Emitted(
+                            source = source,
+                            output = output,
+                            functions = #artifacts.programs,
+                            key = key
+                        )
                     end
                 end
             end

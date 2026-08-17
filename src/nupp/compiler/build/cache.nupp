@@ -129,7 +129,14 @@ type cache.State = {
     targets: {[string]: {string}},
 
     compilerHash: string?,
-    configHash: string?
+    configHash: string?,
+
+    --- Source path -> the key its ahead-of-time artifact was built under.
+    ---
+    --- Never load-bearing. A key that is missing, unreadable or different is a
+    --- regeneration, not an error, and the artifact it describes is checked to
+    --- still exist before it is believed.
+    aot: {[string]: string}?
 }
 
 local function jsonArray<T>(takes items: {T}): {T} preserves items
@@ -247,7 +254,7 @@ end
 -- Bumped whenever a recorded digest stops meaning what it meant, which discards the
 -- last version's state instead of comparing hex that was computed by a different
 -- function. Version 2 is where the cache keys moved off SHA-256.
-local STATE_VERSION: integer = 2
+local STATE_VERSION: integer = 3
 
 local function emptyState(): cache.State
     return {version = STATE_VERSION, modules = {}, dependencies = {}, outputs = {}, targets = {}} as cache.State

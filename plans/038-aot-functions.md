@@ -748,6 +748,19 @@ AOT cache keys include:
 Cached data is never load-bearing. Validate it before mapping or linking, and
 regenerate after corruption or version mismatch.
 
+`aot=emit-c` carries the components that exist while the artifact is a text
+file: the IR and its version, the numeric-contract version, the triple and
+feature tier, the backend, and the compiler fingerprint. It records the key in
+the build state and validates it by re-reading the artifact, so a deleted or
+edited file is written again rather than believed.
+
+The rest join the key as the thing they describe arrives. Data layout and ABI
+are the triple's until a target selects them separately. Optimization level and
+flags need a toolchain, which `require` introduces. Callee fingerprints need a
+call that survives lowering; the subset inlines every one. Batch membership
+needs a batched backend; a translation unit is one source. Adding a component
+later invalidates every artifact, which costs a regeneration.
+
 Direct code generation follows W^X: allocate writable memory, encode and
 relocate, flush the instruction cache where required, then make it executable.
 Hardened Apple hosts require `MAP_JIT` and the platform JIT write-protection
@@ -1017,6 +1030,9 @@ is new is doing it for compiler-generated C, keyed on the IR that produced it.
    produces wrong answers rather than slow builds. While the artifact is a text
    file, getting it wrong costs a regenerated file.
 5. **`aot=require`.** Compile, link, load, dispatch.
+
+Steps one through four have landed. Only `require` is left, and with it the
+first artifact whose staleness a reader cannot check by opening it.
 
 Mixed-width gang sizing is not on this path. It is a performance property and
 has never blocked a correct answer.

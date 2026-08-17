@@ -28,6 +28,14 @@ local scalarIR = {}
 --- older compiler is refused rather than half-understood.
 const scalarIR.VERSION = 3
 
+--- What the arithmetic in an admitted body means.
+---
+--- Separate from `VERSION`, which is the shape of the IR. Two compilers can
+--- agree about every field of a program and disagree about whether an operator
+--- contracts, and an artifact built under one contract must not be reused under
+--- another. Bumped when the meaning changes, never when the spelling does.
+const scalarIR.NUMERIC_CONTRACT = 1
+
 --- The C symbol one `@aot` function exports.
 ---
 --- Derived rather than chosen, and derived in one place, because the generated
