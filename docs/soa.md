@@ -111,14 +111,13 @@ returns `span.Span<Field>`, and an exclusive row view returns
 ```nupp
 local span = require("nupp.span")
 
-with rows = particles:write() do
-    with
-        xs: span.WriteSpan<float> = rows:field("x"),
-        ys: span.WriteSpan<float> = rows:field("y")
-    do
-        xs:set(1, 3.5)
-        ys:set(1, 4.5)
-    end
+with
+    rows = particles:write(),
+    xs: span.WriteSpan<float> = rows:field("x"),
+    ys: span.WriteSpan<float> = rows:field("y")
+do
+    xs:set(1, 3.5)
+    ys:set(1, 4.5)
 end
 
 local xs: span.Span<float> = particles:read():field("x")
