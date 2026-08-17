@@ -1026,18 +1026,37 @@ yield answer
 ```
 
 The selector is evaluated exactly once. Static comparisons and type tests run
-in source order; only the selected arm runs. Lowering uses lexical locals and an
-`if`/`elseif` chain, not an immediately invoked function, so a switch inside a
-hot loop does not create a closure or abort LuaJIT tracing. This first placement
-model lifts switches from local declarations, assignments, returns, and call
-statements while preserving eager left-to-right evaluation. A switch in a lazy
-operand (`and`, `or`, `??`, a ternary arm, or work guarded by safe navigation)
-is **NUPP2142**; assign it to a preceding local. Static expression arms work in
-`comptime`; type cases and block arms do not. AOT admits a switch which initializes
-one scalar local, has integer-valued numeric cases and expression arms, and is
-checker-proven exhaustive with or without `else`;
-strings, type cases, block arms, and early arm returns remain explicit AOT
-subset boundaries.
+in source order; only the selected arm runs. The universal lowering uses
+lexical locals and an `if`/`elseif` chain, not an immediately invoked function,
+so a switch inside a hot loop does not create a closure or abort LuaJIT tracing.
+
+A sufficiently large static integer or string switch may instead finish with
+one compiler-owned table read when every arm and `else` result is one inert
+scalar. The table is allocated once in module setup. Missing keys and dense
+holes already read as nil, so generated dispatch has no range guard or hole
+sentinel. A private sentinel is added only when an arm itself produces nil.
+Dynamic results, small maps, block arms, bindings, destructuring, refinements,
+early exits, and coverage builds keep ordered branches. This is an optimizer
+choice, not part of switch semantics, and its measured thresholds are not a
+language guarantee.
+
+Record identity tests drop safe navigation only when checking proves the
+remaining selector contains records alone; an optional or open selector keeps
+the guard. Refinement predicates always retain source order.
+
+This first placement model lifts switches from local declarations, assignments,
+returns, and call statements while preserving eager left-to-right evaluation.
+A switch in a lazy operand (`and`, `or`, `??`, a ternary arm, or work guarded by
+safe navigation) is **NUPP2142**; assign it to a preceding local. Static
+expression arms work in `comptime`; type cases and block arms do not. AOT admits
+a switch which initializes one scalar local, has integer-valued numeric cases
+and expression arms, and is checker-proven exhaustive with or without `else`.
+Established `int32` and `uint32` selectors emit native C `switch`; binary64
+selectors retain comparisons. Strings, type cases, block arms, and early arm
+returns remain explicit AOT subset boundaries.
+
+Regular dispatch never calls a C helper or a table of arm functions. It does not
+build a BDD, MTBDD or perfect hash and does not require a custom LuaJIT opcode.
 
 Formatting always exposes the two scopes: cases are one indentation level inside
 the switch, block-arm statements are two, an arm `end` aligns with its `case`,
@@ -1074,6 +1093,53 @@ function m.describe(code: integer): string
             local text = `status ${code}`
             yield text
         end
+    end
+end
+
+function m.byteCategory(byte: integer): string
+    return switch byte do
+        case 9 -> "tab"
+        case 10 -> "newline"
+        case 11 -> "vertical tab"
+        case 12 -> "form feed"
+        case 13 -> "return"
+        else -> "other"
+    end
+end
+
+function m.retryableStatus(status: integer): boolean
+    return switch status do
+        case 408 -> true
+        case 409 -> true
+        case 421 -> true
+        case 423 -> true
+        case 425 -> true
+        case 426 -> true
+        case 428 -> true
+        case 429 -> true
+        case 500 -> true
+        case 501 -> true
+        case 502 -> true
+        case 503 -> true
+        case 504 -> true
+        case 505 -> true
+        case 506 -> true
+        case 507 -> true
+        else -> false
+    end
+end
+
+function m.keywordKind(word: string): string?
+    return switch word do
+        case "and" -> "operator"
+        case "break" -> "statement"
+        case "do" -> "block"
+        case "else" -> nil
+        case "end" -> "block"
+        case "false" -> "literal"
+        case "for" -> "loop"
+        case "function" -> "declaration"
+        else -> "name"
     end
 end
 

@@ -604,21 +604,60 @@ The scalar subset admits a switch as the sole initializer of one local when:
   `else` arm.
 
 It lowers to one selector `Let`, one result `Let`, an ordered scalar-IR `If`,
-and branch `Assign` operations. Nupp `integer` is normally binary64 in this
-backend, so the C emitter deliberately uses equality branches rather than
-claiming a native integer `switch` or jump table. Strings, type patterns,
+and branch `Assign` operations. For an established `int32` or `uint32`
+selector, lowering annotates that ordinary `If` with its exact-width labels and
+the C emitter writes native `switch`. The annotation is optional: scalar-IR
+verification and lane rewriting may ignore it and retain the complete equality
+chain. Nupp `integer` is normally binary64, so those selectors deliberately
+remain equality branches rather than being converted. Strings, type patterns,
 block arms, and early arm returns report the ordinary NUPP2903 subset boundary.
 
+The C compiler chooses the physical native dispatch. Nupp does not force a jump
+table or synthesize a C perfect hash.
+
 ```nupp
-@aot
-local function classify(code: integer): integer
-    local result = switch code do
-        case 0 -> 10
-        case 1, 2 -> 20
-        else -> 30
-    end
-    return result
+local span = require("nupp.span")
+
+local struct Code
+    value: int32
 end
+
+@aot
+local function classify(
+    exclusive output: span.WriteSpan<Code>,
+    borrows input: span.Span<Code>
+): nil
+    if output.count ~= input.count then
+        error("length mismatch", 2)
+    end
+    for i = 1, output.count do
+        local code = input:get(i).value
+        local result: int32 = switch code do
+            case -2147483648 -> 10
+            case 1, 2 -> 20
+            else -> 30
+        end
+        output:getMut(i).value = result
+    end
+end
+```
+
+The scalar body of that kernel includes this C shape (temporary names are
+abbreviated here):
+
+```c
+switch (code) {
+case (-INT32_C(2147483647) - INT32_C(1)):
+    result = INT32_C(10);
+    break;
+case INT32_C(1):
+case INT32_C(2):
+    result = INT32_C(20);
+    break;
+default:
+    result = INT32_C(30);
+    break;
+}
 ```
 
 ## Diagnostics

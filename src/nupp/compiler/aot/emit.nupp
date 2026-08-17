@@ -137,9 +137,17 @@ function emit.scalar(node: scalarIR.Expr): string
     if operation == "constant" then
         return emit.doubleLiteral((node as scalarIR.Constant).value)
     elseif operation == "constant_i32" then
-        local number = tonumber((node as scalarIR.IntConstant).value) or 0
+        local integer = node as scalarIR.IntConstant
+        local number = tonumber(integer.value) or 0
+        if integer.type == "u32" then
+            return "UINT32_C(" .. ("%.0f"):format(number) .. ")"
+        elseif number == -2147483648 then
+            return "(-INT32_C(2147483647) - INT32_C(1))"
+        elseif number < 0 then
+            return "(-INT32_C(" .. ("%.0f"):format(-number) .. "))"
+        end
 
-        return "INT32_C(" .. tostring(math.floor(number)) .. ")"
+        return "INT32_C(" .. ("%.0f"):format(number) .. ")"
     elseif operation == "bool" then
         return (node as scalarIR.Bool).value and "true" or "false"
     elseif operation == "uniform" then
@@ -1123,17 +1131,41 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
                 end
             end
         elseif op == "if" then
-            for position, clause in ipairs(statement.clauses) do
-                lines[
-                    #lines + 1
-                ] = prefix .. (position == 1 and "if (" or "else if (") .. emit.lane(clause.condition) .. ") {"
-                nested(clause.body)
+            local nativeSwitch = statement.nativeSwitch
+            if nativeSwitch and #nativeSwitch.arms == #statement.clauses then
+                lines[#lines + 1] = prefix .. "switch (" .. emit.scalar(nativeSwitch.selector) .. ") {"
+                for position, arm in ipairs(nativeSwitch.arms) do
+                    for _, label in ipairs(arm.labels) do
+                        local constant = new scalarIR.IntConstant(
+                            op = "constant_i32",
+                            value = label.value,
+                            type = label.type,
+                            source = label.source
+                        )
+                        lines[#lines + 1] = prefix .. "case " .. emit.scalar(constant) .. ":"
+                    end
+                    nested(statement.clauses[position].body)
+                    lines[#lines + 1] = prefix .. "    break;"
+                end
+                if statement.elseBody ~= nil then
+                    lines[#lines + 1] = prefix .. "default:"
+                    nested(statement.elseBody)
+                    lines[#lines + 1] = prefix .. "    break;"
+                end
                 lines[#lines + 1] = prefix .. "}"
-            end
-            if statement.elseBody ~= nil then
-                lines[#lines + 1] = prefix .. "else {"
-                nested(statement.elseBody)
-                lines[#lines + 1] = prefix .. "}"
+            else
+                for position, clause in ipairs(statement.clauses) do
+                    lines[
+                        #lines + 1
+                    ] = prefix .. (position == 1 and "if (" or "else if (") .. emit.lane(clause.condition) .. ") {"
+                    nested(clause.body)
+                    lines[#lines + 1] = prefix .. "}"
+                end
+                if statement.elseBody ~= nil then
+                    lines[#lines + 1] = prefix .. "else {"
+                    nested(statement.elseBody)
+                    lines[#lines + 1] = prefix .. "}"
+                end
             end
         elseif op == "vwhile" then
             -- The loop runs while any lane is live, and a lane that retired

@@ -125,7 +125,7 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
     elseif op == "uniform" or op == "local" or op == "helper_param" then
         return op .. ":" .. node.type .. " " .. (node as scalarIR.Name).name
     elseif op == "constant_i32" then
-        return "constant:i32 " .. node.value
+        return "constant:" .. node.type .. " " .. node.value
     elseif op == "constant" then
         return "constant:f64 " .. node.value
     elseif op == "bool" then

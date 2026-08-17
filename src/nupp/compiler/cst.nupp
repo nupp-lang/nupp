@@ -27,9 +27,14 @@ interface cst.Hints
     --- Checked switch metadata consumed by lowering and editor tooling.
     switchStaticValue: any
 
+    switchStaticResult: any
+
     switchType: any
     switchSelectorType: any
     switchResultType: any
+    switchRecordIdentitySafe: boolean?
+    switchPlanTag: string?
+    switchPlanReason: string?
 
     --- Checker-only evidence for fixed-width refinements and physical boundaries.
     fixedWidthEstablished: any

@@ -16,6 +16,7 @@ local admit = require("nupp.compiler.aot.admit")
 local lexer = require("nupp.compiler.lexer")
 local cst = require("nupp.compiler.cst")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local switchplan = require("nupp.compiler.switchplan")
 
 local lower = {}
 
@@ -1041,16 +1042,70 @@ local function switchLocal(
         cName = resultBinding.cName,
         type = resultType
     )
+    local function staticNumber(caseValue: cst.Node): number?
+        local exact = caseValue.switchStaticValue
+        if exact and exact.tag == "literal" and type(exact.constant) == "number" then
+            return exact.constant
+        end
+        local value = caseValue
+        while value.kind == "paren" and value.expr do
+            value = value.expr
+        end
+        if value.kind == "number" and value.token then
+            return tonumber((value.token.text:gsub("_", "")))
+        elseif value.kind == "unop"
+            and value.op
+            and value.op.kind == "-"
+            and value.operand
+            and value.operand.kind == "number"
+            and value.operand.token
+        then
+            local parsed = tonumber((value.operand.token.text:gsub("_", "")))
+            return parsed and -parsed or nil
+        end
+
+        return nil
+    end
+
     local clauses: {scalarIR.Clause} = {}
+    local nativePlan = switchplan.native(selector.type)
+    local nativeArms: {scalarIR.SwitchArm} = {}
     for _, lowered in ipairs(arms) do
         local condition: scalarIR.Expr? = nil
+        local nativeLabels: {scalarIR.SwitchLabel} = {}
         for _, caseValue in ipairs(lowered.case.values or {}) do
-            local exact = caseValue.switchStaticValue
-            local constant = exact and exact.tag == "literal" and exact.constant or nil
-            if type(constant) ~= "number" or constant ~= math.floor(constant) then
+            local constant = staticNumber(caseValue)
+            if constant == nil then
                 context.reject(lower.site(caseValue), "native switch cases must be integer-valued numbers")
             end
-            local right = lower.expression(caseValue, environment, kernel.index, kernel)
+            local number = constant or 0
+            if number ~= math.floor(number) then
+                context.reject(lower.site(caseValue), "native switch cases must be integer-valued numbers")
+            end
+            local right: scalarIR.Expr
+            if nativePlan.tag == "NativeIntegerSwitch" then
+                if selector.type == "i32" and (number < -2147483648 or number > 2147483647) then
+                    context.reject(lower.site(caseValue), "native switch case is outside int32")
+                elseif selector.type == "u32" and (number < 0 or number > 4294967295) then
+                    context.reject(lower.site(caseValue), "native switch case is outside uint32")
+                end
+                local spelling = ("%.0f"):format(number)
+                right = new scalarIR.IntConstant(
+                    op = "constant_i32",
+                    value = spelling,
+                    type = selector.type,
+                    source = lower.site(caseValue)
+                )
+                nativeLabels[
+                    #nativeLabels + 1
+                ] = new scalarIR.SwitchLabel(
+                    value = spelling,
+                    type = selector.type as any,
+                    source = lower.site(caseValue)
+                )
+            else
+                right = lower.expression(caseValue, environment, kernel.index, kernel)
+            end
             local equal = new scalarIR.Binary(
                 op = "eq",
                 left = selectorRef,
@@ -1077,6 +1132,9 @@ local function switchLocal(
             body = {new scalarIR.Assign(op = "assign", values = {assignment}, source = lower.site(lowered.case))},
             source = lower.site(lowered.case)
         )
+        if nativePlan.tag == "NativeIntegerSwitch" then
+            nativeArms[#nativeArms + 1] = new scalarIR.SwitchArm(labels = nativeLabels)
+        end
     end
     local elseBody: {scalarIR.Statement}? = nil
     if otherwise and elseValue then
@@ -1086,7 +1144,19 @@ local function switchLocal(
         )
         elseBody = {new scalarIR.Assign(op = "assign", values = {elseAssignment}, source = lower.site(otherwise))}
     end
-    out[#out + 1] = new scalarIR.If(op = "if", clauses = clauses, elseBody = elseBody, source = lower.site(node))
+    local nativeSwitch = nativePlan.tag == "NativeIntegerSwitch" and new scalarIR.NativeSwitch(
+        selector = selectorRef,
+        arms = nativeArms
+    ) or nil
+    out[
+        #out + 1
+    ] = new scalarIR.If(
+        op = "if",
+        clauses = clauses,
+        elseBody = elseBody,
+        source = lower.site(node),
+        nativeSwitch = nativeSwitch
+    )
     environment[selectorName] = nil
 end
 

@@ -388,6 +388,30 @@ function expr.install(c: state.Checker): nil
         return nil
     end
 
+    --- Whether every value left at this point in a switch is a record instance.
+    --- A non-nil primitive is not enough: `getmetatable(1)` may still answer nil.
+    --- This stronger fact is what lets generation remove the safe-navigation guard
+    --- from a nominal record identity test without changing an open type case into an
+    --- indexing error.
+    local function recordOnly(t: Type): boolean
+        t = rawType(t)
+        if t.tag == "nominal" then
+            return t.declKind == "record"
+        elseif t.tag == "union" then
+            if #t.members == 0 then
+                return false
+            end
+            for _, member in ipairs(t.members) do
+                if not recordOnly(member) then
+                    return false
+                end
+            end
+            return true
+        end
+
+        return false
+    end
+
     local blockCompletesSwitch
     local function statCompletesSwitch(stat: Node): boolean
         local kind = stat.kind
@@ -449,6 +473,10 @@ function expr.install(c: state.Checker): nil
         local function checkResult(arm: cst.SwitchCase | cst.SwitchElse)
             if arm.expr then
                 results[#results + 1] = c.infer(arm.expr)
+                local exact = exactScalar(arm.expr)
+                if exact then
+                    arm.switchStaticResult = exact
+                end
             elseif arm.body then
                 local yielded: {Type} = {}
                 c.switchYieldStack[#c.switchYieldStack + 1] = yielded
@@ -501,6 +529,7 @@ function expr.install(c: state.Checker): nil
                     c.applyFacts({[selectorKey] = T.union(narrowed)})
                 end
             else
+                arm.switchRecordIdentitySafe = recordOnly(residue)
                 local target = c.resolveType(arm.type)
                 arm.switchType = target
                 local members = finiteMembers(residue)

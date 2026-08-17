@@ -357,11 +357,30 @@ record scalarIR.Clause
     source: scalarIR.Source?
 end
 
+--- One exact label on an AOT switch annotation. It is data on an ordinary `If`,
+--- not a statement opcode: every consumer which ignores it retains the comparison
+--- chain's complete semantics.
+record scalarIR.SwitchLabel
+    value: string
+    type: 'i32' | 'u32'
+    source: scalarIR.Source?
+end
+
+record scalarIR.SwitchArm
+    labels: {scalarIR.SwitchLabel}
+end
+
+record scalarIR.NativeSwitch
+    selector: scalarIR.Expr
+    arms: {scalarIR.SwitchArm}
+end
+
 record scalarIR.If
     op: 'if'
     clauses: {scalarIR.Clause}
     elseBody: {scalarIR.Statement}?
     source: scalarIR.Source?
+    nativeSwitch: scalarIR.NativeSwitch?
 end
 
 record scalarIR.While

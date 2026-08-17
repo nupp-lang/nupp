@@ -371,7 +371,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
     elseif verify.FIXED_CORRECTED[tostring(op)] ~= nil then
         corrected(node as scalarIR.Corrected, values, scope)
     elseif op == "constant_i32" then
-        holds(node.type == "i32", "integer constant type")
+        holds(node.type == "i32" or node.type == "u32", "integer constant type")
     elseif op == "constant" then
         holds(node.type == "f64" and tonumber(node.value) ~= nil, "invalid constant")
     elseif op == "bool" then

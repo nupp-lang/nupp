@@ -35,6 +35,7 @@ represented.
 
 local cst = require("nupp.compiler.cst")
 local predicate = require("nupp.compiler.predicate")
+local switchplan = require("nupp.compiler.switchplan")
 local stdlib = require("nupp.compiler.stdlib")
 local cabi = require("nupp.compiler.cabi")
 
@@ -887,6 +888,12 @@ function gen.generate(
     planHotRoot()
 
     local helpers = {byBody = {}, order = {}}
+    -- Switch maps are closed compiler data, declared once on the generated prologue's
+    -- one physical line. A bounded number receive direct locals. Later maps share one
+    -- indexed table, so a source file with many switches does not turn each map into a
+    -- new captured name in every function that reads one.
+    local PROLOGUE_CONSTANT_LOCALS = 32
+    local constants = {byBody = {}, order = {}, spilled = {}, spillName = nil}
 
     -- A function the generated module declares once, for work that would otherwise be
     -- written as a function where it is used.
@@ -914,6 +921,26 @@ function gen.generate(
             helpers.byBody[key] = name
             helpers.order[#helpers.order + 1] = {name = name, params = params, body = body}
         end
+
+        return name
+    end
+
+    local function declareConstant(prefix: string, body: string): string
+        local found = constants.byBody[body]
+        if found then
+            return found
+        end
+        local name
+        if #constants.order < PROLOGUE_CONSTANT_LOCALS then
+            name = reservedName(prefix .. tostring(#constants.order + 1))
+            constants.order[#constants.order + 1] = {name = name, body = body}
+        else
+            constants.spillName = constants.spillName or reservedName("__nuppSwitchConstants")
+            local index = #constants.spilled + 1
+            constants.spilled[index] = body
+            name = constants.spillName .. "[" .. tostring(index) .. "]"
+        end
+        constants.byBody[body] = name
 
         return name
     end
@@ -1877,7 +1904,7 @@ function gen.generate(
     -- Emits the runtime predicate used by a switch type case. This deliberately shares
     -- the same representations as `is`; the checker has already attached nominal,
     -- refinement and reified identities to the type node.
-    emitDepth.switchTest = function(t, subject, line)
+    emitDepth.switchTest = function(t, subject, line, recordIdentity, recordIdentitySafe)
         if t.kind == "tname" and t.base.kind == "nil" then
             e("(" .. subject .. "==nil)", line)
         elseif t.kind == "tname" and #t == 1 and IS_TYPE[t.base.text] then
@@ -1886,6 +1913,10 @@ function gen.generate(
             e(('(type(%s)=="function")'):format(subject), line)
         elseif t.wherePredicate then
             e("(" .. predicate.test(t.wherePredicate, subject) .. ")", line)
+        elseif t.recordName and recordIdentity then
+            e(("(%s==%s)"):format(recordIdentity, t.recordName), line)
+        elseif t.recordName and recordIdentitySafe then
+            e(("(getmetatable(%s).__index==%s)"):format(subject, t.recordName), line)
         elseif t.recordName then
             e(("(getmetatable(%s)?.__index==%s)"):format(subject, t.recordName), line)
         elseif t.reified then
@@ -2058,6 +2089,54 @@ function gen.generate(
         end
     end
 
+    local function renderSwitchScalar(value): string
+        if value.kind == "nil" then
+            return "nil"
+        end
+        return literal.renderData(value.value)
+    end
+
+    local function switchMap(node, plan, selectorName, resultName): nil
+        local facts = plan.facts
+        local sentinel = facts.nilResult and declareConstant("__nuppSwitchNil", "{}") or nil
+        local function renderedResult(value): string
+            if value.kind == "nil" then
+                return sentinel or "nil"
+            end
+            return renderSwitchScalar(value)
+        end
+
+        local entries = {}
+        local selector = selectorName
+        if plan.tag == "DenseIntegerMap" then
+            local byIndex = {}
+            for _, entry in ipairs(facts.entries) do
+                local index = (entry.key.value - facts.minimum) + 1
+                byIndex[index] = renderedResult(entry.value)
+            end
+            for index = 1, facts.span do
+                entries[index] = byIndex[index] or "nil"
+            end
+            local offset = facts.minimum == 0 and "+1" or (
+                "-(%s)+1"
+            ):format(renderSwitchScalar(new switchplan.Scalar(kind = "number", value = facts.minimum)))
+            selector = selectorName .. offset
+        else
+            for _, entry in ipairs(facts.entries) do
+                entries[#entries + 1] = "[" .. renderSwitchScalar(entry.key) .. "]=" .. renderedResult(entry.value)
+            end
+        end
+        local map = declareConstant("__nuppSwitchMap", "{" .. table.concat(entries, ",") .. "}")
+        e(resultName .. "=" .. map .. "[" .. selector .. "];", sourceLine(node))
+        local fallback = renderSwitchScalar(facts.fallback)
+        if sentinel then
+            e("if " .. resultName .. "==nil then " .. resultName .. "=" .. fallback)
+            e(" elseif " .. resultName .. "==" .. sentinel .. " then " .. resultName .. "=nil end;")
+        elseif facts.fallback.kind ~= "nil" then
+            e("if " .. resultName .. "==nil then " .. resultName .. "=" .. fallback .. " end;")
+        end
+    end
+
     lowerSwitch = function(node)
         if emitDepth.switchTemps[node] then
             return
@@ -2070,8 +2149,36 @@ function gen.generate(
         emit(node.selector)
         e((";local %s;"):format(resultName))
 
-        local first = true
+        local dispatch = switchplan.regular(node, coverageOn)
+        node.switchPlanTag = dispatch.tag
+        node.switchPlanReason = dispatch.reason
+        local mapped = dispatch.tag == "DenseIntegerMap"
+            or dispatch.tag == "SparseIntegerMap"
+            or dispatch.tag == "StringMap"
+        if mapped then
+            switchMap(node, dispatch, selectorName, resultName)
+            return
+        end
+
+        -- A leading run of record cases over a checker-proved record-only residue may
+        -- share the identity read. The proof is stronger than non-nil: a primitive can
+        -- be non-nil and still have no metatable.
+        local recordRun = 0
         for _, arm in ipairs(node.cases or {}) do
+            if arm.patternKind == "type" and arm.type and arm.type.recordName and arm.switchRecordIdentitySafe then
+                recordRun = recordRun + 1
+            else
+                break
+            end
+        end
+        local recordIdentity
+        if recordRun >= 2 then
+            recordIdentity = nextTemp()
+            e(("local %s=getmetatable(%s).__index;"):format(recordIdentity, selectorName), line)
+        end
+
+        local first = true
+        for armIndex, arm in ipairs(node.cases or {}) do
             e(first and "if " or "elseif ", sourceLine(arm))
             first = false
             if coverageOn then
@@ -2087,7 +2194,13 @@ function gen.generate(
                     emit(value)
                 end
             else
-                emitDepth.switchTest(arm.type, selectorName, sourceLine(arm))
+                emitDepth.switchTest(
+                    arm.type,
+                    selectorName,
+                    sourceLine(arm),
+                    armIndex <= recordRun and recordIdentity or nil,
+                    arm.switchRecordIdentitySafe
+                )
             end
             if coverageOn then
                 e(")")
@@ -5381,6 +5494,19 @@ function gen.generate(
             declarations[
                 #declarations + 1
             ] = ("const %s = function(%s) %s end;"):format(helper.name, helper.params, helper.body)
+        end
+        code = table.concat(declarations) .. code
+    end
+    if #constants.order > 0 or #constants.spilled > 0 then
+        local declarations = {}
+        for _, constant in ipairs(constants.order) do
+            declarations[#declarations + 1] = ("const %s=%s;"):format(constant.name, constant.body)
+        end
+        if #constants.spilled > 0 then
+            declarations[#declarations + 1] = ("const %s={};"):format(constants.spillName)
+            for index, body in ipairs(constants.spilled) do
+                declarations[#declarations + 1] = ("%s[%d]=%s;"):format(constants.spillName, index, body)
+            end
         end
         code = table.concat(declarations) .. code
     end

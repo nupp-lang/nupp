@@ -599,20 +599,19 @@ the diagnostic occurs before the backend limit.
 
 ## Dispatch planning and optimization
 
-The checked switch carries a dispatch plan consumed by both backends. Begin
-with direct ordered `if`/`elseif` semantics, then select only transformations
-whose predicates are known to be inert.
+The checked switch carries semantic facts consumed by both backends. Direct
+ordered `if`/`elseif` semantics is the universal fallback. The implemented
+backend-specific planning, measured thresholds and exclusions are specified in
+`plans/057-switch-dispatch-optimization.md`.
 
 ### LuaJIT backend
 
 - One to three scalar alternatives use linear equality tests.
-- A larger ordered integer set may use a balanced comparison tree when all
-  tests are primitive and benchmarks show fewer guards on representative hot
-  paths.
-- String cases remain linear initially. A lookup table is not automatically an
-  improvement and must not contain arm functions.
-- Adjacent concrete record cases share one `type`, metatable or `__index`
-  identity lookup instead of repeating the full nominal `is` expansion.
+- Eligible inert-result maps may use dense integer arrays or ordinary Lua
+  tables for strings and sparse integers.
+- Coverage, dynamic results and arbitrary arm bodies retain lexical branches.
+- Record-only residues remove the safe identity guard and a compatible leading
+  run may share its metatable identity read.
 - Struct cases reuse `ffi.istype`.
 - Refined interfaces retain source-order predicate evaluation and are neither
   reordered nor cached when doing so could suppress user code.
@@ -622,10 +621,10 @@ callbacks. The explicit switch tree supplies the information needed to explore
 those later, but each requires workload evidence beyond the ordinary benefit of
 clear source and shared type checks.
 
-Add bytecode assertions through `nupp bc --check` proving that a switch inside a
-hot loop emits no function construction and remains trace-recordable. Add
-benchmarks against equivalent handwritten `if` chains before setting decision
-tree thresholds.
+Bytecode assertions through `nupp bc --check` prove that a switch inside a hot
+loop emits no function construction and remains trace-recordable. The committed
+`bench/switch-dispatch.lua` compares every enabled map with equivalent ordered
+branches in traced and interpreted execution.
 
 ### AOT backend
 

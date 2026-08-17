@@ -185,6 +185,31 @@ function M.switchInsideAHotLoopBuildsNoFunction()
       "the switch loop remains trace-recordable:\n" .. out)
 end
 
+function M.mappedSwitchAllocatesNothingInsideItsHotLoop()
+   local source = table.concat({
+      "local total = 0",
+      "for i = 1, 3000 do",
+      "   local value = switch i % 5 do",
+      "      case 0 -> 10",
+      "      case 1 -> 20",
+      "      case 2 -> 30",
+      "      case 3 -> 40",
+      "      else -> 0",
+      "   end",
+      "   total = total + value",
+      "end",
+      "return total",
+      "",
+   }, "\n")
+   local dir = project{["switch-map.g.nupp"] = source}
+   local out, code = run(dir, "--check switch-map.g.nupp")
+   test.equal(code, 0, out)
+   assert(out:find("TGETV", 1, true),
+      "the dispatch is one indexed table read:\n" .. out)
+   assert(not out:find("never compiles", 1, true),
+      "the mapped switch loop remains trace-recordable:\n" .. out)
+end
+
 function M.jsonCarriesTheFindingAndItsCount()
    local dir = project{["bad.g.nupp"] = CAPTURING}
    local out, code = run(dir, "--format json bad.g.nupp")

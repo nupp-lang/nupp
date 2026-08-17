@@ -215,6 +215,109 @@ function M.emitPrintsTheIrAndTheBinding()
    assert(binding:find("unsafe do", 1, true), "the foreign call is the only unsafe part: " .. binding)
 end
 
+function M.fixedWidthSwitchesEmitNativeCDispatch()
+   local source = [[
+local span = require("nupp.span")
+
+local struct Signed
+    value: int32
+end
+
+local struct Unsigned
+    value: uint32
+end
+
+@aot
+local function signed(
+    exclusive output: span.WriteSpan<Signed>,
+    borrows input: span.Span<Signed>
+): nil
+    if output.count ~= input.count then
+        error("length mismatch", 2)
+    end
+    for i = 1, output.count do
+        local value = input:get(i).value
+        local result: int32 = switch value do
+            case -2147483648 -> 1
+            case 1, 2 -> 2
+            else -> 0
+        end
+        output:getMut(i).value = result
+    end
+end
+
+@aot
+local function unsigned(
+    exclusive output: span.WriteSpan<Unsigned>,
+    borrows input: span.Span<Unsigned>
+): nil
+    if output.count ~= input.count then
+        error("length mismatch", 2)
+    end
+    for i = 1, output.count do
+        local value = input:get(i).value
+        local result: uint32 = switch value do
+            case 0 -> 1
+            case 4294967295 -> 2
+            else -> 0
+        end
+        output:getMut(i).value = result
+    end
+end
+
+return {signed = signed, unsigned = unsigned, Signed = Signed, Unsigned = Unsigned}
+]]
+   local dir = project{["switch.nupp"] = source}
+   local out, code = run(dir, "--emit c switch.nupp")
+   test.equal(code, 0, out)
+   local first = assert(out:find("switch (", 1, true), out)
+   assert(out:find("switch (", first + 1, true),
+      "both exact-width selectors use native switch: " .. out)
+   assert(out:find("case (-INT32_C(2147483647) - INT32_C(1)):", 1, true),
+      "int32 minimum has an exact C spelling: " .. out)
+   assert(out:find("case INT32_C(1):", 1, true) and
+      out:find("case INT32_C(2):", 1, true),
+      "grouped labels remain separate C labels: " .. out)
+   assert(out:find("case UINT32_C(4294967295):", 1, true),
+      "uint32 maximum has an exact C spelling: " .. out)
+end
+
+function M.binary64SwitchesKeepComparisonBranches()
+   local dir = project{["switch.nupp"] = [[
+local span = require("nupp.span")
+
+local struct Value
+    value: int32
+end
+
+@aot
+local function classify(
+    exclusive output: span.WriteSpan<Value>,
+    borrows input: span.Span<Value>,
+    selector: number
+): nil
+    if output.count ~= input.count then
+        error("length mismatch", 2)
+    end
+    for i = 1, output.count do
+        local ignored = input:get(i).value
+        local result: int32 = switch selector do
+            case 1 -> 1.0
+            case 2 -> 2.0
+            else -> 0.0
+        end
+        output:getMut(i).value = result + ignored
+    end
+end
+return {classify = classify, Value = Value}
+]]}
+   local out, code = run(dir, "--emit c switch.nupp")
+   test.equal(code, 0, out)
+   test.equal(out:find("switch (", 1, true), nil,
+      "binary64 is not converted for native switch")
+   assert(out:find("if (", 1, true), out)
+end
+
 function M.jsonCarriesTheOutcomeAndTheEstimate()
    local dir = project{["compute.nupp"] = COMPUTE}
    local out, code = run(dir, "--json compute.nupp")

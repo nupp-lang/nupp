@@ -1,0 +1,203 @@
+--[[
+Backend-aware planning for a checked switch expression.
+
+The checker owns meaning: normalized labels, exact scalar results and type
+narrowing. This module only chooses a physical regular-Lua plan from those
+facts. A refusal is an ordinary ordered branch plan with a reason for tests and
+future inspection, never a source diagnostic.
+]]
+
+local cst = require("nupp.compiler.cst")
+
+local switchplan = {}
+
+record switchplan.Scalar
+    kind: 'nil' | 'boolean' | 'number' | 'string'
+    value: any
+end
+
+record switchplan.Entry
+    key: switchplan.Scalar
+    value: switchplan.Scalar
+end
+
+record switchplan.Facts
+    entries: {switchplan.Entry}
+    fallback: switchplan.Scalar
+    keyKind: string?
+    count: integer
+    minimum: number?
+    maximum: number?
+    span: integer?
+    density: number?
+    nilResult: boolean
+    eligible: boolean
+    reason: string
+end
+
+record switchplan.Plan
+    tag: 'OrderedBranches' | 'DenseIntegerMap' | 'SparseIntegerMap' | 'StringMap' | 'NativeIntegerSwitch'
+    reason: string
+    facts: switchplan.Facts?
+end
+
+--- These are deliberately conservative. The benchmark owns changes to them, and
+--- boundary tests name every one so a threshold cannot drift as an incidental edit.
+const switchplan.DENSE_MIN_CASES = 4
+
+const switchplan.STRING_MIN_CASES = 8
+const switchplan.SPARSE_MIN_CASES = 16
+const switchplan.DENSE_MIN_DENSITY = 0.5
+const switchplan.DENSE_MAX_SPAN = 4096
+const switchplan.MAX_MAP_CASES = 1024
+
+local function scalar(exact: any): switchplan.Scalar?
+    if not exact then
+        return nil
+    end
+    if exact.tag ~= "literal" then
+        return new switchplan.Scalar(kind = "nil")
+    end
+    local kind = type(exact.constant)
+    if kind ~= "boolean" and kind ~= "number" and kind ~= "string" then
+        return nil
+    end
+
+    return new switchplan.Scalar(kind = kind as any, value = exact.constant)
+end
+
+local function ordered(reason: string, facts: switchplan.Facts?): switchplan.Plan
+    return new switchplan.Plan(tag = "OrderedBranches", reason = reason, facts = facts)
+end
+
+--- Collects backend-neutral facts from checker annotations. It deliberately does not
+--- infer an expression or resolve a type again.
+function switchplan.facts(node: cst.SwitchExpr): switchplan.Facts
+    local entries: {switchplan.Entry} = {}
+    local keyKind: string? = nil
+    local minimum, maximum: number? = nil, nil
+    local nilResult = false
+    local eligible, reason = true, "static scalar result map"
+
+    for _, arm in ipairs(node.cases or {}) do
+        local result = scalar(arm.switchStaticResult)
+        if arm.patternKind ~= "static" then
+            eligible, reason = false, "a type case needs lexical branches"
+        elseif arm.body ~= nil or arm.expr == nil then
+            eligible, reason = false, "a block arm needs lexical branches"
+        elseif not result then
+            eligible, reason = false, "an arm result is not one inert scalar"
+        end
+        if result and result.kind == "nil" then
+            nilResult = true
+        end
+        for _, value in ipairs(arm.values or {}) do
+            local key = scalar(value.switchStaticValue)
+            if not key or key.kind == "nil" or key.kind == "boolean" then
+                eligible, reason = false, "the case family has no map plan"
+            elseif keyKind ~= nil and key.kind ~= keyKind then
+                eligible, reason = false, "mixed key families need lexical branches"
+            else
+                keyKind = key.kind
+            end
+            if key and result then
+                entries[#entries + 1] = new switchplan.Entry(key = key, value = result)
+            end
+            if key and key.kind == "number" then
+                local number = key.value as number
+                if number ~= math.floor(number) then
+                    eligible, reason = false, "non-integer numeric cases need lexical branches"
+                end
+                minimum = minimum == nil and number or math.min(minimum as number, number)
+                maximum = maximum == nil and number or math.max(maximum as number, number)
+            end
+        end
+    end
+
+    local fallback = node.elseCase and scalar(node.elseCase.switchStaticResult) or new switchplan.Scalar(kind = "nil")
+    if node.elseCase and (node.elseCase.body ~= nil or node.elseCase.expr == nil) then
+        eligible, reason = false, "a block fallback needs lexical branches"
+    elseif not fallback then
+        eligible, reason = false, "the fallback is not one inert scalar"
+        fallback = new switchplan.Scalar(kind = "nil")
+    end
+    if #entries > switchplan.MAX_MAP_CASES then
+        eligible, reason = false, "the map exceeds the generated-source case cap"
+    end
+
+    local span: integer? = nil
+    local density: number? = nil
+    if keyKind == "number" and minimum ~= nil and maximum ~= nil then
+        local width = (maximum as number) - (minimum as number) + 1
+        if width == math.floor(width) and width > 0 and width <= 9007199254740992 then
+            span = width as integer
+            density = #entries / width
+        else
+            eligible, reason = false, "the integer span cannot be represented exactly"
+        end
+    end
+
+    return new switchplan.Facts(
+        entries = entries,
+        fallback = fallback as switchplan.Scalar,
+        keyKind = keyKind,
+        count = #entries,
+        minimum = minimum,
+        maximum = maximum,
+        span = span,
+        density = density,
+        nilResult = nilResult,
+        eligible = eligible,
+        reason = reason
+    )
+end
+
+--- Selects the regular generated-Lua plan.
+function switchplan.regular(node: cst.SwitchExpr, coverage: boolean?): switchplan.Plan
+    local facts = switchplan.facts(node)
+    if coverage then
+        return ordered("coverage needs one condition for every case", facts)
+    elseif not facts.eligible then
+        return ordered(facts.reason, facts)
+    elseif facts.keyKind == "number" then
+        if facts.count < switchplan.DENSE_MIN_CASES then
+            return ordered("a small integer switch is cheaper as branches", facts)
+        end
+        if facts.span ~= nil
+            and facts.span <= switchplan.DENSE_MAX_SPAN
+            and facts.density ~= nil
+            and facts.density >= switchplan.DENSE_MIN_DENSITY
+        then
+            return new switchplan.Plan(
+                tag = "DenseIntegerMap",
+                reason = "dense static integer result map",
+                facts = facts
+            )
+        end
+        if facts.count >= switchplan.SPARSE_MIN_CASES then
+            return new switchplan.Plan(
+                tag = "SparseIntegerMap",
+                reason = "sparse static integer result map",
+                facts = facts
+            )
+        end
+        return ordered("a small sparse integer switch is cheaper as branches", facts)
+    elseif facts.keyKind == "string" and facts.count >= switchplan.STRING_MIN_CASES then
+        return new switchplan.Plan(tag = "StringMap", reason = "static string result map", facts = facts)
+    elseif facts.keyKind == "string" then
+        return ordered("a small string switch is cheaper as branches", facts)
+    end
+
+    return ordered("the case family has no map plan", facts)
+end
+
+--- Selects the AOT annotation plan from the already-lowered physical selector type.
+function switchplan.native(selectorType: string): switchplan.Plan
+    if selectorType == "i32" or selectorType == "u32" then
+        return new switchplan.Plan(tag = "NativeIntegerSwitch", reason = "an established fixed-width selector")
+    end
+
+    return ordered("the native selector is not an established 32-bit integer")
+end
+
+return switchplan

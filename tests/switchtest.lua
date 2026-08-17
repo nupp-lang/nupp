@@ -41,6 +41,16 @@ local function run(source)
    return chunk()
 end
 
+local function generate(source, coverage)
+   local result, diagnostics = checked(source)
+   assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].message or
+      "switch source checks")
+   local code, lowering = gen.generate(result, "switch-test.g.nupp", coverage)
+   assertEq(#lowering, 0, lowering[1] and lowering[1].msg or
+      "switch source lowers")
+   return code, result
+end
+
 local function loweringCodes(source)
    local result, diagnostics = checked(source)
    assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].message or
@@ -250,6 +260,141 @@ function M.coverageCountsTestsAndSelectedArmRegions()
    end
    assertEq(branches, 2)
    assertEq(regions, 3)
+end
+
+function M.denseIntegerMapsHandleEveryKindOfMiss()
+   local one, four, fraction, negative, far, nan, infinity = run(table.concat({
+      "local function classify(value: number): string",
+      "   return switch value do",
+      "      case 1 -> 'one'",
+      "      case 2 -> 'two'",
+      "      case 3 -> 'three'",
+      "      case 4 -> 'four'",
+      "      else -> 'miss'",
+      "   end",
+      "end",
+      "return classify(1), classify(4), classify(1.5), classify(-1),",
+      "   classify(1000), classify(0 / 0), classify(math.huge)",
+   }, "\n"))
+   assertEq(one, "one")
+   assertEq(four, "four")
+   assertEq(fraction, "miss")
+   assertEq(negative, "miss")
+   assertEq(far, "miss")
+   assertEq(nan, "miss")
+   assertEq(infinity, "miss")
+end
+
+function M.stringAndSparseMapsHandleHitsAndMisses()
+   local lines = {
+      "local function word(value: string): string?",
+      "   return switch value do",
+   }
+   for index = 1, 8 do
+      lines[#lines + 1] = ("      case 'k%d' -> %s"):format(index,
+         index == 3 and "nil" or ("'v%d'"):format(index))
+   end
+   lines[#lines + 1] = "      else -> 'miss'"
+   lines[#lines + 1] = "   end"
+   lines[#lines + 1] = "end"
+   lines[#lines + 1] = "local function sparse(value: number): integer"
+   lines[#lines + 1] = "   return switch value do"
+   for index = 1, 16 do
+      lines[#lines + 1] = ("      case %d -> %d"):format(index * 100 + 1, index)
+   end
+   lines[#lines + 1] = "      else -> 0"
+   lines[#lines + 1] = "   end"
+   lines[#lines + 1] = "end"
+   lines[#lines + 1] = "return word('k1'), word('k3'), word('no'), sparse(1601), sparse(2)"
+   local first, nilResult, missing, sparseHit, sparseMiss = run(table.concat(lines, "\n"))
+   assertEq(first, "v1")
+   assertEq(nilResult, nil)
+   assertEq(missing, "miss")
+   assertEq(sparseHit, 16)
+   assertEq(sparseMiss, 0)
+end
+
+function M.sentinelAndCoverageAreConditional()
+   local source = table.concat({
+      "local selector: string = 'k1'",
+      "local selected = switch selector do",
+      "   case 'k1' -> 'v1'",
+      "   case 'k2' -> 'v2'",
+      "   case 'k3' -> 'v3'",
+      "   case 'k4' -> 'v4'",
+      "   case 'k5' -> 'v5'",
+      "   case 'k6' -> 'v6'",
+      "   case 'k7' -> 'v7'",
+      "   case 'k8' -> 'v8'",
+      "   else -> 'miss'",
+      "end",
+      "return selected",
+   }, "\n")
+   local code = generate(source)
+   assert(code:find("__nuppSwitchMap", 1, true), code)
+   assertEq(code:find("__nuppSwitchNil", 1, true), nil,
+      "a map without a nil result needs no sentinel")
+
+   local covered = generate(source, true)
+   assertEq(covered:find("__nuppSwitchMap", 1, true), nil,
+      "coverage keeps per-case conditions")
+end
+
+function M.recordIdentityGuardUsesTheCheckerProof()
+   local safe = table.concat({
+      "local record First value: integer end",
+      "local record Second value: integer end",
+      "local function get(value: First | Second): integer",
+      "   return switch value do",
+      "      case is First {value} -> value",
+      "      case is Second {value} -> value",
+      "   end",
+      "end",
+      "return get(new First(value = 1))",
+   }, "\n")
+   local safeCode = generate(safe)
+   assert(safeCode:find("=getmetatable(", 1, true), safeCode)
+   assertEq(safeCode:find("?.__index", 1, true), nil,
+      "a record-only residue needs no safe guard")
+
+   local open = table.concat({
+      "local record Item value: integer end",
+      "local function get(value: Item?): integer",
+      "   return switch value do",
+      "      case is Item {value} -> value",
+      "      case nil -> 0",
+      "   end",
+      "end",
+      "return get(nil)",
+   }, "\n")
+   local openCode = generate(open)
+   assert(openCode:find("?.__index", 1, true), openCode)
+end
+
+function M.manyMapsSpillBehindOnePrologueUpvalue()
+   local lines = {}
+   for functionIndex = 1, 34 do
+      lines[#lines + 1] = ("local function f%d(value: string): integer%s"):format(
+         functionIndex, functionIndex == 34 and "?" or "")
+      lines[#lines + 1] = "   return switch value do"
+      for caseIndex = 1, 8 do
+         local result = functionIndex == 34 and caseIndex == 3 and "nil" or
+            tostring(functionIndex * 100 + caseIndex)
+         lines[#lines + 1] = ("      case 'f%d-k%d' -> %s"):format(
+            functionIndex, caseIndex, result)
+      end
+      lines[#lines + 1] = "      else -> 0"
+      lines[#lines + 1] = "   end"
+      lines[#lines + 1] = "end"
+   end
+   lines[#lines + 1] = "return f1('f1-k1'), f34('f34-k8'), f34('f34-k3')"
+   local code = generate(table.concat(lines, "\n"))
+   assert(code:find("__nuppSwitchConstants", 1, true), code)
+   local chunk = assert(loadstring(code, "@switch_spill"))
+   local first, last, nilResult = chunk()
+   assertEq(first, 101)
+   assertEq(last, 3408)
+   assertEq(nilResult, nil)
 end
 
 function M.switchDiagnosticsAreSpecific()

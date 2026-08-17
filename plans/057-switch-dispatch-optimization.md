@@ -1,6 +1,6 @@
 # Switch dispatch optimization
 
-Status: planned — follows `plans/055-switch-expressions.md`
+Status: implemented — follows `plans/055-switch-expressions.md`
 
 ## Decision
 
