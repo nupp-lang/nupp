@@ -8,6 +8,7 @@
 local reference = require("nupp.compiler.reference")
 local explain = require("nupp.compiler.explain")
 local lints = require("nupp.compiler.lints")
+local trace = require("nupp._trace")
 local json = require("cjson").new()
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -134,7 +135,13 @@ function M.chaptersAreDiscoverableAndFocused()
    local catalogue = reference.catalog()
    assert(catalogue:find("language", 1, true), "lists the language chapter")
    assert(catalogue:find("cli", 1, true), "lists the CLI chapter")
+   assert(catalogue:find("performance", 1, true),
+      "lists the performance chapter")
+   assert(catalogue:find("performance ", 1, true),
+      "aligns the longest chapter name")
    local cli = assert(reference.chapter("cli"), "finds the CLI chapter")
+   local performance = assert(reference.chapter("performance"),
+      "finds the performance chapter")
    assert(reference.chapter("missing") == nil, "does not invent chapters")
    local markdown = reference.chapterMarkdown(cli)
    assert(markdown:find("# Nupp CLI reference", 1, true), "titles CLI output")
@@ -143,6 +150,31 @@ function M.chaptersAreDiscoverableAndFocused()
       "keeps coverage guidance in the CLI chapter")
    local skill = reference.skill(cli)
    assert(skill:find("name: nupp-cli", 1, true), "names focused CLI skill")
+
+   local performanceMarkdown = reference.chapterMarkdown(performance)
+   assert(performanceMarkdown:find("# Nupp Performance reference", 1, true),
+      "titles performance output")
+   assert(performanceMarkdown:find("nupp lsp trace-check --json", 1, true),
+      "puts deterministic inspection before profiling")
+   assert(performanceMarkdown:find("nupp run --profile", 1, true),
+      "teaches sampling")
+   assert(performanceMarkdown:find("nupp run --jit-aborts", 1, true),
+      "teaches abort collection")
+   assert(performanceMarkdown:find("jit/loop-function-construction", 1, true),
+      "takes static reasons from the shared catalog")
+   for _, reason in ipairs(trace.records()) do
+      if reason.explanation then
+         assert(performanceMarkdown:find(reason.id, 1, true),
+            "performance skill names " .. reason.id)
+         assert(performanceMarkdown:find(reason.explanation, 1, true),
+            "performance skill shares the explanation for " .. reason.id)
+      end
+   end
+   local performanceSkill = reference.skill(performance)
+   assert(performanceSkill:find("name: nupp-performance", 1, true),
+      "names focused performance skill")
+   assert(performanceSkill:find("performance regressions", 1, true),
+      "describes the requests that load it")
 end
 
 function M.referenceCommandListsAndSelectsChapters()
@@ -156,6 +188,11 @@ function M.referenceCommandListsAndSelectsChapters()
    cliPipe:close()
    assert(cli:find("# Nupp CLI reference", 1, true),
       "CLI chapter is selectable")
+   local performancePipe = assert(io.popen(('%q reference performance'):format(NUPP)))
+   local performance = performancePipe:read("*a")
+   performancePipe:close()
+   assert(performance:find("# Nupp Performance reference", 1, true),
+      "performance chapter is selectable")
 end
 
 

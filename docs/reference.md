@@ -1917,7 +1917,7 @@ does not need every flag in context.
 - `test` runs the configured test command; `coverage` runs it against a separate
   instrumented build and writes a report.
 - `lsp` answers semantic source questions; `explain` expands a diagnostic; and
-  `reference` returns these focused language and CLI skills.
+  `reference` returns focused language, CLI, and performance skills.
 - `tasks`, `clean`, `doc`, and `import-c` work with project configuration,
   outputs, documentation, and C declarations.
 
@@ -1975,3 +1975,107 @@ committing. Do not add tests solely to raise a percentage: prefer decisions,
 error paths, and boundary cases whose expected result a test can state clearly.
 The HTML report shows the same locations alongside highlighted Nupp and
 generated Lua when visual context helps.
+
+## Performance
+
+### Use the least expensive evidence first
+
+Use static answers before measuring a process. They are reproducible, cheap to
+repeat after an edit, and point back to authored source:
+
+```bash
+nupp check --json
+nupp lsp trace-check --json src/system.nupp LINE COLUMN
+nupp bc --check --json src/system.nupp
+```
+
+`check` enforces ordinary diagnostics and every written `@jit` contract.
+`lsp trace-check` inspects the smallest function enclosing a 1-based byte
+position without changing source. `bc --check` examines the exact generated
+artifact at the selected optimization level; it exits 1 only for a must-reach
+unconditional blocker, while may-reach blockers and risks remain visible in
+JSON.
+
+Read `help`, `notes`, `related`, call paths, and whole machine-applicable fixes
+before editing. Use `--schema` before automating against any JSON output. A
+clean static result means no catalogued blocker in that scope for that trace
+profile. It does not prove the code runs, becomes hot, or is fast.
+
+### Keep hot paths recordable
+
+Put `@jit` on important subsystem boundaries whose checked call graph is meant
+to avoid known recorder cliffs. Do not blanket-annotate every helper: the
+annotation is an absence-of-catalogued-blockers contract, not a request to make
+a function hot or a promise that LuaJIT compiles it.
+
+The common repair is structural. Declare one function outside a repeated loop
+and pass varying values as arguments; do not replace a capture with shared
+mutable state. Keep intentionally cold calls outside an `@jit` path. Use
+`jit.off(function)` only when the interpreter transition is the intended
+boundary. Resolve dynamic call targets when a transported contract is needed.
+
+`nupp explain REASON` gives the current explanation and a specific repair when
+one is known. Stable reason IDs, rather than raw LuaJIT strings, are the API.
+
+
+| Reason | Class | Meaning | Repair |
+| --- | --- | --- | --- |
+| `jit/loop-function-construction` | blocker | LuaJIT has no recorder for constructing a function | declare one function outside the loop and pass what varies to it |
+| `jit/loop-upvalue-close` | blocker | LuaJIT has no recorder for closing an upvalue | move the captured lifetime outside the repeated region |
+| `jit/ffi-vararg-policy` | risk | this variadic FFI form depends on argument types and the target ABI | move the call behind an explicit jit.off boundary when it is not a hot operation |
+| `jit/ffi-callback` | risk | a C call that re-enters Lua through this callback cannot remain on a trace | disable the callback and its calling boundary with jit.off |
+| `jit/disabled-callee` | blocker | the resolved callee is explicitly disabled with jit.off | remove @jit from the caller or keep the disabled call outside its checked hot path |
+| `jit/dynamic-call` | risk | the call target is dynamic, so its bytecode recordability is unknown | Inspect runtime evidence before changing code |
+
+Reports: `NUPP2502`, `NUPP2505`, `NUPP2514`, `NUPP2515`, `NUPP2707`. `nupp
+explain <code>` says more.
+
+### Find hot interpreted work
+
+After static blockers are handled, sample a representative workload:
+
+```bash
+nupp run --profile app.nupp
+nupp run --profile=2 --profile-out frame.out app.nupp
+```
+
+The collapsed-stack output opens in speedscope.app, FlameGraph, or inferno.
+Read the leaf suffix before guessing: `_[N]` is native, `_[I]` interpreted,
+`_[C]` C, `_[G]` garbage collection, and `_[J]` the JIT compiler. Prioritize
+hot `_[I]` frames. A shorter native stack can be normal because LuaJIT inlines
+compiled calls.
+
+Use `nupp.zone` around phases such as `frame/physics`, not around each loop
+iteration. Recognized `zone.push` and discarded `zone.pop` statements lower
+inline. Zones are optional attribution; trace checking and abort collection do
+not require them.
+
+### Explain trace aborts
+
+Collect recorder events only around the interesting workload:
+
+```bash
+nupp run --jit-aborts app.nupp
+nupp run --jit-aborts=jit-aborts.json --json app.nupp
+```
+
+Correlate sites that are both sampled interpreted and observed aborting, while
+preserving those as separate measurements. A `blocker` is an operation the
+selected recorder refuses; a `risk` depends on runtime state or limits; a
+`stop` is ordinary trace formation and is not a problem. An unknown raw event
+stays visible as `jit/runtime-unknown`; never invent a repair for it.
+
+Sampling and trace hooks have real cost and are process-wide. Stop each session
+after its question is answered. Ordinary check, build, and run attach no hook
+and allocate no report state.
+
+### Prove an optimization helped
+
+Use a workload that represents the application, warm it consistently, and
+compare the same trace profile and optimization level. Check JIT-on and JIT-off
+answers before and after. Preserve error order, effects, ownership, stack
+traces, and source attribution.
+
+Do not rewrite code merely to silence a warning. Removing an abort does not
+show that the replacement is faster, and profiling one input does not establish
+a static rule. Keep a benchmark for every optimization that survives review.

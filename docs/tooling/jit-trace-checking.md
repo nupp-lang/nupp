@@ -38,6 +38,17 @@ For continuous enforcement, put `@jit` on a function. For investigation, use the
 Code command or lightbulb without changing source. A successful one-shot check offers
 **Add `@jit` contract** if the declaration can carry it.
 
+Give an agent the complete static-first performance workflow as a focused skill:
+
+```bash
+nupp reference performance --skill \
+  -o .claude/skills/nupp-performance/SKILL.md
+```
+
+The generated skill belongs to the compiler being run. Its trigger covers slow code,
+hot loops, JIT behaviour, profiler output, and performance regressions; its body leads
+with trace checking before it asks the agent to measure a process.
+
 For CI, use both static scopes that matter to the project:
 
 ```bash

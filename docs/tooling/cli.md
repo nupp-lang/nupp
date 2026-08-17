@@ -971,14 +971,14 @@ Reference: docs/modules.md#diagnostics
 List or print a focused Nupp reference chapter
 
 Usage:
-  nupp reference [language|cli|all] [--format markdown|skill|json] [-o PATH]
+  nupp reference [language|cli|performance|all] [--format markdown|skill|json] [-o PATH]
 
 With no chapter, lists the available focused references. `all` is the
-complete language reference, around fifteen thousand tokens, meant to be pasted
-whole.
+complete Nupp reference, meant to be pasted whole.
 
   nupp reference cli
   nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
+  nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
   nupp reference all > docs/reference.md
   nupp reference --format skill -o .claude/skills/nupp/SKILL.md
 
@@ -1002,8 +1002,9 @@ With no chapter, it lists what there is to print:
 ```text [nupp reference]
 Nupp reference chapters
 
-  language   Nupp syntax, types, runtime constructs, lints, and diagnostics.
-  cli        Nupp commands, JSON contracts, testing, and coverage workflows.
+  language    Nupp syntax, types, runtime constructs, lints, and diagnostics.
+  cli         Nupp commands, JSON contracts, testing, and coverage workflows.
+  performance Nupp trace checking, sampling, abort analysis, zones, and benchmark workflow.
 
 Run `nupp reference <chapter>` for one chapter, or `nupp reference all` for the complete reference.
 ```

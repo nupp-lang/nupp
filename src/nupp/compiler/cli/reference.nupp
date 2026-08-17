@@ -16,14 +16,14 @@ local spec = require("nupp.compiler.cli.spec")
 local command = spec.command{
     name = "reference",
     summary = "List or print a focused Nupp reference chapter",
-    usage = {"nupp reference [language|cli|all] [--format markdown|skill|json] [-o PATH]"},
-    positionals = {{name = "chapter", choices = {"language", "cli", "all"}}},
+    usage = {"nupp reference [language|cli|performance|all] [--format markdown|skill|json] [-o PATH]"},
+    positionals = {{name = "chapter", choices = {"language", "cli", "performance", "all"}}},
     intro = [[With no chapter, lists the available focused references. `all` is the
-complete language reference, around fifteen thousand tokens, meant to be pasted
-whole.
+complete Nupp reference, meant to be pasted whole.
 
   nupp reference cli
   nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
+  nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
   nupp reference all > docs/reference.md
   nupp reference --format skill -o .claude/skills/nupp/SKILL.md]],
     options = {
