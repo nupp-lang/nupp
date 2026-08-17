@@ -67,7 +67,6 @@ jobs:
       # and a step placed after one that is red for an unrelated reason is a step
       # that never runs -- which is what happened the first time this landed.
       - name: Compare the AOT lane and scalar bodies
-        if: runner.os != 'Windows'
         shell: bash
         run: bench/kernel-subset-spike/crosscheck.sh
 
@@ -93,6 +92,24 @@ jobs:
           NUPP_CHECK_GANG_FEATURES: baseline
           NUPP_CHECK_CFLAGS: " "
         run: bench/kernel-subset-spike/crosscheck.sh
+
+      # Windows is a supported target for this backend and MSVC is not a
+      # supported compiler for it: the generated C needs `vector_size` and
+      # `__builtin_convertvector`, which Clang and MinGW GCC have and MSVC has
+      # neither of. Nothing about that is Windows-specific, so the way to know it
+      # holds is to run the same differential there rather than to reason about
+      # it -- which is what this job did not do while Windows was skipped.
+      - name: Name the C compiler this Windows runner offers
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          for candidate in clang gcc cc; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              echo "$candidate: $("$candidate" --version 2>&1 | head -1)"
+            else
+              echo "$candidate: absent"
+            fi
+          done
 
       # Everything so far has been compiled by Clang. `aot=require` will hand
       # the generated C to whatever compiler the user has, so if GCC does not

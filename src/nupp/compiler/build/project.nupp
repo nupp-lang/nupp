@@ -335,7 +335,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             (target.name or opts.target or "default") as string,
             (oldState.aot or {}) as {[string]: string},
             oldState.aotLibrary,
-            target.aotFeatures as string?
+            target.aotFeatures as string?,
+            target.aotTarget as string?,
+            target.aotCflags as {string}?
         )
         report:clear()
         if produced == nil then

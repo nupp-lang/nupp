@@ -675,9 +675,54 @@ it was told to would produce an artifact nobody could account for.
 
 The generated C needs `__attribute__((vector_size))` and
 `__builtin_convertvector`: GCC 9 and later, and every Clang. **MSVC has
-neither**, so a Windows build is `off` or `emit-c` until someone wants
-`clang-cl`. That is a supported-platform statement of the kind every native
-feature makes, not a disclaimer.
+neither.**
+
+That is a statement about a compiler, not about a platform. Windows is an
+ordinary target: Clang and MinGW GCC both run there, both have the two
+extensions, and a Windows project with either needs nothing further — the same
+`aot = "require"` builds a `.dll` beside the artifact and the same wrapper loads
+it. CI runs the lane-versus-scalar differential on Windows for exactly this
+reason, rather than reasoning about it from the other two platforms.
+
+A project whose only compiler is MSVC selects `emit-c` and hands the C to it,
+which is what `emit-c` is for.
+
+### Building for another machine
+
+`aotTarget` names the machine the compiled code is for, separately from where
+the Lua runs:
+
+```lua
+targets = {
+   handheld = {
+      kind = "modules",
+      entries = {"game"},
+      aot = "emit-c",
+      aotTarget = "x86_64-unknown-linux-gnu",
+      aotFeatures = "avx2",
+   },
+}
+```
+
+The triple decides the gang widths, how a shared library is produced and what it
+is called — a Windows target gets a `.dll` and no `-lm` whether or not the build
+is running on Windows. The feature tier is checked against that target's
+architecture rather than against the set of all tiers, so asking aarch64 for
+`avx2` is refused where it is written.
+
+`emit-c` needs nothing installed for the target: it writes that target's C and
+stops, which is the answer when the compiler for a platform is somebody else's.
+
+`aot = "require"` cross-compiles too, and then it needs the target's headers and
+libraries the way any cross build does. Give them through `aotCflags`, which is
+appended after the fixed flags and is part of what the library is keyed on:
+
+```lua
+aotCflags = {"--sysroot=/opt/sysroots/linux-x86_64"},
+```
+
+Without one, the failure names the missing thing rather than leaving you with
+the compiler's own message about a missing `math.h`.
 
 The flags are fixed:
 
@@ -816,11 +861,14 @@ Named so you can tell what you are looking at:
   is still named with the path the build wrote, so it has the problem `@aot`
   code no longer has. The `@` mechanism is general and would fix it; nothing has
   been changed there yet.
-- **Mixed-width gangs.** Width selection is all-or-nothing: a single binary64
-  varying value drops the whole loop to four lanes, where the rule should be a
-  gang size fixed from register pressure with each value taking however many
-  registers its element needs. A loop that mixes widths does at least get four
-  lanes now rather than none — see below.
+- **Mixed-width gangs.** Width selection is all-or-nothing within a width: a
+  single binary64 varying value drops the whole loop to the binary64 gang, where
+  the rule should be a gang size fixed from register pressure with each value
+  taking however many registers its element needs. A loop that mixes widths does
+  at least get a gang now rather than none — see below.
+- **Multiversioning.** A build pins one feature tier. Dispatching between
+  several at run time, so one binary uses AVX2 where it is present and the
+  baseline where it is not, is a separate decision nobody has taken.
 
 ## See also
 

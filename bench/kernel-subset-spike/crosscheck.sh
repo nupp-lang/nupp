@@ -82,6 +82,17 @@ if [ -n "$GANG_FEATURES" ]; then
     GANG_FLAGS="$GANG_FLAGS --features $GANG_FEATURES"
 fi
 
+# Windows will not execute a file without the extension, and its C runtime keeps
+# the math functions in the CRT rather than in a separate library to link.
+EXE=""
+MATH="-lm"
+case $(uname -s) in
+    MINGW*|MSYS*|CYGWIN*)
+        EXE=".exe"
+        MATH=""
+        ;;
+esac
+
 ./bin/nupp build
 mkdir -p "$OUT"
 
@@ -93,8 +104,8 @@ for kernel in $KERNELS; do
     $CC -std=c11 -O2 -ffp-contract=off -fno-fast-math \
         -Wall -Wextra -Werror $DIALECT \
         $TARGET_FLAGS ${NUPP_CHECK_CFLAGS:-$DEFAULT_CFLAGS} -DKERNEL_C="\"$ROOT/$OUT/$kernel.c\"" \
-        "$SPIKE/checks/$kernel.c" -lm -o "$OUT/$kernel"
-    if ${NUPP_CHECK_RUNNER:-} "$OUT/$kernel"; then
+        "$SPIKE/checks/$kernel.c" $MATH -o "$OUT/$kernel$EXE"
+    if ${NUPP_CHECK_RUNNER:-} "$OUT/$kernel$EXE"; then
         :
     else
         status=1

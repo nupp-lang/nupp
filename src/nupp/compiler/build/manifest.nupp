@@ -280,6 +280,8 @@ local TARGET_KEYS = {
     "kind",
     "aot",
     "aotFeatures",
+    "aotTarget",
+    "aotCflags",
     "description",
     "outDir",
     "output",
@@ -600,6 +602,29 @@ local function validateTarget(target, label, dependencies)
             return nil, label .. ".aot must be \"off\", \"emit-c\" or \"require\""
         end
     end
+    if target.aotTarget ~= nil then
+        -- Which machine the compiled code is for. Separate from the target's own
+        -- `platforms`, which says where the Lua runs: an artifact can be built
+        -- on one machine for another, and the C compiler has to be told so.
+        local valid, err = validateString(target.aotTarget, label .. ".aotTarget")
+        if not valid then
+            return nil, err
+        end
+        local _, targetErr = aotTargets.select(target.aotTarget as string, nil)
+        if targetErr ~= nil then
+            return nil, label .. ".aotTarget: " .. tostring(targetErr)
+        end
+    end
+    if target.aotCflags ~= nil then
+        -- Whatever the generated C needs that the backend cannot know: a
+        -- sysroot, an include path, a vendor flag. Appended after the fixed
+        -- flags, and part of what the library is keyed on, because a flag that
+        -- changes the output has to be.
+        local valid, err = validateArray(target.aotCflags, label .. ".aotCflags", "string")
+        if not valid then
+            return nil, err
+        end
+    end
     if target.aotFeatures ~= nil then
         -- Which instructions the build promises the machine has, which decides
         -- how wide a gang can be. Named rather than detected: a build that
@@ -609,14 +634,9 @@ local function validateTarget(target, label, dependencies)
         if not valid then
             return nil, err
         end
-        if aotTargets.TIERS[target.aotFeatures] == nil then
-            local known: {string} = {}
-            for tier in pairs(aotTargets.TIERS) do
-                known[#known + 1] = tier
-            end
-            table.sort(known)
-
-            return nil, label .. ".aotFeatures must be one of " .. table.concat(known, ", ")
+        local _, tierErr = aotTargets.select(target.aotTarget as string?, target.aotFeatures as string)
+        if tierErr ~= nil then
+            return nil, label .. ".aotFeatures: " .. tostring(tierErr)
         end
     end
     local valid, err = validateArray(

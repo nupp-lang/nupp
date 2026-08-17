@@ -79,6 +79,30 @@ function target.architecture(triple: string): string
     return triple:match("^([^-]+)") or triple
 end
 
+--- The triple this machine is, or nothing when it is not a modeled target.
+---
+--- What tells a cross-compilation from an ordinary one, which is the only thing
+--- that decides whether the compiler is told a target at all.
+function target.hostTriple(): string?
+    return targetLayout.hostKey()
+end
+
+--- The operating system one triple names.
+---
+--- Read from the triple rather than from the machine this is running on,
+--- because those are the same only when nothing is being cross-compiled -- and
+--- what it decides is how a shared library is produced and what it is called,
+--- which belong to where the artifact will run.
+function target.system(triple: string): string
+    if triple:find("darwin", 1, true) ~= nil then
+        return "darwin"
+    elseif triple:find("windows", 1, true) ~= nil then
+        return "windows"
+    end
+
+    return "linux"
+end
+
 --- The tiers an architecture may select, widest last.
 function target.tiers(architecture: string): {string}
     if architecture == "aarch64" then

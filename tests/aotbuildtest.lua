@@ -4,6 +4,7 @@
 -- it produces is a file on disk; neither is visible from inside the compiler.
 
 local test = require("assert")
+local aot = require("nupp.compiler.build.aot")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -236,8 +237,10 @@ function M.anUnknownFeatureTierIsRejected()
 
    local out, code = build(dir)
    test.equal(code, 1, out)
-   assert(out:find("aotFeatures must be one of", 1, true),
-      "and names the tiers there are rather than only refusing: " .. out)
+   assert(out:find("aotFeatures", 1, true) and out:find("has no feature tier avx9", 1, true),
+      "naming the key and what was wrong with it: " .. out)
+   assert(out:find("it has", 1, true),
+      "and the tiers this architecture does have, which is the actionable part: " .. out)
 end
 
 --- The widest tier this host's architecture has, and whether asking for it
@@ -283,6 +286,53 @@ function M.theFeatureTierReachesTheBackend()
    assert(key(dir), "and the artifact is recorded under a key that carries the tier")
 end
 
+--- The manifest with extra keys spliced into the native target.
+local function withKeys(dir, extra)
+   local handle = assert(io.open(dir .. "/nupp.lua", "rb"))
+   local text = handle:read("*a")
+   handle:close()
+   handle = assert(io.open(dir .. "/nupp.lua", "wb"))
+   handle:write((text:gsub('outDir = "build/native",', 'outDir = "build/native", ' .. extra)))
+   handle:close()
+end
+
+function M.anUnknownCrossTargetIsRejected()
+   local dir = project("emit-c")
+   withKeys(dir, 'aotTarget = "sparc-sun-solaris",')
+   local out, code = build(dir)
+   test.equal(code, 1, out)
+   assert(out:find("aotTarget", 1, true) and out:find("unknown target", 1, true),
+      "and names the key as well as the value: " .. out)
+end
+
+function M.aTierIsCheckedAgainstTheTargetItAppliesTo()
+   local dir = project("emit-c")
+   -- `avx2` is a real tier and not one aarch64 has. Checking it against the set
+   -- of all tiers would accept it; it has to be checked against the target.
+   withKeys(dir, 'aotTarget = "aarch64-apple-darwin", aotFeatures = "avx2",')
+   local out, code = build(dir)
+   test.equal(code, 1, out)
+   assert(out:find("aarch64 has no feature tier avx2", 1, true), out)
+end
+
+function M.crossCompilingEmitsThatTargetsCode()
+   local dir = project("emit-c")
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   local host = assert(read(dir .. "/build/native/aot/src/kernel.c"))
+
+   -- Plain x86-64 holds a 16-byte gang, whatever this machine holds. Emitting C
+   -- needs no toolchain for that target, which is what makes `emit-c` the answer
+   -- for a platform whose compiler is somebody else's.
+   withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu",')
+   out, code = build(dir)
+   test.equal(code, 0, "a target this machine is not still emits\n" .. out)
+   local cross = assert(read(dir .. "/build/native/aot/src/kernel.c"))
+   assert(cross:find("vector_size(16)", 1, true),
+      "for the width that target can hold: " .. cross:sub(1, 200))
+   assert(cross ~= host, "which is not what the host produced")
+end
+
 function M.anUnknownPolicyIsRejected()
    local dir = project("sometimes")
    local out, code = build(dir)
@@ -291,21 +341,28 @@ function M.anUnknownPolicyIsRejected()
 end
 
 
---- What this host suffixes a shared library with, or nothing when it is one the
---- suite does not know how to name. `require` is a supported-platform
---- statement, so a host outside it skips rather than fails.
+--- What this host calls a shared library, asked of the compiler rather than
+--- guessed from `uname`. The two could drift, and the one that decides where
+--- the file actually goes is the compiler.
 local function librarySuffix()
-   local pipe = assert(io.popen("uname -s"))
-   local system = pipe:read("*l")
-   pipe:close()
-   if system == "Darwin" then return ".dylib" end
-   if system == "Linux" then return ".so" end
-   return nil
+   local targets = require("nupp.compiler.aot.target")
+   local host = assert(targets.select(nil, nil), "this host is a modeled target")
+   return select(2, aot.linkage(host))
+end
+
+--- Whether `require` can be exercised here at all.
+---
+--- The condition is a C compiler, not a platform: `require` works wherever
+--- Clang or a new enough GCC does, and works nowhere without one. A machine
+--- with neither skips these rather than failing, because what it is missing is
+--- a build dependency the project opts into.
+local function hasToolchain()
+   return (aot.toolchain()) ~= nil
 end
 
 --- Where `require` puts the library for the `native` target.
 local function libraryPath(dir)
-   return dir .. "/build/native/lib/libnative_aot" .. librarySuffix()
+   return dir .. "/" .. aot.libraryPath("build/native", "native", librarySuffix())
 end
 
 --- The key the linked library was recorded under, or nothing.
@@ -315,7 +372,7 @@ local function libraryKey(dir)
 end
 
 function M.requireBuildsTheLibraryFromTheGeneratedC()
-   if librarySuffix() == nil then return end
+   if not hasToolchain() then return end
 
    local dir = project("require")
    local out, code = build(dir)
@@ -328,7 +385,7 @@ function M.requireBuildsTheLibraryFromTheGeneratedC()
 end
 
 function M.theLibraryIsNotRelinkedWhenNothingChanged()
-   if librarySuffix() == nil then return end
+   if not hasToolchain() then return end
 
    local dir = project("require")
    local out, code = build(dir)
@@ -343,7 +400,7 @@ function M.theLibraryIsNotRelinkedWhenNothingChanged()
 end
 
 function M.aMissingLibraryIsBuiltAgain()
-   if librarySuffix() == nil then return end
+   if not hasToolchain() then return end
 
    local dir = project("require")
    local out, code = build(dir)
@@ -360,7 +417,7 @@ function M.aMissingLibraryIsBuiltAgain()
 end
 
 function M.aProjectWithNoAotFunctionLinksNothing()
-   if librarySuffix() == nil then return end
+   if not hasToolchain() then return end
 
    local dir = project("require")
    -- The policy says what to do with `@aot` code, not that there has to be any.
@@ -378,7 +435,7 @@ function M.aProjectWithNoAotFunctionLinksNothing()
 end
 
 function M.theBuiltLibraryLoadsAndComputes()
-   if librarySuffix() == nil then return end
+   if not hasToolchain() then return end
 
    local dir = project("require")
    local out, code = build(dir)
@@ -465,7 +522,7 @@ return {scaleBoth = scaleBoth, shiftBoth = shiftBoth, Point = Point,}
 ]]
 
 function M.twoAotFunctionsOverOneStructBuild()
-   if librarySuffix() == nil then return end
+   if not hasToolchain() then return end
 
    local dir = project("require")
    local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
@@ -487,7 +544,7 @@ function M.twoAotFunctionsOverOneStructBuild()
 end
 
 function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
-   if librarySuffix() == nil then return end
+   if not hasToolchain() then return end
 
    -- Two builds of one source, one calling the compiled code and one not.
    -- Nothing else about `@aot` matters if these disagree: the annotation says
@@ -561,7 +618,7 @@ function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
 end
 
 function M.theLibraryTravelsWithWhatWasBuilt()
-   if librarySuffix() == nil then return end
+   if not hasToolchain() then return end
 
    local dir = project("require")
    local out, code = build(dir)
@@ -604,7 +661,7 @@ function M.theLibraryTravelsWithWhatWasBuilt()
 end
 
 function M.aLibraryLeftBehindIsANamedFailure()
-   if librarySuffix() == nil then return end
+   if not hasToolchain() then return end
 
    local dir = project("require")
    local out, code = build(dir)
@@ -630,7 +687,7 @@ function M.aLibraryLeftBehindIsANamedFailure()
 end
 
 function M.aBundleCarriesItsCompiledLibrary()
-   if librarySuffix() == nil then return end
+   if not hasToolchain() then return end
 
    -- A bundle is one file someone moves somewhere. Its library lives in the
    -- build directory the bundle was assembled in, which is not where the bundle
@@ -659,7 +716,7 @@ return {
    local out, code = build(dir)
    test.equal(code, 0, out)
    assert(read(dir .. "/dist/app.lua"), "the bundle was written where it was asked for")
-   assert(read(dir .. "/dist/lib/libnative_aot" .. librarySuffix()),
+   assert(read(dir .. "/dist/lib/" .. aot.libraryFile("native", librarySuffix())),
       "and the compiled library went with it rather than staying in build/")
 end
 
@@ -683,8 +740,6 @@ end
 -- compiler happens to be installed. A machine with only one of the two cannot
 -- exercise the other's path any other way, and getting this wrong means
 -- refusing a working compiler or accepting one that cannot build the C.
-local aot = require("nupp.compiler.build.aot")
-
 local BANNERS = {
    {"Apple clang version 16.0.0 (clang-1600.0.26.6)", "clang", 16},
    {"clang version 18.1.8 (Fedora 18.1.8-1.fc40)", "clang", 18},

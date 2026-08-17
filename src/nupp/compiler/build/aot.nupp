@@ -62,9 +62,13 @@ end
 --- What the generated C needs from a compiler.
 ---
 --- `vector_size` and `__builtin_convertvector` are in GCC 9 and later and in
---- every Clang. MSVC has neither, so a Windows build is `off` or `emit-c` until
---- someone wants `clang-cl`. That is a supported-platform statement of the kind
---- every native feature makes, not a disclaimer.
+--- every Clang. MSVC has neither.
+---
+--- That is a statement about a compiler rather than about a platform. Windows is
+--- an ordinary target here: Clang and MinGW GCC both run there and both have the
+--- two extensions, and a Windows project that has one needs nothing further. A
+--- project whose only compiler is MSVC selects `emit-c` and hands the C to it --
+--- which is what `emit-c` is for -- or installs one of the two.
 const aot.NEEDS = "__attribute__((vector_size)) and __builtin_convertvector"
 
 --- The oldest GCC that has them.
@@ -130,9 +134,22 @@ end
 --- One function so the flags that are compiled with and the flags that are
 --- keyed on cannot come apart. A relink that used a flag the key never saw
 --- would produce a library the build could not account for.
-function aot.compileFlags(selected: targets.Target, chain: aot.Toolchain): {string}
+function aot.compileFlags(selected: targets.Target, chain: aot.Toolchain, extra: {string}?): {string}
     local flags: {string} = {}
     for _, flag in ipairs(aot.CFLAGS) do
+        flags[#flags + 1] = flag
+    end
+    -- Only when the triple is not this machine's. Clang cross-compiles from one
+    -- installation and takes `-target`; GCC does not, and passing it a flag it
+    -- has never heard of to say "produce what you already produce" would refuse
+    -- every ordinary build to serve the uncommon one.
+    if selected.triple ~= targets.hostTriple() then
+        flags[#flags + 1] = "-target"
+        flags[#flags + 1] = selected.triple
+    end
+    -- Last, so a project can override what is above it, and part of what the
+    -- library is keyed on because a flag that changes the output has to.
+    for _, flag in ipairs(extra or {}) do
         flags[#flags + 1] = flag
     end
     for _, flag in ipairs(aot.DIALECT_FLAGS[chain.dialect] or {}) do
@@ -273,11 +290,14 @@ end
 --- The host's rather than the selected target's: `require` builds something
 --- this build's own loader will open. Cross-compiling to a target whose objects
 --- this machine cannot load is `emit-c`, which is what it is for.
-function aot.linkage(): ({string}, string)
-    local osName = ((jit and jit.os or "") as string):lower()
-    if osName == "osx" then
+function aot.linkage(selected: targets.Target): ({string}, string)
+    local system = targets.system(selected.triple)
+    if system == "darwin" then
         return {"-dynamiclib"}, ".dylib"
-    elseif osName == "windows" then
+    elseif system == "windows" then
+        -- No `-lm`: the math functions are in the C runtime there rather than in
+        -- a library to link, and asking for one that does not exist is an error
+        -- rather than a no-op.
         return {"-shared"}, ".dll"
     end
 
@@ -360,19 +380,25 @@ end
 --- @param sources the C the emitter wrote
 --- @param output where the library goes
 --- @return nothing, or what went wrong
-function aot.link(chain: aot.Toolchain, selected: targets.Target, sources: {string}, output: string): string?
+function aot.link(
+    chain: aot.Toolchain,
+    selected: targets.Target,
+    sources: {string},
+    output: string,
+    extra: {string}?
+): string?
     local ordered: {string} = {}
     for _, one in ipairs(sources) do
         ordered[#ordered + 1] = one
     end
     table.sort(ordered)
 
-    local shared, _ = aot.linkage()
+    local shared, _ = aot.linkage(selected)
     local argv: {string} = {chain.command}
     for _, flag in ipairs(shared) do
         argv[#argv + 1] = flag
     end
-    for _, flag in ipairs(aot.compileFlags(selected, chain)) do
+    for _, flag in ipairs(aot.compileFlags(selected, chain, extra)) do
         argv[#argv + 1] = flag
     end
     argv[#argv + 1] = "-o"
@@ -389,8 +415,20 @@ function aot.link(chain: aot.Toolchain, selected: targets.Target, sources: {stri
     local code, text = process.capture(argv)
     if code ~= 0 then
         os.remove(staged)
+        -- A cross build fails for one reason far more often than any other, and
+        -- the compiler's own message for it names a missing header rather than
+        -- the missing thing.
+        local hint = ""
+        if selected.triple ~= targets.hostTriple() then
+            hint = (
+                "\ncompiling for %s on %s needs that target's headers and libraries: "
+            ):format(
+                selected.triple,
+                tostring(targets.hostTriple())
+            ) .. "give the sysroot through aotCflags, or select aot = \"emit-c\" and build the C where it runs"
+        end
 
-        return "compiling the generated C failed:\n" .. text
+        return "compiling the generated C failed:\n" .. text .. hint
     end
 
     local binary, readErr = fs.readFile(staged)
@@ -421,14 +459,15 @@ function aot.emitC(
     outDir: string,
     roots: {string},
     previous: {[string]: string},
-    features: string?
+    features: string?,
+    triple: string?
 ): ({aot.Emitted}?, string?, {[string]: compile.Artifacts})
     -- The host's target, at the tier the manifest asked for or its
     -- architecture's default. Conservative when nothing asked: a binary built
     -- for AVX2 does not run on a machine without it, so widening the promise is
     -- something a project says out loud.
     local produced: {[string]: compile.Artifacts} = {}
-    local selected, targetErr = targets.select(nil, features)
+    local selected, targetErr = targets.select(triple, features)
     if selected == nil then
         return nil, tostring(targetErr), produced
     end
@@ -528,9 +567,11 @@ function aot.apply(
     name: string,
     previous: {[string]: string},
     previousLibraryKey: string?,
-    features: string?
+    features: string?,
+    triple: string?,
+    cflags: {string}?
 ): (aot.Result?, string?)
-    local emitted, emitErr, produced = aot.emitC(root, outDir, roots, previous, features)
+    local emitted, emitErr, produced = aot.emitC(root, outDir, roots, previous, features, triple)
     if emitted == nil then
         return nil, emitErr
     end
@@ -542,7 +583,7 @@ function aot.apply(
     if chain == nil then
         return nil, tostring(chainErr)
     end
-    local selected, targetErr = targets.select(nil, features)
+    local selected, targetErr = targets.select(triple, features)
     if selected == nil then
         return nil, tostring(targetErr)
     end
@@ -554,13 +595,13 @@ function aot.apply(
         keys[#keys + 1] = one.key
     end
 
-    local shared, suffix = aot.linkage()
+    local shared, suffix = aot.linkage(selected as targets.Target)
     local library = aot.libraryPath(outDir, name, suffix)
     local reference = aot.libraryReference(name, suffix)
     local key = aot.libraryKey(
         keys,
         chain as aot.Toolchain,
-        aot.compileFlags(selected as targets.Target, chain as aot.Toolchain),
+        aot.compileFlags(selected as targets.Target, chain as aot.Toolchain, cflags),
         shared
     )
 
@@ -568,7 +609,7 @@ function aot.apply(
     -- library it describes has to still be there. A relink costs seconds; a
     -- stale library loaded because a digest agreed costs a wrong answer.
     if previousLibraryKey ~= key or not fs.exists(library) then
-        local linkErr = aot.link(chain as aot.Toolchain, selected as targets.Target, sources, library)
+        local linkErr = aot.link(chain as aot.Toolchain, selected as targets.Target, sources, library, cflags)
         if linkErr ~= nil then
             return nil, tostring(linkErr)
         end
