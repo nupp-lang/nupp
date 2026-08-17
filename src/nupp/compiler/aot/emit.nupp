@@ -649,7 +649,30 @@ end
 ---
 --- A mask lane is as wide as the values it selects between, so a binary64 gang
 --- masks with 64-bit lanes and a 32-bit gang with 32-bit ones.
-const emit.MASK_C = {["m64x4"] = "long long", ["m32x8"] = "int", ["m64x2"] = "long long", ["m32x4"] = "int",}
+const emit.MASK_C = {
+    ["m64x4"] = "long long",
+    ["m32x8"] = "int",
+    ["m64x2"] = "long long",
+    ["m32x4"] = "int",
+    ["m32x2"] = "int",
+}
+
+--- The C integer type behind one mask.
+---
+--- Raises rather than returning nothing. A missing entry used to reach the
+--- output as the word `nil` in a typedef, which is a C compiler's problem to
+--- report on whichever target first selected that gang -- and this backend's to
+--- have emitted.
+---
+--- @raises when the mask has no C type, which is a gang naming one nobody added
+function emit.maskC(mask: string): string
+    local spelling = emit.MASK_C[mask]
+    if spelling == nil then
+        error("no C type for the mask " .. tostring(mask), 0)
+    end
+
+    return spelling as string
+end
 
 --- What every generated file starts with.
 function emit.includes(): {string}
@@ -745,8 +768,8 @@ local function vectorTypes(shape: lane.Shape): {string}
         local maskWidth = tostring(math.floor((tonumber(maskElement:match("%d+")) or 0) / 8 * maskLanes))
         lines[
             #lines + 1
-        ] = "typedef " .. tostring(
-            emit.MASK_C[mask]
+        ] = "typedef " .. emit.maskC(
+            mask
         ) .. " ks_" .. mask .. " __attribute__((vector_size(" .. maskWidth .. ")));"
     end
 
