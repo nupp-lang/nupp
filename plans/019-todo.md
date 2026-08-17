@@ -287,6 +287,17 @@ work makes sense in.
         gangs without a project promising instructions its users may not have.
         Until then the conservative default costs half the lanes on the most
         common target, which is a real price and a stated one.
+        Scoped in [multiversioning.md](059-multiversioning.md), which is the
+        decision this wanted before any code: one translation unit per
+        `(source, tier)`, all of them linked into the one library that already
+        travels, tier-suffixed symbols, and the wrapper binding the widest symbol
+        the machine reports at load. The run-time feature detection this compiler
+        has none of is one function the emitter writes in C and the baseline unit
+        exports, rather than anything new in the runtime, the native provider or
+        the FFI layer. The single-unit alternative -- `target("avx2")` per
+        function -- was tried rather than assumed away: it compiles clean only
+        with the attribute on every helper too, which is the cost the flag route
+        does not have.
   - [ ] **Put `@aot` in front of something real.** Every measurement lives under
         `bench/kernel-subset-spike/`. Tecs is the obvious first consumer, since
         the kernel shapes were borrowed from it to begin with. A feature that
