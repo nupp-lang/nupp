@@ -164,6 +164,12 @@ work makes sense in.
       binary32 Mandelbrot runs at about 119 MPix/s against 72 for the binary64
       body and 35 for forced-scalar C, which is the same for both kernels --
       the gain is lane density, not cheaper arithmetic. What is unfinished:
+  - [x] withdraw `@aot(simd = true)`. Done: the annotation is gone from the
+        language, the lane pass runs on every `@aot` function whose shape admits
+        it, `lanes = true` and `lanes = false` override the estimate in either
+        direction, and `nupp aot --check` exits 1 for a map loop that lowered
+        scalar, naming the construct that stopped it.
+        The original entry follows.
   - [ ] withdraw `@aot(simd = true)`. Decided; the reasoning and its cost are
         recorded in [portable-vectors.md](037-portable-vectors.md). The
         annotation was justified as asserting iteration independence, and in the
