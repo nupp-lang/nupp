@@ -6,16 +6,18 @@ IR, and emits private C — and where the function is one numeric map loop, it
 also rewrites that loop to run several iterations at once. Nothing in the source
 names a lane, a mask, or a vector width.
 
-**Status.** The backend is implemented, lives under `src/nupp/compiler/aot/`,
-and is reachable from `nupp aot`. A build selects what to do with it — see
-[Build policy](#build-policy): `off` by default, `emit-c` to write the C beside
-the build, `require` to compile it into the project's own shared library and
-call it.
+A build selects what to do with it — see [Build policy](#build-policy): `off` by
+default, `emit-c` to write the C beside the build, `require` to compile it into
+the project's own shared library and call it. `nupp check` validates the target
+and the structural subset, so `@aot` on something the backend could not compile
+is an error rather than a surprise later, and a check never needs a C compiler.
 
-`nupp check` validates the target and the structural subset, so `@aot` on
-something the backend could not compile is an error rather than a surprise
-later, and a check never needs a C compiler. Everything below is real output on
-the kernels committed under `bench/kernel-subset-spike/`.
+Everything below is real output on the kernels committed under
+`bench/kernel-subset-spike/`, and every claim it makes is executed on Linux,
+macOS and Windows rather than argued from one of them — see
+[How it is checked](#how-it-is-checked). What the backend does not do is in
+[What is not here yet](#what-is-not-here-yet); those are edges, not unkept
+promises.
 
 ## What the annotation buys
 
