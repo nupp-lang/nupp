@@ -1,21 +1,7 @@
-/* Potta One, self-hosted rather than fetched from a font CDN so the site keeps
- * working offline and asks nobody else for a request. This is the Latin subset
- * of the SIL Open Font License release; the license travels beside the file, as
- * that license requires of anyone who redistributes it. The URL is relative to
- * the merged stylesheet under assets/, not to this file. */
-@font-face {
-  font-family: "Potta One";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("../fonts/potta-one/potta-one-latin.woff2") format("woff2");
-}
-
 :root {
   /* The documentation theme starts at 16px; raise the site-wide rem scale by
    * roughly 15% so prose and supporting UI read comfortably at normal zoom. */
   font-size: 115%;
-  --nuppdoc-heading-font: "Potta One", var(--nuppdoc-font);
   --nupp-woodblock-vermilion: #a74732;
   --nupp-woodblock-vermilion-hover: #8d3829;
   /* Headings are drawn in the other theme's paper: cream on the dark ground,
@@ -134,21 +120,8 @@
   padding: 1rem 1.1rem;
 }
 
-/* The display face names things: the wordmark and the one title a page opens
- * with. Section headings below that are read rather than looked at, so they
- * stay in the text face and keep only the heading color.
- *
- * Potta One ships one weight and is already heavy, so ask for 400 rather than
- * the theme's 700: a bolder weight than the file holds is drawn by smearing the
- * outline, which thickens the brush strokes unevenly. Its own fit is tight
- * enough that the theme's negative tracking closes the counters. */
-.nuppdoc-brand-name,
-.nuppdoc-content h1 {
-  font-family: var(--nuppdoc-heading-font);
-  font-weight: 400;
-  letter-spacing: normal;
-}
-
+/* Headings are the text face throughout; the heading color is what marks
+ * them out. */
 .nuppdoc-content h1,
 .nuppdoc-content h2,
 .nuppdoc-content h3 {
