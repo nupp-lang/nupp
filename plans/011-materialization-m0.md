@@ -1,5 +1,10 @@
 # Materialization M0 benchmark contract
 
+Status: historical evidence contract, superseded in architecture. The gate it
+froze was met and is recorded in [materialization.md](012-materialization.md);
+the pure-Lua general machine it measured was replaced by native LPeg and the PEG
+bytecode VM was removed. Kept for the thresholds and the reasoning behind them.
+
 This document freezes the evidence contract before measuring the PEG
 materialization prototypes. Results are added in a later commit; changing a
 threshold afterward requires a new benchmark decision and an explanation.

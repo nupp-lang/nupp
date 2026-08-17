@@ -1,17 +1,17 @@
 # Project templates and `nupp init`
 
-> **Status: implemented, phases 1–4, with phase 5's fixture.** `nupp init`
-> ships with the `app` and `lib` built-ins, directory and repository templates,
-> and the step restriction; `nupp rock init` delegates to the same scaffolder.
-> The fixture test proving a game-shaped manifest needs no new build fields is
-> in `tests/templatetest.lua`. The Tecs template itself waits on Tecs moving to
-> Nupp and belongs in that repository.
->
-> Three things the implementation settled differently from the text below, each
-> noted where it applies: built-in templates live in a top-level `templates/`
-> rather than under `src`, the payload's `.git` pruning is by directory name
-> rather than anything Git-aware, and the sandbox's instruction budget needs the
-> JIT turned off for the chunk or it never fires.
+Status: implemented, phases 1–4, with phase 5's fixture. `nupp init`
+ships with the `app` and `lib` built-ins, directory and repository templates,
+and the step restriction; `nupp rock init` delegates to the same scaffolder.
+The fixture test proving a game-shaped manifest needs no new build fields is
+in `tests/templatetest.lua`. The Tecs template itself waits on Tecs moving to
+Nupp and belongs in that repository.
+
+Three things the implementation settled differently from the text below, each
+noted where it applies: built-in templates live in a top-level `templates/`
+rather than under `src`, the payload's `.git` pruning is by directory name
+rather than anything Git-aware, and the sandbox's instruction budget needs the
+JIT turned off for the chunk or it never fires.
 
 ## Decision
 

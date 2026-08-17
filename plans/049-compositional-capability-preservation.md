@@ -1,10 +1,10 @@
 # Compositional capability preservation
 
-> Implemented. Callable contracts retain their exact result/source relation through
-> assignment and overloads. Preservation transports complete capabilities through
-> aggregates, packs and alternatives, unions/intersections, mapped/projected types,
-> closures, callable records, and branch-consistent returns without copying movable
-> obligations.
+Status: implemented. Callable contracts retain their exact result/source
+relation through assignment and overloads. Preservation transports complete
+capabilities through aggregates, packs and alternatives, unions/intersections,
+mapped/projected types, closures, callable records, and branch-consistent
+returns without copying movable obligations.
 
 ## Decision
 

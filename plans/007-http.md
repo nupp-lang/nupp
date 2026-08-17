@@ -1,9 +1,10 @@
 # HTTP client: a design record
 
-Status: proposed. [Suspension](018-suspension.md), concurrent suspension drivers, buffers,
-byte views, readers, writers, [files](006-files.md), paths and URIs have landed. One small
-waitable-source extension described below, the HTTP provider and its performance
-benchmarks have not.
+Status: implemented, without the performance benchmarks. `nupp.io.http` is a
+1000-line checked client over a native Reqwest/Tokio provider — clients,
+requests, progressive bounded bodies, reader and file bodies, and affine
+cleanup — covered by `tests/httpnativetest.lua`. The benchmarks this plan asks
+for have not been written, and there is no `docs/` page for the module yet.
 
 ## Decision
 

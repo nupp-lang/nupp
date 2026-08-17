@@ -1,9 +1,9 @@
 # Derives
 
-> **Status: superseded and implemented by
-> [comptime-derive-recipes.md](033-comptime-derive-recipes.md).** `Debug`,
-> `Default`, and `JSON` are compiler-shipped comptime providers using
-> the same sealed evaluation and closed result boundary as package providers.
+Status: superseded and implemented by
+[comptime-derive-recipes.md](033-comptime-derive-recipes.md). `Debug`,
+`Default`, and `JSON` are compiler-shipped comptime providers using the same
+sealed evaluation and closed result boundary as package providers.
 
 ## Decision
 

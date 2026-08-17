@@ -1,5 +1,8 @@
 # Nupp TODO
 
+Status: living list, not a plan. Items are checked off in place, so the boxes
+below are the status; nothing here is a commitment or a schedule.
+
 Grouped by the part of the system a change lands in. Nothing here is
 prioritised by tier; the ordering inside a section is roughly the order the
 work makes sense in.

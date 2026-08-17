@@ -1,9 +1,9 @@
 # Lua ownership capabilities
 
-> Implemented. The checker stores per-value roots, access, regions, anchors, and
-> retentions in canonical `CapabilityFacts`; obligation, move, and active-loan state
-> have one query path. The old public ownership-policy aliases and borrowed/pinned
-> wrapper spellings are gone.
+Status: implemented. The checker stores per-value roots, access, regions,
+anchors, and retentions in canonical `CapabilityFacts`; obligation, move, and
+active-loan state have one query path. The old public ownership-policy aliases
+and borrowed/pinned wrapper spellings are gone.
 
 ## Decision
 

@@ -1,8 +1,8 @@
 # Automatic destruction for ordinary owners
 
-> **Status: implemented.** Locally droppable ordinary owners auto-destroy at
-> lexical scope exit. `with` now layers an exact non-escaping borrowed extent
-> over that same cleanup model; it does not introduce another runtime.
+Status: implemented. Locally droppable ordinary owners auto-destroy at lexical
+scope exit. `with` now layers an exact non-escaping borrowed extent over that
+same cleanup model; it does not introduce another runtime.
 
 ## Decision
 

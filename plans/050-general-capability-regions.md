@@ -1,10 +1,11 @@
 # General capability regions
 
-> Implemented with an intentionally exact loop invariant. One stable segment algebra
-> answers fields, tuple slots, dereferences, exact/unknown indexes, checked intervals,
-> parent/descendant, and audited partition overlap. Loop back edges must reproduce the
-> header's complete capability and live-region state; Nupp does not infer a changing
-> loop-carried lifetime. Unrelated span compiler behavior remains.
+Status: implemented, with an intentionally exact loop invariant. One stable
+segment algebra answers fields, tuple slots, dereferences, exact/unknown
+indexes, checked intervals, parent/descendant, and audited partition overlap.
+Loop back edges must reproduce the header's complete capability and live-region
+state; Nupp does not infer a changing loop-carried lifetime. Unrelated span
+compiler behavior remains.
 
 ## Decision
 

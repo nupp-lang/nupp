@@ -1,5 +1,8 @@
 # First-class type packs and variadic generics
 
+Status: implemented. See the Type packs and variadic generics section of
+`nupp reference language`.
+
 ## Decision
 
 Nupp will represent a Lua value sequence as a first-class type pack rather than

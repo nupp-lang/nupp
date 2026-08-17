@@ -1,5 +1,9 @@
 # D6 user-defined derive provider decision
 
+Status: historical rejection, superseded by
+[comptime-derive-recipes.md](033-comptime-derive-recipes.md). Nothing proposed
+here is current; the prototype it describes was removed.
+
 ## Decision
 
 This historical rejection was superseded by

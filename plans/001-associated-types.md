@@ -1,11 +1,11 @@
 # Associated types
 
-> **Status: proposed. Not implemented.** A first attempt landed and was withdrawn
-> — see [Why the first attempt was withdrawn](#why-the-first-attempt-was-withdrawn)
-> for what it got wrong and the order to rebuild it in. No `associated type`
-> syntax exists today. Three repairs the attempt turned up were kept, because
-> none of them is about this feature: splitting `>>`, fingerprinting binders by
-> position, and the generic-method inference fix.
+Status: implemented, on the second attempt. `associated type` is in the parser
+and the language reference, reported by NUPP2127-NUPP2129 and
+NUPP2134-NUPP2135, and covered by the `tests/associated*test.lua` suites. A
+first attempt landed and was withdrawn before this one; [Why the first attempt
+was withdrawn](#why-the-first-attempt-was-withdrawn) is kept as the record of
+what it got wrong and the order the rebuild followed.
 
 ## Decision
 

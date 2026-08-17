@@ -1,5 +1,8 @@
 # Struct layout reflection
 
+Status: implemented. `layoutof(T)` answers a reified struct's layout; see
+`docs/c-interop.md`.
+
 ## Decision
 
 Nupp will answer, at run time, what a `struct`'s layout is: its field names in

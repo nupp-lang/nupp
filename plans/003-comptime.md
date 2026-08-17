@@ -1,5 +1,9 @@
 # Nupp comptime plan
 
+Status: implemented. C1 through C4 landed; each milestone section below records
+its own outcome. Evaluation runs in an isolated worker with bounded resources,
+cancellation, and crash recovery.
+
 ## Decision
 
 `comptime` is deterministic compile-time evaluation of ordinary nupp code. It

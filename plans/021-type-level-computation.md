@@ -1,9 +1,9 @@
 # Type-level computation
 
-> **Status: implemented through T6.** This is a checker feature, not an
-> extension of `comptime`. T1--T4 provide finite structural reduction; T5 adds
-> bounded direct recursion beneath match results; T6 connects a reduced tuple
-> or array to a callable pack with `unpackof`.
+Status: implemented through T6. This is a checker feature, not an
+extension of `comptime`. T1--T4 provide finite structural reduction; T5 adds
+bounded direct recursion beneath match results; T6 connects a reduced tuple
+or array to a callable pack with `unpackof`.
 
 ## Decision
 

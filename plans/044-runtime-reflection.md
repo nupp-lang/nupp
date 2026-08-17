@@ -1,5 +1,9 @@
 # Runtime reflection and schema extensions
 
+Status: implemented. `Record.reflect()` returns one cached immutable descriptor
+and a declaration value carries `Type<Record>`; see
+`docs/concepts/reflection.md`.
+
 ## Decision
 
 Nupp will make every record declaration a visible first-class nominal type

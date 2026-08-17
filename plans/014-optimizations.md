@@ -1,5 +1,10 @@
 # Compiler optimizations
 
+Status: living catalog, partly implemented. OPT-1 through OPT-6 have landed and
+are registered in `src/nupp/compiler/optimize.nupp`; the rest of the catalog
+below is unbuilt. `OPT-7` appears only as an example of the numbering
+convention, not as a planned pass. Each pass keeps its code once assigned.
+
 ## Position
 
 Nupp compiles to Lua source for one backend, and that backend has a

@@ -1,9 +1,9 @@
 # Registering a terminal named in a type
 
-> **Status: resolved.** The built-in `Owned` constructor now resolves its optional
-> terminal through the const-function path, and the declaration publishes that
-> terminal through the runtime cleanup registry. A top-level owner exercises the
-> ordering edge in the regression suite.
+Status: resolved. The built-in `Owned` constructor now resolves its optional
+terminal through the const-function path, and the declaration publishes that
+terminal through the runtime cleanup registry. A top-level owner exercises the
+ordering edge in the regression suite.
 
 ## What is being built
 

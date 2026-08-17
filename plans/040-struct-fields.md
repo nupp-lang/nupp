@@ -1,19 +1,19 @@
 # Fields a struct cannot hold
 
-> **Status: SF-S1 through SF-S3 proposed; SF-S4 onward blocked and not
-> recommended on current evidence.** See §Anchoring, which is why.
->
-> **Revised twice after review. Not implemented.** Nothing here is
-> built. The measurements are from the compiler's own token stream, taken while
-> moving trivia into an arena.
->
-> The first revision claimed 32 bytes a token and made element references
-> borrows. Both were wrong. The 32 bytes measured a benchmark struct missing
-> `blockDepth`, `lineIdx`, `id` and `poolId`; the declared field set is 36 bytes,
-> 40 with identity. And a borrow may not be stored in a table or a field
-> (`docs/ownership.md`), which is exactly what the CST array part does with every
-> token it holds, so the design could not have type-checked. See
-> §Representation, which settles both before the stages are actionable.
+Status: SF-S1 through SF-S3 proposed; SF-S4 onward blocked and not
+recommended on current evidence. See §Anchoring, which is why.
+
+Revised twice after review. Not implemented. Nothing here is
+built. The measurements are from the compiler's own token stream, taken while
+moving trivia into an arena.
+
+The first revision claimed 32 bytes a token and made element references
+borrows. Both were wrong. The 32 bytes measured a benchmark struct missing
+`blockDepth`, `lineIdx`, `id` and `poolId`; the declared field set is 36 bytes,
+40 with identity. And a borrow may not be stored in a table or a field
+(`docs/ownership.md`), which is exactly what the CST array part does with every
+token it holds, so the design could not have type-checked. See
+§Representation, which settles both before the stages are actionable.
 
 ## Decision
 

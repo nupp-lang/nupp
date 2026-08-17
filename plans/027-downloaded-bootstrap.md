@@ -1,9 +1,9 @@
 # Downloaded bootstrap compiler
 
-> **Status: proposed. Not implemented.** The tracked
-> `bootstrap/nupp.lua` remains the only cold-start path until Nupp has made and
-> retained the first release named by this plan, every supported host can use
-> that release, and the cold-bootstrap CI gate passes without the bundle.
+Status: proposed. Not implemented. The tracked
+`bootstrap/nupp.lua` remains the only cold-start path until Nupp has made and
+retained the first release named by this plan, every supported host can use
+that release, and the cold-bootstrap CI gate passes without the bundle.
 
 ## Decision
 

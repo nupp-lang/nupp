@@ -1,5 +1,9 @@
 # Derives D5 acceptance record
 
+Status: acceptance record for the built-in derives, which shipped. The
+user-defined provider question it deliberately left open was answered by
+[comptime-derive-recipes.md](033-comptime-derive-recipes.md).
+
 The D5 proving workloads live in `tests/deriveacceptancetest.lua`. They exercise
 the constrained built-in result model rather than proposing a provider API.
 

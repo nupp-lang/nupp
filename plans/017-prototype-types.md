@@ -1,5 +1,8 @@
 # Typing a record's own table
 
+Status: implemented. A declaration value has type `Type<R>`, distinct from an
+instance of `R`; see `docs/concepts/reflection.md`.
+
 ## Context
 
 A record declaration binds its name twice: once as a type, and once as the value

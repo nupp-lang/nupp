@@ -1,5 +1,8 @@
 # Comptime type-function implementation results
 
+Status: evidence record for work that landed; measurements are accurate as of
+2026-08-11 unless a later entry below says otherwise.
+
 This is the living evidence record for [`comptime-types.md`](028-comptime-types.md).
 Counts and timings are from the implementation worktree on 2026-08-11 unless a
 later entry says otherwise.

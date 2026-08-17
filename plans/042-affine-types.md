@@ -1,8 +1,9 @@
 # User-defined affine types
 
-> Historical plan. The affine constructor and exact cleanup identity landed, but
-> plan 047 superseded the proposed global `Owned`, `Transfer`, and `Drop` policy.
-> Current source uses `affine(T, cleanup)`, `affine(T)`, and concrete resource names.
+Status: historical. The affine constructor and exact cleanup identity landed,
+but [lua-ownership-capabilities.md](047-lua-ownership-capabilities.md)
+superseded the proposed global `Owned`, `Transfer`, and `Drop` policy. Current
+source uses `affine(T, cleanup)`, `affine(T)`, and concrete resource names.
 
 ## Decision
 

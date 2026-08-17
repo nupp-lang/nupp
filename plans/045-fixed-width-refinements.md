@@ -1,14 +1,14 @@
 # Fixed-width names as checked refinements
 
-> **Status: implemented.** The checked refinements, storage projection,
-> establishment facts, explicit conversions, diagnostics, and physical-store
-> boundary described here are part of the compiler and standard library.
->
-> This is a consistency fix, not a new arithmetic model. `integer` is already a
-> checked refinement of `number` with no representation or operator promotion
-> of its own. This plan applies that rule to the fixed-width names that can be
-> represented exactly as Lua numbers, while keeping narrower layout-only names
-> out of value positions.
+Status: implemented. The checked refinements, storage projection,
+establishment facts, explicit conversions, diagnostics, and physical-store
+boundary described here are part of the compiler and standard library.
+
+This is a consistency fix, not a new arithmetic model. `integer` is already a
+checked refinement of `number` with no representation or operator promotion
+of its own. This plan applies that rule to the fixed-width names that can be
+represented exactly as Lua numbers, while keeping narrower layout-only names
+out of value positions.
 
 ## Decision
 

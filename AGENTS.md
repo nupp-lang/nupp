@@ -74,6 +74,16 @@ whenever output is not a terminal, so piped output never carries escapes.
 - `./bin/nupp lsp actions --json FILE LINE COLUMN` lists code actions. Use
   `--only quickfix` or `--only refactor` to narrow the results.
 
+## Plans are not documentation
+
+`plans/` holds dated design records. `docs/` says how Nupp behaves today, and
+wins wherever the two disagree. Every plan carries a `Status:` line under its
+title saying how much of it is real — read that before believing the body,
+which may describe syntax that was never built. See `plans/README.md`.
+
+When work lands, update the status line in the same commit. Leave the body
+alone; it is the record of what was intended, not a description of the code.
+
 ## Verification
 
 - `./bin/nupp test` runs the test suite. `--json` reports a record per test —

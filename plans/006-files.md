@@ -1,11 +1,9 @@
 # Files: a design record
 
-Status: proposed. The waiting half is built: S0 through S4 of
-[suspension](018-suspension.md) have landed, so a library may perform `suspend`,
-a host may install a handler, a `nosuspend` region is checked, and a handled
-suspension may cross a live resource obligation. S5, `nupp.io.Process`, has
-not, and is not a prerequisite. This is its easier twin and should land
-first.
+Status: implemented. `nupp.io.files` ships as a native global, documented in
+[the language page](../docs/files.md) and covered by `tests/filestest.lua`; the
+compiler itself walks directories through it rather than shelling out. All of
+[suspension](018-suspension.md) has landed since this was written, S5 included.
 
 ## Decision
 

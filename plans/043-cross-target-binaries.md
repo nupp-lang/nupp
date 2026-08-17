@@ -1,9 +1,9 @@
 # Cross-target binary builds
 
-> **Status: implemented for the initial three platforms.** Source-built targets
-> keep the current-platform path; targets with `platforms` select verified
-> catalog stubs. Release CI publishes the first immutable catalog, so the next
-> compiler release can embed it. Phase 5 provider packs remain a follow-up.
+Status: implemented for the initial three platforms. Source-built targets
+keep the current-platform path; targets with `platforms` select verified
+catalog stubs. Release CI publishes the first immutable catalog, so the next
+compiler release can embed it. Phase 5 provider packs remain a follow-up.
 
 ## Decision
 

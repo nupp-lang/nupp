@@ -1,5 +1,7 @@
 # Comptime derive recipes and runtime forwarding
 
+Status: implemented, as detailed immediately below.
+
 ## Status and decision
 
 This design is implemented. It replaces the rejected D6 one-operation

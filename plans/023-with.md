@@ -1,10 +1,10 @@
 # Exact affine scopes — design record
 
-> **Implemented again.** Automatic lexical destruction handles the general
-> case; `with owner = acquire() do ... end` remains valuable because it exposes
-> only a non-escaping borrow and therefore guarantees one exact extent. The
-> original design record below predates the current `affine(T, cleanup)`
-> vocabulary. [The language page](../docs/with.md) is authoritative.
+Status: implemented again. Automatic lexical destruction handles the general
+case; `with owner = acquire() do ... end` remains valuable because it exposes
+only a non-escaping borrow and therefore guarantees one exact extent. The
+original design record below predates the current `affine(T, cleanup)`
+vocabulary. [The language page](../docs/with.md) is authoritative.
 
 Status: restored on the generalized automatic-cleanup region. Parser, checker,
 generator, formatter, semantic tokens, grammar, reference, ownership docs, and

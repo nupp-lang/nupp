@@ -1,6 +1,10 @@
 # Native kernels over checked spans
 
-Status: planned
+Status: implemented. The Current blockers below are resolved — public code can
+no longer reach a span's raw pointer or offset, and `span.Span<T>` and
+`span.WriteSpan<T>` are nameable in cross-module signatures. The optional
+C-declaration adapter lowering logical span arguments to the physical
+pointer-and-count ABI landed too; see `docs/spans.md` and `docs/c-interop.md`.
 
 ## Goal
 

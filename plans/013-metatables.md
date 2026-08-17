@@ -1,5 +1,8 @@
 # Checking metatable bodies
 
+Status: implemented in `check/metatable.nupp`. The three programs the Context
+below shows passing `--strict` are now refused; see `docs/metamethods.md`.
+
 ## Context
 
 A declaration may contract for an operator — `metamethod __add: function(self:

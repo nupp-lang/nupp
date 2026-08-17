@@ -1,5 +1,7 @@
 # Comptime materialization
 
+Status: implemented through M8, detailed immediately below.
+
 ## Implementation status
 
 M0 through M7 are implemented. The specialized PEG backend cleared the frozen

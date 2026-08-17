@@ -1,5 +1,9 @@
 # Finite type-level computation results
 
+Status: evidence record, accurate as of 2026-08-10 and not maintained after it.
+The type-level `match`/`infer` surface it accepted was later replaced by
+comptime type functions; see [comptime-types.md](028-comptime-types.md).
+
 This records the T4 acceptance decision for
 [`type-level-computation.md`](021-type-level-computation.md). Measurements are from
 the self-hosted compiler on the implementation worktree on 2026-08-10.

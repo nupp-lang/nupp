@@ -1,5 +1,8 @@
 # Coverage reports and source explorer
 
+Status: implemented. `nupp coverage` runs an instrumented build, merges the
+data, and writes the static source-first report; see `docs/tooling/cli.md`.
+
 ## Decision
 
 Add a first-class `nupp coverage` command that runs a project in a

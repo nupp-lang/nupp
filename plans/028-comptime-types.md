@@ -1,5 +1,10 @@
 # Comptime type functions
 
+Status: implemented. A `comptime function` returning `type` or `typepack` is
+callable in type position, and the type-level `match`/`infer` language this
+replaced is gone. Results are recorded in
+[comptime-types-results.md](029-comptime-types-results.md).
+
 ## Decision
 
 Nupp will admit compiler-only `type` and `typepack` values in comptime

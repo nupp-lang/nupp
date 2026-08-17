@@ -1,5 +1,11 @@
 # What `is` means, and what an interface may carry
 
+Status: implemented, with one spelling change. Refinements are interface-only —
+a record answers `is` by the metatable `new` stamps and a struct by its ctype —
+and an interface carries default method bodies. The interface's own identity is
+written as a `satisfies` declaration naming the runtime test, rather than the
+declared-conformance-or-shape pair proposed below.
+
 ## Decision
 
 `is` answers one question per kind of declaration, and which question is decided

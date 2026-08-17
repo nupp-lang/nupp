@@ -1,5 +1,8 @@
 # Named and plucked arguments
 
+Status: implemented. See the Named and plucked arguments section of
+`nupp reference language`.
+
 ## Decision
 
 Nupp adds named call arguments and argument plucking. Together they let a

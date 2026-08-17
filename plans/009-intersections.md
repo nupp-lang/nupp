@@ -1,5 +1,8 @@
 # Intersection types and overload resolution
 
+Status: implemented. `A & B` and function-intersection overload sets both
+landed, reported by NUPP2124-NUPP2126 and NUPP2208.
+
 ## Decision
 
 Nupp will add `A & B`, the type of values that satisfy both types. The type is

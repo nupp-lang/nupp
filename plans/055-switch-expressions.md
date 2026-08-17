@@ -1,6 +1,9 @@
 # Switch expressions and type patterns
 
-Status: planned
+Status: implemented. `switch` is an expression reported by
+NUPP2137-NUPP2142 and NUPP3001; see `docs/switch-expressions.md`. Backend
+dispatch selection followed in
+[switch-dispatch-optimization.md](057-switch-dispatch-optimization.md).
 
 ## Decision
 

@@ -1,19 +1,19 @@
 # Ownership in the type, not above the signature
 
-> **Status: implemented.** A result written `Owned<T>` inherits that type's
-> `@drop` wherever a signature is built, `Owned<T, cleanup>` names a terminal,
-> and `Owned<T, opaque>` says an owner is deliberately transfer-only. A `cdef`
-> return says the same thing the same way, an `out` parameter writes
-> `out p: Owned<T, cleanup>*`, and `Success<T, N>` or `Failure<T, N>` on the
-> return says which C status means those outputs hold values.
->
-> The C spelling differs from the sketch below: the `out` parameter keeps its
-> physical pointer-to-pointer type and the wrapper sits on the slot, which leaves
-> the ABI, the emitted prototype, and the borrowed-output spelling untouched.
->
-> Ordered cleanup lists are `nupp.attemptAll`, written inside an ordinary
-> terminal. It is spelled on `nupp` beside the other ownership intrinsics rather
-> than under a `nupp.cleanup` namespace of one.
+Status: implemented. A result written `Owned<T>` inherits that type's
+`@drop` wherever a signature is built, `Owned<T, cleanup>` names a terminal,
+and `Owned<T, opaque>` says an owner is deliberately transfer-only. A `cdef`
+return says the same thing the same way, an `out` parameter writes
+`out p: Owned<T, cleanup>*`, and `Success<T, N>` or `Failure<T, N>` on the
+return says which C status means those outputs hold values.
+
+The C spelling differs from the sketch below: the `out` parameter keeps its
+physical pointer-to-pointer type and the wrapper sits on the slot, which leaves
+the ABI, the emitted prototype, and the borrowed-output spelling untouched.
+
+Ordered cleanup lists are `nupp.attemptAll`, written inside an ordinary
+terminal. It is spelled on `nupp` beside the other ownership intrinsics rather
+than under a `nupp.cleanup` namespace of one.
 
 ## Decision
 
