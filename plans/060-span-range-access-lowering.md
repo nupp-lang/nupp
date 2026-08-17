@@ -86,6 +86,38 @@ measurement does not isolate the two comparisons from method dispatch, record
 field reads and pointer construction. This pass must land with an experiment
 which does isolate them.
 
+## Current reach and the same-function boundary
+
+The proof is lexical and currently scoped to one checked function. A
+`spanRangeWitness` lives on the const local definition initialized by
+`span.range`; `check/control.nupp` recovers it only when that same definition is
+the bare object of both loop bounds. Passing `first` and `last` to another
+function passes two integers, not their originating witness. Passing the range
+record itself as a parameter also loses the definition-local fact. No summary,
+wrapper or call projection re-derives it on the callee side.
+
+V1 keeps that boundary. An eligible loop must contain, in one function:
+
+```nupp
+const rows = span.range(first, last, left, right)
+for index = rows.first, rows.last do
+    -- matching accesses
+end
+```
+
+That is narrower than the motivating benchmark corpus. At the time of this
+plan, the AOT kernel subset takes checked span parameters plus plain `first` and
+`last`, performs handwritten guards and loops over those integers. Mandelbrot is
+one of those functions, so the source which produced the cited ceiling numbers
+would not receive this optimization as written. The repository's real
+`span.range` uses are documentation, checker/effect tests and a small native-
+foundations fixture; there is no existing production hot loop which establishes
+the pass's hit rate.
+
+State those facts anywhere the benchmark result is presented. The Mandelbrot
+numbers justify investigating span plumbing; they are not evidence that the
+current proof shape reaches Mandelbrot or an existing application.
+
 ## Governing invariants
 
 1. **One successful check justifies every removed check.** The generated direct
@@ -127,6 +159,9 @@ which does isolate them.
 14. **AOT remains independent.** The AOT checker, verified IR and generated C do
     not consume regular-backend rewrite metadata and do not change their answer
     when this pass is disabled.
+15. **Proofs do not cross calls in V1.** A range local, its bounds or its spans
+    passed to another function do not make that callee eligible. Only the
+    checked loop which names the witness local consumes it.
 
 ## Existing proof path
 
@@ -142,6 +177,12 @@ Do not create a second range analysis. Extend the path which already exists:
    call `rangeProvenNoRaise`.
 4. `analysis.nupp` and `check/effectregions.nupp` already consume that mark to
    remove the raising effect, while retaining read/write region summaries.
+
+This is the concrete portion of the range-dominated foundation described in
+`plans/041-aot-independent-foundations.md`. Trace validation and the requirement
+that lowering introduce no recorder blocker remain owned by
+`plans/052-trace-aware-checking.md`; this pass consumes both rather than adding
+parallel proof or trace catalogs.
 
 The optimization pass consumes the same mark after checking. It may reject a
 generation shape more narrowly than the effect proof — for example a `set` in a
@@ -348,15 +389,50 @@ reload or a future supported extension makes those implementations replaceable,
 the stable-contract predicate must refuse before this pass ships with that
 feature.
 
+## Adoption audit before implementation commitment
+
+Before adding a pass identity, audit the repository's span loops and classify
+each one by why it is or is not reachable:
+
+- already contains a same-function `span.range` witness;
+- can adopt the witness locally without changing validation, errors or API;
+- receives plain bounds from a caller and would need a local range validation;
+- hides the loop behind a helper/function boundary which V1 cannot cross;
+- is AOT-only and therefore not a regular-backend beneficiary; or
+- uses SoA or another representation whose existing lowering already owns it.
+
+Start with every function in `bench/kernel-subset-spike/`, then inspect library
+and example code using `Span`, `WriteSpan`, `get`, `getMut` or `set`. Record the
+source-ordered inventory and select at least one representative kernel that can
+run with AOT disabled. SoA row loops are comparison evidence for the direct
+code shape, not span-range beneficiaries.
+
+For each plausible candidate, adopting `span.range` is a separate change to
+measure. It performs one variadic validation and constructs a range record; on
+a short loop that setup may cost more than repeated checks would have. It may
+also differ from a handwritten precondition. Mandelbrot, for example, separately
+requires equal input/output counts; replacing that error with a range check
+would change its contract. A candidate variant must preserve such checks and
+their error sites before its throughput is compared.
+
+Do not treat a newly invented microbenchmark as evidence of natural hit rate.
+It proves the mechanism and supplies a ceiling. Implementation proceeds only
+after the audit finds either a representative existing loop or a measured,
+semantics-preserving adoption in one committed workload.
+
 ## Benchmark before implementation commitment
 
 Add `bench/span-range-lowering/` before choosing the final emitted shape. It
-builds four implementations from the same operations and verifies every result:
+builds five implementations from the same operations and verifies every result:
 
-1. ordinary checked `get` / `getMut` / `set` under `-O0`;
-2. the proposed direct lowering under `-O1 --relax=frames`;
-3. handwritten direct FFI indexing as the regular-backend ceiling; and
-4. forced-scalar AOT as context, not as the acceptance target.
+1. the candidate's existing handwritten guard and checked access under
+   `-O1 --relax=frames`, with this pass disabled;
+2. `span.range` with ordinary checked access under the same settings and this
+   pass disabled;
+3. `span.range` with the proposed lowering under the same settings and this
+   pass enabled;
+4. handwritten direct FFI indexing as the regular-backend ceiling; and
+5. forced-scalar AOT as context, not as the acceptance target.
 
 Measure at least:
 
@@ -372,10 +448,14 @@ Measure at least:
 
 Report time per element and throughput, not a synthetic aggregate speedup. Keep
 the pass only if the JIT-enabled direct form produces a stable material win on a
-span-bound workload. If handwritten direct indexing and the proposed output
-agree in LuaJIT IR and timing, the regular backend has reached its available
-ceiling. If both match checked access, LuaJIT already removed the cost and the
-pass does not land.
+span-bound workload. Compare rows 2 and 3 to isolate the pass from adoption of
+`span.range`; compare rows 1 and 2 to price that adoption separately. If
+handwritten direct indexing and the proposed output agree in LuaJIT IR and
+timing, the regular backend has reached its available ceiling. If both direct
+forms also match checked access, LuaJIT already removed the cost and the pass
+does not land. If the pass wins after one range proof but adopting that proof
+loses overall on every representative candidate, the current proof shape has no
+payoff and implementation stops pending broader evidence.
 
 Use `nupp bc --check` to prove the rewrite introduces no recorder blocker. Add a
 benchmark-only trace inspection which counts the relevant comparison, call and
@@ -456,21 +536,26 @@ enabled; direct generation is one consumer, not the meaning of `span.range`.
 
 ## Delivery
 
-1. Add the isolated benchmark and inspect checked, handwritten-direct and AOT
+1. Audit every repository span loop, record its proof/adoption category and
+   identify at least one representative non-AOT candidate.
+2. Add a semantics-preserving `span.range` variant of that candidate and measure
+   the adoption cost independently from access lowering.
+3. Add the isolated benchmark and inspect checked, handwritten-direct and AOT
    traces before editing the optimizer.
-2. Record the result in this plan. Stop if stock LuaJIT already erases the
-   relevant cost or direct indexing has no material JIT-enabled advantage.
-3. Consolidate the existing span accessor facts into one checked descriptor if
+4. Record both results in this plan. Stop if there is no credible beneficiary,
+   the witness idiom loses overall, stock LuaJIT already erases the relevant
+   cost or direct indexing has no material JIT-enabled advantage.
+5. Consolidate the existing span accessor facts into one checked descriptor if
    that removes duplicated identity tests without disturbing effects.
-4. Add the pass identity, frames-relaxation gate, per-loop remarks and disable
+6. Add the pass identity, frames-relaxation gate, per-loop remarks and disable
    path.
-5. Emit proved shared reads and immediate struct field reads.
-6. Emit mutable-reference field accesses and pointer-valued `getMut` results.
-7. Emit statement-position `set`, retaining other positions as checked calls.
-8. Add rooting, slices, evaluation-order, gradual-boundary, coverage and source-
+7. Emit proved shared reads and immediate struct field reads.
+8. Emit mutable-reference field accesses and pointer-valued `getMut` results.
+9. Emit statement-position `set`, retaining other positions as checked calls.
+10. Add rooting, slices, evaluation-order, gradual-boundary, coverage and source-
    map tests.
-9. Update span, optimization and reference documentation with measured results.
-10. Run focused optimizer, span, ownership, effects, generation and trace tests;
+11. Update span, optimization and reference documentation with measured results.
+12. Run focused optimizer, span, ownership, effects, generation and trace tests;
     then the full suite and compiler fixpoint.
 
 The plan is complete when a proved regular-backend span loop performs one
@@ -489,5 +574,8 @@ JIT-enabled benchmark demonstrates the gain that justified retaining it.
 - adding DynASM, custom bytecode, vector IR or a VM fork;
 - explicit pointer/offset hoisting before trace evidence requires it;
 - SIMD, lane lowering or fixed-width arithmetic specialization;
-- changing AOT admission, IR or generated C; or
+- changing AOT admission, IR or generated C;
+- transporting `spanRangeWitness` through parameters, returned range records,
+  call summaries or wrappers in V1. Cross-function witness transport is a V2
+  opportunity only after same-function adoption demonstrates demand; or
 - claiming that span lowering closes the remaining scalar-C or SIMD gap.
