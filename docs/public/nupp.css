@@ -4,6 +4,8 @@
   font-size: 115%;
   --nupp-woodblock-vermilion: #a74732;
   --nupp-woodblock-vermilion-hover: #8d3829;
+  /* The same woodblock red raised until it carries on the dark background. */
+  --nupp-woodblock-vermilion-light: #e08a6d;
   --nuppdoc-light-accent: #55745b;
   --nuppdoc-light-accent-hover: #3f5946;
   --nuppdoc-light-accent-soft: #e1eadc;
@@ -23,7 +25,7 @@
   --nuppdoc-dark-text: #f4f3ed;
   --nuppdoc-dark-muted: #b9c0b8;
   --nuppdoc-accent-contrast: #ffffff;
-  --nuppdoc-feature-heading: var(--nuppdoc-syntax-number);
+  --nuppdoc-feature-heading: var(--nupp-woodblock-vermilion);
   --nuppdoc-playground-border: #9d8e5e;
   --nuppdoc-hero-glow-color: var(--nupp-woodblock-vermilion);
   --nuppdoc-syntax-boolean: #8c5f22;
@@ -115,8 +117,8 @@
   padding: 1rem 1.1rem;
 }
 
-/* Match every prose heading to the feature-tour heading color so the amber
- * accent reads as the site's heading color, not a one-off on the homepage. */
+/* Match every prose heading to the feature-tour heading color so the woodblock
+ * red reads as the site's heading color, not a one-off on the homepage. */
 .nuppdoc-content h1,
 .nuppdoc-content h2,
 .nuppdoc-content h3 {
@@ -244,6 +246,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    --nuppdoc-feature-heading: var(--nupp-woodblock-vermilion-light);
     --nuppdoc-playground-border: #3a7a6f;
     --nuppdoc-syntax-boolean: #d7a45a;
     --nuppdoc-syntax-comment: #718c87;
@@ -261,6 +264,7 @@
 }
 
 :root[data-theme="dark"] {
+  --nuppdoc-feature-heading: var(--nupp-woodblock-vermilion-light);
   --nuppdoc-playground-border: #3a7a6f;
   --nuppdoc-syntax-boolean: #d7a45a;
   --nuppdoc-syntax-comment: #718c87;
@@ -277,6 +281,7 @@
 }
 
 :root[data-theme="light"] {
+  --nuppdoc-feature-heading: var(--nupp-woodblock-vermilion);
   --nuppdoc-playground-border: #9d8e5e;
   --nuppdoc-syntax-boolean: #8c5f22;
   --nuppdoc-syntax-comment: #7b806a;
