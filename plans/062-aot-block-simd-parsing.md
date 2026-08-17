@@ -33,6 +33,13 @@ produces the vendor-build input. All other `@aot` functions retain today's
 dormant ordinary-body behavior under `aot=off`. Do not hide this exception: it
 is the cost of having non-boxed values with no Lua runtime representation.
 
+Ordinary parsing, name resolution, and type checking still run under
+`aot=off`. The resolved identity of an explicit-SIMD intrinsic is therefore
+enough to report this policy diagnostic. Doing so does not run AOT eligibility,
+construct AOT IR, inspect a target backend, or otherwise weaken
+`038-aot-functions.md`'s rule that the AOT subset checker is off under that
+policy.
+
 ## Required outcome
 
 An AOT function can safely process target-width byte blocks, carry scalar state
@@ -77,11 +84,14 @@ then returns to Lua and:
 - repeatedly performs dynamic table and string operations that are outside the
   admitted AOT subset.
 
-On the existing recorded synthetic payload, the end-to-end experiment is about
-3.3 times slower than `lua-cjson`, while the AOT classifier accounts for only
-about seven percent of total decoder time. Making the existing classifier wider
-cannot close that gap by itself. Moving parsing, not merely more classification,
-through one native boundary is the purpose of this plan.
+There is not yet a committed benchmark report establishing a stable decoder to
+`lua-cjson` ratio or a stable classifier share. Preliminary runs agree only on
+the direction: recursive Lua parsing dominates, and the ratios move materially
+with JIT warmup and machine state. J0 records the reproducible baseline before
+this plan uses a number as a gate. The source structure is already enough to
+show that making the existing classifier wider cannot remove recursive parsing,
+substring conversion, or allocation. Moving parsing, not merely more
+classification, through one native boundary is the purpose of this plan.
 
 ## Relationship to existing plans
 
@@ -435,6 +445,42 @@ lands only with a scalar oracle, both target lowerings or an accepted target
 fallback, generated-code inspection, and a measured improvement in the JSON
 indexer or another committed workload.
 
+## Performance gates
+
+J0 commits the benchmark inputs, raw samples, platform and toolchain identity,
+warmup count, and summary used by every later comparison. Use alternating
+paired measurements, at least four warmups and fifteen measured samples, and
+batches long enough to dominate timer resolution. Report medians, geometric
+means across payload families, paired ratios, and a 95 percent confidence
+interval. A result clears a threshold only when the confidence interval clears
+it, not when a single median does.
+
+The following are the default minimums. J0 may tighten them before
+implementation begins if the recorded noise floor or baseline makes a stronger
+gate reasonable. Weakening one after J0 requires an explicit plan amendment
+rather than an interpretation of “materially.”
+
+- **J2 structural indexing:** at least 1.5 times the current fused byte
+  classifier's throughput on the large-payload geometric mean on native AVX2
+  and NEON, while performing structural tape construction and full UTF-8
+  validation. End-to-end decoding may regress by no more than five percent on
+  any committed payload family.
+- **J3 native parsing:** at least 2.0 times the current decoder's end-to-end
+  throughput on the large-payload geometric mean and at least 1.25 times on
+  every large committed family, on both native architecture families. Median
+  latency for short request-sized documents may regress by no more than ten
+  percent.
+- **J4 operation growth:** each additional public SIMD operation must improve
+  its affected stage by at least ten percent and end-to-end throughput by at
+  least five percent on a named committed payload family. It may regress no
+  other family or optimized target tier by more than two percent.
+
+Keep `lua-cjson` in every report as the external reference, but do not turn its
+current result into a safety exception or an undocumented moving gate. Passing
+J3 is enough to retain JSON as a compiler acceptance workload. Proposing a
+public JSON library remains a separate decision with thresholds written from
+the completed component measurements.
+
 ## Delivery stages
 
 ### J0 — Freeze the baseline and semantic corpus
@@ -449,8 +495,8 @@ indexer or another committed workload.
   for every output arena.
 
 Gate: the current behavior is reproducible, failures report stable byte
-positions, and benchmark variance is narrow enough to detect the improvements
-claimed by later stages.
+positions, the benchmark report is committed, and the confidence intervals are
+narrow enough to distinguish every numeric threshold above.
 
 ### J1 — General AOT block kernels
 
@@ -481,10 +527,9 @@ useful with `bench/simd-json` deleted.
 
 Gate: every exposed operation is used by the committed indexer; all target
 tiers agree with the scalar oracle for every tail and first-width mask pattern;
-loads are packed bytes rather than widened 32-bit carriers; and the new indexer
-is materially faster than the current classifier without regressing
-end-to-end decode. If it is not, keep J1 and remove the SIMD surface and new
-indexer.
+loads are packed bytes rather than widened 32-bit carriers; and the indexer
+clears the J2 performance gate. If it does not, keep J1 and remove the SIMD
+surface and new indexer.
 
 ### J3 — Native structural parser and arenas
 
@@ -496,9 +541,8 @@ indexer.
 - Replace the recursive Lua parser only inside the detachable experiment.
 
 Gate: native parsing eliminates byte-at-a-time Lua work, agrees with the oracle
-corpus and differential fuzzer, and materially improves end-to-end decoding on
-both supported architecture families. Report materialization separately even
-if it becomes the largest component.
+corpus and differential fuzzer, and clears the J3 performance gate. Report
+materialization separately even if it becomes the largest component.
 
 ### J4 — Profile-driven SIMD extensions
 
@@ -509,9 +553,8 @@ if it becomes the largest component.
   review for each addition.
 
 Gate: no operation lands solely because one architecture has an attractive
-instruction. Each must improve a committed workload outside measurement noise
-on every target where it claims an optimized lowering, without hurting the
-other supported tier materially.
+instruction. Each must clear the J4 performance gate on every target where it
+claims an optimized lowering.
 
 ### J5 — Decide the experiment
 

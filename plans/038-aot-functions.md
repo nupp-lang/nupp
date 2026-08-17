@@ -928,21 +928,23 @@ errors, and numeric transformations.
 
 ### N5: Widen scalar-source SIMD
 
-Keep vector and mask temporaries compiler-internal. Extend
-`@aot(simd = true)` from straight-line map loops to verified mask stacks, lane
-retirement, selected reductions, helpers, and inner loops. Each extension must
-preserve scalar Nupp evaluation and pass the lane-IR verifier before emission.
+Keep vector and mask temporaries compiler-internal. Extend scalar-source lane
+lowering beyond its current map subset to selected reductions, broader helper
+graphs, and nested numeric map loops. Each extension must preserve scalar Nupp
+evaluation and pass the lane-IR verifier before emission.
 
-The experimental C spike now proves the control-flow slice: it lowers nested
-conditionals, pure-and-total short-circuit boolean expressions, data-dependent
-inner `while` loops, and per-lane `break`/`continue`. It maintains distinct live
-and currently-executing masks, materializes each branch mask before executing
-the branch, and uses a horizontal `any` only for loop termination. Ordinary
-Nupp, forced-scalar C, and four-lane binary64 C agree exactly, including scalar
-tails. This is evidence for the production IR design, not completion of N5:
-the implementation still has to move under `src/` and consume the complete
-checked fact graph. Selected reductions, helper graphs, nested numeric loops,
-and uniform inner loops remain open.
+The production lane IR and verifier now live under
+`src/nupp/compiler/aot/lane.nupp`. The lowering implements the control-flow
+slice first proved by the C spike: nested conditionals, pure-and-total
+short-circuit boolean expressions, data-dependent inner `while` loops, uniform
+inner loops, and per-lane `break`/`continue`. It maintains distinct live and
+currently-executing masks, materializes each branch mask before executing the
+branch, and uses a horizontal `any` only for masked-loop termination. Ordinary
+Nupp, forced-scalar C, and lane C agree exactly, including scalar tails.
+
+N5 remains incomplete because selected reductions, broader helper graphs, and
+nested numeric map loops are still open. Each addition must consume the checked
+fact graph and pass the production lane-IR verifier before emission.
 
 Do not add public explicit vectors alongside this surface. Reconsider them only
 for a cross-lane workload that scalar map semantics cannot express and whose
