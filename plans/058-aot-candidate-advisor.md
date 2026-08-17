@@ -84,9 +84,10 @@ the editor must stop short of claiming that visibility is a benchmark.
    not an input to type checking, AOT eligibility or `@aot` enforcement.
 3. **No speculative mutation.** Candidate analysis does not attach annotation
    facts to the CST, rewrite source or leave a body marked `aotRequired`.
-4. **The real backend decides eligibility.** Do not maintain a second syntactic
-   list of AOT-compatible constructs for hints. Speculative lowering invokes the
-   same checked lowering and verifier as a required build.
+4. **The real admission pipeline decides eligibility.** Do not maintain a
+   second syntactic list of AOT-compatible constructs for hints. Inspection
+   invokes the same declaration-form predicate, structural query, checked
+   lowering and verifier as a required build.
 5. **One body may fail without hiding the next.** An unsupported function yields
    one structured refusal and candidate scanning continues through the file.
 6. **Eligibility is target-relative.** Target triple, feature tier, AOT IR
@@ -122,7 +123,7 @@ AotCandidate {
     declarationRange
     bodyFingerprint
     target
-    status              contracted | candidate | eligible | ineligible
+    status              contracted | candidate | quiet | ineligible
     recommendation      inspect | benchmark | prioritize | none
     eligibility
     opportunity
@@ -130,12 +131,20 @@ AotCandidate {
 }
 ```
 
-`id` is a compiler-owned identity derived from the canonical source key and the
-declaration's byte offset. It is for joining one build's source, profile and LSP
-answer; it is not a public symbol name and does not survive moving a declaration.
-`bodyFingerprint` covers the checked source body, selected optimization level and
-facts which affect lowering. A comment outside the declaration does not stale a
-profile; changing its body, signature or relevant declaration does.
+`id` is the checker's stable declaration identity serialized as the canonical
+module key plus the declaration's resolved lexical name. The first release scans
+top-level local functions, whose names are unique within one module. If discovery
+later admits nested or overloaded declarations, the identity grows a stable named
+container path; it never uses a byte offset or source order. Renaming the function
+deliberately gives it a new identity, while inserting unrelated text before it
+does not. `declarationRange` is location metadata, not identity.
+
+`bodyFingerprint` separately covers the checked signature and body, selected
+optimization level and imported or declared facts which affect lowering. A
+comment outside the declaration does not stale a profile; changing its body,
+signature or relevant dependency does. Profiles join on both stable identity and
+fingerprint: identity finds the same declaration, while the fingerprint proves
+that its evidence still describes the same program.
 
 `status` distinguishes four useful states:
 
@@ -143,13 +152,13 @@ profile; changing its body, signature or relevant declaration does.
   inspection but do not suggest the annotation it already has;
 - `candidate`: unannotated, eligible and carrying enough static or runtime
   evidence for an editor lens;
-- `eligible`: verified AOT IR exists, but the first cost model has no affirmative
+- `quiet`: verified AOT IR exists, but the first cost model has no affirmative
   reason to interrupt the editor; retain it in explicit CLI inspection;
 - `ineligible`: lowering declined, with the first stable reason and source site.
 
 The recommendation is separate from status. A `candidate` without profile data
 asks for `benchmark`; matching hot evidence upgrades it to `prioritize`. An
-eligible body may remain `inspect`. An ineligible body is `none` unless an
+A quiet body may remain `inspect`. An ineligible body is `none` unless an
 explicit cursor query asks why.
 
 ### Structured evidence
@@ -178,6 +187,8 @@ The initial opportunity identities are:
   stay in native registers instead of using ordinary FFI-backed round trips;
 - `aot/struct-span-plumbing`: repeated span and reified-field operations lower
   directly in AOT IR;
+- `aot/trace-blocker`: explicit CLI bytecode analysis found an unconditional
+  LuaJIT recorder blocker in an otherwise eligible body;
 - `aot/scalar-only`: the complete body compiles, but no lane opportunity was
   selected;
 - `aot/low-work`: the admitted body contains too little counted work for a lens
@@ -199,6 +210,40 @@ lane or fixed-width opportunity merely because the JIT compiled it.
 
 Keep the identity catalog beside the advisor rather than adding NUPP diagnostic
 codes. These are inspection results, not language misuse.
+
+## One eligibility pipeline
+
+AOT admission currently has three owners, and the advisor must reuse all three:
+
+1. `check/aot.nupp` owns the structural refusal catalog behind NUPP2903;
+2. `check/declare.nupp` and `check/pragma.nupp` decide which declaration forms
+   may carry `@aot` and report NUPP2902; and
+3. `aot/lower.nupp` plus `aot/verify.nupp` decide whether checked types, calls,
+   ownership, helpers and control flow have a valid IR representation.
+
+First split `check/aot.nupp` into a pure structural query and a diagnostic
+adapter. The query walks a checked body, returns structured refusals and the
+top-level numeric-loop shape, and accepts no checker diagnostic callback. The
+existing contract path renders those refusals as NUPP2903. The advisor consumes
+the same result directly. Neither caller needs a second `DECLINED`/`BECAUSE`
+catalog.
+
+The query must not write `Funcbody.aotMapLoop`. Contract checking may attach that
+fact only after the query returns and only as part of checking a written
+annotation. Inspection carries the loop-shape result in its own request. This
+keeps speculative analysis from mutating a shared checked tree.
+
+Likewise, extract one declaration-form predicate from the NUPP2902 paths. It
+answers whether a declaration is a replaceable, visible local function before
+either the pragma checker diagnoses it or discovery offers an action. The
+advisor must never suggest an annotation that the declaration checker would
+reject.
+
+An inspection is eligible only if the shared declaration predicate and
+structural query admit it and the ordinary lowerer and verifier succeed. This is
+one pipeline with different presentation at the two entry points: written
+contracts produce diagnostics and required-build failures; inspection produces
+structured refusals and never changes whether checking succeeds.
 
 ## Speculative AOT lowering
 
@@ -223,6 +268,18 @@ model—and does not pretend an annotation was written. Both modes enter the sam
 signature lowering, helper resolution, scalar IR verifier, intensity estimator
 and lane rewrite.
 
+Fix helper discovery as part of this refactor. `lower.scan` currently registers a
+bare top-level `localFuncStmt` as a helper, but an annotation chain takes the
+application branch and never registers the local function underneath it. Adding
+`@aot` to a helper can therefore make an existing `@aot` caller fail with “not a
+visible pure helper.” After unwrapping a pragma chain, always register its visible
+local function in the helper table as well as registering any AOT application.
+Cover a helper used by another contracted function before and after annotating
+the helper, including source-order and recursion checks. Until that invariant is
+fixed, the advisor must withhold `Add @aot` for a function referenced as an AOT
+helper; shipping an action which can break an existing required build is not
+acceptable.
+
 Do not implement inspection by inserting synthetic annotation tokens or setting
 `Funcbody.aotRequired`. Synthetic source sites corrupt fixes and diagnostics, and
 mutating a checked tree would let a later request observe an annotation that was
@@ -233,10 +290,19 @@ unwind compilation of an annotated file; the advisor catches that rejection for
 one request, records its stable message and source site, then tries the next.
 Unexpected errors and IR-verifier failures still raise as compiler defects.
 
-The CLI advisor and LSP pass checked trees. They do not use the parse-only spike
-path as evidence about a real project. That ensures aliases, effects, ownership,
-associated types and selected target layouts are the same facts a required build
-would consume.
+The CLI advisor and LSP pass checked trees. They do not use `compile.lower`'s
+parse-only entry point, which rejects a tree with no written annotation, or
+`compile.artifacts`, which always renders IR text, C and a binding. Add an
+analysis-only path which accepts explicit inspection requests and stops after
+the shared structural query, scalar lowering and verification, and
+`compile.lanes`. It returns programs and structured refusals without calling
+`text.programs`, `emit.program` or `binding.module`. That is the path both CLI
+and LSP use, so drawing a lens never allocates output proportional to generated C.
+
+This is checked project analysis, not the current standalone `nupp aot` parser
+with a flag. It must obtain the target file's checked module through the project
+front end so aliases, imports, effects, ownership, associated types and selected
+target layouts are the same facts a required build would consume.
 
 The first release scans only the declaration forms the production AOT backend can
 replace where written. Nested closures, constructors, bodyless declarations,
@@ -258,14 +324,22 @@ static `candidate` when it is eligible and at least one of these holds:
 2. the loop contains repeated explicit fixed-width work whose ordinary lowering
    uses FFI storage or helpers;
 3. the body contains enough repeated span or reified-struct operations for the
-   wrapper to replace per-element plumbing with one native boundary; or
-4. the body is scalar AOT but a normalized trace analysis identifies an
-   unconditional recorder blocker which AOT IR does not contain.
+   wrapper to replace per-element plumbing with one native boundary.
 
-The last case is intentionally narrow. Do not infer that an arbitrary LuaJIT
-blocker makes an ineligible body a candidate, and do not share the `@jit` and
-`@aot` contract catalogs. The advisor merely joins two independent analyses over
-one body.
+Default static CLI and CodeLens ranking use only those three checked-module
+criteria. Exact recorder-blocker detection is not a free checked-tree query:
+`nupp bc --check` first generates ordinary Lua, loads it and inspects its
+bytecode. Do not reproduce that logic from source or pay for code generation in
+an editor request.
+
+An explicit `nupp aot --suggest --trace FILE` may run the existing generated-Lua
+bytecode analysis and add `aot/trace-blocker` evidence to the report. Observed
+trace aborts from a joined runtime profile instead retain
+`aot/profile-trace-abort`. This fourth opportunity is intentionally narrow and
+never runs for CodeLens. Do not infer that an arbitrary LuaJIT blocker makes an
+ineligible body a candidate, and do not share the `@jit` and `@aot` contract
+catalogs. The advisor joins two independent analyses only after AOT eligibility
+has succeeded.
 
 A scalar-only eligible function with none of these remains visible under
 `--suggest --all` and an explicit cursor query, but receives no CodeLens. A
@@ -289,15 +363,24 @@ Extend the existing command rather than introduce another top-level noun:
 ```bash
 nupp aot --suggest FILE
 nupp aot --suggest --all --json FILE
+nupp aot --suggest --trace FILE
 nupp aot --suggest --profile build/aot-profile.json FILE
 nupp aot --suggest --function integrate --emit ir FILE
 ```
 
 Without `--suggest`, `nupp aot` retains its exact current meaning and requires
-written `@aot` functions. With it, the command checks the project file, analyzes
-every supported visible function and emits no C unless `--emit` explicitly asks
-for the candidate selected by `--function`. A missing or ambiguous name is an
-error rather than permission to choose one.
+written `@aot` functions. The first release still accepts exactly one positional
+`FILE`. With `--suggest`, it opens the project containing that file, checks the
+file with its normal import and declaration context, and reports only supported
+visible functions declared in that file. Dependencies contribute checked facts
+but not extra output. This is a new checked-project front end for the submode,
+not a call to the command's existing parse-only `aot.artifacts` path.
+
+Suggestion analysis emits no C. `--emit` explicitly renders only the candidate
+selected by `--function`, after its analysis succeeds; a missing or ambiguous
+name is an error rather than permission to choose one. `--trace` separately pays
+for ordinary Lua generation and exact bytecode checking. It is opt-in because it
+does work that the default checked-module analysis and CodeLens do not need.
 
 Human output leads with the recommendation and evidence:
 
@@ -307,16 +390,17 @@ src/physics.nupp:42: integrate: benchmark AOT
   4.20 operations per byte (84 over 20), f64x4
   repeated span and reified-struct work
 
-src/vector.nupp:18: length: eligible, not suggested
+src/physics.nupp:18: length: eligible, not suggested
   scalar only; no static evidence that one native call pays
 
-src/parser.nupp:91: advance: not eligible
-  src/parser.nupp:96:14: aot: dynamic table access has no AOT IR form
+src/physics.nupp:91: advance: not eligible
+  src/physics.nupp:96:14: aot: dynamic table access has no AOT IR form
 ```
 
 Default `--suggest` prints `candidate` and `contracted` entries. `--all` includes
-quietly eligible and ineligible bodies so the command also answers “why did the
-editor not show anything?”
+`quiet` and `ineligible` bodies so the command also answers “why did the editor
+not show anything?” Human output calls `quiet` “eligible, not suggested”; the
+machine status remains disjoint from `candidate`.
 
 Extend the JSON schema with:
 
@@ -330,8 +414,10 @@ Extend the JSON schema with:
 - matching profile evidence and the profile identity used; and
 - an optional exact edit which adds `@aot` at the declaration indentation.
 
-The command needs no C compiler. It verifies and rewrites IR in memory; native
-compilation remains a property of `aot = "require"`.
+The default command needs no C compiler and renders no build artifacts. It
+verifies and rewrites IR in memory; native compilation remains a property of
+`aot = "require"`. Explicit `--emit` is presentation of the one selected program,
+not the analysis mechanism.
 
 ## Language-server surface
 
@@ -362,7 +448,9 @@ agents and clients a stable interface without scraping CodeLens titles.
 Implement `textDocument/codeLens` and advertise `codeLensProvider`. Lenses are
 computed lazily when a client asks for a document, not during diagnostic
 publication. Return one lens above each unannotated `candidate`; do not return a
-lens for every eligible or ineligible function.
+lens for every quiet or ineligible function. Editor analysis uses checked-module
+opportunity criteria 1–3 only. It neither generates Lua for `bc --check` nor runs
+the optional trace criterion.
 
 The title contains the useful result without requiring a client extension:
 
@@ -390,7 +478,8 @@ emit C or render full IR merely to draw a lens.
 
 ### Code actions
 
-At an eligible declaration offer `refactor.rewrite` actions:
+At a declaration whose shared admission pipeline is eligible offer
+`refactor.rewrite` actions:
 
 - `Inspect AOT candidate` invokes the structured query;
 - `Add @aot` inserts the annotation with the declaration's indentation; and
@@ -402,9 +491,12 @@ contract edit whose performance still needs measurement. Existing annotations
 and an `@jit` contract suppress the edit; the ordinary NUPP2901 rule continues
 to reject promising one body to two compilers.
 
-Advertise `refactor.rewrite` beside the existing quick-fix kind. Advisor actions
-are selected from the declaration under the requested range and do not depend on
-a diagnostic being present.
+This expands `textDocument.codeActionProvider.codeActionKinds`, which currently
+advertises only `quickfix`, to advertise `refactor.rewrite` as well. Preserve the
+existing quick-fix capability and output, and add compatibility tests for
+`nupp lsp actions --only refactor` now returning these diagnostic-free actions.
+Advisor actions are selected from the declaration under the requested range and
+do not depend on a diagnostic being present.
 
 No dismissal is written into source. Editors already allow CodeLens to be
 disabled, and the high-confidence filter is the first noise control. Add a
@@ -464,10 +556,12 @@ AotProfile {
 
 Extend `SampleReport` with its already-built structured rows instead of parsing
 the collapsed-stack rendering back into data. Collapsed text remains unchanged.
-Join rows to the supported top-level functions by canonical source key and
-debug function name, then confirm the body fingerprint from the build which ran.
-Trace aborts already carry normalized locations and identities; attribute only
-an abort whose mapped source range lies inside the declaration.
+Join rows to the supported top-level functions by the same serialized stable
+declaration identity used by the advisor, then confirm the body fingerprint from
+the build which ran. A debug function name is evidence for constructing that
+identity, not the persistent key by itself. Trace aborts already carry normalized
+locations and identities; attribute only an abort whose mapped source range lies
+inside the declaration.
 
 The join is conservative:
 
@@ -504,13 +598,13 @@ The default ranking is deterministic:
 2. matching hot candidates with lane or fixed-width opportunity;
 3. static lane candidates above the checked intensity threshold;
 4. static fixed-width and struct/span candidates;
-5. scalar-only eligible bodies, visible only under explicit inspection; and
+5. scalar-only quiet bodies, visible only under explicit inspection; and
 6. ineligible bodies, visible only under `--all` or a cursor query.
 
-Within a rank, matching sample count descends first, then source path and
-declaration offset provide stable ties. Do not compare raw elapsed time from two
-profiles or merge profiles with different sample intervals as though their
-counts were one run.
+Within a rank, matching sample count descends first, then the stable declaration
+identity provides an order-independent tie. Source ranges are display metadata,
+not ranking keys. Do not compare raw elapsed time from two profiles or merge
+profiles with different sample intervals as though their counts were one run.
 
 The initial CodeLens budget is one lens per candidate and a configurable
 implementation cap per document, with the highest-ranked results kept. Record a
@@ -569,17 +663,23 @@ label every hot function native-compatible.
 
 - an unannotated eligible function produces byte-identical verified IR to the
   same body under neutral `@aot` settings;
-- inspection does not mutate `aotRequired`, lane flags, relaxed guarantees or
-  annotation chains on the checked tree;
+- the pure structural query and written-contract diagnostic adapter agree on
+  every NUPP2903 refusal, and discovery agrees with the NUPP2902 declaration
+  predicate;
+- inspection does not mutate `aotRequired`, `aotMapLoop`, lane flags, relaxed
+  guarantees or annotation chains on the checked tree;
 - one rejected body does not prevent later bodies from being analyzed;
 - unexpected lowering and verifier failures remain compiler errors rather than
   ineligibility;
 - helpers, structs, ownership regions and target layouts resolve from the real
   checked module;
-- already contracted, eligible, candidate and ineligible statuses are distinct;
+- annotating a local function does not remove it from another AOT function's
+  visible-helper set or break a previously valid required build;
+- contracted, candidate, quiet and ineligible statuses are distinct;
 - nested functions and unsupported declaration forms are declined without
   approximate dispatch promises;
-- source order and candidate identities are deterministic; and
+- source order is deterministic, and inserting unrelated text before a
+  declaration does not change its identity;
 - target triple, tier, IR version and numeric contract enter the cache key.
 
 ### Opportunity model
@@ -588,6 +688,8 @@ label every hot function native-compatible.
 - thresholds immediately below, at and above their boundaries;
 - a clean trace does not erase an AOT opportunity;
 - a trace blocker does not admit a body the AOT verifier rejects;
+- default and CodeLens analysis do not generate Lua for trace checking;
+- explicit `--trace` reuses the exact generated-bytecode analysis;
 - no estimated speedup appears in text or JSON;
 - profile evidence changes ranking, never eligibility or generated artifacts;
   and
@@ -597,7 +699,10 @@ label every hot function native-compatible.
 
 - `nupp aot` without `--suggest` retains its output and exit behavior;
 - default suggestions, `--all`, JSON, schema and selected targets;
-- a checked project overlay rather than parse-only source determines the result;
+- exactly one target file is reported while its project dependencies supply
+  checked context;
+- a checked project module rather than parse-only source determines the result;
+- default analysis does not call the IR-text, C or binding renderers;
 - no C compiler is searched for during suggestion;
 - exact source ranges and add-annotation edits; and
 - human output renders every stable evidence and refusal identity.
@@ -605,8 +710,11 @@ label every hot function native-compatible.
 ### LSP
 
 - CodeLens capability advertisement and source-ordered lenses;
-- no lens for contracted, quietly eligible or ineligible bodies;
-- cursor inspection returns all four statuses;
+- CodeLens performs no generated-bytecode trace analysis;
+- no lens for contracted, quiet or ineligible bodies;
+- cursor inspection returns contracted, candidate, quiet and ineligible;
+- `codeActionProvider` retains `quickfix` and adds `refactor.rewrite`, including
+  through `nupp lsp actions --only refactor`;
 - code actions insert at the right indentation and refuse an `@jit` conflict;
 - unsaved overlays are analyzed rather than disk text;
 - document edits and target changes invalidate cached answers;
@@ -658,24 +766,30 @@ the released AOT contract and wrapper compile.
 
 ## Delivery
 
-1. Refactor AOT declaration discovery and lowering into explicit contract and
-   inspection requests, with per-function structured refusals and no CST
-   mutation.
-2. Add `aot/advisor.nupp`, stable evidence identities, target-aware caching and
-   focused tests while classifying every eligible body as quiet inspection.
-3. Add the static opportunity model, checked-in benchmark fixtures and thresholds;
+1. Unify all three admission sites: split `check/aot.nupp` into a pure structural
+   query plus its NUPP2903 adapter, extract the NUPP2902 declaration predicate
+   from `check/declare.nupp`/`check/pragma.nupp`, and make `aot/lower.nupp` accept
+   explicit contract and inspection requests without CST mutation.
+2. Fix `lower.scan` so an annotated local function remains a visible AOT helper,
+   then add the analysis-only lower/verify/lanes path which never renders IR text,
+   C or bindings.
+3. Add `aot/advisor.nupp`, stable order-independent declaration identities,
+   target-aware caching and focused tests while classifying every otherwise
+   eligible body as quiet inspection.
+4. Add the static opportunity model, checked-in benchmark fixtures and thresholds;
    keep CodeLens disabled until the default candidate set is useful and quiet.
-4. Add `nupp aot --suggest`, `--all`, JSON/schema output and documentation. This
-   is the first usable release and needs no profiler or editor support.
-5. Add `nupp lsp aot-candidate`, `$/nupp/aotCandidate`, annotation refactorings
+5. Add the single-file, checked-project `nupp aot --suggest`, `--all`, optional
+   `--trace`, JSON/schema output and documentation. This is the first usable
+   release and needs no profiler or editor support.
+6. Add `nupp lsp aot-candidate`, `$/nupp/aotCandidate`, annotation refactorings
    and lazy CodeLens with cancellation, unsaved overlays and document-version
-   caching.
-6. Extend `SampleReport` with structured rows and add the joined
+   caching; advertise `refactor.rewrite` beside `quickfix`.
+7. Extend `SampleReport` with structured rows and add the joined
    `nupp run --aot-profile` report by composing the existing sampling and trace
    sessions.
-7. Join valid runtime evidence into CLI ranking and editor lenses, retain stale
+8. Join valid runtime evidence into CLI ranking and editor lenses, retain stale
    evidence as inspectable metadata, and test every fingerprint boundary.
-8. Update AOT, profiling, LSP, CLI and generated reference documentation; run the
+9. Update AOT, profiling, LSP, CLI and generated reference documentation; run the
    complete suite and compiler fixpoint.
 
 The plan is complete when an unannotated eligible kernel can be discovered from

@@ -1,7 +1,7 @@
 # Checked AOT functions
 
-Status: annotation and scalar-source SIMD prototype implemented; production
-lowering remains planned; supersedes the `@kernel` and `@native` spellings
+Status: implemented for whole-function scalar and initial SIMD lowering;
+widening remains planned; supersedes the `@kernel` and `@native` spellings
 
 ## Decision
 
