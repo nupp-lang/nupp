@@ -493,7 +493,13 @@ local function buildModules(root: string, outDir: string, config: Config, target
     --- Where what this is doing, and what it costs, is said. A run given none still
     --- measures itself into a reporter that shows nothing, so there is one code path
     --- rather than a nil test at every step.
-    reporter: nupp.compiler.build.progress.Reporter?): modules.Result?, string?
+    reporter: nupp.compiler.build.progress.Reporter?,
+
+    --- Source path -> the text to compile instead of what is on disk. How the
+    --- ahead-of-time policy puts a wrapper in front of an `@aot` function: the
+    --- substitute is checked and hashed exactly like a file, so nothing
+    --- downstream has to know one happened.
+    overlays: {[string]: string}?): modules.Result?, string?
     local report = reporter or progress.new("never")
     local envConfig = {}
     for key, value in pairs(config) do
@@ -565,6 +571,25 @@ local function buildModules(root: string, outDir: string, config: Config, target
         typeRoots = rocks and rocks.typeRoots or {},
         observe = observer,
     })
+    local substituted: {[string]: string} = {}
+    for path, text in pairs(overlays or {}) do
+        local at = normalize(path)
+        substituted[at] = text
+        inc.openDocument(at, text)
+    end
+
+    --- What a module's record is keyed on: its substitute when it has one, and
+    --- the file otherwise. Hashing the file while compiling something else would
+    --- make a rebuild reuse an artifact built from different source.
+    local function sourceContentHash(path: string): string?
+        local text = substituted[path]
+        if text ~= nil then
+            return hash.digest(text as string)
+        end
+
+        return hashFile(path)
+    end
+
     -- A check reuses on the same terms a build does. It used to be excluded, and had to
     -- be: reuse produced no diagnostics, so the second `nupp check` over a project with
     -- an error would have said nothing was wrong. Now a record carries what the file
@@ -808,7 +833,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 -- is its own activity so a warm build can say so.
                 report:at("scan")
                 report:step(item.name)
-                local sourceHash = hashFile(path)
+                local sourceHash = sourceContentHash(path)
                 local previous = oldState.modules[item.name]
                 local external = envMod.isDependencyTypePath(inc.env, path)
                 local output = external and nil or join(root, join(outDir, item.name:gsub("%.", "/") .. ".lua"))

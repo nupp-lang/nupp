@@ -73,7 +73,11 @@ end
 --- raises before the wrapper is returned, so a module that loads is a module
 --- whose struct the C compiler agreed with.
 function binding.layoutChecks(symbol: string, layout: scalarIR.Layout): {string}
-    local name = layout.name .. "Layout"
+    -- Named after the symbol as well as the struct. Two `@aot` functions in one
+    -- file that reify the same struct each check it against their own object's
+    -- reporters, and one name per struct would declare the constant twice --
+    -- which does not compile, and is what this file used to emit.
+    local name = symbol .. "_" .. layout.name .. "Layout"
     local reporter = symbol .. "_layout_" .. layout.name
 
     --- One comparison, raising with `mismatch` when the two sides disagree.
@@ -217,6 +221,39 @@ function binding.wrapper(program: scalarIR.Program): {string}
     lines[#lines + 1] = "end"
 
     return lines
+end
+
+--- What stands in for one `@aot` declaration in the source it was written in.
+---
+--- Everything `binding.module` emits for one program except the struct
+--- declarations and the module's exports, both of which the source already has.
+--- Written where the declaration was, so the wrapper is declared under the same
+--- name, at the same point, with the same signature -- and every later reference
+--- to it, exported or internal, reaches the compiled code without knowing it.
+---
+--- This is ordinary Nupp. It goes through the checker like anything else, which
+--- is what makes substituting it safe: the ownership annotations, the range
+--- guard and the one-statement `unsafe do` are all checked rather than trusted.
+function binding.replacement(program: scalarIR.Program, library: string): string
+    local lines: {string} = {}
+    for _, layout in ipairs(program.layouts or {}) do
+        for _, line in ipairs(binding.layoutReporters(program.symbol, layout, library)) do
+            lines[#lines + 1] = line
+        end
+        for _, line in ipairs(binding.layoutChecks(program.symbol, layout)) do
+            lines[#lines + 1] = line
+        end
+        lines[#lines + 1] = ""
+    end
+    for _, line in ipairs(binding.foreign(program, library)) do
+        lines[#lines + 1] = line
+    end
+    lines[#lines + 1] = ""
+    for _, line in ipairs(binding.wrapper(program)) do
+        lines[#lines + 1] = line
+    end
+
+    return table.concat(lines, "\n")
 end
 
 --- The whole generated module: structs, their layout checks, the foreign

@@ -7,15 +7,15 @@ also rewrites that loop to run several iterations at once. Nothing in the source
 names a lane, a mask, or a vector width.
 
 **Status.** The backend is implemented, lives under `src/nupp/compiler/aot/`,
-and is reachable from `nupp aot`. A build can now emit the C — see
-[Build policy](#build-policy) — but nothing compiles, caches or dispatches to
-it yet, and the ordinary Lua body remains what actually runs.
+and is reachable from `nupp aot`. A build selects what to do with it — see
+[Build policy](#build-policy): `off` by default, `emit-c` to write the C beside
+the build, `require` to compile it into the project's own shared library and
+call it.
 
-What you can do today is see exactly what it would produce, and check that a
-loop still vectorises. `nupp check` validates the target and the structural
-subset, so `@aot` on something the backend could not compile is an error rather
-than a surprise later. Everything below is real output on the kernels committed
-under `bench/kernel-subset-spike/`.
+`nupp check` validates the target and the structural subset, so `@aot` on
+something the backend could not compile is an error rather than a surprise
+later, and a check never needs a C compiler. Everything below is real output on
+the kernels committed under `bench/kernel-subset-spike/`.
 
 ## What the annotation buys
 
@@ -603,13 +603,106 @@ targets = {
            for native code never needs a C compiler.
  emit-c    Verifies the IR and writes the C to <outDir>/aot/,
            without compiling it.
- require   Compile, link, dispatch. Specified, not implemented,
-           and refused by the manifest rather than promised.
+ require   Everything emit-c does, and then compiles it into
+           <outDir>/lib/. Fails the build when it cannot.
 ```
 
 `emit-c` adds an artifact; it does not replace one. The ordinary Lua body is
 still emitted and is still what runs. A module with no `@aot` function produces
-no artifact at all.
+no artifact at all, and a project with no `@aot` function anywhere builds
+successfully under `require` with no library — the policy says what to do with
+compiled code, not that there must be some.
+
+Under `require`, calls reach the compiled code. The build replaces each `@aot`
+function with the generated wrapper where it was written, so every call in the
+file and every importer gets the compiled body without naming anything new.
+
+### Accepting a C compiler
+
+Selecting `require` is how a project takes on a C compiler as a dependency.
+Nothing else in Nupp makes it one, which is why `off` is the default rather than
+something cleverer.
+
+The build looks for `NUPP_NATIVE_CC` first, then `clang`, `cc` and `gcc` in that
+order. Clang leads because the emitter's contraction pragma is Clang's; GCC
+compiles the same C correctly and declines to contract, which is slower and
+never wrong. Naming a compiler that cannot build this C is an error rather than
+a reason to look elsewhere — a build that quietly used a different compiler than
+it was told to would produce an artifact nobody could account for.
+
+The generated C needs `__attribute__((vector_size))` and
+`__builtin_convertvector`: GCC 9 and later, and every Clang. **MSVC has
+neither**, so a Windows build is `off` or `emit-c` until someone wants
+`clang-cl`. That is a supported-platform statement of the kind every native
+feature makes, not a disclaimer.
+
+The flags are fixed:
+
+```
+-std=c11 -O3 -ffp-contract=off -fno-fast-math -Wall -Wextra -Werror
+```
+
+`-Werror` is deliberate. This is compiler-generated C, so a warning in it is a
+defect in the backend rather than a style opinion about someone's source — and
+the warning that matters most is `-Wpsabi`, which is how a vector with no
+register class announces itself. Silencing it would make the target model
+pointless. `-ffp-contract=off` is the numeric contract's floor; a body that asked
+for contraction carries its own pragma.
+
+That pragma is Clang's. Under GCC, `@relax("fp-contract")` compiles correctly
+and does not contract, so the body is as accurate as the unrelaxed one and
+slower than the same body under Clang. Correct either way; a performance
+difference worth knowing about before benchmarking across compilers.
+
+Code is linked, never mapped at run time. A shared library the loader already
+brought in needs no W^X policy, no `MAP_JIT`, no executable-memory budget and no
+code retirement — all of which exist only because code is mapped at run time.
+They return if and when direct machine-code emission does.
+
+### How dispatch happens
+
+The wrapper is ordinary Nupp. `nupp aot --emit binding` prints it, and what the
+build splices in is the same text minus the parts the source already has:
+
+```nupp
+cdef function ks_scale_layout_Sample_size(): uint64 from"build/native/lib/libnative_aot.dylib"
+const ks_scale_SampleLayout = layoutof(Sample)
+if ks_scale_SampleLayout.size ~= ks_scale_layout_Sample_size() then
+    error("native struct layout size mismatch", 0)
+end
+
+cdef function ks_scale(exclusive samples: voidptr, borrows source: voidptr, ...) from"..."
+
+local function scale(exclusive samples: span.WriteSpan<Sample>, ...): nil
+    if first < 1 or last > samples.count or first > last + 1 then
+        error("native range out of bounds", 2)
+    end
+    local native_samples, native_samplesCount = samples:ref()
+    ...
+    unsafe do
+        ks_scale(native_samples as voidptr, ..., native_samplesCount)
+    end
+end
+```
+
+Because it is Nupp rather than generated Lua, it goes through the checker like
+anything else: the ownership annotations, the range guard and the
+one-statement-wide `unsafe do` are all checked, not trusted. A substitution
+cannot smuggle in something the language would refuse.
+
+It is written where the declaration was, which is necessarily after the struct
+it reifies, and under the same name with the same signature. The struct layout
+is compared against what the compiled object reports before the module finishes
+loading, so a C compiler that laid the struct out differently is a load error
+rather than a silent misread.
+
+The module is hashed on the text that was compiled rather than the file on disk,
+so a rebuild never reuses an artifact built from a different body.
+
+The library is named the way the build wrote it — relative to where the build
+ran — so a program is run from its project root, the same as for any `kind = "c"`
+dependency. `nupp check` does none of this: it answers a question about the
+source as written, and never needs a C compiler.
 
 ### What an artifact is keyed on
 
@@ -628,18 +721,29 @@ under another.
 The key is evidence, never authority. A build compares it, then checks that the
 file it describes is still on disk with the bytes it claims; a deleted or edited
 artifact is written again rather than believed because a digest agreed. Losing
-the record costs one rebuild and changes no answer, which is what lets
-`aot=require` put executable code on disk later without the cache becoming
-load-bearing.
+the record costs one rebuild and changes no answer.
+
+The linked library gets its own key, over the artifact keys it was built from
+plus the compiler that ran, the flags it ran with, and the linkage that was
+asked for — not the IR and target again, which the artifact keys already carry.
+Changing compilers relinks; rebuilding an unchanged project does not. The C
+itself is deliberately not keyed on the toolchain, because the C is the same C
+whoever compiles it.
+
+The library is validated the same way and is just as disposable. Deleting it
+costs one relink.
 
 ## What is not here yet
 
 Named so you can tell what you are looking at:
 
-- **Compiling and dispatching.** `emit-c` writes C; nothing builds it into an
-  object, caches it, validates it or calls it. That is `aot=require`, and the
-  order the rest goes in is in
-  [plans/038-aot-functions.md](https://github.com/nupp-lang/nupp/blob/main/plans/038-aot-functions.md).
+- **A relocatable library path.** The wrapper names the library relative to
+  where the build ran, so a built program is run from its project root. Loading
+  it relative to the module's own location needs a runtime helper that does not
+  exist yet. `kind = "c"` dependencies have the same property.
+- **A 16-byte gang.** Both shapes are 32 bytes, so x86-64 below AVX2 gets no
+  lanes at all. The target model says so rather than compiling a vector with no
+  register class, but a baseline build still loses the lowering entirely.
 - **Mixed-width gangs.** Width selection is all-or-nothing: a single binary64
   varying value drops the whole loop to four lanes, where the rule should be a
   gang size fixed from register pressure with each value taking however many

@@ -12,27 +12,86 @@ half of each would be a build whose speed nobody could reason about.
 - `emit-c` verifies the IR and writes the C beside the build, without compiling
   it. A platform build can hand that to its own vendor compiler, and a reviewer
   can read what the backend actually produced.
+- `require` compiles that C into the project's own shared library, and fails the
+  build when it cannot. Choosing it is how a project accepts a C compiler as a
+  dependency; nothing else in Nupp makes a project depend on one.
 
-`require` -- compile, link and dispatch -- is specified in
-`plans/038-aot-functions.md` and is not implemented, so the manifest refuses it
-rather than accepting a promise the build cannot keep.
+Code is linked, never mapped at run time. A shared library the loader already
+brought in needs no W^X policy, no `MAP_JIT`, no executable-memory budget and no
+code retirement, and all of those exist only because code is mapped at run time.
+They return if and when direct machine-code emission does.
 
 This pass reads sources rather than the module build's bookkeeping. It costs a
 second parse of the few files that carry the annotation, and in exchange it
 cannot be wrong about which source produced which artifact.
 ]]
 
+local bindingRules = require("nupp.compiler.aot.binding")
 local compile = require("nupp.compiler.aot.compile")
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.compiler.build.cache")
 local hash = require("nupp.compiler.build.hash")
+local process = require("nupp.compiler.build.process")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local targets = require("nupp.compiler.aot.target")
 
 local aot = {}
 
 --- The policies a target may select.
-const aot.POLICIES = {["off"] = true, ["emit-c"] = true}
+const aot.POLICIES = {["off"] = true, ["emit-c"] = true, ["require"] = true}
+
+--- Whether a policy has to produce native code to succeed.
+function aot.linksNative(policy: string?): boolean
+    return policy == "require"
+end
+
+--- A C toolchain this backend can use.
+record aot.Toolchain
+    --- The command that runs it.
+    command: string
+
+    --- The first line it printed when asked. This is what pins an artifact to
+    --- it: the same `cc` is two compilers on two machines, and one compiler
+    --- answers to several names, so the name alone says nothing.
+    version: string
+
+    --- Whose warning vocabulary it speaks, which decides the dialect flags.
+    dialect: string
+end
+
+--- What the generated C needs from a compiler.
+---
+--- `vector_size` and `__builtin_convertvector` are in GCC 9 and later and in
+--- every Clang. MSVC has neither, so a Windows build is `off` or `emit-c` until
+--- someone wants `clang-cl`. That is a supported-platform statement of the kind
+--- every native feature makes, not a disclaimer.
+const aot.NEEDS = "__attribute__((vector_size)) and __builtin_convertvector"
+
+--- The oldest GCC that has them.
+const aot.OLDEST_GCC = 9
+
+--- How the generated C is compiled.
+---
+--- `-Werror` because this is compiler-generated C: a warning in it is a defect
+--- in the backend, not a style opinion about someone's source. The one that
+--- matters most is `-Wpsabi`, which is how a vector with no register class
+--- announces itself, and silencing it would make the target model pointless.
+---
+--- `-ffp-contract=off` and `-fno-fast-math` are the numeric contract. A body
+--- that asked for contraction carries its own pragma, so the flag is a floor
+--- rather than a ceiling.
+const aot.CFLAGS = {"-std=c11", "-O3", "-ffp-contract=off", "-fno-fast-math", "-Wall", "-Wextra", "-Werror",}
+
+--- Warnings only one dialect knows the name of.
+const aot.DIALECT_FLAGS = {["clang"] = {"-Wno-parentheses-equality"}, ["gcc"] = {}}
+
+--- The flag that gives a feature tier its instructions.
+---
+--- A tier with no entry compiles for the architecture's baseline. That is not
+--- an oversight: `target` already decided whether a gang exists, and a flag
+--- here that decided it a second time could disagree with the code it is
+--- compiling.
+const aot.TIER_FLAGS = {["avx2"] = "-mavx2"}
 
 --- Which backend produced an artifact.
 ---
@@ -48,6 +107,10 @@ const aot.BACKEND = "generated-c"
 ---
 --- Deliberately not the source text. Two sources that lower to one IR produce
 --- one artifact, and a comment edit is not a rebuild.
+---
+--- Deliberately not the C toolchain either. The C is the same C whoever
+--- compiles it; what the toolchain changes is the library, which
+--- `aot.libraryKey` covers.
 function aot.key(irText: string, selected: targets.Target): string
     return hash.digest(
         cache.stable({
@@ -58,6 +121,53 @@ function aot.key(irText: string, selected: targets.Target): string
             tier = selected.tier,
             backend = aot.BACKEND,
             compiler = cache.toolFingerprint(),
+        })
+    )
+end
+
+--- Every flag the generated C is compiled with, in the order it is given them.
+---
+--- One function so the flags that are compiled with and the flags that are
+--- keyed on cannot come apart. A relink that used a flag the key never saw
+--- would produce a library the build could not account for.
+function aot.compileFlags(selected: targets.Target, chain: aot.Toolchain): {string}
+    local flags: {string} = {}
+    for _, flag in ipairs(aot.CFLAGS) do
+        flags[#flags + 1] = flag
+    end
+    for _, flag in ipairs(aot.DIALECT_FLAGS[chain.dialect] or {}) do
+        flags[#flags + 1] = flag
+    end
+    local tier = aot.TIER_FLAGS[selected.tier]
+    if tier ~= nil then
+        flags[#flags + 1] = tier as string
+    end
+
+    return flags
+end
+
+--- The key the linked library was built under.
+---
+--- The artifact keys it was built from, plus what turned them into a library:
+--- the compiler that ran, the flags it ran with, and the platform whose linkage
+--- was asked for. The artifact keys already carry the IR and the target, so
+--- this does not repeat them.
+function aot.libraryKey(keys: {string}, chain: aot.Toolchain, flags: {string}, linkage: {string}): string
+    local ordered: {string} = {}
+    for _, one in ipairs(keys) do
+        ordered[#ordered + 1] = one
+    end
+    -- Sorted because the order sources are discovered in is the file system's,
+    -- and a library that relinked when a directory listing changed order would
+    -- be a cache that never hit.
+    table.sort(ordered)
+
+    return hash.digest(
+        cache.stable({
+            artifacts = ordered,
+            toolchain = chain.version,
+            flags = flags,
+            linkage = linkage,
         })
     )
 end
@@ -77,6 +187,77 @@ record aot.Emitted
     key: string
 end
 
+--- The commands to try, in order, when nothing named one.
+---
+--- Clang first because the emitter's contraction pragma is Clang's, so a body
+--- that asked for contraction gets it. GCC compiles the same C correctly and
+--- declines to contract, which is slower and never wrong.
+const aot.CANDIDATES = {"clang", "cc", "gcc"}
+
+--- What a compiler said about itself, read as a dialect and a version.
+---
+--- Parsed from `--version` rather than from the command name, because a `cc`
+--- that is Clang and a `clang` that is a GCC wrapper are both ordinary.
+function aot.identify(text: string): (string?, integer?)
+    local first = text:match("^[^\n]*") or ""
+    if first:lower():find("clang", 1, true) ~= nil then
+        return "clang", tonumber(first:match("version (%d+)")) as integer?
+    end
+    -- GCC puts its version after the distribution's parenthetical, and what
+    -- comes after that varies: Debian stops there, Red Hat adds a build date and
+    -- a second parenthetical. Reading the number that follows the first `)` gets
+    -- all of them, where matching the end of the line only gets some -- and
+    -- failing to read a version is refusing a compiler that works.
+    if first:lower():find("gcc", 1, true) ~= nil or first:find("Free Software Foundation") ~= nil then
+        local after = first:match("%)%s*(%d+)%.%d+")
+        return "gcc", tonumber(after or first:match("(%d+)%.%d+")) as integer?
+    end
+
+    return nil, nil
+end
+
+--- Finds a C compiler that can build the generated C.
+---
+--- `NUPP_NATIVE_CC` names one outright, and naming one that cannot build this C
+--- is an error rather than a reason to look elsewhere: a build that quietly
+--- used a different compiler than it was told to would produce an artifact
+--- nobody could account for.
+---
+--- @return the toolchain, or nothing and why there is none
+function aot.toolchain(): (aot.Toolchain?, string?)
+    local named = os.getenv("NUPP_NATIVE_CC")
+    local candidates = named ~= nil and {named as string} or aot.CANDIDATES
+    local refusals: {string} = {}
+    for _, command in ipairs(candidates) do
+        local code, text = process.capture({command, "--version"})
+        if code ~= 0 then
+            refusals[#refusals + 1] = command .. " could not be run"
+        else
+            local dialect, version = aot.identify(text)
+            if dialect == nil then
+                refusals[
+                    #refusals + 1
+                ] = ("%s is not GCC or Clang, and %s needs %s"):format(command, "the generated C", aot.NEEDS)
+            elseif dialect == "gcc" and (version or 0) < aot.OLDEST_GCC then
+                refusals[
+                    #refusals + 1
+                ] = ("%s is GCC %s; %s arrived in GCC %d"):format(command, tostring(version), aot.NEEDS, aot.OLDEST_GCC)
+            else
+                return new aot.Toolchain(
+                    command = command,
+                    version = (text:match("^[^\n]*") or command) as string,
+                    dialect = dialect as string
+                ), nil
+            end
+        end
+    end
+
+    return nil, "aot = \"require\" needs a C compiler: " .. table.concat(
+        refusals,
+        "; "
+    ) .. ". Name one with NUPP_NATIVE_CC, or select aot = \"emit-c\" to write the C without building it"
+end
+
 --- Whether a source is worth parsing for `@aot` at all.
 ---
 --- A substring test rather than a parse. It is allowed to say yes wrongly -- a
@@ -85,6 +266,123 @@ end
 --- than trying to tell an annotation from prose.
 local function mentionsAot(text: string): boolean
     return text:find("@aot", 1, true) ~= nil
+end
+
+--- How this host spells a shared library, and what it takes to produce one.
+---
+--- The host's rather than the selected target's: `require` builds something
+--- this build's own loader will open. Cross-compiling to a target whose objects
+--- this machine cannot load is `emit-c`, which is what it is for.
+function aot.linkage(): ({string}, string)
+    local osName = ((jit and jit.os or "") as string):lower()
+    if osName == "osx" then
+        return {"-dynamiclib"}, ".dylib"
+    elseif osName == "windows" then
+        return {"-shared"}, ".dll"
+    end
+
+    -- `-lm` because the emitted C calls `sqrt`, `fabs` and friends, which glibc
+    -- keeps outside libc proper.
+
+    return {"-shared", "-fPIC", "-lm"}, ".so"
+end
+
+--- The source with every `@aot` declaration replaced by its wrapper.
+---
+--- Substitution rather than a companion module, because a companion only
+--- reaches callers who know to ask for it. A function replaced where it was
+--- written is reached by every call in the file and by every importer, which is
+--- what `@aot` says happens.
+---
+--- Back to front, so replacing one declaration does not move the next one's
+--- offsets. Nothing is inserted anywhere else: the wrapper's `cdef` and layout
+--- checks go where the function was, which is necessarily after the struct it
+--- reifies was declared.
+---
+--- @param sites where each program was written, in the same order
+--- @return the rewritten source
+function aot.dispatch(source: string, programs: {scalarIR.Program}, sites: {compile.Site}, library: string): string
+    local rewritten = source
+    for position = #programs, 1, -1 do
+        local site = sites[position]
+        if site ~= nil then
+            rewritten = rewritten:sub(
+                1,
+                site.from - 1
+            ) .. bindingRules.replacement(programs[position], library) .. rewritten:sub(site.to + 1)
+        end
+    end
+
+    return rewritten
+end
+
+--- Where a project's compiled `@aot` code goes.
+function aot.libraryPath(outDir: string, name: string, suffix: string): string
+    local stem = name:gsub("[^%w_]", "_")
+    if suffix == ".dll" then
+        return outDir .. "/lib/" .. stem .. "_aot" .. suffix
+    end
+
+    return outDir .. "/lib/lib" .. stem .. "_aot" .. suffix
+end
+
+--- Compiles the emitted C into one shared library.
+---
+--- One library for the project rather than one per source, because the loader
+--- opens it once and the wrappers all name the same object. Sources are sorted
+--- so two builds of one project produce the same command line.
+---
+--- Written through a staged path and installed only after the compiler
+--- succeeded, so a failed link leaves the previous library in place rather than
+--- a truncated one the loader would happily open.
+---
+--- @param sources the C the emitter wrote
+--- @param output where the library goes
+--- @return nothing, or what went wrong
+function aot.link(chain: aot.Toolchain, selected: targets.Target, sources: {string}, output: string): string?
+    local ordered: {string} = {}
+    for _, one in ipairs(sources) do
+        ordered[#ordered + 1] = one
+    end
+    table.sort(ordered)
+
+    local shared, _ = aot.linkage()
+    local argv: {string} = {chain.command}
+    for _, flag in ipairs(shared) do
+        argv[#argv + 1] = flag
+    end
+    for _, flag in ipairs(aot.compileFlags(selected, chain)) do
+        argv[#argv + 1] = flag
+    end
+    argv[#argv + 1] = "-o"
+    local staged = output .. ".tmp"
+    argv[#argv + 1] = staged
+    for _, one in ipairs(ordered) do
+        argv[#argv + 1] = one
+    end
+
+    if not fs.mkdir(fs.dirname(output)) then
+        return "could not create " .. fs.dirname(output)
+    end
+    os.remove(staged)
+    local code, text = process.capture(argv)
+    if code ~= 0 then
+        os.remove(staged)
+
+        return "compiling the generated C failed:\n" .. text
+    end
+
+    local binary, readErr = fs.readFile(staged)
+    os.remove(staged)
+    if binary == nil then
+        return tostring(readErr)
+    end
+    local ok, writeErr = fs.writeFile(output, binary as string)
+    if not ok then
+        return tostring(writeErr)
+    end
+
+    return nil
 end
 
 --- Writes the C for every `@aot` function the project builds.
@@ -102,14 +400,15 @@ function aot.emitC(
     outDir: string,
     roots: {string},
     previous: {[string]: string}
-): ({aot.Emitted}?, string?)
+): ({aot.Emitted}?, string?, {[string]: compile.Artifacts})
     -- The host's target, at its architecture's default tier. A build that wants
     -- another one will say so once there is a manifest key for it; until then
     -- the honest default is the machine the build is running on, conservatively
     -- featured.
+    local produced: {[string]: compile.Artifacts} = {}
     local selected, targetErr = targets.select(nil, nil)
     if selected == nil then
-        return nil, tostring(targetErr)
+        return nil, tostring(targetErr), produced
     end
 
     local emitted: {aot.Emitted} = {}
@@ -133,7 +432,7 @@ function aot.emitC(
                         -- one is not an error; anything else is.
                         local first = diagnostics[1]
                         if first ~= nil and first.message ~= "no @aot function was found" then
-                            return nil, compile.renderDiagnostic(first)
+                            return nil, compile.renderDiagnostic(first), produced
                         end
                     else
                         local relative = source:gsub("^" .. root:gsub("%p", "%%%0") .. "/?", "")
@@ -148,7 +447,7 @@ function aot.emitC(
                         if not reused then
                             local ok, err = fs.writeFile(output, artifacts.c)
                             if not ok then
-                                return nil, tostring(err)
+                                return nil, tostring(err), produced
                             end
                         end
                         emitted[
@@ -159,13 +458,124 @@ function aot.emitC(
                             functions = #artifacts.programs,
                             key = key
                         )
+                        produced[source] = artifacts as compile.Artifacts
                     end
                 end
             end
         end
     end
 
-    return emitted, nil
+    return emitted, nil, produced
+end
+
+--- What one build of the policy produced.
+record aot.Result
+    --- The C, one entry per source that carried an `@aot` function.
+    emitted: {aot.Emitted}
+
+    --- The shared library, when the policy asked for one.
+    library: string?
+
+    --- The key that library was linked under.
+    libraryKey: string?
+
+    --- The compiler that linked it, for a build that wants to say so.
+    toolchain: string?
+
+    --- Source path -> that source with its `@aot` functions replaced by the
+    --- wrappers that call the compiled code. Empty unless the policy links, so
+    --- `emit-c` leaves every module exactly as it was written.
+    dispatch: {[string]: string}
+end
+
+--- Applies a target's ahead-of-time policy.
+---
+--- `emit-c` stops after writing the C. `require` goes on to compile it, and a
+--- project that selected `require` and has no `@aot` function anywhere gets a
+--- successful build with no library rather than an empty one: the policy says
+--- what to do with `@aot` code, not that there must be some.
+---
+--- @param policy the target's `aot` value
+--- @param name the target's name, which the library is named after
+--- @return what was produced, or nothing and the first reason it could not be
+function aot.apply(
+    policy: string,
+    root: string,
+    outDir: string,
+    roots: {string},
+    name: string,
+    previous: {[string]: string},
+    previousLibraryKey: string?
+): (aot.Result?, string?)
+    local emitted, emitErr, produced = aot.emitC(root, outDir, roots, previous)
+    if emitted == nil then
+        return nil, emitErr
+    end
+    if not aot.linksNative(policy) or #(emitted as {aot.Emitted}) == 0 then
+        return new aot.Result(emitted = emitted as {aot.Emitted}, dispatch = {}), nil
+    end
+
+    local chain, chainErr = aot.toolchain()
+    if chain == nil then
+        return nil, tostring(chainErr)
+    end
+    local selected, targetErr = targets.select(nil, nil)
+    if selected == nil then
+        return nil, tostring(targetErr)
+    end
+
+    local sources: {string} = {}
+    local keys: {string} = {}
+    for _, one in ipairs(emitted as {aot.Emitted}) do
+        sources[#sources + 1] = one.output
+        keys[#keys + 1] = one.key
+    end
+
+    local shared, suffix = aot.linkage()
+    local library = aot.libraryPath(outDir, name, suffix)
+    local key = aot.libraryKey(
+        keys,
+        chain as aot.Toolchain,
+        aot.compileFlags(selected as targets.Target, chain as aot.Toolchain),
+        shared
+    )
+
+    -- Same rule the C artifacts follow: the key is compared, and then the
+    -- library it describes has to still be there. A relink costs seconds; a
+    -- stale library loaded because a digest agreed costs a wrong answer.
+    if previousLibraryKey ~= key or not fs.exists(library) then
+        local linkErr = aot.link(chain as aot.Toolchain, selected as targets.Target, sources, library)
+        if linkErr ~= nil then
+            return nil, tostring(linkErr)
+        end
+    end
+
+    -- Written after the library exists rather than before, so a build that
+    -- failed to link never leaves modules rewritten to call an object that is
+    -- not there.
+    local dispatch: {[string]: string} = {}
+    for _, one in ipairs(emitted as {aot.Emitted}) do
+        local artifacts = produced[one.source]
+        local text = fs.readFile(one.source)
+        if artifacts ~= nil and text ~= nil then
+            dispatch[
+                one.source
+            ] = aot.dispatch(
+                text as string,
+                (artifacts as compile.Artifacts).programs,
+                (artifacts as compile.Artifacts).sites,
+                library
+            )
+        end
+    end
+
+    return new aot.Result(
+        emitted = emitted as {aot.Emitted},
+        library = library,
+        libraryKey = key,
+        toolchain = (chain as aot.Toolchain).version,
+        dispatch = dispatch
+    ), nil
 end
 
 return aot

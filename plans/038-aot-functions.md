@@ -1031,8 +1031,15 @@ is new is doing it for compiler-generated C, keyed on the IR that produced it.
    file, getting it wrong costs a regenerated file.
 5. **`aot=require`.** Compile, link, load, dispatch.
 
-Steps one through four have landed. Only `require` is left, and with it the
-first artifact whose staleness a reader cannot check by opening it.
+All five have landed. `require` discovers a toolchain, compiles the emitted C
+into the project's shared library, and replaces each `@aot` function with the
+generated wrapper where it was written, so a call reaches the compiled symbol
+without naming anything new.
+
+The substitution goes through the checker rather than around it. The wrapper is
+Nupp -- ownership annotations, a range guard, one statement of `unsafe do` -- so
+what a build splices in is checked exactly as if someone had written it, and the
+module is hashed on the text that was compiled rather than the file on disk.
 
 Mixed-width gang sizing is not on this path. It is a performance property and
 has never blocked a correct answer.

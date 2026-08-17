@@ -311,6 +311,49 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     newState.dependencies = dependencies
+    -- The AOT policy runs before the modules it affects. `off` is the default
+    -- and looks for nothing, so a project that has not asked for native code
+    -- never depends on a C compiler being present -- but `require` replaces
+    -- `@aot` bodies with the wrappers that call the compiled code, and that has
+    -- to happen before the module build reads them.
+    --
+    -- A check does none of it. `nupp check` answers a question about the source
+    -- as written, and asking it to compile and link first would make checking a
+    -- project need a C compiler that building it is what actually requires.
+    local aotOverlays: {[string]: string}? = nil
+    if not opts.checkOnly and (target.aot == "emit-c" or target.aot == "require") then
+        report:at("aot")
+        report:step(target.aot == "require" and "compiling ahead-of-time code" or "emitting ahead-of-time C")
+
+        local produced, aotErr = aotPolicy.apply(
+            target.aot as string,
+            root,
+            outDir,
+            config.include or {},
+            (target.name or opts.target or "default") as string,
+            (oldState.aot or {}) as {[string]: string},
+            oldState.aotLibrary
+        )
+        report:clear()
+        if produced == nil then
+            io.stderr:write("nupp: " .. tostring(aotErr) .. "\n")
+
+            return 1
+        end
+        -- Recorded like any other output, so `nupp clean` removes it and a
+        -- rebuild knows it is there.
+        local keys: {[string]: string} = {}
+        for _, one in ipairs((produced as any).emitted as {any}) do
+            newState.outputs[one.output] = true
+            keys[one.source] = one.key
+        end
+        newState.aot = keys
+        if (produced as any).library ~= nil then
+            newState.outputs[(produced as any).library] = true
+            newState.aotLibrary = (produced as any).libraryKey
+        end
+        aotOverlays = (produced as any).dispatch as {[string]: string}?
+    end
     local result, buildErr = buildModules(
         root,
         outDir,
@@ -324,7 +367,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         opts.diagnostics,
         checkState,
         opts.paths and {paths = opts.paths, unchecked = opts.unchecked or {},} or nil,
-        report
+        report,
+        aotOverlays
     )
     -- Everything from here writes to the same stream the step line is on, so it comes
     -- off the screen once rather than before each of a dozen messages.
@@ -345,31 +389,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     for output in pairs(result.outputs) do
         newState.outputs[output] = true
-    end
-    -- The build's AOT policy, applied to what it just compiled. `off` is the
-    -- default and looks for nothing, so a project that has not asked for native
-    -- code never depends on a C compiler being present.
-    if target.aot == "emit-c" then
-        report:at("aot")
-        report:step("emitting ahead-of-time C")
-
-        local emitted, aotErr = aotPolicy.emitC(root, outDir, config.include or {}, (
-            oldState.aot or {}
-        ) as {[string]: string})
-        report:clear()
-        if emitted == nil then
-            io.stderr:write("nupp: " .. tostring(aotErr) .. "\n")
-
-            return 1
-        end
-        -- Recorded like any other output, so `nupp clean` removes it and a
-        -- rebuild knows it is there.
-        local keys: {[string]: string} = {}
-        for _, one in ipairs(emitted as {any}) do
-            newState.outputs[one.output] = true
-            keys[one.source] = one.key
-        end
-        newState.aot = keys
     end
 
     local detectedEffects = native.dependencyEffects(root, config, target, result.effects)

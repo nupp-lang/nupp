@@ -94,6 +94,18 @@ jobs:
           NUPP_NATIVE_CC: gcc
         run: bench/kernel-subset-spike/crosscheck.sh
 
+      # The suite's own `aot = "require"` tests take whichever compiler the
+      # runner offers first, which is Clang. Running them again under GCC checks
+      # the version parsing, the dialect flags and `-Werror` against the other
+      # compiler a user is likely to have. The spike above exercises none of
+      # that, because it builds its own command line rather than the build's.
+      - name: Build and load an aot = "require" project through GCC
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          NUPP_NATIVE_CC: gcc
+        run: ./bin/nupp test --jobs=1 --shard=aotbuildtest
+
       - name: Run the compiler suite
         if: runner.os != 'Windows'
         shell: bash

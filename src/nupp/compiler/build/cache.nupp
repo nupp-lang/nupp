@@ -136,7 +136,11 @@ type cache.State = {
     --- Never load-bearing. A key that is missing, unreadable or different is a
     --- regeneration, not an error, and the artifact it describes is checked to
     --- still exist before it is believed.
-    aot: {[string]: string}?
+    aot: {[string]: string}?,
+
+    --- The key the linked ahead-of-time library was built under, when a target
+    --- asked for one. Validated the same way and just as disposable.
+    aotLibrary: string?
 }
 
 local function jsonArray<T>(takes items: {T}): {T} preserves items

@@ -1287,10 +1287,14 @@ It changes no runtime behavior.
 `@jit` enforces traceability: a variadic FFI call or Lua callback passed into C
 must live in a function disabled with `jit.off`, or it reports NUPP2707.
 
-`@aot` reserves a required whole-function ahead-of-time compilation contract.
-The current release checks its target and structural source subset but still
-emits the ordinary Lua body; production AOT artifact generation is not yet part
-of `nupp build`. A closure, table, interpolated string, vararg, `goto`, dynamic
+`@aot` reserves a required whole-function ahead-of-time compilation contract. A
+target's `aot` policy says what a build does with it: `off`, the default, does
+nothing; `emit-c` writes the generated C beside the build; `require` compiles
+that C into the project's own shared library and fails the build when it cannot.
+Under `require` the function is replaced where it was written by a checked
+wrapper that calls the compiled symbol, so every call to it reaches native code
+and the struct layouts are compared against the object's own before the module
+finishes loading. A closure, table, interpolated string, vararg, `goto`, dynamic
 call, or unsafe operation inside one reports NUPP2903 at the construct. Stacking
 it with `@jit` promises one body to two compilers and reports NUPP2901, and a
 constructor or inline requirement is not a whole function to compile, so

@@ -19,6 +19,8 @@ something to fail a build over.
 ]]
 
 local bindingRules = require("nupp.compiler.aot.binding")
+local cst = require("nupp.compiler.cst")
+local lexer = require("nupp.compiler.lexer")
 local emit = require("nupp.compiler.aot.emit")
 local intensity = require("nupp.compiler.aot.intensity")
 local lower = require("nupp.compiler.aot.lower")
@@ -39,6 +41,22 @@ record compile.Diagnostic
     message: string
 end
 
+--- Where one `@aot` declaration sits in the source it came from.
+---
+--- The whole declaration: the annotations and the function they decorate, from
+--- the first byte of the outermost `@aot` to the last byte of its `end`.
+---
+--- Deliberately beside the IR rather than in it. The IR is what an artifact is
+--- keyed on, and an offset moves when a comment above it is edited, so carrying
+--- one inside would make every comment a rebuild.
+record compile.Site
+    --- Byte offset of the first character, 1-based.
+    from: integer
+
+    --- Byte offset of the last character, 1-based and inclusive.
+    to: integer
+end
+
 --- Everything compiling one function produces.
 record compile.Artifacts
     --- The verified IR of every `@aot` function in the file, in source order,
@@ -53,6 +71,9 @@ record compile.Artifacts
 
     --- The Nupp module that stands in front of the compiled C.
     binding: string
+
+    --- Where each program's declaration was written, in the same order.
+    sites: {compile.Site}
 end
 
 --- One diagnostic, as a line a person reads.
@@ -64,19 +85,35 @@ end
 --- rather than swallowing one.
 local REFUSED = {}
 
+--- Where one `@aot` declaration was written, as byte offsets.
+---
+--- From the first annotation rather than from the function, because replacing
+--- the declaration means replacing the annotations that decorate it too. A
+--- wrapper that kept `@aot` above it would ask the checker to compile the body
+--- it is standing in for.
+function compile.site(application: lower.Application): compile.Site
+    local first = cst.firstToken(application.at as cst.Child?)
+    local last = cst.lastToken(application.tail as cst.Child?)
+    local from = first ~= nil and (first as lexer.Token).offset or 1
+    local to = last ~= nil and ((last as lexer.Token).offset + #(last as lexer.Token).text - 1) or from
+
+    return new compile.Site(from = from, to = to)
+end
+
 --- Lowers one source to verified scalar IR.
 ---
 --- @param source the text, used when `parsed` is not supplied
 --- @param filename what diagnostics name
 --- @param parsed an already-parsed tree, which is how the checker hands one over
---- @return the IR, or nothing and the reasons it was refused
+--- @return the IR, the reasons it was refused, and where each program was
+---   written
 --- @raises when the IR the source lowered to is not well formed, which is a
 ---   compiler bug rather than something about the source
 function compile.lower(
     source: string,
     filename: string,
     parsed: parser.ParseResult?
-): ({scalarIR.Program}, {compile.Diagnostic})
+): ({scalarIR.Program}, {compile.Diagnostic}, {compile.Site})
     local tree = parsed or parser.parse(source, filename)
     local diagnostics: {compile.Diagnostic} = {}
     if #tree.errors > 0 then
@@ -91,7 +128,7 @@ function compile.lower(
             )
         end
 
-        return {}, diagnostics
+        return {}, diagnostics, {}
     end
 
     local context = new lower.Context(reject = function(at: scalarIR.Source?, message: string): nil
@@ -110,6 +147,7 @@ function compile.lower(
     -- annotation is read off the tree, which is what lets this run on a tree the
     -- checker never saw.
     local wasChecked = parsed ~= nil
+    local sites: {compile.Site} = {}
     local ok, lowered = pcall(function(): {scalarIR.Program}
         local found = lower.scan(tree.root, wasChecked)
         if #found.applications == 0 then
@@ -119,6 +157,7 @@ function compile.lower(
         local programs: {scalarIR.Program} = {}
         for position, application in ipairs(found.applications) do
             programs[position] = verify.program(lower.program(found, application, wasChecked, context))
+            sites[position] = compile.site(application)
         end
 
         return programs
@@ -129,10 +168,10 @@ function compile.lower(
             error(lowered, 0)
         end
 
-        return {}, diagnostics
+        return {}, diagnostics, {}
     end
 
-    return lowered as {scalarIR.Program}, diagnostics
+    return lowered as {scalarIR.Program}, diagnostics, sites
 end
 
 --- Decides whether to run the loop several iterations at once, and does it.
@@ -219,7 +258,7 @@ function compile.artifacts(
     library: string,
     selected: targets.Target
 ): (compile.Artifacts?, {compile.Diagnostic})
-    local programs, diagnostics = compile.lower(source, filename, parsed)
+    local programs, diagnostics, sites = compile.lower(source, filename, parsed)
     if #programs == 0 then
         return nil, diagnostics
     end
@@ -232,7 +271,8 @@ function compile.artifacts(
         programs = programs,
         irText = text.programs(programs),
         c = emit.program(programs),
-        binding = bindingRules.module(programs, library)
+        binding = bindingRules.module(programs, library),
+        sites = sites
     ), diagnostics
 end
 
