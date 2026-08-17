@@ -536,13 +536,7 @@ function page.render(
         #actions + 1
     ] = '<button class="nuppdoc-icon-link" type="button"'
         .. ' title="Toggle theme" aria-label="Toggle theme" data-theme-toggle>◐</button>'
-    local side = home and "" or sidebar(
-        modules,
-        current,
-        prefix,
-        pages,
-        route
-    )
+    local side = home and "" or sidebar(modules, current, prefix, pages, route)
     local right = home and "" or outline(items)
     local search = '<button class="nuppdoc-search-button" type="button"'
         .. ' data-nuppdoc-search aria-label="Search documentation">'

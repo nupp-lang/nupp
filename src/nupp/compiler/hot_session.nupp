@@ -67,10 +67,7 @@ record hotSession.Unchanged
 end
 
 --- What `prepare` answers with, discriminated by `kind`.
-type hotSession.Result = hotSession.Prepared |
-    hotSession.Rejected |
-    hotSession.Restart |
-    hotSession.Unchanged
+type hotSession.Result = hotSession.Prepared | hotSession.Rejected | hotSession.Restart | hotSession.Unchanged
 
 --- The entry watch artifact and the manifest describing what it registered.
 record hotSession.InitialBuild
@@ -95,9 +92,7 @@ type hotSession.WatchedInput = {
 }
 
 --- Loader names whose binary identity the session could not pin, reported once each.
-type hotSession.Notices = {
-    unverifiedLibraries: {string}
-}
+type hotSession.Notices = {unverifiedLibraries: {string}}
 
 --- One compiler-side hot reload session, owning one incremental query graph.
 ---
@@ -126,21 +121,15 @@ record hotSession.Session
     diskChanged: function(self: hotSession.Session, path: string, changeType: integer)
 
     --- Builds the entry watch artifact, or answers why it could not be built.
-    initial: function(
-        self: hotSession.Session,
-        entries: {string}
-    ): hotSession.InitialBuild | hotSession.Rejected | hotSession.Restart
+    initial: function(self: hotSession.Session, entries: {string}): hotSession.InitialBuild
+        | hotSession.Rejected
+        | hotSession.Restart
 
     --- Checks the affected source closure against the running generation.
     prepare: function(self: hotSession.Session, paths: {string}): hotSession.Result
 
     --- Records that a module executed and registered its slots.
-    loaded: function(
-        self: hotSession.Session,
-        module: string,
-        generation: integer,
-        manifest: any
-    ): hotSession.Notices
+    loaded: function(self: hotSession.Session, module: string, generation: integer, manifest: any): hotSession.Notices
 
     --- Advances the baseline after the host reports a commit landed.
     committed: function(self: hotSession.Session, generation: integer): hotSession.Notices

@@ -305,12 +305,7 @@ function hotreload.stage(source: string, baseGeneration: integer): hotreload.Tra
     if not chunk then
         return nil, tostring(loadError)
     end
-    local staging: hotreload.Staging = {
-        baseGeneration = baseGeneration,
-        candidates = {},
-        byKey = {},
-        policies = {},
-    }
+    local staging: hotreload.Staging = {baseGeneration = baseGeneration, candidates = {}, byKey = {}, policies = {},}
     state.staging = staging
     local ok, reason = pcall(chunk)
     state.staging = nil
