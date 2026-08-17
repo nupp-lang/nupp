@@ -810,12 +810,16 @@ print("VALUE " .. tostring(target[6].value))
    building:close()
    test.equal(tonumber(out:match("__exit__:(%d+)%s*$")), 0, out)
 
-   -- Run from elsewhere, so nothing about the answer comes from the working
-   -- directory. The runtime goes on the path because a minimal project does not
-   -- carry it; the compiled library is what this is about, and that travels.
+   -- Run from the repository, which is neither the project nor the output the
+   -- binary was stamped into, so nothing about the answer can come from the
+   -- working directory: the library sits in a temporary directory nowhere near
+   -- here. The runtime goes on the path relatively, because an absolute one
+   -- spelled for this shell is not one the binary's own runtime can read on
+   -- every platform. A minimal project does not carry the runtime; the compiled
+   -- library is what this is about, and that travels.
    local pipe = assert(io.popen(
-      ('cd / && LUA_PATH=%q %q 2>&1'):format(
-         HERE .. "/../build/?.lua;" .. HERE .. "/../build/?/init.lua;;", dir .. "/build/app/app")))
+      ('cd %q && LUA_PATH=%q %q 2>&1'):format(
+         HERE .. "/..", "build/?.lua;build/?/init.lua;;", dir .. "/build/app/app")))
    local report = pipe:read("*a")
    pipe:close()
    assert(report:find("VALUE 12.25", 1, true),
