@@ -185,6 +185,15 @@ work makes sense in.
       choice between pinning one baseline at build time and multiversioning with
       runtime dispatch.
       The original entry follows.
+- [x] **No gang fits x86-64 below AVX.** Closed. The shapes come in 16 and 32
+      bytes now, a target takes every one that fits its widest register class,
+      and plain x86-64 runs two binary64 lanes or four 32-bit ones instead of
+      refusing. `aotFeatures` on a target selects a wider tier, and the tier is
+      part of the artifact key. CI runs the differential at the baseline with no
+      `-mavx2`, which is the combination most users get and the one that found
+      the mask type nobody had given a C spelling.
+      What is left of it is multiversioning, below.
+      The original entry follows.
 - [ ] **No gang fits x86-64 below AVX.** Both shapes are 32 bytes, which is one
       AVX register and two NEON registers. Below AVX on x86-64 a 32-byte vector
       has no register class: it compiles, because the compiler splits it, but it
@@ -200,6 +209,30 @@ work makes sense in.
       cache key to carry: a 16-byte gang for the x86-64 baseline, or a stated
       refusal to compile `@aot` lanes below AVX. `crosscheck.sh` targets the AVX
       tier on x86-64 in the meantime and lets a forced lower one warn.
+- [x] mixed-width gangs. The rounding half is done; the lane-count half is not,
+        and is now known to be the smaller of the two.
+        `mixed4` and `mixed2` replace the binary64 gangs and carry each value at
+        its own element width, so an explicit binary32 operation is a native
+        single-precision instruction rather than a wide one rounded back. A
+        widening became a real conversion, a comparison produces a mask as wide
+        as what it compared, and the mask algebra stays at one width and converts
+        at comparisons and selects.
+        `bench/kernel-subset-spike/mixedwidth.sh` builds one loop three ways and
+        reports each against its own forced-scalar body:
+
+            mixedwidth      mixed4   1.06x -> 2.57x
+            mixedwidth_f64  mixed4   2.46x -> 2.45x
+            mixedwidth_f32  f32x8    4.72x -> 4.72x
+
+        The kernel that mixes widths now runs at what the same loop runs at with
+        nothing to round. Of the 4.5x the all-or-nothing rule had been costing,
+        rounding was 2.3x and the lane count 1.9x -- so the larger half is closed
+        and the plan's phrase "gang sizing" named the smaller one.
+        What remains is eight lanes with a binary64 value in the loop. A binary64
+        value needs 64-bit lanes whatever else the loop holds, so four is what
+        fits in 32 bytes; eight wants either a wider register file or one value
+        spanning two registers, and neither is a decision anyone has taken.
+        The original entry follows.
 - [ ] mixed-width gangs. Half of this is done and the half that is left is
         smaller than it was.
         The sharp edge was not lane count: a loop mixing explicit binary32 with
@@ -221,6 +254,24 @@ work makes sense in.
         needs, so a binary64 value in a gang of eight is four NEON registers and
         a binary32 one is two. That needs mask widths to convert, which nothing
         does yet.
+  - [ ] **Multiversion the feature tier.** A build pins one. Dispatching between
+        several at run time, so one binary uses AVX2 where it is present and the
+        16-byte gangs where it is not, is what would let x86-64 have the wide
+        gangs without a project promising instructions its users may not have.
+        Until then the conservative default costs half the lanes on the most
+        common target, which is a real price and a stated one.
+  - [ ] **Put `@aot` in front of something real.** Every measurement lives under
+        `bench/kernel-subset-spike/`. Tecs is the obvious first consumer, since
+        the kernel shapes were borrowed from it to begin with. A feature that
+        works and a feature in use fail differently, and only the second says
+        whether the admitted subset is the right subset -- whether `@aot`
+        refuses things people actually write.
+  - [ ] **Name a `kind = "c"` dependency's library relative to its module.**
+        Compiled `@aot` code travels: the wrapper names its library with a
+        leading `@`, resolved against the chunk that loads it, so a copied output
+        tree runs from anywhere. An ordinary C dependency still embeds the path
+        the build wrote, so it has the problem `@aot` code no longer has. The
+        mechanism is general and nothing has been changed there.
   - [ ] admit `nupp.math.f32.min`, `max`, and `fma`. The admitted operations are
         exact because a binary32 operation over binary32 operands computed in
         binary64 and rounded once is bit-identical to the native instruction
