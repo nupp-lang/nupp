@@ -1058,6 +1058,11 @@ returns remain explicit AOT subset boundaries.
 Regular dispatch never calls a C helper or a table of arm functions. It does not
 build a BDD, MTBDD or perfect hash and does not require a custom LuaJIT opcode.
 
+Switches may nest. An inner selector switch completes before the outer switch.
+An inner arm switch stays inside the selected arm and remains lazy. Each level
+is planned independently: the nested expression keeps its enclosing arm out of
+a static result map, but the inner switch may still use a lookup.
+
 Formatting always exposes the two scopes: cases are one indentation level inside
 the switch, block-arm statements are two, an arm `end` aligns with its `case`,
 and the switch `end` aligns with the expression's surrounding statement.

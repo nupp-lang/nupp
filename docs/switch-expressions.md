@@ -287,6 +287,13 @@ Write the switch as a preceding local when eager evaluation is intended. Lazy
 placement awaits general expression normalization rather than silently changing
 when the switch runs.
 
+Switches may nest. An inner switch used as the outer selector finishes first,
+and its result becomes the outer switch's single selector value. An inner
+switch written in an arm remains lazy: it is lowered inside that arm and does
+not evaluate unless the arm is selected. Planning is independent at each
+level. A nested expression prevents the enclosing arm from being a static
+result-map entry, while the inner switch may still use its own lookup plan.
+
 Static cases with expression arms are supported by `comptime`. Comptime type
 cases and block arms receive the targeted unsupported-construct diagnostic. The
 AOT scalar subset admits a switch that initializes one scalar local, uses

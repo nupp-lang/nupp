@@ -397,6 +397,69 @@ function M.manyMapsSpillBehindOnePrologueUpvalue()
    assertEq(nilResult, nil)
 end
 
+function M.aNestedSwitchMaySupplyAnotherSwitchSelector()
+   local first, fourth, missing = run(table.concat({
+      "local function classify(value: number): string",
+      "   return switch (switch value do",
+      "      case 1 -> 10",
+      "      case 2 -> 11",
+      "      case 3 -> 12",
+      "      case 4 -> 13",
+      "      else -> 0",
+      "   end) do",
+      "      case 10 -> 'one'",
+      "      case 11 -> 'two'",
+      "      case 12 -> 'three'",
+      "      case 13 -> 'four'",
+      "      else -> 'missing'",
+      "   end",
+      "end",
+      "return classify(1), classify(4), classify(99)",
+   }, "\n"))
+   assertEq(first, "one")
+   assertEq(fourth, "four")
+   assertEq(missing, "missing")
+end
+
+function M.aNestedArmStaysLazyAndPlansIndependently()
+   local source = table.concat({
+      "local reads = 0",
+      "local function read(): string",
+      "   reads = reads + 1",
+      "   return 'k8'",
+      "end",
+      "local function choose(outer: number): string",
+      "   return switch outer do",
+      "      case 1 -> switch read() do",
+      "         case 'k1' -> 'v1'",
+      "         case 'k2' -> 'v2'",
+      "         case 'k3' -> 'v3'",
+      "         case 'k4' -> 'v4'",
+      "         case 'k5' -> 'v5'",
+      "         case 'k6' -> 'v6'",
+      "         case 'k7' -> 'v7'",
+      "         case 'k8' -> 'v8'",
+      "         else -> 'inner-miss'",
+      "      end",
+      "      case 2 -> 'outer-two'",
+      "      else -> 'outer-miss'",
+      "   end",
+      "end",
+      "local first = choose(2)",
+      "local before = reads",
+      "local second = choose(1)",
+      "return first, before, second, reads",
+   }, "\n")
+   local code = generate(source)
+   assert(code:find("__nuppSwitchMap", 1, true), code)
+   local chunk = assert(loadstring(code, "@nested_switch_arm"))
+   local first, before, second, after = chunk()
+   assertEq(first, "outer-two")
+   assertEq(before, 0, "the unselected nested arm does no work")
+   assertEq(second, "v8")
+   assertEq(after, 1, "the selected nested selector runs once")
+end
+
 function M.switchDiagnosticsAreSpecific()
    local missing = diagnosticCodes(table.concat({
       "local type Status = 'on' | 'off'",
