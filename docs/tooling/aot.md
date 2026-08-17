@@ -593,6 +593,19 @@ luajit bench/kernel-subset-spike/mandelbrot_main.lua  # every pixel, three ways
 Tails are exercised at every remainder for both gang widths, so a four-lane and
 an eight-lane tail are both covered.
 
+`bench/kernel-subset-spike/crosscheck.sh` runs the same agreement in C with no
+LuaJIT in the process, over every committed kernel, at both gang widths and at
+whatever feature tier is asked for. CI runs it on Linux and macOS at three tiers
+and through both Clang and GCC, and on Windows — the platform is checked rather
+than reasoned about from the other two.
+
+The build's own end of it is exercised the same way, by doing the thing rather
+than asserting it: a project is built under `require` and its answers compared
+against the same project built with `aot = "off"`, an output tree is copied
+elsewhere and run from a third directory, a cross build's object is inspected to
+confirm it is the other machine's, and a stamped binary is run from `/` to
+confirm it finds the library it was given.
+
 ## Scalar switch initializers
 
 The scalar subset admits a switch as the sole initializer of one local when:

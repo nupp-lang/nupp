@@ -720,6 +720,96 @@ return {
       "and the compiled library went with it rather than staying in build/")
 end
 
+--- The triple this host can cross-compile to without a sysroot to install, or
+--- nothing where there is none. macOS ships both architectures' headers, so an
+--- arm64 machine builds x86-64 objects and the reverse, which is a real cross
+--- build rather than a rehearsal of one.
+local function crossTriple()
+   local targets = require("nupp.compiler.aot.target")
+   local host = targets.select(nil, nil)
+   if host == nil or targets.system(host.triple) ~= "darwin" then return nil end
+   if host.architecture == "aarch64" then return "x86_64-apple-darwin", "avx2" end
+   return "aarch64-apple-darwin", "neon"
+end
+
+function M.requireCrossCompilesToAnotherMachine()
+   local triple, tier = crossTriple()
+   if triple == nil or not hasToolchain() then return end
+
+   local dir = project("require")
+   withKeys(dir, ('aotTarget = "%s", aotFeatures = "%s",'):format(triple, tier))
+   local out, code = build(dir)
+   test.equal(code, 0, "a cross build completes rather than only being attempted\n" .. out)
+
+   -- What makes this a cross build is the object, not the command line.
+   local pipe = assert(io.popen(("file %q 2>&1"):format(libraryPath(dir))))
+   local described = pipe:read("*a")
+   pipe:close()
+   local wanted = triple:match("^([^-]+)") == "x86_64" and "x86_64" or "arm64"
+   assert(described:find(wanted, 1, true),
+      "and it is that machine's object rather than this one's: " .. described)
+end
+
+function M.aStampedBinaryFindsItsCompiledLibrary()
+   if not hasToolchain() then return end
+
+   -- A binary carries its payload rather than loading a module file, so the
+   -- chunk the wrapper ends up in is the executable. What is being checked is
+   -- that this still gives the `@` walk somewhere to start.
+   local dir = project("require")
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write([[
+return {
+   include = {"src"},
+   build = {
+      targets = {
+         native = {
+            kind = "binary",
+            entries = {"main"},
+            outDir = "build/native",
+            stub = "nupp",
+            aot = "require",
+         },
+      },
+   },
+}
+]])
+   manifest:close()
+   assert(os.remove(dir .. "/src/plain.nupp"))
+   local main = assert(io.open(dir .. "/src/main.nupp", "wb"))
+   main:write([[
+local span = require("nupp.span")
+local kernel = require("kernel")
+
+const count: integer = 8
+local source = carray(kernel.Sample, 8)
+local target = carray(kernel.Sample, 8)
+for i = 1, count do
+    local one = source[i - 1]
+    one.value = i * 0.5
+    one.weight = i * 0.25
+end
+
+kernel.scale(span.writeCarray(target, count), span.fromCarray(source, count), 1, count, 3.0)
+print("VALUE " .. tostring(target[6].value))
+]])
+   main:close()
+
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+
+   -- Run from elsewhere, so nothing about the answer comes from the working
+   -- directory. The runtime goes on the path because a minimal project does not
+   -- carry it; the compiled library is what this is about, and that travels.
+   local pipe = assert(io.popen(
+      ('cd / && LUA_PATH=%q %q 2>&1'):format(
+         HERE .. "/../build/?.lua;" .. HERE .. "/../build/?/init.lua;;", dir .. "/build/native/native")))
+   local report = pipe:read("*a")
+   pipe:close()
+   assert(report:find("VALUE 12.25", 1, true),
+      "a stamped binary reaches its compiled code: " .. report)
+end
+
 function M.aNamedCompilerThatCannotBuildThisCIsRefused()
    local dir = project("require")
    local pipe = assert(io.popen(
