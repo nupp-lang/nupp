@@ -1,0 +1,106 @@
+-- Representative regular-backend span kernel for plan 060.
+--
+-- `guarded` is the shape used by the AOT kernel subset today. `ranged` preserves
+-- its length error and replaces only the handwritten range guard with the standard
+-- witness. The benchmark driver supplies the handwritten direct form so this file
+-- remains ordinary checked Nupp.
+local span = require("nupp.span")
+
+local kernel = {}
+
+struct kernel.Position
+    x: float
+    y: float
+end
+
+struct kernel.Velocity
+    x: float
+    y: float
+end
+
+@relax("frames")
+function kernel.guarded(
+    exclusive positions: span.WriteSpan<kernel.Position>,
+    borrows velocities: span.Span<kernel.Velocity>,
+    first: integer,
+    last: integer,
+    steps: integer,
+    dt: float
+): nil
+    if positions.count ~= velocities.count then
+        error("length mismatch", 2)
+    end
+    if first < 1 or last > positions.count or first > last + 1 then
+        error("range out of bounds", 2)
+    end
+
+    for _ = 1, steps do
+        for index = first, last do
+            local position = positions:getMut(index)
+            local velocity = velocities:get(index)
+            position.x = velocity.x * dt + velocity.y
+            position.y = velocity.y * dt - velocity.x
+        end
+    end
+end
+
+@relax("frames")
+function kernel.ranged(
+    exclusive positions: span.WriteSpan<kernel.Position>,
+    borrows velocities: span.Span<kernel.Velocity>,
+    first: integer,
+    last: integer,
+    steps: integer,
+    dt: float
+): nil
+    if positions.count ~= velocities.count then
+        error("length mismatch", 2)
+    end
+    const output = positions
+    const input = velocities
+    const rows = span.range(first, last, output, input)
+
+    for _ = 1, steps do
+        for index = rows.first, rows.last do
+            local position = output:getMut(index)
+            local velocity = input:get(index)
+            position.x = velocity.x * dt + velocity.y
+            position.y = velocity.y * dt - velocity.x
+        end
+    end
+end
+
+-- Correctness sentinels for the direct form's root and offset behavior. They are not
+-- part of the timed kernel.
+@relax("frames")
+function kernel.stringChecksum(text: string): number
+    const bytes = span.fromString(text)
+    const rows = span.range(1, bytes.count, bytes)
+    local total = 0
+    for index = rows.first, rows.last do
+        if index % 257 == 0 then
+            collectgarbage()
+        end
+        total = total + bytes:get(index)
+    end
+
+    return total
+end
+
+@relax("frames")
+function kernel.gcCopy(
+    exclusive positions: span.WriteSpan<kernel.Position>,
+    borrows velocities: span.Span<kernel.Velocity>
+): nil
+    const output = positions
+    const input = velocities
+    const rows = span.range(1, output.count, output, input)
+    for index = rows.first, rows.last do
+        if index % 67 == 0 then
+            collectgarbage()
+        end
+        output:getMut(index).x = input:get(index).x
+    end
+end
+
+return kernel

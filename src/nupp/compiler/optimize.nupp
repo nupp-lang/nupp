@@ -45,6 +45,13 @@ optimize.passes = {
     [
         "OPT-5"
     ] = {name = "concat-buffer", level = 1, summary = "build a string accumulated round a loop with a string.buffer",},
+    [
+        "OPT-6"
+    ] = {
+        name = "span-range-access",
+        level = 1,
+        summary = "lower proved standard span accesses to direct FFI array operations",
+    },
 }
 
 -- Presizing pays from two fields up. An empty table grows its hash part by rehashing,
@@ -1356,6 +1363,104 @@ local function staticCallableWalk(root, remarks)
     visit(root)
 end
 
+-- The checker has already proved each candidate against one exact `span.range`
+-- witness. This pass deliberately verifies only that the checked source shape still
+-- has a direct generator form; it never infers a second range fact.
+local function spanRangeAccessWalk(result, relaxed, remarks)
+    local globallyRelaxed = relaxed and relaxed.frames == true
+    local bodyFrames = {}
+    for _, info in ipairs(result.analysis and result.analysis.functions or {}) do
+        local body = info.body
+        local block = body and body.body
+        if block then
+            local localRelaxed = info.node and info.node.relaxedGuarantees or body.relaxedGuarantees or {}
+            bodyFrames[block] = globallyRelaxed or localRelaxed.frames == true
+        end
+    end
+
+    for _, body in ipairs(result.analysis and result.analysis.bodies or {}) do
+        local loops, ordered = {}, {}
+        local function collect(node, parent)
+            if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
+                return
+            end
+            if node.kind == "methodCall" and node.rangeProvenNoRaise then
+                local proof = node.spanRangeAccess
+                local loop = proof and proof.loop
+                if loop then
+                    local entry = loops[loop]
+                    if not entry then
+                        entry = {loop = loop, accesses = {}}
+                        loops[loop] = entry
+                        ordered[#ordered + 1] = entry
+                    end
+                    entry.accesses[#entry.accesses + 1] = {call = node, parent = parent}
+                end
+            end
+            for _, child in ipairs(node) do
+                collect(child, node)
+            end
+        end
+
+        collect(body, nil)
+
+        local framesRelaxed = globallyRelaxed or bodyFrames[body] == true
+        for _, entry in ipairs(ordered) do
+            local applied, decline = 0, nil
+            for _, access in ipairs(entry.accesses) do
+                local call, parent = access.call, access.parent
+                local proof = call.spanRangeAccess
+                local receiver = call.obj
+                local args = call.args and call.args.kind == "args" and call.args.exprs or {}
+                local index = args[1]
+                local operation = proof and proof.operation
+                local supported = operation == "get" or operation == "getMut" or operation == "set"
+                if not framesRelaxed then
+                    decline = decline or "frames-held"
+                elseif not supported
+                    or not call.name
+                    or call.name.text ~= operation
+                    or not call.spanAccessorNoAllocate
+                then
+                    decline = decline or "complex-access-shape"
+                elseif call.safeObj
+                    or call.safeMethod
+                    or not receiver
+                    or receiver.kind ~= "name"
+                    or not receiver.token
+                    or receiver.token.definition ~= proof.receiverDefinition
+                    or not index
+                    or index.kind ~= "name"
+                    or not index.token
+                    or index.token.definition ~= proof.indexDefinition
+                then
+                    decline = decline or "complex-access-shape"
+                elseif operation == "set" and (
+                    not parent or parent.kind ~= "callStmt" or parent.expr ~= call or not args[2]
+                ) then
+                    decline = decline or "unsupported-value-position"
+                else
+                    call.spanDirectAccess = {operation = operation, receiver = receiver, index = index,}
+                    applied = applied + 1
+                end
+            end
+
+            if applied > 0 then
+                remark(
+                    remarks,
+                    entry.loop,
+                    "OPT-6",
+                    (
+                        "span-range-access: lowers %d checked access%s after one range proof"
+                    ):format(applied, applied == 1 and "" or "es")
+                )
+            elseif decline then
+                remark(remarks, entry.loop, "OPT-6", "span-range-access: not rewritten because " .. decline)
+            end
+        end
+    end
+end
+
 --- What a pass works on: the tree it rewrites in place, the analysis the checker left
 --- beside it, and the name a remark is filed under.
 type optimize.Checked = {
@@ -1397,6 +1502,9 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): {any}
     end
     if level >= optimize.passes["OPT-5"].level and not disabled["OPT-5"] then
         concatBufferWalk(result, remarks)
+    end
+    if level >= optimize.passes["OPT-6"].level and not disabled["OPT-6"] then
+        spanRangeAccessWalk(result, opts.relaxed or {}, remarks)
     end
     for _, entry in ipairs(remarks) do
         entry.filename = result.filename or opts.filename

@@ -396,6 +396,14 @@ interface cst.Hints
     --- A preceding `span.range` witness proves this accessor's index is in bounds.
     rangeProvenNoRaise: boolean?
 
+    --- The exact checked loop, receiver, index and operation behind that proof.
+    --- Optimizers consume semantic identities from this descriptor rather than
+    --- reconstructing a range argument from source spelling.
+    spanRangeAccess: any
+
+    --- Generator-only direct access selected by OPT-6 after checking.
+    spanDirectAccess: any
+
     --- Header declarations a cheader call brought in.
     cheaderCdef: any
 

@@ -25,6 +25,13 @@ local LITERAL_KINDS: {
     [string]: boolean
 } = {string = true, number = true, nilExpr = true, trueExpr = true, falseExpr = true,}
 
+-- A range proof belongs to the function containing its numeric loop. A closure
+-- written inside that loop may run after the iteration, so its accesses cannot
+-- inherit the loop's induction fact even when they capture the same names.
+local RANGE_NESTED_FUNCTION: {
+    [string]: boolean
+} = {localFuncStmt = true, funcStmt = true, inlineMethod = true, funcExpr = true, shortfn = true,}
+
 --- The parts of a simple `name == literal` condition, or nil. The lint
 --- deliberately stays narrow: literal equality has no condition-side effect to skip,
 --- and a local binding cannot be changed by an ordinary call.
@@ -996,6 +1003,9 @@ function control.install(c: state.Checker): state.StatHandlers
                 if not node or cst.isToken(node) then
                     return
                 end
+                if RANGE_NESTED_FUNCTION[node.kind] then
+                    return
+                end
                 if node.kind == "methodCall" and node.spanAccessorNoAllocate then
                     local receiver = node.obj
                     local receiverDefinition = receiver
@@ -1012,6 +1022,13 @@ function control.install(c: state.Checker): state.StatHandlers
                         or nil
                     if witness.spans[receiverDefinition] and indexDefinition == var.definition then
                         node.rangeProvenNoRaise = true
+                        node.spanRangeAccess = {
+                            operation = node.name and node.name.text or nil,
+                            loop = stat,
+                            rangeDefinition = rangeDefinition,
+                            receiverDefinition = receiverDefinition,
+                            indexDefinition = indexDefinition,
+                        }
                     end
                 end
                 for _, child in ipairs(node) do

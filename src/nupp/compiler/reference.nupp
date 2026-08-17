@@ -1464,7 +1464,10 @@ supplied standard span and returns ordinary `first` and `last` integers. Its
 typed borrowed vararg passes each original span unchanged and allocates no
 container. A const-bound range over const-bound spans also proves matching
 `get`, `getMut`, and `set` indices non-raising in the dominated numeric loop.
-The access itself remains an ordinary checked span operation.
+That semantic proof applies at every optimization level. With `-O1` and
+`frames` relaxed, the regular backend may additionally lower the exact access
+to direct rooted FFI indexing after the one range check. Arbitrary indexes,
+held frames and accesses outside the same-function witness remain checked.
 ]=],
         example = [=[
 local span = require("nupp.span")

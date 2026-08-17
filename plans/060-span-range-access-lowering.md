@@ -1,7 +1,38 @@
 # Range-proven span access lowering
 
-Status: proposed — follows `plans/041-aot-independent-foundations.md` and
+Status: implemented — follows `plans/041-aot-independent-foundations.md` and
 `plans/052-trace-aware-checking.md`
+
+## Outcome
+
+`OPT-6 span-range-access` landed after the evidence gate passed on an arm64
+Apple host. For 8 million position/velocity struct element updates after
+warmup, the median `span.range` loop improved from 10.749 ms with `OPT-6`
+disabled to 7.345 ms enabled (1.46x, 1.344 to 0.918 ns/element). Handwritten
+direct FFI took 7.588 ms in the same run, so generated direct access reached
+the available regular-backend ceiling within measurement noise. Adopting
+`span.range` independently was neutral: the handwritten-guard checked loop took
+10.769 ms, a 0.998x checked/guard ratio.
+
+A later run of the committed five-way harness measured 10.762 ms for the
+handwritten-guard checked form, 10.800 ms for range plus checked access,
+7.258 ms for `OPT-6`, 7.583 ms for handwritten direct FFI, and 4.433 ms for
+forced-scalar AOT. The AOT number is backend context only; it is not included in
+the pass speedup.
+
+The benchmark trace categorized nine comparisons in the checked loop and three
+in both `OPT-6` and handwritten-direct loops. External loads and stores also
+matched (eight and four); repeated hash loads fell from ten to four and field
+loads from sixteen to six. `nupp bc --check` found no recorder blocker.
+
+The adoption audit confirmed the plan's hit-rate warning. No production hot
+loop already used a same-function witness. The committed benchmark adapts the
+position/velocity kernel without AOT, preserves its existing validation, and
+captures rebindable span parameters in const aliases before forming the
+witness. `tests/fixtures/native_foundations.nupp` was the only pre-existing
+eligible code shape, while SoA owns a separate direct representation. The pass
+therefore demonstrates a material beneficiary without claiming automatic reach
+into the current AOT kernel corpus.
 
 ## Decision
 

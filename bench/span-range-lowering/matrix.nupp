@@ -1,0 +1,140 @@
+-- Width, span-count, and arithmetic-shape coverage for OPT-6. The five-way
+-- representative comparison remains in kernel.nupp/main.lua.
+local span = require("nupp.span")
+
+local matrix = {}
+
+struct matrix.Scalar
+    value: float
+end
+
+@relax("frames")
+function matrix.fillFloat(exclusive output: span.WriteSpan<float>, first: integer, last: integer, steps: integer): nil
+    const out = output
+    const rows = span.range(first, last, out)
+    for _ = 1, steps do
+        for index = rows.first, rows.last do
+            out:set(index, 1.25)
+        end
+    end
+end
+
+@relax("frames")
+function matrix.copyU8(
+    exclusive output: span.WriteSpan<uint8>,
+    borrows input: span.Span<uint8>,
+    first: integer,
+    last: integer,
+    steps: integer
+): nil
+    const out = output
+    const source = input
+    const rows = span.range(first, last, out, source)
+    for _ = 1, steps do
+        for index = rows.first, rows.last do
+            out:set(index, source:get(index))
+        end
+    end
+end
+
+@relax("frames")
+function matrix.copyI32(
+    exclusive output: span.WriteSpan<int32>,
+    borrows input: span.Span<int32>,
+    first: integer,
+    last: integer,
+    steps: integer
+): nil
+    const out = output
+    const source = input
+    const rows = span.range(first, last, out, source)
+    for _ = 1, steps do
+        for index = rows.first, rows.last do
+            out:set(index, source:get(index))
+        end
+    end
+end
+
+@relax("frames")
+function matrix.copyFloat(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>,
+    first: integer,
+    last: integer,
+    steps: integer
+): nil
+    const out = output
+    const source = input
+    const rows = span.range(first, last, out, source)
+    for _ = 1, steps do
+        for index = rows.first, rows.last do
+            out:set(index, source:get(index))
+        end
+    end
+end
+
+@relax("frames")
+function matrix.fourFloat(
+    exclusive output: span.WriteSpan<float>,
+    borrows left: span.Span<float>,
+    borrows middle: span.Span<float>,
+    borrows right: span.Span<float>,
+    first: integer,
+    last: integer,
+    steps: integer
+): nil
+    const out = output
+    const a = left
+    const b = middle
+    const c = right
+    const rows = span.range(first, last, out, a, b, c)
+    for _ = 1, steps do
+        for index = rows.first, rows.last do
+            out:set(index, a:get(index) + b:get(index) * c:get(index))
+        end
+    end
+end
+
+@relax("frames")
+function matrix.heavyFloat(
+    exclusive output: span.WriteSpan<float>,
+    borrows left: span.Span<float>,
+    borrows middle: span.Span<float>,
+    borrows right: span.Span<float>,
+    first: integer,
+    last: integer,
+    steps: integer
+): nil
+    const out = output
+    const a = left
+    const b = middle
+    const c = right
+    const rows = span.range(first, last, out, a, b, c)
+    for _ = 1, steps do
+        for index = rows.first, rows.last do
+            const av = a:get(index)
+            const bv = b:get(index)
+            const cv = c:get(index)
+            out:set(index, ((av * bv + cv) * (cv - av) + bv) * 0.125)
+        end
+    end
+end
+
+@relax("frames")
+function matrix.increment(
+    exclusive output: span.WriteSpan<matrix.Scalar>,
+    first: integer,
+    last: integer,
+    steps: integer
+): nil
+    const out = output
+    const rows = span.range(first, last, out)
+    for _ = 1, steps do
+        for index = rows.first, rows.last do
+            local value = out:getMut(index)
+            value.value = value.value + 1
+        end
+    end
+end
+
+return matrix

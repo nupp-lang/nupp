@@ -116,10 +116,18 @@ At least one span is required. Empty ranges use the same `first, first - 1`
 convention as slices. The typed borrowed vararg passes each original span
 directly and allocates no container or interface wrapper.
 
-When the bounds and spans are const-bound, the successful range check proves
-matching `get`, `getMut`, and `set` indexes non-raising inside the dominated
-numeric loop. Each access remains an ordinary checked span operation outside
-that proof.
+When the bounds and spans are const-bound in the same function, the successful
+range check proves matching `get`, `getMut`, and `set` indexes non-raising inside
+the dominated numeric loop. This proof is part of checking at every optimization
+level: it is what permits those calls inside `noraise` code.
+
+With `-O1` and `frames` relaxed, the regular backend also uses the proof to emit
+direct FFI element access for the exact span and bare loop index. The range call
+still validates every span once, and the generated access still includes the
+span's physical offset. `-O0`, held frames, a computed index, a different span,
+or an access outside the witnessed loop retains the ordinary checked method.
+The proof is local to the function containing `span.range`; passing its bounds
+or result to another function does not transport it.
 
 ## Passing a span to C
 

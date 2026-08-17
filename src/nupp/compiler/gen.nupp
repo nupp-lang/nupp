@@ -1437,6 +1437,9 @@ function gen.generate(
     end
 
     local function pluckableCall(call): boolean
+        if call.spanDirectAccess then
+            return false
+        end
         if call.kind == "methodCall" then
             return call.obj ~= nil and call.name ~= nil
         end
@@ -2940,6 +2943,49 @@ function gen.generate(
         end
         if x.folded then
             e(x.folded, sourceLine(x))
+            return
+        end
+        if kind == "dotIndex"
+            and x.obj
+            and x.obj.kind == "methodCall"
+            and x.obj.spanDirectAccess
+            and x.obj.spanDirectAccess.operation == "getMut"
+        then
+            local direct = x.obj.spanDirectAccess
+            emit(direct.receiver)
+            e(".pointer[")
+            emit(direct.receiver)
+            e(".offset+")
+            emit(direct.index)
+            e("-1]")
+            if x.name then
+                e("." .. x.name.text, sourceLine(x))
+            end
+            return
+        end
+        if kind == "methodCall" and x.spanDirectAccess then
+            local direct = x.spanDirectAccess
+            if direct.operation == "get" or direct.operation == "set" then
+                emit(direct.receiver)
+                e(".pointer[")
+                emit(direct.receiver)
+                e(".offset+")
+                emit(direct.index)
+                e("-1]")
+                if direct.operation == "set" then
+                    local args = x.args and x.args.exprs or {}
+                    e("=")
+                    emit(args[2])
+                end
+            else
+                e("(", sourceLine(x))
+                emit(direct.receiver)
+                e(".pointer+")
+                emit(direct.receiver)
+                e(".offset+")
+                emit(direct.index)
+                e("-1)")
+            end
             return
         end
         if x.compilerFeatureEffect then

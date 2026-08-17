@@ -88,6 +88,23 @@ function M.rangeProofsRequireStableSpanIdentities()
    assertEq(#found, 1, "a rebindable span cannot carry a range proof")
 end
 
+function M.rangeProofsDoNotEnterNestedFunctions()
+   local found = refusals(table.concat({
+      "local span = require('nupp.span')",
+      "local struct Value n: integer end",
+      "const storage = carray(Value, 2)",
+      "const values = span.fromCarray(storage, 2)",
+      "const rows = span.range(1, 2, values)",
+      "for i = rows.first, rows.last do",
+      "   local callback = function(): nil",
+      "      noraise do local value = values:get(i) end",
+      "   end",
+      "end",
+   }, "\n"))
+   assertEq(#found, 1, "a closure cannot inherit its enclosing loop's proof")
+   assertEq(found[1].code, "NUPP2711")
+end
+
 function M.unknownCallbacksAndForeignCallsNeedTrustedContracts()
    local found = refusals(table.concat({
       "local function invoke(callback: function()): nil",
