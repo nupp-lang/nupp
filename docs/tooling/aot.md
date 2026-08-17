@@ -862,10 +862,13 @@ Named so you can tell what you are looking at:
   code no longer has. The `@` mechanism is general and would fix it; nothing has
   been changed there yet.
 - **Mixed-width gangs.** Width selection is all-or-nothing within a width: a
-  single binary64 varying value drops the whole loop to the binary64 gang, where
-  the rule should be a gang size fixed from register pressure with each value
-  taking however many registers its element needs. A loop that mixes widths does
-  at least get a gang now rather than none — see below.
+  single binary64 varying value drops the whole loop to the binary64 gang, and
+  every explicit binary32 operation in it is then computed wide and rounded
+  back. Measured on `bench/kernel-subset-spike/mixedwidth.sh`, that costs about
+  4.5× — 2.3× from the rounding and 1.9× from the halved lane count, so the
+  larger half is the rounding. A loop shaped that way gets a gang that costs
+  roughly what it saves (1.06× over its own scalar body). Carrying each value at
+  its own width would remove both.
 - **Multiversioning.** A build pins one feature tier. Dispatching between
   several at run time, so one binary uses AVX2 where it is present and the
   baseline where it is not, is a separate decision nobody has taken.

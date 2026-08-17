@@ -1,0 +1,81 @@
+-- The bound on what mixed-width gang sizing could recover.
+--
+-- `mixedwidth.nupp` is this arithmetic with one binary64 running total, which
+-- drops the whole loop to the binary64 gang. This is the same loop with the
+-- total narrowed to binary32, so every value is 32-bit and the loop gets twice
+-- the lanes for the same registers.
+--
+-- The ratio between the two is the ceiling on mixed-width sizing, not its
+-- prize. A gang that carried the total at its own width would still spend twice
+-- the registers on it, so it would recover some of this gap and not all of it.
+-- Measuring the ceiling is what says whether the work is worth starting.
+--
+-- The narrowing is not a fix for `mixedwidth.nupp`. Summing many small
+-- contributions in binary32 loses them, which is why that kernel carries the
+-- total wide; this one is a measurement, not an alternative.
+local span = require("nupp.span")
+
+local struct Body
+    x: float
+    y: float
+    vx: float
+    vy: float
+end
+
+local struct Track
+    distance: float
+    steps: int32
+end
+
+@aot(lanes = true)
+local function integrate(
+    exclusive tracks: span.WriteSpan<Track>,
+    borrows bodies: span.Span<Body>,
+    first: integer,
+    last: integer,
+    steps: int32,
+    damping: float,
+    interval: float,
+    limit: float
+): nil
+    if tracks.count ~= bodies.count then
+        error("length mismatch", 2)
+    end
+    if first < 1 or last > tracks.count or first > last + 1 then
+        error("range out of bounds", 2)
+    end
+
+    for i = first, last do
+        local track = tracks:getMut(i)
+        local body = bodies:get(i)
+        local x = nupp.math.f32.narrow(body.x)
+        local y = nupp.math.f32.narrow(body.y)
+        local vx = nupp.math.f32.narrow(body.vx)
+        local vy = nupp.math.f32.narrow(body.vy)
+        -- Binary32, so nothing in the loop is wider than a 32-bit lane.
+        local travelled = nupp.math.f32.narrow(0.0)
+        local step: int32 = 0
+        while step < steps do
+            local ax = nupp.math.f32.mul(x, damping)
+            local ay = nupp.math.f32.mul(y, damping)
+            vx = nupp.math.f32.add(vx, ax)
+            vy = nupp.math.f32.add(vy, ay)
+            local dx = nupp.math.f32.mul(vx, interval)
+            local dy = nupp.math.f32.mul(vy, interval)
+            x = nupp.math.f32.add(x, dx)
+            y = nupp.math.f32.add(y, dy)
+            travelled = nupp.math.f32.add(
+                travelled,
+                nupp.math.f32.sqrt(nupp.math.f32.add(nupp.math.f32.mul(dx, dx), nupp.math.f32.mul(dy, dy)))
+            )
+            step = nupp.math.i32.add(step, 1)
+            if nupp.math.f32.add(nupp.math.f32.mul(x, x), nupp.math.f32.mul(y, y)) < limit then
+                break
+            end
+        end
+        track.distance = travelled
+        track.steps = step
+    end
+end
+
+return {integrate = integrate, Body = Body, Track = Track,}

@@ -25,7 +25,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$ROOT"
 SPIKE="bench/kernel-subset-spike"
 OUT="$SPIKE/build/crosscheck"
-KERNELS=${NUPP_CHECK_KERNELS:-"mandelbrot mandelbrot_f32 tecsbits mixedwidth uniform uniformcall twokernels"}
+KERNELS=${NUPP_CHECK_KERNELS:-"mandelbrot mandelbrot_f32 tecsbits mixedwidth mixedwidth_f32 mixedwidth_f64 uniform uniformcall twokernels"}
 
 # Clang for consistency with the sibling scripts, but nothing here needs it, and
 # a machine that has a C compiler under another name can still answer the
@@ -104,6 +104,7 @@ for kernel in $KERNELS; do
     $CC -std=c11 -O2 -ffp-contract=off -fno-fast-math \
         -Wall -Wextra -Werror $DIALECT \
         $TARGET_FLAGS ${NUPP_CHECK_CFLAGS:-$DEFAULT_CFLAGS} -DKERNEL_C="\"$ROOT/$OUT/$kernel.c\"" \
+        -DKERNEL_NAME="\"$kernel\"" \
         "$SPIKE/checks/$kernel.c" $MATH -o "$OUT/$kernel$EXE"
     if ${NUPP_CHECK_RUNNER:-} "$OUT/$kernel$EXE"; then
         :

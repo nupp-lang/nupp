@@ -1044,6 +1044,34 @@ module is hashed on the text that was compiled rather than the file on disk.
 Mixed-width gang sizing is not on this path. It is a performance property and
 has never blocked a correct answer.
 
+It is a larger one than this plan assumed. `bench/kernel-subset-spike/mixedwidth.sh`
+builds one loop three ways and reports each against its own forced-scalar body,
+so the arithmetic differing between them does not confound the comparison:
+
+```
+ Kernel          Gang    Rounds   Over its own scalar body
+ ──────────────  ──────  ───────  ────────────────────────
+ mixedwidth      f64x4   yes      1.06x
+ mixedwidth_f64  f64x4   no       2.46x
+ mixedwidth_f32  f32x8   no       4.72x
+```
+
+The first two differ only in whether the gang has to round; the last two only in
+the lane count. So of the 4.5x between the ends, the rounding is 2.3x of it and
+the lane count 1.9x -- the larger half is the rounding, which the phrase "gang
+sizing" does not name.
+
+A loop that mixes explicit binary32 with one binary64 value therefore gets a
+gang that costs about what it saves. That is not a wrong answer and not a
+refusal, which is why nothing caught it: the arithmetic-intensity gate asks
+about memory, and a body dominated by rounding passes it.
+
+Mixed-width gangs fix both halves at once, because carrying binary32 values in
+binary32 lanes is what makes the operation native rather than something to round
+back. Whoever takes this should expect the win to come mostly from removing the
+conversions rather than from adding lanes, and should measure against these
+three rather than against the two the plan originally implied.
+
 ### What the checks have to cover first
 
 Everything about the lane lowering was measured on Apple arm64 until

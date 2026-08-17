@@ -10,6 +10,12 @@
 #include <stdio.h>
 #include <string.h>
 
+/* The companion kernels share this driver, so the label has to come from
+ * whichever one was compiled in rather than from the file it is written in. */
+#ifndef KERNEL_NAME
+#define KERNEL_NAME "mixedwidth"
+#endif
+
 #include KERNEL_C
 
 #define COUNT 4093
@@ -35,13 +41,13 @@ int main(void) {
 
     for (int index = 0; index < COUNT; index += 1) {
         if (memcmp(&lanes[index], &scalar[index], sizeof lanes[index]) != 0) {
-            printf("mixedwidth: element %d differs: lanes %g/%d, scalar %g/%d\n",
+            printf("%s: element %d differs: lanes %g/%d, scalar %g/%d\n", KERNEL_NAME,
                 index, (double)lanes[index].distance, lanes[index].steps,
                 (double)scalar[index].distance, scalar[index].steps);
             return 1;
         }
     }
 
-    printf("mixedwidth: %d elements agree between lane-parallel and scalar C\n", COUNT);
+    printf("%s: %d elements agree between lane-parallel and scalar C\n", KERNEL_NAME, COUNT);
     return 0;
 }
