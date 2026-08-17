@@ -277,6 +277,7 @@ local CONFIG_KEYS = {"name", "include", "fmt", "lints", "dependencies", "build",
 -- DOCS_KEYS instead, which spells out these same keys plus the generator's own.
 local TARGET_KEYS = {
     "kind",
+    "aot",
     "description",
     "outDir",
     "output",
@@ -583,6 +584,21 @@ local function validateTarget(target, label, dependencies)
         local valid, err = validateString(target.outDir, label .. ".outDir")
         if not valid then
             return nil, err
+        end
+    end
+    if target.aot ~= nil then
+        -- One policy per artifact, chosen before any `@aot` body is looked at.
+        -- `require` -- compile, link and dispatch -- is specified and not built,
+        -- so it is refused here rather than accepted as a promise the build
+        -- cannot keep.
+        local valid, err = validateString(target.aot, label .. ".aot")
+        if not valid then
+            return nil, err
+        end
+        if target.aot ~= "off" and target.aot ~= "emit-c" then
+            local extra = target.aot == "require" and "; require is not implemented yet" or ""
+
+            return nil, label .. ".aot must be \"off\" or \"emit-c\"" .. extra
         end
     end
     local valid, err = validateArray(

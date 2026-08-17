@@ -1,0 +1,102 @@
+--[[
+The build's ahead-of-time policy.
+
+A build selects one policy before it looks at any `@aot` body, and an artifact
+records the one it was built under. There is deliberately no mode that quietly
+mixes compiled functions with ordinary fallbacks: disabling compilation changes
+performance and packaging, never an answer, and a build that had silently done
+half of each would be a build whose speed nobody could reason about.
+
+- `off` does not look for `@aot` at all. It is the default, so a project that
+  has not asked for native code never depends on a C compiler.
+- `emit-c` verifies the IR and writes the C beside the build, without compiling
+  it. A platform build can hand that to its own vendor compiler, and a reviewer
+  can read what the backend actually produced.
+
+`require` -- compile, link and dispatch -- is specified in
+`plans/038-aot-functions.md` and is not implemented, so the manifest refuses it
+rather than accepting a promise the build cannot keep.
+
+This pass reads sources rather than the module build's bookkeeping. It costs a
+second parse of the few files that carry the annotation, and in exchange it
+cannot be wrong about which source produced which artifact.
+]]
+
+local compile = require("nupp.compiler.aot.compile")
+local fs = require("nupp.compiler.fs")
+
+local aot = {}
+
+--- The policies a target may select.
+const aot.POLICIES = {["off"] = true, ["emit-c"] = true}
+
+--- What one source produced.
+record aot.Emitted
+    --- The source it came from.
+    source: string
+
+    --- Where the C was written.
+    output: string
+
+    --- How many `@aot` functions it holds.
+    functions: integer
+end
+
+--- Whether a source is worth parsing for `@aot` at all.
+---
+--- A substring test rather than a parse. It is allowed to say yes wrongly -- a
+--- comment mentioning the annotation costs one parse that finds nothing -- and
+--- it must never say no wrongly, which is why it looks for the bare word rather
+--- than trying to tell an annotation from prose.
+local function mentionsAot(text: string): boolean
+    return text:find("@aot", 1, true) ~= nil
+end
+
+--- Writes the C for every `@aot` function the project builds.
+---
+--- Scoped by the project's module roots rather than by the target's entries,
+--- because an entry is a module name and an `@aot` function is in a file. Every
+--- module the project could build is a module the policy applies to.
+---
+--- @param roots the project's include directories
+--- @param outDir where the build is writing, which the C goes beside
+--- @return what was written, or nothing and the first reason it could not be
+--- @raises never; a source the subset refuses is reported, not thrown
+function aot.emitC(root: string, outDir: string, roots: {string}): ({aot.Emitted}?, string?)
+    local emitted: {aot.Emitted} = {}
+    local seen: {[string]: boolean} = {}
+    for _, directory in ipairs(roots) do
+        for _, source in ipairs(fs.listFiles(fs.join(root, directory))) do
+            if not seen[source] and source:match("%.nupp$") ~= nil then
+                seen[source] = true
+
+                local text = fs.readFile(source)
+                if text ~= nil and mentionsAot(text as string) then
+                    local artifacts, diagnostics = compile.artifacts(text as string, source, nil, "<object>")
+                    if artifacts == nil then
+                        -- A file that mentions the annotation without carrying
+                        -- one is not an error; anything else is.
+                        local first = diagnostics[1]
+                        if first ~= nil and first.message ~= "no @aot function was found" then
+                            return nil, compile.renderDiagnostic(first)
+                        end
+                    else
+                        local relative = source:gsub("^" .. root:gsub("%p", "%%%0") .. "/?", "")
+                        local output = outDir .. "/aot/" .. relative:gsub("%.nupp$", ".c")
+                        local ok, err = fs.writeFile(output, artifacts.c)
+                        if not ok then
+                            return nil, tostring(err)
+                        end
+                        emitted[
+                            #emitted + 1
+                        ] = new aot.Emitted(source = source, output = output, functions = #artifacts.programs)
+                    end
+                end
+            end
+        end
+    end
+
+    return emitted, nil
+end
+
+return aot

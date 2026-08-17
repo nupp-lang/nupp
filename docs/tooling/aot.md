@@ -7,10 +7,9 @@ also rewrites that loop to run several iterations at once. Nothing in the source
 names a lane, a mask, or a vector width.
 
 **Status.** The backend is implemented, lives under `src/nupp/compiler/aot/`,
-and is reachable from `nupp aot`. It is not wired into `nupp build`: production
-builds still emit the ordinary Lua body, no object is compiled, and nothing
-dispatches to one. What `nupp build` will do with an `@aot` function — artifact
-policy, target compilation, caching and validation — is not decided yet.
+and is reachable from `nupp aot`. A build can now emit the C — see
+[Build policy](#build-policy) — but nothing compiles, caches or dispatches to
+it yet, and the ordinary Lua body remains what actually runs.
 
 What you can do today is see exactly what it would produce, and check that a
 loop still vectorises. `nupp check` validates the target and the structural
@@ -546,13 +545,42 @@ an eight-lane tail are both covered.
 A closure, table, interpolated string, vararg, `goto`, dynamic call or unsafe
 operation inside an `@aot` body reports NUPP2903 at the construct.
 
+## Build policy
+
+A build selects one policy, and an artifact records the one it was built under.
+There is deliberately no mode that quietly mixes compiled functions with
+ordinary fallbacks — disabling compilation is meant to change performance and
+packaging, never an answer.
+
+```lua
+targets = {
+   game = {kind = "modules", entries = {"game"}, outDir = "build/game", aot = "emit-c"},
+}
+```
+
+```
+ Policy    What it does
+ ────────  ────────────────────────────────────────────────────────
+ off       Nothing. The default, so a project that has not asked
+           for native code never needs a C compiler.
+ emit-c    Verifies the IR and writes the C to <outDir>/aot/,
+           without compiling it.
+ require   Compile, link, dispatch. Specified, not implemented,
+           and refused by the manifest rather than promised.
+```
+
+`emit-c` adds an artifact; it does not replace one. The ordinary Lua body is
+still emitted and is still what runs. A module with no `@aot` function produces
+no artifact at all.
+
 ## What is not here yet
 
 Named so you can tell what you are looking at:
 
-- **`nupp build` integration.** No object is compiled, none is cached or
-  validated, and nothing dispatches to one. `nupp aot` shows what would be
-  produced; nothing consumes it.
+- **Compiling and dispatching.** `emit-c` writes C; nothing builds it into an
+  object, caches it, validates it or calls it. That is `aot=require`, and the
+  order the rest goes in is in
+  [plans/038-aot-functions.md](https://github.com/nupp-lang/nupp/blob/main/plans/038-aot-functions.md).
 - **Mixed-width gangs.** Width selection is all-or-nothing: a single binary64
   varying value drops the whole loop to four lanes, where the rule should be a
   gang size fixed from register pressure with each value taking however many

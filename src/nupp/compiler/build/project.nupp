@@ -137,6 +137,7 @@ local toolFingerprint = cache.toolFingerprint
 local targetConfig = tasks.targetConfig
 local buildDependencies = deps.build
 local buildModules = modules.build
+local aotPolicy = require("nupp.compiler.build.aot")
 local bundleText, bundleOutput = packaging.bundleText, packaging.bundleOutput
 local componentOutput = packaging.componentOutput
 local binaryOutput = packaging.binaryOutput
@@ -345,6 +346,27 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     for output in pairs(result.outputs) do
         newState.outputs[output] = true
     end
+    -- The build's AOT policy, applied to what it just compiled. `off` is the
+    -- default and looks for nothing, so a project that has not asked for native
+    -- code never depends on a C compiler being present.
+    if target.aot == "emit-c" then
+        report:at("aot")
+        report:step("emitting ahead-of-time C")
+
+        local emitted, aotErr = aotPolicy.emitC(root, outDir, config.include or {})
+        report:clear()
+        if emitted == nil then
+            io.stderr:write("nupp: " .. tostring(aotErr) .. "\n")
+
+            return 1
+        end
+        -- Recorded like any other output, so `nupp clean` removes it and a
+        -- rebuild knows it is there.
+        for _, one in ipairs(emitted as {any}) do
+            newState.outputs[one.output] = true
+        end
+    end
+
     local detectedEffects = native.dependencyEffects(root, config, target, result.effects)
     local resolvedEffects = native.resolve(detectedEffects, target.nativeFeatures)
     if resolvedEffects["native.workers"] and (target.kind ~= "binary" or target.stub ~= "nupp") then
