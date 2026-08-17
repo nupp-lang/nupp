@@ -1532,6 +1532,144 @@ return {
    remove(dir)
 end
 
+-- A project whose entry actually calls through the binding, so what is being
+-- tested is a load rather than the spelling of a string.
+local function callingProject()
+   return tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {
+      tiny = {kind = "c", sources = {"native/tiny.c"},
+         bindings = {header = "native/tiny.h"}},
+   },
+   build = {outDir = "out", entries = {"main"}, dependencies = {"tiny"}},
+}
+]],
+      ["src/main.nupp"] = "local tiny = require('tiny')\nreturn tiny.tiny_add(2, 3)\n",
+      ["native/tiny.h"] = "int tiny_add(int a, int b);\n",
+      ["native/tiny.c"] = "int tiny_add(int a, int b) { return a + b; }\n",
+   })
+end
+
+-- Loads an output tree in a fresh interpreter and reports what its entry module
+-- answered. The tree is named absolutely and the working directory is somewhere
+-- else, so no part of the answer can come from where the process was started.
+local function answerFrom(tree, cwd)
+   local here = assert(nupp.io.files.currentDirectory())
+   here = here:gsub("^/([A-Za-z])(/)", "%1:%2")
+   local script = ("package.path = %q .. %q .. package.path "
+      .. "print('VALUE ' .. tostring(require('main')))")
+      :format(tree .. "/?.lua;", here .. "/build/?.lua;")
+   local code, out = process.capture({"luajit", "-e", script}, {cwd = cwd})
+   if code ~= 0 then
+      return out or ""
+   end
+
+   return out:match("VALUE ([^\r\n]+)") or out
+end
+
+-- A C dependency's library is the other thing a build produces and ships, and
+-- it used to be named by the path the build wrote: absolute, which runs on one
+-- machine, or relative to where the build ran, which runs from one directory.
+-- It is now marked the way `@aot` code has always marked its library.
+function M.cDependencyNamesItsLibraryRelativeToTheModuleThatLoadsIt()
+   local dir = callingProject()
+   assertEq(project.build(dir), 0)
+
+   local binding = read(dir .. "/out/generated/tiny.nupp")
+   assert(binding:find('from "@lib/' .. libraryName("tiny") .. '"', 1, true),
+      "the binding names the library relative to the output tree: " .. binding)
+   assert(not binding:find(dir, 1, true),
+      "and the build directory does not appear in it: " .. binding)
+
+   -- The ordinary case first: a project built and run where it was built has to
+   -- go on loading, since this changes how every existing one names its library.
+   assertEq(answerFrom(dir .. "/out", dir), "5",
+      "an ordinary C dependency loads where the build left it")
+   remove(dir)
+end
+
+function M.cDependencyOutputTreeRunsWhereverItIsCopied()
+   local dir = callingProject()
+   assertEq(project.build(dir), 0)
+
+   local moved = dir .. "/moved"
+   assertEq(os.execute(("cp -r %q %q"):format(dir .. "/out", moved)), 0)
+   -- Run from a directory that is neither the project nor the copy. Naming the
+   -- library the way the build did answered here only from the project root.
+   assertEq(answerFrom(moved, "/"), "5",
+      "a copied output tree runs from anywhere")
+   remove(dir)
+end
+
+-- A bundle is one file someone moves somewhere. The library its binding names
+-- lives in the build directory the bundle was assembled in, which is not where
+-- the bundle ends up, so the build puts a copy beside it -- exactly as it
+-- already does for compiled `@aot` code.
+function M.aBundleCarriesTheLibraryItsBindingNames()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {
+      tiny = {kind = "c", sources = {"native/tiny.c"},
+         bindings = {header = "native/tiny.h"}},
+   },
+   build = {
+      targets = {
+         app = {
+            kind = "bundle",
+            entries = {"main"},
+            outDir = "out",
+            output = "dist/app.lua",
+            dependencies = {"tiny"},
+         },
+      },
+   },
+}
+]],
+      ["src/main.nupp"] = "local tiny = require('tiny')\n"
+         .. "print('VALUE ' .. tostring(tiny.tiny_add(2, 3)))\n",
+      ["native/tiny.h"] = "int tiny_add(int a, int b);\n",
+      ["native/tiny.c"] = "int tiny_add(int a, int b) { return a + b; }\n",
+   })
+   assertEq(project.build(dir, {target = "app"}), 0)
+   assert(exists(dir .. "/dist/lib/" .. libraryName("tiny")),
+      "the library went with the bundle rather than staying in the build directory")
+
+   -- A bundle runs with nothing beside it but the library, and from anywhere.
+   local code, out = process.capture({"luajit", dir .. "/dist/app.lua"}, {cwd = "/"})
+   assertEq(code, 0, out)
+   assert(out:find("VALUE 5", 1, true), "the bundle called through its binding: " .. out)
+   remove(dir)
+end
+
+-- A library the build did not put in the output tree is not part of what
+-- travels with it, so it keeps the name it was given. `load` names a library
+-- for the platform loader to find, and marking that would send the runtime
+-- looking for a file beside a module instead.
+function M.aPreexistingLibraryKeepsTheNameItWasGiven()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {
+      tiny = {kind = "c", load = "m", bindings = {header = "native/tiny.h"}},
+   },
+   build = {outDir = "out", entries = {"main"}, dependencies = {"tiny"}},
+}
+]],
+      ["src/main.nupp"] = "return true\n",
+      ["native/tiny.h"] = "double tiny_scale(double value);\n",
+   })
+   assertEq(project.build(dir), 0)
+   local binding = read(dir .. "/out/generated/tiny.nupp")
+   assert(binding:find('from "m"', 1, true),
+      "a platform library name is left exactly as it was: " .. binding)
+   remove(dir)
+end
+
 function M.cDependencyBuildsHeaderOnlyBridges()
    local dir = tempProject({
       ["nupp.lua"] = [[

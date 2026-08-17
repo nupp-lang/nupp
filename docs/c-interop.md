@@ -336,11 +336,18 @@ The generated binding has this shape; the real suffix is a 24-character
 hexadecimal digest:
 
 ```nupp
-cdef function __nupp_bridge_fingerprint(value: int32): int32 from "build/lib/libimage.so"
+cdef function __nupp_bridge_fingerprint(value: int32): int32 from "@lib/libimage.so"
 local image_triple = __nupp_bridge_fingerprint
 
 return { image_triple = image_triple }
 ```
+
+The leading `@` names the library relative to the module that loads it rather
+than to the platform loader or to where the build ran, which is what makes the
+output tree relocatable: copy or move it and the binding still finds its
+library. A `bindings.library` override, a `load` naming a library already on the
+system, and a `pkgConfig` package are left exactly as written, since none of
+them travel with the build.
 
 Every Nupp argument is evaluated before the FFI call. A macro may mention its C
 parameter more than once, but it cannot re-evaluate the Nupp expression which

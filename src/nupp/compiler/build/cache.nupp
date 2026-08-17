@@ -95,6 +95,13 @@ type cache.DependencyRecord = {
     key: string?,
     output: string?,
     binding: string?,
+
+    --- How the generated binding names the library, which is not always where
+    --- the library sits. A leading `@` means a path relative to the module that
+    --- loads it, so a target that carries that module somewhere carries the
+    --- library to the same place under it. Anything else is a name for the
+    --- platform loader to resolve, and nothing has to travel with it.
+    reference: string?,
     rock: string?,
     version: string?,
     tree: string?,

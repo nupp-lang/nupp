@@ -293,6 +293,21 @@ work makes sense in.
         works and a feature in use fail differently, and only the second says
         whether the admitted subset is the right subset -- whether `@aot`
         refuses things people actually write.
+  - [x] **Name a `kind = "c"` dependency's library relative to its module.**
+        Done. A dependency's binding names a library the build produced the way
+        `@aot` code names its own: `@lib/libtiny.dylib`, resolved against the
+        module that loads it. A library the build did not put in the output tree
+        -- a `load` naming something installed, a `pkgConfig` package, a
+        `bindings.library` override, an `out` pointing elsewhere -- is left
+        exactly as it was, because none of them travel with the build and there
+        is nothing to name them relative to.
+        The half that was not obvious from the mechanism: a `bundle`, `binary` or
+        `component` target is one file someone carries somewhere, so the build
+        now copies the dependency's library beside the artifact the same way it
+        already did for compiled `@aot` code. Without that, marking the reference
+        would have moved the failure rather than fixed it for exactly the targets
+        that most need it fixed.
+        The original entry follows.
   - [ ] **Name a `kind = "c"` dependency's library relative to its module.**
         Compiled `@aot` code travels: the wrapper names its library with a
         leading `@`, resolved against the chunk that loads it, so a copied output

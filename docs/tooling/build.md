@@ -452,8 +452,17 @@ build/lib/libimage.dylib
 ```
 
 Linux uses `libimage.so`; Windows uses the platform DLL name. The generated
-translation unit includes the original header and exports only deterministic
-private wrapper symbols. It is compiled with the dependency's `cc`,
+binding names that library `@lib/libimage.dylib`: a leading `@` is resolved
+against the module that loads it rather than handed to the platform loader, so a
+copied or moved output tree still finds it. A `kind = "bundle"`, `"binary"` or
+`"component"` target is one file someone carries somewhere, so the build puts a
+copy of the library beside the artifact, the way it already does for compiled
+`@aot` code. A `bindings.library` override, a `load` naming a library already
+installed, and a `pkgConfig` package are written through unchanged, since none of
+them are part of what the build ships.
+
+The generated translation unit includes the original header and exports only
+deterministic private wrapper symbols. It is compiled with the dependency's `cc`,
 `includeDirs`, `cflags`, `cppflags`, package flags, and linker inputs, then
 installed into the same shared library as any ordinary `sources`. A dependency
 containing only bridge wrappers still produces the library.

@@ -520,6 +520,25 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             end
             newState.outputs[beside] = true
         end
+        -- A dependency's library is the same case: its binding names it relative
+        -- to whatever loads that binding, and here that is the artifact. One
+        -- named for the platform loader instead carries no `@` and stays where
+        -- it is, since nothing is looking for it beside anything.
+        for _, dep in pairs(dependencies) do
+            local relative = dep.reference ~= nil and (dep.reference as string):match("^@(.+)$") or nil
+            if relative ~= nil and dep.output ~= nil then
+                local beside = join(dirname(output), relative as string)
+                local copied, copyErr = copyFile(dep.output as string, beside)
+                if not copied then
+                    io.stderr:write(
+                        ("nupp: cannot put the compiled library beside %s: %s\n"):format(output, tostring(copyErr))
+                    )
+
+                    return 1
+                end
+                newState.outputs[beside] = true
+            end
+        end
         report:clear()
     end
     for _, dep in pairs(dependencies) do

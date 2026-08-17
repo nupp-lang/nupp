@@ -90,6 +90,31 @@ local function sharedLibraryName(name)
     return "lib" .. name .. ".so"
 end
 
+--- How a generated binding names a library this build produced.
+---
+--- Marked with a leading `@` and spelled relative to the output directory, so
+--- the runtime resolves it against the module that loads it rather than handing
+--- it to the platform loader. That is what makes the output tree relocatable:
+--- the path the build wrote is either absolute, which ships a program that runs
+--- on one machine, or relative to where the build ran, which ships one that runs
+--- from one directory. `@aot` code has been named this way since it existed; the
+--- mechanism was always general and a C dependency's library is the other thing
+--- a build produces and ships.
+---
+--- A library the build did not put in the output tree -- an `out` pointing
+--- somewhere else, a `load` naming a platform library, a `pkg-config` package --
+--- is not part of what travels, so there is nothing relative to name it against
+--- and it is left exactly as it was.
+local function libraryReference(root: string, outDir: string, output: string): string
+    local prefix = join(root, outDir) .. "/"
+    local path = normalize(output)
+    if path:sub(1, #prefix) ~= prefix then
+        return output
+    end
+
+    return "@" .. path:sub(#prefix + 1)
+end
+
 local function fetchGit(root, name, source)
     if type(source) ~= "table" or not source.git then
         return root
@@ -250,15 +275,13 @@ local function buildC(root, outDir, name, dep, previous, childResults)
     local hasMacroBridge = configuredBinding and configuredBinding.macros and next(configuredBinding.macros) ~= nil
     local wantsLibrary = #sources > 0 or (configuredBinding and configuredBinding.bridge) or hasMacroBridge
     local output = wantsLibrary and join(root, dep.out or join(outDir, "lib/" .. sharedLibraryName(name))) or nil
-    local binding, bindingErr, bridge = generateBinding(
-        root,
-        outDir,
-        name,
-        dep,
-        base,
-        dep.load or output or dep.pkgConfig,
-        cppflags
-    )
+    -- The same precedence `generateBinding` applies, worked out here as well so
+    -- that what the record reports is what the binding wrote. A target that
+    -- carries the binding somewhere has to carry the library it names.
+    local reference = configuredBinding and (
+        configuredBinding.library or dep.load or (output and libraryReference(root, outDir, output)) or dep.pkgConfig
+    ) or nil
+    local binding, bindingErr, bridge = generateBinding(root, outDir, name, dep, base, reference, cppflags)
     if bindingErr then
         return nil, bindingErr
     end
@@ -339,7 +362,7 @@ local function buildC(root, outDir, name, dep, previous, childResults)
         end
     end
 
-    return {key = key, output = output, binding = binding}
+    return {key = key, output = output, binding = binding, reference = reference}
 end
 
 local function cargoSourceFiles(crateDir)
