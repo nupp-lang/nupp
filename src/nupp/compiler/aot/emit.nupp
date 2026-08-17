@@ -683,6 +683,14 @@ function emit.includes(): {string}
         "#include <stdbool.h>",
         "#include <stddef.h>",
         "#include <stdint.h>",
+        "/* Windows exports nothing from a shared library unless it is asked to,",
+        " * so a wrapper that loaded one would find no symbol in it. Everywhere",
+        " * else a definition is exported by being one. */",
+        "#if defined(_WIN32)",
+        "#define KS_API __declspec(dllexport)",
+        "#else",
+        "#define KS_API",
+        "#endif",
         "#ifndef M_PI",
         "#define M_PI 3.14159265358979323846264338327950288",
         "#endif",
@@ -696,7 +704,7 @@ end
 --- come from the C compiler that actually laid the struct out and the generated
 --- wrapper can compare them against what Nupp believes.
 function emit.layoutReporters(symbol: string, layout: scalarIR.Layout): {string}
-    local prefix = "size_t " .. symbol .. "_layout_" .. layout.name
+    local prefix = "KS_API size_t " .. symbol .. "_layout_" .. layout.name
     local lines: {string} = {prefix .. "_size(void) { return sizeof(" .. layout.cName .. "); }"}
     for _, field in ipairs(layout.fields) do
         lines[
@@ -768,9 +776,7 @@ local function vectorTypes(shape: lane.Shape): {string}
         local maskWidth = tostring(math.floor((tonumber(maskElement:match("%d+")) or 0) / 8 * maskLanes))
         lines[
             #lines + 1
-        ] = "typedef " .. emit.maskC(
-            mask
-        ) .. " ks_" .. mask .. " __attribute__((vector_size(" .. maskWidth .. ")));"
+        ] = "typedef " .. emit.maskC(mask) .. " ks_" .. mask .. " __attribute__((vector_size(" .. maskWidth .. ")));"
     end
 
     local vectors: {[string]: boolean} = {}
@@ -1317,7 +1323,7 @@ function emit.program(programs: {scalarIR.Program}): string
         --- One C definition of the kernel.
         local function implementation(symbol: string, forced: boolean): nil
             lines[#lines + 1] = "__attribute__((noinline))"
-            lines[#lines + 1] = "void " .. symbol .. "(" .. params .. ") {"
+            lines[#lines + 1] = "KS_API void " .. symbol .. "(" .. params .. ") {"
             if program.fpContract == true then
                 for _, line in ipairs(emit.contractPragma()) do
                     lines[#lines + 1] = line

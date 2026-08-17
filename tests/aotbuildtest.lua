@@ -321,16 +321,22 @@ function M.crossCompilingEmitsThatTargetsCode()
    test.equal(code, 0, out)
    local host = assert(read(dir .. "/build/native/aot/src/kernel.c"))
 
-   -- Plain x86-64 holds a 16-byte gang, whatever this machine holds. Emitting C
-   -- needs no toolchain for that target, which is what makes `emit-c` the answer
-   -- for a platform whose compiler is somebody else's.
-   withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu",')
+   -- A target this machine is not, whichever machine it is. Naming one
+   -- architecture outright would be naming the host on half of them, and a
+   -- cross build that is not one proves nothing. Emitting C needs no toolchain
+   -- for the target, which is what makes `emit-c` the answer for a platform
+   -- whose compiler is somebody else's.
+   local targets = require("nupp.compiler.aot.target")
+   local here = assert(targets.select(nil, nil))
+   local elsewhere = here.architecture == "x86_64" and "aarch64-unknown-linux-gnu"
+      or "x86_64-unknown-linux-gnu"
+   withKeys(dir, ('aotTarget = "%s",'):format(elsewhere))
    out, code = build(dir)
    test.equal(code, 0, "a target this machine is not still emits\n" .. out)
    local cross = assert(read(dir .. "/build/native/aot/src/kernel.c"))
-   assert(cross:find("vector_size(16)", 1, true),
-      "for the width that target can hold: " .. cross:sub(1, 200))
-   assert(cross ~= host, "which is not what the host produced")
+   assert(cross:find("vector_size(", 1, true),
+      "which is that target's code: " .. cross:sub(1, 200))
+   assert(cross ~= host, "and not what the host produced")
 end
 
 function M.anUnknownPolicyIsRejected()
@@ -757,16 +763,19 @@ function M.aStampedBinaryFindsItsCompiledLibrary()
    -- chunk the wrapper ends up in is the executable. What is being checked is
    -- that this still gives the `@` walk somewhere to start.
    local dir = project("require")
+   -- Not called `native`: a binary target's host stub goes in `<outDir>/native`,
+   -- so a target of that name would want its executable at a path that is
+   -- already a directory.
    local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
    manifest:write([[
 return {
    include = {"src"},
    build = {
       targets = {
-         native = {
+         app = {
             kind = "binary",
             entries = {"main"},
-            outDir = "build/native",
+            outDir = "build/app",
             stub = "nupp",
             aot = "require",
          },
@@ -795,15 +804,18 @@ print("VALUE " .. tostring(target[6].value))
 ]])
    main:close()
 
-   local out, code = build(dir)
-   test.equal(code, 0, out)
+   local building = assert(io.popen(
+      ("cd %q && NO_COLOR= %q build --target app 2>&1; echo \"__exit__:$?\""):format(dir, NUPP)))
+   local out = building:read("*a")
+   building:close()
+   test.equal(tonumber(out:match("__exit__:(%d+)%s*$")), 0, out)
 
    -- Run from elsewhere, so nothing about the answer comes from the working
    -- directory. The runtime goes on the path because a minimal project does not
    -- carry it; the compiled library is what this is about, and that travels.
    local pipe = assert(io.popen(
       ('cd / && LUA_PATH=%q %q 2>&1'):format(
-         HERE .. "/../build/?.lua;" .. HERE .. "/../build/?/init.lua;;", dir .. "/build/native/native")))
+         HERE .. "/../build/?.lua;" .. HERE .. "/../build/?/init.lua;;", dir .. "/build/app/app")))
    local report = pipe:read("*a")
    pipe:close()
    assert(report:find("VALUE 12.25", 1, true),

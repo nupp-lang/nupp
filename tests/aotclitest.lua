@@ -156,9 +156,16 @@ local REFUSED = STREAMING
       .. "        end\n"
       .. "        local position = positions:getMut(i)")
 
+--- A target every host can compile for, at a tier that holds the wide gangs.
+---
+--- Pinned because these assert which gang a body takes, and that depends on what
+--- the target can hold: the same source takes four lanes at avx2 and two at the
+--- x86-64 baseline. Left to the host, they would assert the runner's CPU.
+local PINNED = "--target x86_64-unknown-linux-gnu --features avx2 "
+
 function M.aRegisterResidentLoopReportsItsGangAndWidth()
    local dir = project{["compute.nupp"] = COMPUTE}
-   local out, code = run(dir, "compute.nupp")
+   local out, code = run(dir, PINNED .. "compute.nupp")
    test.equal(code, 0, out)
    assert(out:find("mixed4", 1, true), "the gang is named: " .. out)
    assert(out:find("4 lanes", 1, true), "the width is named: " .. out)
@@ -190,7 +197,7 @@ end
 
 function M.emitPrintsTheGeneratedC()
    local dir = project{["compute.nupp"] = COMPUTE}
-   local out, code = run(dir, "--emit c compute.nupp")
+   local out, code = run(dir, PINNED .. "--emit c compute.nupp")
    test.equal(code, 0, out)
    assert(out:find("void ks_escapes(", 1, true), "the exported symbol is defined: " .. out)
    assert(out:find("ks_escapes_forced_scalar", 1, true),
@@ -203,7 +210,7 @@ end
 
 function M.emitPrintsTheIrAndTheBinding()
    local dir = project{["compute.nupp"] = COMPUTE}
-   local ir, irCode = run(dir, "--emit ir compute.nupp")
+   local ir, irCode = run(dir, PINNED .. "--emit ir compute.nupp")
    test.equal(irCode, 0, ir)
    assert(ir:find("simd lanes(4)", 1, true), "the lane body is in the IR beside the scalar one: " .. ir)
    assert(ir:find("disjoint r0 r1", 1, true), "the alias matrix is in the IR: " .. ir)
@@ -320,7 +327,7 @@ end
 
 function M.jsonCarriesTheOutcomeAndTheEstimate()
    local dir = project{["compute.nupp"] = COMPUTE}
-   local out, code = run(dir, "--json compute.nupp")
+   local out, code = run(dir, PINNED .. "--json compute.nupp")
    test.equal(code, 0, out)
    local decoded = require("cjson").decode(out)
    test.equal(decoded.file, "compute.nupp")
@@ -417,7 +424,7 @@ return {scale = scale, brighten = brighten, Sample = Sample,}
 
 function M.everyAotFunctionInAFileIsCompiled()
    local dir = project{["two.nupp"] = TWO}
-   local out, code = run(dir, "--json two.nupp")
+   local out, code = run(dir, PINNED .. "--json two.nupp")
    test.equal(code, 0, out)
    local decoded = require("cjson").decode(out)
    test.equal(#decoded.functions, 2, "both functions are reported")
@@ -428,9 +435,9 @@ function M.everyAotFunctionInAFileIsCompiled()
 
    -- One struct declared once, both gangs present, and each function bringing
    -- its own pair of bodies.
-   local _, ccode = run(dir, "--emit c two.nupp")
+   local _, ccode = run(dir, PINNED .. "--emit c two.nupp")
    test.equal(ccode, 0)
-   local c = select(1, run(dir, "--emit c two.nupp"))
+   local c = select(1, run(dir, PINNED .. "--emit c two.nupp"))
    test.equal(select(2, c:gsub("} KsSample;", "")), 1, "the shared struct is declared once")
    assert(c:find("ks_any_m64x4", 1, true) and c:find("ks_any_m32x8", 1, true),
       "each gang brings its own mask helpers, named so they cannot collide")
@@ -440,7 +447,7 @@ function M.everyAotFunctionInAFileIsCompiled()
       assert(c:find("void " .. symbol .. "(", 1, true), symbol .. " is defined")
    end
 
-   local binding = select(1, run(dir, "--emit binding two.nupp"))
+   local binding = select(1, run(dir, PINNED .. "--emit binding two.nupp"))
    assert(binding:find("scale = scale", 1, true) and binding:find("brighten = brighten", 1, true),
       "the generated module exports both wrappers: " .. binding:sub(-200))
 end
