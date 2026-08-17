@@ -85,11 +85,11 @@ struct Particle
 end
 
 local particles = soa.allocate(ffi.typeof<Particle>(), count)
-local rows = particles:write()
-
-for i = 1, rows.count do
-    rows[i].x = rows[i].x + rows[i].dx * delta
-    rows[i].y = rows[i].y + rows[i].dy * delta
+with rows = particles:write() do
+    for i = 1, rows.count do
+        rows[i].x = rows[i].x + rows[i].dx * delta
+        rows[i].y = rows[i].y + rows[i].dy * delta
+    end
 end
 ```
 
