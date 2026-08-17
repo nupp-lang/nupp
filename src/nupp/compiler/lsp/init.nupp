@@ -561,6 +561,20 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 return
             end
         end
+        if tok and def and def.doc and (def.kind == "annotation" or def.kind == "property") then
+            -- A built-in annotation, or a member of one, has no declaration in the
+            -- project to show as hover; its own one-line blurb, plus a link to where
+            -- it is actually documented, is the useful answer instead of nothing.
+            local label = def.kind == "annotation" and (
+                "@" .. (def.name or tok.text)
+            ) or (def.name or tok.text) .. (t and (": " .. T.tostring(t)) or "")
+            local value = "```nupp\n" .. label .. "\n```\n\n" .. def.doc
+            if def.docsPath then
+                value = value .. "\n\n[Reference on nupp-lang.org](https://nupp-lang.org/" .. def.docsPath .. ")"
+            end
+            respond(id, {contents = {kind = "markdown", value = value}, range = tokenRange(doc.text, tok),})
+            return
+        end
         if not tok or not t then
             respond(id, json.null);
             return

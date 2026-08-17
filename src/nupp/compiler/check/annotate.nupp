@@ -296,6 +296,16 @@ function annotate.install(c: state.Checker): annotate.Ops
             if member and not provided[member.name] then
                 if arg.name and member.definition then
                     c.markToken(arg.name, member.definition, member.type, "property")
+                elseif arg.name and member.doc then
+                    -- Same stand-in as the annotation name itself: a built-in member
+                    -- has no field declaration to point at, so hover gets a blurb
+                    -- instead of nothing and go-to-definition stays empty.
+                    c.markToken(
+                        arg.name,
+                        {name = member.name, kind = "property", doc = member.doc, docsPath = member.docsPath},
+                        member.type,
+                        "property"
+                    )
                 end
                 provided[member.name] = arg
                 local actual, hasActual
@@ -360,6 +370,17 @@ function annotate.install(c: state.Checker): annotate.Ops
         end
         if annotationSite then
             c.markToken(application.name, annotationSite, nil, "annotation")
+        elseif annotation.doc then
+            -- A built-in has no declaration a project can navigate to; give hover
+            -- something to read instead of leaving the token unmarked. There is
+            -- deliberately no `.token`/`.filename` here, so go-to-definition finds
+            -- nothing to jump to rather than fabricating a location.
+            c.markToken(
+                application.name,
+                {name = annotation.name, kind = "annotation", doc = annotation.doc, docsPath = annotation.docsPath},
+                nil,
+                "annotation"
+            )
         end
 
         local valid = true

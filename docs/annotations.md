@@ -188,7 +188,7 @@ annotated directly.
 | `@annotation` | Implemented | targets = {"..."} | record, struct |
 | `@annotationValue` | Implemented | None | An annotation definition field |
 | `@ref` | Implemented | None | An annotation definition field |
-| `@allow` | Implemented | Lint names or codes        statement |  |
+| `@allow` | Implemented | Lint names or codes | statement |
 | `@override` | Implemented | None | function |
 | `@partition` | Implemented | Two result field names | sealed interface field |
 | `@effects` | Implemented | Named effect members | function, c-function, local-binding |
@@ -199,6 +199,7 @@ annotated directly.
 | `@deprecated` | Implemented | Optional reason and replacement | declaration, field |
 | `@syntax` | Implemented | One syntax name | local binding |
 | `@jit` | Implemented | None | function |
+| `@aot` | Implemented | `lanes = true`/`false` | function |
 
 `@jit` is an absence-of-known-blockers contract for the selected LuaJIT trace
 profile. The visible body and statically resolved checked callees must avoid
@@ -209,6 +210,24 @@ types, or stays compiled for every input. `jit.off(function)` is an explicit
 boundary and is therefore also an error when reached from an `@jit` body.
 Compile-time-only helpers use the `comptime function` declaration modifier
 rather than an annotation.
+
+`@aot` reserves a required whole-function ahead-of-time compilation contract. A
+target's `aot` build policy says what happens with it: `off`, the default, does
+nothing; `emit-c` writes the generated C beside the build; `require` compiles
+that C into the project's own shared library and fails the build when it
+cannot. Under `require` the function is replaced where it was written by a
+checked wrapper that calls the compiled symbol. A closure, table, interpolated
+string, vararg, `goto`, dynamic call, or unsafe operation inside the body
+reports `NUPP2903` at the construct. Stacking it with `@jit` reports
+`NUPP2901`, and annotating a constructor or inline requirement reports
+`NUPP2902`, since neither is a whole function to compile. A body of one
+top-level numeric map loop over spans may also be lowered lane-parallel, at a
+width the compiler decides from the arithmetic the loop does per byte it
+touches; `lanes = true` and `lanes = false` override that estimate, and
+neither requires the lowering to succeed.
+
+The [Ahead-of-time compilation guide](tooling/aot.md) works through a full
+kernel, the build policy, and what the backend does not do yet.
 
 The [LuaJIT trace-checking guide](tooling/jit-trace-checking.md) shows every current
 blocker, risk, expected stop, warning, call-path error, bytecode verdict, editor query,
@@ -395,8 +414,15 @@ built-ins and compiler extensions.
   implemented.
 - **NUPP2707**: an `@jit` function crosses a variadic or callback FFI boundary.
 - **NUPP2119**: a declaration does not say where it lives.
+- **NUPP2901**: a declaration carries both `@aot` and `@jit`.
+- **NUPP2902**: `@aot` decorates a constructor or an inline requirement,
+  neither of which is a whole function to compile.
+- **NUPP2903**: an `@aot` body uses a construct the backend has no IR for --
+  a closure, table, interpolated string, vararg, `goto`, dynamic call, or
+  unsafe operation.
 
 ## Next
 
 - [derives.md](derives.md): the members `@derive` generates.
 - [effects.md](effects.md): the contract `@effects` states.
+- [tooling/aot.md](tooling/aot.md): what `@aot` compiles and what it buys.

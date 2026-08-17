@@ -1249,6 +1249,85 @@ function M.deprecatedApisReachHoverCompletionAndSemanticTokens()
    assert(semanticAt["2:14"] == 4, "deprecated use has deprecated modifier")
 end
 
+-- A built-in annotation like `@aot` has no declaration in the project to jump
+-- to, so hover falls back to a one-line blurb and a link to where it is
+-- actually documented, and go-to-definition finds nothing to fabricate.
+function M.builtinAnnotationHoverLinksToDocsWithNoFabricatedDefinition()
+   local uri = "file://" .. ROOT .. "/aot-demo.nupp"
+   local source = table.concat({
+      "@aot",
+      "local function double(x: integer): integer",
+      "    return x * 2",
+      "end",
+      "return double",
+   }, "\n") .. "\n"
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 1,
+            text = source } } },
+      { jsonrpc = "2.0", id = 10, method = "textDocument/hover", params = {
+         textDocument = { uri = uri }, position = { line = 0, character = 2 },
+      } },
+      { jsonrpc = "2.0", id = 11, method = "textDocument/definition", params = {
+         textDocument = { uri = uri }, position = { line = 0, character = 2 },
+      } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   })
+
+   local hover = responseWithId(out, 10).result
+   assert(hover and hover.contents, "builtin annotation hover missing")
+   assertContains(hover.contents.value, "ahead-of-time compilation contract",
+      "builtin annotation hover blurb")
+   assertContains(hover.contents.value,
+      "https://nupp-lang.org/guides/ahead-of-time",
+      "builtin annotation hover links to nupp-lang.org")
+
+   local definition = responseWithId(out, 11).result
+   assert(definition == nil or definition == json.null,
+      "builtin annotation reports no fabricated definition location")
+end
+
+-- Same stand-in, one level down: a built-in annotation's own member (`lanes`
+-- on `@aot`) has no field declaration either.
+function M.builtinAnnotationMemberHoverLinksToDocsWithNoFabricatedDefinition()
+   local uri = "file://" .. ROOT .. "/aot-lanes-demo.nupp"
+   local source = table.concat({
+      "@aot(lanes = true)",
+      "local function double(x: integer): integer",
+      "    return x * 2",
+      "end",
+      "return double",
+   }, "\n") .. "\n"
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 1,
+            text = source } } },
+      { jsonrpc = "2.0", id = 10, method = "textDocument/hover", params = {
+         textDocument = { uri = uri }, position = { line = 0, character = 7 },
+      } },
+      { jsonrpc = "2.0", id = 11, method = "textDocument/definition", params = {
+         textDocument = { uri = uri }, position = { line = 0, character = 7 },
+      } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   })
+
+   local hover = responseWithId(out, 10).result
+   assert(hover and hover.contents, "builtin annotation member hover missing")
+   assertContains(hover.contents.value, "lanes: boolean", "member hover shows its type")
+   assertContains(hover.contents.value, "lane-lowering estimate", "member hover blurb")
+   assertContains(hover.contents.value,
+      "https://nupp-lang.org/guides/ahead-of-time",
+      "member hover links to nupp-lang.org")
+
+   local definition = responseWithId(out, 11).result
+   assert(definition == nil or definition == json.null,
+      "builtin annotation member reports no fabricated definition location")
+end
+
 function M.borrowReturnIsAKeyword()
    local uri = "file://" .. ROOT .. "/borrow-demo.nupp"
    -- column 40 is the `borrows` of the return annotation; column 20 is the
