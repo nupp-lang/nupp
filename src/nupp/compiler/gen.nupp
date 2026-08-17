@@ -5504,9 +5504,40 @@ function gen.generate(
         ):format(carrayIndexName) .. "error('C array index out of bounds',2) end return i end; " .. code
     end
     if needsLibs then
+        -- A name beginning with `@` is a path to a library shipped with the
+        -- code, resolved against the chunk this is compiled into rather than
+        -- against the working directory. That is what makes such a library
+        -- relocatable: whatever path the loader used to open this module is a
+        -- path that works from wherever the program was started, so a sibling
+        -- of it does too. A build-time absolute path would pin the output to
+        -- one machine, and a build-time relative one to one directory.
+        --
+        -- Resolution walks up from the chunk, because the same module is loaded
+        -- at whatever depth its name puts it and inlined at the root by a
+        -- bundle, and the library sits in one place either way. The walk is
+        -- bounded: a miss is a load error naming what was looked for, not a
+        -- climb to the filesystem root.
+        --
+        -- Anything without the `@` is a library name for the platform loader to
+        -- find, which is what an ordinary `cdef ... from` means and is left
+        -- exactly as it was.
         code = "const __nuppLibCache = {}; const function __nuppLib(n) "
             .. "local l = __nuppLibCache[n] if not l then "
-            .. "l = __nuppFfi.load(n) __nuppLibCache[n] = l end return l end; "
+            .. "local rel = n:match('^@(.+)$') "
+            .. "if rel then "
+            .. "local here = debug.getinfo(1, 'S').source:match('^@(.*)$') "
+            .. "local dir = here and here:match('^(.*)[/\\\\]') or '.' "
+            .. "local from = dir "
+            .. "for _ = 0, 8 do "
+            .. "local at = dir .. '/' .. rel "
+            .. "local probe = io.open(at, 'rb') "
+            .. "if probe then probe:close() l = __nuppFfi.load(at) break end "
+            .. "dir = dir .. '/..' "
+            .. "end "
+            .. "if not l then error('cannot find ' .. rel .. ' at or above ' .. from"
+            .. " .. '; the compiled library has to travel with the module that calls it', 0) end "
+            .. "else l = __nuppFfi.load(n) end "
+            .. "__nuppLibCache[n] = l end return l end; "
             .. code
     end
     if needsCloneTab then

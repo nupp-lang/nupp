@@ -742,10 +742,42 @@ rather than a silent misread.
 The module is hashed on the text that was compiled rather than the file on disk,
 so a rebuild never reuses an artifact built from a different body.
 
-The library is named the way the build wrote it — relative to where the build
-ran — so a program is run from its project root, the same as for any `kind = "c"`
-dependency. `nupp check` does none of this: it answers a question about the
-source as written, and never needs a C compiler.
+`nupp check` does none of this: it answers a question about the source as
+written, and never needs a C compiler.
+
+### Shipping it
+
+The wrapper names the library with a leading `@`, which means *beside the module
+that loads me* rather than *at this path*:
+
+```lua
+__nuppLib("@lib/libgame_aot.dylib")
+```
+
+At load, that is resolved against the chunk the wrapper was compiled into,
+walking up until it finds the directory. Whatever path the loader used to open
+the module is a path that works from wherever the program was started, so a
+sibling of it does too — which makes the output tree relocatable. A path decided
+at build time could not be: absolute pins the program to one machine, relative
+pins it to one directory.
+
+The walk is why one spelling serves every layout. A module named `a.b.kernel`
+sits two directories down and the same module inlined at the root of a bundle
+sits at the top; the library is in one place either way.
+
+A single-artifact target — `bundle`, `binary`, `component` — gets a copy of the
+library beside whatever it wrote, because that artifact is what someone carries
+somewhere and the build directory is not going with it:
+
+```
+ dist/
+   app.lua
+   lib/libgame_aot.dylib
+```
+
+Copy the output tree, move it, hand it to someone: it runs. Copy it without the
+`lib/` directory and the load fails by name, saying what it looked for and where
+— not with a missing symbol later on.
 
 ### What an artifact is keyed on
 
@@ -780,10 +812,10 @@ costs one relink.
 
 Named so you can tell what you are looking at:
 
-- **A relocatable library path.** The wrapper names the library relative to
-  where the build ran, so a built program is run from its project root. Loading
-  it relative to the module's own location needs a runtime helper that does not
-  exist yet. `kind = "c"` dependencies have the same property.
+- **Relocatable `kind = "c"` dependencies.** An ordinary C dependency's library
+  is still named with the path the build wrote, so it has the problem `@aot`
+  code no longer has. The `@` mechanism is general and would fix it; nothing has
+  been changed there yet.
 - **Mixed-width gangs.** Width selection is all-or-nothing: a single binary64
   varying value drops the whole loop to four lanes, where the rule should be a
   gang size fixed from register pressure with each value taking however many

@@ -316,14 +316,35 @@ function aot.dispatch(source: string, programs: {scalarIR.Program}, sites: {comp
     return rewritten
 end
 
---- Where a project's compiled `@aot` code goes.
-function aot.libraryPath(outDir: string, name: string, suffix: string): string
+--- What the compiled library is called, without saying where it is.
+function aot.libraryFile(name: string, suffix: string): string
     local stem = name:gsub("[^%w_]", "_")
     if suffix == ".dll" then
-        return outDir .. "/lib/" .. stem .. "_aot" .. suffix
+        return stem .. "_aot" .. suffix
     end
 
-    return outDir .. "/lib/lib" .. stem .. "_aot" .. suffix
+    return "lib" .. stem .. "_aot" .. suffix
+end
+
+--- Where a project's compiled `@aot` code goes.
+function aot.libraryPath(outDir: string, name: string, suffix: string): string
+    return outDir .. "/lib/" .. aot.libraryFile(name, suffix)
+end
+
+--- How the generated wrapper names that library.
+---
+--- Relative to the module that loads it and marked with `@`, so the runtime
+--- resolves it against the chunk rather than handing it to the platform loader.
+---
+--- A path decided at build time would be relative to where the build ran, which
+--- ships a program that only runs from one directory, or absolute, which ships
+--- one that only runs on one machine. Neither is something to hand to anyone.
+---
+--- No directory depth in it. The runtime walks up from the module, so one
+--- spelling serves a module at whatever nesting its name gives it and the same
+--- module inlined at the root of a bundle.
+function aot.libraryReference(name: string, suffix: string): string
+    return "@lib/" .. aot.libraryFile(name, suffix)
 end
 
 --- Compiles the emitted C into one shared library.
@@ -535,6 +556,7 @@ function aot.apply(
 
     local shared, suffix = aot.linkage()
     local library = aot.libraryPath(outDir, name, suffix)
+    local reference = aot.libraryReference(name, suffix)
     local key = aot.libraryKey(
         keys,
         chain as aot.Toolchain,
@@ -566,7 +588,7 @@ function aot.apply(
                 text as string,
                 (artifacts as compile.Artifacts).programs,
                 (artifacts as compile.Artifacts).sites,
-                library
+                reference
             )
         end
     end

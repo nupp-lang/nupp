@@ -560,6 +560,109 @@ function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
       "the compiled body answers exactly what the interpreted one does: " .. report)
 end
 
+function M.theLibraryTravelsWithWhatWasBuilt()
+   if librarySuffix() == nil then return end
+
+   local dir = project("require")
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+
+   local lua = assert(read(dir .. "/build/native/kernel.lua"))
+   -- Marked rather than pathed: a build-time path is either absolute, which
+   -- ships a program that runs on one machine, or relative to where the build
+   -- ran, which ships one that runs from one directory.
+   assert(lua:find('__nuppLib("@lib/', 1, true),
+      "the wrapper names the library relative to itself: " .. lua:sub(1, 200))
+   assert(not lua:find(dir, 1, true), "and the build directory does not appear in the output")
+
+   -- The test of relocatable is that a copy somewhere else still runs.
+   local moved = dir .. "/moved"
+   assert(os.execute(("cp -r %q %q"):format(dir .. "/build/native", moved)) == 0)
+   local script = dir .. "/run.lua"
+   local handle = assert(io.open(script, "wb"))
+   handle:write(([[
+      local ffi = require("ffi")
+      package.path = %q .. "/?.lua;" .. %q .. ";" .. package.path
+      local spans = require("nupp.span")
+      local mod = require("kernel")
+      local count = 64
+      local src = ffi.new("struct { float value; float weight; }[?]", count)
+      for i = 0, count - 1 do src[i].value = i * 0.5 src[i].weight = i * 0.25 end
+      local dst = ffi.new("struct { float value; float weight; }[?]", count)
+      mod.scale(spans.writeCarray(dst, count), spans.fromCarray(src, count), 1, count, 3.0)
+      print("VALUE " .. tostring(dst[7].value))
+   ]]):format(moved, HERE .. "/../build/?.lua"))
+   handle:close()
+
+   -- Run from a directory that is neither the project nor the copy, so nothing
+   -- about the answer can come from the working directory.
+   local pipe = assert(io.popen(("cd / && luajit %q 2>&1"):format(script)))
+   local report = pipe:read("*a")
+   pipe:close()
+   assert(report:find("VALUE 12.25", 1, true),
+      "a copied output tree runs from anywhere: " .. report)
+end
+
+function M.aLibraryLeftBehindIsANamedFailure()
+   if librarySuffix() == nil then return end
+
+   local dir = project("require")
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+
+   local moved = dir .. "/incomplete"
+   assert(os.execute(("cp -r %q %q"):format(dir .. "/build/native", moved)) == 0)
+   assert(os.execute(("rm -rf %q"):format(moved .. "/lib")) == 0)
+
+   local script = dir .. "/missing.lua"
+   local handle = assert(io.open(script, "wb"))
+   handle:write(([[
+      package.path = %q .. "/?.lua;" .. %q .. ";" .. package.path
+      print(select(2, pcall(require, "kernel")))
+   ]]):format(moved, HERE .. "/../build/?.lua"))
+   handle:close()
+
+   local pipe = assert(io.popen(("cd / && luajit %q 2>&1"):format(script)))
+   local report = pipe:read("*a")
+   pipe:close()
+   assert(report:find("at or above", 1, true),
+      "copying the modules without the library says so, rather than failing obscurely: " .. report)
+end
+
+function M.aBundleCarriesItsCompiledLibrary()
+   if librarySuffix() == nil then return end
+
+   -- A bundle is one file someone moves somewhere. Its library lives in the
+   -- build directory the bundle was assembled in, which is not where the bundle
+   -- ends up, so the build has to put a copy beside it.
+   local dir = project("require")
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write([[
+return {
+   include = {"src"},
+   build = {
+      targets = {
+         native = {
+            kind = "bundle",
+            entries = {"kernel"},
+            outDir = "build/native",
+            output = "dist/app.lua",
+            aot = "require",
+         },
+      },
+   },
+}
+]])
+   manifest:close()
+   assert(os.remove(dir .. "/src/plain.nupp"))
+
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   assert(read(dir .. "/dist/app.lua"), "the bundle was written where it was asked for")
+   assert(read(dir .. "/dist/lib/libnative_aot" .. librarySuffix()),
+      "and the compiled library went with it rather than staying in build/")
+end
+
 function M.aNamedCompilerThatCannotBuildThisCIsRefused()
    local dir = project("require")
    local pipe = assert(io.popen(

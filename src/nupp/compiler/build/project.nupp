@@ -129,6 +129,7 @@ type project.FixpointOptions = {
 local CHECK_STATE_STAMP = "checks/1"
 
 local normalize, join = fs.normalize, fs.join
+local dirname, basename = fs.dirname, fs.basename
 local readFile, writeFile = fs.readFile, fs.writeFile
 local copyFile, listFiles = fs.copyFile, fs.listFiles
 local stable, hashFile = cache.stable, cache.hashFile
@@ -321,6 +322,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- as written, and asking it to compile and link first would make checking a
     -- project need a C compiler that building it is what actually requires.
     local aotOverlays: {[string]: string}? = nil
+    local aotLibrary: string? = nil
     if not opts.checkOnly and (target.aot == "emit-c" or target.aot == "require") then
         report:at("aot")
         report:step(target.aot == "require" and "compiling ahead-of-time code" or "emitting ahead-of-time C")
@@ -352,6 +354,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         if (produced as any).library ~= nil then
             newState.outputs[(produced as any).library] = true
             newState.aotLibrary = (produced as any).libraryKey
+            aotLibrary = (produced as any).library as string?
         end
         aotOverlays = (produced as any).dispatch as {[string]: string}?
     end
@@ -498,6 +501,23 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             end
         end
         newState.outputs[output] = true
+        -- A single-artifact target is something someone carries somewhere, and
+        -- the compiled code has to go with it. The wrapper looks for the library
+        -- beside the module that calls it, and for these kinds that module is
+        -- the artifact, so the copy goes beside the artifact rather than staying
+        -- in the build directory the artifact was assembled in.
+        if aotLibrary ~= nil then
+            local beside = join(dirname(output), "lib/" .. basename(aotLibrary as string))
+            local copied, copyErr = copyFile(aotLibrary as string, beside)
+            if not copied then
+                io.stderr:write(
+                    ("nupp: cannot put the compiled library beside %s: %s\n"):format(output, tostring(copyErr))
+                )
+
+                return 1
+            end
+            newState.outputs[beside] = true
+        end
         report:clear()
     end
     for _, dep in pairs(dependencies) do
