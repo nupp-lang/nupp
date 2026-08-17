@@ -108,6 +108,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- loop. Function bodies reset this depth because a loop outside a closure cannot be
     -- continued from inside it.
     local loopDepth = 0
+    -- A contextual `yield value` belongs only to the directly enclosing switch arm.
+    -- Function bodies reset this depth, just as they reset loop depth.
+    local switchArmDepth = 0
 
     --- The token about to be consumed.
     local function cur(): Token
@@ -1458,9 +1461,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if cur().kind == "do" then
             add(n, advance())
             local savedLoopDepth = loopDepth
+            local savedSwitchArmDepth = switchArmDepth
             loopDepth = 0
+            switchArmDepth = 0
             n.body = add(n, parseBlock())
             loopDepth = savedLoopDepth
+            switchArmDepth = savedSwitchArmDepth
             add(n, expect("end", "to close short function"))
         else
             n.expr = add(n, parseExp())
@@ -1524,6 +1530,106 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return after ~= nil and after.kind == "do" and after.line == tok.line
     end
 
+    --- Whether the contextual switch expression at the cursor has a complete selector
+    --- followed by its required `do`. Parsing the selector speculatively is more exact
+    --- than token scanning: nested calls, tables, functions and switches use the same
+    --- grammar here that they use after we commit. The CST nodes made by the probe are
+    --- discarded and any recovery diagnostics are rolled back.
+    local function atSwitchexp(): boolean
+        local tok = cur()
+        if tok.kind ~= "name" or tok.text ~= "switch" or not tokens[i + 1] then
+            return false
+        end
+        local savedI, savedErrors = i, #errors
+        local savedNoMethod = noMethod
+        local savedGenericClose = genericCloseHalfAt
+        i = i + 1
+        parseExp()
+        local yes = cur().kind == "do"
+        i = savedI
+        noMethod = savedNoMethod
+        genericCloseHalfAt = savedGenericClose
+        while #errors > savedErrors do
+            errors[#errors] = nil
+        end
+
+        return yes
+    end
+
+    local function parseSwitchResult(n: cst.SwitchCase | cst.SwitchElse)
+        add(n, expect("->", "in switch arm"))
+        if cur().kind == "do" then
+            add(n, advance())
+            switchArmDepth = switchArmDepth + 1
+            n.body = add(n, parseBlock())
+            switchArmDepth = switchArmDepth - 1
+            add(n, expect("end", "to close switch arm"))
+        else
+            n.expr = add(n, parseExp())
+        end
+    end
+
+    --- `switch selector do ... end`.
+    local function parseSwitchexp(): Node
+        local n = new cst.SwitchExpr(kind = "switchExpr", cases = {})
+        n.switchTok = add(n, advance())
+        n.switchTok.contextualOp = true
+        n.selector = add(n, parseExp())
+        n.doTok = add(n, expect("do", "after switch selector"))
+        while cur().kind == "name" and cur().text == "case" do
+            local arm = new cst.SwitchCase(kind = "switchCase", values = {}, fields = {})
+            add(arm, advance()).contextualOp = true
+            if cur().kind == "name" and cur().text == "is" then
+                arm.patternKind = "type"
+                add(arm, advance()).contextualOp = true
+                arm.type = add(arm, parseType())
+                if cur().kind == "name" and cur().text == "as" then
+                    add(arm, advance()).contextualOp = true
+                    arm.binding = add(arm, expectName("after 'as' in switch case"))
+                end
+                if cur().kind == "{" then
+                    add(arm, advance())
+                    if cur().kind ~= "}" then
+                        repeat
+                            local field = new cst.SwitchField(kind = "switchField")
+                            field.name = add(field, expectName("in switch destructuring"))
+                            if cur().kind == "name" and cur().text == "as" then
+                                add(field, advance()).contextualOp = true
+                                field.alias = add(field, expectName("after 'as' in switch field"))
+                            end
+                            arm.fields[#arm.fields + 1] = add(arm, field)
+                            if cur().kind ~= "," then
+                                break
+                            end
+                            add(arm, advance())
+                        until false
+                    end
+                    add(arm, expect("}", "to close switch destructuring"))
+                end
+            else
+                arm.patternKind = "static"
+                repeat
+                    arm.values[#arm.values + 1] = add(arm, parseExp())
+                    if cur().kind ~= "," then
+                        break
+                    end
+                    add(arm, advance())
+                until false
+            end
+            parseSwitchResult(arm)
+            n.cases[#n.cases + 1] = add(n, arm)
+        end
+        if cur().kind == "else" then
+            local arm = new cst.SwitchElse(kind = "switchElse")
+            add(arm, advance())
+            parseSwitchResult(arm)
+            n.elseCase = add(n, arm)
+        end
+        n.endTok = add(n, expect("end", "to close switch"))
+
+        return n
+    end
+
     --- `new T(...)`: a construction.
     ---
     --- The operand is parsed as an ordinary suffixed expression, so a qualified name
@@ -1562,7 +1668,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- A literal, constructor, function, or suffixed expression.
     local function parseSimpleexp(): Node
         local kind = cur().kind
-        if kind == "name" and cur().text == "unsafe" and tokens[
+        if atSwitchexp() then
+            return parseSwitchexp()
+        elseif kind == "name" and cur().text == "unsafe" and tokens[
             i + 1
         ] and tokens[i + 1].kind == "name" and (tokens[i + 1].text == "adopt" or tokens[i + 1].text == "release") then
             local operation = tokens[i + 1].text as 'adopt' | 'release'
@@ -1885,9 +1993,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             end
         end
         local savedLoopDepth = loopDepth
+        local savedSwitchArmDepth = switchArmDepth
         loopDepth = 0
+        switchArmDepth = 0
         n.body = add(n, parseBlock())
         loopDepth = savedLoopDepth
+        switchArmDepth = savedSwitchArmDepth
         add(n, expect("end", "to close function"))
 
         return n
@@ -2702,6 +2813,26 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(n, advance())
             end
             return n
+        end
+
+        if kind == "name" and cur().text == "yield" and switchArmDepth > 0 then
+            local value = tokens[i + 1]
+            local contextual = value
+                and value.line == cur().line
+                and value.kind ~= "("
+                and value.kind ~= "{"
+                and value.kind ~= "string"
+                and (
+                EXPR_START[
+                    value.kind
+                ] or UNOPS[value.kind] or value.kind == "error" or (value.kind == "or" and value.text == "||")
+            )
+            if contextual then
+                local n = new cst.SwitchYieldStmt(kind = "switchYieldStmt")
+                add(n, advance()).contextualOp = true
+                n.value = add(n, parseExp())
+                return n
+            end
         end
 
         if kind == "name" and cur().text == "drop" then

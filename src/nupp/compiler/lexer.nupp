@@ -226,6 +226,7 @@ type lexer.Token = {
 
     --- Always separated from its neighbours, whatever the spacing rules say.
     spacedTok: boolean?,
+    spaceBeforeTok: boolean?,
 
     --- An operator a long expression may break before.
     breakOp: boolean?,

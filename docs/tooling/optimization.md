@@ -416,6 +416,22 @@ one only some paths reach; JSON includes the bytecode fingerprint, trace profile
 stable reason identity, and reachability. The former fails CI. The latter is
 reported without claiming the whole loop can never form another trace.
 
+### Switches stay branch-shaped
+
+A [switch expression](../switch-expressions.md) lowers to lexical temporaries
+and an ordered `if`/`elseif` chain. It creates neither an arm closure nor a
+generic dispatch table, so using one inside a hot loop does not itself add the
+function-construction bytecode that stops LuaJIT trace recording. The selector
+is evaluated once, and operands to its left are captured before the branch so
+lowering preserves observable evaluation order.
+
+The initial optimizer deliberately does not synthesize a balanced decision
+tree, BDD/MTBDD, polymorphic inline cache, or string lookup table. Numeric and
+type predicates retain source order, including refined-interface predicates
+that may run user code. A future decision-tree pass needs profile evidence and
+a proof that reordering is unobservable; the explicit cases provide that input
+without making it part of the language semantics.
+
 ## Observable behavior
 
 Current passes change nothing observable. Optimizations that would trade a

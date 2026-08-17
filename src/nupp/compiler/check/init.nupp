@@ -225,6 +225,7 @@ local TYPED_LAYER: {
     tpreserves = "a type annotation",
     tpredicate = "a type annotation",
     ternary = "a type annotation",
+    switchExpr = "a switch expression",
 }
 
 --- Reports the typed layer wherever it appears in a plain Lua file.
@@ -887,6 +888,7 @@ function checkMod.check(
         borrowReturnStack = {},
         varargPackStack = {},
         yieldPackStack = {},
+        switchYieldStack = {},
         resumePackStack = {},
         protocolStack = {},
         consumingFieldStack = {},

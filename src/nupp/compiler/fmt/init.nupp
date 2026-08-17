@@ -215,6 +215,29 @@ local function breakIfArms(n)
     end
 end
 
+-- A switch has two visible nesting boundaries: cases sit inside the expression and a
+-- block arm sits inside its case. The ordinary block walker supplies the latter; this
+-- marks every arm and the switch close as hard line starts and the child walk below
+-- supplies the former.
+local function breakSwitchArms(n)
+    for _, arm in ipairs(n.cases or {}) do
+        local first = firstToken(arm)
+        if first then
+            first.forceBreak = true
+        end
+    end
+    if n.elseCase then
+        local first = firstToken(n.elseCase)
+        if first then
+            first.forceBreak = true
+        end
+    end
+    local close = n.endTok or lastToken(n)
+    if close then
+        close.forceBreak = true
+    end
+end
+
 -- A function's final result reads as the conclusion of a substantial body. Remember its
 -- first body token so the rendered line count can decide whether to set it apart.
 local function markFinalFunctionReturn(n)
@@ -355,6 +378,19 @@ local function annotate(root)
             markChainStep(n)
         elseif kind == "ifStmt" then
             breakIfArms(n)
+        elseif kind == "switchExpr" then
+            breakSwitchArms(n)
+            if n.switchTok then
+                n.switchTok.spacedTok = true
+            end
+        elseif kind == "switchCase" and n.patternKind == "type" then
+            -- The destructuring shape is a pattern suffix, not table-call sugar.
+            for _, child in ipairs(n) do
+                if cst.isToken(child) and child.kind == "{" then
+                    child.spaceBeforeTok = true
+                    break
+                end
+            end
         elseif kind == "funcbody" then
             markFinalFunctionReturn(n)
             breakFunctionBody(n)
@@ -478,6 +514,17 @@ local function annotate(root)
                         first.stmtLastTok = last
                     end
                 end
+            elseif kind == "switchExpr" and (child.kind == "switchCase" or child.kind == "switchElse") then
+                -- Cases are statement-like formatting regions even though the whole
+                -- switch is an expression. Their block arms then gain the ordinary
+                -- block increment inside this one.
+                markStart = true
+                walk(child, block + 1, childGroup)
+                markStart = false
+                local first, last = firstToken(child), lastToken(child)
+                if first then
+                    first.stmtLastTok = last
+                end
             elseif declish and child ~= n.generics and not headerPart[child] then
                 markStart = true
                 walk(child, block + 1, childGroup)
@@ -524,7 +571,7 @@ end
 
 -- Space (or "") between two adjacent tokens on the same line.
 local function sep(prev, tok)
-    if prev.spacedTok or tok.spacedTok then
+    if prev.spacedTok or tok.spacedTok or tok.spaceBeforeTok then
         return " "
     end
     if prev.unaryTok then

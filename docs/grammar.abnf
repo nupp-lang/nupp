@@ -139,6 +139,22 @@ simpleexp      = Numeral
                / tableconstructor
                / suffixedexp
 
+; A switch is contextual: the Name `switch` is only committed when parsing the
+; following expression leaves the required `do` at the cursor. [CS-25]
+simpleexp      =/ switchexp
+switchexp      = %s"switch" exp "do" *switchcase [switchelse] "end"
+switchcase     = %s"case" (staticpattern / typepattern) "->" switchresult
+switchelse     = "else" "->" switchresult
+staticpattern  = staticvalue *("," staticvalue)
+staticvalue    = ["-"] Numeral / LiteralString / "nil" / "true" / "false"
+               / Name / "(" staticvalue ")"
+typepattern    = %s"is" type [%s"as" Name] ["{" switchfield *("," switchfield) "}"]
+switchfield    = Name [%s"as" Name]
+switchresult   = exp / "do" switchblock "end"
+switchblock    = *switchstat [retstat]
+switchstat     = stat / switchyield
+switchyield    = %s"yield" exp                ; same line, contextual [CS-25]
+
 functiondef    = "function" funcbody
 
 ; `new` is contextual and requires a same-line qualified name followed by call
@@ -659,6 +675,16 @@ packunion      = typepack 1*("|" typepack)
 ;   checked parameter kinds decide whether each syntactic argument denotes a
 ;   type, pack, or compile-time scalar. Angle brackets remain generic
 ;   declaration application.
+;
+; [CS-25] Switch expressions. `switch` becomes an introducer only when parsing
+;   the complete following expression lands on `do`; without it, calls and
+;   references named switch retain their Lua meaning. Static cases accept only
+;   finite scalar literals, parentheses, optional numeric minus, or a Name whose
+;   checked type is one exact scalar. Type cases use the same runtime-testable
+;   types as `is`; `as` binds the narrowed whole value and braces bind direct
+;   fields. `yield exp` supplies a block arm's result only inside that arm, only
+;   when the operand starts on the same line, and not when it starts with `(`,
+;   `{`, or LiteralString. Those three forms remain ordinary Lua call sugar.
 ;
 ; Associativity summary: "..", "^", and the ternary condexp are right-
 ; associative; every other binary layer is left-associative. Precedence from

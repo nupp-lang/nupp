@@ -632,6 +632,82 @@ local ENTRIES: {any} = {
         docs = "docs/type-system/interfaces.md#sealed-interfaces",
     },
     {
+        code = "NUPP2137",
+        summary = "A switch pattern is not static or cannot bind what it names",
+        rule = "Static switch cases are finite scalar literals or names whose checked "
+        .. "type is one exact scalar. Type destructuring binds direct fields only, and "
+        .. "every bound name and field must exist once in that arm.",
+        wrong = "local n: integer = 2\nlocal value = switch n do\n"
+        .. "    case 1 + 1 -> 'two'\n    else -> 'other'\nend\nreturn value\n",
+        right = "local n: integer = 2\nlocal value = switch n do\n"
+        .. "    case 2 -> 'two'\n    else -> 'other'\nend\nreturn value\n",
+        related = {"NUPP2138", "NUPP2140"},
+        docs = "docs/reference.md#switch-expressions",
+    },
+    {
+        code = "NUPP2138",
+        summary = "A static switch value is handled more than once",
+        rule = "Static cases compare Lua values, not source spellings. Numerically "
+        .. "equivalent literals such as 1 and 1.0 are therefore duplicates.",
+        wrong = "local n: number = 1\nlocal value = switch n do\n"
+        .. "    case 1, 1.0 -> 'one'\n    else -> 'other'\nend\nreturn value\n",
+        right = "local n: number = 1\nlocal value = switch n do\n"
+        .. "    case 1 -> 'one'\n    else -> 'other'\nend\nreturn value\n",
+        related = {"NUPP2137", "NUPP2139"},
+        docs = "docs/reference.md#switch-expressions",
+    },
+    {
+        code = "NUPP2139",
+        summary = "A switch case cannot be selected",
+        rule = "Cases are checked in source order against the selector type left by "
+        .. "earlier cases. A value outside that type and an arm reached after the "
+        .. "residue is empty are unreachable.",
+        wrong = "local n: 1 = 1\nlocal value = switch n do\n"
+        .. "    case 2 -> 'two'\n    else -> 'other'\nend\nreturn value\n",
+        right = "local n: number = 1\nlocal value = switch n do\n"
+        .. "    case 2 -> 'two'\n    else -> 'other'\nend\nreturn value\n",
+        related = {"NUPP2138", "NUPP2140"},
+        docs = "docs/reference.md#switch-expressions",
+    },
+    {
+        code = "NUPP2140",
+        summary = "A switch leaves possible selector values unhandled",
+        rule = "A switch is an expression and must produce a value whenever its "
+        .. "selector returns. Cover every member of a finite checked type, or add else "
+        .. "when the remaining set is open.",
+        wrong = "local type Mode = 'read' | 'write'\nlocal mode: Mode = 'read'\n"
+        .. "local value = switch mode do case 'read' -> 1 end\nreturn value\n",
+        right = "local type Mode = 'read' | 'write'\nlocal mode: Mode = 'read'\n"
+        .. "local value = switch mode do\n    case 'read' -> 1\n"
+        .. "    case 'write' -> 2\nend\nreturn value\n",
+        related = {"NUPP2139", "NUPP2141"},
+        docs = "docs/reference.md#switch-expressions",
+    },
+    {
+        code = "NUPP2141",
+        summary = "A block switch arm does not yield on every completing path",
+        rule = "A block arm produces the switch value with contextual `yield value`. "
+        .. "Every path that does not return from the enclosing function must reach one, "
+        .. "and no statement may follow it in the same path.",
+        wrong = "local value = switch 1 do\n    else -> do\n"
+        .. "        local answer = 1\n    end\nend\nreturn value\n",
+        right = "local value = switch 1 do\n    else -> do\n"
+        .. "        local answer = 1\n        yield answer\n    end\nend\nreturn value\n",
+        related = {"NUPP2140", "NUPP2142"},
+        docs = "docs/reference.md#switch-expressions",
+    },
+    {
+        code = "NUPP2142",
+        summary = "A switch is in a conditionally evaluated expression position",
+        rule = "The first lexical lowering lifts switches from statement-root eager "
+        .. "expressions. Lifting one out of `and`, `or`, `??`, a ternary arm, or guarded "
+        .. "safe-navigation work would run it when the source does not, so that placement "
+        .. "waits for general expression normalization. Bind the switch in a preceding "
+        .. "statement instead.",
+        related = {"NUPP2140"},
+        docs = "docs/reference.md#switch-expressions",
+    },
+    {
         code = "NUPP2511",
         summary = "An associated type was erased because inference did not reach its head",
         rule = "A projection is checked as `any` when inference never worked out what "

@@ -27,7 +27,7 @@ can prepare one direct call for a small set of statement forms, but it is not a
 general expression IR. Prefix lifting is insufficient for lazy constructs:
 
 ```nupp
-local value = ready and switch code
+local value = ready and switch code do
     case 200 -> "ok"
     else -> "other"
 end

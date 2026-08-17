@@ -96,6 +96,22 @@ The domain references describe `NUPP2xxx` diagnostics in context:
 - [ownership and unsafe operations](ownership.md);
 - [lints, configuration, and suppression](lints.md).
 
+Switch-expression diagnostics distinguish pattern shape, coverage, control
+flow, and lowering placement:
+
+| Code | Meaning |
+| --- | --- |
+| `NUPP2137` | A static value, type binding, or destructured field is invalid. |
+| `NUPP2138` | Two static cases normalize to the same scalar value. |
+| `NUPP2139` | A case is incompatible with or unreachable from the remaining selector type. |
+| `NUPP2140` | A switch is not exhaustive. |
+| `NUPP2141` | A block arm can fall through, or `yield` is invalid here. |
+| `NUPP2142` | Lifting the switch here would change conditional evaluation. |
+| `NUPP3001` | A checked type case has no runtime identity. |
+
+See [switch expressions](switch-expressions.md) for worked examples and
+`nupp explain CODE` for an isolated failing and corrected program.
+
 The capability-specific codes distinguish the repair the checker needs:
 
 | Code | Meaning |

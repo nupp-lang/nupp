@@ -943,6 +943,153 @@ local function bind(
     return binding
 end
 
+--- Lowers the AOT subset of a switch initializer. Native switches admit numeric
+--- integer-valued static cases and expression arms; strings, type patterns, block
+--- arms, and early arm returns stay explicit subset boundaries.
+local function switchLocal(
+    stat: cst.LocalStmt,
+    node: cst.SwitchExpr,
+    out: {scalarIR.Statement},
+    environment: {[string]: any},
+    kernel: lower.Kernel
+): nil
+    local context = kernel.context
+    local names = stat.names or {}
+    if #names ~= 1 or #(stat.exprs or {}) ~= 1 then
+        context.reject(lower.site(stat), "a native switch initializes exactly one local")
+    end
+    if #(node.cases or {}) == 0 and node.elseCase == nil then
+        context.reject(lower.site(node), "a native numeric switch requires an arm")
+    end
+
+    local selector = lower.expression(node.selector as cst.Node, environment, kernel.index, kernel)
+    if selector.type ~= "f64" and selector.type ~= "i32" and selector.type ~= "u32" then
+        context.reject(lower.site(node.selector), "a native switch selector must be numeric")
+    end
+    local selectorName = "__nupp_switch_selector_" .. tostring(kernel.serial + 1)
+    local selectorBinding = bind(selectorName, selector.type, false, node, environment, kernel)
+    out[
+        #out + 1
+    ] = new scalarIR.Let(
+        op = "let",
+        name = selectorName,
+        cName = selectorBinding.cName,
+        value = selector,
+        type = selector.type,
+        source = lower.site(node.selector)
+    )
+    local selectorRef = new scalarIR.Name(
+        op = "local",
+        name = selectorName,
+        cName = selectorBinding.cName,
+        type = selector.type,
+        source = lower.site(node.selector)
+    )
+
+    local arms = {}
+    for _, arm in ipairs(node.cases or {}) do
+        if arm.patternKind ~= "static" then
+            context.reject(lower.site(arm), "native switches do not admit type cases")
+        elseif arm.body ~= nil or arm.expr == nil then
+            context.reject(lower.site(arm), "native switches require expression arms")
+        end
+        arms[
+            #arms + 1
+        ] = {case = arm, value = lower.expression(arm.expr as cst.Node, environment, kernel.index, kernel)}
+    end
+    local otherwise = node.elseCase
+    if otherwise and (otherwise.body ~= nil or otherwise.expr == nil) then
+        context.reject(lower.site(otherwise), "native switches require expression arms")
+    end
+    local elseValue = otherwise and lower.expression(
+        otherwise.expr as cst.Node,
+        environment,
+        kernel.index,
+        kernel
+    ) or nil
+    local spelling = lower.compactType(stat.types ~= nil and (stat.types as {cst.Node})[1] or nil)
+    local inferredResult = elseValue and elseValue.type or arms[1] and arms[1].value.type or nil
+    local resultType = spelling ~= "" and lower.sourceValueType(spelling) or inferredResult
+    if resultType == nil or resultType == "multi" or resultType:match("^ref:") then
+        context.reject(lower.site(stat), "native switch results must be scalar")
+    end
+    resultType = resultType as scalarIR.Type
+
+    local resultBinding = bind(names[1].text, resultType, false, stat, environment, kernel)
+    local zero: scalarIR.Expr
+    if resultType == "bool" then
+        zero = new scalarIR.Bool(op = "bool", value = false, type = "bool", source = lower.site(stat))
+    elseif resultType == "i32" or resultType == "u32" then
+        zero = new scalarIR.IntConstant(op = "constant_i32", value = "0", type = resultType, source = lower.site(stat))
+    else
+        zero = new scalarIR.Constant(op = "constant", value = "0", type = "f64", source = lower.site(stat))
+    end
+    out[
+        #out + 1
+    ] = new scalarIR.Let(
+        op = "let",
+        name = names[1].text,
+        cName = resultBinding.cName,
+        value = zero,
+        type = resultType,
+        source = lower.site(stat)
+    )
+
+    local target = new scalarIR.Target(
+        kind = "local",
+        name = resultBinding.name,
+        cName = resultBinding.cName,
+        type = resultType
+    )
+    local clauses: {scalarIR.Clause} = {}
+    for _, lowered in ipairs(arms) do
+        local condition: scalarIR.Expr? = nil
+        for _, caseValue in ipairs(lowered.case.values or {}) do
+            local exact = caseValue.switchStaticValue
+            local constant = exact and exact.tag == "literal" and exact.constant or nil
+            if type(constant) ~= "number" or constant ~= math.floor(constant) then
+                context.reject(lower.site(caseValue), "native switch cases must be integer-valued numbers")
+            end
+            local right = lower.expression(caseValue, environment, kernel.index, kernel)
+            local equal = new scalarIR.Binary(
+                op = "eq",
+                left = selectorRef,
+                right = right,
+                type = "bool",
+                source = lower.site(caseValue)
+            )
+            condition = condition ~= nil and new scalarIR.Binary(
+                op = "or",
+                left = condition as scalarIR.Expr,
+                right = equal,
+                type = "bool",
+                source = lower.site(caseValue)
+            ) or equal
+        end
+        local assignment = new scalarIR.Assignment(
+            target = target,
+            value = lower.convert(lowered.value, resultType, lower.site(lowered.case), context)
+        )
+        clauses[
+            #clauses + 1
+        ] = new scalarIR.Clause(
+            condition = condition as scalarIR.Expr,
+            body = {new scalarIR.Assign(op = "assign", values = {assignment}, source = lower.site(lowered.case))},
+            source = lower.site(lowered.case)
+        )
+    end
+    local elseBody: {scalarIR.Statement}? = nil
+    if otherwise and elseValue then
+        local elseAssignment = new scalarIR.Assignment(
+            target = target,
+            value = lower.convert(elseValue, resultType, lower.site(otherwise), context)
+        )
+        elseBody = {new scalarIR.Assign(op = "assign", values = {elseAssignment}, source = lower.site(otherwise))}
+    end
+    out[#out + 1] = new scalarIR.If(op = "if", clauses = clauses, elseBody = elseBody, source = lower.site(node))
+    environment[selectorName] = nil
+end
+
 --- One `local` declaration, which may bind several names from one call.
 local function localStmt(
     stat: cst.LocalStmt,
@@ -955,6 +1102,9 @@ local function localStmt(
     local exprs = stat.exprs or {}
     if #names == 0 or #exprs == 0 then
         context.reject(lower.site(stat), "native locals must be initialized")
+    end
+    if #exprs == 1 and exprs[1].kind == "switchExpr" then
+        return switchLocal(stat, exprs[1] as cst.SwitchExpr, out, environment, kernel)
     end
 
     local values: {scalarIR.Expr} = {}

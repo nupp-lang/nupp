@@ -205,6 +205,18 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
                     mark(child, "operator")
                 end
             end
+        elseif kind == "switchExpr" or kind == "switchCase" or kind == "switchField" or kind == "switchYieldStmt" then
+            for _, child in ipairs(node) do
+                if cst.isToken(
+                    child
+                ) and (
+                    child.text == "switch" or child.text == "case" or child.text == "yield" or child.text == "as"
+                ) then
+                    mark(child, keywordType)
+                elseif cst.isToken(child) and child.text == "is" then
+                    mark(child, "operator")
+                end
+            end
         elseif kind == "tpredicate" then
             for _, child in ipairs(node) do
                 if cst.isToken(child) and child.text == "is" then

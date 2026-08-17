@@ -161,6 +161,37 @@ call returning an ordinary string, and the checker has no way to tie it back to
 
 [Narrowing](../type-system/narrowing.md) has the full list of what proves what.
 
+## Switches produce values
+
+`switch selector do` makes a total, ordered dispatch readable without nesting
+`elseif` expressions. Literal cases are checked for duplicates and
+exhaustiveness:
+
+```nupp
+local type Mode = "read" | "write"
+
+local access = switch mode do
+    case "read" -> "reader"
+    case "write" -> "writer"
+end
+```
+
+Type cases use the same runtime identity and narrowing as `is`. They can bind
+the whole matched value and direct fields:
+
+```nupp
+local area = switch shape do
+    case is Circle as circle {radius} -> math.pi * radius * radius
+    case is Rectangle {width, height as h} -> width * h
+    else -> 0
+end
+```
+
+An arm that needs statements writes `-> do`, then `yield value`; `return`
+continues to exit the enclosing function. The selector runs once and lowering
+adds no arm closure. [Switch expressions](../switch-expressions.md) covers the
+complete syntax and constraints.
+
 ## Generics
 
 ```nupp

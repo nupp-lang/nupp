@@ -283,6 +283,308 @@ function expr.install(c: state.Checker): nil
         end
     end
 
+    local function staticCaseShape(node: Node?): boolean
+        if not node then
+            return false
+        end
+        local kind = node.kind
+        if kind == "number"
+            or kind == "string"
+            or kind == "nilExpr"
+            or kind == "trueExpr"
+            or kind == "falseExpr"
+            or kind == "name"
+        then
+            return true
+        elseif kind == "paren" then
+            return staticCaseShape(node.expr)
+        elseif kind == "unop" then
+            return node.op ~= nil and node.op.kind == "-" and node.operand ~= nil and node.operand.kind == "number"
+        end
+
+        return false
+    end
+
+    local function exactScalar(node: Node): Type?, string?
+        if not staticCaseShape(node) then
+            c.infer(node)
+            return nil, "a static switch case is a scalar literal or a name with an exact scalar type"
+        end
+        local valueT = c.infer(node)
+        local literalNode = node
+        while literalNode.kind == "paren" and literalNode.expr do
+            literalNode = literalNode.expr
+        end
+        if literalNode.kind == "string" and literalNode.token then
+            local text = literalNode.token.text
+            local value
+            if text:sub(1, 1) == "`" then
+                value = text:sub(2, -2)
+            else
+                local chunk = loadstring("return " .. text)
+                if chunk then
+                    local ok, decoded = pcall(chunk)
+                    if ok then
+                        value = decoded
+                    end
+                end
+            end
+            if type(value) == "string" then
+                valueT = T.literal(value, T.string)
+            end
+        end
+        if literalNode.kind == "unop" and literalNode.operand then
+            local operand = literalNode.operand as cst.NumberLit
+            local token = operand.token
+            local value = token and tonumber((token.text:gsub("_", ""))) or nil
+            if value then
+                valueT = T.literal(-value, T.number)
+            end
+        end
+        if valueT == T.nil_ or valueT.tag == "literal" then
+            if valueT.tag == "literal" and type(
+                valueT.constant
+            ) == "number" and (
+                valueT.constant ~= valueT.constant or valueT.constant == math.huge or valueT.constant == -math.huge
+            ) then
+                return nil, "numeric switch cases must be finite"
+            end
+            return valueT
+        end
+
+        return nil, "a named switch case must have an exact scalar type"
+    end
+
+    local function scalarKey(t: Type): string
+        if t == T.nil_ then
+            return "nil"
+        end
+        local literal = t as T.Literal
+
+        return type(literal.constant) .. ":" .. tostring(literal.constant)
+    end
+
+    local function finiteMembers(t: Type?): {Type}?
+        if not t then
+            return nil
+        elseif t == T.nil_ or t.tag == "literal" then
+            return {t}
+        elseif t == T.boolean then
+            return {T.literal(false, T.boolean), T.literal(true, T.boolean)}
+        elseif t.tag == "union" then
+            local out = {}
+            for _, member in ipairs(t.members) do
+                local expanded = finiteMembers(member)
+                if not expanded then
+                    return nil
+                end
+                for _, value in ipairs(expanded) do
+                    out[#out + 1] = value
+                end
+            end
+            return out
+        end
+
+        return nil
+    end
+
+    local blockCompletesSwitch
+    local function statCompletesSwitch(stat: Node): boolean
+        local kind = stat.kind
+        if kind == "switchYieldStmt" or kind == "returnStmt" or kind == "breakStmt" or kind == "continueStmt" then
+            return true
+        elseif kind == "ifStmt" then
+            if stat.elseClause == nil then
+                return false
+            end
+            for _, clause in ipairs(stat.clauses or {}) do
+                if not blockCompletesSwitch(clause.body) then
+                    return false
+                end
+            end
+            local otherwise = stat.elseClause as cst.ElseClause
+            return blockCompletesSwitch(otherwise.body)
+        elseif kind == "doStmt"
+            or kind == "withStmt"
+            or kind == "handleStmt"
+            or kind == "unsafeStmt"
+            or kind == "noSuspendStmt"
+            or kind == "effectRegionStmt"
+        then
+            return blockCompletesSwitch(stat.body)
+        elseif kind == "pragmaStmt" and stat.stat then
+            return statCompletesSwitch(stat.stat)
+        end
+
+        return false
+    end
+
+    blockCompletesSwitch = function(block: Node?): boolean
+        local stats = block and block.kind == "block" and block.stats or {}
+        for index, stat in ipairs(stats) do
+            if statCompletesSwitch(stat) then
+                if index < #stats then
+                    c.diag(
+                        "NUPP2141",
+                        stats[index + 1],
+                        "statements after a completing switch-arm path are unreachable"
+                    )
+                end
+                return true
+            end
+        end
+
+        return c.alwaysExits(block)
+    end
+
+    local function inferSwitch(node: cst.SwitchExpr): Type
+        local selector = node.selector
+        local selectorT = selector and c.infer(selector) or T.any
+        node.switchSelectorType = selectorT
+        local selectorKey = selector and c.pathKey(selector) or nil
+        local residue = selectorT
+        local seen: {[string]: cst.Node} = {}
+        local results: {Type} = {}
+
+        local function checkResult(arm: cst.SwitchCase | cst.SwitchElse)
+            if arm.expr then
+                results[#results + 1] = c.infer(arm.expr)
+            elseif arm.body then
+                local yielded: {Type} = {}
+                c.switchYieldStack[#c.switchYieldStack + 1] = yielded
+                c.checkBlock(arm.body, true)
+                c.switchYieldStack[#c.switchYieldStack] = nil
+                for _, valueT in ipairs(yielded) do
+                    results[#results + 1] = valueT
+                end
+                local completes = blockCompletesSwitch(arm.body)
+                if #yielded == 0 and completes then
+                    results[#results + 1] = T.never
+                end
+                if not completes then
+                    c.diag("NUPP2141", arm.body, "this switch arm can finish without yielding a value", nil, {
+                        help = "end every completing path with `yield value`, or return from the enclosing function"
+                    })
+                end
+            else
+                results[#results + 1] = T.any
+            end
+        end
+
+        for _, arm in ipairs(node.cases or {}) do
+            c.pushScope()
+            local armReachable = residue ~= T.never
+            if arm.patternKind == "static" then
+                local narrowed = {}
+                for _, value in ipairs(arm.values or {}) do
+                    local exact, why = exactScalar(value)
+                    if not exact then
+                        c.diag("NUPP2137", value, why as string)
+                    else
+                        value.switchStaticValue = exact
+                        local key = scalarKey(exact)
+                        if seen[key] then
+                            c.diag("NUPP2138", value, "duplicate static switch case", nil, {
+                                related = {c.related(seen[key], "the same value is handled here")}
+                            })
+                        else
+                            seen[key] = value
+                        end
+                        narrowed[#narrowed + 1] = exact
+                        if selectorT ~= T.any and not isA(exact, selectorT) then
+                            c.diag("NUPP2139", value, "this case value is not admitted by the selector type")
+                        end
+                        residue = residue ~= T.never and isA(residue, exact) and T.never or subtract(residue, exact)
+                    end
+                end
+                if selectorKey and #narrowed > 0 then
+                    c.applyFacts({[selectorKey] = T.union(narrowed)})
+                end
+            else
+                local target = c.resolveType(arm.type)
+                arm.switchType = target
+                local members = finiteMembers(residue)
+                if members then
+                    armReachable = false
+                    for _, member in ipairs(members) do
+                        if isA(member, target) then
+                            armReachable = true
+                            break
+                        end
+                    end
+                end
+                if selectorKey then
+                    c.applyFacts({[selectorKey] = target})
+                end
+                if arm.binding then
+                    c.bindVar(arm.binding.text, target, true, arm.binding, "variable", true)
+                end
+                local bound: {[string]: boolean} = {}
+                if arm.binding then
+                    bound[arm.binding.text] = true
+                end
+                for _, field in ipairs(arm.fields or {}) do
+                    local name = field.name and field.name.text or ""
+                    local binding = field.alias or field.name
+                    local bindingName = binding and binding.text or name
+                    if bound[bindingName] then
+                        c.diag("NUPP2137", binding or field, ("duplicate switch binding %q"):format(bindingName))
+                    else
+                        bound[bindingName] = true
+                    end
+                    local fieldT, definition = c.fieldType(rawType(target), name)
+                    if not fieldT then
+                        c.diag("NUPP2137", field.name or field, ("no field %q in %s"):format(name, T.tostring(target)))
+                        fieldT = T.any
+                    end
+                    c.markToken(field.name, definition, fieldT, "property")
+                    if binding then
+                        c.bindVar(bindingName, fieldT, true, binding, "variable", true)
+                    end
+                end
+                residue = residue ~= T.never and isA(residue, target) and T.never or subtract(residue, target)
+            end
+            if not armReachable then
+                c.diag("NUPP2139", arm, "this switch case is unreachable")
+            end
+            checkResult(arm)
+            c.popScope()
+        end
+        if node.elseCase then
+            c.pushScope()
+            if selectorKey then
+                c.applyFacts({[selectorKey] = residue})
+            end
+            if residue == T.never then
+                c.diag("NUPP2139", node.elseCase, "this switch else arm is unreachable")
+            end
+            checkResult(node.elseCase)
+            c.popScope()
+        elseif residue ~= T.never then
+            local missing = finiteMembers(residue)
+            local detail = ""
+            if missing and #missing > 0 then
+                local names = {}
+                for index, member in ipairs(missing) do
+                    if member == T.nil_ then
+                        names[index] = "nil"
+                    else
+                        names[index] = tostring((member as T.Literal).constant)
+                    end
+                end
+                table.sort(names)
+                detail = "; missing " .. table.concat(names, ", ")
+            end
+            c.diag("NUPP2140", node, "switch is not exhaustive" .. detail, nil, {
+                help = "add the missing cases or add an `else` arm"
+            })
+        end
+        local result = #results > 0 and T.union(results) or T.any
+        node.switchResultType = result
+
+        return result
+    end
+
     -- The type of one expression, before the pack an expanding expression owes its
     -- reader is settled. Reached through `c.infer`, never directly.
     local function inferExpr(node: Node): Type
@@ -637,6 +939,8 @@ function expr.install(c: state.Checker): nil
                 end
             end
             return T.boolean
+        elseif kind == "switchExpr" then
+            return inferSwitch(node as cst.SwitchExpr)
         elseif kind == "funcExpr" then
             local body = node.body as cst.Funcbody
             local inferred = body and c.checkFuncbody(body) or T.any

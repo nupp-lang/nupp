@@ -17,7 +17,7 @@ supply the switch value, while `return` keeps its existing meaning and exits the
 enclosing function.
 
 ```nupp
-local area = switch shape
+local area = switch shape do
     case 0, 1 -> 0
 
     case is Circle {radius} ->
@@ -110,11 +110,12 @@ semantics, diagnostics and performance data.
 9. **Lua evaluation order survives lowering.** Every admitted position preserves
    the authored left-to-right evaluation rules. A lazy position is rejected until
    the separate expression-normalization plan can preserve its conditional work.
-10. **Contextual words do not take Lua names away.** `switch(...)`,
-    `switch {...}` and `switch "text"` remain ordinary Lua calls, as do the same
-    three call-argument forms after `yield`. Only same-line `yield expression`
-    whose operand does not begin with `(`, `{` or a literal string is the
-    switch-result statement.
+10. **Contextual words do not take Lua names away.** A `switch` expression is
+    recognized by the `do` which terminates its selector. `switch(...)`,
+    `switch {...}` and `switch "text"` without that `do` remain ordinary Lua
+    calls. The same three call-argument forms after `yield` remain calls. Only
+    same-line `yield expression` whose operand does not begin with `(`, `{` or a
+    literal string is the switch-result statement.
 11. **Formatting exposes the tree.** Cases sit inside the switch, arm contents
     sit inside their case and each `end` aligns with the construct it closes.
 12. **Regular and AOT execution agree where AOT admits the construct.** Version 1
@@ -127,7 +128,7 @@ semantics, diagnostics and performance data.
 ### Static scalar cases
 
 ```nupp
-local label = switch status
+local label = switch status do
     case 200 -> "ok"
     case 301, 302, 307, 308 -> "redirect"
     case 400, 404 -> "client error"
@@ -161,7 +162,7 @@ generates; there is no Ruby- or Crystal-style `===` protocol.
 ### Type cases and bindings
 
 ```nupp
-local description = switch shape
+local description = switch shape do
     case is Circle as circle {radius} ->
         `circle ${circle.name}, radius ${radius}`
 
@@ -191,7 +192,7 @@ repair directing the author to use the narrowed whole value explicitly.
 ### Expression and block arms
 
 ```nupp
-local path = switch mode
+local path = switch mode do
     case "read" -> inputPath
     case "write" -> outputPath
     else -> defaultPath
@@ -201,7 +202,7 @@ end
 An expression arm contributes that expression's type to the switch result.
 
 ```nupp
-local value = switch token
+local value = switch token do
     case is NumberToken {text} -> do
         local parsed = tonumber(text)
         if parsed == nil then
@@ -243,17 +244,17 @@ The first release accepts a switch under statement roots whose setup can be
 emitted before that statement without changing whether it runs:
 
 ```nupp
-local label = switch code
+local label = switch code do
     case 200 -> "ok"
     else -> "other"
 end
 
-result = format("status: %s", switch code
+result = format("status: %s", switch code do
     case 200 -> "ok"
     else -> "other"
 end)
 
-return switch code
+return switch code do
     case 200 -> "ok"
     else -> "other"
 end
@@ -268,7 +269,7 @@ Conditionally evaluated positions wait for general expression normalization:
 
 ```nupp
 -- version 1 diagnostic: the switch is in a lazy operand
-local selected = ready and switch code
+local selected = ready and switch code do
     case 200 -> "ok"
     else -> "other"
 end
@@ -284,7 +285,7 @@ IIFE fallback.
 ```nupp
 local type Mode = "read" | "write"
 
-local permission = switch mode
+local permission = switch mode do
     case "read" -> "reader"
     case "write" -> "writer"
 end
@@ -307,7 +308,7 @@ cannot be disabled with `@allow("exhaustiveness")`.
 This is the canonical layout:
 
 ```nupp
-local result = switch value
+local result = switch value do
     case 1 -> "one"
     case 2 -> do
         log("two")
@@ -327,17 +328,17 @@ The depth rules are exact:
 - the `end` of a `do` arm aligns with its `case`;
 - the `end` of the switch returns to the original switch depth.
 
-Two parse-significant pairs are unbreakable: the formatter never inserts a line
-break between `switch` and the first token of its selector, or between contextual
-`yield` and the first token of its operand. When a line is too wide it breaks the
-surrounding expression before `switch`, or a designated break point inside the
-selector or yielded expression. It never creates source which would parse as an
-ordinary identifier statement on the next run.
+The selector-closing `do` makes the switch independent of physical lines. The
+formatter may break at designated points inside a long selector, but keeps `do`
+on the selector's final logical line. Contextual `yield` and the first token of
+its operand remain unbreakable because that form is still line-sensitive. The
+formatter never creates source which would parse under a different contextual
+reading on the next run.
 
 Consequently this input:
 
 ```nupp
-local result=switch value
+local result=switch value do
 case 1->"one"
 else->"other"
 end
@@ -346,7 +347,7 @@ end
 formats as:
 
 ```nupp
-local result = switch value
+local result = switch value do
     case 1 -> "one"
     else -> "other"
 end
@@ -376,7 +377,8 @@ checker, formatter, generator and LSP. Add the new node families to the complete
 
 Extend `src/nupp/compiler/parser.nupp` with:
 
-1. contextual recognition of `switch` in expression position;
+1. contextual recognition of `switch` in expression position through the `do`
+   which terminates its selector;
 2. case recovery boundaries at contextual `case`, reserved `else` and the
    switch-closing `end`;
 3. a dedicated static-value parser which treats `->` as a hard terminator and
@@ -397,9 +399,11 @@ last `name -> expression` as a short function. The case parser owns commas and
 the arrow and builds scalar nodes directly.
 
 Recognition must preserve valid Lua. A name `switch` followed by call, index or
-member suffix remains an ordinary suffixed expression. The contextual switch
-form requires its selector to begin on the introducer's line and uses the
-following case structure to close the expression. Likewise, `yield expression`
+member suffix remains an ordinary suffixed expression unless a same-level `do`
+follows the complete selector. The `do` is a required, unambiguous selector
+terminator, so `switch (value) do`, `switch "value" do`, table selectors and
+multiline selectors all work without reserving the name. Without `do`, each is
+the ordinary Lua expression it was before. Likewise, `yield expression`
 is contextual only inside a switch block arm, only when its first operand token
 is on the same line and only when that token is not `(`, `{` or a literal string.
 Those three forms remain Lua calls. The formatter marks both contextual pairs
@@ -419,6 +423,7 @@ from token text. Give switch cases an explicit formatter nesting boundary:
 - leave the switch's closing token at the original block depth;
 - mark every case, else arm, block body and closing `end` with the necessary
   forced line break;
+- keep the selector-closing `do` on the final logical selector line;
 - mark `->` as the break point for an expression arm which exceeds the width.
 
 Add `tests/fmtcorpus/short-functions/switch.nupp` and its expected file. The
@@ -434,8 +439,9 @@ must include:
 - comment-only or temporarily incomplete arms;
 - nested switches in selectors and arm results;
 - an arm `end` immediately followed by another case;
-- over-width switch selectors and yielded expressions which prove the
-  introducer/operand pairs never separate;
+- over-width switch selectors which break internally before their terminating
+  `do`, and yielded expressions which prove the introducer/operand pair never
+  separates;
 - idempotence after formatting the expected result again.
 
 Focused formatter tests assert the numeric indentation of the first token on
@@ -507,7 +513,7 @@ statement-producing expression-lifting plan to `src/nupp/compiler/gen.nupp`.
 Conceptually:
 
 ```nupp
-local result = switch getShape()
+local result = switch getShape() do
     case is Circle {radius} -> radius * radius
     else -> 0
 end
@@ -754,8 +760,8 @@ program.
 - arm statements are one level deeper than their case;
 - arm and switch closing tokens align independently;
 - nested constructs, comments, width breaks and incomplete source;
-- over-width input never separates `switch` from its selector or contextual
-  `yield` from its operand;
+- over-width selectors retain their terminating `do`, and over-width contextual
+  yields never separate `yield` from its operand;
 - corpus idempotence and formatter fuzz stability.
 
 ### Checker

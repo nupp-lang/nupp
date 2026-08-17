@@ -348,6 +348,20 @@ Function const parameters are opaque declaration-identity handles; they cannot
 be forged from runtime values. Both APIs run entirely during checking and add
 nothing to the runtime representation.
 
+## Ownership in switch patterns
+
+`case is T as whole` and direct field destructuring introduce const views of
+the selector; matching does not move the selector or duplicate an ownership
+obligation. Their lifetime is the selected arm. A block arm may `return` an
+owner under the ordinary return contract, or `yield` a value to the switch
+merge. When a yield leaves a `with` region, its automatic cleanup completes
+before evaluation resumes after the switch, just as it does for other control
+flow.
+
+Pattern aliases are therefore convenient for reading nominal data, but they do
+not create an independent affine owner. Use the existing explicit move or
+borrow operations when an arm must transfer capability.
+
 ## Diagnostics
 
 - **NUPP2601**: use after an affine value or field was moved.

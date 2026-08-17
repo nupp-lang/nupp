@@ -953,6 +953,30 @@ evalExpr = function(state, node)
         else
             answer = evalExpr(state, node.ifFalse)
         end
+    elseif kind == "switchExpr" then
+        local selector = evalExpr(state, node.selector)
+        local selected = nil
+        for _, arm in ipairs(node.cases or {}) do
+            if arm.patternKind ~= "static" then
+                unsupported(arm, "a switch type case at comptime")
+            end
+            for _, value in ipairs(arm.values or {}) do
+                if selector == evalExpr(state, value) then
+                    selected = arm
+                    break
+                end
+            end
+            if selected then
+                break
+            end
+        end
+        selected = selected or node.elseCase
+        if not selected then
+            fail("NUPP2412", node, "a comptime switch selected no arm")
+        elseif selected.body then
+            unsupported(selected, "a block switch arm at comptime")
+        end
+        answer = evalExpr(state, selected.expr)
     elseif kind == "tableExpr" then
         local built, nextIndex = {}, 1
         for _, field in ipairs(node.fields or {}) do

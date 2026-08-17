@@ -134,7 +134,30 @@ return type is only needed where it cannot see that: an imported C `abort`, a
 declaration file with no body, or a loop that never ends. See
 [primitives](primitives.md#never-the-bottom-type).
 
-## Exhaustiveness
+## Switch arm narrowing
+
+Switch cases apply their facts only within their own arm. A static case narrows
+the selector to the matched literal; `case is T` narrows it to `T`. Earlier
+cases are subtracted before a later arm is checked, so the `else` arm sees the
+unmatched residue:
+
+```nupp
+local text = switch value do
+    case is string as s -> s
+    case is Point as point {x, y} -> `(${x}, ${y})`
+    else -> "none" -- value is the portion not covered above
+end
+```
+
+`as point` is a const binding of the narrowed whole value. `{x, y as vertical}`
+introduces const locals for direct fields; those names exist only in that arm.
+The original selector remains narrowed too. Type cases are ordered, so a broad
+case before a narrower one can make the latter unreachable (`NUPP2139`).
+
+See [switch expressions](../switch-expressions.md#type-cases-binding-and-destructuring)
+for runtime-testable types and block arms.
+
+## Returning-branch exhaustiveness
 
 When every branch of a dispatch over a closed set of literals returns, the
 checker reports the unhandled members as the `exhaustiveness` lint. See

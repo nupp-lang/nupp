@@ -77,8 +77,38 @@ local function accumulate(count: integer): number
 
     return total
 end
+
 return {accumulate = accumulate}
 ]], "", "numeric loops and branches are admitted")
+end
+
+function M.numericSwitchLocalIsAdmitted()
+   reports([[
+@aot
+local function classify(value: number): number
+    local selected = switch value do
+        case 0 -> 1.0
+        case 1, 2 -> value + 1.0
+        else -> 0.0
+    end
+
+    return selected
+end
+
+return {classify = classify}
+]], "", "an integer-valued switch initializer lowers to scalar control flow")
+
+   reports([[
+@aot
+local function constantClass(): number
+    local selected = switch 0 do
+        case 0 -> 1.0
+    end
+    return selected
+end
+
+return {constantClass = constantClass}
+]], "", "a checker-exhaustive native switch does not require else")
 end
 
 function M.laneLoweringIsAttemptedRatherThanRequested()

@@ -842,6 +842,164 @@ return m
 
 Reports: `NUPP2107`. `nupp explain <code>` says more.
 
+### Switch expressions
+
+`switch` is an expression which dispatches on one value. Its selector ends with
+`do`; every case produces one value and the final `end` closes the expression.
+The outer `do` is intentional: it makes a parenthesized, table, string, call, or
+multiline selector unambiguous without reserving `switch` as a keyword.
+
+```nupp
+local label = switch status do
+    case 200 -> "ok"
+    case 301, 302, 307, 308 -> "redirect"
+    else -> "other"
+end
+```
+
+### Static cases
+
+A static case is `nil`, a boolean, a string, a finite Lua number literal with an
+optional minus, parentheses around one of those, or a name whose checked type is
+one exact scalar. It is equality dispatch: there is no user-overloadable case
+protocol. Numeric spellings denote their Lua value, so `1`, `1.0`, and `1e0`
+are duplicate cases, as are `0` and `-0`. Operators, calls, indexing, table
+constructors, cdata literals, and non-finite numbers are **NUPP2137**. A repeated
+value is **NUPP2138**. A case outside the selector's type, or one reached after
+the remaining type is empty, is **NUPP2139**.
+
+```nupp
+local type Mode = "read" | "write"
+const READ: "read" = "read"
+
+local permission = switch mode do
+    case READ -> "reader"
+    case "write" -> "writer"
+end
+```
+
+`else` may be omitted only when the checked selector type proves that the cases
+cover every value. Literal unions, `nil`, and both values of `boolean` form
+finite sets; ordered type cases subtract their matched type from the remaining
+union. An open type such as `string`, `integer`, or `any` normally needs
+`else`. A non-exhaustive switch is **NUPP2140** and cannot be suppressed as a
+lint.
+
+### Type cases and destructuring
+
+`case is T` uses the same runtime identity test and narrowing rules as `value is
+T`. `as name` binds the narrowed whole value. A following brace list binds
+direct fields, and `field as localName` renames one. These bindings exist only
+in that arm, are const, and shadow no sibling arm. Braces do not recursively
+pattern-match and do not invoke a matching protocol.
+
+```nupp
+local description = switch shape do
+    case is Circle as circle {radius} ->
+        `circle ${circle.name}, radius ${radius}`
+
+    case is Rectangle {width, height as h} ->
+        `rectangle ${width} x ${h}`
+
+    else -> "unknown"
+end
+```
+
+Records use their nominal metatable identity, structs use `ffi.istype`, primitive
+types use `type`, and a refined interface uses its declared runtime predicate.
+An interface with no runtime identity is **NUPP3001**, exactly as it is for an
+ordinary `is` expression. Cases are tried from top to bottom; putting a broad
+type first can make a later narrow case **NUPP2139**.
+
+### Expression and block arms
+
+`-> expression` is the compact form. `-> do ... end` is an ordinary lexical
+block whose completing paths end in `yield value`. The yielded value becomes
+the value of the switch; it does not suspend a coroutine. `return` keeps its
+normal meaning and immediately exits the enclosing function. A block path that
+falls through, or a statement after a switch yield, is **NUPP2141**.
+
+```nupp
+local value = switch token do
+    case is NumberToken {text} -> do
+        local parsed = tonumber(text)
+        if parsed == nil then
+            return nil, "invalid number"
+        end
+        yield parsed
+    end
+    else -> 0
+end
+```
+
+`yield` remains a contextual name. The switch-result reading requires an operand
+on the same line and is available only in a block arm. Existing Lua call sugar
+is preserved: `yield(...)`, `yield {...}`, and `yield "text"` are calls. To
+yield a value whose expression must start with one of those forms, bind it first:
+
+```nupp
+local answer = {1, 2, 3}
+yield answer
+```
+
+The selector is evaluated exactly once. Static comparisons and type tests run
+in source order; only the selected arm runs. Lowering uses lexical locals and an
+`if`/`elseif` chain, not an immediately invoked function, so a switch inside a
+hot loop does not create a closure or abort LuaJIT tracing. This first placement
+model lifts switches from local declarations, assignments, returns, and call
+statements while preserving eager left-to-right evaluation. A switch in a lazy
+operand (`and`, `or`, `??`, a ternary arm, or work guarded by safe navigation)
+is **NUPP2142**; assign it to a preceding local. Static expression arms work in
+`comptime`; type cases and block arms do not. AOT admits a switch which initializes
+one scalar local, has integer-valued numeric cases and expression arms, and is
+checker-proven exhaustive with or without `else`;
+strings, type cases, block arms, and early arm returns remain explicit AOT
+subset boundaries.
+
+Formatting always exposes the two scopes: cases are one indentation level inside
+the switch, block-arm statements are two, an arm `end` aligns with its `case`,
+and the switch `end` aligns with the expression's surrounding statement.
+
+```nupp
+local m = {}
+
+local record Circle
+    name: string
+    radius: number
+end
+
+local record Rectangle
+    width: number
+    height: number
+end
+
+local type Shape = Circle | Rectangle | nil
+
+function m.area(shape: Shape): number
+    return switch shape do
+        case is Circle {radius} -> 3.14159 * radius * radius
+        case is Rectangle {width, height} -> width * height
+        case nil -> 0
+    end
+end
+
+function m.describe(code: integer): string
+    return switch code do
+        case 200 -> "ok"
+        case 301, 302 -> "redirect"
+        else -> do
+            local text = `status ${code}`
+            yield text
+        end
+    end
+end
+
+return m
+```
+
+Reports: `NUPP2137`, `NUPP2138`, `NUPP2139`, `NUPP2140`, `NUPP2141`, `NUPP2142`,
+`NUPP3001`. `nupp explain <code>` says more.
+
 ### Narrowing
 
 `e is T` tests a type and narrows in the branch it proves. A truthiness test
@@ -1859,6 +2017,12 @@ says more.
 - **NUPP2134**: A projection names something that cannot be projected.
 - **NUPP2135**: An associated type answers through itself.
 - **NUPP2136**: A sealed interface is implemented outside its owning module.
+- **NUPP2137**: A switch pattern is not static or cannot bind what it names.
+- **NUPP2138**: A static switch value is handled more than once.
+- **NUPP2139**: A switch case cannot be selected.
+- **NUPP2140**: A switch leaves possible selector values unhandled.
+- **NUPP2141**: A block switch arm does not yield on every completing path.
+- **NUPP2142**: A switch is in a conditionally evaluated expression position.
 - **NUPP2202**: A declaration is built with 'new'.
 - **NUPP2203**: A C declaration uses a type C cannot represent.
 - **NUPP2206**: Only a record or a struct can be constructed.

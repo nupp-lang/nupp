@@ -24,6 +24,13 @@ local cst = {}
 --- These belong to no one kind, so they are declared once and included by every node
 --- rather than repeated on each.
 interface cst.Hints
+    --- Checked switch metadata consumed by lowering and editor tooling.
+    switchStaticValue: any
+
+    switchType: any
+    switchSelectorType: any
+    switchResultType: any
+
     --- Checker-only evidence for fixed-width refinements and physical boundaries.
     fixedWidthEstablished: any
 
@@ -942,6 +949,15 @@ record cst.ReturnStmt is cst.Hints
 
     --- The returned expressions, empty for a bare return.
     exprs: {cst.Node}
+end
+
+--- `yield value` inside a block switch arm. This is distinct from
+--- `coroutine.yield(...)`: it supplies the value of the enclosing switch.
+record cst.SwitchYieldStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'switchYieldStmt'
+    value: cst.Node?
 end
 
 --- `x += e` and the rest of the compound assignments.
@@ -2000,6 +2016,51 @@ record cst.IsExpr is cst.Hints
     type: cst.Node?
 end
 
+--- One directly destructured field in a switch type pattern.
+record cst.SwitchField is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'switchField'
+    name: lexer.Token?
+    alias: lexer.Token?
+end
+
+--- One `case` in a switch expression.
+record cst.SwitchCase is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'switchCase'
+    patternKind: 'static' | 'type'
+    values: {cst.Node}
+    type: cst.Node?
+    binding: lexer.Token?
+    fields: {cst.SwitchField}
+    expr: cst.Node?
+    body: cst.Node?
+end
+
+--- The fallback arm of a switch expression.
+record cst.SwitchElse is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'switchElse'
+    expr: cst.Node?
+    body: cst.Node?
+end
+
+--- `switch selector do case ... else ... end`.
+record cst.SwitchExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'switchExpr'
+    switchTok: lexer.Token?
+    selector: cst.Node?
+    doTok: lexer.Token?
+    cases: {cst.SwitchCase}
+    elseCase: cst.SwitchElse?
+    endTok: lexer.Token?
+end
+
 --- `cond ? a : b`.
 record cst.Ternary is cst.Hints
     {cst.Node | lexer.Token}
@@ -2431,6 +2492,7 @@ type cst.Node = cst.Chunk
     | cst.BreakStmt
     | cst.ContinueStmt
     | cst.ReturnStmt
+    | cst.SwitchYieldStmt
     | cst.CompoundAssign
     | cst.AssignStmt
     | cst.CallStmt
@@ -2489,6 +2551,10 @@ type cst.Node = cst.Chunk
     | cst.Binop
     | cst.CastExpr
     | cst.IsExpr
+    | cst.SwitchField
+    | cst.SwitchCase
+    | cst.SwitchElse
+    | cst.SwitchExpr
     | cst.Ternary
     | cst.Tconst
     | cst.Tkeyof
@@ -2541,6 +2607,8 @@ type cst.Bodied = cst.UnsafeStmt
     | cst.ElseClause
     | cst.Funcbody
     | cst.Shortfn
+    | cst.SwitchCase
+    | cst.SwitchElse
 
 --- True when `x` is a token rather than a node, which narrows it for the caller. Tokens
 --- are told apart by carrying trivia; this is the one place that test is asserted

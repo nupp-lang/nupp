@@ -33,6 +33,67 @@ end
 
 local M = {}
 
+function M.switchExpressionsUseDoBoundary()
+   local src = table.concat({
+      "local label = switch status do",
+      "   case 200 -> 'ok'",
+      "   case 301, 302 -> 'redirect'",
+      "   else -> 'other'",
+      "end",
+      "local area = switch shape do",
+      "   case is Circle as circle {radius, name as label} -> do",
+      "      local scale = 2",
+      "      yield radius * scale",
+      "   end",
+      "   else -> 0",
+      "end",
+   }, "\n")
+   local result = assertRoundtrip(src)
+   assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+   local first = result.root.blocks[1].stats[1].exprs[1]
+   assertEq(first.kind, "switchExpr")
+   assertEq(first.cases[1].values[1].kind, "number")
+   assertEq(#first.cases[2].values, 2)
+   assertEq(first.elseCase.expr.kind, "string")
+   local second = result.root.blocks[1].stats[2].exprs[1]
+   assertEq(second.cases[1].patternKind, "type")
+   assertEq(second.cases[1].binding.text, "circle")
+   assertEq(second.cases[1].fields[2].alias.text, "label")
+   assertEq(second.cases[1].body.stats[2].kind, "switchYieldStmt")
+end
+
+function M.switchAndYieldRemainContextual()
+   local src = table.concat({
+      "local switch = function(value) return value end",
+      "local yield = switch",
+      "local a = switch(1)",
+      "local b = switch {1}",
+      "local c = switch 'x'",
+      "local d = switch (1) do case 1 -> 2 else -> 3 end",
+      "local e = switch {value = 1} do else -> 4 end",
+      "local f = switch 'x' do case 'x' -> 5 else -> 6 end",
+      "local g = switch 1 do else -> do",
+      "   yield(1)",
+      "   yield {1}",
+      "   yield 'x'",
+      "   local answer = 7",
+      "   yield answer",
+      "end end",
+   }, "\n")
+   local result = assertRoundtrip(src)
+   assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+   local stats = result.root.blocks[1].stats
+   assertEq(stats[3].exprs[1].kind, "call")
+   assertEq(stats[4].exprs[1].kind, "call")
+   assertEq(stats[5].exprs[1].kind, "call")
+   assertEq(stats[6].exprs[1].kind, "switchExpr")
+   local body = stats[9].exprs[1].elseCase.body.stats
+   assertEq(body[1].kind, "callStmt")
+   assertEq(body[2].kind, "callStmt")
+   assertEq(body[3].kind, "callStmt")
+   assertEq(body[5].kind, "switchYieldStmt")
+end
+
 function M.sealedInterfaceModifier()
    local source = table.concat({
       "sealed interface exported.Token end",

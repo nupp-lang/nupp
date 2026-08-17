@@ -219,6 +219,17 @@ function control.install(c: state.Checker): state.StatHandlers
 
     local handlers = {}
 
+    handlers.switchYieldStmt = function(stat: cst.SwitchYieldStmt)
+        local collector = c.switchYieldStack[#c.switchYieldStack]
+        local valueT = stat.value and c.infer(stat.value) or T.any
+        if not collector then
+            c.diag("NUPP2141", stat, "'yield' is only a switch result inside a block arm")
+            return
+        end
+        collector[#collector + 1] = valueT
+        stat.switchResultType = valueT
+    end
+
     handlers.withStmt = function(stat: cst.WithStmt)
         c.pushScope()
         for _, binding in ipairs(stat.bindings or {}) do

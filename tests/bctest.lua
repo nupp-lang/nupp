@@ -161,6 +161,30 @@ function M.checkPassesWhenEveryLoopCanCompile()
    assert(not out:find("never compiles", 1, true), "nothing is marked:\n" .. out)
 end
 
+function M.switchInsideAHotLoopBuildsNoFunction()
+   local source = table.concat({
+      "local total = 0",
+      "for i = 1, 3000 do",
+      "   local parity: number = i % 2",
+      "   local value = switch parity do",
+      "      case 0 -> 2",
+      "      case 1 -> 1",
+      "      else -> 0",
+      "   end",
+      "   total = total + value",
+      "end",
+      "return total",
+      "",
+   }, "\n")
+   local dir = project{["switch.g.nupp"] = source}
+   local out, code = run(dir, "--check switch.g.nupp")
+   test.equal(code, 0, out)
+   assert(not out:find("FNEW", 1, true),
+      "switch lowering must not build an arm function:\n" .. out)
+   assert(not out:find("never compiles", 1, true),
+      "the switch loop remains trace-recordable:\n" .. out)
+end
+
 function M.jsonCarriesTheFindingAndItsCount()
    local dir = project{["bad.g.nupp"] = CAPTURING}
    local out, code = run(dir, "--format json bad.g.nupp")

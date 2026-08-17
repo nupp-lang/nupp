@@ -572,6 +572,34 @@ luajit bench/kernel-subset-spike/mandelbrot_main.lua  # every pixel, three ways
 Tails are exercised at every remainder for both gang widths, so a four-lane and
 an eight-lane tail are both covered.
 
+## Scalar switch initializers
+
+The scalar subset admits a switch as the sole initializer of one local when:
+
+- the selector lowers to `f64`, `i32`, or `u32`;
+- every case is an integer-valued numeric constant;
+- every arm is one scalar expression; and
+- the checker has proved the switch exhaustive, either from its cases or an
+  `else` arm.
+
+It lowers to one selector `Let`, one result `Let`, an ordered scalar-IR `If`,
+and branch `Assign` operations. Nupp `integer` is normally binary64 in this
+backend, so the C emitter deliberately uses equality branches rather than
+claiming a native integer `switch` or jump table. Strings, type patterns,
+block arms, and early arm returns report the ordinary NUPP2903 subset boundary.
+
+```nupp
+@aot
+local function classify(code: integer): integer
+    local result = switch code do
+        case 0 -> 10
+        case 1, 2 -> 20
+        else -> 30
+    end
+    return result
+end
+```
+
 ## Diagnostics
 
 | Code | Meaning |

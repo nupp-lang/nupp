@@ -63,6 +63,7 @@ local COVERAGE_STATEMENTS = {
     unsafeStmt = true,
     noSuspendStmt = true,
     effectRegionStmt = true,
+    switchYieldStmt = true,
 }
 
 -- Node kinds that exist only in the type layer: emitted as nothing.
@@ -1848,6 +1849,344 @@ function gen.generate(
         end
     end
 
+    emitDepth.switchTemps = setmetatable({}, {__mode = "k"})
+    emitDepth.switchValueTemps = setmetatable({}, {__mode = "k"})
+    emitDepth.switchResult = nil
+    emitDepth.switchStatementActive = nil
+    emitDepth.diag = diag
+
+    local function switchContains(node): boolean
+        if not node or cst.isToken(node) then
+            return false
+        end
+        if node.kind == "switchExpr" then
+            return true
+        end
+        if node.kind == "funcExpr" or node.kind == "shortfn" or node.kind == "funcbody" then
+            return false
+        end
+        for _, child in ipairs(node) do
+            if switchContains(child) then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    -- Emits the runtime predicate used by a switch type case. This deliberately shares
+    -- the same representations as `is`; the checker has already attached nominal,
+    -- refinement and reified identities to the type node.
+    emitDepth.switchTest = function(t, subject, line)
+        if t.kind == "tname" and t.base.kind == "nil" then
+            e("(" .. subject .. "==nil)", line)
+        elseif t.kind == "tname" and #t == 1 and IS_TYPE[t.base.text] then
+            e(('(type(%s)==%q)'):format(subject, IS_TYPE[t.base.text]), line)
+        elseif t.kind == "tfunc" then
+            e(('(type(%s)=="function")'):format(subject), line)
+        elseif t.wherePredicate then
+            e("(" .. predicate.test(t.wherePredicate, subject) .. ")", line)
+        elseif t.recordName then
+            e(("(getmetatable(%s)?.__index==%s)"):format(subject, t.recordName), line)
+        elseif t.reified then
+            needsFfi = true
+            e(("__nuppFfi.istype(%s,%s)"):format(t.reified, subject), line)
+        else
+            local at = cst.firstToken(t)
+            diag(
+                at,
+                "NUPP3001",
+                "this switch type case has no runtime identity to test",
+                "use a record, struct, primitive, or a refined interface"
+            )
+            e("true", line)
+        end
+    end
+
+    local lowerSwitch
+    local planSwitchStatement
+    local function switchOperands(node): {cst.Node}?
+        local kind = node.kind
+        if kind == "paren" or kind == "castExpr" or kind == "isExpr" or kind == "unsafeOwnershipExpr" then
+            return node.expr and {node.expr} or {}
+        elseif kind == "unop" then
+            return node.operand and {node.operand} or {}
+        elseif kind == "newExpr" then
+            return node.call and {node.call} or {}
+        elseif kind == "binop" then
+            return {node.lhs, node.rhs}
+        elseif kind == "dotIndex" then
+            return node.obj and {node.obj} or {}
+        elseif kind == "bracketIndex" then
+            return {node.obj, node.expr}
+        elseif kind == "call" or kind == "methodCall" then
+            local values = {node.obj}
+            local args = node.args
+            if args then
+                for _, value in ipairs(args.exprs or {}) do
+                    if value.kind == "namedArg" or value.kind == "pluckArg" then
+                        values[#values + 1] = value.value
+                    else
+                        values[#values + 1] = value
+                    end
+                end
+                if args.table then
+                    values[#values + 1] = args.table
+                end
+            end
+            return values
+        elseif kind == "tableExpr" then
+            local values = {}
+            for _, field in ipairs(node.fields or {}) do
+                if field.kind == "fieldBracket" then
+                    values[#values + 1] = field.key
+                end
+                values[#values + 1] = field.value
+            end
+            return values
+        elseif kind == "istring" then
+            return node.parts or {}
+        end
+
+        return nil
+    end
+
+    local function captureSwitchPrefix(node)
+        if not node or emitDepth.switchValueTemps[node] then
+            return
+        end
+        local temporary = nextTemp()
+        e(("local %s="):format(temporary), sourceLine(node))
+        emit(node)
+        e(";")
+        emitDepth.switchValueTemps[node] = temporary
+    end
+
+    local function lowerSwitches(node, lazy: boolean?)
+        if not node or cst.isToken(node) then
+            return
+        end
+        local kind = node.kind
+        if kind == "funcExpr" or kind == "shortfn" or kind == "funcbody" then
+            return
+        end
+        if kind == "switchExpr" then
+            if lazy then
+                emitDepth.diag(
+                    cst.firstToken(node),
+                    "NUPP2142",
+                    "a switch in this conditionally evaluated position is not supported yet",
+                    "move the switch to a local before this expression"
+                )
+            end
+            lowerSwitch(node)
+            return
+        end
+        if kind == "binop" and node.op and (node.op.kind == "and" or node.op.kind == "or" or node.op.kind == "??") then
+            lowerSwitches(node.lhs, lazy)
+            lowerSwitches(node.rhs, true)
+            return
+        elseif kind == "ternary" then
+            lowerSwitches(node.cond, lazy)
+            lowerSwitches(node.ifTrue, true)
+            lowerSwitches(node.ifFalse, true)
+            return
+        elseif kind == "safeCall" or kind == "safeIndex" or kind == "safeBracket" then
+            -- Work after the safe receiver is conditional.
+            if node.obj then
+                lowerSwitches(node.obj, lazy)
+            end
+            for _, child in ipairs(node) do
+                if child ~= node.obj then
+                    lowerSwitches(child, true)
+                end
+            end
+            return
+        end
+
+        local operands = switchOperands(node)
+        if not operands then
+            local descended = false
+            for _, child in ipairs(node) do
+                if not cst.isToken(child) and switchContains(child) then
+                    descended = true
+                    if emitDepth.switchStatementRoot and emitDepth.switchStatementRoot[child.kind] then
+                        planSwitchStatement(child)
+                    elseif child.kind == "block"
+                        or child.kind == "ifClause"
+                        or child.kind == "elseifClause"
+                        or child.kind == "elseClause"
+                        or child.kind == "doStmt"
+                        or child.kind == "withStmt"
+                        or child.kind == "handleStmt"
+                        or child.kind == "unsafeStmt"
+                        or child.kind == "noSuspendStmt"
+                        or child.kind == "effectRegionStmt"
+                        or child.kind == "pragmaStmt"
+                    then
+                        lowerSwitches(child, lazy)
+                    else
+                        diag(
+                            cst.firstToken(child),
+                            "NUPP2142",
+                            "a switch in this expression placement is not supported yet",
+                            "move the switch to a local before this expression"
+                        )
+                    end
+                end
+            end
+            if not descended and switchContains(node) then
+                diag(cst.firstToken(node), "NUPP2142", "this switch expression cannot be lifted from its placement")
+            end
+            return
+        end
+
+        local pending = {}
+        for _, operand in ipairs(operands) do
+            if operand and switchContains(operand) then
+                -- Everything to the left has already run in Lua's eager evaluation
+                -- order. Materialize it before lifting this switch so an arm cannot
+                -- move a call, lookup, or even a mutable name read past the branch.
+                for _, prefix in ipairs(pending) do
+                    captureSwitchPrefix(prefix)
+                end
+                pending = {}
+                lowerSwitches(operand, lazy)
+            elseif operand then
+                pending[#pending + 1] = operand
+            end
+        end
+    end
+
+    lowerSwitch = function(node)
+        if emitDepth.switchTemps[node] then
+            return
+        end
+        lowerSwitches(node.selector)
+        local selectorName, resultName = nextTemp(), nextTemp()
+        emitDepth.switchTemps[node] = resultName
+        local line = sourceLine(node)
+        e(("local %s="):format(selectorName), line)
+        emit(node.selector)
+        e((";local %s;"):format(resultName))
+
+        local first = true
+        for _, arm in ipairs(node.cases or {}) do
+            e(first and "if " or "elseif ", sourceLine(arm))
+            first = false
+            if coverageOn then
+                local branch = coverageSite("branch", arm)
+                e(("%s.branch(%q,%d,"):format(coverageRuntime(), coveragePath, branch), sourceLine(arm))
+            end
+            if arm.patternKind == "static" then
+                for index, value in ipairs(arm.values or {}) do
+                    if index > 1 then
+                        e(" or ")
+                    end
+                    e(selectorName .. "==")
+                    emit(value)
+                end
+            else
+                emitDepth.switchTest(arm.type, selectorName, sourceLine(arm))
+            end
+            if coverageOn then
+                e(")")
+            end
+            e(" then ")
+            coverageHit("statement", arm)
+            if arm.binding then
+                e(("local %s=%s;"):format(arm.binding.text, selectorName))
+            end
+            for _, field in ipairs(arm.fields or {}) do
+                local name = field.name and field.name.text or ""
+                local binding = field.alias and field.alias.text or name
+                e(("local %s=%s.%s;"):format(binding, selectorName, name))
+            end
+            if arm.expr then
+                lowerSwitches(arm.expr)
+                e(resultName .. "=")
+                emit(arm.expr)
+            elseif arm.body then
+                local prior = emitDepth.switchResult
+                emitDepth.switchResult = resultName
+                emit(arm.body)
+                emitDepth.switchResult = prior
+            end
+        end
+        if node.elseCase then
+            e(first and "if true then " or "else ", sourceLine(node.elseCase))
+            first = false
+            local arm = node.elseCase
+            coverageHit("statement", arm)
+            if arm.expr then
+                lowerSwitches(arm.expr)
+                e(resultName .. "=")
+                emit(arm.expr)
+            elseif arm.body then
+                local prior = emitDepth.switchResult
+                emitDepth.switchResult = resultName
+                emit(arm.body)
+                emitDepth.switchResult = prior
+            end
+        end
+        if not first then
+            e("end;", node.endTok and node.endTok.line or nil)
+        end
+    end
+
+    local function preserveAssignmentTarget(target)
+        if not target then
+            return
+        end
+        if target.kind == "dotIndex" then
+            captureSwitchPrefix(target.obj)
+        elseif target.kind == "bracketIndex" then
+            captureSwitchPrefix(target.obj)
+            captureSwitchPrefix(target.expr)
+        end
+    end
+
+    planSwitchStatement = function(stat)
+        if stat.kind == "callStmt" then
+            lowerSwitches(stat.expr)
+            return
+        end
+        local exprs = stat.exprs or {}
+        if #exprs ~= 1 then
+            diag(
+                cst.firstToken(stat),
+                "NUPP2142",
+                "a switch statement root must contain exactly one value expression",
+                "assign the switch to a local before this statement"
+            )
+            return
+        end
+        if stat.kind == "assignStmt" then
+            local targets = stat.targets or {}
+            if #targets ~= 1 then
+                diag(
+                    cst.firstToken(stat),
+                    "NUPP2142",
+                    "an assignment containing a switch must have exactly one target",
+                    "assign the switch to a local before this assignment"
+                )
+                return
+            end
+            local target = targets[1]
+            lowerSwitches(target)
+            if switchContains(exprs[1]) then
+                preserveAssignmentTarget(target)
+            end
+        end
+        lowerSwitches(exprs[1])
+    end
+
+    local SWITCH_STATEMENT_ROOT = {localStmt = true, assignStmt = true, returnStmt = true, callStmt = true}
+    emitDepth.switchStatementRoot = SWITCH_STATEMENT_ROOT
+    emitDepth.switchContains = switchContains
+    emitDepth.lowerSwitches = lowerSwitches
+    emitDepth.planSwitchStatement = planSwitchStatement
+
     --- Points a declaration's table at the default bodies it takes.
     ---
     --- A reference rather than a copy: the body's source lines are in the interface's
@@ -2306,6 +2645,46 @@ function gen.generate(
         end
 
         local kind = x.kind
+        local switchValueTemporary = emitDepth.switchValueTemps[x]
+        if switchValueTemporary then
+            e(switchValueTemporary, sourceLine(x))
+            return
+        end
+        if emitDepth.switchStatementRoot[
+            kind
+        ] and emitDepth.switchStatementActive ~= x and emitDepth.switchContains(x) then
+            local priorSwitchStatement = emitDepth.switchStatementActive
+            emitDepth.switchStatementActive = true
+            emitDepth.planSwitchStatement(x)
+            emitDepth.switchStatementActive = x
+            emit(x)
+            emitDepth.switchStatementActive = priorSwitchStatement
+            return
+        elseif kind == "switchExpr" then
+            local temporary = emitDepth.switchTemps[x]
+            if temporary then
+                e(temporary, sourceLine(x))
+            else
+                emitDepth.diag(
+                    cst.firstToken(x),
+                    "NUPP2142",
+                    "this switch expression cannot be lifted from its placement",
+                    "assign it to a local in a statement before using it here"
+                )
+                e("nil", sourceLine(x))
+            end
+            return
+        elseif kind == "switchYieldStmt" then
+            local resultName = emitDepth.switchResult
+            if resultName and x.value then
+                emitDepth.lowerSwitches(x.value)
+                e(resultName .. "=", sourceLine(x))
+                emit(x.value)
+            else
+                e("nil", sourceLine(x))
+            end
+            return
+        end
         if kind == "assignStmt" and #(x.targets or {}) == 1 and #(x.exprs or {}) == 1 then
             local target = x.targets[1]
             local row, ordinal = soaFieldTarget(target)
@@ -2715,7 +3094,7 @@ function gen.generate(
                             cdecl[#cdecl + 1] = "$ " .. fname .. "[" .. cst.textOf(t.count) .. "];"
                             params[#params + 1] = (element.reified or cst.textOf(element)) as string
                         else
-                            diag(entry.name, "NUPP3002", "cannot reify this array element type")
+                            emitDepth.diag(entry.name, "NUPP3002", "cannot reify this array element type")
                         end
                     elseif t.kind == "tptr" then
                         local inner = t.inner
@@ -2731,10 +3110,10 @@ function gen.generate(
                             cdecl[#cdecl + 1] = "$ *" .. fname .. ";"
                             params[#params + 1] = (inner.reified or cst.textOf(inner)) as string
                         else
-                            diag(entry.name, "NUPP3002", "cannot reify this pointer field type")
+                            emitDepth.diag(entry.name, "NUPP3002", "cannot reify this pointer field type")
                         end
                     else
-                        diag(entry.name, "NUPP3002", "cannot reify this field type")
+                        emitDepth.diag(entry.name, "NUPP3002", "cannot reify this field type")
                     end
                 end
             end
@@ -2803,7 +3182,7 @@ function gen.generate(
                         local width = entry.bitWidth and " : " .. entry.bitWidth.text or ""
                         fields[#fields + 1] = ct .. width .. ";"
                     else
-                        diag(entry.name, "NUPP3003", "cdef field type has no C spelling")
+                        emitDepth.diag(entry.name, "NUPP3003", "cdef field type has no C spelling")
                     end
                 end
             end
@@ -2833,7 +3212,7 @@ function gen.generate(
             -- module local; coverage instrumentation needs one capture slot of its own.
             local sig, signatureWhy = require("nupp.compiler.cabi").prototype(x.cAbiSignature, true)
             if not sig then
-                diag(x.name, "NUPP3003", "cdef signature has no C spelling: " .. tostring(signatureWhy))
+                emitDepth.diag(x.name, "NUPP3003", "cdef signature has no C spelling: " .. tostring(signatureWhy))
                 sig = "void " .. name .. "(void);"
             end
             local first = x[1]
@@ -3026,7 +3405,7 @@ function gen.generate(
                 -- implying a fourth is coming.
                 local at = t[1] and (cst.isToken(t[1]) and t[1] or nil)
                 if t.interfaceName then
-                    diag(
+                    emitDepth.diag(
                         at,
                         "NUPP3001",
                         "an interface has no runtime identity of its own, so " .. "this `is` has nothing to test",
@@ -3036,7 +3415,7 @@ function gen.generate(
                         .. "the interface, which needs no test at all"
                     )
                 else
-                    diag(
+                    emitDepth.diag(
                         at,
                         "NUPP3001",
                         "this type has no runtime identity, so `is` has " .. "nothing to test",
@@ -3609,7 +3988,7 @@ function gen.generate(
                 end
                 local spelling = x.ffiTypeNode and cdefCType(x.ffiTypeNode)
                 if not spelling then
-                    diag(
+                    emitDepth.diag(
                         x.name or (x[1] and cst.isToken(x[1]) and x[1]),
                         "NUPP3004",
                         "this type has no C spelling for an ffi operation"

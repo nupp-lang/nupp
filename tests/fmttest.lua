@@ -25,6 +25,33 @@ end
 
 local M = {}
 
+function M.switchExpressionIndentation()
+   local source = table.concat({
+      "local result=switch shape do",
+      "case 1->'one'",
+      "case is Circle as circle {radius,name as label}->do",
+      "local doubled=radius*2",
+      "yield doubled",
+      "end",
+      "else->0",
+      "end",
+   }, "\n")
+   local expected = table.concat({
+      "local result = switch shape do",
+      "    case 1 -> 'one'",
+      "    case is Circle as circle {radius, name as label} -> do",
+      "        local doubled = radius * 2",
+      "        yield doubled",
+      "    end",
+      "    else -> 0",
+      "end",
+      "",
+   }, "\n")
+   local formatted = fmt1(source)
+   assertEq(formatted, expected)
+   assertEq(fmt1(formatted), expected, "switch formatting is idempotent")
+end
+
 function M.spacingBasics()
    assertEq(fmt1("local x=1+2"), "local x = 1 + 2\n")
    assertEq(fmt1("const x:number=1"), "const x: number = 1\n")

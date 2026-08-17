@@ -79,6 +79,12 @@ end -- unproved operations
 local n = value as integer -- unchecked assertion
 if v is Point then
 end -- checked test
+
+local label = switch status do -- value-producing ordered dispatch
+    case 200 -> "ok"
+    case 301, 302 -> "redirect"
+    else -> "other"
+end
 ```
 
 Type syntax:
@@ -104,14 +110,21 @@ Type syntax:
 None of the level-1 introducers is reserved. `type`, `record`, `interface`,
 `struct`, `const`, `cdef`, `from`, `unsafe`, `continue`,
 `global`, `with`, `as`, `is`, `metamethod`, `takes`, `borrows`, `exclusive`, `retains`,
-`releases`, and `out` all keep their Lua meaning wherever a declaration cannot
+`releases`, `out`, `switch`, `case`, and `yield` all keep their Lua meaning wherever a declaration cannot
 start:
 
 ```nupp
 local record = 5 -- a variable named record
 print(type(record)) -- the ordinary type() function
 local with = "ok" -- a variable named with
+local called = switch(value) -- the ordinary Lua function named switch
 ```
+
+The expression form is recognized only as `switch selector do ... end`. The
+required `do` is the unambiguous boundary after an arbitrary selector; it also
+keeps `switch(x)`, `switch {x}`, and `switch "x"` as ordinary Lua calls. See
+[switch expressions](../switch-expressions.md) for cases, type binding,
+destructuring, block-arm `yield`, and placement rules.
 
 That is what lets existing Lua keep compiling.
 
