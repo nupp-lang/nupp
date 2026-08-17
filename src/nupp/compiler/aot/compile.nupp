@@ -25,6 +25,7 @@ local lower = require("nupp.compiler.aot.lower")
 local parser = require("nupp.compiler.parser")
 local rewrite = require("nupp.compiler.aot.rewrite")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local targets = require("nupp.compiler.aot.target")
 local text = require("nupp.compiler.aot.text")
 local verify = require("nupp.compiler.aot.verify")
 
@@ -141,7 +142,8 @@ end
 --- in either direction. Then the widest gang that admits the loop is taken.
 ---
 --- @param filename what a refusal names
-function compile.lanes(program: scalarIR.Program, filename: string): nil
+--- @param selected the target, which decides whether a gang exists at all
+function compile.lanes(program: scalarIR.Program, filename: string, selected: targets.Target): nil
     local estimate = intensity.estimate(program.loop.statements)
     program.intensity = estimate.perByte
     program.operations = estimate.operations
@@ -155,10 +157,28 @@ function compile.lanes(program: scalarIR.Program, filename: string): nil
         return
     end
 
+    -- A target with no gang is not a loop that refused: nothing was tried,
+    -- because a 32-byte value has nowhere to live. Saying which tier would give
+    -- it one is the whole of what a reader can act on.
+    local shapes = targets.gangs(selected)
+    if #shapes == 0 then
+        program.laneRefusals = {
+            new compile.Diagnostic(
+                file = filename,
+                line = program.loop.source ~= nil and (program.loop.source as scalarIR.Source).line or 1,
+                column = program.loop.source ~= nil and (program.loop.source as scalarIR.Source).column or 1,
+                message = targets.noGangReason(selected)
+            ),
+        }
+        program.lanesDeclined = false
+
+        return
+    end
+
     -- Only the narrowest gang's refusals are kept. A loop that cannot lower at
     -- all cannot lower in any width, and the binary64 refusal is the one that
     -- names the construct rather than the width.
-    local attempts = rewrite.select(program)
+    local attempts = rewrite.select(program, shapes)
     local refusals: {compile.Diagnostic} = {}
     for _, attempt in ipairs(attempts) do
         refusals = {}
@@ -190,12 +210,14 @@ end
 ---
 --- @param library where the compiled object will be found, which the generated
 ---   module loads
+--- @param selected the target, which decides which gangs exist
 --- @return the artifacts, or nothing and the reasons the source was refused
 function compile.artifacts(
     source: string,
     filename: string,
     parsed: parser.ParseResult?,
-    library: string
+    library: string,
+    selected: targets.Target
 ): (compile.Artifacts?, {compile.Diagnostic})
     local programs, diagnostics = compile.lower(source, filename, parsed)
     if #programs == 0 then
@@ -203,7 +225,7 @@ function compile.artifacts(
     end
 
     for _, program in ipairs(programs) do
-        compile.lanes(program, filename)
+        compile.lanes(program, filename, selected)
     end
 
     return new compile.Artifacts(

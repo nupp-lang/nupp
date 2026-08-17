@@ -24,6 +24,7 @@ cannot be wrong about which source produced which artifact.
 
 local compile = require("nupp.compiler.aot.compile")
 local fs = require("nupp.compiler.fs")
+local targets = require("nupp.compiler.aot.target")
 
 local aot = {}
 
@@ -63,6 +64,15 @@ end
 --- @return what was written, or nothing and the first reason it could not be
 --- @raises never; a source the subset refuses is reported, not thrown
 function aot.emitC(root: string, outDir: string, roots: {string}): ({aot.Emitted}?, string?)
+    -- The host's target, at its architecture's default tier. A build that wants
+    -- another one will say so once there is a manifest key for it; until then
+    -- the honest default is the machine the build is running on, conservatively
+    -- featured.
+    local selected, targetErr = targets.select(nil, nil)
+    if selected == nil then
+        return nil, tostring(targetErr)
+    end
+
     local emitted: {aot.Emitted} = {}
     local seen: {[string]: boolean} = {}
     for _, directory in ipairs(roots) do
@@ -72,7 +82,13 @@ function aot.emitC(root: string, outDir: string, roots: {string}): ({aot.Emitted
 
                 local text = fs.readFile(source)
                 if text ~= nil and mentionsAot(text as string) then
-                    local artifacts, diagnostics = compile.artifacts(text as string, source, nil, "<object>")
+                    local artifacts, diagnostics = compile.artifacts(
+                        text as string,
+                        source,
+                        nil,
+                        "<object>",
+                        selected as targets.Target
+                    )
                     if artifacts == nil then
                         -- A file that mentions the annotation without carrying
                         -- one is not an error; anything else is.

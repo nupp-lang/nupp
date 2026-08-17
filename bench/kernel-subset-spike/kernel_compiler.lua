@@ -9,6 +9,7 @@ local root = here .. "../.."
 package.path = root .. "/build/?.lua;" .. package.path
 
 local aot = require("nupp.compiler.aot.compile")
+local targets = require("nupp.compiler.aot.target")
 local verify = require("nupp.compiler.aot.verify")
 
 local compiler = {}
@@ -24,7 +25,12 @@ compiler.renderDiagnostic = aot.renderDiagnostic
 compiler.verifyIR = verify.program
 
 function compiler.compile(source, filename, checked)
-   local artifacts, diagnostics = aot.artifacts(source, filename, checked, SPIKE_LIBRARY)
+   -- The host, at whatever tier holds a gang. The spike compiles for the machine
+   -- it is about to run on, so a conservative default would only mean the
+   -- differentials stopped testing the lane bodies.
+   local selected = assert(targets.select(nil, targets.tiers(
+      targets.architecture(assert(require("nupp.compiler.target_layout").hostKey())))[1]))
+   local artifacts, diagnostics = aot.artifacts(source, filename, checked, SPIKE_LIBRARY, selected)
    if not artifacts then return nil, diagnostics end
 
    return {

@@ -407,6 +407,44 @@ A loop that declined is not a failure — that is the point of being able to
 decline — so `@aot(lanes = false)` and a body below the intensity threshold both
 pass.
 
+### Targets and feature tiers
+
+A gang is 32 bytes. That is one AVX register on x86-64, two NEON registers on
+aarch64, and on x86-64 without AVX it is nothing at all — a 32-byte vector has
+no register class there, so it compiles only by being split and has no stable
+ABI at a function boundary.
+
+```
+ Tier      Widest vector   Gangs   Default for
+ ────────  ─────────────   ─────   ───────────
+ baseline  16 bytes        none    x86-64, i686
+ avx2      32 bytes        both
+ neon      32 bytes        both    aarch64
+```
+
+x86-64 defaults to `baseline`, so lane lowering refuses there until you ask for
+a tier. That is deliberate: a binary built for AVX2 does not run on a machine
+without it, and a default that assumed otherwise would produce artifacts that
+fail on hardware the triple says they support. The tier is selected, never
+measured — a build that probed the machine in front of it would produce an
+artifact that only runs there.
+
+```bash
+nupp aot --target x86_64-unknown-linux-gnu --features avx2 src/kernel.nupp
+```
+
+A target with no gang refuses rather than going quietly scalar, and says what
+would give it one:
+
+```text
+nupp: mandelbrot ran one iteration at a time
+  src/kernel.nupp:50:5: aot: the baseline feature tier has no 32-byte vector;
+  select avx2 to run several iterations at once
+```
+
+There is no 16-byte gang. Adding one is a real option for the x86-64 baseline
+and nobody has designed it.
+
 ### Influencing it
 
 Three levers, and no more than three. None of them lets you name a lane.

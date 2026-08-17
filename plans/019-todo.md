@@ -176,7 +176,16 @@ work makes sense in.
         1 for an `@aot` map loop that lowered scalar, naming the construct that
         stopped it. Needs an inverted marker for a deliberately scalar loop, and
         the one-top-level-map-loop shape stops being an error.
-  - [ ] **No gang fits x86-64 below AVX.** Both shapes are 32 bytes, which is one
+  - [x] **No gang fits x86-64 below AVX.** Closed by giving the backend a target
+      model: a triple and a CPU feature tier decide which gangs exist, x86-64
+      defaults to the baseline tier and therefore to no gang, and a target with
+      none refuses by name rather than going quietly scalar. `nupp aot --target`
+      and `--features` select one. What is still open is the 16-byte gang itself,
+      which would give the x86-64 baseline lanes rather than a refusal, and the
+      choice between pinning one baseline at build time and multiversioning with
+      runtime dispatch.
+      The original entry follows.
+- [ ] **No gang fits x86-64 below AVX.** Both shapes are 32 bytes, which is one
       AVX register and two NEON registers. Below AVX on x86-64 a 32-byte vector
       has no register class: it compiles, because the compiler splits it, but it
       has no stable ABI at a function boundary and Clang says so through

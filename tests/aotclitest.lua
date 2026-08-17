@@ -342,6 +342,49 @@ function M.everyAotFunctionInAFileIsCompiled()
       "the generated module exports both wrappers: " .. binding:sub(-200))
 end
 
+-- A gang is 32 bytes: one AVX register, two NEON registers, and on x86-64
+-- without AVX nothing at all. The tier is selected rather than measured, because
+-- a build that probed the machine in front of it would produce an artifact that
+-- only runs there.
+function M.theBaselineX86TierHasNoGang()
+   local dir = project{["compute.nupp"] = COMPUTE}
+   local out, code = run(dir, "--check --target x86_64-unknown-linux-gnu compute.nupp")
+   test.equal(code, 1, "a target with no gang is reported, not silently scalar\n" .. out)
+   assert(out:find("no 32-byte vector", 1, true), "and says what the target lacks: " .. out)
+   assert(out:find("select avx2", 1, true), "and what would give it one: " .. out)
+end
+
+function M.aWiderTierGetsTheGang()
+   local dir = project{["compute.nupp"] = COMPUTE}
+   local out, code = run(dir, "--json --target x86_64-unknown-linux-gnu --features avx2 compute.nupp")
+   test.equal(code, 0, out)
+   local decoded = require("cjson").decode(out)
+   test.equal(decoded.target.triple, "x86_64-unknown-linux-gnu")
+   test.equal(decoded.target.tier, "avx2", "the tier is reported, because it changed the answer")
+   test.equal(decoded.functions[1].lanes.lanes, 4)
+end
+
+function M.armHasOneTierAndNeedsNoSelection()
+   local dir = project{["compute.nupp"] = COMPUTE}
+   local out, code = run(dir, "--json --target aarch64-apple-darwin compute.nupp")
+   test.equal(code, 0, out)
+   local decoded = require("cjson").decode(out)
+   test.equal(decoded.target.tier, "neon", "its 16-byte registers are mandatory, so there is nothing to opt into")
+   test.equal(decoded.functions[1].lanes.shape, "f64x4")
+end
+
+function M.anUnknownTargetOrTierIsRejected()
+   local dir = project{["compute.nupp"] = COMPUTE}
+   local out, code = run(dir, "--target sparc-sun-solaris compute.nupp")
+   test.equal(code, 1, out)
+   assert(out:find("unknown target", 1, true), out)
+
+   local tierOut, tierCode = run(dir, "--target aarch64-apple-darwin --features sse9 compute.nupp")
+   test.equal(tierCode, 1, tierOut)
+   assert(tierOut:find("has no feature tier sse9", 1, true),
+      "and names the tiers it does have: " .. tierOut)
+end
+
 function M.aFileWithNoAotFunctionIsAnError()
    local dir = project{["plain.nupp"] = "local m = {}\n\nreturn m\n"}
    local out, code = run(dir, "plain.nupp")

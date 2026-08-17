@@ -207,7 +207,7 @@ chunk
 Show what the @aot functions in a file compile to
 
 Usage:
-  nupp aot [--emit ir|c|binding] [--check] [--library PATH] [--format text|json] <file>
+  nupp aot [--emit ir|c|binding] [--check] [--target TRIPLE] [--features TIER] <file>
 
 Production `nupp build` still emits the ordinary Lua body; this reports what the ahead-of-time backend would produce for the file.
 
@@ -218,6 +218,8 @@ Options:
   --emit ARTIFACT  Print one artifact: ir, c, or binding
   --check          Exit non-zero for a map loop that wanted lanes and ran one
                    iteration at a time
+  --target TRIPLE  The target triple to compile for; the host's by default
+  --features TIER  The CPU feature tier to promise: baseline, avx2, or neon
   --library PATH   Where the compiled object will be found, for the generated
                    binding
   --schema         Print the JSON Schema of --json output and exit

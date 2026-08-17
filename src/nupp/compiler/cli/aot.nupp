@@ -25,6 +25,7 @@ refused.
 ]]
 
 local aot = require("nupp.compiler.aot.compile")
+local targets = require("nupp.compiler.aot.target")
 local optionsMod = require("nupp.compiler.cli.options")
 local spec = require("nupp.compiler.cli.spec")
 
@@ -50,6 +51,22 @@ local function aotOptions(): {any}
     list[
         #list + 1
     ] = {
+        name = "--target",
+        key = "target",
+        value = "TRIPLE",
+        help = "The target triple to compile for; the host's by default",
+    }
+    list[
+        #list + 1
+    ] = {
+        name = "--features",
+        key = "features",
+        value = "TIER",
+        help = "The CPU feature tier to promise: baseline, avx2, or neon",
+    }
+    list[
+        #list + 1
+    ] = {
         name = "--library",
         key = "library",
         value = "PATH",
@@ -62,7 +79,7 @@ end
 local command = spec.command{
     name = "aot",
     summary = "Show what the @aot functions in a file compile to",
-    usage = {"nupp aot [--emit ir|c|binding] [--check] [--library PATH] [--format text|json] <file>"},
+    usage = {"nupp aot [--emit ir|c|binding] [--check] [--target TRIPLE] [--features TIER] <file>",},
     intro = "Production `nupp build` still emits the ordinary Lua body; this reports what the "
     .. "ahead-of-time backend would produce for the file.",
     options = aotOptions(),
@@ -71,6 +88,11 @@ local command = spec.command{
         description = "What every @aot function in one file lowered to.",
         properties = {
             file = {type = "string"},
+            target = {
+                type = "object",
+                description = "What the gangs were chosen for.",
+                properties = {triple = {type = "string"}, architecture = {type = "string"}, tier = {type = "string"},},
+            },
             functions = {
                 type = "array",
                 description = "One entry per @aot function, in source order.",
@@ -193,8 +215,15 @@ local function run(parsed: any): integer
     -- A placeholder rather than a guess: where the object lands is a build
     -- decision this command does not make, and a binding printed for reading
     -- says so rather than naming a path nobody will produce.
+    local selected, targetErr = targets.select(parsed.values.target, parsed.values.features)
+    if selected == nil then
+        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
+
+        return 1
+    end
+
     local library = parsed.values.library or "<object>"
-    local artifacts, diagnostics = aot.artifacts(source as string, path, nil, library)
+    local artifacts, diagnostics = aot.artifacts(source as string, path, nil, library, selected as targets.Target)
     if artifacts == nil then
         for _, problem in ipairs(diagnostics) do
             io.stderr:write(aot.renderDiagnostic(problem) .. "\n")
@@ -242,6 +271,11 @@ local function run(parsed: any): integer
         io.write(
             json.encode({
                 file = path,
+                target = {
+                    triple = (selected as targets.Target).triple,
+                    architecture = (selected as targets.Target).architecture,
+                    tier = (selected as targets.Target).tier,
+                },
                 functions = functions,
                 ir = (emit == nil or emit == "ir") and artifacts.irText or nil,
                 c = (emit == nil or emit == "c") and artifacts.c or nil,

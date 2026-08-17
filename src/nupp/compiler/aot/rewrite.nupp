@@ -1669,14 +1669,16 @@ local REFUSED = {}
 --- A body that cannot lower at any width is not an error: it keeps its scalar
 --- loop, and the refusals say which construct stopped it.
 ---
+--- @param shapes the gangs this target can hold, narrowest first. Empty when it
+---   can hold none, in which case there is nothing to try.
 --- @return one entry per gang that was refused, widest first. Empty when the
 ---   widest one took it.
 --- @raises when an attempt fails for any reason other than refusing the loop,
 ---   which is a compiler bug rather than a width that does not fit
-function rewrite.select(program: scalarIR.Program): {rewrite.Attempt}
+function rewrite.select(program: scalarIR.Program, shapes: {lane.Shape}): {rewrite.Attempt}
     local attempts: {rewrite.Attempt} = {}
-    for position = #lane.SHAPES, 1, -1 do
-        local shape = lane.SHAPES[position]
+    for position = #shapes, 1, -1 do
+        local shape = shapes[position]
         local refusals: {string} = {}
         local lowered: scalarIR.LaneBody? = nil
         local ok, problem = pcall(function(): nil
