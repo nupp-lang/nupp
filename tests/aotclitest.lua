@@ -214,6 +214,32 @@ end
 return {delimiters = delimiters}
 ]]
 
+local SCOPED_SIMD = [[
+local span = require("nupp.span")
+local simd = require("nupp.simd")
+local preferredBytes = simd.preferredU8
+
+@aot(lanes = false)
+local function quotes(borrows source: span.Span<uint8>): uint32
+    local species = preferredBytes()
+    local cursor = 0.0
+    local found: uint32 = 0
+    while cursor < source.count do
+        local bytes = species:load(source, cursor)
+        local tail = species:tail(source.count - cursor)
+        local quote = bytes:equal(34)
+        local slash = bytes:equal(92)
+        local either = quote:orBits(slash)
+        local syntax = either:andBits(tail)
+        found = nupp.math.u32.add(found, syntax:count())
+        cursor = cursor + species.lanes
+    end
+    return found
+end
+
+return {quotes = quotes}
+]]
+
 function M.aRegisterResidentLoopReportsItsGangAndWidth()
    local dir = project{["compute.nupp"] = COMPUTE}
    local out, code = run(dir, PINNED .. "compute.nupp")
@@ -326,6 +352,30 @@ function M.blockKernelsRejectAnUnguardedAppendCursor()
    local out, code = run(dir, "unguarded.nupp")
    test.equal(code, 1, out)
    assert(out:find("cursor + 1 under cursor < span.count", 1, true), out)
+end
+
+function M.scopedSimdSelectsOnePackedRegisterForTheTargetTier()
+   local dir = project{["simd.nupp"] = SCOPED_SIMD}
+   local baseline, baselineCode = run(
+      dir,
+      "--target x86_64-unknown-linux-gnu --emit c simd.nupp"
+   )
+   test.equal(baselineCode, 0, baseline)
+   assert(baseline:find("vector_size(16)", 1, true), baseline)
+   assert(baseline:find("ks_load_u8x16", 1, true), baseline)
+
+   local avx, avxCode = run(
+      dir,
+      "--target x86_64-unknown-linux-gnu --features avx2 --emit c simd.nupp"
+   )
+   test.equal(avxCode, 0, avx)
+   assert(avx:find("vector_size(32)", 1, true), avx)
+   assert(avx:find("ks_bits_u8x32", 1, true), avx)
+
+   local neon, neonCode = run(dir, "--target aarch64-unknown-linux-gnu --emit ir simd.nupp")
+   test.equal(neonCode, 0, neon)
+   assert(neon:find("simd species(uint8,16)", 1, true), neon)
+   assert(neon:find("simd_load_u8", 1, true) and neon:find("simd_count", 1, true), neon)
 end
 
 function M.fixedWidthSwitchesEmitNativeCDispatch()

@@ -32,6 +32,9 @@ PATHS["nupp.math.u32.shiftRightLogical"] = "u32.shiftRightLogical"
 PATHS["nupp.math.u32.wrap"] = "u32.wrap"
 PATHS["nupp.math.u32.fromI32"] = "u32.fromI32"
 PATHS["nupp.math.u32.toI32"] = "u32.toI32"
+PATHS["nupp.math.u32.popcount"] = "u32.popcount"
+PATHS["nupp.math.u32.trailingZeros"] = "u32.trailingZeros"
+PATHS["nupp.math.u32.leadingZeros"] = "u32.leadingZeros"
 for _, operation in ipairs({
     "narrow",
     "round",
@@ -122,6 +125,29 @@ function scalar.fold(identity: string, args: {number}): scalar.Folded?
         return bit.tobit(a)
     elseif operation == "toU32" or operation == "fromI32" then
         return u32(a)
+    elseif operation == "popcount" then
+        local value, count = u32(a), 0
+        while value ~= 0 do
+            value = u32(bit.band(value, value - 1))
+            count = count + 1
+        end
+        return count
+    elseif operation == "trailingZeros" then
+        local value, count = u32(a), 0
+        if value == 0 then return 32 end
+        while bit.band(value, 1) == 0 do
+            value = bit.rshift(value, 1)
+            count = count + 1
+        end
+        return count
+    elseif operation == "leadingZeros" then
+        local value, count, mask = u32(a), 0, 2147483648
+        if value == 0 then return 32 end
+        while bit.band(value, mask) == 0 do
+            mask = bit.rshift(mask, 1)
+            count = count + 1
+        end
+        return count
     end
 
     return nil

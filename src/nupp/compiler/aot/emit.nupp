@@ -20,6 +20,8 @@ local lane = require("nupp.compiler.aot.lane")
 local scalarIR = require("nupp.compiler.aot.scalar")
 
 local emit = {}
+local explicitWidth = 0
+local explicitScalar = false
 
 --- The C spelling of each ordinary binary operator.
 ---
@@ -99,6 +101,14 @@ function emit.cType(typeName: string): string
     if scalar ~= nil then
         return scalar as string
     end
+    if typeName == "simd_species_u8" then
+        return "uint32_t"
+    elseif typeName == "simd_vector_u8" or typeName == "simd_mask_u8" then
+        if explicitWidth ~= 16 and explicitWidth ~= 32 then
+            error("explicit SIMD width was not selected", 0)
+        end
+        return (explicitScalar and "ks_scalar_u8x" or "ks_u8x") .. tostring(explicitWidth)
+    end
     local layout = typeName:match("^ref:(.+)$")
     if layout ~= nil then
         return "Ks" .. (layout as string) .. " *"
@@ -157,6 +167,7 @@ end
 ---
 --- Parenthesised generously: the IR carries the tree, C would reparse it by
 --- precedence, and the two do not have to agree for this to be right.
+--- @raises when verified IR names an operation with no backend spelling
 function emit.scalar(node: scalarIR.Expr): string
     local operation = node.op
 
@@ -194,6 +205,78 @@ function emit.scalar(node: scalarIR.Expr): string
             or referenced.indexCName == "i" and "i"
             or "((size_t)(" .. tostring(referenced.indexCName) .. " - 1))"
         return "(&p_" .. referenced.span .. "[" .. index .. "])"
+    elseif tostring(operation):match("^simd_") ~= nil then
+        local simd = node as scalarIR.Simd
+        local args = simd.args
+        local suffix = "u8x" .. tostring(explicitWidth)
+        local helper = explicitScalar and "ks_scalar_" or "ks_"
+        if operation == "simd_species_u8" or operation == "simd_lanes" then
+            return "UINT32_C(" .. tostring(explicitWidth) .. ")"
+        elseif operation == "simd_load_u8" then
+            return helper .. "load_" .. suffix .. "(p_" .. tostring(simd.span) .. ", count_" .. tostring(
+                simd.span
+            ) .. ", " .. emit.scalar(args[2]) .. ")"
+        elseif operation == "simd_tail_u8" then
+            return helper .. "tail_" .. suffix .. "(" .. emit.scalar(args[2]) .. ")"
+        elseif operation == "simd_eq_u8" then
+            if explicitScalar then
+                return helper .. "eq_" .. suffix .. "(" .. emit.scalar(args[1]) .. ", (uint8_t)" .. emit.scalar(
+                    args[2]
+                ) .. ")"
+            end
+            return "(" .. emit.scalar(args[1]) .. " == ks_splat_" .. suffix .. "((uint8_t)" .. emit.scalar(
+                args[2]
+            ) .. "))"
+        elseif operation == "simd_range_u8" then
+            if explicitScalar then
+                return helper .. "range_" .. suffix .. "(" .. emit.scalar(args[1]) .. ", (uint8_t)" .. emit.scalar(
+                    args[2]
+                ) .. ", (uint8_t)" .. emit.scalar(args[3]) .. ")"
+            end
+            local value = emit.scalar(args[1])
+            return "((" .. value .. " >= ks_splat_" .. suffix .. "((uint8_t)" .. emit.scalar(
+                args[2]
+            ) .. ")) & (" .. value .. " <= ks_splat_" .. suffix .. "((uint8_t)" .. emit.scalar(args[3]) .. ")))"
+        elseif operation == "simd_vec_and" or operation == "simd_mask_and" then
+            if explicitScalar then
+                return helper .. "and_" .. suffix .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
+            end
+            return "(" .. emit.scalar(args[1]) .. " & " .. emit.scalar(args[2]) .. ")"
+        elseif operation == "simd_vec_or" or operation == "simd_mask_or" then
+            if explicitScalar then
+                return helper .. "or_" .. suffix .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
+            end
+            return "(" .. emit.scalar(args[1]) .. " | " .. emit.scalar(args[2]) .. ")"
+        elseif operation == "simd_vec_xor" or operation == "simd_mask_xor" then
+            if explicitScalar then
+                return helper .. "xor_" .. suffix .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
+            end
+            return "(" .. emit.scalar(args[1]) .. " ^ " .. emit.scalar(args[2]) .. ")"
+        elseif operation == "simd_vec_not" or operation == "simd_mask_not" then
+            if explicitScalar then
+                return helper .. "not_" .. suffix .. "(" .. emit.scalar(args[1]) .. ")"
+            end
+            return "(~" .. emit.scalar(args[1]) .. ")"
+        elseif operation == "simd_select_u8" then
+            if explicitScalar then
+                return helper .. "select_" .. suffix .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(
+                    args[2]
+                ) .. ", " .. emit.scalar(args[3]) .. ")"
+            end
+            return "((" .. emit.scalar(args[1]) .. " & " .. emit.scalar(args[2]) .. ") | (~" .. emit.scalar(
+                args[1]
+            ) .. " & " .. emit.scalar(args[3]) .. "))"
+        elseif operation == "simd_bits" then
+            return helper .. "bits_" .. suffix .. "(" .. emit.scalar(args[1]) .. ")"
+        elseif operation == "simd_any" then
+            return "(" .. helper .. "bits_" .. suffix .. "(" .. emit.scalar(args[1]) .. ") != 0u)"
+        elseif operation == "simd_all" then
+            local all = explicitWidth == 32 and "UINT32_MAX" or "UINT32_C(65535)"
+            return "(" .. helper .. "bits_" .. suffix .. "(" .. emit.scalar(args[1]) .. ") == " .. all .. ")"
+        elseif operation == "simd_count" then
+            return "((uint32_t)__builtin_popcount(" .. helper .. "bits_" .. suffix .. "(" .. emit.scalar(args[1]) .. ")))"
+        end
+        error("no C form for SIMD operation " .. tostring(operation), 0)
     elseif operation == "field_load" then
         local field = node as scalarIR.FieldLoad
 
@@ -265,6 +348,14 @@ function emit.scalarCall(node: scalarIR.Expr): string
 
     if operation == "f32_sqrt" then
         return "sqrtf(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
+    elseif operation == "u32_popcount" then
+        return "((uint32_t)__builtin_popcount(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. "))"
+    elseif operation == "u32_ctz" then
+        local value = emit.scalar((node as scalarIR.FixedUnary).value)
+        return "((uint32_t)(" .. value .. " == 0u ? 32u : __builtin_ctz(" .. value .. ")))"
+    elseif operation == "u32_clz" then
+        local value = emit.scalar((node as scalarIR.FixedUnary).value)
+        return "((uint32_t)(" .. value .. " == 0u ? 32u : __builtin_clz(" .. value .. ")))"
     end
 
     local corrected = {["f32_min"] = "nupp_f32_min", ["f32_max"] = "nupp_f32_max", ["f32_fma"] = "nupp_f32_fma",}
@@ -426,6 +517,8 @@ local laneTemporary = 0
 --- Starts one function's emission.
 function emit.begin(): nil
     laneTemporary = 0
+    explicitWidth = 0
+    explicitScalar = false
 end
 
 --- Expands a vector operation one lane at a time, each operand evaluated once.
@@ -1054,6 +1147,103 @@ function emit.scalarPrelude(): {string}
     return scalarHelpers()
 end
 
+--- Packed-byte helpers whose semantics are independent of the instruction set.
+--- Clang/GCC lower the vector comparisons and bitwise expressions; the short
+--- loops here are fixed-width scalar oracles for safe tails and mask order.
+function emit.simdPrelude(width: integer): {string}
+    local suffix = "u8x" .. tostring(width)
+    local vector = "ks_" .. suffix
+    local zeros: {string} = {}
+    local splats: {string} = {}
+    for laneIndex = 1, width do
+        zeros[laneIndex] = "0"
+        splats[laneIndex] = "value"
+    end
+    local lines = {
+        "typedef uint8_t " .. vector .. " __attribute__((vector_size(" .. tostring(width) .. ")));",
+        "static inline __attribute__((unused)) " .. vector .. " ks_splat_" .. suffix .. "(uint8_t value) {",
+        "    return (" .. vector .. "){ " .. table.concat(splats, ", ") .. " };",
+        "}",
+        "static inline __attribute__((unused)) " .. vector .. " ks_load_" .. suffix
+            .. "(const uint8_t *source, size_t count, uint32_t offset) {",
+        "    " .. vector .. " out = (" .. vector .. "){ " .. table.concat(zeros, ", ") .. " };",
+        "    if ((size_t)offset < count) {",
+        "        size_t active = count - (size_t)offset;",
+        "        if (active > " .. tostring(width) .. "u) active = " .. tostring(width) .. "u;",
+        "        memcpy(&out, source + offset, active);",
+        "    }",
+        "    return out;",
+        "}",
+        "static inline __attribute__((unused)) " .. vector .. " ks_tail_" .. suffix .. "(uint32_t active) {",
+        "    " .. vector .. " out;",
+        "    if (active > " .. tostring(width) .. "u) active = " .. tostring(width) .. "u;",
+        "    for (uint32_t i = 0; i < " .. tostring(width) .. "u; ++i) out[i] = i < active ? UINT8_MAX : 0u;",
+        "    return out;",
+        "}",
+        "static inline __attribute__((unused)) uint32_t ks_bits_" .. suffix .. "(" .. vector .. " mask) {",
+        "    uint32_t bits = 0u;",
+        "    for (uint32_t i = 0; i < " .. tostring(width) .. "u; ++i) bits |= (uint32_t)(mask[i] != 0u) << i;",
+        "    return bits;",
+        "}",
+        "",
+    }
+    lines[#lines + 1] = "typedef struct { uint8_t lane[" .. tostring(width) .. "]; } ks_scalar_" .. suffix .. ";"
+    lines[#lines + 1] = "static inline __attribute__((unused)) ks_scalar_" .. suffix .. " ks_scalar_load_" .. suffix
+        .. "(const uint8_t *source, size_t count, uint32_t offset) {"
+    lines[#lines + 1] = "    ks_scalar_" .. suffix .. " out = {{0}};"
+    lines[#lines + 1] = "    if ((size_t)offset < count) {"
+    lines[#lines + 1] = "        size_t active = count - (size_t)offset;"
+    lines[#lines + 1] = "        if (active > " .. tostring(width) .. "u) active = " .. tostring(width) .. "u;"
+    lines[#lines + 1] = "        memcpy(out.lane, source + offset, active);"
+    lines[#lines + 1] = "    }"
+    lines[#lines + 1] = "    return out;"
+    lines[#lines + 1] = "}"
+    lines[#lines + 1] = "static inline __attribute__((unused)) ks_scalar_" .. suffix .. " ks_scalar_tail_" .. suffix
+        .. "(uint32_t active) {"
+    lines[#lines + 1] = "    ks_scalar_" .. suffix .. " out;"
+    lines[#lines + 1] = "    if (active > " .. tostring(width) .. "u) active = " .. tostring(width) .. "u;"
+    lines[#lines + 1] = "    for (uint32_t i = 0; i < " .. tostring(width) .. "u; ++i) out.lane[i] = i < active ? UINT8_MAX : 0u;"
+    lines[#lines + 1] = "    return out;"
+    lines[#lines + 1] = "}"
+    for _, operation in ipairs({"and", "or", "xor"}) do
+        local verb = operation == "and" and "&" or operation == "or" and "|" or "^"
+        lines[#lines + 1] = "static inline __attribute__((unused)) ks_scalar_" .. suffix .. " ks_scalar_" .. operation
+            .. "_" .. suffix .. "(ks_scalar_" .. suffix .. " a, ks_scalar_" .. suffix .. " b) {"
+        lines[#lines + 1] = "    for (uint32_t i = 0; i < " .. tostring(width) .. "u; ++i) a.lane[i] " .. verb .. "= b.lane[i];"
+        lines[#lines + 1] = "    return a;"
+        lines[#lines + 1] = "}"
+    end
+    lines[#lines + 1] = "static inline __attribute__((unused)) ks_scalar_" .. suffix .. " ks_scalar_not_" .. suffix
+        .. "(ks_scalar_" .. suffix .. " a) {"
+    lines[#lines + 1] = "    for (uint32_t i = 0; i < " .. tostring(width) .. "u; ++i) a.lane[i] = (uint8_t)~a.lane[i];"
+    lines[#lines + 1] = "    return a;"
+    lines[#lines + 1] = "}"
+    for _, comparison in ipairs({"eq", "range"}) do
+        local parameters = comparison == "eq" and "uint8_t value" or "uint8_t low, uint8_t high"
+        local condition = comparison == "eq" and "a.lane[i] == value" or "a.lane[i] >= low && a.lane[i] <= high"
+        lines[#lines + 1] = "static inline __attribute__((unused)) ks_scalar_" .. suffix .. " ks_scalar_" .. comparison
+            .. "_" .. suffix .. "(ks_scalar_" .. suffix .. " a, " .. parameters .. ") {"
+        lines[#lines + 1] = "    for (uint32_t i = 0; i < " .. tostring(width) .. "u; ++i) a.lane[i] = " .. condition
+            .. " ? UINT8_MAX : 0u;"
+        lines[#lines + 1] = "    return a;"
+        lines[#lines + 1] = "}"
+    end
+    lines[#lines + 1] = "static inline __attribute__((unused)) ks_scalar_" .. suffix .. " ks_scalar_select_" .. suffix
+        .. "(ks_scalar_" .. suffix .. " mask, ks_scalar_" .. suffix .. " yes, ks_scalar_" .. suffix .. " no) {"
+    lines[#lines + 1] = "    for (uint32_t i = 0; i < " .. tostring(width) .. "u; ++i) yes.lane[i] = mask.lane[i] ? yes.lane[i] : no.lane[i];"
+    lines[#lines + 1] = "    return yes;"
+    lines[#lines + 1] = "}"
+    lines[#lines + 1] = "static inline __attribute__((unused)) uint32_t ks_scalar_bits_" .. suffix
+        .. "(ks_scalar_" .. suffix .. " mask) {"
+    lines[#lines + 1] = "    uint32_t bits = 0u;"
+    lines[#lines + 1] = "    for (uint32_t i = 0; i < " .. tostring(width) .. "u; ++i) bits |= (uint32_t)(mask.lane[i] != 0u) << i;"
+    lines[#lines + 1] = "    return bits;"
+    lines[#lines + 1] = "}"
+    lines[#lines + 1] = ""
+
+    return lines
+end
+
 --- One helper's C parameter list.
 local function helperParams(helper: scalarIR.Helper): string
     local parts: {string} = {}
@@ -1158,12 +1348,14 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
     for _, statement in ipairs(statements) do
         local op = statement.op
         if op == "let" then
-            lines[
-                #lines + 1
-            ] = prefix .. localCType(
-                statement.type,
-                statement.value.mutable == true
-            ) .. statement.cName .. " = " .. emit.lane(statement.value) .. ";"
+            if statement.type ~= "simd_species_u8" then
+                lines[
+                    #lines + 1
+                ] = prefix .. localCType(
+                    statement.type,
+                    statement.value.mutable == true
+                ) .. statement.cName .. " = " .. emit.lane(statement.value) .. ";"
+            end
         elseif op == "multi_let" then
             temporary = temporary + 1
 
@@ -1423,7 +1615,18 @@ function emit.program(programs: {scalarIR.Program}): string
         lines[#lines + 1] = line
     end
 
+    local simdWidths: {[integer]: boolean} = {}
     for _, program in ipairs(programs) do
+        if program.simdWidth ~= nil and not simdWidths[program.simdWidth as integer] then
+            simdWidths[program.simdWidth as integer] = true
+            for _, line in ipairs(emit.simdPrelude(program.simdWidth as integer)) do
+                lines[#lines + 1] = line
+            end
+        end
+    end
+
+    for _, program in ipairs(programs) do
+        explicitWidth = program.simdWidth or 0
         local helpers = program.helpers or {}
         for _, line in ipairs(emit.helpers(helpers)) do
             lines[#lines + 1] = line
@@ -1442,6 +1645,13 @@ function emit.program(programs: {scalarIR.Program}): string
 
         --- One C definition of the kernel.
         local function implementation(symbol: string, forced: boolean): nil
+            explicitScalar = forced and program.usesSimd == true
+            if forced and general then
+                -- The block may declare locals before its first loop, so a
+                -- loop pragma cannot be placed at function entry. Keep this
+                -- test-only oracle wholly scalar instead.
+                lines[#lines + 1] = "__attribute__((optnone))"
+            end
             lines[#lines + 1] = "__attribute__((noinline))"
             lines[#lines + 1] = "KS_API " .. cResult .. " " .. symbol .. "(" .. params .. ") {"
             if program.fpContract == true then
@@ -1483,7 +1693,7 @@ function emit.program(programs: {scalarIR.Program}): string
             lines[#lines + 1] = ""
         end
 
-        if not general then
+        if not general or program.usesSimd == true then
             implementation(program.symbol .. "_forced_scalar", true)
         end
         implementation(program.symbol, false)

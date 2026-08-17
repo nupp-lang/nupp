@@ -3035,6 +3035,9 @@ record nupp.U32MathLibrary
     lessOrEqual: nosuspend function(a: uint32, b: uint32): boolean
     fromI32: nosuspend function(a: int32): uint32
     toI32: nosuspend function(a: uint32): int32
+    popcount: nosuspend function(a: uint32): uint32
+    trailingZeros: nosuspend function(a: uint32): uint32
+    leadingZeros: nosuspend function(a: uint32): uint32
 end
 
 --- Explicit IEEE-754 binary32 arithmetic. Every input and output is rounded to

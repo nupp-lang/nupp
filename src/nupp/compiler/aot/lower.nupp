@@ -301,6 +301,41 @@ function lower.dottedName(node: cst.Node?): string?
     return nil
 end
 
+--- The checked export identity of one call target, including a local alias.
+---
+--- The checker propagates this sidecar by definition, so lowering never treats
+--- a shadowing local named `simd` as the compiler-owned module and does not lose
+--- the intrinsic when its exported function is first bound to another name.
+function lower.callIdentity(node: cst.Node?): string?
+    if node == nil then
+        return nil
+    end
+    local direct = (node as any).exactCallExport
+    if direct ~= nil then
+        return direct.identity
+    end
+    if node.kind == "dotIndex" then
+        local indexed = node as cst.DotIndex
+        local base = indexed.obj
+        local token = base ~= nil and base.kind == "name" and (base as cst.NameExpr).token or nil
+        local definition = token ~= nil and (token as any).definition or nil
+        local moduleName = definition ~= nil and definition.requiredModule or nil
+        if moduleName ~= nil and indexed.name ~= nil then
+            return moduleName .. "." .. (indexed.name as lexer.Token).text
+        end
+    end
+    if node.kind == "name" then
+        local token = (node as cst.NameExpr).token
+        local definition = token ~= nil and (token as any).definition or nil
+        local aliased = definition ~= nil and definition.exactCallExport or nil
+        if aliased ~= nil then
+            return aliased.identity
+        end
+    end
+
+    return nil
+end
+
 --- One name in scope, as the environment records it.
 record lower.Bound
     kind: 'local' | 'uniform' | 'helper_param'
@@ -331,6 +366,10 @@ record lower.Kernel
     --- than followed.
     helperState: {[string]: string}
 
+    --- Checked top-level require bindings and aliases of compiler intrinsics.
+    modules: {[string]: string}
+    intrinsicAliases: {[string]: string}
+
     --- The kernel's exported symbol, which its helpers are named after.
     symbol: string
 
@@ -349,6 +388,8 @@ record lower.Kernel
     --- Zero-based uint32 cursors proved safe by enclosing branches, mapped to
     --- the span whose checked count bounds `cursor + 1`.
     cursorBounds: {[string]: string}
+
+    usesSimd: boolean
 
     --- How many locals have been named, so two source scopes using one name get
     --- two C names.
@@ -624,8 +665,8 @@ local function fixedCall(
     end
 
     if fixed.arity == 1 then
-        if fixed.op == "f32_sqrt" then
-            return new scalarIR.FixedUnary(op = "f32_sqrt", value = args[1], type = fixed.result, source = source)
+        if fixed.op == "f32_sqrt" or tostring(fixed.op):match("^u32_") ~= nil then
+            return new scalarIR.FixedUnary(op = fixed.op as any, value = args[1], type = fixed.result, source = source)
         end
 
         return new scalarIR.Convert(op = fixed.op as any, value = args[1], type = fixed.result, source = source)
@@ -690,6 +731,29 @@ local function call(
     end
 
     local path = lower.dottedName(node.obj)
+    local identity = lower.callIdentity(node.obj)
+    if identity == nil and path ~= nil then
+        local root, rest = (path as string):match("^([^.]+)%.(.+)$")
+        local moduleName = root ~= nil and kernel.modules[root as string] or nil
+        if moduleName ~= nil then
+            identity = moduleName .. "." .. tostring(rest)
+        else
+            identity = kernel.intrinsicAliases[path as string]
+        end
+    end
+    if identity == "nupp.simd.preferredU8" then
+        if #args ~= 0 then
+            context.reject(lower.site(node), "simd.preferredU8 takes no arguments")
+        end
+        kernel.usesSimd = true
+
+        return new scalarIR.Simd(
+            op = "simd_species_u8",
+            args = {},
+            type = "simd_species_u8",
+            source = lower.site(node)
+        )
+    end
     local fixed = path ~= nil and admit.fixed(path as string) or nil
     if fixed ~= nil then
         return fixedCall(node, path as string, fixed as admit.Fixed, args, kernel)
@@ -722,6 +786,121 @@ local function call(
         resultTypes = helper.resultTypes,
         source = lower.site(node)
     )
+end
+
+--- One operation on a source-visible AOT-only SIMD value.
+local function simdMethod(
+    node: cst.MethodCall,
+    environment: {[string]: any},
+    activeIndex: string?,
+    kernel: lower.Kernel
+): scalarIR.Expr?
+    local receiverName = lower.nameOf(node.obj)
+    local binding = receiverName ~= nil and environment[receiverName as string] or nil
+    local receiverType = binding ~= nil and binding.type or ""
+    if not tostring(receiverType):match("^simd_") then
+        return nil
+    end
+
+    local method = node.name ~= nil and (node.name as lexer.Token).text or ""
+    local raw = node.args ~= nil and (node.args as cst.Args).exprs or {}
+    local receiver = lower.expression(node.obj as cst.Node, environment, activeIndex, kernel)
+    local args: {scalarIR.Expr} = {receiver}
+    local source = lower.site(node)
+    kernel.usesSimd = true
+
+    if receiverType == "simd_species_u8" and method == "load" then
+        local spanName = #raw == 2 and lower.nameOf(raw[1]) or nil
+        local span = spanName ~= nil and kernel.params[spanName as string] or nil
+        if span == nil or span.kind ~= "read_span" or span.sourceType ~= "uint8" then
+            kernel.context.reject(source, "SIMD byte loads require a borrowed Span<uint8>")
+        end
+        args[2] = lower.convert(
+            lower.expression(raw[2], environment, activeIndex, kernel),
+            "u32",
+            source,
+            kernel.context
+        )
+
+        return new scalarIR.Simd(
+            op = "simd_load_u8",
+            args = args,
+            span = spanName,
+            type = "simd_vector_u8",
+            source = source
+        )
+    elseif receiverType == "simd_species_u8" and method == "tail" and #raw == 1 then
+        args[2] = lower.convert(
+            lower.expression(raw[1], environment, activeIndex, kernel),
+            "u32",
+            source,
+            kernel.context
+        )
+        return new scalarIR.Simd(op = "simd_tail_u8", args = args, type = "simd_mask_u8", source = source)
+    elseif receiverType == "simd_vector_u8" and (method == "equal" or method == "inRange") then
+        local expected = method == "equal" and 1 or 2
+        if #raw ~= expected then
+            kernel.context.reject(source, "SIMD " .. method .. " has an unsupported argument count")
+        end
+        for _, argument in ipairs(raw) do
+            args[#args + 1] = lower.convert(
+                lower.expression(argument, environment, activeIndex, kernel),
+                "u32",
+                source,
+                kernel.context
+            )
+        end
+        return new scalarIR.Simd(
+            op = method == "equal" and "simd_eq_u8" or "simd_range_u8",
+            args = args,
+            type = "simd_mask_u8",
+            source = source
+        )
+    end
+
+    local binary = {andBits = "and", orBits = "or", xorBits = "xor"}
+    local verb = binary[method]
+    if verb ~= nil and #raw == 1 then
+        local other = lower.expression(raw[1], environment, activeIndex, kernel)
+        if other.type ~= receiverType then
+            kernel.context.reject(source, "SIMD bitwise operands need the same type")
+        end
+        args[2] = other
+        local family = receiverType == "simd_vector_u8" and "simd_vec_" or "simd_mask_"
+        return new scalarIR.Simd(op = (family .. verb) as any, args = args, type = receiverType, source = source)
+    elseif method == "notBits" and #raw == 0 then
+        local op = receiverType == "simd_vector_u8" and "simd_vec_not" or "simd_mask_not"
+        return new scalarIR.Simd(op = op as any, args = args, type = receiverType, source = source)
+    elseif receiverType == "simd_mask_u8" and method == "select" and #raw == 2 then
+        for _, argument in ipairs(raw) do
+            local value = lower.expression(argument, environment, activeIndex, kernel)
+            if value.type ~= "simd_vector_u8" then
+                kernel.context.reject(source, "SIMD select values must be byte vectors")
+            end
+            args[#args + 1] = value
+        end
+        return new scalarIR.Simd(op = "simd_select_u8", args = args, type = "simd_vector_u8", source = source)
+    elseif receiverType == "simd_mask_u8" and #raw == 0 then
+        local reductions = {
+            any = {op = "simd_any", type = "bool"},
+            all = {op = "simd_all", type = "bool"},
+            count = {op = "simd_count", type = "u32"},
+            bits = {op = "simd_bits", type = "u32"},
+        }
+        local reduction = reductions[method]
+        if reduction ~= nil then
+            return new scalarIR.Simd(
+                op = reduction.op as any,
+                args = args,
+                type = reduction.type,
+                source = source
+            )
+        end
+    end
+
+    kernel.context.reject(source, "SIMD operation " .. method .. " is not admitted for " .. receiverType)
+
+    return nil
 end
 
 --- One unary operator.
@@ -799,6 +978,10 @@ function lower.expression(
         local operator = node as cst.Unop
 
         return unary(operator, lower.expression(operator.operand as cst.Node, environment, activeIndex, kernel), kernel)
+    elseif kind == "methodCall" then
+        local simd = simdMethod(node as cst.MethodCall, environment, activeIndex, kernel)
+        if simd ~= nil then return simd end
+        context.reject(lower.site(node), "method call is not an admitted SIMD operation")
     elseif kind == "bracketIndex" then
         return spanRead(node as cst.BracketIndex, environment, activeIndex, kernel)
     elseif kind == "dotIndex" and (node as cst.DotIndex).name ~= nil then
@@ -810,6 +993,17 @@ function lower.expression(
                 op = "span_count",
                 span = counted as string,
                 type = "f64",
+                source = lower.site(node)
+            )
+        end
+        local objectName = lower.nameOf(indexed.obj)
+        local object = objectName ~= nil and environment[objectName as string] or nil
+        if object ~= nil and object.type == "simd_species_u8" and (indexed.name as lexer.Token).text == "lanes" then
+            kernel.usesSimd = true
+            return new scalarIR.Simd(
+                op = "simd_lanes",
+                args = {lower.expression(indexed.obj as cst.Node, environment, activeIndex, kernel)},
+                type = "u32",
                 source = lower.site(node)
             )
         end
@@ -2009,6 +2203,10 @@ record lower.Declarations
 
     --- Visible local structs, which is what a span may hold.
     structs: {[string]: cst.RecordDecl}
+
+    --- Module values and exact compiler intrinsics visible to every function.
+    modules: {[string]: string}
+    intrinsicAliases: {[string]: string}
 end
 
 --- Finds the `@aot` functions, and what they may call and hold.
@@ -2017,9 +2215,29 @@ end
 ---   `@aot` as a fact on the body rather than leaving it to be read off the
 ---   annotation
 function lower.scan(chunk: cst.Chunk, checked: boolean): lower.Declarations
-    local found = new lower.Declarations(applications = {}, helpers = {}, structs = {})
+    local found = new lower.Declarations(
+        applications = {}, helpers = {}, structs = {}, modules = {}, intrinsicAliases = {}
+    )
     for _, block in ipairs(chunk.blocks or {}) do
         for _, stat in ipairs((block as cst.Block).stats or {}) do
+            if stat.kind == "localStmt" then
+                local declaration = stat as cst.LocalStmt
+                local names, exprs = declaration.names or {}, declaration.exprs or {}
+                if #names == 1 and #exprs == 1 and exprs[1].kind == "call" then
+                    local required = (exprs[1] as any).requiredModule
+                    local called = exprs[1] as cst.Call
+                    if required == nil and lower.nameOf(called.obj) == "require" and called.args ~= nil then
+                        local arguments = (called.args as cst.Args).exprs or {}
+                        local literal = #arguments == 1 and arguments[1].kind == "string"
+                            and (arguments[1] as cst.StringLit).token or nil
+                        local written = literal ~= nil and (literal as lexer.Token).text or ""
+                        required = written:match('^"(.*)"$') or written:match("^'(.*)'$")
+                    end
+                    if required ~= nil then
+                        found.modules[names[1].text] = required
+                    end
+                end
+            end
             if stat.kind == "pragmaStmt" then
                 local chain: {cst.PragmaStmt} = {}
                 local cursor: cst.Node? = stat
@@ -2052,6 +2270,25 @@ function lower.scan(chunk: cst.Chunk, checked: boolean): lower.Declarations
                 local declaration = stat as cst.RecordDecl
                 if declaration.declKind == "struct" and declaration.name ~= nil then
                     found.structs[(declaration.name as lexer.Token).text] = declaration
+                end
+            end
+        end
+    end
+
+    -- A function export may be given a local alias before an AOT body uses it.
+    -- Resolve that alias through the module binding rather than through spelling.
+    for _, block in ipairs(chunk.blocks or {}) do
+        for _, stat in ipairs((block as cst.Block).stats or {}) do
+            if stat.kind == "localStmt" then
+                local declaration = stat as cst.LocalStmt
+                local names, exprs = declaration.names or {}, declaration.exprs or {}
+                if #names == 1 and #exprs == 1 and exprs[1].kind == "dotIndex" then
+                    local indexed = exprs[1] as cst.DotIndex
+                    local root = lower.nameOf(indexed.obj)
+                    local moduleName = root ~= nil and found.modules[root as string] or nil
+                    if moduleName ~= nil and indexed.name ~= nil then
+                        found.intrinsicAliases[names[1].text] = moduleName .. "." .. indexed.name.text
+                    end
                 end
             end
         end
@@ -2208,12 +2445,15 @@ function lower.program(
             helpers = {},
             helperOrder = {},
             helperState = {},
+            modules = declarations.modules,
+            intrinsicAliases = declarations.intrinsicAliases,
             symbol = scalarIR.privateSymbol(name),
             loopSource = lower.site(body.body or body),
             index = "",
             indexCName = "",
             resultTypes = resultTypes,
             cursorBounds = {},
+            usesSimd = false,
             serial = 0,
             context = context
         )
@@ -2244,6 +2484,7 @@ function lower.program(
             body = lowered,
             resultTypes = resultTypes,
             resultSourceTypes = resultSourceTypes,
+            usesSimd = kernel.usesSimd,
             source = lower.site(fn)
         )
     end
@@ -2286,12 +2527,15 @@ function lower.program(
         helpers = {},
         helperOrder = {},
         helperState = {},
+        modules = declarations.modules,
+        intrinsicAliases = declarations.intrinsicAliases,
         symbol = scalarIR.privateSymbol(name),
         loopSource = lower.site(loop),
         index = index,
         indexCName = "i",
         resultTypes = {},
         cursorBounds = {},
+        usesSimd = false,
         serial = 0,
         context = context
     )
@@ -2325,6 +2569,7 @@ function lower.program(
         helpers = kernel.helperOrder,
         resultTypes = {},
         resultSourceTypes = {},
+        usesSimd = kernel.usesSimd,
         loop = new scalarIR.Loop(
             index = index,
             first = rangeGuard ~= nil and (rangeGuard as scalarIR.RangeGuard).first or 1,

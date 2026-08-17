@@ -183,6 +183,9 @@ end
 --- @param filename what a refusal names
 --- @param selected the target, which decides whether a gang exists at all
 function compile.lanes(program: scalarIR.Program, filename: string, selected: targets.Target): nil
+    if program.usesSimd == true then
+        program.simdWidth = selected.tier == "avx2" and 32 or 16
+    end
     if program.loop == nil then
         program.wantsLanes = false
         program.lanesDeclined = true

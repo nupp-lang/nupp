@@ -480,4 +480,17 @@ function M.comparisonsAndConversionsUseTheNamedWidth()
    assertEq(m.u32.toI32(2147483648), -2147483648)
 end
 
+function M.unsignedBitCountsDefineZeroAndLaneOrderCases()
+   local m = library()
+   assertEq(m.u32.popcount(0), 0)
+   assertEq(m.u32.popcount(0xffffffff), 32)
+   assertEq(m.u32.popcount(0x80000005), 3)
+   assertEq(m.u32.trailingZeros(0), 32)
+   assertEq(m.u32.trailingZeros(0x80000000), 31)
+   assertEq(m.u32.trailingZeros(0x28), 3)
+   assertEq(m.u32.leadingZeros(0), 32)
+   assertEq(m.u32.leadingZeros(1), 31)
+   assertEq(m.u32.leadingZeros(0x40000000), 1)
+end
+
 return M

@@ -243,7 +243,7 @@ end
 
 --- `nupp.math.f32.sqrt`, which takes one operand.
 record scalarIR.FixedUnary
-    op: 'f32_sqrt'
+    op: 'f32_sqrt' | 'u32_popcount' | 'u32_ctz' | 'u32_clz'
     value: scalarIR.Expr
     type: scalarIR.Type
     source: scalarIR.Source?
@@ -291,6 +291,34 @@ record scalarIR.HelperCall
     source: scalarIR.Source?
 end
 
+--- One source-visible SIMD operation. Its abstract vector and mask types are
+--- specialized to the selected artifact tier only when C is emitted.
+record scalarIR.Simd
+    op: 'simd_species_u8'
+        | 'simd_lanes'
+        | 'simd_load_u8'
+        | 'simd_tail_u8'
+        | 'simd_eq_u8'
+        | 'simd_range_u8'
+        | 'simd_vec_and'
+        | 'simd_vec_or'
+        | 'simd_vec_xor'
+        | 'simd_vec_not'
+        | 'simd_mask_and'
+        | 'simd_mask_or'
+        | 'simd_mask_xor'
+        | 'simd_mask_not'
+        | 'simd_select_u8'
+        | 'simd_any'
+        | 'simd_all'
+        | 'simd_count'
+        | 'simd_bits'
+    args: {scalarIR.Expr}
+    span: string?
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
 --- Every scalar expression.
 type scalarIR.Expr = scalarIR.Constant
     | scalarIR.IntConstant
@@ -308,6 +336,7 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.Corrected
     | scalarIR.Convert
     | scalarIR.HelperCall
+    | scalarIR.Simd
 
 --- Where one assignment puts its value: a local, or one field of a struct
 --- element reached through a span.
@@ -665,6 +694,8 @@ record scalarIR.Program
     --- one compiler-owned native result aggregate at the private boundary.
     resultTypes: {scalarIR.Type}?
     resultSourceTypes: {string}?
+    usesSimd: boolean?
+    simdWidth: integer?
     rangeGuard: scalarIR.RangeGuard?
     lanes: scalarIR.LaneBody?
 

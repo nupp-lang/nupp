@@ -426,6 +426,49 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
     elseif op == "local" or op == "helper_param" then
         local named = node as scalarIR.Name
         holds(values[named.name] == node.type, "invalid local value")
+    elseif tostring(op):match("^simd_") ~= nil then
+        local simd = node as scalarIR.Simd
+        local args = simd.args
+        local signatures = {
+            simd_species_u8 = {result = "simd_species_u8", operands = {}},
+            simd_lanes = {result = "u32", operands = {"simd_species_u8"}},
+            simd_load_u8 = {result = "simd_vector_u8", operands = {"simd_species_u8", "u32"}},
+            simd_tail_u8 = {result = "simd_mask_u8", operands = {"simd_species_u8", "u32"}},
+            simd_eq_u8 = {result = "simd_mask_u8", operands = {"simd_vector_u8", "u32"}},
+            simd_range_u8 = {result = "simd_mask_u8", operands = {"simd_vector_u8", "u32", "u32"}},
+            simd_vec_and = {result = "simd_vector_u8", operands = {"simd_vector_u8", "simd_vector_u8"}},
+            simd_vec_or = {result = "simd_vector_u8", operands = {"simd_vector_u8", "simd_vector_u8"}},
+            simd_vec_xor = {result = "simd_vector_u8", operands = {"simd_vector_u8", "simd_vector_u8"}},
+            simd_vec_not = {result = "simd_vector_u8", operands = {"simd_vector_u8"}},
+            simd_mask_and = {result = "simd_mask_u8", operands = {"simd_mask_u8", "simd_mask_u8"}},
+            simd_mask_or = {result = "simd_mask_u8", operands = {"simd_mask_u8", "simd_mask_u8"}},
+            simd_mask_xor = {result = "simd_mask_u8", operands = {"simd_mask_u8", "simd_mask_u8"}},
+            simd_mask_not = {result = "simd_mask_u8", operands = {"simd_mask_u8"}},
+            simd_select_u8 = {
+                result = "simd_vector_u8",
+                operands = {"simd_mask_u8", "simd_vector_u8", "simd_vector_u8"},
+            },
+            simd_any = {result = "bool", operands = {"simd_mask_u8"}},
+            simd_all = {result = "bool", operands = {"simd_mask_u8"}},
+            simd_count = {result = "u32", operands = {"simd_mask_u8"}},
+            simd_bits = {result = "u32", operands = {"simd_mask_u8"}},
+        }
+        local signature = signatures[tostring(op)]
+        holds(signature ~= nil and node.type == signature.result and #args == #signature.operands, "invalid SIMD operation")
+        for position, argument in ipairs(args) do
+            holds(argument.type == signature.operands[position], "invalid SIMD operand")
+            scalarWalk(argument, values, scope)
+        end
+        if op == "simd_load_u8" then
+            local span = simd.span ~= nil and scope.spans[simd.span as string] or nil
+            holds(
+                span ~= nil and (span as scalarIR.Param).kind == "read_span"
+                    and (span as scalarIR.Param).sourceType == "uint8",
+                "invalid SIMD load root"
+            )
+        else
+            holds(simd.span == nil, "unexpected SIMD span root")
+        end
     elseif verify.FIXED_BINARY[tostring(op)] ~= nil then
         local element = verify.FIXED_BINARY[tostring(op)]
         local pair = node as scalarIR.Fixed
@@ -438,6 +481,10 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
     elseif op == "f32_sqrt" then
         holds(node.type == "f32" and node.value.type == "f32", "invalid binary32 square root")
         scalarWalk(node.value, values, scope)
+    elseif op == "u32_popcount" or op == "u32_ctz" or op == "u32_clz" then
+        local counted = node as scalarIR.FixedUnary
+        holds(node.type == "u32" and counted.value.type == "u32", "invalid uint32 bit count")
+        scalarWalk(counted.value, values, scope)
     elseif verify.FIXED_CORRECTED[tostring(op)] ~= nil then
         corrected(node as scalarIR.Corrected, values, scope)
     elseif op == "constant_i32" then
@@ -1289,6 +1336,12 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     holds(#resultTypes == #sourceResults and #resultTypes <= 4, "invalid AOT entry results")
     for _, resultType in ipairs(resultTypes) do
         holds(verify.NUMERIC[resultType] == true or resultType == "bool", "invalid AOT entry result type")
+    end
+    if program.usesSimd == true then
+        holds(body ~= nil and loop == nil, "explicit SIMD requires a block kernel")
+        holds(program.simdWidth == nil or program.simdWidth == 16 or program.simdWidth == 32, "invalid SIMD width")
+    else
+        holds(program.simdWidth == nil, "a scalar program carries a SIMD width")
     end
 
     local scope = new verify.Scope(

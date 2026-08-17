@@ -127,6 +127,35 @@ function aot.install(c: state.Checker): aot.Ops
                 return
             end
             local kind = (current as Node).kind
+            if kind == "call" then
+                local callee = (current as cst.Call).obj
+                local exact = callee ~= nil and (callee as any).exactCallExport or nil
+                if exact == nil and callee ~= nil and callee.kind == "dotIndex" then
+                    local indexed = callee as cst.DotIndex
+                    local base = indexed.obj
+                    local token = base ~= nil and base.kind == "name" and (base as cst.NameExpr).token or nil
+                    local definition = token ~= nil and (token as any).definition or nil
+                    local moduleName = definition ~= nil and definition.requiredModule or nil
+                    if moduleName ~= nil and indexed.name ~= nil then
+                        exact = {identity = moduleName .. "." .. indexed.name.text,}
+                    end
+                end
+                if exact == nil and callee ~= nil and callee.kind == "name" then
+                    local token = (callee as cst.NameExpr).token
+                    local definition = token ~= nil and (token as any).definition or nil
+                    exact = definition ~= nil and definition.exactCallExport or nil
+                end
+                local selected = c.env.config and c.env.config._target or nil
+                if selected ~= nil and selected.aot == "off"
+                    and exact ~= nil and exact.identity == "nupp.simd.preferredU8" then
+                    c.diag(
+                        "NUPP2903",
+                        callee or current,
+                        "simd.preferredU8 creates an AOT-only value and cannot run with aot=off; "
+                            .. "select aot=emit-c or aot=require"
+                    )
+                end
+            end
             if kind and DECLINED[kind] then
                 decline(current as Node, kind)
 

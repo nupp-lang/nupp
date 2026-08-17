@@ -1,0 +1,63 @@
+-- Target-selected packed values that exist only inside an AOT compilation.
+--
+-- The interfaces deliberately have no implementation. The checker gives calls
+-- their ordinary types, then the AOT lowerer replaces every operation before a
+-- runtime value could exist. Calling `preferred` outside that boundary raises a
+-- direct explanation instead of manufacturing a boxed vector.
+
+local simd = {}
+
+--- One immutable packed value for the preferred target species.
+--- @export
+sealed interface simd.VectorU8
+    equal: function(borrows self: VectorU8, value: uint32): simd.MaskU8
+    inRange: function(borrows self: VectorU8, low: uint32, high: uint32): simd.MaskU8
+    andBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
+    orBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
+    xorBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
+    notBits: function(borrows self: VectorU8): simd.VectorU8
+end
+
+--- One predicate bit per logical vector lane.
+--- @export
+sealed interface simd.MaskU8
+    andBits: function(borrows self: MaskU8, other: MaskU8): simd.MaskU8
+    orBits: function(borrows self: MaskU8, other: MaskU8): simd.MaskU8
+    xorBits: function(borrows self: MaskU8, other: MaskU8): simd.MaskU8
+    notBits: function(borrows self: MaskU8): simd.MaskU8
+    select: function(
+        borrows self: MaskU8,
+        whenTrue: simd.VectorU8,
+        whenFalse: simd.VectorU8
+    ): simd.VectorU8
+    any: function(borrows self: MaskU8): boolean
+    all: function(borrows self: MaskU8): boolean
+    count: function(borrows self: MaskU8): uint32
+    bits: function(borrows self: MaskU8): uint32
+end
+
+--- The preferred register-sized operation set for one element type.
+--- @export
+sealed interface simd.SpeciesU8
+    readonly lanes: number
+
+    --- Loads at a zero-based offset. Inactive final lanes are zero and are
+    --- excluded by `tail`; the implementation never reads beyond the span.
+    load: function(
+        borrows self: SpeciesU8,
+        borrows source: nupp.span.Span<uint8>,
+        offset: number
+    ): simd.VectorU8
+
+    --- A mask with the first `active` lanes set, clamped to this species.
+    tail: function(borrows self: SpeciesU8, active: number): simd.MaskU8
+end
+
+--- Selects the artifact tier's preferred packed byte species.
+--- @raises when called without AOT intrinsic lowering
+--- @export
+function simd.preferredU8(): simd.SpeciesU8
+    error("nupp.simd values exist only inside an @aot function", 2)
+end
+
+return simd

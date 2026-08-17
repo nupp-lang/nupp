@@ -63,6 +63,30 @@ end
 return {scale = scale, sumBytes = sumBytes, Sample = Sample,}
 ]]
 
+local SIMD_KERNEL = [[
+local span = require("nupp.span")
+local simd = require("nupp.simd")
+local preferredBytes = simd.preferredU8
+
+@aot(lanes = false)
+local function countQuotes(borrows source: span.Span<uint8>): uint32
+    local species = preferredBytes()
+    local cursor = 0.0
+    local found: uint32 = 0
+    while cursor < source.count do
+        local bytes = species:load(source, cursor)
+        local tail = species:tail(source.count - cursor)
+        local matches = bytes:equal(34)
+        local valid = matches:andBits(tail)
+        found = nupp.math.u32.add(found, valid:count())
+        cursor = cursor + species.lanes
+    end
+    return found
+end
+
+return {countQuotes = countQuotes}
+]]
+
 local PLAIN = [[
 local m = {}
 
@@ -512,6 +536,51 @@ function M.theBuiltLibraryLoadsAndComputes()
       "independent block loops read their own span bounds and return a scalar")
    test.equal(tonumber(result.v2), 2, "the second scalar result crosses the result aggregate")
    test.equal(tonumber(result.v3), 3, "the third scalar result crosses the result aggregate")
+
+end
+
+function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
+   if not hasToolchain() then return end
+
+   local dir = project("require")
+   local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+   handle:write(SIMD_KERNEL)
+   handle:close()
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+
+   local ffi = require("ffi")
+   ffi.cdef[[
+      uint32_t ks_count_quotes(const uint8_t *source, size_t count_source);
+      uint32_t ks_count_quotes_forced_scalar(const uint8_t *source, size_t count_source);
+   ]]
+   local lib = ffi.load(libraryPath(dir))
+   for count = 0, 40 do
+      local source = ffi.new("uint8_t[?]", math.max(count, 1))
+      local expected = 0
+      for i = 0, count - 1 do
+         source[i] = i % 5 == 0 and 34 or i
+         if source[i] == 34 then expected = expected + 1 end
+      end
+      test.equal(tonumber(lib.ks_count_quotes(source, count)), expected,
+         "packed and scalar tail lanes agree at length " .. count)
+      test.equal(
+         tonumber(lib.ks_count_quotes(source, count)),
+         tonumber(lib.ks_count_quotes_forced_scalar(source, count)),
+         "packed implementation agrees with its forced-scalar oracle at length " .. count
+      )
+   end
+end
+
+function M.explicitSimdNamesWhyAotOffCannotRunIt()
+   local dir = project("off")
+   local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+   handle:write(SIMD_KERNEL)
+   handle:close()
+   local out, code = build(dir)
+   test.equal(code, 1, out)
+   assert(out:find("simd.preferredU8", 1, true), out)
+   assert(out:find("cannot run with aot=off", 1, true), out)
 end
 
 --- Two `@aot` functions over one struct, which is what used to produce a

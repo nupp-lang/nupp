@@ -136,6 +136,16 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
         return "constant:f64 " .. node.value
     elseif op == "bool" then
         return "bool " .. tostring(node.value)
+    elseif tostring(op):match("^simd_") ~= nil then
+        local simd = node as scalarIR.Simd
+        local values: {string} = {}
+        for position, argument in ipairs(simd.args) do
+            values[position] = text.expression(argument)
+        end
+        if simd.span ~= nil then
+            values[#values + 1] = "span:" .. (simd.span as string)
+        end
+        return tostring(op) .. ":" .. simd.type .. "(" .. table.concat(values, ", ") .. ")"
     elseif text.ONE_OPERAND[tostring(op)] == true then
         return op .. "(" .. text.expression((node as scalarIR.Unary).value) .. ")"
     end
@@ -286,6 +296,9 @@ local function preamble(program: scalarIR.Program): {string}
     -- gets there.
     if program.fpContract == true then
         lines[#lines + 1] = "contract fp-contract(fused)"
+    end
+    if program.simdWidth ~= nil then
+        lines[#lines + 1] = "simd species(uint8," .. tostring(program.simdWidth) .. ")"
     end
 
     lines[#lines + 1] = "layouts"
