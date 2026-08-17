@@ -715,6 +715,9 @@ Counted pointers must use `borrows`, and counts currently use plain `uint64`.
 Strides, byte counts, capacities, prefixes, sentinel termination, output
 pointers, and retained pointers require handwritten `ref()` wrappers.
 
+See [checked spans](spans.md) for construction, slicing, partitioning, and
+shared-range validation.
+
 ## Build native dependencies reproducibly
 
 For C code that ships with the project, declare a `kind = "c"` dependency in

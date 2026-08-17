@@ -1,5 +1,5 @@
 --[[
-The language, small enough to hand to a reader that cannot look anything up.
+Nupp, small enough to hand to a reader that cannot look anything up.
 
 A model writing Nupp has never seen Nupp. It has seen a great deal of Lua, so
 the useful document is not a tutorial but a list of what this language adds and
@@ -7,10 +7,10 @@ what catches each addition being got wrong. That is what this is: every
 construct, the shortest program that uses it, and the codes that report misuse.
 
 The prose is written here rather than in a markdown file so that one thing is
-the source. `docs/reference.md` is generated from it and committed, the doc site
-renders that page into its `llms.txt`, and `nupp reference` prints it from the
-binary, so a reader always gets the reference belonging to the compiler they are
-running rather than whatever was on the website.
+the source. `nupp reference` prints it from the binary, so a reader always gets
+the reference belonging to the compiler being run rather than whatever version
+a website happens to serve. The website instead gives each subject a focused
+page written for browsing.
 
 Nothing here is prose about generated data. The lints come from
 `nupp.compiler.lints` and the diagnostic codes from `nupp.compiler.explain`, so
@@ -2120,8 +2120,8 @@ committing.
 ]=]
 
 -- Rendering. The document is assembled once and printed by whatever asked for it, so
--- the committed markdown, the doc-site page and `nupp reference` cannot disagree about
--- what the reference says.
+-- Markdown, skills and structured consumers cannot disagree about what the reference
+-- says.
 
 --- Hard-wraps a generated paragraph at eighty columns, the width the handwritten
 --- prose here is wrapped to. Breaks only at spaces, so a long token stays whole.
@@ -2446,7 +2446,7 @@ function reference.chapter(name: string): reference.Chapter?
 end
 
 --- The short discovery response for `nupp reference`: enough to choose a focused
---- chapter without having to pay for the complete language reference first.
+--- chapter without having to pay for the complete reference first.
 function reference.catalog(): string
     local out: {string} = {"Nupp reference chapters", ""}
     local widest: integer = 0
@@ -2520,7 +2520,7 @@ end
 function reference.markdown(opts: {level: integer?}?): string
     local base = opts and opts.level or 1
     local out: {string} = {}
-    out[#out + 1] = heading(base, "Nupp language reference")
+    out[#out + 1] = heading(base, "Nupp reference")
     out[#out + 1] = ""
     for _, line in ipairs(
         wrapped(

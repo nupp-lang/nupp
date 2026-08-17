@@ -47,7 +47,7 @@ actual argument, which is `nil`. Every call crashes:
 The spelling that works is `function name()`, with `self` implicit and
 undeclared.
 
-This is the spelling in the language reference's own worked example. `nupp
+This is the spelling in the compiler reference's own worked example. `nupp
 reference`, §Records, prints:
 
 ```nupp

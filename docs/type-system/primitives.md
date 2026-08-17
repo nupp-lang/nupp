@@ -324,6 +324,35 @@ Function parameters and results are represented as value sequences. Fixed,
 homogeneous, generic, and correlated sequences are described in [Type
 packs](packs.md).
 
+### Function declarations
+
+Parameters and results are annotated where they are declared. Several results
+are comma-separated in a declaration; only a function *type* needs parentheses
+around a multiple result.
+
+```nupp
+local m = {}
+
+function m.split(text: string): string, integer
+    return text, #text
+end
+
+function m.log(message: string): nil
+    print(message)
+end
+
+return m
+```
+
+In a strict file, an exported function whose signature mentions `any` anywhere
+is treated as unannotated. `any` is the absence of a checked type at that
+boundary, not a way to satisfy the annotation requirement. A function returning
+nothing still states `: nil`.
+
+A function that always raises, exits, or loops forever returns `never`. A call
+to it leaves the containing block, which lets a guard clause establish
+narrowing for the code that follows.
+
 ## Diagnostics
 
 - **NUPP2001**: a value does not fit the type it is bound to, which is what a
@@ -332,6 +361,8 @@ packs](packs.md).
   field of `unknown` reports before it is narrowed.
 - **NUPP2006**: a call's arguments are not arranged in a way it can be given,
   which is what an extra argument to a `never` variadic reports.
+- **NUPP2002**: a returned value does not fit the declared result sequence.
+- **NUPP2106**: a strict exported declaration is not fully annotated.
 - **NUPP2115**: an alias is defined in terms of itself.
 
 ## Next

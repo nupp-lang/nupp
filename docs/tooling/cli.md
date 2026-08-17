@@ -979,9 +979,9 @@ With no chapter, lists the available focused references. `all` is the
 complete Nupp reference, meant to be pasted whole.
 
   nupp reference cli
+  nupp reference language
   nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
   nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
-  nupp reference all > docs/reference.md
   nupp reference --format skill -o .claude/skills/nupp/SKILL.md
 
 Options:
@@ -995,8 +995,8 @@ Options:
   -h, --help         Show this help
 
 The skill's description is what a harness keeps in context permanently;
-the body loads when something is actually being written. See docs/reference.md
-for the same document rendered into the site.
+the body loads when something is actually being written. The documentation site
+instead presents the same subjects as focused pages for human browsing.
 ```
 
 With no chapter, it lists what there is to print:
@@ -1012,9 +1012,8 @@ Run `nupp reference <chapter>` for one chapter, or `nupp reference all` for the 
 ```
 
 The chapters are generated from the compiler, so they cannot describe a
-construct the compiler does not have. The
-[language reference](../reference.md) on this site is the committed output of
-`nupp reference all`, and a test fails if the two drift.
+construct the compiler does not have. Their examples compile in the test suite,
+and every cited diagnostic code must resolve through `nupp explain`.
 
 ### `completions`
 

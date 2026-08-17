@@ -18,6 +18,8 @@ Its namespaces are deliberately small:
   names.
 - [`nupp.log`](logging.md) owns leveled logging over a swappable destination.
 - [`nupp.math`](math.md) owns scalar and two-dimensional vector helpers.
+- [`nupp.span`](spans.md) owns rooted, bounds-checked shared and writable C
+  array views.
 - [`nupp.peg`](peg.md) compiles byte-oriented parsing-expression grammars.
 
 ## Availability, detection and lazy loading

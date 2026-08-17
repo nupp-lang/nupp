@@ -382,5 +382,5 @@ borrow operations when an arm must transfer capability.
 - **NUPP2615**: a terminal is missing or does not exactly match its
   representation.
 
-See also [C interop](c-interop.md), [effects](effects.md), and the
-[language reference](reference.md#owned-resources).
+See also [C interop](c-interop.md), [effects](effects.md), and
+[checked spans](spans.md).

@@ -167,7 +167,7 @@ local ENTRIES: {any} = {
         wrong = "--- @param valeu the value\nlocal function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n",
         right = "--- @param value the value\nlocal function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n",
         related = {"NUPP2506"},
-        docs = "docs/reference.md#docblocks",
+        docs = "docs/tooling/doc.md#doc-comments",
     },
     {
         code = "NUPP1006",
@@ -200,7 +200,7 @@ local ENTRIES: {any} = {
         wrong = "local function length(): integer\n    return \"long\"\nend\n\n" .. "return length\n",
         right = "local function length(): integer\n    return 4\nend\n\n" .. "return length\n",
         related = {"NUPP2001", "NUPP2010"},
-        docs = "docs/reference.md#functions",
+        docs = "docs/type-system/primitives.md#function-declarations",
     },
     {
         code = "NUPP2004",
@@ -235,7 +235,7 @@ local ENTRIES: {any} = {
         .. "local function make(): Vec3\n    return new Vec3(x = 1, y = 2, z = 3)\nend\n\n"
         .. "local position = make()\ndraw((x, y) = position)\n\nreturn draw\n",
         related = {"NUPP2004", "NUPP2125"},
-        docs = "docs/reference.md#named-and-plucked-arguments",
+        docs = "docs/concepts/calls.md",
     },
     {
         code = "NUPP2009",
@@ -269,7 +269,7 @@ local ENTRIES: {any} = {
         wrong = "local input: number = 0.1\nlocal value: float = input as float\nreturn value\n",
         right = "local input: number = 0.1\nlocal value: float = nupp.math.f32.narrow(input)\nreturn value\n",
         related = {"NUPP2001", "NUPP2002", "NUPP2006", "NUPP2012"},
-        docs = "docs/reference.md#fixed-width-scalar-arithmetic",
+        docs = "docs/math.md#fixed-width-arithmetic",
     },
     {
         code = "NUPP2012",
@@ -280,7 +280,7 @@ local ENTRIES: {any} = {
         wrong = "local byte: uint8 = 1\nreturn byte\n",
         right = "local byte: uint32 = 1\nreturn byte\n",
         related = {"NUPP2011", "NUPP2201", "NUPP2203"},
-        docs = "docs/reference.md#fixed-width-scalar-arithmetic",
+        docs = "docs/type-system/primitives.md#numbers",
     },
     {
         code = "NUPP2101",
@@ -291,7 +291,7 @@ local ENTRIES: {any} = {
         wrong = "local count: Count = 1\nreturn count\n",
         right = "local type Count = integer\nlocal count: Count = 1\nreturn count\n",
         related = {"NUPP2105", "NUPP2120"},
-        docs = "docs/reference.md#types",
+        docs = "docs/modules.md#diagnostics",
     },
     {
         code = "NUPP2106",
@@ -336,7 +336,7 @@ local ENTRIES: {any} = {
         wrong = "@allow(NUPP2001)\nlocal count: integer = \"one\"\nreturn count\n",
         right = "local count: integer = 1\nreturn count\n",
         related = {"NUPP2001", "NUPP2112"},
-        docs = "docs/reference.md#lints-and-suppression",
+        docs = "docs/lints.md#local-suppressions",
     },
     {
         code = "NUPP2504",
@@ -409,7 +409,7 @@ local ENTRIES: {any} = {
         wrong = "local record Pair\n    first: string\n    first: integer\nend\n\n" .. "return Pair\n",
         right = "local record Pair\n    first: string\n    second: integer\nend\n\n" .. "return Pair\n",
         related = {"NUPP2004", "NUPP2123"},
-        docs = "docs/reference.md#records",
+        docs = "docs/type-system/records.md#diagnostics",
     },
     {
         code = "NUPP2119",
@@ -434,7 +434,7 @@ local ENTRIES: {any} = {
         right = "local mathutil = require(\"mathutil\")\n"
         .. "local answer: number = mathutil.double(21)\nreturn answer\n",
         related = {"NUPP2101", "NUPP2105"},
-        docs = "docs/reference.md#modules",
+        docs = "docs/modules.md#naming-a-member-from-another-file",
     },
     {
         code = "NUPP2121",
@@ -754,7 +754,7 @@ local ENTRIES: {any} = {
         wrong = "local record Point\n    x: integer\nend\n\n" .. "local p = Point{x = 1}\n\nreturn p\n",
         right = "local record Point\n    x: integer\nend\n\n" .. "local p = new Point(x = 1)\n\nreturn p\n",
         related = {"NUPP2206"},
-        docs = "docs/reference.md#records",
+        docs = "docs/type-system/records.md#records",
     },
     {
         code = "NUPP2203",
@@ -765,7 +765,7 @@ local ENTRIES: {any} = {
         wrong = "cdef function process(values: {number}): int32\nreturn process\n",
         right = "cdef function process(values: voidptr): int32\nreturn process\n",
         related = {"NUPP2201", "NUPP2602"},
-        docs = "docs/reference.md#c-interop",
+        docs = "docs/c-interop.md#hand-write-a-small-binding",
     },
     {
         code = "NUPP2605",
@@ -936,7 +936,7 @@ local ENTRIES: {any} = {
         .. "cdef function submit_request(takes request: voidptr)\n"
         .. "local request = begin_request()\nsubmit_request(request)\nreturn 0\n",
         related = {"NUPP2601", "NUPP2602", "NUPP2605"},
-        docs = "docs/reference.md#owned-resources",
+        docs = "docs/ownership.md#consumption-and-lexical-destruction",
     },
     {
         code = "NUPP2615",
@@ -952,7 +952,7 @@ local ENTRIES: {any} = {
         .. "local function acquire(): affine(Resource, release)\n"
         .. "    return new Resource()\nend\nreturn acquire\n",
         related = {"NUPP2602", "NUPP2603"},
-        docs = "docs/reference.md#owned-resources",
+        docs = "docs/type-system/affine-types.md#cleanup-and-transfer-only-forms",
     },
     {
         code = "NUPP2801",
@@ -1014,7 +1014,7 @@ local ENTRIES: {any} = {
         .. "with the exact shape function(nupp.derive.Info): nupp.derive.Result<I>, where "
         .. "I is one existing interface. @derive must name that resolved export.",
         related = {"NUPP2411", "NUPP2801"},
-        docs = "docs/derives.md#comptime-providers",
+        docs = "docs/derives.md#package-providers",
     },
     {
         code = "NUPP2810",
@@ -1023,7 +1023,7 @@ local ENTRIES: {any} = {
         .. "nupp.derive.implement or nupp.derive.error. Closed builders reject foreign, "
         .. "cyclic, malformed, stale, and over-limit recipe graphs.",
         related = {"NUPP2412", "NUPP2808"},
-        docs = "docs/derives.md#comptime-providers",
+        docs = "docs/derives.md#package-providers",
     },
     {
         code = "NUPP2811",
@@ -1062,7 +1062,7 @@ local ENTRIES: {any} = {
         wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n" .. "nosuspend do\n    wait()\nend\n",
         right = "local function finish(): nil\nend\n\n" .. "nosuspend do\n    finish()\nend\n",
         related = {"NUPP2602", "NUPP2603"},
-        docs = "docs/reference.md#suspension-regions",
+        docs = "docs/start/suspension.md#non-suspending-regions",
     },
     {
         code = "NUPP2702",
@@ -1072,7 +1072,7 @@ local ENTRIES: {any} = {
         wrong = "table.sort({2, 1}, function(a, b): boolean\n" .. "    coroutine.yield()\n    return a < b\nend)\n",
         right = "table.sort({2, 1}, function(a, b): boolean\n" .. "    return a < b\nend)\n",
         related = {"NUPP2701"},
-        docs = "docs/reference.md#suspension-regions",
+        docs = "docs/start/suspension.md#c-call-boundaries",
     },
     {
         code = "NUPP2706",
@@ -1083,7 +1083,7 @@ local ENTRIES: {any} = {
         wrong = "goto inside\nhandle suspension with handler do\n" .. "    ::inside::\nend\n",
         right = "handle suspension with handler do\nend\n::outside::\n",
         related = {"NUPP2701", "NUPP2702"},
-        docs = "docs/reference.md#suspension-regions",
+        docs = "docs/start/suspension.md#handler-scope-follows-the-coroutine",
     },
     {
         code = "NUPP2206",
@@ -1100,7 +1100,7 @@ local ENTRIES: {any} = {
         .. "local record User is Named\n    name: string\nend\n\n"
         .. "local n = new User(name = \"ada\")\n\nreturn n\n",
         related = {"NUPP2202"},
-        docs = "docs/reference.md#records",
+        docs = "docs/type-system/records.md#records",
     },
     {
         code = "NUPP2207",
@@ -1116,7 +1116,7 @@ local ENTRIES: {any} = {
         wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n",
         right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n",
         related = {"NUPP2202", "NUPP2206"},
-        docs = "docs/reference.md#records",
+        docs = "docs/type-system/records.md#records",
     },
     {
         code = "NUPP2512",
@@ -1174,7 +1174,7 @@ local ENTRIES: {any} = {
         .. "\n    constructor(self, name: string)\n        self.name = name\n"
         .. "        self.balance = 0\n    end\nend\n\nreturn Account\n",
         related = {"NUPP2202", "NUPP2207"},
-        docs = "docs/reference.md#records",
+        docs = "docs/type-system/records.md#constructors-and-result-policies",
     },
     {
         code = "NUPP3005",
@@ -1237,7 +1237,7 @@ ENTRIES[
     wrong = "local function build(): nil\n    local values = {}\nend\n\nnoalloc do\n    build()\nend\n",
     right = "local function update(): nil\n    local n = 1\nend\n\nnoalloc do\n    update()\nend\n",
     related = {"NUPP2112", "NUPP2711"},
-    docs = "docs/reference.md#allocation-and-raising-regions",
+    docs = "docs/effects.md#allocation-and-raising-regions",
 }
 
 ENTRIES[
@@ -1252,7 +1252,7 @@ ENTRIES[
     wrong = "local function fail(): nil\n    error('failed')\nend\n\nnoraise do\n    fail()\nend\n",
     right = "local function finish(): nil\nend\n\nnoraise do\n    finish()\nend\n",
     related = {"NUPP2112", "NUPP2710"},
-    docs = "docs/reference.md#allocation-and-raising-regions",
+    docs = "docs/effects.md#allocation-and-raising-regions",
 }
 
 ENTRIES[#ENTRIES + 1] = {

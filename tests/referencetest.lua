@@ -1,9 +1,9 @@
--- The language reference, held to what the compiler actually does.
+-- The compiler reference, held to what the compiler actually does.
 --
 -- A reference is read as authoritative, so an example that stopped compiling is
 -- worse than no example at all. Every one is built into a project and checked
 -- strictly, every code it cites has to resolve, every lint has to appear, and
--- the committed docs/reference.md has to be what the binary would print.
+-- every rendering has to describe the same compiler-owned sections.
 
 local reference = require("nupp.compiler.reference")
 local explain = require("nupp.compiler.explain")
@@ -18,7 +18,6 @@ if not HERE:match("^/") then
    p:close()
 end
 local NUPP = HERE .. "/../bin/nupp"
-local ROOT = HERE .. "/.."
 
 local M = {}
 
@@ -101,19 +100,6 @@ function M.everyLintAppears()
    end
 end
 
--- The committed page is what the site renders and what the llms.txt beside it
--- carries. If it can drift from the binary, a reader has no way to tell which of
--- the two is lying to them.
-function M.theCommittedPageIsCurrent()
-   local file = assert(io.open(ROOT .. "/docs/reference.md", "rb"),
-      "docs/reference.md is missing; run: nupp reference -o docs/reference.md")
-   local committed = file:read("*a")
-   file:close()
-   committed = committed:gsub("\r\n?", "\n")
-   assertEq(committed, reference.markdown() .. "\n",
-      "docs/reference.md is stale; run: nupp reference -o docs/reference.md")
-end
-
 function M.theSkillCarriesLoadableFrontmatter()
    local skill = reference.skill()
    assertEq(skill:sub(1, 4), "---\n", "opens with frontmatter")
@@ -121,7 +107,7 @@ function M.theSkillCarriesLoadableFrontmatter()
    assert(skill:find("description:", 1, true), "says when to load it")
    local closing = skill:find("\n---\n", 4, true)
    assert(closing, "closes its frontmatter")
-   assert(skill:find("# Nupp language reference", closing, true),
+   assert(skill:find("# Nupp reference", closing, true),
       "the document follows the frontmatter")
    assert(skill:find("## Language", closing, true), "groups language sections")
    assert(skill:find("## CLI", closing, true), "groups CLI workflows")

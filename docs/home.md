@@ -22,8 +22,6 @@ Start here and you have run a program by the end of the second page:
 
 For looking something up rather than learning it:
 
-- [The language reference](reference.md): every construct and the codes that
-  report getting it wrong, generated from the compiler.
 - [Type system](type-system/overview.md): gradual typing, records,
   structs, interfaces, generics, and narrowing.
 - [Ownership](start/ownership.md): resources that are hard to leak.
@@ -36,7 +34,7 @@ For looking something up rather than learning it:
   `@jit` contracts, editor inspection, and observed abort reasons.
 - [The `nupp` standard library](stdlib.md): JSON, UTF-8, buffers, readers,
   writers, paths, URIs, identifiers, hashes, checksums, math and vectors.
+- [Checked spans](spans.md): rooted, bounds-checked shared and writable views
+  over contiguous C storage.
 - [Reflection](concepts/reflection.md): comptime semantic descriptors, runtime
   type witnesses, lazy descriptors, and JSON's extension-backed codec.
-- [The language reference](reference.md): every construct and the codes that
-  report getting it wrong, generated from the compiler.

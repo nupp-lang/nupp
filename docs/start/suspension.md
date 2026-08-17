@@ -480,14 +480,13 @@ stack](#cancellation-unwinds-the-parked-stack).
 
 ## Diagnostics
 
-- **[NUPP2701](../reference.md#suspension-regions)** reports a call in a
-  `nosuspend` region or cleanup contract that may suspend.
-- **[NUPP2702](../reference.md#suspension-regions)** reports a suspending
-  callback invoked through a non-yieldable C boundary.
-- **[NUPP2706](../reference.md#suspension-regions)** reports a jump into a
-  `handle suspension` region.
-- **[NUPP2603](../reference.md#owned-resources)** reports a raw coroutine yield
-  that would strand a live ownership or borrowing obligation.
+- **NUPP2701** reports a call in a `nosuspend` region or cleanup contract that
+  may suspend.
+- **NUPP2702** reports a suspending callback invoked through a non-yieldable C
+  boundary.
+- **NUPP2706** reports a jump into a `handle suspension` region.
+- **NUPP2603** reports a raw coroutine yield that would strand a live ownership
+  or borrowing obligation.
 
 ## Next
 

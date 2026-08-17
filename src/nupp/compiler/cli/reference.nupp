@@ -1,5 +1,5 @@
 --[[
-`nupp reference`: the language, small enough to hand to a reader in one piece.
+`nupp reference`: Nupp, small enough to hand to a reader in one piece.
 
 The reference is compiled into the binary rather than fetched, so what prints
 belongs to the compiler being run. That is the whole reason this is a command and
@@ -22,9 +22,9 @@ local command = spec.command{
 complete Nupp reference, meant to be pasted whole.
 
   nupp reference cli
+  nupp reference language
   nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
   nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
-  nupp reference all > docs/reference.md
   nupp reference --format skill -o .claude/skills/nupp/SKILL.md]],
     options = {
         {
@@ -56,8 +56,8 @@ complete Nupp reference, meant to be pasted whole.
         },
     },
     detail = [[The skill's description is what a harness keeps in context permanently;
-the body loads when something is actually being written. See docs/reference.md
-for the same document rendered into the site.]],
+the body loads when something is actually being written. The documentation site
+instead presents the same subjects as focused pages for human browsing.]],
     schema = {
         type = "object",
         properties = {
@@ -129,7 +129,7 @@ local function run(parsed: any): integer
             ] = {title = section.title, body = section.body, example = section.example, codes = section.codes,}
         end
         local payload = {
-            title = chapter and "Nupp " .. chapter.title .. " reference" or "Nupp language reference",
+            title = chapter and "Nupp " .. chapter.title .. " reference" or "Nupp reference",
             sections = sections,
             chapters = chapter and {chapter} or reference.chapters,
             tooling = reference.tooling,

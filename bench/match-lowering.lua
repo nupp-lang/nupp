@@ -2,9 +2,9 @@
 -- Run: luajit bench/match-lowering.lua
 --
 -- Nupp has no `match` yet. Dispatch over a tagged union is written as the if/elseif
--- chain in docs/reference.md, which is a statement: it cannot appear where a value is
--- wanted. The obvious sugar is a match expression, and the obvious desugaring of an
--- expression whose arms are statements is an immediately-called closure:
+-- chain in `nupp reference language`, which is a statement: it cannot appear where
+-- a value is wanted. The obvious sugar is a match expression. Its obvious
+-- desugaring, when the arms are statements, is an immediately-called closure:
 --
 --     total = total + (function() if s.kind == "circle" then return ... end ... end)()
 --

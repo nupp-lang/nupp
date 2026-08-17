@@ -257,6 +257,38 @@ contracts.
 Public failure conditions still belong in `@raises` docblocks, and `never`
 still describes a function that never returns normally.
 
+## Allocation and raising regions
+
+`noalloc do ... end` requires every reachable modeled operation to avoid
+Nupp- or Lua-managed allocation. `noraise do ... end` independently requires
+that no modeled path raises a catchable Nupp or Lua error. Both are lexical
+static checks and erase to ordinary `do` blocks without guards or protected
+calls.
+
+```nupp
+local function quiet(value: uint32): uint32
+    return nupp.math.u32.add(value, 1)
+end
+
+local result: uint32 = 0
+noalloc do
+    noraise do
+        result = quiet(1)
+    end
+end
+```
+
+Visible functions are inferred to a pessimistic fixed point, including their
+automatic cleanup. Exact direct exports transport only the positive
+`noAllocate` and `noRaise` facts a dependent module observes; complete path,
+escape, and return summaries remain file-local. Unknown callbacks, methods,
+gradual calls, and uncontracted C functions prove neither fact.
+
+A bodyless or foreign declaration may establish a fact with a trusted
+`@effects` contract. That is a promise about the unseen implementation, not a
+proof about an operating system, driver, or process-wide allocator. A visible
+body is still checked against its contract.
+
 ## Writes, shapes, and metatables
 
 `writes` and `shapes` answer different questions:
@@ -517,6 +549,9 @@ For bodyless declarations, review the implementation on the other side of the
 boundary: the checker cannot do that verification for you.
 
 ## Diagnostics
+
+- **NUPP2710**: a `noalloc` region can reach a modeled allocation.
+- **NUPP2711**: a `noraise` region can reach a catchable error path.
 
 - **NUPP2112**: an effect annotation member is not one the contract accepts, or
   a boolean member is not literally `true` or `false`.

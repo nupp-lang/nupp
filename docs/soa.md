@@ -104,7 +104,7 @@ NUPP2009: SoA shared rows are read-only
 ## Field spans
 
 `field("name")` projects one resolved field as a normal typed
-[`nupp.span`](c-interop.md#counted-pointer-adapters) view. A shared row view
+[`nupp.span`](spans.md) view. A shared row view
 returns `span.Span<Field>`, and an exclusive row view returns
 `span.Writable<Field>`.
 

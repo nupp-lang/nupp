@@ -40,6 +40,24 @@ indentation; an own-line closing `]]` supplies that margin, while an inline
 closing delimiter uses the common indentation of its content. Ordinary
 `[[...]]` strings remain exact Lua strings.
 
+### Const tables
+
+`const M.field = value` initializes an immutable field. Inside a fresh table
+constructor, `const name = value` does the same for one named slot.
+
+`const ...` before an outer field declaration applies immutability recursively
+to the new table graph:
+
+```nupp
+local M = {}
+const ... M.settings = {name = "nupp", nested = {count = 0}}
+return M
+```
+
+The checker rejects later writes through those paths. Plain `const M.field`
+remains shallow: inner fields stay mutable unless they are themselves declared
+`const`.
+
 ## Level 1: the typed layer
 
 ```nupp
