@@ -103,56 +103,90 @@ patch chunks over an existing control channel.
 
 ### Compiler session
 
-Add a host-neutral compiler-side object, conceptually:
+The host-neutral compiler-side object. This section described it conceptually
+until the types were written; it now records what `nupp.compiler.hot_session`
+declares, which differed from the sketch in four places worth naming: `Restart`
+carries the `reason` that refused the change, `initial` tags its answer and can
+answer a failure instead, and `loaded` and `committed` hand back the
+unverified-library notices rather than nothing.
 
 ```nupp
-type hotreload.Result = hotreload.Prepared |
-    hotreload.Rejected |
-    hotreload.Restart |
-    hotreload.Unchanged
+type hotSession.Result = hotSession.Prepared |
+    hotSession.Rejected |
+    hotSession.Restart |
+    hotSession.Unchanged
 
-record hotreload.Prepared
+record hotSession.Prepared
     kind: "prepared"
     patch: string
     baseGeneration: integer
     generation: integer
 end
 
-record hotreload.Rejected
+record hotSession.Rejected
     kind: "diagnostics"
     diagnostics: {any}
 end
 
-record hotreload.Restart
+record hotSession.Restart
     kind: "restart-required"
     diagnostics: {any}
+
+    --- Which boundary refused it, where one can be named. A host reports the
+    --- declaration, capture or artifact rather than only that something moved.
+    reason: any
 end
 
-record hotreload.Unchanged
+record hotSession.Unchanged
     kind: "no-change"
     generation: integer
 end
 
-record hotreload.InitialBuild
+record hotSession.InitialBuild
+    kind: "initial"
     generation: integer
     entryCode: string
     entryManifest: any
 end
 
-record hotreload.Session
-    diskChanged: function(self: hotreload.Session, path: string, changeType: integer)
-    initial: function(self: hotreload.Session, entries: {string}): hotreload.InitialBuild
-    prepare: function(self: hotreload.Session, paths: {string}): hotreload.Result
+--- Loader names whose binary identity could not be pinned, reported once each.
+type hotSession.Notices = {
+    unverifiedLibraries: {string}
+}
+
+--- A file the session wants events for, and why it is watching it.
+type hotSession.WatchedInput = {
+    path: string,
+    kind: string,
+    [string]: any
+}
+
+record hotSession.Session
+    diskChanged: function(self: hotSession.Session, path: string, changeType: integer)
+
+    --- An entry that does not build answers with the failure rather than raising.
+    initial: function(
+        self: hotSession.Session,
+        entries: {string}
+    ): hotSession.InitialBuild | hotSession.Rejected | hotSession.Restart
+
+    prepare: function(self: hotSession.Session, paths: {string}): hotSession.Result
     loaded: function(
-        self: hotreload.Session,
+        self: hotSession.Session,
         module: string,
         generation: integer,
         manifest: any
-    ): nil
-    committed: function(self: hotreload.Session, generation: integer): nil
-    persist: function(self: hotreload.Session): nil
+    ): hotSession.Notices
+    committed: function(self: hotSession.Session, generation: integer): hotSession.Notices
+    watchedInputs: function(self: hotSession.Session): {hotSession.WatchedInput}
+    persist: function(self: hotSession.Session): nil
 end
 ```
+
+What a running program sees is separate and smaller. `nupp.HotReload.poll`
+answers `nupp.HotReloadPoll`, one record whose `kind` selects which of the
+fields above it carries. It is not the four-way union, because a prelude record
+cannot be named as a type from another module.
 
 `Session` owns one `incremental.Inc`. `diskChanged` forwards invalidation to the
 existing query graph. `prepare` checks the affected source closure, compares its
