@@ -64,22 +64,32 @@ work makes sense in.
       a convention or a per-symbol mapping rather than a port. And the cbindgen
       path has no test: `tests/projecttest.lua:1351` asserts only that the
       cdylib was copied, and every binding assertion sits on the C provider.
-- [ ] **Hot reload is the one part of the compiler that runs untyped.**
-      `src/nupp/hotreload.g.nupp` and `src/nupp/compiler/hot_session.g.nupp` are
-      the only two `.g.nupp` files under `src`, so the machinery deciding
-      whether an edit may reach a running program is the machinery outside the
-      strict floor. `--strict` names five exported functions with no
-      annotation — `module`, `define`, `stage`, `commit` and `hotSession.new` —
-      and the public surface says as little: `nupp.HotReload.poll` is declared
-      as returning `any` (`src/nupp/compiler/decls/prelude.d.nupp:251`), and the
-      CLI's own host loop reads its `kind` strings untyped
-      (`src/nupp/compiler/cli/run.nupp:123`).
-      The types were specified and never written: `hot-reload.md:106` gives
-      `Result = Prepared | Rejected | Restart | Unchanged`, `InitialBuild` and
-      the `Session` record. Writing those, renaming both files to `.nupp` and
-      widening `poll` closes this. The slot vectors, `debug.upvaluejoin` and the
-      loaded patch chunk stay `any` by nature; the results and the manifests are
-      where the typing is worth having.
+- [x] **Hot reload is the one part of the compiler that runs untyped.** Both
+      files are `.nupp` now and hold to the strict floor, so nothing under `src`
+      opts out of it. `--strict` named six exports rather than the five recorded
+      here -- `policy` was missing from the list -- and each has a real signature.
+      `nupp.HotReload.poll` answers `nupp.HotReloadPoll`, whose docblock says
+      which of the four `kind` values carries which fields, so a host branches on
+      a documented answer instead of on `any`.
+      The specified types were written where the code puts them rather than where
+      the plan guessed: `prepare` answers `Prepared | Rejected | Restart |
+      Unchanged` as specified, but `Restart` also carries the `reason` naming the
+      boundary that refused the change, `initial` tags its result `kind =
+      "initial"`, and `loaded` and `committed` answer with the unverified-library
+      notices rather than nothing. `plans/036-hot-reload.md:106` is now behind the
+      code on all four points.
+      Two things stayed `any` on purpose and one had to. The slot vectors are
+      `{hotreload.Implementation}` where an implementation is
+      `function(...: any): any`, because generated code writes them and generated
+      code calls them; the loaded patch chunk and `debug.upvaluejoin` are
+      untypeable by nature; and a manifest is plain data the generator alone
+      decides the shape of, so typing it here would be claiming a shape this
+      module does not own.
+      The public poll result is a record with optional fields rather than a union
+      of four records. A union would be better, and the reason it is not is that
+      a prelude record is not nameable as a type from another module -- referring
+      to `nupp.HotReloadPrepared` from `cli/run.nupp` reports NUPP2101. Worth
+      revisiting when prelude types can be named across modules.
 - [ ] **Integrate checked `@aot` lowering for Nupp-authored tight loops.** The
       annotation, fixed-width establishment facts, structural subset checker,
       and scalar-source `@aot(simd = true)` contract exist. The spike under

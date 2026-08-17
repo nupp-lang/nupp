@@ -21,6 +21,136 @@ local hotSession = {}
 local Session = {}
 Session.__index = Session
 
+--- Why a well-typed change still cannot reach the running process.
+---
+--- The kind names the boundary that refused it and the rest identifies what crossed
+--- that boundary, so a host can say which declaration or capture is responsible rather
+--- than only that something structural moved.
+type hotSession.Reason = {
+    kind: string,
+    [string]: any
+}
+
+--- A complete, loadable patch. Nothing in the running process has changed yet.
+record hotSession.Prepared
+    kind: "prepared"
+
+    --- The patch chunk, ready to hand to `hotreload.stage`.
+    patch: string
+
+    --- The generation this was prepared against, and the one committing it produces.
+    --- A host that has moved on since must prepare again.
+    baseGeneration: integer
+
+    generation: integer
+end
+
+--- The candidate did not check. The running generation remains valid.
+record hotSession.Rejected
+    kind: "diagnostics"
+    diagnostics: {any}
+end
+
+--- The change is well-typed but outside what a live process can take.
+record hotSession.Restart
+    kind: "restart-required"
+    diagnostics: {any}
+
+    --- Which boundary refused it, where one can be named.
+    reason: any
+end
+
+--- Nothing an implementation depends on changed, so there is nothing to publish.
+record hotSession.Unchanged
+    kind: "no-change"
+    generation: integer
+end
+
+--- What `prepare` answers with, discriminated by `kind`.
+type hotSession.Result = hotSession.Prepared |
+    hotSession.Rejected |
+    hotSession.Restart |
+    hotSession.Unchanged
+
+--- The entry watch artifact and the manifest describing what it registered.
+record hotSession.InitialBuild
+    kind: "initial"
+    generation: integer
+    entryCode: string
+
+    --- Plain data written by generation and read back by `loaded`. It is not the
+    --- compiler's own structures, and typing it here would be claiming a shape the
+    --- generator alone decides.
+    entryManifest: any
+end
+
+--- A file the session wants to be told about, and why it is watching it.
+---
+--- `kind` separates project source from the headers and native artifacts a loaded
+--- module pulled in, which is what lets a host watch a header without guessing.
+type hotSession.WatchedInput = {
+    path: string,
+    kind: string,
+    [string]: any
+}
+
+--- Loader names whose binary identity the session could not pin, reported once each.
+type hotSession.Notices = {
+    unverifiedLibraries: {string}
+}
+
+--- One compiler-side hot reload session, owning one incremental query graph.
+---
+--- The baseline only advances when the host says a commit landed, so a session and a
+--- running process cannot disagree about which generation is live.
+record hotSession.Session
+    --- The query graph this session owns.
+    inc: any
+
+    --- The generation the running process is on.
+    generation: integer
+
+    --- Manifests of the modules that have executed and registered, by module name. It
+    --- grows as modules load; it is not a claim that every reachable module is
+    --- resident.
+    running: {[string]: any}
+
+    prepared: {[integer]: any}
+    noticedLibraries: {[string]: boolean}
+    observedInputs: {[string]: any}
+    libraryPaths: {[string]: string}
+    libraryConfiguredPaths: {[string]: string}
+
+    --- Forwards a file-watcher event to the query graph. `changeType` is the LSP
+    --- code, where 3 means the file was deleted.
+    diskChanged: function(self: hotSession.Session, path: string, changeType: integer)
+
+    --- Builds the entry watch artifact, or answers why it could not be built.
+    initial: function(
+        self: hotSession.Session,
+        entries: {string}
+    ): hotSession.InitialBuild | hotSession.Rejected | hotSession.Restart
+
+    --- Checks the affected source closure against the running generation.
+    prepare: function(self: hotSession.Session, paths: {string}): hotSession.Result
+
+    --- Records that a module executed and registered its slots.
+    loaded: function(
+        self: hotSession.Session,
+        module: string,
+        generation: integer,
+        manifest: any
+    ): hotSession.Notices
+
+    --- Advances the baseline after the host reports a commit landed.
+    committed: function(self: hotSession.Session, generation: integer): hotSession.Notices
+
+    --- Every file this session wants events for.
+    watchedInputs: function(self: hotSession.Session): {hotSession.WatchedInput}
+
+    persist: function(self: hotSession.Session): nil
+end
+
 local function fatalIn(values)
     for _, value in ipairs(values or {}) do
         if diagnostics.isFatal(value) then
@@ -95,17 +225,17 @@ local function restart(path, message, reason)
         help = "restart the process; loaded cdata, callbacks, function pointers, and native state cannot be rebound"
     end
 
-    return {
+    return new hotSession.Restart(
         kind = "restart-required",
         reason = reason,
         diagnostics = {
             {filename = path, line = 1, col = 1, offset = 0, length = 0, code = "NUPP5001", msg = message, help = help,}
-        },
-    }
+        }
+    )
 end
 
 local function diagnosticsFailure(values)
-    return {kind = "diagnostics", diagnostics = values}
+    return new hotSession.Rejected(kind = "diagnostics", diagnostics = values)
 end
 
 local function exportDeprecationsFingerprint(exports)
@@ -441,8 +571,10 @@ local function dependencyChangeMessage(change, consumer, consumerPath)
     return subject .. " changed (" .. required .. ")"
 end
 
-function hotSession.new(root, opts)
-    local self = setmetatable({}, Session)
+function hotSession.new(root: string?, opts: table?): hotSession.Session
+    -- `Session` is a plain table of methods used as a metatable, so the claim that
+    -- this is a session is made here, once, where the fields below fill it in.
+    local self = setmetatable({}, Session) as hotSession.Session
     self.inc = incremental.new(root or ".", opts or {})
     self.generation = 1
     self.running = {}
@@ -902,15 +1034,17 @@ function Session:prepare(paths)
     if changedCount == 0 then
         self.running = candidate
         self.observedInputs = {}
-        return {kind = "no-change", generation = self.generation}
+        return new hotSession.Unchanged(kind = "no-change", generation = self.generation)
     end
-    local generation = self.generation + 1
-    local result = {
+    -- Integer arithmetic widens, so the sum is narrowed back where it is bound
+    -- rather than at each of the two places the record wants an integer.
+    local generation = (self.generation + 1) as integer
+    local result = new hotSession.Prepared(
         kind = "prepared",
         patch = table.concat(patches, "\n"),
         baseGeneration = self.generation,
-        generation = generation,
-    }
+        generation = generation
+    )
     self.prepared[generation] = {result = result, manifests = candidate}
 
     return result

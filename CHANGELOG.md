@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Hold hot reload to the strict floor. `src/nupp/hotreload.g.nupp` and
+  `src/nupp/compiler/hot_session.g.nupp` were the only two files under `src` that
+  opted out of it, which put the machinery deciding whether an edit may reach a
+  running program outside the checking every other part of the compiler gets.
+  Both are `.nupp` now. `nupp.HotReload.poll` answers `nupp.HotReloadPoll`
+  instead of `any`, and its docblock says which of the four `kind` values carries
+  which fields, so a host branches on a documented answer. The compiler side
+  gains the `Prepared | Rejected | Restart | Unchanged` result it was specified
+  to have, plus the `Session`, `InitialBuild` and watched-input types. The slot
+  vectors, the loaded patch chunk and the module manifests stay `any`, which is
+  what they are: generated code writes them, generated code reads them, and their
+  shape is not this module's to claim.
+
 - Say what every JSON codec in the compiler does with an empty table and with a
   NaN, instead of taking whichever cjson the interpreter loaded at its word.
   cjson's defaults belong to the build rather than to the library, so a codec
