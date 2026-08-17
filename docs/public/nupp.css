@@ -134,18 +134,16 @@
   padding: 1rem 1.1rem;
 }
 
-/* Match every prose heading to the feature-tour heading color and face, so one
- * heading style covers the site rather than the homepage owning a one-off.
+/* The display face names things: the wordmark and the one title a page opens
+ * with. Section headings below that are read rather than looked at, so they
+ * stay in the text face and keep only the heading color.
  *
  * Potta One ships one weight and is already heavy, so ask for 400 rather than
  * the theme's 700: a bolder weight than the file holds is drawn by smearing the
  * outline, which thickens the brush strokes unevenly. Its own fit is tight
  * enough that the theme's negative tracking closes the counters. */
 .nuppdoc-brand-name,
-.nuppdoc-content h1,
-.nuppdoc-content h2,
-.nuppdoc-content h3,
-.nuppdoc-showcase-copy h2 {
+.nuppdoc-content h1 {
   font-family: var(--nuppdoc-heading-font);
   font-weight: 400;
   letter-spacing: normal;
