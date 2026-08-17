@@ -187,6 +187,20 @@ record aotLane.FieldLoad
     --- The field's storage type, which decides the vector it loads into.
     scalarType: aotLane.Element
 
+    --- The physical field storage, which may be narrower than its value.
+    sourceType: string?
+
+    type: aotLane.Vector
+    source: aotLane.Source?
+end
+
+--- Consecutive scalar span elements gathered into one vector.
+record aotLane.SpanLoad
+    op: 'vspan_load'
+    span: string
+    lanes: integer
+    scalarType: aotLane.Element
+    sourceType: string?
     type: aotLane.Vector
     source: aotLane.Source?
 end
@@ -472,6 +486,7 @@ const aotLane.INNER_LOOP_WEIGHT = 8
 type aotLane.Expr = aotLane.Splat
     | aotLane.BoolSplat
     | aotLane.FieldLoad
+    | aotLane.SpanLoad
     | aotLane.Binary
     | aotLane.Unary
     | aotLane.MaskOp
@@ -522,10 +537,20 @@ record aotLane.FieldTarget
 
     --- The field's storage type, which is what the store narrows to.
     scalarType: aotLane.Element
+
+    sourceType: string?
+end
+
+--- Consecutive elements of one writable scalar span.
+record aotLane.SpanTarget
+    kind: 'vspan'
+    span: string
+    scalarType: aotLane.Element
+    sourceType: string?
 end
 
 --- Where one assignment puts its value.
-type aotLane.Target = aotLane.LocalTarget | aotLane.FieldTarget
+type aotLane.Target = aotLane.LocalTarget | aotLane.FieldTarget | aotLane.SpanTarget
 
 --- One target and the value going into it.
 record aotLane.Assignment

@@ -22,7 +22,15 @@ local admit = {}
 --- `float`, `int32` and `uint32` are establishment facts rather than arithmetic
 --- types: a physical load widens and a physical store narrows, and nothing in
 --- between changes a width.
-const admit.STORAGE = {["float"] = "f32", ["int32"] = "i32", ["uint32"] = "u32"}
+const admit.STORAGE = {
+    ["float"] = "f32",
+    ["int8"] = "i32",
+    ["int16"] = "i32",
+    ["int32"] = "i32",
+    ["uint8"] = "u32",
+    ["uint16"] = "u32",
+    ["uint32"] = "u32",
+}
 
 --- Ordinary arithmetic, which is binary64 whatever the operands were stored as.
 const admit.ARITHMETIC = {["+"] = "add", ["-"] = "sub", ["*"] = "mul", ["/"] = "div", ["%"] = "mod", ["^"] = "pow",}

@@ -593,6 +593,12 @@ function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
          package.loaded["kernel"] = nil
          package.path = %q .. "/" .. which .. "/?.lua;" .. NUPP .. ";" .. package.path
          local mod = require("kernel")
+         -- The generated chunk is gone after require returns. Force enough
+         -- unrelated allocation and a collection that a library handle rooted
+         -- only in that chunk would be closed before its exported wrapper runs.
+         local pressure = {}
+         for i = 1, 5000 do pressure[i] = {i} end
+         collectgarbage("collect")
          local src = ffi.new("struct { float value; float weight; }[?]", count)
          for i = 0, count - 1 do
             src[i].value = (i %% 37) * 0.25 - 3

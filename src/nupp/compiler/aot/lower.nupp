@@ -206,7 +206,12 @@ function lower.layout(
         seen[fieldName] = true
         layout.fields[
             #layout.fields + 1
-        ] = new scalarIR.Field(name = fieldName, type = fieldType as string, source = lower.site(entry))
+        ] = new scalarIR.Field(
+            name = fieldName,
+            type = fieldType as string,
+            sourceType = spelling,
+            source = lower.site(entry)
+        )
     end
     if #layout.fields == 0 then
         context.reject(lower.site(declaration), "native structs need at least one field")
@@ -470,6 +475,7 @@ local function fieldRead(node: cst.DotIndex, object: scalarIR.Expr, kernel: lowe
             layout = layoutName as string,
             field = (field as scalarIR.Field).name,
             type = (field as scalarIR.Field).type,
+            sourceType = (field as scalarIR.Field).sourceType,
             source = lower.site(node)
         ),
         lower.site(node)
@@ -1323,7 +1329,8 @@ local function assignTarget(target: cst.Node, environment: {[string]: any}, kern
         object = object,
         layout = layoutName as string,
         field = (field as scalarIR.Field).name,
-        type = (field as scalarIR.Field).type
+        type = (field as scalarIR.Field).type,
+        sourceType = (field as scalarIR.Field).sourceType
     )
 end
 
@@ -1575,12 +1582,13 @@ function lower.parameters(
         local param: scalarIR.Param
         if writeElement ~= nil then
             if mode ~= "exclusive" then
-                context.reject(lower.site(raw), "a writable float span must be declared exclusive")
+                context.reject(lower.site(raw), "a writable native span must be declared exclusive")
             end
             param = new scalarIR.Param(
                 kind = "write_span",
                 name = name as string,
                 type = (writeElement as lower.Element).type,
+                sourceType = (writeElement as lower.Element).sourceType,
                 region = region,
                 access = "readwrite",
                 ownership = "exclusive",
@@ -1591,12 +1599,13 @@ function lower.parameters(
             signature.spans[#signature.spans + 1] = param
         elseif readElement ~= nil then
             if mode ~= "borrows" then
-                context.reject(lower.site(raw), "a readable float span must be declared borrows")
+                context.reject(lower.site(raw), "a readable native span must be declared borrows")
             end
             param = new scalarIR.Param(
                 kind = "read_span",
                 name = name as string,
                 type = (readElement as lower.Element).type,
+                sourceType = (readElement as lower.Element).sourceType,
                 region = region,
                 access = "read",
                 ownership = "shared",

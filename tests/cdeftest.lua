@@ -313,6 +313,8 @@ function M.cdefBindingsAndHelpersUseConstWherePossible()
    local libraryCode = compile(
       "cdef function crc32(crc: uint64, buf: cstring, len: uint32): uint64 from 'z'")
    assert(libraryCode:find("const __nuppLibCache", 1, true), libraryCode)
+   assert(libraryCode:find("__nuppLibraryRoots", 1, true), libraryCode)
+   assert(libraryCode:find("__nuppLibRoots[l] = true", 1, true), libraryCode)
    assert(libraryCode:find("const function __nuppLib", 1, true), libraryCode)
    assert(libraryCode:find("local l = __nuppLibCache[n]", 1, true), libraryCode)
 end

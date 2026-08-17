@@ -98,6 +98,33 @@ const verify.NUMERIC = {["f64"] = true, ["f32"] = true, ["i32"] = true, ["u32"] 
 --- these rather than appearing here themselves.
 const verify.FIELD_STORAGE = {["f32"] = true, ["i32"] = true, ["u32"] = true}
 
+--- The value type established by each physical scalar storage type.
+---
+--- Narrow integers are deliberately absent from the IR value vocabulary: a
+--- load establishes a 32-bit value, and a store narrows only at memory. Keeping
+--- this relation explicit prevents a backend from confusing register width
+--- with the bytes an ABI pointer actually addresses.
+const verify.SOURCE_STORAGE = {
+    ["float"] = "f32",
+    ["int8"] = "i32",
+    ["int16"] = "i32",
+    ["int32"] = "i32",
+    ["uint8"] = "u32",
+    ["uint16"] = "u32",
+    ["uint32"] = "u32",
+}
+
+--- The source spelling an old or hand-built IR node means when it omits one.
+const verify.CANONICAL_SOURCE = {["f32"] = "float", ["i32"] = "int32", ["u32"] = "uint32"}
+
+local function storageSource(valueType: string, sourceType: string?): string
+    return sourceType or tostring(verify.CANONICAL_SOURCE[valueType])
+end
+
+local function validStorage(valueType: string, sourceType: string?): boolean
+    return verify.SOURCE_STORAGE[storageSource(valueType, sourceType)] == valueType
+end
+
 --- The arity of each bitwise verb. `not` is the only unary one.
 const verify.BITWISE_ARITY = {["and"] = 2, ["or"] = 2, ["xor"] = 2, ["shl"] = 2, ["shr"] = 2, ["sar"] = 2, ["not"] = 1,}
 
@@ -193,6 +220,7 @@ const verify.LANE_OPCODES = {
     ["vsplat"] = true,
     ["vbool_splat"] = true,
     ["vfield_load"] = true,
+    ["vspan_load"] = true,
     ["vmask"] = true,
     ["vshort"] = true,
     ["vselect"] = true,
@@ -344,7 +372,14 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         elementRef(node, scope)
     elseif op == "field_load" then
         local layout = scope.layouts[node.layout]
-        holds(layout ~= nil and (layout.fieldTypes or {})[node.field] == node.type, "invalid struct field load")
+        holds(
+            layout ~= nil and (
+                layout.fieldTypes or {}
+            )[
+                node.field
+            ] == node.type and (layout.fieldSourceTypes or {})[node.field] == storageSource(node.type, node.sourceType),
+            "invalid struct field load"
+        )
         scalarWalk(node.object, values, scope)
     elseif op == "uniform" then
         local param = scope.spans[node.name]
@@ -557,10 +592,35 @@ laneWalk = function(node: lane.Expr, values: {[string]: string}, context: verify
                 layout.fieldTypes or {}
             )[
                 node.field
-            ] == node.scalarType and verify.FIELD_STORAGE[
-                node.scalarType
-            ] == true and node.lanes == shape.lanes and node.type == shape.vectorFor[node.scalarType],
+            ] == node.scalarType and (
+                layout.fieldSourceTypes or {}
+            )[
+                node.field
+            ] == storageSource(
+                node.scalarType,
+                node.sourceType
+            ) and validStorage(
+                node.scalarType,
+                node.sourceType
+            ) and node.lanes == shape.lanes and node.type == shape.vectorFor[node.scalarType],
             "a lane load that does not match its span, field, or width"
+        )
+    elseif node.op == "vspan_load" then
+        local root = context.scope.spans[node.span]
+        laneHolds(
+            root ~= nil and (
+                root.kind == "read_span" or root.kind == "write_span"
+            ) and root.type == node.scalarType and storageSource(
+                root.type,
+                root.sourceType
+            ) == storageSource(
+                node.scalarType,
+                node.sourceType
+            ) and validStorage(
+                node.scalarType,
+                node.sourceType
+            ) and node.lanes == shape.lanes and node.type == shape.vectorFor[node.scalarType],
+            "a lane load that does not match its span or width"
         )
     elseif node.op == "vbinary" then
         local signature = binaries[node.verb .. "." .. tostring(node.element)]
@@ -713,7 +773,7 @@ local function assignment(
     local target = entry.target
     if target.kind == "local" then
         holds(values[tostring(target.name)] == target.type, "invalid local assignment target")
-    else
+    elseif target.kind == "field" then
         local layout = scope.layouts[tostring(target.layout)]
         local object = target.object
         holds(
@@ -723,10 +783,16 @@ local function assignment(
                 layout as scalarIR.Layout
             ).fieldTypes ~= nil and (
                 (layout as scalarIR.Layout).fieldTypes or {}
-            )[tostring(target.field)] == target.type,
+            )[
+                tostring(target.field)
+            ] == target.type and (
+                (layout as scalarIR.Layout).fieldSourceTypes or {}
+            )[tostring(target.field)] == storageSource(tostring(target.type), target.sourceType),
             "invalid field assignment target"
         )
         scalarWalk(object as scalarIR.Expr, values, scope)
+    else
+        refuse("invalid scalar assignment target")
     end
     holds(entry.value.type == target.type, "assignment type mismatch")
     scalarWalk(entry.value, values, scope)
@@ -848,25 +914,46 @@ local function laneBlock(
                 laneWalk(entry.value, values, context)
                 if target.kind == "local" then
                     laneHolds(values[target.name] == entry.value.type, "invalid lane local assignment")
-                else
+                elseif target.kind == "vfield" then
                     local root = context.scope.spans[target.span]
                     local layout = context.scope.layouts[target.layout]
                     laneHolds(
-                        target.kind == "vfield"
-                        and root ~= nil
-                        and root.kind == "write_span"
-                        and root.type == "struct:"
-                        .. tostring(
+                        root ~= nil and root.kind == "write_span" and root.type == "struct:" .. tostring(
                             target.layout
                         ) and layout ~= nil and (
                             layout.fieldTypes or {}
                         )[
                             target.field
-                        ] == target.scalarType and verify.FIELD_STORAGE[
-                            target.scalarType
-                        ] == true and entry.value.type == context.shape.vectorFor[target.scalarType],
+                        ] == target.scalarType and (
+                            layout.fieldSourceTypes or {}
+                        )[
+                            target.field
+                        ] == storageSource(
+                            target.scalarType,
+                            target.sourceType
+                        ) and validStorage(
+                            target.scalarType,
+                            target.sourceType
+                        ) and entry.value.type == context.shape.vectorFor[target.scalarType],
                         "invalid lane field assignment"
                     )
+                elseif target.kind == "vspan" then
+                    local root = context.scope.spans[target.span]
+                    laneHolds(
+                        root ~= nil and root.kind == "write_span" and root.type == target.scalarType and storageSource(
+                            root.type,
+                            root.sourceType
+                        ) == storageSource(
+                            target.scalarType,
+                            target.sourceType
+                        ) and validStorage(
+                            target.scalarType,
+                            target.sourceType
+                        ) and entry.value.type == context.shape.vectorFor[target.scalarType],
+                        "invalid lane span assignment"
+                    )
+                else
+                    refuse("invalid lane IR: an unknown assignment target")
                 end
             end
         elseif statement.op == "vwhile" then
@@ -919,11 +1006,17 @@ local function layoutsByName(program: scalarIR.Program): {[string]: scalarIR.Lay
         holds(layouts[layout.name] == nil and layout.cName ~= nil and #layout.fields > 0, "invalid native layout")
 
         local fields: {[string]: scalarIR.Type} = {}
+        local sources: {[string]: string} = {}
         for _, field in ipairs(layout.fields) do
-            holds(fields[field.name] == nil and verify.FIELD_STORAGE[field.type] == true, "invalid native layout field")
+            holds(
+                fields[field.name] == nil and validStorage(field.type, field.sourceType),
+                "invalid native layout field"
+            )
             fields[field.name] = field.type
+            sources[field.name] = storageSource(field.type, field.sourceType)
         end
         layout.fieldTypes = fields
+        layout.fieldSourceTypes = sources
         layouts[layout.name] = layout
     end
 
@@ -952,9 +1045,10 @@ local function signature(
             holds(verify.NUMERIC[param.type] == true and param.region == nil, "invalid IR uniform")
         else
             local structName = param.type:match("^struct:(.+)$")
-            local element = verify.FIELD_STORAGE[
-                param.type
-            ] == true or structName ~= nil and layouts[tostring(structName)] ~= nil
+            local element = structName == nil and validStorage(
+                param.type,
+                param.sourceType
+            ) or structName ~= nil and param.sourceType == nil and layouts[tostring(structName)] ~= nil
             holds(element and param.region ~= nil and byRegion[tostring(param.region)] == nil, "invalid IR span")
             holds(param.access == (param.kind == "write_span" and "readwrite" or "read"), "invalid IR region access")
             byRegion[tostring(param.region)] = param

@@ -31,6 +31,23 @@ local binding = {}
 --- How a storage type is spelled in Nupp source.
 const binding.SOURCE_TYPE = {["f32"] = "float", ["i32"] = "int32", ["u32"] = "uint32"}
 
+--- The source storage spelling carried by the IR, or its canonical spelling.
+local function sourceType(valueType: string, physicalType: string?): string
+    return physicalType or tostring(binding.SOURCE_TYPE[valueType])
+end
+
+--- The exact pointer type a span contributes to the foreign ABI.
+---
+--- This preserves constness for spans over immutable storage such as strings;
+--- erasing every span to `voidptr` asks LuaJIT FFI to discard const on the call.
+local function pointerType(param: scalarIR.Param): string
+    local layout = param.type:match("^struct:(.+)$")
+    local element = layout or sourceType(param.type, param.sourceType)
+    local prefix = param.kind == "read_span" and "const " or ""
+
+    return prefix .. tostring(element) .. "*"
+end
+
 --- How a uniform parameter is spelled in a `cdef`, where the ABI type is what
 --- matters rather than the source spelling.
 const binding.ABI_TYPE = {["f64"] = "number", ["f32"] = "float", ["u32"] = "uint32", ["i32"] = "int32"}
@@ -44,7 +61,7 @@ end
 function binding.struct(layout: scalarIR.Layout): {string}
     local lines: {string} = {"local struct " .. layout.name}
     for _, field in ipairs(layout.fields) do
-        lines[#lines + 1] = "    " .. field.name .. ": " .. tostring(binding.SOURCE_TYPE[field.type])
+        lines[#lines + 1] = "    " .. field.name .. ": " .. sourceType(field.type, field.sourceType)
     end
     lines[#lines + 1] = "end"
 
@@ -107,9 +124,9 @@ function binding.foreign(program: scalarIR.Program, library: string): {string}
     local params: {string} = {}
     for _, param in ipairs(program.params) do
         if param.kind == "write_span" then
-            params[#params + 1] = "exclusive " .. param.name .. ": voidptr"
+            params[#params + 1] = "exclusive " .. param.name .. ": " .. pointerType(param)
         elseif param.kind == "read_span" then
-            params[#params + 1] = "borrows " .. param.name .. ": voidptr"
+            params[#params + 1] = "borrows " .. param.name .. ": " .. pointerType(param)
         else
             params[#params + 1] = param.name .. ": " .. tostring(binding.ABI_TYPE[param.type] or "int32")
         end
@@ -127,7 +144,7 @@ end
 
 --- How the wrapper spells one parameter, which is how the source spelled it.
 local function logical(param: scalarIR.Param): string
-    local element = param.type:match("^struct:(.+)$") or binding.SOURCE_TYPE[param.type]
+    local element = param.type:match("^struct:(.+)$") or sourceType(param.type, param.sourceType)
     if param.kind == "write_span" then
         return "exclusive " .. param.name .. ": span.WriteSpan<" .. tostring(element) .. ">"
     elseif param.kind == "read_span" then
@@ -185,7 +202,7 @@ function binding.spanArguments(params: {scalarIR.Param}): ({string}, {string}, s
                     primary
                 ) .. " then error(\"native spans have incompatible lengths\", 2) end"
             end
-            arguments[#arguments + 1] = pointer .. " as voidptr"
+            arguments[#arguments + 1] = pointer .. " as " .. pointerType(param)
         else
             arguments[#arguments + 1] = param.name
         end

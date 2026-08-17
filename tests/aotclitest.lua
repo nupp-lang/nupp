@@ -163,6 +163,30 @@ local REFUSED = STREAMING
 --- x86-64 baseline. Left to the host, they would assert the runner's CPU.
 local PINNED = "--target x86_64-unknown-linux-gnu --features avx2 "
 
+local BYTE_CLASSIFIER = [[
+local span = require("nupp.span")
+
+@aot(lanes = true)
+local function classify(
+    exclusive flags: span.WriteSpan<uint8>,
+    borrows bytes: span.Span<uint8>
+): nil
+    if flags.count ~= bytes.count then error("length mismatch", 2) end
+    for i = 1, flags.count do
+        local byte = bytes:get(i)
+        local flag: uint32 = 0
+        if byte == 34 then
+            flag = 1
+        elseif byte == 92 then
+            flag = 2
+        end
+        flags:set(i, flag)
+    end
+end
+
+return {classify = classify}
+]]
+
 function M.aRegisterResidentLoopReportsItsGangAndWidth()
    local dir = project{["compute.nupp"] = COMPUTE}
    local out, code = run(dir, PINNED .. "compute.nupp")
@@ -220,6 +244,34 @@ function M.emitPrintsTheIrAndTheBinding()
    assert(binding:find("layoutof(Escape)", 1, true),
       "the wrapper checks the struct layout rather than trusting it: " .. binding)
    assert(binding:find("unsafe do", 1, true), "the foreign call is the only unsafe part: " .. binding)
+end
+
+function M.narrowScalarSpansKeepTheirStorageAndUseLanes()
+   local dir = project{["bytes.nupp"] = BYTE_CLASSIFIER}
+
+   local ir, irCode = run(dir, PINNED .. "--check --emit ir bytes.nupp")
+   test.equal(irCode, 0, ir)
+   assert(ir:find("flags:u32 source(uint8)", 1, true),
+      "the IR distinguishes storage from its established value: " .. ir)
+   assert(ir:find("vspan:i32x8 bytes[i..i+7]", 1, true),
+      "a byte load is widened into the gang: " .. ir)
+   assert(ir:find("vset flags[i..i+7]", 1, true),
+      "a scalar span store is scattered from the gang: " .. ir)
+
+   local c, cCode = run(dir, PINNED .. "--emit c bytes.nupp")
+   test.equal(cCode, 0, c)
+   assert(c:find("uint8_t *restrict p_flags", 1, true),
+      "the output pointer retains byte storage: " .. c)
+   assert(c:find("const uint8_t *p_bytes", 1, true),
+      "the input pointer retains const byte storage: " .. c)
+   assert(c:find("p_flags[i + 7] = (uint8_t)lanes[7]", 1, true),
+      "lane values narrow only when stored: " .. c)
+
+   local binding, bindingCode = run(dir, "--emit binding bytes.nupp")
+   test.equal(bindingCode, 0, binding)
+   assert(binding:find("exclusive flags: uint8*", 1, true), binding)
+   assert(binding:find("borrows bytes: const uint8*", 1, true), binding)
+   assert(binding:find("span.WriteSpan<uint8>", 1, true), binding)
 end
 
 function M.fixedWidthSwitchesEmitNativeCDispatch()

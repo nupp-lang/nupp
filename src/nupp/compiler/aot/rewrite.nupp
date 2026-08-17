@@ -48,6 +48,9 @@ record rewrite.State
     --- Pure helpers by name, for inlining a call into the lane body.
     helpers: {[string]: any}
 
+    --- Span parameters by name, for scalar-span lane loads and stores.
+    spans: {[string]: scalarIR.Param}
+
     --- Reports a construct this pass cannot represent.
     reject: function(string): nil
 
@@ -93,6 +96,8 @@ function rewrite.constantFits(node: scalarIR.Expr, element: lane.Element): boole
         return false
     elseif element == "i32" then
         return number % 1 == 0 and number >= -2147483648 and number <= 2147483647
+    elseif element == "u32" then
+        return number % 1 == 0 and number >= 0 and number <= 4294967295
     elseif element == "f32" then
         -- The language already owns what binary32 rounding means, so this asks
         -- it rather than reaching for a storage slot of its own and having a
@@ -246,11 +251,11 @@ local function asElement(node: scalarIR.Expr, element: lane.Element, state: rewr
     end
     -- An exact literal establishes the value, so it may enter directly.
     if rewrite.constantFits(node, element) then
-        if element == "i32" then
+        if element == "i32" or element == "u32" then
             return new scalarIR.IntConstant(
                 op = "constant_i32",
                 value = (node as scalarIR.Constant).value,
-                type = "i32",
+                type = element,
                 source = node.source
             )
         else
@@ -395,6 +400,24 @@ expression = function(node: scalarIR.Expr, state: rewrite.State): rewrite.Value
             type = vector as string,
             source = node.source
         )
+    elseif operation == "load" then
+        local load = node as scalarIR.Load
+        local root = state.spans[load.span]
+        local element = rewrite.asElement(node.type)
+        local vector = element ~= nil and shape.vectorFor[element] or nil
+        if root == nil or load.index ~= state.index or vector == nil then
+            state.reject("a lane-parallel span load reads consecutive admitted scalar elements only")
+        end
+
+        return new lane.SpanLoad(
+            op = "vspan_load",
+            span = load.span,
+            lanes = shape.lanes,
+            scalarType = element as lane.Element,
+            sourceType = (root as scalarIR.Param).sourceType,
+            type = vector as string,
+            source = node.source
+        )
     elseif operation == "field_load" then
         local field = node as scalarIR.FieldLoad
         local object = resolveRef(field.object, state)
@@ -417,6 +440,7 @@ expression = function(node: scalarIR.Expr, state: rewrite.State): rewrite.Value
             field = field.field,
             lanes = shape.lanes,
             scalarType = element as lane.Element,
+            sourceType = field.sourceType,
             type = vector as string,
             source = node.source
         )
@@ -1119,7 +1143,7 @@ function rewrite.assignedValue(
             type = value.type,
             source = source
         )
-    else
+    elseif target.kind == "vfield" then
         local fieldTarget = target as lane.FieldTarget
         previous = new lane.FieldLoad(
             op = "vfield_load",
@@ -1128,6 +1152,18 @@ function rewrite.assignedValue(
             field = fieldTarget.field,
             lanes = state.shape.lanes,
             scalarType = fieldTarget.scalarType,
+            sourceType = fieldTarget.sourceType,
+            type = value.type,
+            source = source
+        )
+    else
+        local spanTarget = target as lane.SpanTarget
+        previous = new lane.SpanLoad(
+            op = "vspan_load",
+            span = spanTarget.span,
+            lanes = state.shape.lanes,
+            scalarType = spanTarget.scalarType,
+            sourceType = spanTarget.sourceType,
             type = value.type,
             source = source
         )
@@ -1507,7 +1543,8 @@ local function laneAssignment(
             span = (object as scalarIR.ElementRef).span,
             layout = target.layout,
             field = target.field,
-            scalarType = target.type
+            scalarType = target.type,
+            sourceType = target.sourceType
         )
     else
         laneTarget = new lane.LocalTarget(kind = "local", name = target.name, cName = target.cName)
@@ -1590,7 +1627,40 @@ function rewrite.block(
             end
             out[#out + 1] = {op = "vassign", values = assignments, source = statement.source}
         elseif op == "store" then
-            state.reject("a lane-parallel loop stores through struct fields for now")
+            local root = state.spans[statement.span]
+            local scalarType = root ~= nil and rewrite.asElement((root as scalarIR.Param).type) or nil
+            if root == nil or root.kind ~= "write_span" or statement.index ~= state.index or scalarType == nil then
+                state.reject("a lane-parallel scalar store writes consecutive admitted elements only")
+            end
+            local target = new lane.SpanTarget(
+                kind = "vspan",
+                span = statement.span,
+                scalarType = scalarType as lane.Element,
+                sourceType = (root as scalarIR.Param).sourceType
+            )
+            local varies = rewrite.varying(statement.value, state)
+            local value = varies and rewrite.expression(
+                statement.value,
+                state
+            ) or rewrite.splat(statement.value, scalarType as lane.Element, state)
+            out[
+                #out + 1
+            ] = {
+                op = "vassign",
+                values = {
+                    {
+                        target = target,
+                        value = rewrite.assignedValue(
+                            value as lane.Expr,
+                            target,
+                            statementMask,
+                            statement.source,
+                            state
+                        ),
+                    }
+                },
+                source = statement.source,
+            }
         elseif op == "if" then
             -- Each arm's mask is captured into its own binding before the arm
             -- runs, so a body that assigns to a name the condition read cannot
@@ -1694,6 +1764,16 @@ function rewrite.loop(program: scalarIR.Program, shape: lane.Shape, reject: func
         refBindings = {},
         helperBindings = {},
         helpers = helpers,
+        spans = (function(): {[string]: scalarIR.Param}
+            local byName: {[string]: scalarIR.Param} = {}
+            for _, param in ipairs(program.params) do
+                if param.kind == "read_span" or param.kind == "write_span" then
+                    byName[param.name] = param
+                end
+            end
+
+            return byName
+        end)(),
         reject = reject
     )
     rewrite.markVarying(program.loop.statements, state)

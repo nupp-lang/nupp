@@ -1,0 +1,293 @@
+local scanner = require("simd_json.scanner")
+local span = require("nupp.span")
+local ffi = require("ffi")
+
+local json = {}
+
+--- The identity used for JSON null, which Lua tables cannot otherwise retain.
+const json.null = setmetatable({}, {
+    __tostring = function(): string
+        return "null"
+    end,
+})
+
+local function decode(source: string): any
+    if not nupp.data.utf8.isValid(source) then
+        error("invalid JSON UTF-8", 2)
+    end
+
+    local length: integer = #source
+    local flagStorage = ffi.new("uint8_t[?]", length > 0 and length or 1) as uint8[?]
+    do
+        local writable = span.writeCarray(flagStorage, length)
+        scanner.classify(writable, span.fromString(source))
+        drop writable
+    end
+    local position: integer = 1
+
+    local function fail(message: string): never
+        error("invalid JSON at byte " .. tostring(position) .. ": " .. message, 2)
+    end
+
+    local function flag(at: integer): uint32
+        if at < 1 or at > length then
+            fail("internal classifier index out of bounds")
+        end
+        unsafe do
+            return flagStorage[at - 1]
+        end
+    end
+
+    local function byte(at: integer): integer?
+        if at > length then
+            return nil
+        end
+        return string.byte(source, at)
+    end
+
+    local function skipWhitespace(): nil
+        while position <= length and flag(position) == scanner.WHITESPACE do
+            position = position + 1
+        end
+    end
+
+    local function hex4(): integer
+        if position + 3 > length then
+            fail("incomplete Unicode escape")
+        end
+        local value = tonumber(source:sub(position, position + 3), 16)
+        if value == nil then
+            fail("invalid Unicode escape")
+        end
+        position = position + 4
+
+        return value as integer
+    end
+
+    local parseValue: function(): any
+
+    local function parseString(): string
+        position = position + 1
+        local start = position
+        local parts = {}
+        while true do
+            if position > length then
+                fail("unterminated string")
+            end
+            local category = flag(position)
+            if category == scanner.QUOTE then
+                parts[#parts + 1] = source:sub(start, position - 1)
+                position = position + 1
+                return table.concat(parts)
+            elseif category == scanner.CONTROL then
+                fail("unescaped control byte in string")
+            elseif category == scanner.BACKSLASH then
+                parts[#parts + 1] = source:sub(start, position - 1)
+                position = position + 1
+                local escaped = byte(position)
+                if escaped == nil then
+                    fail("incomplete escape")
+                end
+                local simple = {
+                    [34] = '"',
+                    [92] = "\\",
+                    [47] = "/",
+                    [98] = "\b",
+                    [102] = "\f",
+                    [110] = "\n",
+                    [114] = "\r",
+                    [116] = "\t",
+                }
+                local replacement = simple[escaped]
+                if replacement ~= nil then
+                    parts[#parts + 1] = replacement
+                    position = position + 1
+                elseif escaped == 117 then
+                    position = position + 1
+                    local codepoint = hex4()
+                    if codepoint >= 0xD800 and codepoint <= 0xDBFF then
+                        if byte(position) ~= 92 or byte(position + 1) ~= 117 then
+                            fail("high surrogate without a low surrogate")
+                        end
+                        position = position + 2
+                        local low = hex4()
+                        if low < 0xDC00 or low > 0xDFFF then
+                            fail("invalid low surrogate")
+                        end
+                        codepoint = 0x10000 + (codepoint - 0xD800) * 0x400 + low - 0xDC00
+                    elseif codepoint >= 0xDC00 and codepoint <= 0xDFFF then
+                        fail("low surrogate without a high surrogate")
+                    end
+                    parts[#parts + 1] = nupp.data.utf8.encode(codepoint)
+                else
+                    fail("unknown escape")
+                end
+                start = position
+            else
+                position = position + 1
+            end
+        end
+    end
+
+    local function parseNumber(): number
+        local start = position
+        if byte(position) == 45 then
+            position = position + 1
+        end
+
+        local first = byte(position)
+        if first == 48 then
+            position = position + 1
+            local following = byte(position)
+            if following ~= nil and following >= 48 and following <= 57 then
+                fail("leading zero in number")
+            end
+        elseif first ~= nil and first >= 49 and first <= 57 then
+            repeat
+                position = position + 1
+                first = byte(position)
+            until first == nil or first < 48 or first > 57
+        else
+            fail("expected a digit")
+        end
+
+        if byte(position) == 46 then
+            position = position + 1
+            local digit = byte(position)
+            if digit == nil or digit < 48 or digit > 57 then
+                fail("expected a digit after decimal point")
+            end
+            repeat
+                position = position + 1
+                digit = byte(position)
+            until digit == nil or digit < 48 or digit > 57
+        end
+
+        local exponent = byte(position)
+        if exponent == 69 or exponent == 101 then
+            position = position + 1
+            local sign = byte(position)
+            if sign == 43 or sign == 45 then
+                position = position + 1
+            end
+            local digit = byte(position)
+            if digit == nil or digit < 48 or digit > 57 then
+                fail("expected an exponent digit")
+            end
+            repeat
+                position = position + 1
+                digit = byte(position)
+            until digit == nil or digit < 48 or digit > 57
+        end
+
+        local value = tonumber(source:sub(start, position - 1))
+        if value == nil then
+            fail("number is not representable")
+        end
+
+        return value as number
+    end
+
+    local function parseArray(): {any}
+        position = position + 1
+        skipWhitespace()
+        local result = {}
+        if byte(position) == 93 then
+            position = position + 1
+            return result
+        end
+        while true do
+            result[#result + 1] = parseValue()
+            skipWhitespace()
+            local delimiter = byte(position)
+            if delimiter == 93 then
+                position = position + 1
+                return result
+            elseif delimiter ~= 44 then
+                fail("expected ',' or ']'")
+            end
+            position = position + 1
+            skipWhitespace()
+        end
+    end
+
+    local function parseObject(): {[string]: any}
+        position = position + 1
+        skipWhitespace()
+        local result = {}
+        if byte(position) == 125 then
+            position = position + 1
+            return result
+        end
+        while true do
+            if byte(position) ~= 34 then
+                fail("expected an object key")
+            end
+            local key = parseString()
+            skipWhitespace()
+            if byte(position) ~= 58 then
+                fail("expected ':'")
+            end
+            position = position + 1
+            skipWhitespace()
+            result[key] = parseValue()
+            skipWhitespace()
+            local delimiter = byte(position)
+            if delimiter == 125 then
+                position = position + 1
+                return result
+            elseif delimiter ~= 44 then
+                fail("expected ',' or '}'")
+            end
+            position = position + 1
+            skipWhitespace()
+        end
+    end
+
+    parseValue = function(): any
+        skipWhitespace()
+        local current = byte(position)
+        if current == 34 then
+            return parseString()
+        elseif current == 91 then
+            return parseArray()
+        elseif current == 123 then
+            return parseObject()
+        elseif current == 45 or current ~= nil and current >= 48 and current <= 57 then
+            return parseNumber()
+        elseif source:sub(position, position + 3) == "true" then
+            position = position + 4
+            return true
+        elseif source:sub(position, position + 4) == "false" then
+            position = position + 5
+            return false
+        elseif source:sub(position, position + 3) == "null" then
+            position = position + 4
+            return json.null
+        end
+        fail("expected a value")
+    end
+
+    local value = parseValue()
+    skipWhitespace()
+    if position <= length then
+        fail("trailing input")
+    end
+
+    return value
+end
+
+function json.decode(source: string): any
+    return decode(source)
+end
+
+function json.validate(source: string): (boolean, string?)
+    local ok, result = pcall(decode, source)
+    if ok then
+        return true, nil
+    end
+
+    return false, tostring(result)
+end
+
+return json

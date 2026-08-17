@@ -5647,7 +5647,10 @@ function gen.generate(
         -- Anything without the `@` is a library name for the platform loader to
         -- find, which is what an ordinary `cdef ... from` means and is left
         -- exactly as it was.
-        code = "const __nuppLibCache = {}; const function __nuppLib(n) "
+        code = "const __nuppLibCache = {}; "
+            .. "const __nuppLibRoots = rawget(_G, '__nuppLibraryRoots') or {}; "
+            .. "rawset(_G, '__nuppLibraryRoots', __nuppLibRoots); "
+            .. "const function __nuppLib(n) "
             .. "local l = __nuppLibCache[n] if not l then "
             .. "local rel = n:match('^@(.+)$') "
             .. "if rel then "
@@ -5663,7 +5666,7 @@ function gen.generate(
             .. "if not l then error('cannot find ' .. rel .. ' at or above ' .. from"
             .. " .. '; the compiled library has to travel with the module that calls it', 0) end "
             .. "else l = __nuppFfi.load(n) end "
-            .. "__nuppLibCache[n] = l end return l end; "
+            .. "__nuppLibCache[n] = l __nuppLibRoots[l] = true end return l end; "
             .. code
     end
     if needsCloneTab then

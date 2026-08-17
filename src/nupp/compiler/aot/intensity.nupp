@@ -23,6 +23,7 @@ have.
 ]]
 
 local lane = require("nupp.compiler.aot.lane")
+local scalarIR = require("nupp.compiler.aot.scalar")
 
 local intensity = {}
 
@@ -80,7 +81,21 @@ const intensity.ARITHMETIC = {
 --- How wide each element is where it is stored, which is not how wide the lane
 --- carrying it is. A `float` field is four bytes however many bits the gang
 --- widens it to, because the bytes are what crosses memory.
-const intensity.ELEMENT_BYTES = {["f32"] = 4, ["i32"] = 4, ["u32"] = 4, ["f64"] = 8,}
+const intensity.SOURCE_BYTES = {
+    ["float"] = 4,
+    ["int8"] = 1,
+    ["uint8"] = 1,
+    ["int16"] = 2,
+    ["uint16"] = 2,
+    ["int32"] = 4,
+    ["uint32"] = 4,
+}
+
+const intensity.CANONICAL_SOURCE = {["f32"] = "float", ["i32"] = "int32", ["u32"] = "uint32"}
+
+local function sourceBytes(valueType: string, sourceType: string?): integer
+    return intensity.SOURCE_BYTES[sourceType or tostring(intensity.CANONICAL_SOURCE[valueType])] or 8
+end
 
 --- Counts one loop body.
 ---
@@ -90,11 +105,23 @@ const intensity.ELEMENT_BYTES = {["f32"] = 4, ["i32"] = 4, ["u32"] = 4, ["f64"] 
 --- per iteration of the loop being lowered and the trip count is not a static
 --- fact -- the weight stands in for that count rather than claiming it.
 ---
---- @param statements the scalar loop body, as AOT IR
+--- @param program the scalar AOT IR program
 --- @return what it costs, and whether that clears the threshold
-function intensity.estimate(statements: {any}): intensity.Estimate
+function intensity.estimate(program: scalarIR.Program): intensity.Estimate
     local operations = 0
-    local touched: {[string]: string} = {}
+    local touched: {[string]: integer} = {}
+    local spans: {[string]: integer} = {}
+    local fields: {[string]: integer} = {}
+    for _, param in ipairs(program.params) do
+        if param.kind ~= "uniform" then
+            spans[param.name] = sourceBytes(param.type, param.sourceType)
+        end
+    end
+    for _, layout in ipairs(program.layouts or {}) do
+        for _, field in ipairs(layout.fields) do
+            fields[layout.name .. "." .. field.name] = sourceBytes(field.type, field.sourceType)
+        end
+    end
 
     local countExpr: function(any, integer): nil
     countExpr = function(node: any, weight: integer): nil
@@ -105,9 +132,10 @@ function intensity.estimate(statements: {any}): intensity.Estimate
             operations = operations + weight
         end
         if node.op == "field_load" then
-            touched["r:" .. tostring(node.layout) .. "." .. tostring(node.field)] = node.type
+            local key = tostring(node.layout) .. "." .. tostring(node.field)
+            touched["r:" .. key] = fields[key] or 8
         elseif node.op == "load" then
-            touched["r:" .. tostring(node.span)] = node.type
+            touched["r:" .. tostring(node.span)] = spans[tostring(node.span)] or 8
         end
         countExpr(node.left, weight)
         countExpr(node.right, weight)
@@ -121,6 +149,9 @@ function intensity.estimate(statements: {any}): intensity.Estimate
     local countBlock: function({any}, integer): nil
     countBlock = function(block: {any}, weight: integer): nil
         for _, statement in ipairs(block or {}) do
+            if statement.op == "store" then
+                touched["w:" .. tostring(statement.span)] = spans[tostring(statement.span)] or 8
+            end
             countExpr(statement.value, weight)
             countExpr(statement.call, weight)
             countExpr(statement.condition, weight)
@@ -130,7 +161,8 @@ function intensity.estimate(statements: {any}): intensity.Estimate
                 countExpr(assignment.value, weight)
                 local target = assignment.target
                 if target and target.kind == "field" then
-                    touched["w:" .. tostring(target.layout) .. "." .. tostring(target.field)] = target.type
+                    local key = tostring(target.layout) .. "." .. tostring(target.field)
+                    touched["w:" .. key] = fields[key] or 8
                 end
             end
             for _, clause in ipairs(statement.clauses or {}) do
@@ -143,11 +175,11 @@ function intensity.estimate(statements: {any}): intensity.Estimate
         end
     end
 
-    countBlock(statements, 1)
+    countBlock(program.loop.statements, 1)
 
     local bytes = 0
-    for _, elementType in pairs(touched) do
-        bytes = bytes + (intensity.ELEMENT_BYTES[elementType] or 8)
+    for _, width in pairs(touched) do
+        bytes = bytes + width
     end
     local perByte = bytes == 0 and operations or operations / bytes
 

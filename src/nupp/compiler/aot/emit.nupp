@@ -74,6 +74,17 @@ const emit.SCALAR_C = {
     ["u32"] = "uint32_t",
 }
 
+--- The C spelling of physical storage, distinct from the value a load creates.
+const emit.SOURCE_C = {
+    ["float"] = "float",
+    ["int8"] = "int8_t",
+    ["int16"] = "int16_t",
+    ["int32"] = "int32_t",
+    ["uint8"] = "uint8_t",
+    ["uint16"] = "uint16_t",
+    ["uint32"] = "uint32_t",
+}
+
 --- The C element type behind each vector.
 const emit.VECTOR_ELEMENT_C = {["f64"] = "double", ["f32"] = "float", ["i32"] = "int32_t", ["u32"] = "uint32_t",}
 
@@ -97,6 +108,21 @@ function emit.cType(typeName: string): string
     end
 
     error("no C type for " .. tostring(typeName), 0)
+end
+
+--- The physical C element type for a scalar span or field.
+---
+--- @raises when the physical source type has no C spelling
+function emit.storageC(valueType: string, sourceType: string?): string
+    if sourceType ~= nil then
+        local physical = emit.SOURCE_C[sourceType as string]
+        if physical ~= nil then
+            return physical as string
+        end
+        error("no C storage type for " .. tostring(sourceType), 0)
+    end
+
+    return emit.cType(valueType)
 end
 
 --- The element and lane count a vector name states.
@@ -488,6 +514,14 @@ function emit.lane(node: lane.Expr | scalarIR.Expr): string
         end
 
         return "((ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "})"
+    elseif operation == "vspan_load" then
+        local load = node as lane.SpanLoad
+        local parts: {string} = {}
+        for index = 0, load.lanes - 1 do
+            parts[index + 1] = "p_" .. load.span .. "[i + " .. tostring(index) .. "]"
+        end
+
+        return "((ks_" .. vector .. "){" .. table.concat(parts, ", ") .. "})"
     elseif operation == "vbitwise" then
         return emit.laneBits(node as lane.Bitwise)
     elseif operation == "vround" then
@@ -566,7 +600,7 @@ end
 function emit.layout(layout: scalarIR.Layout): {string}
     local lines: {string} = {"typedef struct {"}
     for _, field in ipairs(layout.fields) do
-        lines[#lines + 1] = "    " .. emit.cType(field.type) .. " " .. field.name .. ";"
+        lines[#lines + 1] = "    " .. emit.storageC(field.type, field.sourceType) .. " " .. field.name .. ";"
     end
     lines[#lines + 1] = "} " .. layout.cName .. ";"
 
@@ -582,11 +616,17 @@ function emit.parameters(params: {any}): string
     local parts: {string} = {}
     for position, param in ipairs(params) do
         local name = "p_" .. param.name
-        local layout = param.type:match("^struct:(.+)$")
-        local element = layout ~= nil and ("Ks" .. (layout as string)) or emit.cType(param.type)
         if param.kind == "write_span" then
+            local layout = param.type:match("^struct:(.+)$")
+            local element = layout ~= nil and (
+                "Ks" .. (layout as string)
+            ) or emit.storageC(param.type, param.sourceType)
             parts[position] = element .. " *restrict " .. name
         elseif param.kind == "read_span" then
+            local layout = param.type:match("^struct:(.+)$")
+            local element = layout ~= nil and (
+                "Ks" .. (layout as string)
+            ) or emit.storageC(param.type, param.sourceType)
             parts[position] = "const " .. element .. " *" .. name
         else
             parts[position] = emit.cType(param.type) .. " " .. name
@@ -1138,7 +1178,7 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
         elseif op == "vassign" then
             for _, entry in ipairs(statement.values) do
                 local target = entry.target
-                if target.kind == "vfield" then
+                if target.kind == "vfield" or target.kind == "vspan" then
                     -- Consecutive elements, one lane each. Clang turns the group
                     -- into an interleaving store where the target has one.
                     lines[#lines + 1] = prefix .. "{"
@@ -1146,12 +1186,15 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
                         #lines + 1
                     ] = prefix .. "    " .. emit.cType(entry.value.type) .. " lanes = " .. emit.lane(entry.value) .. ";"
                     for index = 0, body.lanes - 1 do
+                        local address = "p_" .. target.span .. "[i + " .. tostring(index) .. "]"
+                        if target.kind == "vfield" then
+                            address = address .. "." .. target.field
+                        end
                         lines[
                             #lines + 1
-                        ] = prefix .. "    p_" .. target.span .. "[i + " .. tostring(
-                            index
-                        ) .. "]." .. target.field .. " = (" .. emit.cType(
-                            target.scalarType
+                        ] = prefix .. "    " .. address .. " = (" .. emit.storageC(
+                            target.scalarType,
+                            target.sourceType
                         ) .. ")lanes[" .. tostring(index) .. "];"
                     end
                     lines[#lines + 1] = prefix .. "}"

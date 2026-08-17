@@ -183,7 +183,7 @@ end
 --- @param filename what a refusal names
 --- @param selected the target, which decides whether a gang exists at all
 function compile.lanes(program: scalarIR.Program, filename: string, selected: targets.Target): nil
-    local estimate = intensity.estimate(program.loop.statements)
+    local estimate = intensity.estimate(program)
     program.intensity = estimate.perByte
     program.operations = estimate.operations
     program.touchedBytes = estimate.bytes

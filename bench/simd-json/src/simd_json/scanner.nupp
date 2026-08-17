@@ -1,0 +1,42 @@
+local span = require("nupp.span")
+
+local scanner = {}
+
+const scanner.QUOTE = 1
+const scanner.BACKSLASH = 2
+const scanner.STRUCTURAL = 4
+const scanner.WHITESPACE = 8
+const scanner.CONTROL = 16
+
+--- Classifies every input byte before the recursive parser sees it.
+---
+--- The carrier is a 32-bit SIMD gang today, while the pointers remain byte
+--- pointers. That makes narrow span storage a reusable AOT feature rather than
+--- a JSON-specific intrinsic, and leaves room for a future packed-byte gang.
+@aot(lanes = true)
+local function classify(exclusive flags: span.WriteSpan<uint8>, borrows bytes: span.Span<uint8>): nil
+    if flags.count ~= bytes.count then
+        error("length mismatch", 2)
+    end
+
+    for i = 1, flags.count do
+        local byte = bytes:get(i)
+        local flag: uint32 = 0
+        if byte == 34 then
+            flag = 1
+        elseif byte == 92 then
+            flag = 2
+        elseif byte == 123 or byte == 125 or byte == 91 or byte == 93 or byte == 58 or byte == 44 then
+            flag = 4
+        elseif byte == 32 or byte == 9 or byte == 10 or byte == 13 then
+            flag = 8
+        elseif byte < 32 then
+            flag = 16
+        end
+        flags:set(i, flag)
+    end
+end
+
+scanner.classify = classify
+
+return scanner

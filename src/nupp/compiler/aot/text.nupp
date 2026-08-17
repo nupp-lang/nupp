@@ -122,6 +122,8 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
         return "field:" .. node.type .. " " .. text.expression(node.object) .. "." .. node.field
     elseif op == "vfield_load" then
         return "vfield:" .. node.type .. " " .. node.span .. "[i..i+" .. tostring(node.lanes - 1) .. "]." .. node.field
+    elseif op == "vspan_load" then
+        return "vspan:" .. node.type .. " " .. node.span .. "[i..i+" .. tostring(node.lanes - 1) .. "]"
     elseif op == "uniform" or op == "local" or op == "helper_param" then
         return op .. ":" .. node.type .. " " .. (node as scalarIR.Name).name
     elseif op == "constant_i32" then
@@ -167,6 +169,8 @@ local function target(assignment: any, lanes: integer): string
         return assignment.target.name
     elseif assignment.target.kind == "vfield" then
         return assignment.target.span .. "[i..i+" .. tostring(lanes - 1) .. "]." .. assignment.target.field
+    elseif assignment.target.kind == "vspan" then
+        return assignment.target.span .. "[i..i+" .. tostring(lanes - 1) .. "]"
     end
 
     return text.expression(assignment.target.object) .. "." .. assignment.target.field
@@ -277,7 +281,7 @@ local function preamble(program: scalarIR.Program): {string}
     for _, layout in ipairs(program.layouts or {}) do
         local fields: {string} = {}
         for position, field in ipairs(layout.fields) do
-            fields[position] = field.name .. ":" .. field.type
+            fields[position] = field.name .. ":" .. field.type .. " source(" .. tostring(field.sourceType) .. ")"
         end
         lines[#lines + 1] = "  " .. layout.name .. "{" .. table.concat(fields, ",") .. "}"
     end
@@ -288,11 +292,12 @@ local function preamble(program: scalarIR.Program): {string}
             lines[
                 #lines + 1
             ] = (
-                "  %s %s:%s region(%s) %s %s"
+                "  %s %s:%s source(%s) region(%s) %s %s"
             ):format(
                 param.kind,
                 param.name,
                 param.type,
+                tostring(param.sourceType),
                 tostring(param.region),
                 tostring(param.access),
                 at(param.source)
