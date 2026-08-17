@@ -417,6 +417,24 @@
           "match": "\\bwith\\b(?=[ \\t]+[A-Za-z_][A-Za-z0-9_]*[ \\t]*(?::|=))"
         },
         {
+          "comment": "drop is a bare ownership-drop statement, not a call to a name spelled the same way.",
+          "name": "keyword.control.nupp",
+          "match": "(?<![.:])\\bdrop\\b(?=[ \\t]*[A-Za-z_(])"
+        },
+        {
+          "comment": "unsafe adopt/release are the affine escape hatches; adopt takes a required 'as' cast.",
+          "match": "\\b(unsafe)([ \\t]+)(adopt|release)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.nupp" },
+            "3": { "name": "storage.modifier.ownership.nupp" }
+          }
+        },
+        {
+          "comment": "countedBy(param) relates a cdef pointer parameter's length to another parameter.",
+          "name": "storage.modifier.ownership.nupp",
+          "match": "\\bcountedBy\\b(?=[ \\t]*\\()"
+        },
+        {
           "comment": "comptime changes when code runs, so it gets its own colour.",
           "name": "storage.modifier.directive.nupp",
           "match": "\\bcomptime\\b(?=[ \\t]+(?:do|function)\\b)"
@@ -446,12 +464,19 @@
           "match": "\\btypeerror\\b(?=[ \\t]*<)"
         },
         {
+          "comment": "switch opens a selector expression that a following 'do' closes; excluding '=' and '.' after it keeps a plain identifier or member access named switch alone.",
           "name": "keyword.control.nupp",
-          "match": "\\bmatch\\b(?=[ \\t]+(?:each[ \\t]+)?[A-Za-z_{(])"
+          "match": "(?<![.:])\\bswitch\\b(?=[ \\t]*[^=.\\s])"
         },
         {
+          "comment": "case starts a switch arm and is always followed by a value or 'is', never by ':' (a field) or '=' (an assignment).",
           "name": "keyword.control.nupp",
-          "match": "\\b(?:each|when|infer)\\b(?=[ \\t]+[A-Za-z_{(])"
+          "match": "(?<![.:])\\bcase\\b(?=[ \\t]+[A-Za-z0-9_\"'(-])"
+        },
+        {
+          "comment": "yield reads the value of a switch block arm; excluding '(', '{' and quotes after it keeps the preserved Lua call sugar yield(...)/yield{...}/yield \"...\" alone.",
+          "name": "keyword.control.nupp",
+          "match": "(?<![.:])\\byield\\b(?=[ \\t]*[^(){\"'=.\\s])"
         },
         {
           "comment": "private is contextual: a field modifier only when a field name and type follow.",

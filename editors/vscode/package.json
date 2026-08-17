@@ -26,7 +26,8 @@
   "main": "./dist/extension.js",
   "activationEvents": [
     "onLanguage:nupp",
-    "onCommand:nupp.checkFunctionForJitTraceBlockers"
+    "onCommand:nupp.checkFunctionForJitTraceBlockers",
+    "onCommand:nupp.restartLanguageServer"
   ],
   "files": [
     "icon.png",
@@ -45,6 +46,11 @@
       {
         "command": "nupp.checkFunctionForJitTraceBlockers",
         "title": "Nupp: Check Function for JIT Trace Blockers",
+        "category": "Nupp"
+      },
+      {
+        "command": "nupp.restartLanguageServer",
+        "title": "Nupp: Restart Language Server",
         "category": "Nupp"
       }
     ],

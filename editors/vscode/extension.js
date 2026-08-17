@@ -222,6 +222,10 @@ async function activate(context) {
       "nupp.checkFunctionForJitTraceBlockers",
       checkFunctionForTraceBlockers
     ),
+    vscode.commands.registerCommand("nupp.restartLanguageServer", async () => {
+      await restartClients(context);
+      void vscode.window.showInformationMessage("Nupp language server restarted.");
+    }),
     vscode.languages.registerCodeActionsProvider(
       { language: "nupp", scheme: "file" },
       {

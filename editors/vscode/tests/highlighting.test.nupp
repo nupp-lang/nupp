@@ -388,3 +388,44 @@ local interface Matcher
 --                 ^^^^^^ entity.name.type.nupp
 --                        ^ keyword.operator.nupp
 end
+
+local function releaseSpan(writable: WriteSpan): nil
+   drop writable
+-- ^^^^ keyword.control.nupp
+end
+
+local x = unsafe release writable
+--        ^^^^^^ keyword.control.nupp
+--               ^^^^^^^ storage.modifier.ownership.nupp
+local y = unsafe adopt raw as Owner
+--        ^^^^^^ keyword.control.nupp
+--               ^^^^^ storage.modifier.ownership.nupp
+
+cdef function fill(out data: voidptr countedBy(n), n: uint64): int32
+--                                   ^^^^^^^^^ storage.modifier.ownership.nupp
+
+@aot(lanes = true)
+-- <- punctuation.definition.annotation.nupp
+-- <~--- entity.name.tag.nupp
+local function sumLanes(values: WriteSpan): nil
+end
+
+local label = switch status do
+--            ^^^^^^ keyword.control.nupp
+    case 200 -> "ok"
+--  ^^^^ keyword.control.nupp
+    case 301, 302 -> "redirect"
+--  ^^^^ keyword.control.nupp
+    else -> "other"
+end
+
+local total = switch token do
+--            ^^^^^^ keyword.control.nupp
+    case is NumberToken {value} -> do
+--  ^^^^ keyword.control.nupp
+--       ^^ keyword.operator.word.nupp
+        yield value
+--      ^^^^^ keyword.control.nupp
+    end
+    else -> 0
+end
