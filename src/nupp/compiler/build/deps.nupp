@@ -454,12 +454,18 @@ local function buildCargo(root, outDir, name, dep, previous)
         end
         binding.header = header
     end
-    local generated, bindingErr = generateBinding(root, outDir, name, dep, crateDir, dep.load or output)
+    -- A Cargo crate's cdylib is copied into the same `lib/` a C dependency's
+    -- library is built into, so it travels with the build the same way and is
+    -- named the same way. Worked out here rather than read back out of the
+    -- binding, for the same reason as in `buildC`: the record has to report what
+    -- the binding wrote.
+    local reference = binding and (binding.library or dep.load or libraryReference(root, outDir, output)) or nil
+    local generated, bindingErr = generateBinding(root, outDir, name, dep, crateDir, reference)
     if bindingErr then
         return nil, bindingErr
     end
 
-    return {key = key, output = output, binding = generated}
+    return {key = key, output = output, binding = generated, reference = reference}
 end
 
 --[[

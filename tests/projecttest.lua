@@ -1794,6 +1794,55 @@ pub extern "C" fn tiny_double(value: i32) -> i32 { value * 2 }
    remove(dir)
 end
 
+-- A crate's cdylib is copied into the same `lib/` a C dependency's library is
+-- built into, so it travels with the build and is named the same way.
+function M.cargoDependencyNamesItsLibraryRelativeToTheModuleThatLoadsIt()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {
+      tiny_rust = {kind = "cargo", manifest = "native/Cargo.toml",
+         library = "tiny_rust", locked = false,
+         bindings = {header = "tiny_rust.h"}},
+   },
+   build = {outDir = "out", entries = {"main"},
+      dependencies = {"tiny_rust"}},
+}
+]],
+      ["src/main.nupp"] = "local tiny = require('tiny_rust')\n"
+         .. "return tiny.tiny_double(21)\n",
+      ["native/tiny_rust.h"] = "int tiny_double(int value);\n",
+      ["native/Cargo.toml"] = [[
+[package]
+name = "tiny_rust"
+version = "0.0.0"
+edition = "2021"
+[lib]
+crate-type = ["cdylib"]
+]],
+      ["native/src/lib.rs"] = [[
+#[no_mangle]
+pub extern "C" fn tiny_double(value: i32) -> i32 { value * 2 }
+]],
+   })
+   assertEq(project.build(dir), 0)
+
+   local binding = read(dir .. "/out/generated/tiny_rust.nupp")
+   assert(binding:find('from "@lib/' .. libraryName("tiny_rust") .. '"', 1, true),
+      "the binding names the cdylib relative to the output tree: " .. binding)
+   assert(not binding:find(dir, 1, true),
+      "and the build directory does not appear in it: " .. binding)
+
+   assertEq(answerFrom(dir .. "/out", dir), "42",
+      "a Cargo dependency loads where the build left it")
+   local moved = dir .. "/moved"
+   assertEq(os.execute(("cp -r %q %q"):format(dir .. "/out", moved)), 0)
+   assertEq(answerFrom(moved, "/"), "42",
+      "and its output tree runs wherever it is copied")
+   remove(dir)
+end
+
 -- A rock that is already in the source tree, so what is proved here is the
 -- provider rather than the network: `luarocks make` builds what is there.
 local TINY_ROCKSPEC = [[

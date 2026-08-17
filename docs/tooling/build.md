@@ -496,6 +496,11 @@ are part of the dependency cache key.
 When `bindings.cbindgen` is enabled, the provider runs cbindgen in the crate
 directory before passing its header through `import-c`.
 
+The copy in `outDir/lib` is named the way a C dependency's library is, so a
+generated binding says `@lib/libtiny_rust.dylib` and a copied or moved output
+tree still finds it. A single-artifact target carries it beside the artifact for
+the same reason.
+
 ## Rock dependencies
 
 `kind = "luarocks"` installs a Lua library with LuaRocks. Nothing is built and
