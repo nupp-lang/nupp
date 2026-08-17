@@ -33,6 +33,19 @@ LUA_CPATH='../../.rocks/lib/lua/5.1/?.so;;' \
 luajit benchmark.lua
 ```
 
+The harness alternates implementations, uses four warmups and fifteen paired
+samples by default, and runs about 5 MB through each measured sample. Pass
+`--json` before the optional sample count to retain raw seconds, bootstrap
+confidence intervals, payload hashes, and toolchain identity:
+
+```sh
+luajit benchmark.lua --json 15
+```
+
+The J0 Apple arm64/NEON baseline is committed at
+`results/arm64-macos-neon-baseline.json`. Add separately named native AVX2
+results rather than replacing it; cross-compilation is not a performance run.
+
 The current gang carries each byte as a 32-bit value, so AVX2 and NEON classify
 eight bytes per group (NEON uses two registers), while baseline x86-64 uses
 four. A packed-byte gang could raise that to 32 or 16 without changing this
