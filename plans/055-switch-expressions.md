@@ -7,7 +7,7 @@ Status: planned
 Add a lexical, expression-valued `switch` with two deliberately closed pattern
 families:
 
-1. compile-time scalar values;
+1. statically known scalar values;
 2. runtime-testable types with optional whole-value binding and named field
    destructuring.
 
@@ -36,9 +36,21 @@ end
 ```
 
 The construct lowers lexically to branches, generated locals and merge labels.
-It never builds an arm closure or calls a general switch helper. The selector is
-evaluated exactly once, cases are tested from top to bottom and there is no
+It never builds an arm closure or calls a general switch helper. Code already
+written inside an arm may still require one of Nupp's existing cleanup or affine
+region functions; the switch introduces no new reason for function construction,
+and every generated one remains audited by `pluck.loweredFunction`. The selector
+is evaluated exactly once, cases are tested from top to bottom and there is no
 fallthrough.
+
+Version 1 admits a switch only where its setup is a semantics-preserving prefix
+of the containing statement: a single-expression local declaration, assignment
+or return; a call statement; and eager, strict-order operand positions beneath
+one of those roots. Lazy expression normalization is a separate feature and plan.
+Until it exists, a switch under `and`, `or`, `??`, a ternary arm, safe-navigation
+gating or another conditionally evaluated position receives a targeted placement
+diagnostic. The restriction keeps the no-IIFE guarantee without making switch
+syntax depend on a new general control-flow normalization pass.
 
 The canonical formatter indents `case` and `else` one level inside the switch,
 and indents arm contents a second level. This is part of the language surface,
@@ -59,7 +71,8 @@ assignment or an early return. A switch makes the common shape explicit:
 
 That explicit shape also gives the compiler an optimization boundary it cannot
 reliably recover from arbitrary conditionals. Static values may use linear
-comparisons, a balanced decision tree or an AOT switch instruction. A group of
+comparisons or a balanced decision tree; the current AOT scalar IR uses an
+ordered `If` chain. A group of
 nominal record tests may share one runtime type lookup. The source still has
 ordered first-match semantics, so an optimization may change the shape of the
 tests but never their observable order when a predicate can execute user code.
@@ -73,7 +86,7 @@ semantics, diagnostics and performance data.
 
 1. **The selector evaluates once.** Its effects occur before any pattern test,
    and no lowering duplicates or delays them.
-2. **First match wins.** Cases have source order. Duplicate and wholly
+2. **First match wins.** Cases have source order. Duplicate and provably wholly
    unreachable cases are errors rather than silently dead syntax.
 3. **Every completing path produces one value.** An expression arm does so
    implicitly. Every reachable path through a block arm must `yield`, `return`,
@@ -81,9 +94,12 @@ semantics, diagnostics and performance data.
 4. **`return` remains an early function exit.** It never becomes the switch
    result. Contextual `yield expression` targets the nearest enclosing switch
    arm and does not cross a function boundary.
-5. **No arm is a closure.** Arrow syntax is shared vocabulary, not a request to
-   allocate a function. A switch in a hot loop must remain trace-recordable.
-6. **Patterns are compiler-known.** Static cases use a closed constant grammar.
+5. **The switch adds no closure.** Arrow syntax is shared vocabulary, not a
+   request to allocate a function. Existing cleanup and affine-region lowering
+   inside an arm keeps its existing generated function and reason. A plain switch
+   in a hot loop must remain trace-recordable.
+6. **Patterns are compiler-known.** Static cases use a switch-specific closed
+   scalar grammar, not the const-generic expression grammar.
    Type cases use the existing `is` machinery. Destructuring reads declared
    fields directly and invokes no user hook.
 7. **Pattern matching does not consume ownership.** A whole-value binding
@@ -91,16 +107,20 @@ semantics, diagnostics and performance data.
    copy according to existing rules and never introduce an implicit move.
 8. **An expression is exhaustive.** `else` is required unless subtracting all
    cases from the selector type reaches `never`.
-9. **Lua evaluation order survives lowering.** Switches nested in calls,
-   constructors, indexes, short-circuit expressions and other switches preserve
-   the authored left-to-right and lazy evaluation rules.
-10. **Contextual words do not take Lua names away.** `switch(...)`, `case(...)`
-    and `yield(...)` remain ordinary calls. The new readings occur only in their
-    unambiguous switch positions.
+9. **Lua evaluation order survives lowering.** Every admitted position preserves
+   the authored left-to-right evaluation rules. A lazy position is rejected until
+   the separate expression-normalization plan can preserve its conditional work.
+10. **Contextual words do not take Lua names away.** `switch(...)`,
+    `switch {...}` and `switch "text"` remain ordinary Lua calls, as do the same
+    three call-argument forms after `yield`. Only same-line `yield expression`
+    whose operand does not begin with `(`, `{` or a literal string is the
+    switch-result statement.
 11. **Formatting exposes the tree.** Cases sit inside the switch, arm contents
     sit inside their case and each `end` aligns with the construct it closes.
-12. **Regular and AOT execution agree.** They use the same checked pattern plan,
-    exhaustiveness result, evaluation order and branch value type.
+12. **Regular and AOT execution agree where AOT admits the construct.** Version 1
+    AOT accepts integer-valued cases which lower through the existing scalar IR.
+    Other pattern families and early arm returns receive the existing AOT-boundary
+    diagnostic.
 
 ## User surface
 
@@ -115,15 +135,28 @@ local label = switch status
 end
 ```
 
-A static value is an expression accepted by Nupp's closed compile-time constant
-evaluator whose result is `nil`, a boolean, a number or a string. The checker
-records the value itself; generated code does not reevaluate the case spelling.
-Tables, functions, cdata and arbitrary calls are not case values.
+A static case has its own deliberately smaller grammar. It accepts `nil`, boolean
+and string literals, finite ordinary Lua-number literals with an optional unary
+minus, parentheses around one such value, and a name whose checked type already
+identifies one exact scalar. It does not reuse `consteval`: that evaluator has
+integer, string, boolean and function domains for const generics, admits operators
+which are not wanted here, and has neither `nil` nor binary64 number terms.
 
-The selector's type must admit each value. Repeating the same value is an error,
-including when two different constant spellings evaluate to the same value.
-Numeric equality follows the primitive runtime equality Nupp generates; there
-is no Ruby- or Crystal-style `===` protocol.
+The first version admits no arithmetic, comparison, concatenation, call, index,
+table, function or cdata case expression. A name must reduce to an exact scalar at
+the declaration; ordinary immutable runtime values are not static merely because
+they were declared with `const`. The checker records the normalized value itself,
+and generated code does not reevaluate the case spelling.
+
+Number normalization uses the same finite binary64 value LuaJIT compares at run
+time. Consequently `1`, `1.0` and `1e0` are duplicate cases, as are `0` and
+`-0.0`. Non-finite values and cdata literal suffixes are rejected. This rule is
+local to switch cases and does not widen Nupp's literal-type or const-generic
+domains.
+
+The selector's type must admit each value. Repeating the same normalized value
+is an error. Numeric equality follows the primitive runtime equality Nupp
+generates; there is no Ruby- or Crystal-style `===` protocol.
 
 ### Type cases and bindings
 
@@ -182,16 +215,69 @@ local value = switch token
 end
 ```
 
-`yield` in a block arm assigns the switch result and transfers control to the
-switch merge. It may appear inside nested conditionals or loops. A nested switch
-captures its own yields, and a nested ordinary or short function resets the
-context. Lua coroutine suspension remains `coroutine.yield`; this construct has
-no suspension effect.
+Only `yield expression` on one physical line is the switch-result statement. It
+assigns the result and transfers control to the switch merge. It may appear
+inside nested conditionals or loops. A nested switch captures its own yields,
+and a nested ordinary or short function resets the context. The formatter never
+breaks between `yield` and the first token of its operand.
+
+`yield(...)`, `yield {...}` and `yield "text"` are always ordinary Lua calls,
+including inside an arm and with whitespace before their argument. Those are the
+three Lua call-sugar argument forms. This preserves the common
+`local yield = coroutine.yield` idiom and cannot silently turn suspension into a
+switch result. If such a call is the last completing statement of an arm, the
+missing-result diagnostic adds: "this is a call; assign its result to a local,
+then write `yield value` to produce the switch result." A switch result whose
+expression begins with `(`, `{` or a literal string likewise uses a local first.
+Switch-result yield itself has no suspension effect; coroutine suspension remains
+the call to `coroutine.yield` or an alias of it.
 
 A block arm may have several mutually exclusive yields. The control-flow
 checker proves that every path either yields or leaves the enclosing function.
-A bare `yield`, several yielded expressions and a path which falls off the end
-are errors.
+A bare `yield`, several yielded expressions, an operand beginning on the next
+line and a path which falls off the end are errors.
+
+### Version 1 expression placement
+
+The first release accepts a switch under statement roots whose setup can be
+emitted before that statement without changing whether it runs:
+
+```nupp
+local label = switch code
+    case 200 -> "ok"
+    else -> "other"
+end
+
+result = format("status: %s", switch code
+    case 200 -> "ok"
+    else -> "other"
+end)
+
+return switch code
+    case 200 -> "ok"
+    else -> "other"
+end
+```
+
+The containing local declaration, assignment or return has one expression; a
+call statement may contain switches in its eager callee, receiver or arguments.
+Eager operands beneath those roots are accepted with their preceding effects
+captured in order.
+
+Conditionally evaluated positions wait for general expression normalization:
+
+```nupp
+-- version 1 diagnostic: the switch is in a lazy operand
+local selected = ready and switch code
+    case 200 -> "ok"
+    else -> "other"
+end
+```
+
+The same targeted diagnostic covers `or`, `??`, ternary arms, safe-navigation
+gates and other placements whose setup cannot be an unconditional statement
+prefix. It points to `plans/056-expression-normalization.md`. There is no hidden
+IIFE fallback.
 
 ### Exhaustiveness
 
@@ -211,9 +297,10 @@ a `nil` case.
 
 An open `string`, `number`, `any`, `unknown`, an overlapping refinement the
 checker cannot prove complete or any remaining union member requires `else`.
-Unlike the existing exhaustiveness lint for an inferred `if` dispatch, a
-non-exhaustive switch is a type error: a value expression cannot conditionally
-finish without a value.
+Unlike the existing suppressible `NUPP2107` `exhaustiveness` lint for an inferred
+`if` dispatch, a non-exhaustive switch receives a new non-suppressible semantic
+diagnostic: a value expression cannot conditionally finish without a value. It
+cannot be disabled with `@allow("exhaustiveness")`.
 
 ### Formatting
 
@@ -224,7 +311,8 @@ local result = switch value
     case 1 -> "one"
     case 2 -> do
         log("two")
-        yield "two"
+        local result = "two"
+        yield result
     end
     else -> "other"
 end
@@ -238,6 +326,13 @@ The depth rules are exact:
 - statements in `-> do` begin at switch depth plus two;
 - the `end` of a `do` arm aligns with its `case`;
 - the `end` of the switch returns to the original switch depth.
+
+Two parse-significant pairs are unbreakable: the formatter never inserts a line
+break between `switch` and the first token of its selector, or between contextual
+`yield` and the first token of its operand. When a line is too wide it breaks the
+surrounding expression before `switch`, or a designated break point inside the
+selector or yielded expression. It never creates source which would parse as an
+ordinary identifier statement on the next run.
 
 Consequently this input:
 
@@ -284,18 +379,31 @@ Extend `src/nupp/compiler/parser.nupp` with:
 1. contextual recognition of `switch` in expression position;
 2. case recovery boundaries at contextual `case`, reserved `else` and the
    switch-closing `end`;
-3. separate static-value and `is` pattern parsers;
-4. reuse of `-> expression` and `-> do block end` from short functions;
-5. a switch-arm context stack for contextual `yield`;
-6. context resets on ordinary and short-function bodies;
-7. targeted recovery for a missing selector, arrow, result, arm `end` or switch
+3. a dedicated static-value parser which treats `->` as a hard terminator and
+   never delegates a trailing name to `parseShortfn`;
+4. a dedicated type-pattern parser whose type parse stops before pattern `as`
+   and `{`, rather than consuming either as part of a neighboring expression or
+   type production;
+5. reuse of `-> expression` and `-> do block end` from short functions only
+   after the case parser has consumed the arrow;
+6. a switch-arm context stack for same-line contextual `yield expression`;
+7. context resets on ordinary and short-function bodies;
+8. targeted recovery for a missing selector, arrow, result, arm `end` or switch
    `end`, a duplicate `else` and a case after `else`.
+
+The hard arrow boundary is required for both `case MAX -> 0` and
+`case 0, 1 -> 0`: ordinary expression parsing would otherwise recognize the
+last `name -> expression` as a short function. The case parser owns commas and
+the arrow and builds scalar nodes directly.
 
 Recognition must preserve valid Lua. A name `switch` followed by call, index or
 member suffix remains an ordinary suffixed expression. The contextual switch
 form requires its selector to begin on the introducer's line and uses the
 following case structure to close the expression. Likewise, `yield expression`
-is contextual only inside a switch block arm; `yield(...)` remains a call.
+is contextual only inside a switch block arm, only when its first operand token
+is on the same line and only when that token is not `(`, `{` or a literal string.
+Those three forms remain Lua calls. The formatter marks both contextual pairs
+unbreakable so formatting cannot change which grammar recognizes them.
 
 Parser tests cover valid forms, every recovery boundary, contextual-name
 compatibility, nested switches and exact parse-print identity for incomplete
@@ -313,7 +421,9 @@ from token text. Give switch cases an explicit formatter nesting boundary:
   forced line break;
 - mark `->` as the break point for an expression arm which exceeds the width.
 
-Add `tests/fmtcorpus/statements/switch.nupp` and its expected file. The corpus
+Add `tests/fmtcorpus/short-functions/switch.nupp` and its expected file. The
+arrow-arm layout is closest to the existing short-function corpus, even though
+the switch itself is an expression rather than a function. The corpus
 must include:
 
 - completely unindented input;
@@ -324,6 +434,8 @@ must include:
 - comment-only or temporarily incomplete arms;
 - nested switches in selectors and arm results;
 - an arm `end` immediately followed by another case;
+- over-width switch selectors and yielded expressions which prove the
+  introducer/operand pairs never separate;
 - idempotence after formatting the expected result again.
 
 Focused formatter tests assert the numeric indentation of the first token on
@@ -354,15 +466,22 @@ For one switch:
 
 Later cases analyze under the accumulated residue, so their selector and
 bindings carry the narrowest provable type. A type case uses exactly the same
-runtime-testability decision and true/false narrowing as `e is T`; static
-literal cases use the existing equality narrowing and `narrowing.subtract`.
+runtime-testability decision and true/false narrowing as `e is T`; reuse
+`check/expr.nupp`'s existing `provenStatically` and `refutedStatically` answers.
+Static literal cases use the existing equality narrowing and
+`narrowing.subtract`.
+
+"Wholly unreachable" is reported only when those existing proofs refute the
+case or the accumulated residue is `never`. A `where`-refined interface can run
+a predicate whose overlap is not generally decidable; the checker preserves its
+ordered runtime test and does not claim it is unreachable without a proof.
 
 The checker adds stable diagnostics and `explain` entries for:
 
 - a non-static or non-scalar value case;
 - a value the selector type cannot contain;
 - duplicate scalar values;
-- a wholly unreachable value or type case;
+- a provably wholly unreachable value or type case;
 - an invalid or runtime-untestable type pattern;
 - a missing, private or unreadable destructured field;
 - an owned field which cannot be safely bound;
@@ -371,6 +490,9 @@ The checker adds stable diagnostics and `explain` entries for:
 - a block arm which can complete without yielding;
 - a misplaced, repeated or non-final `else`;
 - a non-exhaustive switch without `else`.
+
+The last item receives a new non-suppressible semantic code. It is not routed
+through the lint registry and is not the suppressible `NUPP2107` diagnostic.
 
 Expression arms and yielded expressions contribute one ordinary expression
 type. An arm which always returns, raises or loops contributes `never`. Existing
@@ -394,40 +516,80 @@ end
 becomes collision-safe generated Lua of this shape:
 
 ```lua
-local __switchSubject = getShape()
-local __switchResult
-if circle_test(__switchSubject) then
-    local radius = __switchSubject.radius
-    __switchResult = radius * radius
-else
-    __switchResult = 0
+local __switchResult0
+do
+    local __switchSubject = getShape()
+    if circle_test(__switchSubject) then
+        local radius = __switchSubject.radius
+        __switchResult0 = radius * radius
+    else
+        __switchResult0 = 0
+    end
 end
-local result = __switchResult
+local result = __switchResult0
 ```
 
-The actual names come from the generator's reserved-name allocator. A block
-arm's `yield` emits a result assignment followed by a `goto` to a private merge
-label. Leaving nested lexical scopes is legal; generation must never jump into
-one. `return` is emitted unchanged.
+The actual names come from the generator's reserved-name allocator. Extend the
+existing `pluck` planning boundary instead of pretending it is already a general
+normalizer. Version 1 roots are:
 
-A switch is an expression and must work in every expression position before it
-ships. The lifting plan therefore preserves:
+- a local declaration with exactly one initializer expression;
+- an assignment with exactly one target and value expression;
+- a return with exactly one expression;
+- a call statement whose eager callee, receiver or argument tree contains a
+  switch.
 
-- left-to-right evaluation of operands, callees, receivers, indexes, arguments
-  and constructor fields;
-- conditional evaluation of `and`, `or`, `??`, ternary arms and safe-navigation
-  suffixes;
-- the last-expression pack rules of the surrounding Lua expression while the
-  switch itself remains one value;
-- local scope for destructured bindings;
-- multiple and nested switches in one containing statement;
-- source line attribution for the selector, tests, bindings, arm bodies and
-  continuation.
+Beneath one of those roots, lifting may walk eager, strict-order operands. It
+captures preceding effectful operands in temporaries, evaluates the switch and
+then resumes the containing expression. It does not cross `and`, `or`, `??`, a
+ternary branch, a safe-navigation gate or any other child whose evaluation is
+conditional. Those locations receive the new switch-placement diagnostic and
+point to `plans/056-expression-normalization.md`.
 
-Build this as a reusable expression normalization facility rather than a set of
-special cases for local assignment and return. Do not accept an expression
-position until its ordering and laziness are preserved, and do not use an IIFE
-as a fallback.
+The restricted planner still preserves the last-expression pack rules of the
+containing statement, local pattern scope, multiple switches whose lifetimes do
+not overlap and source lines for the selector, tests, bindings, arm bodies and
+continuation. It never falls back to an IIFE.
+
+### Cleanup extents and switch completion
+
+A plain result assignment followed by `goto` is valid only when it does not
+cross an active cleanup extent. `with` and other affine regions currently lower
+through protected generated functions: `return`, escaping `break`, `continue`
+and `goto` become completion sentinels so cleanup runs before control continues.
+A switch yield must join that protocol.
+
+Give every lowered switch a private completion identity. A yield which crosses
+an active cleanup region returns a switch-completion tag and packed value through
+the region. Each intervening region runs its cleanup, then either propagates the
+tag to its parent or, at the region containing the target switch, assigns the
+switch result and continues at the merge. A yield which crosses no region may use
+the direct assignment and private merge label. `return` keeps using the existing
+packed-return path unchanged.
+
+Any protected function already required by the arm passes an existing explicit
+reason to `pluck.loweredFunction`. The switch itself adds no new lowering reason;
+an unexplained function construction in a loop remains a compiler error.
+
+Test yields from inside one and several nested `with` extents, successful and
+failing cleanup, affine captures, and a switch nested wholly inside a region.
+Every path must clean up exactly once before the result becomes visible.
+
+### Temporary-slot pressure
+
+Do not allocate two function-lifetime locals for every switch site. Selector and
+pattern locals live in a generated lexical `do` scope and die at its merge.
+Result temporaries come from a planner-owned scratch pool and are reused after
+their continuation consumes them. The number of result slots is the maximum
+simultaneously live lifted switches in the function, not the number of switch
+sites.
+
+The planner tracks active generated locals against LuaJIT's local limit. If
+nesting and preceding eager operands exhaust the remaining budget, report a
+targeted lowering diagnostic instead of emitting Lua which later fails to load.
+Do not spill affine values through an untracked table. A stress test with
+hundreds of sequential switches proves slot reuse, and a deep-nesting test proves
+the diagnostic occurs before the backend limit.
 
 ## Dispatch planning and optimization
 
@@ -461,19 +623,52 @@ tree thresholds.
 
 ### AOT backend
 
-Extend `src/nupp/compiler/aot/lower.nupp` and
-`src/nupp/compiler/aot/emit.nupp` with explicit test blocks, arm blocks and a
-merge value:
+Version 1 follows the scalar IR which exists rather than designing against a
+future CFG. `scalarIR.Statement` has `Let`, `Assign` and `If`, but no return
+statement, and a native helper body is currently one matching source return
+list. Therefore AOT accepts only integer-valued switch cases which can lower as
+an ordered `If` chain assigning one merge `Let`/`Assign` slot before the helper's
+existing final result expression.
 
-- dense integers may become the backend's native switch or jump table;
-- sparse integers use a comparison tree when profitable;
-- scalar strings and supported nominal identities use ordered comparisons;
-- the result reaches the continuation through a merge slot or SSA value;
-- early `return` reaches the enclosing function's return block directly.
+Strings, nominal records, metatables, `where` predicates and early `return`
+inside an arm are outside the current AOT domain and receive the existing
+targeted AOT-boundary diagnostic. Adding early exits to scalar IR is a separate
+feature, not part of this syntax plan.
 
-Only types already representable in an AOT body participate. An unsupported
-selector or pattern receives the existing targeted AOT-boundary diagnostic; it
-does not change regular Lua lowering or silently leave the AOT region.
+Nupp `integer` currently lowers to binary64 in AOT, so density alone cannot
+justify a C `switch` or jump table. Version 1 emits scalar equality comparisons.
+A later optimization may use a native switch only for a selector already proved
+to have an integral backend representation, or after a separately verified exact
+conversion. Regular Lua lowering and checking are unchanged when AOT refuses a
+case family.
+
+## Complete expression-kind audit
+
+Adding a CST expression is repository-wide work. Before declaring parser support
+complete, inventory every dispatch on a peer such as `castExpr` and classify the
+new node explicitly. At minimum this includes:
+
+- `src/nupp/compiler/analysis.nupp`;
+- `src/nupp/compiler/optimize.nupp`;
+- `src/nupp/compiler/comptime.nupp`;
+- `src/nupp/compiler/check/init.nupp`;
+- `src/nupp/compiler/check/functions.nupp`;
+- `src/nupp/compiler/check/ownership.nupp`;
+- `src/nupp/compiler/lsp/semantic.nupp`;
+- the parser, CST, checker, formatter, generator and AOT modules already named.
+
+`analysis` and ownership walks visit the selector, patterns, bindings and every
+arm. Optimization may fold a statically selected inert value arm, but must not
+erase selector effects or reorder refined predicates. Function and effect walks
+treat a switch arm as lexical code in the enclosing function, except that nested
+functions retain their normal boundary.
+
+Comptime supports value-pattern switches with expression arms: evaluate the
+selector once, normalize it with the same switch-scalar rules, choose the first
+matching arm and evaluate that expression. Type patterns and `do` arms receive
+specific comptime diagnostics in version 1 rather than falling through to the
+generic "a switchExpr expression" message. Supporting their narrowing and
+control signals can follow without changing runtime semantics.
 
 ## Tooling
 
@@ -505,9 +700,11 @@ committed `docs/reference.md` and update:
 - `docs/start/tour.md` for one short value and type switch;
 - `docs/type-system/unions.md` for exhaustive literal and nominal unions;
 - `docs/type-system/narrowing.md` for matched types and accumulated residue;
+- the switch-specific scalar grammar, numeric duplicate rules, v1 placement
+  boundary and the `yield expression` versus `yield(...)` distinction;
 - ownership documentation for whole-value aliases and field binding;
 - AOT and performance documentation for lexical lowering, shared type lookup
-  and the no-closure guarantee;
+  and the no-new-closure guarantee;
 - generated diagnostic documentation for every new error.
 
 The documentation must contain compiled examples of:
@@ -525,7 +722,9 @@ The documentation must contain compiled examples of:
 11. a selector with a visible side effect proving it runs once;
 12. owned values and the refusal to move an owned field implicitly;
 13. every deliberately unsupported pattern category;
-14. exact canonical formatter indentation.
+14. an unsupported lazy placement and its repair;
+15. `yield(...)` remaining an ordinary coroutine-alias call;
+16. exact canonical formatter indentation.
 
 Every reference example compiles under `tests/referencetest.lua`, and every
 cited diagnostic resolves through `nupp explain` with a wrong and corrected
@@ -536,8 +735,14 @@ program.
 ### Parser and CST
 
 - every value, type, binding, destructuring and arm form;
+- `case MAX ->` and the final value of `case 0, 1 ->` stop before the arrow and
+  never become short functions;
+- a type pattern stops before `as` and `{`;
+- number normalization, including `1` versus `1.0`, signed zero, non-finite and
+  cdata-literal rejection;
 - nested and expression-position switches;
-- contextual-name compatibility with valid Lua calls and assignments;
+- contextual-name compatibility with valid Lua calls and assignments, including
+  a local coroutine alias named `yield`;
 - missing selector, arrow, result, arm close and switch close;
 - case after else and repeated else;
 - parse-print identity for valid and incomplete trees.
@@ -549,6 +754,8 @@ program.
 - arm statements are one level deeper than their case;
 - arm and switch closing tokens align independently;
 - nested constructs, comments, width breaks and incomplete source;
+- over-width input never separates `switch` from its selector or contextual
+  `yield` from its operand;
 - corpus idempotence and formatter fuzz stability.
 
 ### Checker
@@ -570,17 +777,23 @@ program.
 - scalar, nominal record, struct and refinement tests;
 - renamed field values and binding scope;
 - nested conditional yields and early returns;
-- switches in every expression family, including lazy operators;
+- switches in each admitted statement root and eager operand family;
+- every lazy or otherwise unsupported placement receives the targeted diagnostic;
+- yields crossing one and several cleanup extents preserve results, failures and
+  exactly-once cleanup;
+- hundreds of sequential switches reuse result slots, while excessive
+  simultaneous liveness receives the pre-backend diagnostic;
 - source-map attribution for failures in selectors, tests and arms;
-- no generated function in or around the switch;
+- no generated function attributable to a plain switch, while an existing
+  region function inside an arm retains its audited lowering reason;
 - bytecode recordability inside a hot loop.
 
 ### AOT
 
-- regular and AOT results agree for every supported pattern family;
-- dense and sparse integer plans;
-- merge values and early returns;
-- unsupported patterns receive the intended diagnostic;
+- regular and AOT results agree for integer-valued cases;
+- ordered scalar `If` lowering with a `Let`/`Assign` merge;
+- strings, type patterns and early arm returns receive the intended diagnostic;
+- no C switch is emitted for a binary64 `integer` merely because cases are dense;
 - generated artifacts remain deterministic.
 
 ### Tooling and documentation
@@ -598,14 +811,17 @@ program.
    work, so every subsequent fixture has canonical layout.
 4. Refactor shared branch checking and implement patterns, bindings, yields,
    result inference and exhaustiveness.
-5. Add general expression lifting and direct lexical Lua generation.
-6. Add bytecode checks, shared nominal tests and benchmark-guided scalar plans.
-7. Add AOT control-flow and merge lowering.
-8. Complete LSP, coverage, source-map and incremental tooling support.
-9. Write the full documentation set and regenerate committed references.
-10. Run focused suites, `./bin/nupp test` and `./bin/nupp fixpoint`.
+5. Add restricted eager-position lifting, cleanup-completion transport, slot reuse
+   and direct lexical Lua generation.
+6. Audit every expression-kind dispatcher, including explicit comptime behavior.
+7. Add bytecode checks, shared nominal tests and benchmark-guided scalar plans.
+8. Add AOT integer-case `If` and merge lowering with explicit boundary refusals.
+9. Complete LSP, coverage, source-map and incremental tooling support.
+10. Write the full documentation set, regenerate committed references and run
+    focused suites, `./bin/nupp test` and `./bin/nupp fixpoint`.
 
 The feature is complete only when cases remain indented under every formatter
-entry point, all value-producing paths are proved, Lua lowering allocates no arm
-closures, hot-loop bytecode remains recordable, regular and AOT results agree
-and every documented example is compiled by the reference test.
+entry point, all value-producing paths are proved, Lua lowering adds no arm
+closures, cleanup-crossing yields run every cleanup, temporary slots are reused,
+plain hot-loop bytecode remains recordable, accepted regular and AOT results
+agree and every documented example is compiled by the reference test.
