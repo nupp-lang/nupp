@@ -26,14 +26,14 @@ local function compile(source)
 end
 
 local function runs(source)
-   local code, errors, generated = compile(source)
+   local code, errors, generated, parsed = compile(source)
    assertEq(#errors, 0, errors[1] and (errors[1].code .. ": " .. errors[1].msg) or "check")
    assertEq(#generated, 0, "generation diagnostics")
    local chunk, why = loadstring(code, "@soa_test")
    assert(chunk, tostring(why) .. "\n" .. code)
    local ok, value = pcall(chunk)
    assert(ok, tostring(value) .. "\n" .. code)
-   return value, code
+   return value, code, parsed
 end
 
 local function codes(source)
@@ -81,6 +81,30 @@ return rows[1].x + rows[2].x + copied.x + rows:field("x"):get(4)
       "a count-bounded loop retained a per-row bounds helper")
    assertEq(code:find("rows [ index ] . x", 1, true), nil,
       "a virtual row survived into generated code")
+end
+
+function M.nonRaisingWithOverDirectFieldsNeedsNoProtectedBody()
+   local value, _, parsed = runs(PRELUDE .. [[
+local particles = soa.allocate(ffi.typeof<Particle>(), 2)
+with rows = particles:write() do
+    for index = 1, rows.count do
+        rows[index].x = index
+        rows[index].x += 0.5
+    end
+end
+local value = particles:read()[2].x
+drop particles
+return value
+]])
+   assertEq(value, 2.5, "direct with result")
+   local direct = false
+   local function walk(node)
+      if type(node) ~= "table" then return end
+      if node.kind == "withStmt" then direct = node.directCleanup == true end
+      for _, child in ipairs(node) do walk(child) end
+   end
+   walk(parsed.root)
+   assert(direct, "a non-raising SoA with should select direct cleanup")
 end
 
 function M.compoundAssignmentEvaluatesTheIndexOnce()

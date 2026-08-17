@@ -146,7 +146,9 @@ end
 
 --- @export
 function soa.destroyWriteSpan<T is soa.WriteToken>(takes self: T): nil
-    self:drop()
+    nosuspend do
+        local _raw = unsafe release self
+    end
 end
 
 --- A shared checked view over SoA rows.

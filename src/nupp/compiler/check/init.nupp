@@ -2394,18 +2394,100 @@ function checkMod.check(
         if cleanup.kind == "field" then
             return cleanupNonRaising(cleanup.cleanup)
         end
-        if cleanup.kind ~= "function" or not effectQueries then
+        if cleanup.kind ~= "function" then
             return false
         end
-        local known = effectQueries.known(cleanup.token)
-        if not known then
-            return false
-        end
-        local visible = effectQueries.visible(known.summary)
-        local free = visible and effectQueries.free(known.summary, {"raises"}) or false
+        local queries = effectQueries
+        local known = queries and queries.known(cleanup.token) or nil
+        if known then
+            local visible = queries and queries.visible(known.summary)
+            local free = visible and queries and queries.free(known.summary, {"raises"}) or false
 
-        return free == true
+            return free == true
+        end
+        -- An imported affine contract retains the terminal's stable
+        -- `module#qualified.name` key. Exact exports transport the same positive
+        -- noRaise fact used by authored `noraise` regions, so a dependant can prove a
+        -- terminal harmless without importing its complete effect summary.
+        local module, qualified
+        if cleanup.key then
+            module, qualified = cleanup.key:match("^(.*)#(.*)$")
+        end
+        local member = qualified and qualified:match("([^.]+)$") or nil
+        local guarantee = module and member and c.env and c.env.resolveCallGuarantees and c.env.resolveCallGuarantees(
+            c.env,
+            module,
+            member
+        ) or nil
+
+        return guarantee and guarantee.noRaise == true or false
     end
+
+    -- Direct `with` lowering is deliberately narrower than ordinary structured
+    -- control flow. Any outward completion would have to be rewritten to run cleanup
+    -- first, and a nested cleanup extent has its own failure composition. Keep both on
+    -- the general lowering until a dedicated CFG rewrite can preserve those rules.
+    local function straightforwardWithBody(body): boolean
+        local straightforward = true
+        local function walk(node, root)
+            if not node or not straightforward or cst.isToken(node) then
+                return
+            end
+            local kind = node.kind
+            if node ~= root and (
+                kind == "localFuncStmt"
+                or kind == "funcStmt"
+                or kind == "inlineMethod"
+                or kind == "constructorDecl"
+                or kind == "funcExpr"
+                or kind == "shortfn"
+            ) then
+                return
+            end
+            local owners = node.automaticOwners or {}
+            if kind == "returnStmt"
+                or kind == "breakStmt"
+                or kind == "continueStmt"
+                or kind == "gotoStmt"
+                or kind == "withStmt"
+                or kind == "handleStmt"
+                or #owners > 0
+            then
+                straightforward = false
+                return
+            end
+            for _, child in ipairs(node) do
+                walk(child, root)
+            end
+        end
+
+        walk(body, body)
+
+        return straightforward
+    end
+
+    local function markDirectWith(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        if node.kind == "withStmt" then
+            local bindings = node.bindings or {}
+            local direct = #bindings == 1 and straightforwardWithBody(
+                node.body
+            ) and c.effectRegions.free(node.body, "raises", effectQueries)
+            for _, cleanup in ipairs(bindings[1] and bindings[1].ownerCleanups or {}) do
+                direct = direct and cleanupNonRaising(cleanup)
+            end
+            if direct then
+                node.directCleanup = true
+            end
+        end
+        for _, child in ipairs(node) do
+            markDirectWith(child)
+        end
+    end
+
+    markDirectWith(result.root)
 
     for _, block in ipairs(facts.bodies or {}) do
         local owners = block.automaticOwners or {}

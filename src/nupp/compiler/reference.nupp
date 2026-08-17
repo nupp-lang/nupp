@@ -1071,6 +1071,11 @@ raised errors. Multiple acquisitions run left to right and drop right to left;
 each successful prefix remains protected if a later acquisition fails. `with`
 uses the same cleanup region as automatic lexical destruction.
 
+A single-acquisition extent with ordinary fallthrough lowers to a plain block
+and direct terminal calls when the body and terminals are proven non-raising.
+The compiler retains protected lowering whenever those proofs or the simple
+control-flow shape are absent.
+
 `with` is contextual at statement position when a name followed by `=` or `:`
 selects this form. Elsewhere it remains an ordinary identifier. Use a normal
 affine local plus `drop` when early release or ownership transfer is intended.

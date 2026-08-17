@@ -74,6 +74,61 @@ function M.withIsContextualAndScopesAnAffineOwner()
    assertEq(chunk(), "w")
 end
 
+function M.aProvenNonRaisingWithUsesDirectCleanup()
+   local chunk, code = compile(PRELUDE .. table.concat({
+      "",
+      "with value = open_resource('f') do",
+      "   value.name = value.name",
+      "end",
+      "return calls",
+   }, "\n"))
+   assertEq(chunk(), "f")
+   assert(not code:find("xpcall", 1, true),
+      "a proven non-raising with should call its terminal directly:\n" .. code)
+end
+
+function M.aWithThatMayRaiseKeepsProtectedCleanup()
+   local chunk, code = compile(PRELUDE .. table.concat({
+      "",
+      "local function run()",
+      "   with value = open_resource('p') do",
+      "      error(value.name)",
+      "   end",
+      "end",
+      "local ok = pcall(run)",
+      "return ok, calls",
+   }, "\n"))
+   local ok, calls = chunk()
+   assertEq(ok, false)
+   assertEq(calls, "p")
+   assert(code:find("xpcall", 1, true),
+      "a possibly raising with must retain body protection:\n" .. code)
+end
+
+function M.aWithWhoseTerminalMayRaiseKeepsProtectedCleanup()
+   local source = table.concat({
+      "local record Resource",
+      "   name: string",
+      "end",
+      "local function fail_close(takes value: Resource): nil",
+      "   error(value.name)",
+      "end",
+      "local function open_resource(name: string): affine(Resource, fail_close)",
+      "   return new Resource(name = name)",
+      "end",
+      "local function run()",
+      "   with value = open_resource('c') do",
+      "      value.name = value.name",
+      "   end",
+      "end",
+      "return pcall(run)",
+   }, "\n")
+   local chunk, code = compile(source)
+   assertEq(chunk(), false)
+   assert(code:find("xpcall", 1, true),
+      "a possibly raising terminal must retain protected cleanup:\n" .. code)
+end
+
 function M.withAcquiresLeftToRightAndDropsInReverse()
    local chunk = compile(PRELUDE .. table.concat({
       "",

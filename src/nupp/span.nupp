@@ -24,7 +24,9 @@ end
 
 --- @export
 function span.destroyWriteSpan<T is span.WriteToken>(takes writable: T): nil
-    writable:drop()
+    nosuspend do
+        local _raw = unsafe release writable
+    end
 end
 
 --- A checked, shared view over contiguous elements. Only this module can declare an

@@ -4147,6 +4147,30 @@ function gen.generate(
             emit(region)
 
         elseif kind == "cleanupRegion" or kind == "withStmt" then
+            if kind == "withStmt" and x.directCleanup then
+                local binding = x.bindings[1]
+                e("do const ", x.withTok and x.withTok.line or sourceLine(x))
+                e(binding.name.text .. "=", sourceLine(binding.expr))
+                local move = binding.expr and binding.expr.automaticOwnerMove or nil
+                local movedActive = move and activeWith(move) or nil
+                emit(binding.expr)
+                if movedActive then
+                    e(("; %s=false"):format(movedActive))
+                end
+                e("; do")
+                if x.body then
+                    emit(x.body)
+                end
+                e("end;")
+                for _, cleanup in ipairs(binding.ownerCleanups or {}) do
+                    local call = cleanupCall(cleanup, binding.name.text)
+                    if call then
+                        e(call .. ";", x.endTok and x.endTok.line or nil)
+                    end
+                end
+                e("end")
+                return
+            end
             ensureCleanupRuntime()
             local count = nextTemp()
             local ok = nextTemp()

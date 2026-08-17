@@ -14,6 +14,7 @@ local effectregions = {}
 
 type effectregions.Ops = {
     readonly region: function(cst.EffectRegionStmt),
+    readonly free: function(any, string, any): boolean,
     readonly sweep: function(any)
 }
 
@@ -189,6 +190,52 @@ function effectregions.install(c: state.Checker): effectregions.Ops
                 related = info and chain(queries, info, effect) or nil,
             }
         )
+    end
+
+    -- Answers the same question as an authored effect region without reporting a
+    -- diagnostic. Optimizers use this rather than maintaining a second, inevitably
+    -- drifting definition of which operations are proven harmless.
+    function ops.free(body: any, effect: string, queries: any): boolean
+        local function walk(node, root): boolean
+            if not node or cst.isToken(node) then
+                return true
+            end
+            local kind = node.kind
+            if node ~= root and (
+                kind == "localFuncStmt"
+                or kind == "funcStmt"
+                or kind == "inlineMethod"
+                or kind == "constructorDecl"
+                or kind == "funcExpr"
+                or kind == "shortfn"
+            ) then
+                return effect ~= "allocates"
+            elseif (
+                kind == "tableExpr"
+                or kind == "newExpr"
+                or kind == "istring"
+                or kind == "binop"
+                and node.op
+                and node.op.kind == ".."
+            ) and effect == "allocates" then
+                return false
+            elseif node.effectUnknownOperation then
+                return false
+            elseif kind == "call" or kind == "safeCall" or kind == "methodCall" then
+                if not callIsFree(node, effect, queries) then
+                    return false
+                end
+            end
+            for _, child in ipairs(node) do
+                if not walk(child, root) then
+                    return false
+                end
+            end
+
+            return true
+        end
+
+        return walk(body, body)
     end
 
     function ops.sweep(queries)

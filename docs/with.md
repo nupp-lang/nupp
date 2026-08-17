@@ -100,9 +100,15 @@ bypass acquisition.
 
 Affine wrappers and `with` bindings are erased; the acquired value itself is
 not copied or boxed. The generated code uses the same cleanup-region machinery
-as automatic lexical destruction. Error-safe extents use a protected call, and
-a non-capturing body is shared rather than rebuilt on each execution. This is a
-control-flow cost, not a storage-layout or copy-back cost.
+as automatic lexical destruction. When the body has ordinary fallthrough,
+every reachable operation is proven non-raising, and every terminal has a
+`noRaise` guarantee, the compiler emits an ordinary block followed by direct
+terminal calls. No `pcall`, `xpcall`, or closure is present in that form.
+
+Uncertain or raising extents use a protected call, and a non-capturing body is
+shared rather than rebuilt on each execution. Outward `return`, loop control,
+`goto`, multiple acquisition, and nested cleanup currently keep this general
+lowering. This is a control-flow cost, not a storage-layout or copy-back cost.
 
 For data-oriented code, put `with` around the hot loop rather than inside it:
 the loop continues to access SoA columns directly and can be checked with

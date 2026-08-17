@@ -44,6 +44,7 @@ interface cst.Hints
     automaticOwners: any
 
     automaticDirect: any
+    directCleanup: boolean?
     automaticRegion: boolean?
     automaticSequence: any
 
