@@ -11,14 +11,29 @@ shape preserves selector-once evaluation, first-match behavior, lazy arm
 evaluation, bindings, `yield`, early `return` and source-visible predicate
 order.
 
-The first optimization release has four deliberately narrow alternatives:
+The work divides into three unconditional corrections to the lowering that
+already shipped and three benchmark-gated alternative plans.
 
-1. a dense integer lookup for a static scalar map;
-2. an ordinary Lua table for a static string map;
-3. a collision-free generated hash for a sufficiently large sparse `int32` or
-   `uint32` map, after its benchmark gate is met;
-4. one shared runtime-identity read for compatible consecutive nominal type
-   cases.
+The corrections need no plan tag, no generated data and no threshold. Each is
+measured in both traced and interpreted execution:
+
+1. a table-keyed lookup needs no range guard, because a Lua table read answers
+   `nil` for every out-of-range, fractional, NaN and infinite key;
+2. a missing-entry sentinel is emitted only when some arm's result is itself
+   `nil`, because the extra comparison otherwise sits on every hit;
+3. a nominal type case drops its `?.` when the checker has already proved the
+   subject is not `nil`.
+
+The gated plans are:
+
+4. a dense integer lookup for a static scalar map;
+5. an ordinary Lua table for a static string map;
+6. an ordinary Lua table for a sparse static integer map.
+
+A collision-free generated hash is deliberately not in this release. It is both
+the largest win and the largest regression measured anywhere in this work, and
+choosing it correctly needs hotness information the compiler does not have. See
+"Deferred: sparse perfect hash".
 
 An AOT switch whose selector has an established `int32` or `uint32` physical
 representation lowers to native C `switch`. Ordinary binary64 numbers continue
@@ -39,22 +54,44 @@ justify backend-specific planning, but they do not give LuaJIT an indirect jump.
 Generated Lua can compare, index a table and branch; it cannot jump from a
 computed case number directly into arbitrary lexical code.
 
-The exploratory benchmarks which precede this plan found these useful shapes on
-the tested arm64 LuaJIT 2.1 build:
+The exploratory benchmarks which precede this plan reported what a lookup costs
+but not the baseline it has to beat, which is the number that decides every plan
+here. A lookup is flat in the number of cases. An ordered chain costs whatever
+the trace cannot specialise away, and that grows with the case count as soon as
+the selector stops being predictable.
 
-- dense integer Lua and FFI arrays were both about one nanosecond per lookup;
-- a collision-free sparse 32-bit hash into an FFI array was also about one
-  nanosecond and beat a Lua hash table in a compiled trace;
-- ordinary Lua tables beat custom sparse layouts in the interpreter;
-- a verified string perfect hash lost to an ordinary Lua string table;
-- an FFI call to a C helper cost more than doing integer dispatch in generated
-  Lua, and cost much more for dense integers and strings.
+Measured on arm64 LuaJIT 2.1, 400k dispatches, best of nine, every variant
+assert-agreed against the ordered chain including NaN and out-of-range misses.
+Nanoseconds per dispatch:
+
+```
+ dense int  jit  stream   chain   table
+ ─────────  ───  ───────  ──────  ─────
+ 4 cases    on   biased   1.65    1.51
+ 64 cases   on   biased   2.32    1.47
+ 4 cases    on   uniform  10.57   1.02
+ 64 cases   on   uniform  31.78   1.04
+ 16 cases   off  biased   24.97   25.15
+ 64 cases   off  uniform  301.47  28.24
+```
+
+Two things follow. The chain is linear in the case count where the lookup is
+not, which is the argument for the map plans at all. And the table is never
+materially worse even at ninety-five percent first-case bias, which is the
+chain's best case, so the dense plan does not need the distribution modelling
+this plan originally proposed: case count and eligibility settle it.
+
+Strings behave the same way with a smaller margin — 1.38 against 1.72 biased and
+3.35 against 20.52 uniform, at 64 cases compiled — so a string map is worth
+having but needs a small-arity floor for interpreted execution.
+
+An FFI call to a C helper cost more than doing integer dispatch in generated
+Lua, and much more for dense integers and strings. That result stands and is why
+no plan here crosses the FFI boundary per dispatch.
 
 These numbers are evidence for the candidate set, not portable thresholds. Add
 the benchmark to the repository and measure every supported architecture before
-enabling a heuristic by default. In particular, do not choose an FFI-backed
-perfect hash merely because a switch is large: code which stays interpreted may
-become slower.
+enabling a heuristic by default.
 
 Java and native compiler precedent informs the split without changing it. A JVM
 has bytecodes which jump directly to a selected label; stock LuaJIT does not.
@@ -77,15 +114,19 @@ itself.
    runs.
 6. **No callback table.** An optimization never represents arms as functions.
    A switch in a loop remains trace-recordable under `nupp bc --check`.
-7. **Open domains verify membership.** A perfect hash or dense slot cannot turn
-   a non-case value into a case merely because it lands in an occupied slot.
+7. **Open domains verify membership.** Every plan in this release keys a real
+   Lua table, so a non-case value is simply not a key and no verification code
+   is emitted. A plan which computes a slot rather than a key must verify, which
+   is one reason that plan is deferred.
 8. **Closed domains are proved, not assumed.** Verification may be omitted only
    when exhaustiveness and the selector type prove that every runtime value is
    one of the encoded labels.
 9. **Nil is not absence.** A case whose result is `nil` remains distinguishable
    from a missing lookup and from an `else` result.
 10. **Planning is deterministic.** Source order, normalized values and stable
-    tie breakers determine the emitted constants, names and layout.
+    tie breakers determine the emitted constants, names and layout. `nupp
+    fixpoint` is the enforcement: a byte-identical self-rebuild fails on any
+    `pairs()` iteration reaching plan construction.
 11. **Backend choices are independent.** Regular LuaJIT and AOT may select
     different physical plans from the same checked semantic facts. A regular
     plan must account for both traced and interpreted execution.
@@ -116,9 +157,8 @@ The planner returns one explicit tagged plan:
 SwitchPlan
     OrderedBranches
     DenseIntegerMap
-    SparseIntegerPerfectHash
+    SparseIntegerMap
     StringMap
-    SharedNominalIdentity
     NativeIntegerSwitch
 ```
 
@@ -134,7 +174,7 @@ returns immutable data to regular generation or AOT lowering.
 
 ### Static result maps
 
-A dense map, sparse perfect hash or string map is eligible only when:
+A dense, sparse or string map is eligible only when:
 
 - every case is a static scalar case;
 - every arm is an expression arm with one compiler-known inert scalar result;
@@ -148,18 +188,43 @@ Use the switch scalar normalizer already defined by plan 055 for labels. Add a
 smaller result encoder for `nil`, booleans, finite binary64 values, strings and
 exact scalar names. Do not treat a merely immutable local as a static result.
 
-Represent `nil` and missing entries with distinct private sentinels when the
-physical table cannot distinguish them. Sentinels never escape the generated
-switch result.
+A table read already distinguishes a hit from a miss, so the ordinary encoding
+is that `nil` means miss and costs one comparison. Emit a private sentinel only
+when some arm's result is itself `nil`. The second comparison a sentinel costs
+is charged to every hit, and it measured 4.60x at four cases and 1.90x at
+sixteen under a uniform stream compiled — the penalty is largest at small case
+counts, where the sentinel slot is a larger fraction of the hits. Prefer holding
+the nil-result labels out of the table and comparing them separately over taxing
+the common path. Sentinels never escape the generated switch result.
 
 If any eligibility condition fails, use ordered branches. Do not compute a case
 ordinal and then dispatch through another branch chain.
 
-### Shareable type cases
+### Coverage
 
-Type-case sharing is a branch optimization rather than a static result map.
-Consecutive concrete record cases may evaluate the subject's metatable identity
-once and compare its stable `__index` identity with each declared record.
+Under coverage instrumentation, always select `OrderedBranches`. `gen.nupp`
+wraps each case condition in a `branch` call, and a lookup has no per-case
+condition to instrument, so an optimized plan would silently stop reporting
+per-case branch data. This is an eligibility rule, not a test assertion.
+
+### Nominal type cases
+
+`gen.nupp` emits `getmetatable(subject)?.__index == Record` once per nominal
+case. Two separate changes hide inside that spelling and only one of them pays.
+
+Dropping the `?.` is the win, and it is unconditional. The checker already
+narrows the subject inside a switch, so a case reached only when the subject is
+not `nil` does not need the guard. Measured at four cases interpreted under a
+biased stream, the guarded form costs 40.45 against 20.33 nanoseconds; at
+sixteen cases interpreted under a uniform stream, 118.05 against 64.60.
+
+Hoisting the `getmetatable` read across consecutive cases is not the win. On its
+own it measured 1.04x compiled, which is noise, and the faithful hoisted-and-
+guarded form is a 1.99x regression interpreted under a biased stream, because it
+runs unconditionally where the chain stopped at the first case. Share the read
+only once the guard is gone, and treat it as tidiness rather than as an
+optimization with a plan tag.
+
 Consecutive primitive cases may similarly share one `type(subject)` result.
 Destructuring stays inside the selected branch.
 
@@ -192,17 +257,32 @@ chain and a terminal lookup without harming common biased distributions.
 
 ### Dense integer map
 
-For eligible inert-result maps, compute `index = selector - minimum + 1`, guard
-the represented range when the domain is open, and load one compiler-owned Lua
-array. Holes carry the private missing sentinel. Include the table's bytes and
-hole count in the cost estimate; density alone is insufficient for an enormous
-range.
+For eligible inert-result maps, compute `index = selector - minimum + 1` and
+load one compiler-owned Lua array.
 
-Hoist the array once into generated chunk state. Reuse identical immutable
-arrays by content within one generated module, but do not introduce a global
-cross-module registry. Account for the added chunk local and function upvalue
-before choosing the plan. Fall back to branches when local, upvalue or generated
-source limits would be worse.
+Emit no range guard. A Lua table read answers `nil` for a fractional, negative,
+out-of-range, NaN or infinite index, so the miss path is already correct without
+one; only a NaN table *write* raises, and no plan writes. The guard measured
+1.26x compiled and 1.64x interpreted for nothing.
+
+Holes are left `nil`, which is already the miss encoding, so they need no
+sentinel either. Include the table's bytes and hole count in the cost estimate:
+a constructor with many interior holes can push entries into the table's hash
+part, and density alone is insufficient for an enormous range.
+
+Hoist the array once into generated chunk state through the generator's existing
+prologue registry rather than adding one. `declareHelper` already dedups by
+rendered body, allocates a reserved name, and emits its declarations on the
+prologue's single line so no source line moves; a `declareConstant` sibling
+gives hoisting, content deduplication and source-map neutrality directly. Do not
+introduce a global cross-module registry.
+
+Every prologue entry is a chunk local and therefore an upvalue for each function
+that reads it. `gen.nupp` already routes all cleanup sites through one indexed
+table to stay under LuaJIT's ceilings; cap the number of prologue constants and
+spill to one shared indexed table beyond the cap, so the count does not depend
+on how many switches a module happens to contain. Fall back to branches when
+generated source limits would be worse.
 
 An FFI dense array is not the default. The benchmark showed no material compiled
 advantage over a Lua array and the Lua array behaves better when interpreted.
@@ -214,41 +294,77 @@ normalized strings. Use the missing sentinel and explicit fallback handling.
 Do not synthesize a string perfect hash: verification requires the original
 string comparison, and the measured implementation lost to LuaJIT's table.
 
-Apply the same hoisting, deduplication and upvalue accounting as dense arrays.
+Apply the same hoisting, deduplication and prologue accounting as dense arrays.
 Never put arm functions in the table.
 
-### Sparse 32-bit perfect hash
+Apply a small-arity floor. At four cases under a biased stream the chain wins
+interpreted, 21.36 against 26.82, and ties compiled.
 
-Consider this plan only for established `int32` or `uint32` selectors and only
-after branches, an ordinary Lua table and the candidate generated layout have
-been benchmarked at that case count. Construction happens at compile time and
-must either find a collision-free layout within fixed deterministic bounds or
-decline cleanly.
+### Sparse integer map
 
-The generated probe consists of exact LuaJIT 32-bit bit operations, an index
-calculation and one data load. An open domain stores the original key beside the
-result and verifies equality before accepting the slot. A checker-proved closed
-domain may omit that key comparison. Signed and unsigned conversion rules are
-explicit, including `INT32_MIN`, `UINT32_MAX` and values with the high bit set.
+For eligible inert-result maps whose integer labels are too sparse for a dense
+array, emit one ordinary Lua table keyed by the integers, under the same
+hoisting, deduplication, sentinel and fallback rules as the string map.
 
-Benchmark both a Lua numeric array and an `ffi.new` fixed-width array. Select
-the FFI representation only if the repository gate shows a repeatable win in a
-compiled trace large enough to pay for poorer interpreter behavior and cdata
-setup. Allocate it once at module initialization. Generated Lua performs the
-probe directly; it does not call a C or FFI helper.
+It is the only sparse plan with bounded downside. Compiled, it costs 2.84
+against the chain's 1.74 at 64 cases under a biased stream and pays 9.35 against
+21.56 under a uniform one; interpreted it wins from sixteen cases upward. The
+worst case is about one nanosecond and the best is better than twofold, where
+the alternative in the next section risks 2.7x in the wrong direction.
 
-Cap construction attempts, emitted data bytes and probe expression size. Hash
-failure, excessive layout size or unavailable FFI support selects the next
-valid plan rather than reporting a source error.
+## Deferred: sparse perfect hash
+
+A collision-free 32-bit hash into a fixed-width array is the largest win
+measured anywhere in this work and also the largest regression. It is deferred,
+and the reason is not that its benchmark gate is unwritten.
+
+```
+ sparse int  jit  stream   chain   luatable  ph_ffi  ph_lua
+ ──────────  ───  ───────  ──────  ────────  ──────  ──────
+ 16 cases    on   uniform  10.46   9.06      1.05    1.83
+ 64 cases    on   uniform  21.56   9.35      1.03    1.81
+ 64 cases    on   biased   1.74    2.84      1.04    1.82
+ 16 cases    off  biased   22.03   28.08     74.96   47.29
+ 64 cases    off  uniform  183.52  33.27     75.16   47.29
+```
+
+Compiled it is twelve to twenty-one times better than the ordered chain.
+Interpreted it is 1.7 to 2.7 times worse. A Lua array in place of the FFI array
+halves the interpreted penalty and gives up most of the compiled margin without
+removing the cliff, so the storage question this plan meant to ask is already
+answered: FFI wins hot, Lua wins cold, and neither is safe without knowing which
+the code is.
+
+That is a hotness decision and the cost model has no hotness input. Lexical loop
+presence is evidence rather than a promise, and choosing wrong here costs 2.7x
+where every other plan in this release risks a fraction of a nanosecond.
+Revisit it in its own plan, once a profile or another source of hotness exists,
+with the key verification, `INT32_MIN` and `UINT32_MAX` conversion rules and
+bounded construction search it needs.
 
 ## AOT plan
 
-Add a scalar-IR node for a static integer switch rather than recognizing a
-particular nest of `If` nodes in the C emitter. It contains the selector,
-normalized integer labels, lexical bodies, optional fallback and source
-locations.
+Do not add a scalar-IR statement op. `switchLocal` in `aot/lower.nupp` already
+emits exactly the shape a native `switch` needs: one `Let` for the selector, one
+zero-initialized `Let` for the result, and one `If` whose clauses are `eq` and
+`or` chains over that selector with single-assignment bodies. Attach the
+normalized integer labels to that `If` as an annotation and let the C emitter
+read them.
 
-The node is admitted only for an established `i32` or `u32` selector. Emit:
+The emitter is then reading a fact lowering already knew rather than
+reconstructing a shape, which was the whole motive for a new node, and every
+other consumer is untouched. A new op would need cases at seven `op == "if"`
+sites in `aot/rewrite.nupp` and in `verify.nupp`, `text.nupp`, `emit.nupp` and
+intensity analysis. Dropping the annotation is always safe, which also gives the
+lane path its "desugar before rewriting" property for free: there is nothing to
+desugar.
+
+The annotation is attached only for an established `i32` or `u32` selector.
+`switchLocal` today admits `f64` selectors with integer-valued labels, and this
+plan narrows only which of them reach a native `switch`, not what is admitted.
+Case constants currently lower through `lower.expression`, which yields `f64`
+constants; native labels need constants at the selector's exact width, and that
+conversion is the work item. Emit:
 
 ```c
 switch (selector) {
@@ -269,11 +385,10 @@ Use exact-width C constants and preserve grouped labels. Binary64 selectors
 remain scalar equality branches because C does not switch on `double` and an
 implicit conversion would change Nupp semantics.
 
-Teach scalar verification, textual IR output, source mapping, cost/intensity
-analysis and C emission about the node. Before SIMD lane rewriting, lower it to
-the existing masked conditional representation unless a future vector-specific
-dispatch operation is justified. The scalar path preserves native `switch`; the
-lane path preserves per-lane semantics.
+Teach C emission and source mapping about the annotation. Nothing else changes:
+the annotated node is still an ordinary `If`, so SIMD lane rewriting reaches its
+existing masked conditional representation without a desugaring step. The scalar
+path preserves native `switch`; the lane path preserves per-lane semantics.
 
 Do not synthesize a C perfect hash initially. Native C compilers already choose
 among jump tables and comparison strategies with target information which Nupp
@@ -295,8 +410,16 @@ Centralize thresholds in the planner and name every input. At minimum consider:
 - regular LuaJIT's traced and interpreted execution, and the AOT target;
 - whether the switch occurs lexically in a loop.
 
+The dense integer plan does not need the distribution inputs. It measured at
+least as fast as the chain at ninety-five percent first-case bias and thirty
+times faster under a uniform stream, so case count and eligibility settle it.
+The string and sparse plans do need a small-arity floor, and it exists for
+interpreted execution rather than for traced.
+
 Lexical loop presence is evidence, not a promise that LuaJIT records the code.
-Do not silently treat it as profile data. The initial thresholds are constants
+Do not silently treat it as profile data. No plan in this release may depend on
+that signal; the one plan which would have needed it is deferred for exactly
+that reason. The initial thresholds are constants
 backed by checked-in benchmark results, kept in one module and covered by
 boundary tests. A later profile-guided system may supply distribution data
 without changing switch semantics or plan tags.
@@ -307,17 +430,26 @@ the planner's decision by scraping generated text alone.
 
 ## Benchmark gate
 
-Add `bench/switch-dispatch/` with a generator and a README containing exact
-commands, LuaJIT version, architecture and result schema. Prevent constant
-folding by consuming runtime-provided selectors and verify every result before
-timing.
+Add `bench/switch-dispatch.lua`, in the shape of `bench/match-lowering.lua`,
+which already establishes the axes this needs: arm counts, a biased stream
+against a uniform one, `jit.on()` against `jit.off()`, an agreement check before
+timing, and a `NUPP_BENCH_MODE` escape for a machine too loaded to time. The
+flat `.lua` convention holds for everything under `bench/` except the `*-spike`
+trees. Record exact commands, LuaJIT version and architecture in the file
+header. Prevent constant folding by consuming runtime-provided selectors and
+verify every result before timing.
 
 Measure:
 
+- the ordered chain baseline at every case count and stream, which is the
+  comparison every plan is against and which the exploratory run omitted;
 - ordered chains with first-case, last-case, uniform-hit and mixed-miss input;
 - dense integer Lua arrays at several spans and densities;
+- guarded against unguarded dense indexing, and sentinel against plain
+  encodings, so the two unconditional corrections stay measured rather than
+  assumed;
+- nominal cases with and without the `?.` guard;
 - sparse integer Lua tables;
-- candidate perfect hashes with Lua and FFI data arrays;
 - string Lua tables and the rejected verified perfect-hash baseline;
 - direct generated Lua versus one C helper through FFI;
 - warm compiled traces and `jit.off()` interpreter execution;
@@ -329,6 +461,10 @@ integer spans and strings with deliberate hash clustering. Report medians and
 dispersion across repeated samples; retain raw machine-readable output. A plan
 is enabled by default only when it wins beyond noise on supported CI benchmark
 machines and does not regress the interpreter path beyond the documented bound.
+
+Record trace behavior beside the timings. Side-trace exits are the mechanism
+behind every number in this plan, and nanoseconds per dispatch will not explain
+a result that trace counts and aborts would.
 
 Benchmarks are not correctness tests. Separately assert generated bytecode and
 runtime behavior in the ordinary suite.
@@ -363,15 +499,17 @@ performance section which explains:
 - regular LuaJIT cannot directly jump from a computed ordinal to an arbitrary
   arm body;
 - AOT `int32` and `uint32` selectors may become native C `switch`;
+- a lookup wins by being flat in the case count, not by being a faster single
+  operation, so a small switch has nothing to gain;
 - no per-dispatch C helper, callback table, BDD or MTBDD is introduced.
 
 Include compiled examples of:
 
 1. a small ordered switch with a dynamic result which remains branches;
 2. a dense integer-to-string map;
-3. a sparse `int32` map with an `else` proving misses are verified;
-4. a string map including a `nil` result;
-5. adjacent record cases with destructuring after the shared identity test;
+3. a sparse integer map with an `else`, and the miss which reaches it;
+4. a string map including a `nil` result and the sentinel it forces;
+5. adjacent record cases with destructuring after the unguarded identity test;
 6. a refinement case which must retain source-order predicate evaluation;
 7. an `@aot` `int32` switch and its generated C shape;
 8. a block arm with `yield` demonstrating why arbitrary bodies are not table
@@ -390,21 +528,22 @@ optimizer implementation detail measured by the benchmark suite.
 - deterministic results under repeated runs and different Lua table insertion
   orders;
 - dense spans with holes, negative minima and signed zero normalization;
-- sparse `int32` and `uint32` boundaries and high-bit values;
 - open and closed domains, including proof loss after widening;
 - result eligibility for nil, booleans, numbers, strings, exact scalar names and
   every dynamic or effectful expression which must decline;
-- code-size, table-byte, local and upvalue limits;
-- perfect-hash construction success, bounded failure and fallback.
+- a sentinel emitted only when an arm result is `nil`, and not otherwise;
+- coverage instrumentation forcing `OrderedBranches`;
+- code-size, table-byte and prologue-constant limits, including the spill to one
+  shared indexed table.
 
 ### Runtime semantics
 
 - selector evaluates once for every plan;
 - hits, misses and fallback results match the ordered lowering;
 - a `nil` result differs from a missing label;
-- non-case keys which hash to occupied slots take `else`;
+- fractional, negative, out-of-range, NaN and infinite selectors reach `else`
+  through an unguarded table read;
 - grouped cases and duplicate-normalization rules remain unchanged;
-- NaN, infinities and binary64-only selectors never enter a 32-bit plan;
 - only the selected dynamic arm evaluates when optimization is ineligible;
 - early returns, yields, cleanup and affine ownership behave identically;
 - exact type identity is read once per compatible run and destructuring happens
@@ -416,17 +555,18 @@ optimizer implementation detail measured by the benchmark suite.
 - lookup data is hoisted and reused without entering the user namespace;
 - no table, cdata object or function is created in the dispatch loop;
 - generated locals and upvalues stay within LuaJIT limits;
-- source maps and coverage still point to the selected case and arm;
-- ordinary and coverage-enabled generation choose semantically equivalent
-  plans;
+- source maps still point to the selected case and arm;
+- coverage-enabled generation selects `OrderedBranches` and reports per-case
+  branch data unchanged;
 - `nupp bc --check` accepts each optimized hot-loop fixture;
 - generated source is deterministic and loads under the supported LuaJIT.
 
 ### AOT
 
-- `i32` and `u32` selectors produce scalar-IR switch nodes and native C cases;
-- exact minimum, maximum and grouped labels emit valid constants;
+- `i32` and `u32` selectors carry the label annotation and emit native C cases;
+- exact minimum, maximum and grouped labels emit valid exact-width constants;
 - binary64 selectors retain comparisons;
+- an annotated `If` behaves identically when the annotation is ignored;
 - lane rewriting preserves switch results for every lane;
 - C compilers supported by the build accept dense and sparse forms;
 - emitted source maps, scalar IR text and diagnostics retain case locations;
@@ -445,6 +585,7 @@ This plan does not add:
 
 - conversion of arbitrary `if` trees into switches;
 - a general BDD or MTBDD optimizer;
+- a generated perfect hash, which is deferred rather than rejected;
 - user-visible perfect-hash declarations;
 - range, guard, nested or user-defined deconstruction patterns;
 - callback tables or closures for arm bodies;
@@ -461,25 +602,28 @@ default lowering for arbitrary source conditionals.
 
 ## Delivery
 
-1. Commit the reproducible benchmark and validate the exploratory rankings on
-   supported architectures and in interpreter mode.
-2. Add checked switch facts, planner tags, deterministic selection and focused
+1. Land the three unconditional corrections: no range guard, a conditional
+   sentinel, and no `?.` on a nominal subject the checker has proved non-nil.
+   None of them needs a plan tag, generated data or a threshold, and each is an
+   edit to the lowering that already shipped.
+2. Commit `bench/switch-dispatch.lua` with the ordered-chain baseline and
+   validate the rankings on supported architectures and in interpreter mode.
+3. Add checked switch facts, planner tags, deterministic selection and focused
    planner tests while keeping every selection on `OrderedBranches`.
-3. Implement shared primitive and nominal identity reads, then verify runtime,
-   source-map, coverage and bytecode behavior.
-4. Add hoisted generated-data registration, sentinel encoding, local/upvalue
-   accounting and the dense integer and string static-result maps.
-5. Enable thresholds only after their benchmark rows pass the documented gate.
-6. Add bounded sparse 32-bit perfect-hash construction, verification and
-   Lua-versus-FFI storage selection; keep it disabled when its gate is not met.
-7. Add the scalar-IR integer switch, native C emission and lane desugaring for
+4. Add hoisted generated-data registration through the prologue registry,
+   sentinel encoding and the dense integer map.
+5. Add the string map and the sparse integer map behind their small-arity
+   floors.
+6. Enable each threshold only after its benchmark rows pass the documented gate.
+7. Annotate the AOT `If` with normalized labels and emit native C `switch` for
    established `int32` and `uint32` selectors.
 8. Add planner inspection metadata and the complete documentation examples.
 9. Run the full suite and compiler fixpoint, record final benchmark results and
    remove superseded optimization notes from plan 055 only where this plan has
    delivered them.
 
-The plan is complete when every valid switch has a deterministic semantic
+The plan is complete when the three unconditional corrections have landed and
+are covered by the benchmark, every valid switch has a deterministic semantic
 fallback, every enabled lookup wins its checked-in benchmark gate, optimized
 Lua creates no dispatch-time object or arm function, AOT fixed-width integer
 switches reach native C `switch`, and all plans are indistinguishable from
