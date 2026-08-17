@@ -336,7 +336,14 @@ function emit.scalarCall(node: scalarIR.Expr): string
         ) .. ") " .. (operator as string) .. " nupp_u32(" .. emit.scalar(binary.right) .. ")))"
     end
 
-    local unsigned = {["u32_add"] = "+", ["u32_sub"] = "-", ["u32_mul"] = "*"}
+    local unsigned = {
+        ["u32_add"] = "+",
+        ["u32_sub"] = "-",
+        ["u32_mul"] = "*",
+        ["u32_and"] = "&",
+        ["u32_or"] = "|",
+        ["u32_xor"] = "^",
+    }
     operator = unsigned[operation]
     if operator ~= nil then
         local binary = node as scalarIR.Binary
@@ -1182,7 +1189,13 @@ function emit.simdPrelude(width: integer): {string}
         "}",
         "static inline __attribute__((unused)) uint32_t ks_bits_" .. suffix .. "(" .. vector .. " mask) {",
         "    uint32_t bits = 0u;",
-        "    for (uint32_t i = 0; i < " .. tostring(width) .. "u; ++i) bits |= (uint32_t)(mask[i] != 0u) << i;",
+        "    const uint64_t high_bits = UINT64_C(0x8080808080808080);",
+        "    const uint64_t pack_bits = UINT64_C(0x0002040810204081);",
+        "    for (uint32_t i = 0; i < " .. tostring(width / 8) .. "u; ++i) {",
+        "        uint64_t word;",
+        "        memcpy(&word, ((const uint8_t *)&mask) + i * 8u, 8u);",
+        "        bits |= (uint32_t)(((word & high_bits) * pack_bits) >> 56u) << (i * 8u);",
+        "    }",
         "    return bits;",
         "}",
         "",

@@ -235,6 +235,9 @@ record scalarIR.Fixed
         | 'u32_add'
         | 'u32_sub'
         | 'u32_mul'
+        | 'u32_and'
+        | 'u32_or'
+        | 'u32_xor'
     left: scalarIR.Expr
     right: scalarIR.Expr
     type: scalarIR.Type

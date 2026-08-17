@@ -146,6 +146,16 @@ function lower.compactType(node: cst.Child?): string
     return (cst.textOf(node as cst.Child):gsub("%s+", ""))
 end
 
+--- Removes source-only grouping and checked casts from an expression shape.
+function lower.unwrapped(node: cst.Node?): cst.Node?
+    local current = node
+    while current ~= nil and (current.kind == "paren" or current.kind == "castExpr") do
+        current = current.kind == "paren" and (current as cst.Paren).expr or (current as cst.CastExpr).expr
+    end
+
+    return current
+end
+
 --- The layouts one kernel reifies, in the order they were first reached.
 ---
 --- Order matters: it is the order the generated C declares the structs in, and
@@ -470,10 +480,11 @@ local function spanRead(
     if not readable then
         context.reject(lower.site(node), "span reads use input[index] or output[index]")
     end
-    local direct = lower.nameOf(node.expr)
+    local indexArg = lower.unwrapped(node.expr)
+    local direct = lower.nameOf(indexArg)
     local cursor: string? = nil
-    if node.expr ~= nil and node.expr.kind == "binop" then
-        local index = node.expr as cst.Binop
+    if indexArg ~= nil and indexArg.kind == "binop" then
+        local index = indexArg as cst.Binop
         local written = index.op ~= nil and (index.op as lexer.Token).text or ""
         local token = index.rhs ~= nil and index.rhs.kind == "number" and (index.rhs as cst.NumberLit).token or nil
         local offset = token ~= nil and tonumber((token as lexer.Token).text) or nil
@@ -797,15 +808,20 @@ local function simdMethod(
 ): scalarIR.Expr?
     local receiverName = lower.nameOf(node.obj)
     local binding = receiverName ~= nil and environment[receiverName as string] or nil
+    local receiver: scalarIR.Expr? = nil
     local receiverType = binding ~= nil and binding.type or ""
+    if binding == nil and node.obj ~= nil and node.obj.kind == "methodCall" then
+        receiver = lower.expression(node.obj as cst.Node, environment, activeIndex, kernel)
+        receiverType = (receiver as scalarIR.Expr).type
+    end
     if not tostring(receiverType):match("^simd_") then
         return nil
     end
 
     local method = node.name ~= nil and (node.name as lexer.Token).text or ""
     local raw = node.args ~= nil and (node.args as cst.Args).exprs or {}
-    local receiver = lower.expression(node.obj as cst.Node, environment, activeIndex, kernel)
-    local args: {scalarIR.Expr} = {receiver}
+    receiver = receiver or lower.expression(node.obj as cst.Node, environment, activeIndex, kernel)
+    local args: {scalarIR.Expr} = {receiver as scalarIR.Expr}
     local source = lower.site(node)
     kernel.usesSimd = true
 

@@ -1,6 +1,7 @@
 local cjson = require("cjson")
 local ffi = require("ffi")
 local json = require("simd_json")
+local indexer = require("simd_json.indexer")
 local scanner = require("simd_json.scanner")
 local span = require("nupp.span")
 
@@ -65,7 +66,9 @@ local function command(commandLine)
 end
 
 local jsonOutput = arg[1] == "--json"
-local samples = tonumber(arg[jsonOutput and 2 or 1]) or 15
+local indexOnly = arg[1] == "--index-only" or jsonOutput and arg[2] == "--index-only"
+local sampleArgument = jsonOutput and (indexOnly and 3 or 2) or (indexOnly and 2 or 1)
+local samples = tonumber(arg[sampleArgument]) or 15
 local warmups = 4
 local targetBytes = tonumber(os.getenv("NUPP_JSON_BENCH_BYTES")) or 5000000
 
@@ -73,6 +76,7 @@ local report = {
    schema = 1,
    samples = samples,
    warmups = warmups,
+   mode = indexOnly and "index" or "all",
    environment = {
       os = ffi.os,
       arch = ffi.arch,
@@ -84,7 +88,7 @@ local report = {
    payloads = {},
 }
 
-local names = {"classify", "nupp", "cjson"}
+local names = indexOnly and {"classify", "index"} or {"classify", "index", "nupp", "cjson"}
 
 local function sorted(values)
    local copy = {}
@@ -110,11 +114,7 @@ local function percentile(values, fraction)
    return ordered[position]
 end
 
-local function ratioSummary(numerator, denominator)
-   local ratios = {}
-   for index = 1, #numerator do
-      ratios[index] = numerator[index] / denominator[index]
-   end
+local function bootstrapSummary(ratios)
    local bootstrap = {}
    local state = 104729
    for sample = 1, 2000 do
@@ -132,11 +132,23 @@ local function ratioSummary(numerator, denominator)
    }
 end
 
+local function ratioSummary(numerator, denominator)
+   local ratios = {}
+   for index = 1, #numerator do
+      ratios[index] = numerator[index] / denominator[index]
+   end
+   return bootstrapSummary(ratios)
+end
+
 for payloadIndex, payload in ipairs(payloads) do
    local source = payload.source
    local input = span.fromString(source)
    local outputStorage = ffi.new("uint8_t[?]", #source > 0 and #source or 1)
    local output = span.writeCarray(outputStorage, #source)
+   local tapeStorage = ffi.new("uint32_t[?]", #source > 0 and #source or 1)
+   local tape = span.writeCarray(tapeStorage, #source)
+   local indexed, indexError = indexer.index(input, tape)
+   assert(indexError == 0 and indexed <= #source)
    local iterations = math.max(1, math.ceil(targetBytes / #source))
    if payload.short then
       iterations = math.max(iterations, 10000)
@@ -150,6 +162,13 @@ for payloadIndex, payload in ipairs(payloads) do
          local started = os.clock()
          for _ = 1, iterations do
             scanner.classify(output, input)
+         end
+         return os.clock() - started
+      end,
+      index = function()
+         local started = os.clock()
+         for _ = 1, iterations do
+            indexer.index(input, tape)
          end
          return os.clock() - started
       end,
@@ -175,7 +194,7 @@ for payloadIndex, payload in ipairs(payloads) do
       end
    end
 
-   local raw = {classify = {}, nupp = {}, cjson = {}}
+   local raw = {classify = {}, index = {}, nupp = {}, cjson = {}}
    for sample = 1, samples do
       collectgarbage()
       for offset = 0, #names - 1 do
@@ -184,6 +203,17 @@ for payloadIndex, payload in ipairs(payloads) do
       end
    end
 
+   local summary = {
+      classifyMBps = #source * iterations / median(raw.classify) / 1000000,
+      indexMBps = #source * iterations / median(raw.index) / 1000000,
+      indexToClassifierThroughput = ratioSummary(raw.classify, raw.index),
+   }
+   if not indexOnly then
+      summary.nuppMBps = #source * iterations / median(raw.nupp) / 1000000
+      summary.cjsonMBps = #source * iterations / median(raw.cjson) / 1000000
+      summary.nuppToCjsonThroughput = ratioSummary(raw.cjson, raw.nupp)
+      summary.classifierShare = ratioSummary(raw.classify, raw.nupp)
+   end
    local measured = {
       name = payload.name,
       bytes = #source,
@@ -191,22 +221,38 @@ for payloadIndex, payload in ipairs(payloads) do
       short = payload.short,
       iterations = iterations,
       seconds = raw,
-      summary = {
-         classifyMBps = #source * iterations / median(raw.classify) / 1000000,
-         nuppMBps = #source * iterations / median(raw.nupp) / 1000000,
-         cjsonMBps = #source * iterations / median(raw.cjson) / 1000000,
-         nuppToCjsonThroughput = ratioSummary(raw.cjson, raw.nupp),
-         classifierShare = ratioSummary(raw.classify, raw.nupp),
-      },
+      summary = summary,
    }
    report.payloads[#report.payloads + 1] = measured
    output:drop()
+   tape:drop()
+end
+
+do
+   local pairedGeomeans = {}
+   for sample = 1, samples do
+      local logSum, count = 0, 0
+      for _, payload in ipairs(report.payloads) do
+         if not payload.short then
+            logSum = logSum + math.log(payload.seconds.classify[sample] / payload.seconds.index[sample])
+            count = count + 1
+         end
+      end
+      pairedGeomeans[sample] = math.exp(logSum / count)
+   end
+   report.largeIndexToClassifierThroughput = bootstrapSummary(pairedGeomeans)
 end
 
 if jsonOutput then
    print(cjson.encode(report))
    return
 end
+
+print(("large-payload index/classify geometric mean %.3fx [%.3f, %.3f]"):format(
+   report.largeIndexToClassifierThroughput.median,
+   report.largeIndexToClassifierThroughput.low95,
+   report.largeIndexToClassifierThroughput.high95
+))
 
 print(("platform: %s/%s, %s, samples: %d, warmups: %d"):format(
    report.environment.os,
@@ -230,12 +276,19 @@ for _, payload in ipairs(report.payloads) do
          payload.bytes / elapsed / 1000000
       ))
    end
-   print(("  nupp/cjson throughput %.3fx [%.3f, %.3f], classifier share %.1f%% [%.1f, %.1f]"):format(
-      payload.summary.nuppToCjsonThroughput.median,
-      payload.summary.nuppToCjsonThroughput.low95,
-      payload.summary.nuppToCjsonThroughput.high95,
-      payload.summary.classifierShare.median * 100,
-      payload.summary.classifierShare.low95 * 100,
-      payload.summary.classifierShare.high95 * 100
+   if not indexOnly then
+      print(("  nupp/cjson throughput %.3fx [%.3f, %.3f], classifier share %.1f%% [%.1f, %.1f]"):format(
+         payload.summary.nuppToCjsonThroughput.median,
+         payload.summary.nuppToCjsonThroughput.low95,
+         payload.summary.nuppToCjsonThroughput.high95,
+         payload.summary.classifierShare.median * 100,
+         payload.summary.classifierShare.low95 * 100,
+         payload.summary.classifierShare.high95 * 100
+      ))
+   end
+   print(("  index/classify throughput %.3fx [%.3f, %.3f]"):format(
+      payload.summary.indexToClassifierThroughput.median,
+      payload.summary.indexToClassifierThroughput.low95,
+      payload.summary.indexToClassifierThroughput.high95
    ))
 end

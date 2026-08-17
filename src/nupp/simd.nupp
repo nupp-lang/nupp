@@ -39,18 +39,18 @@ end
 --- The preferred register-sized operation set for one element type.
 --- @export
 sealed interface simd.SpeciesU8
-    readonly lanes: number
+    readonly lanes: integer
 
     --- Loads at a zero-based offset. Inactive final lanes are zero and are
     --- excluded by `tail`; the implementation never reads beyond the span.
     load: function(
         borrows self: SpeciesU8,
         borrows source: nupp.span.Span<uint8>,
-        offset: number
+        offset: integer
     ): simd.VectorU8
 
     --- A mask with the first `active` lanes set, clamped to this species.
-    tail: function(borrows self: SpeciesU8, active: number): simd.MaskU8
+    tail: function(borrows self: SpeciesU8, active: integer): simd.MaskU8
 end
 
 --- Selects the artifact tier's preferred packed byte species.

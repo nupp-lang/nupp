@@ -1548,6 +1548,15 @@ the arithmetic the loop does per byte it touches, since it wins in registers and
 loses streaming memory. `@aot(lanes = true)` and `lanes = false` override that
 estimate; neither requires the lowering to succeed. Removing either annotation
 changes the compilation strategy, never the answer.
+
+Algorithms whose register is itself a data structure may import `nupp.simd`
+inside an AOT block kernel. `preferredU8()` selects 16 packed bytes for baseline
+x86-64 and AArch64 NEON and 32 for AVX2. Its values and masks cannot escape the
+kernel. Loads are span-checked, inactive tail lanes are zero, and `bits()` maps
+the first logical lane to bit zero. Because those values have no boxed Lua
+representation, using `preferredU8` with `aot = "off"` is a named checking
+error; importing the module without constructing a species remains ordinary
+Lua. Scalar-source map loops continue to use automatic lane lowering.
 ]=],
         example = [=[
 local m = {}

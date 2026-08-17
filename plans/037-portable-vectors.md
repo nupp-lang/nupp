@@ -1,8 +1,7 @@
 # Portable SIMD vectors
 
-Status: decision record; public explicit vectors deferred, scalar-source lane
-lowering selected. The `simd = true` setting is withdrawn in favour of a check
-command; see the section at the end.
+Status: decision record; scalar-source lane lowering remains the ordinary path.
+Plan 062 admits a narrower AOT-only packed-byte exception for cross-lane parsing.
 
 ## Decision
 
@@ -945,3 +944,21 @@ must be fast; afterwards they mark the loops that may be slow, so the gate does
 not fire on a scalar helper or a deliberate reduction. That is the better
 default only if most `@aot` map loops want lanes, which is the expectation for
 a Tecs-shaped workload and should be confirmed against one.
+
+### Narrow exception: scoped packed bytes
+
+`062-aot-block-simd-parsing.md` supplied the independently compelling workload
+this record required before reopening explicit vectors. Its structural JSON
+indexer uses a target-width byte register as a data structure: it extracts
+syntax and non-ASCII masks, carries quote and UTF-8 state across blocks, and
+writes a variable-rate tape. That is not an independent map loop and cannot be
+expressed by the scalar-source lane transform.
+
+The accepted exception is deliberately smaller than the rejected public vector
+model. `nupp.simd` values exist only within a checked AOT block kernel, never
+box, never escape into Lua or an ABI, and select their width from the artifact
+tier. Ordinary map work retains automatic lane lowering. On AArch64 NEON, the
+indexer measured 1.591x the prior fused classifier over the large-payload
+geometric mean, with a paired bootstrap 95 percent interval of 1.550x to
+1.673x, while also building the structural tape and validating UTF-8. Native
+AVX2 performance remains an x86-64 CI gate.

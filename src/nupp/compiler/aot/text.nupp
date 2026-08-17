@@ -75,6 +75,9 @@ const text.ONE_OPERAND = {
     ["not"] = true,
     ["bnot"] = true,
     ["f32_sqrt"] = true,
+    ["u32_popcount"] = true,
+    ["u32_ctz"] = true,
+    ["u32_clz"] = true,
 }
 
 --- Where something came from, as the IR text writes it.

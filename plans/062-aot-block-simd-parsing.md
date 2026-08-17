@@ -1,7 +1,6 @@
 # AOT block kernels, scoped SIMD, and native JSON parsing
 
-Status: proposed — narrows one decision in `037-portable-vectors.md` and
-extends the implemented subset in `038-aot-functions.md`
+Status: in progress — J0 through J2 are implemented; J3 and later stages remain
 
 ## Decision
 
@@ -530,6 +529,12 @@ tiers agree with the scalar oracle for every tail and first-width mask pattern;
 loads are packed bytes rather than widened 32-bit carriers; and the indexer
 clears the J2 performance gate. If it does not, keep J1 and remove the SIMD
 surface and new indexer.
+
+Implementation result (2026-08-17): the AArch64 NEON large-payload geometric
+mean is 1.591x the fused byte classifier with a paired bootstrap 95 percent
+interval of 1.550x to 1.673x. The indexer also constructs the compact tape and
+validates UTF-8. Native AVX2 timing remains a release/CI gate on an x86-64 host;
+cross-target C and IR inspection alone do not claim that half of the gate.
 
 ### J3 — Native structural parser and arenas
 

@@ -152,6 +152,9 @@ const verify.FIXED_BINARY = {
     ["u32_add"] = "u32",
     ["u32_sub"] = "u32",
     ["u32_mul"] = "u32",
+    ["u32_and"] = "u32",
+    ["u32_or"] = "u32",
+    ["u32_xor"] = "u32",
 }
 
 --- The opcodes that convert between representations, which is where -- and
