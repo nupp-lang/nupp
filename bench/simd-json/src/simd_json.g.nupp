@@ -12,10 +12,6 @@ const json.null = setmetatable({}, {
 })
 
 local function decode(source: string): any
-    if not nupp.data.utf8.isValid(source) then
-        error("invalid JSON UTF-8", 2)
-    end
-
     local length: integer = #source
     local flagStorage = ffi.new("uint8_t[?]", length > 0 and length or 1) as uint8[?]
     do
@@ -70,11 +66,52 @@ local function decode(source: string): any
         position = position + 1
         local start = position
         local parts = {}
+        local utf8Remaining: integer = 0
+        local continuationMin: integer = 128
+        local continuationMax: integer = 191
         while true do
             if position > length then
                 fail("unterminated string")
             end
-            local category = flag(position)
+            local encoded = flag(position)
+            local category = encoded
+            if encoded >= scanner.UTF8_CONTINUATION then
+                category = encoded % scanner.UTF8_CONTINUATION
+                local current = byte(position) as integer
+                if encoded >= scanner.UTF8_INVALID then
+                    fail("invalid UTF-8 byte")
+                elseif encoded >= scanner.UTF8_LEAD4 then
+                    if utf8Remaining ~= 0 then
+                        fail("invalid UTF-8 continuation sequence")
+                    end
+                    utf8Remaining = 3
+                    continuationMin = current == 240 and 144 or 128
+                    continuationMax = current == 244 and 143 or 191
+                elseif encoded >= scanner.UTF8_LEAD3 then
+                    if utf8Remaining ~= 0 then
+                        fail("invalid UTF-8 continuation sequence")
+                    end
+                    utf8Remaining = 2
+                    continuationMin = current == 224 and 160 or 128
+                    continuationMax = current == 237 and 159 or 191
+                elseif encoded >= scanner.UTF8_LEAD2 then
+                    if utf8Remaining ~= 0 then
+                        fail("invalid UTF-8 continuation sequence")
+                    end
+                    utf8Remaining = 1
+                    continuationMin = 128
+                    continuationMax = 191
+                else
+                    if utf8Remaining == 0 or current < continuationMin or current > continuationMax then
+                        fail("invalid UTF-8 continuation byte")
+                    end
+                    utf8Remaining = utf8Remaining - 1
+                    continuationMin = 128
+                    continuationMax = 191
+                end
+            elseif utf8Remaining ~= 0 then
+                fail("incomplete UTF-8 sequence")
+            end
             if category == scanner.QUOTE then
                 parts[#parts + 1] = source:sub(start, position - 1)
                 position = position + 1

@@ -469,15 +469,22 @@ function expr.install(c: state.Checker): nil
         local residue = selectorT
         local seen: {[string]: cst.Node} = {}
         local results: {Type} = {}
+        local resultExpressions: {cst.Node} = {}
+        local resultExpressionTypes: {Type} = {}
+        local expressionResultsOnly = true
 
         local function checkResult(arm: cst.SwitchCase | cst.SwitchElse)
             if arm.expr then
-                results[#results + 1] = c.infer(arm.expr)
+                local resultType = c.infer(arm.expr)
+                results[#results + 1] = resultType
+                resultExpressions[#resultExpressions + 1] = arm.expr
+                resultExpressionTypes[#resultExpressionTypes + 1] = resultType
                 local exact = exactScalar(arm.expr)
                 if exact then
                     arm.switchStaticResult = exact
                 end
             elseif arm.body then
+                expressionResultsOnly = false
                 local yielded: {Type} = {}
                 c.switchYieldStack[#c.switchYieldStack + 1] = yielded
                 c.checkBlock(arm.body, true)
@@ -495,6 +502,7 @@ function expr.install(c: state.Checker): nil
                     })
                 end
             else
+                expressionResultsOnly = false
                 results[#results + 1] = T.any
             end
         end
@@ -610,6 +618,19 @@ function expr.install(c: state.Checker): nil
         end
         local result = #results > 0 and T.union(results) or T.any
         node.switchResultType = result
+        if expressionResultsOnly then
+            local copied = false
+            for index, value in ipairs(resultExpressions) do
+                if resultExpressionTypes[index] ~= T.never then
+                    if copied then
+                        c.fixedWidth.intersect(node, node, value)
+                    else
+                        c.fixedWidth.copy(node, value)
+                        copied = true
+                    end
+                end
+            end
+        end
 
         return result
     end

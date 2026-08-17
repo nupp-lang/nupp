@@ -8,6 +8,16 @@ const scanner.STRUCTURAL = 4
 const scanner.WHITESPACE = 8
 const scanner.CONTROL = 16
 
+--- UTF-8 byte classes occupy the high three bits of each flag. JSON syntax
+--- occupies the low five, so one SIMD pass can classify both without growing
+--- the scratch buffer.
+const scanner.UTF8_CONTINUATION = 32
+
+const scanner.UTF8_LEAD2 = 64
+const scanner.UTF8_LEAD3 = 96
+const scanner.UTF8_LEAD4 = 128
+const scanner.UTF8_INVALID = 160
+
 --- Classifies every input byte before the recursive parser sees it.
 ---
 --- The carrier is a 32-bit SIMD gang today, while the pointers remain byte
@@ -21,17 +31,30 @@ local function classify(exclusive flags: span.WriteSpan<uint8>, borrows bytes: s
 
     for i = 1, flags.count do
         local byte = bytes:get(i)
-        local flag: uint32 = 0
-        if byte == 34 then
-            flag = 1
-        elseif byte == 92 then
-            flag = 2
-        elseif byte == 123 or byte == 125 or byte == 91 or byte == 93 or byte == 58 or byte == 44 then
-            flag = 4
-        elseif byte == 32 or byte == 9 or byte == 10 or byte == 13 then
-            flag = 8
-        elseif byte < 32 then
+        local flag: uint32 = switch byte do
+            case 34 -> 1
+            case 92 -> 2
+            case 123, 125, 91, 93, 58, 44 -> 4
+            case 32, 9, 10, 13 -> 8
+            else -> 0
+        end
+
+        if flag == 0 and byte < 32 then
             flag = 16
+        elseif byte >= 128 then
+            if byte <= 191 then
+                flag = 32
+            elseif byte <= 193 then
+                flag = 160
+            elseif byte <= 223 then
+                flag = 64
+            elseif byte <= 239 then
+                flag = 96
+            elseif byte <= 244 then
+                flag = 128
+            else
+                flag = 160
+            end
         end
         flags:set(i, flag)
     end

@@ -6,12 +6,14 @@ byte codecs, image kernels, checksums, and other narrow-buffer workloads.
 
 The implementation has two stages:
 
-1. `simd_json.scanner` is a required-AOT byte classifier. It reads and writes
-   `uint8` spans through SIMD lanes and marks quotes, escapes, structural bytes,
-   whitespace, and invalid control bytes.
-2. `simd_json` is a recursive Nupp parser over those flags. It implements the
-   JSON grammar, string escapes and surrogate pairs, number syntax, UTF-8
-   validation, and a stable `json.null` identity.
+1. `simd_json.scanner` is a required-AOT byte classifier. A `switch` expression
+   becomes masked SIMD selection for JSON syntax, while the same pass assigns
+   UTF-8 continuation and lead-byte classes in the high flag bits.
+2. `simd_json` is a recursive Nupp parser over those flags. Its existing string
+   traversal resolves UTF-8 sequence state and boundary rules, so validation
+   does not make a separate pass over the input. It also implements string
+   escapes and surrogate pairs, number syntax, and a stable `json.null`
+   identity.
 
 The experiment intentionally does not replace or modify a public `nupp.json`
 module. Its manifest, source, tests, native artifact, and benchmark all live in

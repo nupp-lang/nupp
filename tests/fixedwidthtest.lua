@@ -84,6 +84,30 @@ return f, i, u, wide
 ]])
 end
 
+function M.switchesPreserveEstablishmentSharedByEveryExpressionArm()
+   checkedTree([[
+local function select(choice: boolean): uint32
+    local selected: uint32 = switch choice do
+        case true -> 1
+        case false -> 2
+    end
+    return selected
+end
+return select
+]])
+
+   assertEq(errorCodes([[
+local function select(choice: boolean, input: number): uint32
+    local selected: uint32 = switch choice do
+        case true -> 1
+        case false -> input as uint32
+    end
+    return selected
+end
+return select
+]]), "NUPP2011,NUPP2011", "one unestablished switch arm")
+end
+
 function M.storageOnlyWidthsStayAtPhysicalBoundaries()
    assertEq(errorCodes([[
 local record Bad

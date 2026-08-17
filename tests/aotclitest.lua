@@ -337,6 +337,8 @@ return {signed = signed, unsigned = unsigned, Signed = Signed, Unsigned = Unsign
    assert(out:find("case INT32_C(1):", 1, true) and
       out:find("case INT32_C(2):", 1, true),
       "grouped labels remain separate C labels: " .. out)
+   assert(out:find("case INT32_C(2):\n        {", 1, true),
+      "native switch arms scope conversion temporaries: " .. out)
    assert(out:find("case UINT32_C(4294967295):", 1, true),
       "uint32 maximum has an exact C spelling: " .. out)
 end

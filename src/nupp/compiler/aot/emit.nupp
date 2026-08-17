@@ -1216,13 +1216,17 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
                         )
                         lines[#lines + 1] = prefix .. "case " .. emit.scalar(constant) .. ":"
                     end
+                    lines[#lines + 1] = prefix .. "{"
                     nested(statement.clauses[position].body)
                     lines[#lines + 1] = prefix .. "    break;"
+                    lines[#lines + 1] = prefix .. "}"
                 end
                 if statement.elseBody ~= nil then
                     lines[#lines + 1] = prefix .. "default:"
+                    lines[#lines + 1] = prefix .. "{"
                     nested(statement.elseBody)
                     lines[#lines + 1] = prefix .. "    break;"
+                    lines[#lines + 1] = prefix .. "}"
                 end
                 lines[#lines + 1] = prefix .. "}"
             else

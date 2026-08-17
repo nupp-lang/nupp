@@ -75,11 +75,35 @@ local invalid = {
    "true false",
    '"control\001byte"',
    '"invalid utf8 \255"',
+   '"' .. string.char(0x80) .. '"',
+   '"' .. string.char(0xc2) .. '"',
+   '"' .. string.char(0xc0, 0xaf) .. '"',
+   '"' .. string.char(0xe0, 0x80, 0x80) .. '"',
+   '"' .. string.char(0xed, 0xa0, 0x80) .. '"',
+   '"' .. string.char(0xf0, 0x80, 0x80, 0x80) .. '"',
+   '"' .. string.char(0xf4, 0x90, 0x80, 0x80) .. '"',
+   '"' .. string.char(0xf5, 0x80, 0x80, 0x80) .. '"',
 }
 
 for _, source in ipairs(invalid) do
    local valid, why = json.validate(source)
    check(not valid and type(why) == "string", "invalid input accepted: " .. source)
+end
+
+local utf8Boundaries = {
+   string.char(0xc2, 0x80),
+   string.char(0xdf, 0xbf),
+   string.char(0xe0, 0xa0, 0x80),
+   string.char(0xed, 0x9f, 0xbf),
+   string.char(0xf0, 0x90, 0x80, 0x80),
+   string.char(0xf4, 0x8f, 0xbf, 0xbf),
+}
+
+for _, text in ipairs(utf8Boundaries) do
+   local source = '"' .. text .. '"'
+   local valid, why = json.validate(source)
+   check(valid and why == nil, "valid UTF-8 boundary rejected: " .. tostring(why))
+   check(json.decode(source) == text, "UTF-8 boundary decoded incorrectly")
 end
 
 do
@@ -91,6 +115,25 @@ do
    writable:drop()
    for index, flag in ipairs(expected) do
       check(storage[index - 1] == flag, "wrong classifier flag at " .. index)
+   end
+end
+
+do
+   local source = string.char(0x41, 0x80, 0xc2, 0xe0, 0xf0, 0xff)
+   local expected = {
+      0,
+      scanner.UTF8_CONTINUATION,
+      scanner.UTF8_LEAD2,
+      scanner.UTF8_LEAD3,
+      scanner.UTF8_LEAD4,
+      scanner.UTF8_INVALID,
+   }
+   local storage = ffi.new("uint8_t[?]", #source)
+   local writable = span.writeCarray(storage, #source)
+   scanner.classify(writable, span.fromString(source))
+   writable:drop()
+   for index, flag in ipairs(expected) do
+      check(storage[index - 1] == flag, "wrong UTF-8 class at " .. index)
    end
 end
 
