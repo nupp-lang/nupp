@@ -210,6 +210,9 @@ local function run(parsed: any): integer
         -- consumer reading `refusals` never has to handle two shapes.
         local json = require("cjson").new()
         json.encode_empty_table_as_object(false)
+        -- Lane counts and widths are integers the backend settled on, so a NaN here
+        -- would be a fault rather than a measurement.
+        json.encode_invalid_numbers(false)
 
         local functions: {any} = {}
         for position, program in ipairs(artifacts.programs) do

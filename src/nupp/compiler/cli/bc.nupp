@@ -163,6 +163,9 @@ local function run(parsed: any): integer
     if (parsed.values.format or "text") == "json" then
         local json = require("cjson").new()
         json.encode_empty_table_as_object(false)
+        -- Every count below is an integer this pass produced, so a NaN reaching the
+        -- encoder is a fault worth failing on rather than a token to write out.
+        json.encode_invalid_numbers(false)
         io.write(
             json.encode({
                 file = path,

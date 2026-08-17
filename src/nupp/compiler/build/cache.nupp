@@ -28,6 +28,19 @@ local listFiles = fs.listFiles
 
 local cache = {}
 
+-- What this codec does with an empty table and with a NaN, said here rather than
+-- inherited. cjson's defaults differ between builds -- a host that compiled it with
+-- invalid numbers disabled starts strict where a distribution build does not -- and a
+-- state file that reads back differently depending on which interpreter opened it is a
+-- state file that cannot be trusted to decide what to rebuild. Lists are marked with
+-- `jsonArray`, so an unmarked empty table is an object; a state file carrying `NaN` is
+-- damaged rather than unusual, and `loadState` answers a damaged one with an empty
+-- state and a full rebuild.
+json.decode_array_with_array_mt(false)
+json.decode_invalid_numbers(false)
+json.encode_empty_table_as_object(true)
+json.encode_invalid_numbers(false)
+
 --- What one module's last build left behind.
 ---
 --- Every field is optional because the state is read back from a file: this version

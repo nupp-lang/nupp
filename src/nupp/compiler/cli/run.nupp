@@ -393,6 +393,10 @@ local function run(parsed: any): integer
             }
             local codec = require("cjson").new()
             codec.encode_empty_table_as_object(false)
+            -- `NaN` and `Infinity` are not JSON, so a document carrying one is one a
+            -- strict reader rejects whole. Refusing to write it says which run produced
+            -- the bad duration instead of leaving that to whatever reads the file.
+            codec.encode_invalid_numbers(false)
             local wrote, writeErr = require("nupp.compiler.fs").writeFile(abortsOut, codec.encode(document) .. "\n")
             if not wrote then
                 io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")

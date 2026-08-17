@@ -23,11 +23,33 @@ work makes sense in.
         `NUPP_HOST_SOURCE_DIR` supplies existing verified archives,
         `NUPP_HOST_SOURCE_BASE_URL` selects a mirror, output-directory archives
         are reused, and `NUPP_HOST_OFFLINE` forbids a network fallback
-  - [ ] strict JSON numbers and explicit empty array/object semantics are set
-        per call site on the Nupp side, not in the host
-  - [ ] cross-target stub selection and shipped per-platform stubs
-        ([plan](043-cross-target-binaries.md)); a binary target still has no target
-        list or cross-build selection
+  - [x] strict JSON numbers and explicit empty array/object semantics are set
+        per call site on the Nupp side, not in the host. The host never set
+        them: `host/build.rs` compiles lua-cjson with no policy defines, for the
+        reason its own comment gives about `ENABLE_CJSON_GLOBAL`. The Nupp side
+        was the half-finished part -- eight of the sixteen files holding a codec
+        inherited whichever cjson the interpreter had loaded.
+        The one that matters is `decode_invalid_numbers`, which defaults to
+        accepting `NaN` and `Infinity` where encoding refuses them, so a
+        document could be read in and then fail to be written back out.
+        `tests/jsonpolicytest.lua` walks the sources and fails naming any codec
+        that leaves a setting to the default, so a codec added later is held to
+        the same rule on the run that adds it
+  - [ ] shipped per-platform stubs
+        ([plan](043-cross-target-binaries.md)). Selection is built: `platforms`
+        is a validated binary-target field, `--platform NAME|all` is on `build`,
+        `check` and `clean`, `build/stubs.nupp` authenticates a stub by SHA-256,
+        size and `hostAbi`, and release CI builds a stub, its notices and its
+        catalog record on all three native runners, then assembles and validates
+        an immutable `stub-catalog.json`. What is missing is the catalog itself:
+        `src/nupp/compiler/build/stub_catalog.nupp` is a development placeholder
+        with no stubs in it, and by the release-order constraint the plan states
+        it has to stay that way -- release N publishes the stubs, release N+1
+        names them, and a compiler may only name assets that already exist. So
+        cross-target stamping is a second-release feature whatever happens now.
+        The one piece that has to land before then: `scripts/stub-catalog.py`
+        has `record` and `catalog` but nothing that turns a published
+        `stub-catalog.json` back into `stub_catalog.nupp`
 - [ ] **The `nupp-cargo` helper is a manifest provider now, and what is left of
       it is two promises it does not keep.** `kind = "cargo"` builds a crate's
       cdylib into an isolated target directory, forwards `target`, `profile`,

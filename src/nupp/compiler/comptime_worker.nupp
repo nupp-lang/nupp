@@ -24,6 +24,14 @@ local record worker
     evaluateDeriveProvider: function(any, any, any, string?, string, any?): (any, worker.Failure?)
 end
 
+-- Both directions, said here rather than inherited from whichever cjson the
+-- interpreter happened to load. This protocol crosses a process boundary, so the two
+-- ends have to agree about an empty table and about a NaN even when the parent runs
+-- under a stamped host binary and the child under a plain interpreter. A comptime
+-- result carrying `NaN` or `Infinity` is one the evaluator should not have produced,
+-- and a request carrying one is not a request this worker wrote.
+cjson.decode_array_with_array_mt(false)
+cjson.decode_invalid_numbers(false)
 cjson.encode_empty_table_as_object(false)
 cjson.encode_invalid_numbers(false)
 

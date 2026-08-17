@@ -82,6 +82,9 @@ local function readShard(path)
     end
     local decoder = cjson.new()
     decoder.decode_array_with_array_mt(true)
+    -- A hit count is a whole number of executions, so a shard offering `NaN` for one is
+    -- damaged rather than unusual, and the guard below already names a damaged shard.
+    decoder.decode_invalid_numbers(false)
     local ok, value = pcall(decoder.decode, source)
     if not ok or type(value) ~= "table" or type(value.hits) ~= "table" then
         return nil, "invalid coverage shard " .. path

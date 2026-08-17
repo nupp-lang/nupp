@@ -15,6 +15,13 @@ local jsonArray = cache.jsonArray
 
 local tasks = {}
 
+-- An editor reads this, so what an empty table means is part of the answer rather than
+-- a detail of whichever cjson the interpreter loaded. The task list is marked with
+-- `jsonArray` and stays `[]` when empty; an unmarked empty table is an object. Nothing
+-- here is a measurement, so a NaN would be a fault rather than a value.
+json.encode_empty_table_as_object(true)
+json.encode_invalid_numbers(false)
+
 --- One thing a project can be asked to do.
 ---
 --- A build target, or one of the actions a manifest configures beside them. The fields

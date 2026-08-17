@@ -26,6 +26,14 @@ local stable, hashFiles = cache.stable, cache.hashFiles
 
 local deps = {}
 
+-- This decodes cargo's artifact messages, which are another program's output rather
+-- than something written here, so what is accepted is stated instead of inherited. The
+-- fields read out are names and paths and nothing carries an array metatable; a line
+-- offering `NaN` where a number belongs is not a message cargo wrote, and a scan that
+-- skips it finds the real one further down.
+json.decode_array_with_array_mt(false)
+json.decode_invalid_numbers(false)
+
 -- Named by module path rather than required: the manifest's shape is all this needs
 -- from it, and a type costs nothing at run time where a require would have loaded the
 -- validator into every process that builds a dependency.
