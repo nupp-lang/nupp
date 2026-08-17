@@ -10,6 +10,11 @@ projection the ordinary Nupp surface for compiler-owned checked views. Unify the
 proof used by spans and SoA behind one checked `IndexedView` descriptor, then keep
 separate physical adapters for contiguous AoS storage and columnar SoA storage.
 
+These operators replace the duplicate public element APIs. The completed Span and
+SoA view contracts do not export `get`, `getMut`, `set`, or `.count`, and the common
+range operation is spelled only `indexed.range`. Private runtime fields and checked
+helpers may continue to implement the operators, but they are not callable Nupp APIs.
+
 This is not a generic metamethod optimization. An arbitrary `__len`, `__index`, or
 `__newindex` implementation does not establish that its length bounds its indexes,
 that an access is pure, or that an indexed field denotes stable storage. Only a
@@ -53,7 +58,7 @@ The work is complete only when all of the following are true:
 - `span[index]` and `rows[index]` are bounds-checked at arbitrary indexes.
 - a canonical `for index = 1, #view` loop proves accesses to that exact stable view
   in bounds;
-- the existing `span.range` proof still proves one index against several spans;
+- `indexed.range` proves one index against several Span and SoA views;
 - proved AoS access lowers to direct typed pointer access;
 - proved SoA field access lowers to direct typed column access;
 - direct field writes are indexed places, not mutations of temporary row values;
@@ -61,7 +66,9 @@ The work is complete only when all of the following are true:
   base, offset, count, and capability facts without allocating a wrapper table;
 - an escaping view materializes the current safe runtime object before the escape;
 - every root remains live for as long as a derived pointer or column is used;
-- unproved access retains one checked operation with the same error ordering; and
+- unproved access retains one checked operation with the same error ordering;
+- removed `get`, `getMut`, `set`, `.count`, and `span.range` spellings receive a
+  direct migration diagnostic rather than remaining alternate APIs; and
 - warm traced AoS and SoA kernels match their handwritten direct-FFI shapes and
   timings within the benchmark gates below.
 
@@ -101,7 +108,7 @@ ordinary Lua tables.
 
 ## Public source model
 
-### Operators first, methods retained
+### Operators replace duplicate methods
 
 Add the standard operator contracts needed for these source forms:
 
@@ -124,48 +131,59 @@ Shared views expose `__len` and `__index`. Writable views expose all three. A
 writable indexed field is accepted only under the same exclusive capability that
 currently admits `getMut` or a writable SoA row place.
 
-`get`, `getMut`, `set`, `ref`, and `count` remain supported. They are useful as the
-stable runtime ABI, for existing source, for explicit pointer borrowing, and at
-foreign or gradual boundaries. New documentation uses operators for ordinary
-element access and `#view` for ordinary loops. `.count` remains available when an
-explicit stored field is wanted or generated Lua must interoperate with a host that
-does not understand Nupp's operator contract.
+Remove `get`, `getMut`, `set`, and `.count` from exported Span and SoA view
+interfaces after migrating this repository in the same change. Do not keep a
+deprecation release in which both surfaces work. A temporary implementation branch
+may accept both while tests are being migrated, but the landed compiler rejects the
+old spelling with one targeted replacement:
+
+```text
+view:get(index)       -> view[index]
+view:set(index, x)    -> view[index] = x
+view:getMut(index).x  -> view[index].x
+view.count            -> #view
+```
+
+`ref`, `slice`, `shared`, `splitAt`, `copyFrom`, and SoA `field` projection remain
+because they expose different capabilities rather than a second spelling for element
+access. `ref` borrows the complete contiguous pointer/count pair for foreign or bulk
+work; it is not an alternate checked element getter. Do not add a public `refAt` or
+renamed `getMut` unless a separate audited use cannot be expressed by direct indexed
+places or the existing whole-range `ref` operation.
+
+Private implementation records may retain a field named `count` and helpers such as
+`checkedIndex`, `_read`, or `_write`. Generated Lua may call those helpers for an
+unproved access. They are compiler/runtime ABI details absent from exported types,
+completion, documentation, and ordinary Nupp lookup.
 
 The compiler-owned view operators are primitives with checked-view semantics, not
-replaceable calls to the current method bodies. At `-O0` or when proof fails, the
-regular backend may implement them through the existing checked methods or an
-equivalent once-only check. At `-O1`, a proof may select the direct physical adapter.
-Existing authored `get`/`getMut`/`set` calls continue to obey `OPT-6`'s current
-observability and `frames` rules.
+replaceable calls to runtime helper bodies. At `-O0` or when proof fails, the regular
+backend emits an equivalent once-only check. At `-O1`, a proof may select the direct
+physical adapter. The operator's authored location owns any bounds error; a private
+helper frame is not part of the public call contract.
 
 ### Common counted ranges
 
-Add a small ordinary `nupp.indexed` module containing a structural read-only count
-capability and a common range constructor:
+Add one compiler-owned standard range constructor under `nupp.indexed`:
 
 ```nupp
-interface indexed.Counted
-    readonly count: integer
-end
-
 function indexed.range(
     first: integer,
     last: integer,
-    borrows ...: indexed.Counted
+    borrows ...: trusted indexed views
 ): indexed.Range
 ```
 
-Standard Span and SoA count capabilities refine `indexed.Counted`.
-`indexed.range` performs the same inclusive range validation as `span.range` and can
-therefore check several mixed standard views once. `span.range` remains source
-compatible and either keeps its existing implementation or forwards to the common
-operation without changing its error text or location.
+The signature above is semantic pseudocode: there is no exported structural
+`Counted` interface whose `.count` field reintroduces a second length API. Checking a
+call requires every variadic argument to carry a trusted `IndexedViewDescriptor`.
+The generated implementation reads each adapter's private count operation and checks
+the inclusive range once.
 
-Implementing `indexed.Counted` does not grant an indexed fast lane. A user type may
-participate in runtime count validation, but only a receiver with a trusted
-`IndexedViewDescriptor` can receive a proved direct access. The witness records that
-untrusted values were checked and simply has no physical adapter to optimize for
-them.
+`indexed.range` replaces `span.range`; it does not coexist as a second spelling in
+the completed API. Migrate every repository caller and remove `span.range` from the
+exported module. Its established bounds rules and error behavior move to the common
+operation, with diagnostics and documentation updated to the new owner.
 
 This makes multi-view SoA kernels expressible without choosing one view's count as an
 unproved promise about the others:
@@ -299,9 +317,7 @@ IndexedRangeProof {
 The first admitted proof shapes are:
 
 1. `for index = 1, #view` for that exact stable trusted view;
-2. the compatibility spelling `for index = 1, view.count` for standard views; and
-3. `span.range` or `indexed.range` first/last witnesses for every trusted view they
-   name.
+2. `indexed.range` first/last witnesses for every trusted view it names.
 
 The checker attaches a proof to an indexed access only when:
 
@@ -313,9 +329,9 @@ The checker attaches a proof to an indexed access only when:
 - no gradual conversion erased the identity or contract.
 
 `for index = 1, #left` proves access to `left`; it does not prove access to `right`
-merely because their counts happen to compare equal at run time. Use `span.range` to
-relate several spans or `indexed.range` to relate mixed Span and SoA views. The plan
-does not infer range facts from arbitrary user conditionals in its first version.
+merely because their counts happen to compare equal at run time. Use `indexed.range`
+to relate several Span and SoA views. The plan does not infer range facts from
+arbitrary user conditionals in its first version.
 
 The existing same-function boundary remains. Proofs do not cross parameters, return
 values, captures, or opaque calls. View virtualization can follow a const local alias
@@ -353,10 +369,10 @@ pointer[offset + index - 1].field
 ```
 
 Shared spans permit loads only. Writable spans permit loads, whole-element stores,
-and direct field stores while their exclusive token is live. A pointer-valued
-`getMut` remains available when source explicitly asks for a borrowed pointer; the
-ordinary indexed-place form should not construct that intermediate pointer or call
-`borrowFrom`.
+and direct field stores while their exclusive token is live. The indexed-place form
+does not construct an intermediate pointer or call `borrowFrom`. Code that genuinely
+needs a foreign pointer borrows the complete range through `ref`; ordinary mutation
+has no pointer-returning element API.
 
 Fixed spans use the same adapter. Their count may be constant-folded, but their root,
 offset, ownership, and error rules remain identical.
@@ -468,8 +484,8 @@ not necessary to prove the value of ordinary slice sinking.
 
 Keep responsibilities separated:
 
-1. **Standard declarations** expose idiomatic operator signatures while retaining
-   existing methods and count fields.
+1. **Standard declarations** expose only the indexed operator signatures for length
+   and element access; duplicate public methods and count fields are removed.
 2. **Checking** resolves the exact standard contract, attaches the indexed-view
    descriptor, forms indexed places, and enforces read/write capability.
 3. **Control checking** creates `IndexedRangeProof` facts for canonical count loops
@@ -482,8 +498,8 @@ Keep responsibilities separated:
    loop or virtualized view.
 7. **Regular generation** asks the AoS or SoA adapter for the physical expression;
    it does not rediscover proofs from CST spelling.
-8. **AOT** may later consume the same checked facts, but this plan changes no AOT
-   admission or generated C.
+8. **AOT** consumes the same indexed-access and place facts so migrated kernels keep
+   their existing admission and generated C without recognizing removed method names.
 
 Prefer one semantic descriptor over adding new loose booleans beside `soaField`,
 `soaRow`, `rangeProvenNoRaise`, and `spanDirectAccess`. Transitional fields may exist
@@ -548,6 +564,11 @@ bytecode, injected profiler, or LuaJIT fork.
 ## Remarks and inspection
 
 Assign stable optimization identities only when implementation and benchmarks land.
+The common indexed-range pass supersedes `OPT-6 span-range-access`; do not keep both
+passes recognizing two source surfaces. Preserve the historical benchmark result in
+documentation, migrate the disable/remark tests, and retire the old catalog identity
+under the repository's normal optimization-compatibility policy.
+
 Report decisions at useful granularity, for example:
 
 ```text
@@ -565,7 +586,6 @@ Requested declines use stable reasons such as:
 - `view-escapes`;
 - `unsupported-view-operation`;
 - `ownership-join`;
-- `frames-held` for compatibility method calls; or
 - `backend-not-regular-lua`.
 
 Proof absence is primarily a checker fact, not an optimizer guess. Remarks should
@@ -581,14 +601,16 @@ side exits without making unstable upstream IR numbers part of the language cont
 Extend the existing span and SoA benchmarks rather than replacing their historical
 baselines. Add one shared harness with verified results for:
 
-1. checked method access;
-2. checked operator access at an arbitrary index;
-3. canonical `for index = 1, #view` operator access;
-4. the old proved lowering (`span.range` or `rows.count`);
-5. the new common proof and adapter;
-6. the new common proof over a nonescaping slice;
-7. the same slice forced to escape and materialize; and
-8. handwritten direct FFI.
+1. checked operator access at an arbitrary index;
+2. canonical `for index = 1, #view` operator access;
+3. the new common proof and adapter;
+4. the new common proof over a nonescaping slice;
+5. the same slice forced to escape and materialize; and
+6. handwritten direct FFI.
+
+Keep the committed old method/count measurements as historical comparison data, not
+as a still-compiling public benchmark variant. A private generated-Lua fixture may
+preserve a checked-helper baseline when needed to isolate code shape.
 
 Measure at least:
 
@@ -598,7 +620,7 @@ Measure at least:
 - root views, nonzero-offset slices, and nested slices;
 - shared and exclusive capabilities;
 - empty, one-element, short, and large loops;
-- one view and a `span.range` loop relating several views;
+- several Span views related by `indexed.range`;
 - an `indexed.range` loop relating AoS and SoA views;
 - JIT after warmup, with interpreter-only results reported as context; and
 - native arm64 and x86-64 profiles where CI provides them.
@@ -630,17 +652,21 @@ keep only the checked operator and common-proof portions that pass independently
 - the same operations on shared and writable SoA row views;
 - writable indexed reads and compound field assignments;
 - fixed-span length retaining its literal count where expected;
-- existing `get`, `getMut`, `set`, `ref`, and `.count` source remaining valid;
+- `ref`, slicing, sharing, splitting, copying, and field-column projection remaining
+  valid as distinct capabilities;
+- `get`, `getMut`, `set`, `.count`, and `span.range` rejected with precise operator
+  or `indexed.range` replacements;
 - shared-view writes rejected with the existing ownership explanation;
-- wrong key and value types rejected through the operator contract; and
-- a user type with lookalike metamethods receiving no trusted descriptor.
+- wrong key and value types rejected through the operator contract;
+- a user type with lookalike metamethods receiving no trusted descriptor; and
+- exported interface and completion snapshots containing none of `get`, `getMut`,
+  `set`, or `count` for standard indexed views.
 
 ### Range admission and refusal
 
-- `for index = 1, #view` and compatibility `view.count` bounds;
-- existing one-span and multi-span `span.range` bounds;
-- mixed trusted views admitted by `indexed.range`, with untrusted counted values
-  checked but not physically lowered;
+- `for index = 1, #view` bounds;
+- one-view, multi-Span, multi-SoA, and mixed-view `indexed.range` bounds;
+- untrusted counted or lookalike values rejected by `indexed.range`;
 - exact receiver and induction identity through const aliases;
 - refusal for a different view, mutable binding, computed index, explicit non-unit
   step, reversed bound, shadowed name, or access outside the loop;
@@ -687,8 +713,8 @@ keep only the checked operator and common-proof portions that pass independently
 - semantic field rename through indexed SoA places;
 - incremental keys covering optimization level, adapter version, and relaxations;
 - `nupp bc --check` on every benchmark loop;
-- AOT off/emit/require answers unchanged unless a later plan explicitly consumes the
-  shared facts;
+- AOT off/emit/require accepting the operator spelling and rejecting the removed
+  method spelling while preserving the existing verified IR and generated C;
 - full test suite; and
 - compiler fixpoint.
 
@@ -704,11 +730,9 @@ end
 
 Explain separately:
 
-- operators are the ordinary checked surface;
-- `.count` and methods remain supported compatibility/ABI operations;
+- operators are the sole public length and element-access surface;
 - canonical loops can remove repeated checks for the exact view;
-- `span.range` remains the way to validate one range against several views;
-- `indexed.range` validates one range across mixed Span and SoA views;
+- `indexed.range` validates one range across several Span and SoA views;
 - arbitrary indexes are checked;
 - nonescaping slices may allocate no wrapper without changing lifetime semantics;
 - indexed field projection is a place only in direct read/write syntax; and
@@ -722,6 +746,10 @@ Document host behavior precisely: Nupp's trusted `#view` does not require LuaJIT
 `LUAJIT_ENABLE_LUA52COMPAT`, while arbitrary dynamic table `__len` behavior remains
 dependent on the selected runtime profile.
 
+Add a migration table for removed spellings, but do not document them as deprecated
+working alternatives. Generated/private runtime fields are not a user-facing Lua ABI
+and do not appear in the language reference.
+
 ## Delivery
 
 1. Add benchmark cases for operator syntax, AoS, SoA, slices, forced escape, and
@@ -731,28 +759,35 @@ dependent on the selected runtime profile.
 3. Attach them to existing SoA row operations and prove that checked types, regions,
    field identities, and generated output remain unchanged.
 4. Attach them to all standard span variants and add `#`, read index, whole write,
-   and direct field-place typing while retaining existing methods.
-5. Add `indexed.Counted` and `indexed.range`, preserve `span.range`, and attach only
-   trusted indexed-view participants to its physical proof.
+   and direct field-place typing behind a temporary implementation-only migration
+   bridge.
+5. Add `indexed.range`, migrate every `span.range` caller, and accept only trusted
+   indexed-view participants.
 6. Lower trusted `#view` directly to count, independent of host table `__len`.
-7. Move canonical `#view` / `.count` loop recognition into checking and emit one
+7. Move canonical `#view` loop recognition into checking and emit one
    `IndexedRangeProof` consumed by effects and optimization.
 8. Route the existing SoA direct-column path through the common proof and its SoA
    adapter. Run trace and throughput gates before deleting `soaLoopBounds`.
-9. Route span operator access and existing range method access through the
-   contiguous adapter without regressing `OPT-6`.
+9. Route span operator access and common range access through the contiguous adapter
+   without regressing `OPT-6`.
 10. Implement whole-element and projected indexed-place writes with once-only
    evaluation and capability checks.
-11. Add narrow all-or-nothing virtualization for slices, shared downgrades, projected
+11. Update the AOT checker, rewrite, IR lowering, fixtures, and kernel corpus to
+    consume indexed access/place facts instead of `get`, `getMut`, `set`, and
+    `.count` spellings.
+12. Migrate all remaining source, tests, benchmarks, explanations, and documentation;
+    then remove the public methods, public count field, `span.range`, their
+    name-specific compiler recognition, and superseded `OPT-6` compatibility path.
+13. Add narrow all-or-nothing virtualization for slices, shared downgrades, projected
     columns, and admitted roots; materialize on every uncertain escape.
-12. Measure explicit base/offset/count hoisting against LuaJIT's trace CSE and retain
+14. Measure explicit base/offset/count hoisting against LuaJIT's trace CSE and retain
     only the winning shape while keeping roots live.
-13. Add decline remarks, trace inspection, source-map, forced-GC, ownership, and
+15. Add decline remarks, trace inspection, source-map, forced-GC, ownership, and
     gradual-boundary tests.
-14. Update span, SoA, metamethod, optimization, and language-reference documentation
+16. Update span, SoA, metamethod, optimization, and language-reference documentation
     with the measured results and runtime-profile distinction.
-15. Run focused checker, effects, ownership, optimizer, generation, span, SoA, trace,
-    and benchmark suites; then the full suite and compiler fixpoint.
+17. Run focused checker, effects, ownership, optimizer, generation, span, SoA, AOT,
+    trace, and benchmark suites; then the full suite and compiler fixpoint.
 
 Each delivery step must leave the current checked fallback working. The SoA adapter
 transition is independently revertible from operator surface work, and view
@@ -778,4 +813,6 @@ passes.
 The plan is complete when one checked semantic relationship connects length,
 indexing, range proof, field projection, and capability; spans and SoA retain distinct
 optimal physical adapters; nonescaping slices can disappear while roots remain live;
-and both AoS and SoA pass their handwritten direct-FFI trace and throughput gates.
+both AoS and SoA pass their handwritten direct-FFI trace and throughput gates; and
+the exported indexed-view API has exactly one spelling for length, read, write, and
+common range formation.
