@@ -51,8 +51,17 @@ record verify.Scope
     --- exclusive.
     writes: {[string]: boolean}
 
-    --- The loop counter, and the only index an access may use.
-    index: string
+    --- The loop counter currently proving an access, and the span whose count
+    --- bounds it. A legacy map loop sets `mapIndex`, because its wrapper proved
+    --- every span has the primary output's count.
+    index: string?
+    boundSpan: string?
+    mapIndex: boolean?
+
+    --- Zero-based uint32 cursors authorized by dominating count checks.
+    cursorBounds: {[string]: string}
+
+    resultTypes: {scalarIR.Type}
 end
 
 --- What the lane rules need beyond the scope.
@@ -140,6 +149,9 @@ const verify.FIXED_BINARY = {
     ["i32_add"] = "i32",
     ["i32_sub"] = "i32",
     ["i32_mul"] = "i32",
+    ["u32_add"] = "u32",
+    ["u32_sub"] = "u32",
+    ["u32_mul"] = "u32",
 }
 
 --- The opcodes that convert between representations, which is where -- and
@@ -252,8 +264,9 @@ local function bitOperand(value: scalarIR.Expr): boolean
     if value.type == "i32" or value.type == "u32" then
         return true
     end
-    if value.op == "constant" then
-        local number = tonumber(value.value)
+    local raw = value as any
+    if raw.op == "constant" then
+        local number = tonumber(raw.value)
 
         return number ~= nil and number >= 0 and number <= verify.UINT32_MAX and number % 1 == 0
     end
@@ -280,7 +293,7 @@ local function convert(node: scalarIR.Convert, values: {[string]: string}, scope
 end
 
 --- Checks a read of one scalar element.
-local function load(node: scalarIR.Load, scope: verify.Scope): nil
+local function load(node: scalarIR.Load, values: {[string]: string}, scope: verify.Scope): nil
     local root = scope.spans[node.span]
     holds(root ~= nil, "invalid load root")
 
@@ -291,7 +304,20 @@ local function load(node: scalarIR.Load, scope: verify.Scope): nil
         ) and node.type == span.type and node.type:match("^struct:") == nil,
         "invalid load root"
     )
-    holds(node.index == scope.index, "unbounded load index")
+    if node.cursor ~= nil then
+        holds(
+            node.index == ""
+            and values[node.cursor as string] == "u32"
+            and scope.cursorBounds[node.cursor as string] == node.span
+            and node.cursorCName ~= nil,
+            "unbounded cursor load"
+        )
+    else
+        holds(
+            node.index == scope.index and (scope.mapIndex == true or node.span == scope.boundSpan),
+            "unbounded load index"
+        )
+    end
 end
 
 --- Checks a pointer to one struct element.
@@ -299,7 +325,7 @@ end
 --- Whether it may be written is not this expression's claim to make: it follows
 --- from whether the span was declared exclusive, and disagreeing with that is
 --- how a shared borrow would become a write.
-local function elementRef(node: scalarIR.ElementRef, scope: verify.Scope): nil
+local function elementRef(node: scalarIR.ElementRef, values: {[string]: string}, scope: verify.Scope): nil
     local root = scope.spans[node.span]
     local layoutName = node.type:match("^ref:(.+)$")
     holds(root ~= nil and layoutName ~= nil, "invalid struct element root")
@@ -309,7 +335,13 @@ local function elementRef(node: scalarIR.ElementRef, scope: verify.Scope): nil
         span.type == "struct:" .. tostring(layoutName) and scope.layouts[tostring(layoutName)] ~= nil,
         "invalid struct element root"
     )
-    holds(node.mutable == (span.kind == "write_span") and node.index == scope.index, "invalid struct element access")
+    local bounded = node.cursor ~= nil and node.index == ""
+        and values[node.cursor as string] == "u32"
+        and scope.cursorBounds[node.cursor as string] == node.span
+        and node.cursorCName ~= nil
+        or node.cursor == nil and node.index == scope.index
+            and (scope.mapIndex == true or node.span == scope.boundSpan)
+    holds(node.mutable == (span.kind == "write_span") and bounded, "invalid struct element access")
 end
 
 --- Checks a corrected binary32 operation, whose operands live in `args` or in
@@ -367,9 +399,9 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
     if verify.CONVERSIONS[tostring(op)] == true then
         convert(node as scalarIR.Convert, values, scope)
     elseif op == "load" then
-        load(node, scope)
+        load(node, values, scope)
     elseif op == "element_ref" then
-        elementRef(node, scope)
+        elementRef(node, values, scope)
     elseif op == "field_load" then
         local layout = scope.layouts[node.layout]
         holds(
@@ -388,6 +420,9 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             (param as scalarIR.Param).kind == "uniform" and node.type == (param as scalarIR.Param).type,
             "invalid uniform"
         )
+    elseif op == "span_count" then
+        local span = scope.spans[node.span]
+        holds(span ~= nil and (span as scalarIR.Param).region ~= nil and node.type == "f64", "invalid span count")
     elseif op == "local" or op == "helper_param" then
         local named = node as scalarIR.Name
         holds(values[named.name] == node.type, "invalid local value")
@@ -830,7 +865,13 @@ local function block(
                 values[bound.name] = bound.type
             end
         elseif statement.op == "store" then
-            holds(scope.writes[statement.span] == true and statement.index == scope.index, "invalid store root")
+            local bounded = statement.cursor ~= nil and statement.index == ""
+                and values[statement.cursor as string] == "u32"
+                and scope.cursorBounds[statement.cursor as string] == statement.span
+                and statement.cursorCName ~= nil
+                or statement.cursor == nil and statement.index == scope.index
+                    and (scope.mapIndex == true or statement.span == scope.boundSpan)
+            holds(scope.writes[statement.span] == true and bounded, "invalid store root")
             scalarWalk(statement.value, values, scope)
             holds(statement.value.type == (scope.spans[statement.span] as scalarIR.Param).type, "store type mismatch")
             stored[statement.span] = true
@@ -842,7 +883,26 @@ local function block(
             for _, clause in ipairs(statement.clauses) do
                 holds(clause.condition.type == "bool", "non-boolean branch")
                 scalarWalk(clause.condition, values, scope)
-                block(clause.body, values, scope, stored)
+                local cursorBounds: {[string]: string} = {}
+                for name, spanName in pairs(scope.cursorBounds) do
+                    cursorBounds[name] = spanName
+                end
+                for name, spanName in pairs(clause.cursorBounds or {}) do
+                    holds(values[name] == "u32" and scope.spans[spanName] ~= nil, "invalid cursor bounds proof")
+                    cursorBounds[name] = spanName
+                end
+                local nestedScope = new verify.Scope(
+                    spans = scope.spans,
+                    layouts = scope.layouts,
+                    helpers = scope.helpers,
+                    writes = scope.writes,
+                    index = scope.index,
+                    boundSpan = scope.boundSpan,
+                    mapIndex = scope.mapIndex,
+                    cursorBounds = cursorBounds,
+                    resultTypes = scope.resultTypes
+                )
+                block(clause.body, values, nestedScope, stored)
             end
             if statement.elseBody ~= nil then
                 block(statement.elseBody or {}, values, scope, stored)
@@ -856,13 +916,39 @@ local function block(
 
             local inner = inherit(values)
             inner[statement.binding.name] = "i32"
-            block(statement.body, inner, scope, stored)
+            local nestedScope = new verify.Scope(
+                spans = scope.spans,
+                layouts = scope.layouts,
+                helpers = scope.helpers,
+                writes = scope.writes,
+                index = statement.binding.name,
+                boundSpan = statement.boundSpan,
+                mapIndex = false,
+                cursorBounds = scope.cursorBounds,
+                resultTypes = scope.resultTypes
+            )
+            if statement.boundSpan ~= nil then
+                holds(
+                    statement.from.op == "constant_i32"
+                    and (statement.from as scalarIR.IntConstant).value == "1"
+                    and statement.to.op == "span_count"
+                    and (statement.to as scalarIR.SpanCount).span == statement.boundSpan,
+                    "invalid counted span loop proof"
+                )
+            end
+            block(statement.body, inner, nestedScope, stored)
         elseif statement.op == "while" then
             holds(statement.condition.type == "bool", "non-boolean loop condition")
             scalarWalk(statement.condition, values, scope)
             block(statement.body, values, scope, stored)
         elseif statement.op == "block" then
             block(statement.body, values, scope, stored)
+        elseif statement.op == "return" then
+            holds(#statement.values == #scope.resultTypes, "invalid AOT return count")
+            for position, value in ipairs(statement.values) do
+                holds(value.type == scope.resultTypes[position], "invalid AOT return type")
+                scalarWalk(value, values, scope)
+            end
         else
             holds(statement.op == "break" or statement.op == "continue", "unknown statement opcode")
         end
@@ -1030,7 +1116,7 @@ end
 local function signature(
     program: scalarIR.Program,
     layouts: {[string]: scalarIR.Layout}
-): ({[string]: scalarIR.Param}, {[string]: scalarIR.Param}, {[string]: boolean}, scalarIR.Param)
+): ({[string]: scalarIR.Param}, {[string]: scalarIR.Param}, {[string]: boolean}, scalarIR.Param?)
     local byName: {[string]: scalarIR.Param} = {}
     local byRegion: {[string]: scalarIR.Param} = {}
     local writes: {[string]: boolean} = {}
@@ -1059,12 +1145,14 @@ local function signature(
         end
         byName[param.name] = param
     end
-    holds(
-        primary ~= nil and program.loop.count == (primary as scalarIR.Param).name,
-        "loop is not bounded by its primary output"
-    )
+    if program.loop ~= nil then
+        holds(
+            primary ~= nil and (program.loop as scalarIR.Loop).count == (primary as scalarIR.Param).name,
+            "loop is not bounded by its primary output"
+        )
+    end
 
-    return byName, byRegion, writes, primary as scalarIR.Param
+    return byName, byRegion, writes, primary
 end
 
 --- The regions and the alias facts over them.
@@ -1112,12 +1200,19 @@ end
 
 --- The loop's bounds, and the length agreements that make them cover every
 --- span rather than only the one they were written against.
-local function bounds(program: scalarIR.Program, byName: {[string]: scalarIR.Param}, primary: scalarIR.Param): nil
+local function bounds(program: scalarIR.Program, byName: {[string]: scalarIR.Param}, primary: scalarIR.Param?): nil
+    if program.loop == nil then
+        holds(program.rangeGuard == nil and #program.guards == 0, "a block kernel carried map-loop bounds")
+        return
+    end
+    local loop = program.loop as scalarIR.Loop
+    holds(primary ~= nil, "a map loop has no primary output")
+    local primary_ = primary as scalarIR.Param
     local rangeGuard = program.rangeGuard
     if rangeGuard ~= nil then
         local guard = rangeGuard as scalarIR.RangeGuard
         holds(
-            program.loop.first == guard.first and program.loop.last == guard.last and guard.count == primary.name,
+            loop.first == guard.first and loop.last == guard.last and guard.count == primary_.name,
             "loop range proof mismatch"
         )
         holds(
@@ -1131,17 +1226,17 @@ local function bounds(program: scalarIR.Program, byName: {[string]: scalarIR.Par
             "range proof does not use integer uniforms"
         )
     else
-        holds(program.loop.first == 1 and program.loop.last == primary.name, "invalid full-span loop")
+        holds(loop.first == 1 and loop.last == primary_.name, "invalid full-span loop")
     end
 
     local guarded: {[string]: boolean} = {}
     for _, guard in ipairs(program.guards) do
-        holds(guard.op == "equal_count" and guard.left == primary.name, "invalid IR guard")
+        holds(guard.op == "equal_count" and guard.left == primary_.name, "invalid IR guard")
         holds(byName[guard.right] ~= nil and (byName[guard.right] as scalarIR.Param).region ~= nil, "guarded non-span")
         guarded[guard.right] = true
     end
     for _, param in ipairs(program.params) do
-        if param.region ~= nil and param.name ~= primary.name then
+        if param.region ~= nil and param.name ~= primary_.name then
             holds(guarded[param.name] == true, "unguarded IR span")
         end
     end
@@ -1186,12 +1281,26 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         helpers[helper.name] = helper
     end
 
+    local loop = program.loop
+    local body = program.body
+    holds((loop ~= nil) ~= (body ~= nil), "an AOT program needs exactly one body form")
+    local resultTypes = program.resultTypes or {}
+    local sourceResults = program.resultSourceTypes or {}
+    holds(#resultTypes == #sourceResults and #resultTypes <= 4, "invalid AOT entry results")
+    for _, resultType in ipairs(resultTypes) do
+        holds(verify.NUMERIC[resultType] == true or resultType == "bool", "invalid AOT entry result type")
+    end
+
     local scope = new verify.Scope(
         spans = byName,
         layouts = layouts,
         helpers = helpers,
         writes = writes,
-        index = program.loop.index
+        index = loop ~= nil and (loop as scalarIR.Loop).index or nil,
+        boundSpan = loop ~= nil and (loop as scalarIR.Loop).count or nil,
+        mapIndex = loop ~= nil,
+        cursorBounds = {},
+        resultTypes = resultTypes
     )
     helperBodies(program, scope)
 
@@ -1203,15 +1312,18 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     end
 
     local stored: {[string]: boolean} = {}
-    block(program.loop.statements, uniforms, scope, stored)
-    for output in pairs(writes) do
-        if (byName[output] as scalarIR.Param).type:match("^struct:") == nil then
-            holds(stored[output] == true, "scalar IR output is never stored")
+    block(loop ~= nil and (loop as scalarIR.Loop).statements or body or {}, uniforms, scope, stored)
+    if loop ~= nil then
+        for output in pairs(writes) do
+            if (byName[output] as scalarIR.Param).type:match("^struct:") == nil then
+                holds(stored[output] == true, "scalar IR output is never stored")
+            end
         end
     end
 
     local lanes = program.lanes
     if lanes ~= nil then
+        holds(loop ~= nil, "a general block kernel carried scalar-source lanes")
         local body = lanes as scalarIR.LaneBody
         local shape = lane.SHAPE_BY_NAME[body.shape]
         holds(

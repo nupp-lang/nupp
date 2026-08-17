@@ -183,6 +183,11 @@ end
 --- @param filename what a refusal names
 --- @param selected the target, which decides whether a gang exists at all
 function compile.lanes(program: scalarIR.Program, filename: string, selected: targets.Target): nil
+    if program.loop == nil then
+        program.wantsLanes = false
+        program.lanesDeclined = true
+        return
+    end
     local estimate = intensity.estimate(program)
     program.intensity = estimate.perByte
     program.operations = estimate.operations
@@ -204,8 +209,10 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
         program.laneRefusals = {
             new compile.Diagnostic(
                 file = filename,
-                line = program.loop.source ~= nil and (program.loop.source as scalarIR.Source).line or 1,
-                column = program.loop.source ~= nil and (program.loop.source as scalarIR.Source).column or 1,
+                line = (program.loop as scalarIR.Loop).source ~= nil
+                    and ((program.loop as scalarIR.Loop).source as scalarIR.Source).line or 1,
+                column = (program.loop as scalarIR.Loop).source ~= nil
+                    and ((program.loop as scalarIR.Loop).source as scalarIR.Source).column or 1,
                 message = targets.noGangReason(selected)
             ),
         }
@@ -226,8 +233,10 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
                 #refusals + 1
             ] = new compile.Diagnostic(
                 file = filename,
-                line = program.loop.source ~= nil and (program.loop.source as scalarIR.Source).line or 1,
-                column = program.loop.source ~= nil and (program.loop.source as scalarIR.Source).column or 1,
+                line = (program.loop as scalarIR.Loop).source ~= nil
+                    and ((program.loop as scalarIR.Loop).source as scalarIR.Source).line or 1,
+                column = (program.loop as scalarIR.Loop).source ~= nil
+                    and ((program.loop as scalarIR.Loop).source as scalarIR.Source).column or 1,
                 message = why
             )
         end

@@ -26,7 +26,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 4
+const scalarIR.VERSION = 5
 
 --- What the arithmetic in an admitted body means.
 ---
@@ -112,6 +112,14 @@ record scalarIR.Name
     source: scalarIR.Source?
 end
 
+--- The checked count of one span parameter.
+record scalarIR.SpanCount
+    op: 'span_count'
+    span: string
+    type: 'f64'
+    source: scalarIR.Source?
+end
+
 --- One element of a span holding scalars.
 record scalarIR.Load
     op: 'load'
@@ -120,6 +128,12 @@ record scalarIR.Load
     --- The loop index. Consecutive access is the whole of the lane rewrite's
     --- licence to run several iterations at once, so nothing else is admitted.
     index: string
+    indexCName: string?
+
+    --- A zero-based append/read cursor authorized by a dominating
+    --- `cursor < span.count` branch. The source access is `cursor + 1`.
+    cursor: string?
+    cursorCName: string?
 
     type: scalarIR.Type
     source: scalarIR.Source?
@@ -130,6 +144,9 @@ record scalarIR.ElementRef
     op: 'element_ref'
     span: string
     index: string
+    indexCName: string?
+    cursor: string?
+    cursorCName: string?
     layout: string
 
     --- Whether this element may be written, which follows from whether its span
@@ -208,7 +225,16 @@ end
 --- than being a relaxation. `f32_min`, `f32_max` and `f32_fma` are not covered by
 --- that argument and carry a correction instead.
 record scalarIR.Fixed
-    op: 'f32_add' | 'f32_sub' | 'f32_mul' | 'f32_div' | 'i32_add' | 'i32_sub' | 'i32_mul'
+    op: 'f32_add'
+        | 'f32_sub'
+        | 'f32_mul'
+        | 'f32_div'
+        | 'i32_add'
+        | 'i32_sub'
+        | 'i32_mul'
+        | 'u32_add'
+        | 'u32_sub'
+        | 'u32_mul'
     left: scalarIR.Expr
     right: scalarIR.Expr
     type: scalarIR.Type
@@ -270,6 +296,7 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.IntConstant
     | scalarIR.Bool
     | scalarIR.Name
+    | scalarIR.SpanCount
     | scalarIR.Load
     | scalarIR.ElementRef
     | scalarIR.FieldLoad
@@ -348,6 +375,9 @@ record scalarIR.Store
     op: 'store'
     span: string
     index: string
+    indexCName: string?
+    cursor: string?
+    cursorCName: string?
     value: scalarIR.Expr
     source: scalarIR.Source?
 end
@@ -356,6 +386,7 @@ end
 record scalarIR.Clause
     condition: scalarIR.Expr
     body: {scalarIR.Statement}
+    cursorBounds: {[string]: string}?
     source: scalarIR.Source?
 end
 
@@ -398,6 +429,11 @@ record scalarIR.Fornum
     from: scalarIR.Expr
     to: scalarIR.Expr
     body: {scalarIR.Statement}
+
+    --- The span whose count is this loop's inclusive upper bound. Present only
+    --- when `from` is one and `to` is that span's checked count; it is the proof
+    --- that accesses through this induction variable are in bounds.
+    boundSpan: string?
     source: scalarIR.Source?
 end
 
@@ -421,6 +457,13 @@ record scalarIR.Continue
     source: scalarIR.Source?
 end
 
+--- Returning from a general block kernel.
+record scalarIR.Return
+    op: 'return'
+    values: {scalarIR.Expr}
+    source: scalarIR.Source?
+end
+
 --- Every scalar statement.
 type scalarIR.Statement = scalarIR.Let
     | scalarIR.MultiLet
@@ -432,6 +475,7 @@ type scalarIR.Statement = scalarIR.Let
     | scalarIR.Block
     | scalarIR.Break
     | scalarIR.Continue
+    | scalarIR.Return
 
 --- One stored field of a reified struct.
 record scalarIR.Field
@@ -611,7 +655,16 @@ record scalarIR.Program
     aliasFacts: {scalarIR.AliasFact}
     guards: {scalarIR.Guard}
     helpers: {scalarIR.Helper}?
-    loop: scalarIR.Loop
+    --- The original map-shaped form, or a general structured scalar body.
+    --- Exactly one is present. Keeping the map form preserves its established
+    --- lane transform and private ABI while block kernels grow independently.
+    loop: scalarIR.Loop?
+    body: {scalarIR.Statement}?
+
+    --- Top-level scalar results. Empty is the existing `nil` ABI; several use
+    --- one compiler-owned native result aggregate at the private boundary.
+    resultTypes: {scalarIR.Type}?
+    resultSourceTypes: {string}?
     rangeGuard: scalarIR.RangeGuard?
     lanes: scalarIR.LaneBody?
 

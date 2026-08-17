@@ -177,6 +177,9 @@ const rewrite.FIXED = {
     ["i32_add"] = {verb = "add", element = "i32"},
     ["i32_sub"] = {verb = "sub", element = "i32"},
     ["i32_mul"] = {verb = "mul", element = "i32"},
+    ["u32_add"] = {verb = "add", element = "u32"},
+    ["u32_sub"] = {verb = "sub", element = "u32"},
+    ["u32_mul"] = {verb = "mul", element = "u32"},
 }
 
 --- The three whose native instruction is right about the value and wrong about
@@ -1752,6 +1755,7 @@ end
 ---
 --- @param reject reports a construct this pass cannot represent
 function rewrite.loop(program: scalarIR.Program, shape: lane.Shape, reject: function(string): nil): scalarIR.LaneBody
+    local loop = program.loop as scalarIR.Loop
     local helpers: {[string]: any} = {}
     for _, helper in ipairs(program.helpers or {}) do
         helpers[helper.name] = helper
@@ -1759,7 +1763,7 @@ function rewrite.loop(program: scalarIR.Program, shape: lane.Shape, reject: func
 
     local state = new rewrite.State(
         shape = shape,
-        index = program.loop.index,
+        index = loop.index,
         varyingLocals = {},
         refBindings = {},
         helperBindings = {},
@@ -1776,9 +1780,9 @@ function rewrite.loop(program: scalarIR.Program, shape: lane.Shape, reject: func
         end)(),
         reject = reject
     )
-    rewrite.markVarying(program.loop.statements, state)
+    rewrite.markVarying(loop.statements, state)
 
-    local statements = rewrite.block(program.loop.statements, nil, nil, nil, new rewrite.BlockState(serial = 0), state)
+    local statements = rewrite.block(loop.statements, nil, nil, nil, new rewrite.BlockState(serial = 0), state)
 
     return new scalarIR.LaneBody(
         lanes = shape.lanes,

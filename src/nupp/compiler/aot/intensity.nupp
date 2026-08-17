@@ -175,7 +175,10 @@ function intensity.estimate(program: scalarIR.Program): intensity.Estimate
         end
     end
 
-    countBlock(program.loop.statements, 1)
+    local loop = program.loop
+    if loop ~= nil then
+        countBlock((loop as scalarIR.Loop).statements, 1)
+    end
 
     local bytes = 0
     for _, width in pairs(touched) do

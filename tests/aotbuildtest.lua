@@ -45,7 +45,22 @@ local function scale(
     end
 end
 
-return {scale = scale, Sample = Sample,}
+@aot(lanes = false)
+local function sumBytes(
+    borrows first: span.Span<uint8>,
+    borrows second: span.Span<uint8>
+): (number, uint32, uint32)
+    local total = 0.0
+    for i = 1, first.count do
+        total = total + first:get(i)
+    end
+    for i = 1, second.count do
+        total = total + second:get(i)
+    end
+    return total, nupp.math.u32.wrap(first.count), nupp.math.u32.wrap(second.count)
+end
+
+return {scale = scale, sumBytes = sumBytes, Sample = Sample,}
 ]]
 
 local PLAIN = [[
@@ -135,6 +150,10 @@ function M.emitCWritesTheCBesideTheBuild()
    assert(c:find("void ks_scale(", 1, true), "and it defines the exported symbol: " .. c:sub(1, 200))
    assert(c:find("void ks_scale_forced_scalar(", 1, true),
       "beside the oracle the lane body is diffed against")
+   assert(c:find("KsResult_ks_sum_bytes ks_sum_bytes(", 1, true),
+      "a block kernel keeps its scalar result pack in the native ABI")
+   assert(c:find("size_t count_first, size_t count_second", 1, true),
+      "a block kernel receives each span's independent length")
    -- A module with no `@aot` in it produces nothing rather than an empty file.
    test.equal(read(dir .. "/build/native/aot/src/plain.c"), nil,
       "a module with no @aot function produces no artifact")
@@ -454,10 +473,13 @@ function M.theBuiltLibraryLoadsAndComputes()
    local ffi = require("ffi")
    ffi.cdef[[
       typedef struct { float value; float weight; } NuppAotSample;
+      typedef struct { double v1; uint32_t v2; uint32_t v3; } KsResult_ks_sum_bytes;
       void ks_scale(NuppAotSample *samples, const NuppAotSample *source,
          double first, double last, double factor, size_t count);
       void ks_scale_forced_scalar(NuppAotSample *samples, const NuppAotSample *source,
          double first, double last, double factor, size_t count);
+      KsResult_ks_sum_bytes ks_sum_bytes(const uint8_t *first, const uint8_t *second,
+         size_t count_first, size_t count_second);
       uint32_t ks_scale_layout_Sample_size(void);
    ]]
    local lib = ffi.load(libraryPath(dir))
@@ -482,6 +504,14 @@ function M.theBuiltLibraryLoadsAndComputes()
       test.equal(lanes[i].weight, scalar[i].weight, "weight diverged at lane " .. i)
    end
    test.equal(lanes[7].value, 7 * 0.5 * 3.0 + 7 * 0.25, "and it is the arithmetic the source asked for")
+
+   local first = ffi.new("uint8_t[2]", {1, 2})
+   local second = ffi.new("uint8_t[3]", {3, 4, 250})
+   local result = lib.ks_sum_bytes(first, second, 2, 3)
+   test.equal(result.v1, 260,
+      "independent block loops read their own span bounds and return a scalar")
+   test.equal(tonumber(result.v2), 2, "the second scalar result crosses the result aggregate")
+   test.equal(tonumber(result.v3), 3, "the third scalar result crosses the result aggregate")
 end
 
 --- Two `@aot` functions over one struct, which is what used to produce a

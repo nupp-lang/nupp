@@ -187,6 +187,33 @@ end
 return {classify = classify}
 ]]
 
+-- A non-JSON variable-rate block kernel. Its output cursor advances only under
+-- the count check that authorizes the following one-based span store.
+local DELIMITERS = [[
+local span = require("nupp.span")
+
+@aot(lanes = false)
+local function delimiters(
+    borrows source: span.Span<uint8>,
+    exclusive offsets: span.WriteSpan<uint32>
+): uint32
+    local written: uint32 = 0
+    for i = 1, source.count do
+        if source:get(i) == 44 then
+            if written < offsets.count then
+                offsets:set(written + 1, nupp.math.u32.fromI32(i))
+                written = nupp.math.u32.add(written, 1)
+            else
+                return written
+            end
+        end
+    end
+    return written
+end
+
+return {delimiters = delimiters}
+]]
+
 function M.aRegisterResidentLoopReportsItsGangAndWidth()
    local dir = project{["compute.nupp"] = COMPUTE}
    local out, code = run(dir, PINNED .. "compute.nupp")
@@ -272,6 +299,33 @@ function M.narrowScalarSpansKeepTheirStorageAndUseLanes()
    assert(binding:find("exclusive flags: uint8*", 1, true), binding)
    assert(binding:find("borrows bytes: const uint8*", 1, true), binding)
    assert(binding:find("span.WriteSpan<uint8>", 1, true), binding)
+end
+
+function M.blockKernelsAppendUnderDominatingCapacityChecks()
+   local dir = project{["delimiters.nupp"] = DELIMITERS}
+   local c, code = run(dir, "--emit c delimiters.nupp")
+   test.equal(code, 0, c)
+   assert(c:find("uint32_t ks_delimiters(", 1, true),
+      "the scalar result crosses the native ABI: " .. c)
+   assert(c:find("size_t count_source, size_t count_offsets", 1, true),
+      "the two spans keep independent counts: " .. c)
+   assert(c:find("p_offsets[((size_t)v", 1, true),
+      "the proved zero-based cursor directly indexes the output: " .. c)
+
+   local ir = select(1, run(dir, "--emit ir delimiters.nupp"))
+   assert(ir:find("store offsets[written+1]", 1, true),
+      "inspection preserves the checked append relationship: " .. ir)
+end
+
+function M.blockKernelsRejectAnUnguardedAppendCursor()
+   local source = DELIMITERS:gsub(
+      "            if written < offsets.count then\n",
+      "            if true then\n"
+   )
+   local dir = project{["unguarded.nupp"] = source}
+   local out, code = run(dir, "unguarded.nupp")
+   test.equal(code, 1, out)
+   assert(out:find("cursor + 1 under cursor < span.count", 1, true), out)
 end
 
 function M.fixedWidthSwitchesEmitNativeCDispatch()

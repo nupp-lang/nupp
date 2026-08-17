@@ -98,6 +98,11 @@ const admit.FIXED = (function(): {[string]: admit.Fixed}
         new admit.Fixed(identity = "i32.add", op = "i32_add", arity = 2, operand = "i32", result = "i32"),
         new admit.Fixed(identity = "i32.sub", op = "i32_sub", arity = 2, operand = "i32", result = "i32"),
         new admit.Fixed(identity = "i32.mul", op = "i32_mul", arity = 2, operand = "i32", result = "i32"),
+        new admit.Fixed(identity = "u32.wrap", op = "numeric_cast", arity = 1, operand = "f64", result = "u32"),
+        new admit.Fixed(identity = "u32.fromI32", op = "numeric_cast", arity = 1, operand = "i32", result = "u32"),
+        new admit.Fixed(identity = "u32.add", op = "u32_add", arity = 2, operand = "u32", result = "u32"),
+        new admit.Fixed(identity = "u32.sub", op = "u32_sub", arity = 2, operand = "u32", result = "u32"),
+        new admit.Fixed(identity = "u32.mul", op = "u32_mul", arity = 2, operand = "u32", result = "u32"),
     }) do
         byIdentity[entry.identity] = entry
     end

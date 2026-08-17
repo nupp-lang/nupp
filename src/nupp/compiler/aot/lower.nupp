@@ -340,6 +340,15 @@ record lower.Kernel
 
     --- The loop counter, which is the only index a span access may use.
     index: string
+    indexCName: string
+
+    --- Results the top-level AOT entry promises. Helpers keep their own result
+    --- list; this is only for `return` statements in a general block body.
+    resultTypes: {scalarIR.Type}
+
+    --- Zero-based uint32 cursors proved safe by enclosing branches, mapped to
+    --- the span whose checked count bounds `cursor + 1`.
+    cursorBounds: {[string]: string}
 
     --- How many locals have been named, so two source scopes using one name get
     --- two C names.
@@ -365,11 +374,12 @@ local function bitOperand(value: scalarIR.Expr): boolean
     if value.type == "i32" or value.type == "u32" then
         return true
     end
-    if value.op ~= "constant" then
+    local raw = value as any
+    if raw.op ~= "constant" then
         return false
     end
 
-    local number = tonumber((value as scalarIR.Constant).value)
+    local number = tonumber(raw.value)
 
     return number ~= nil and number >= 0 and number <= lower.UINT32_MAX and number % 1 == 0
 end
@@ -406,7 +416,12 @@ end
 --- The index has to be the loop's own, exactly. Consecutive access is the whole
 --- of the licence to run several iterations at once, and an index this backend
 --- cannot prove consecutive is one it will not admit.
-local function spanRead(node: cst.BracketIndex, activeIndex: string?, kernel: lower.Kernel): scalarIR.Expr
+local function spanRead(
+    node: cst.BracketIndex,
+    environment: {[string]: any},
+    activeIndex: string?,
+    kernel: lower.Kernel
+): scalarIR.Expr
     local context = kernel.context
     local spanName = lower.nameOf(node.obj)
     local param = spanName ~= nil and kernel.params[spanName as string] or nil
@@ -414,17 +429,37 @@ local function spanRead(node: cst.BracketIndex, activeIndex: string?, kernel: lo
     if not readable then
         context.reject(lower.site(node), "span reads use input[index] or output[index]")
     end
-    if activeIndex == nil or lower.nameOf(node.expr) ~= activeIndex then
-        context.reject(lower.site(node), "span loads must use the active loop index exactly")
+    local direct = lower.nameOf(node.expr)
+    local cursor: string? = nil
+    if node.expr ~= nil and node.expr.kind == "binop" then
+        local index = node.expr as cst.Binop
+        local written = index.op ~= nil and (index.op as lexer.Token).text or ""
+        local token = index.rhs ~= nil and index.rhs.kind == "number" and (index.rhs as cst.NumberLit).token or nil
+        local offset = token ~= nil and tonumber((token as lexer.Token).text) or nil
+        local candidate = lower.nameOf(index.lhs)
+        if written == "+" and offset == 1 and candidate ~= nil
+            and kernel.cursorBounds[candidate as string] == spanName then
+            cursor = candidate
+        end
+    end
+    if not (activeIndex ~= nil and direct == activeIndex) and cursor == nil then
+        context.reject(
+            lower.site(node),
+            "span loads need a counted-loop index or cursor + 1 under cursor < #span"
+        )
     end
 
     local element = param.element
-    local index = activeIndex as string
+    local index = cursor == nil and activeIndex as string or ""
+    local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
     if element.kind == "struct" then
         return new scalarIR.ElementRef(
             op = "element_ref",
             span = spanName as string,
             index = index,
+            indexCName = cursor == nil and kernel.indexCName or nil,
+            cursor = cursor,
+            cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil,
             layout = element.layout.name,
             mutable = param.kind == "write_span",
             type = "ref:" .. element.layout.name,
@@ -437,6 +472,9 @@ local function spanRead(node: cst.BracketIndex, activeIndex: string?, kernel: lo
             op = "load",
             span = spanName as string,
             index = index,
+            indexCName = cursor == nil and kernel.indexCName or nil,
+            cursor = cursor,
+            cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil,
             type = element.type,
             source = lower.site(node)
         ),
@@ -549,20 +587,20 @@ local function fixedCall(
         if argument.op == "constant" and fixed.operand ~= "f64" then
             local literal = argument as scalarIR.Constant
             local number = tonumber(literal.value)
-            if fixed.operand == "i32" then
+            if fixed.operand == "i32" or fixed.operand == "u32" then
                 local exact = number ~= nil
                     and number % 1 == 0
-                    and number >= lower.INT32_MIN
-                    and number <= lower.INT32_MAX
+                    and number >= (fixed.operand == "u32" and 0 or lower.INT32_MIN)
+                    and number <= (fixed.operand == "u32" and lower.UINT32_MAX or lower.INT32_MAX)
                 if not exact then
-                    context.reject(source, path .. " needs an exact int32 literal")
+                    context.reject(source, path .. " needs an exact " .. fixed.operand .. " literal")
                 end
                 args[
                     position
                 ] = new scalarIR.IntConstant(
                     op = "constant_i32",
                     value = literal.value,
-                    type = "i32",
+                    type = fixed.operand,
                     source = literal.source
                 )
             else
@@ -762,9 +800,19 @@ function lower.expression(
 
         return unary(operator, lower.expression(operator.operand as cst.Node, environment, activeIndex, kernel), kernel)
     elseif kind == "bracketIndex" then
-        return spanRead(node as cst.BracketIndex, activeIndex, kernel)
+        return spanRead(node as cst.BracketIndex, environment, activeIndex, kernel)
     elseif kind == "dotIndex" and (node as cst.DotIndex).name ~= nil then
         local indexed = node as cst.DotIndex
+        local counted = lower.dotCount(indexed)
+        local spanParam = counted ~= nil and kernel.params[counted as string] or nil
+        if spanParam ~= nil and spanParam.region ~= nil then
+            return new scalarIR.SpanCount(
+                op = "span_count",
+                span = counted as string,
+                type = "f64",
+                source = lower.site(node)
+            )
+        end
 
         return fieldRead(indexed, lower.expression(indexed.obj as cst.Node, environment, activeIndex, kernel), kernel)
     elseif kind == "binop" and (node as cst.Binop).op ~= nil then
@@ -1314,16 +1362,36 @@ local function assignStmt(
         if output == nil or output.kind ~= "write_span" then
             context.reject(lower.site(target), "native indexed stores require a writable span")
         end
-        if lower.nameOf(target.expr) ~= kernel.index then
-            context.reject(lower.site(target), "span stores must use the active loop index exactly")
+        local direct = lower.nameOf(target.expr)
+        local cursor: string? = nil
+        if target.expr ~= nil and target.expr.kind == "binop" then
+            local index = target.expr as cst.Binop
+            local written = index.op ~= nil and (index.op as lexer.Token).text or ""
+            local token = index.rhs ~= nil and index.rhs.kind == "number" and (index.rhs as cst.NumberLit).token or nil
+            local offset = token ~= nil and tonumber((token as lexer.Token).text) or nil
+            local candidate = lower.nameOf(index.lhs)
+            if written == "+" and offset == 1 and candidate ~= nil
+                and kernel.cursorBounds[candidate as string] == spanName then
+                cursor = candidate
+            end
+        end
+        if not (kernel.index ~= "" and direct == kernel.index) and cursor == nil then
+            context.reject(
+                lower.site(target),
+                "span stores need a counted-loop index or cursor + 1 under cursor < #span"
+            )
         end
         local value = lower.expression(exprs[1], environment, kernel.index, kernel)
+        local cursorBinding = cursor ~= nil and environment[cursor as string] or nil
         out[
             #out + 1
         ] = new scalarIR.Store(
             op = "store",
             span = spanName as string,
-            index = kernel.index,
+            index = cursor == nil and kernel.index or "",
+            indexCName = cursor == nil and kernel.indexCName or nil,
+            cursor = cursor,
+            cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil,
             value = lower.convert(value, output.element.type, lower.site(stat), context),
             source = lower.site(stat)
         )
@@ -1397,6 +1465,43 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         return lower.block(block ~= nil and (block as cst.Block).stats or {}, inherit(environment), kernel)
     end
 
+    --- A positive `uint32 cursor < span.count` fact authorizes exactly
+    --- `span:get(cursor + 1)` or `span:set(cursor + 1, value)` in that arm.
+    local function cursorBound(condition: cst.Node?): (string?, string?)
+        if condition == nil or condition.kind ~= "binop" then
+            return nil, nil
+        end
+        local comparison = condition as cst.Binop
+        local written = comparison.op ~= nil and (comparison.op as lexer.Token).text or ""
+        local cursor = lower.nameOf(comparison.lhs)
+        local spanName = lower.dotCount(comparison.rhs)
+        local binding = cursor ~= nil and environment[cursor as string] or nil
+        local param = spanName ~= nil and kernel.params[spanName as string] or nil
+        if written == "<" and binding ~= nil and binding.type == "u32"
+            and param ~= nil and param.region ~= nil then
+            return cursor, spanName
+        end
+
+        return nil, nil
+    end
+
+    local function nestedWithCursor(body: cst.Node?, cursor: string?, spanName: string?): {scalarIR.Statement}
+        if cursor == nil or spanName == nil then
+            return nested(body)
+        end
+        local previous = kernel.cursorBounds
+        local bounds: {[string]: string} = {}
+        for name, span in pairs(previous) do
+            bounds[name] = span
+        end
+        bounds[cursor as string] = spanName as string
+        kernel.cursorBounds = bounds
+        local lowered = nested(body)
+        kernel.cursorBounds = previous
+
+        return lowered
+    end
+
     for _, stat in ipairs(statements) do
         local kind = stat.kind
         if kind == "localStmt" then
@@ -1413,9 +1518,19 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 if condition.type ~= "bool" then
                     context.reject(lower.site(arm.cond), "native branch conditions must be boolean")
                 end
+                local cursor, spanName = cursorBound(arm.cond)
+                local cursorBounds: {[string]: string}? = nil
+                if cursor ~= nil and spanName ~= nil then
+                    cursorBounds = {[cursor as string] = spanName as string}
+                end
                 clauses[
                     #clauses + 1
-                ] = new scalarIR.Clause(condition = condition, body = nested(arm.body), source = lower.site(arm))
+                ] = new scalarIR.Clause(
+                    condition = condition,
+                    body = nestedWithCursor(arm.body, cursor, spanName),
+                    cursorBounds = cursorBounds,
+                    source = lower.site(arm)
+                )
             end
 
             local elseClause = branch.elseClause
@@ -1453,6 +1568,12 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
 
             local inner = inherit(environment)
             local binding = bind((loop.var as lexer.Token).text, "i32", nil, stat, inner, kernel)
+            local previousIndex, previousCName = kernel.index, kernel.indexCName
+            kernel.index = binding.name
+            kernel.indexCName = binding.cName
+            local loopBody = lower.block(loop.body ~= nil and (loop.body as cst.Block).stats or {}, inner, kernel)
+            kernel.index = previousIndex
+            kernel.indexCName = previousCName
             out[
                 #out + 1
             ] = new scalarIR.Fornum(
@@ -1460,7 +1581,11 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 binding = binding,
                 from = from,
                 to = to,
-                body = lower.block(loop.body ~= nil and (loop.body as cst.Block).stats or {}, inner, kernel),
+                body = loopBody,
+                boundSpan = from.op == "constant_i32"
+                    and (from as scalarIR.IntConstant).value == "1"
+                    and to.op == "span_count"
+                    and (to as scalarIR.SpanCount).span or nil,
                 source = lower.site(stat)
             )
         elseif kind == "whileStmt" then
@@ -1491,6 +1616,24 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             out[#out + 1] = new scalarIR.Break(op = "break", source = lower.site(stat))
         elseif kind == "continueStmt" then
             out[#out + 1] = new scalarIR.Continue(op = "continue", source = lower.site(stat))
+        elseif kind == "returnStmt" then
+            local returned = stat as cst.ReturnStmt
+            local exprs = returned.exprs or {}
+            if #exprs ~= #kernel.resultTypes then
+                context.reject(lower.site(stat), "native return count does not match the function result")
+            end
+            local values: {scalarIR.Expr} = {}
+            for position, expression in ipairs(exprs) do
+                values[
+                    position
+                ] = lower.convert(
+                    lower.expression(expression, environment, kernel.index ~= "" and kernel.index or nil, kernel),
+                    kernel.resultTypes[position],
+                    lower.site(expression),
+                    context
+                )
+            end
+            out[#out + 1] = new scalarIR.Return(op = "return", values = values, source = lower.site(stat))
         else
             context.reject(
                 lower.site(stat),
@@ -1987,10 +2130,6 @@ function lower.contract(
 end
 
 --- The one `@aot` function this backend compiles, and its body.
----
---- The shape is small on purpose: no generics, no varargs, no captures, and a
---- prototype that returns nothing. Each of those would be a value crossing the
---- boundary whose representation nobody has decided.
 function lower.kernelBody(application: lower.Application, context: lower.Context): (cst.LocalFuncStmt, cst.Funcbody)
     local fn = application.tail
     if fn == nil or fn.kind ~= "localFuncStmt" then
@@ -2008,13 +2147,7 @@ function lower.kernelBody(application: lower.Application, context: lower.Context
         context.reject(lower.site(body or fn), "generic, variadic, and capturing kernels are not admitted")
     end
 
-    local funcbody = body as cst.Funcbody
-    local rets = funcbody.rets or {}
-    if #rets ~= 1 or lower.compactType(rets[1]) ~= "nil" then
-        context.reject(lower.site(funcbody), "the map-kernel prototype must return nil")
-    end
-
-    return declaration, funcbody
+    return declaration, body as cst.Funcbody
 end
 
 --- Lowers one whole `@aot` function to AOT IR.
@@ -2033,23 +2166,89 @@ function lower.program(
 
     local layouts = new lower.Layouts(ordered = {}, byName = {})
     local signature = lower.parameters((body.params or {}) as {cst.Param}, declarations.structs, layouts, context)
-    if #signature.writes == 0 then
-        context.reject(lower.site(body), "the map-kernel prototype needs a writable span")
+    local regions, aliasFacts = lower.regions(signature.spans)
+    local name = (fn.name as lexer.Token).text
+
+    local resultTypes: {scalarIR.Type} = {}
+    local resultSourceTypes: {string} = {}
+    local rets = body.rets or {}
+    if #rets == 1 and lower.compactType(rets[1]) == "nil" then
+        rets = {}
     end
-    if #signature.reads == 0 then
-        context.reject(lower.site(body), "the map-kernel prototype needs a readable span")
+    if #rets > 4 then
+        context.reject(lower.site(body), "general AOT entries currently return at most four scalar values")
+    end
+    for position, result in ipairs(rets) do
+        local sourceType = lower.compactType(result)
+        local resultType = lower.helperValueType(sourceType)
+        if resultType == nil then
+            context.reject(lower.site(result), "AOT entry results are numeric or boolean scalar values")
+        end
+        resultTypes[position] = resultType as scalarIR.Type
+        resultSourceTypes[position] = sourceType
+    end
+
+    local statements = body.body ~= nil and (body.body as cst.Block).stats or {}
+    local mapShape = #resultTypes == 0
+        and #signature.writes > 0
+        and #signature.reads > 0
+        and (#statements == 2 or #statements == 3)
+        and statements[1].kind == "ifStmt"
+        and statements[#statements].kind == "fornumStmt"
+
+    if not mapShape then
+        if contract.lanesRequired then
+            context.reject(lower.site(body), "required scalar-source lanes need the admitted map-loop shape")
+        end
+
+        local kernel = new lower.Kernel(
+            params = signature.byName,
+            layouts = layouts,
+            helperDecls = declarations.helpers,
+            helpers = {},
+            helperOrder = {},
+            helperState = {},
+            symbol = scalarIR.privateSymbol(name),
+            loopSource = lower.site(body.body or body),
+            index = "",
+            indexCName = "",
+            resultTypes = resultTypes,
+            cursorBounds = {},
+            serial = 0,
+            context = context
+        )
+        local environment: {[string]: any} = {}
+        for _, param in ipairs(signature.params) do
+            if param.kind == "uniform" then
+                environment[param.name] = param
+            end
+        end
+        local lowered = lower.block(statements, environment, kernel)
+        if #lowered == 0 then
+            context.reject(lower.site(body.body or body), "an AOT block body may not be empty")
+        end
+
+        return new scalarIR.Program(
+            version = scalarIR.VERSION,
+            name = name,
+            symbol = scalarIR.privateSymbol(name),
+            fpContract = contract.fpContract,
+            wantsLanes = false,
+            lanesRequired = false,
+            params = signature.params,
+            layouts = layouts.ordered,
+            regions = regions,
+            aliasFacts = aliasFacts,
+            guards = {},
+            helpers = kernel.helperOrder,
+            body = lowered,
+            resultTypes = resultTypes,
+            resultSourceTypes = resultSourceTypes,
+            source = lower.site(fn)
+        )
     end
 
     local primary = signature.writes[1]
-    local regions, aliasFacts = lower.regions(signature.spans)
-
-    local statements = body.body ~= nil and (body.body as cst.Block).stats or {}
-    if #statements ~= 2 and #statements ~= 3 then
-        context.reject(
-            lower.site(body.body or body),
-            "the admitted body is a length guard, optional range guard, and one numeric loop"
-        )
-    end
 
     local guards = lower.lengthGuards(
         statements[1],
@@ -2080,7 +2279,6 @@ function lower.program(
 
     local loop = statements[#statements]
     local index = lower.loopIndex(loop, rangeGuard, signature, context)
-    local name = (fn.name as lexer.Token).text
     local kernel = new lower.Kernel(
         params = signature.byName,
         layouts = layouts,
@@ -2091,6 +2289,9 @@ function lower.program(
         symbol = scalarIR.privateSymbol(name),
         loopSource = lower.site(loop),
         index = index,
+        indexCName = "i",
+        resultTypes = {},
+        cursorBounds = {},
         serial = 0,
         context = context
     )
@@ -2122,6 +2323,8 @@ function lower.program(
         guards = guards,
         rangeGuard = rangeGuard,
         helpers = kernel.helperOrder,
+        resultTypes = {},
+        resultSourceTypes = {},
         loop = new scalarIR.Loop(
             index = index,
             first = rangeGuard ~= nil and (rangeGuard as scalarIR.RangeGuard).first or 1,

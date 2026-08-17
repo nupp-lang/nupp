@@ -115,9 +115,13 @@ end
 function text.expression(node: scalarIR.Expr | lane.Expr): string
     local op = node.op
     if op == "load" then
-        return "load:" .. node.type .. " " .. node.span .. "[" .. node.index .. "]"
+        local index = node.cursor ~= nil and node.cursor .. "+1" or node.index
+        return "load:" .. node.type .. " " .. node.span .. "[" .. index .. "]"
+    elseif op == "span_count" then
+        return "count " .. node.span
     elseif op == "element_ref" then
-        return "element_ref:" .. node.layout .. " " .. node.span .. "[" .. node.index .. "]"
+        local index = node.cursor ~= nil and node.cursor .. "+1" or node.index
+        return "element_ref:" .. node.layout .. " " .. node.span .. "[" .. index .. "]"
     elseif op == "field_load" then
         return "field:" .. node.type .. " " .. text.expression(node.object) .. "." .. node.field
     elseif op == "vfield_load" then
@@ -203,9 +207,10 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
             end
             lines[#lines + 1] = prefix .. "let " .. table.concat(names, ",") .. " = " .. text.expression(statement.call)
         elseif op == "store" then
+            local index = statement.cursor ~= nil and statement.cursor .. "+1" or statement.index
             lines[
                 #lines + 1
-            ] = prefix .. "store " .. statement.span .. "[" .. statement.index .. "] = " .. text.expression(
+            ] = prefix .. "store " .. statement.span .. "[" .. index .. "] = " .. text.expression(
                 statement.value
             )
         elseif op == "assign" or op == "vassign" then
@@ -256,6 +261,12 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
         elseif op == "block" then
             lines[#lines + 1] = prefix .. "block"
             nested(statement.body)
+        elseif op == "return" then
+            local values: {string} = {}
+            for position, value in ipairs(statement.values) do
+                values[position] = text.expression(value)
+            end
+            lines[#lines + 1] = prefix .. "return " .. table.concat(values, ", ")
         else
             lines[#lines + 1] = prefix .. op
         end
@@ -336,17 +347,26 @@ local function preamble(program: scalarIR.Program): {string}
         ] = ("  range %s %s count(%s) %s"):format(guard.first, guard.last, guard.count, at(guard.source))
     end
 
-    lines[
-        #lines + 1
-    ] = (
-        "loop %s = %s .. %s count(%s) %s"
-    ):format(
-        program.loop.index,
-        tostring(program.loop.first),
-        tostring(program.loop.last),
-        program.loop.count,
-        at(program.loop.source)
-    )
+    local resultTypes = program.resultTypes or {}
+    lines[#lines + 1] = "results " .. (#resultTypes == 0 and "nil" or table.concat(resultTypes, ","))
+
+    local loop = program.loop
+    if loop ~= nil then
+        local scalarLoop = loop as scalarIR.Loop
+        lines[
+            #lines + 1
+        ] = (
+            "loop %s = %s .. %s count(%s) %s"
+        ):format(
+            scalarLoop.index,
+            tostring(scalarLoop.first),
+            tostring(scalarLoop.last),
+            scalarLoop.count,
+            at(scalarLoop.source)
+        )
+    else
+        lines[#lines + 1] = "block"
+    end
 
     return lines
 end
@@ -360,7 +380,9 @@ function text.program(program: scalarIR.Program): string
     local lines = preamble(program)
     local lanes = program.lanes
     local width = lanes ~= nil and (lanes as scalarIR.LaneBody).lanes or 0
-    for _, line in ipairs(text.block(program.loop.statements, 1, width)) do
+    local loop = program.loop
+    local statements = loop ~= nil and (loop as scalarIR.Loop).statements or program.body or {}
+    for _, line in ipairs(text.block(statements, 1, width)) do
         lines[#lines + 1] = line
     end
     if lanes ~= nil then

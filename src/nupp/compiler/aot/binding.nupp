@@ -14,7 +14,7 @@ the compiled object reports, at load, before anything is callable. A C compiler
 that laid the struct out differently is a load error rather than a silent
 misread of memory.
 
-The unsafe call is one statement wide. Everything around it -- the range check,
+The unsafe call and immediate unpacking are one block wide. Everything around it -- the range check,
 the length agreement between spans -- is ordinary checked Nupp, and the `unsafe
 do` block holds the foreign call and nothing else.
 
@@ -50,11 +50,34 @@ end
 
 --- How a uniform parameter is spelled in a `cdef`, where the ABI type is what
 --- matters rather than the source spelling.
-const binding.ABI_TYPE = {["f64"] = "number", ["f32"] = "float", ["u32"] = "uint32", ["i32"] = "int32"}
+const binding.ABI_TYPE = {
+    ["f64"] = "number",
+    ["f32"] = "float",
+    ["u32"] = "uint32",
+    ["i32"] = "int32",
+    ["bool"] = "boolean",
+}
 
 --- The library clause a `cdef` ends with.
 local function from(library: string): string
     return "from\"" .. library .. "\""
+end
+
+local function resultName(program: scalarIR.Program): string
+    return scalarIR.cIdentifier("KsResult", program.symbol)
+end
+
+--- The private aggregate a multi-result C entry returns.
+function binding.resultStruct(program: scalarIR.Program): {string}
+    local lines: {string} = {"cdef struct " .. resultName(program)}
+    for position, resultType in ipairs(program.resultTypes or {}) do
+        lines[
+            #lines + 1
+        ] = "    v" .. tostring(position) .. ": " .. tostring(binding.ABI_TYPE[resultType] or "int32")
+    end
+    lines[#lines + 1] = "end"
+
+    return lines
 end
 
 --- One reified struct, declared in Nupp so `layoutof` has something to measure.
@@ -131,13 +154,24 @@ function binding.foreign(program: scalarIR.Program, library: string): {string}
             params[#params + 1] = param.name .. ": " .. tostring(binding.ABI_TYPE[param.type] or "int32")
         end
     end
-    params[#params + 1] = "count: uint64"
+    if program.body ~= nil then
+        for _, param in ipairs(program.params) do
+            if param.kind == "write_span" or param.kind == "read_span" then
+                params[#params + 1] = "count_" .. param.name .. ": uint64"
+            end
+        end
+    else
+        params[#params + 1] = "count: uint64"
+    end
 
     local lines: {string} = {"cdef function " .. program.symbol .. "("}
     for position, param in ipairs(params) do
         lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
     end
-    lines[#lines + 1] = ") " .. from(library)
+    local resultTypes = program.resultTypes or {}
+    local result = #resultTypes == 0 and ""
+        or ": " .. (#resultTypes > 1 and resultName(program) or tostring(binding.ABI_TYPE[resultTypes[1]] or "int32"))
+    lines[#lines + 1] = ")" .. result .. " " .. from(library)
 
     return lines
 end
@@ -184,9 +218,13 @@ end
 --- lengths would read past the end of the shorter. The first span's count is
 --- what is passed; the rest are compared against it and the call is refused if
 --- they disagree.
-function binding.spanArguments(params: {scalarIR.Param}): ({string}, {string}, string?)
+function binding.spanArguments(
+    params: {scalarIR.Param},
+    independent: boolean?
+): ({string}, {string}, string?)
     local lines: {string} = {}
     local arguments: {string} = {}
+    local counts: {string} = {}
     local primary: string? = nil
     for _, param in ipairs(params) do
         if param.kind == "write_span" or param.kind == "read_span" then
@@ -195,7 +233,7 @@ function binding.spanArguments(params: {scalarIR.Param}): ({string}, {string}, s
             lines[#lines + 1] = "    local " .. pointer .. ", " .. count .. " = " .. param.name .. ":ref()"
             if primary == nil then
                 primary = count
-            elseif count ~= primary then
+            elseif not independent and count ~= primary then
                 lines[
                     #lines + 1
                 ] = "    if " .. count .. " ~= " .. tostring(
@@ -203,9 +241,18 @@ function binding.spanArguments(params: {scalarIR.Param}): ({string}, {string}, s
                 ) .. " then error(\"native spans have incompatible lengths\", 2) end"
             end
             arguments[#arguments + 1] = pointer .. " as " .. pointerType(param)
+            counts[#counts + 1] = count
         else
             arguments[#arguments + 1] = param.name
         end
+    end
+
+    if independent then
+        for _, count in ipairs(counts) do
+            arguments[#arguments + 1] = count
+        end
+    else
+        arguments[#arguments + 1] = tostring(primary)
     end
 
     return lines, arguments, primary
@@ -222,18 +269,35 @@ function binding.wrapper(program: scalarIR.Program): {string}
     for position, param in ipairs(params) do
         lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
     end
-    lines[#lines + 1] = "): nil"
+    local resultSourceTypes = program.resultSourceTypes or {}
+    local result = #resultSourceTypes == 0 and "nil"
+        or #resultSourceTypes == 1 and resultSourceTypes[1]
+        or "(" .. table.concat(resultSourceTypes, ", ") .. ")"
+    lines[#lines + 1] = "): " .. result
     for _, line in ipairs(binding.range(program.rangeGuard)) do
         lines[#lines + 1] = line
     end
 
-    local taken, arguments, primary = binding.spanArguments(program.params)
+    local taken, arguments = binding.spanArguments(program.params, program.body ~= nil)
     for _, line in ipairs(taken) do
         lines[#lines + 1] = line
     end
-    arguments[#arguments + 1] = tostring(primary)
     lines[#lines + 1] = "    unsafe do"
-    lines[#lines + 1] = "        " .. program.symbol .. "(" .. table.concat(arguments, ", ") .. ")"
+    if #resultSourceTypes > 1 then
+        lines[#lines + 1] = "        local nativeResult = " .. program.symbol .. "(" .. table.concat(arguments, ", ") .. ")"
+        local values: {string} = {}
+        for position in ipairs(resultSourceTypes) do
+            values[position] = "nativeResult.v" .. tostring(position)
+        end
+        lines[#lines + 1] = "        return " .. table.concat(values, ", ")
+    else
+        lines[
+            #lines + 1
+        ] = "        " .. (#resultSourceTypes == 0 and "" or "return ") .. program.symbol .. "(" .. table.concat(
+            arguments,
+            ", "
+        ) .. ")"
+    end
     lines[#lines + 1] = "    end"
     lines[#lines + 1] = "end"
 
@@ -250,9 +314,15 @@ end
 ---
 --- This is ordinary Nupp. It goes through the checker like anything else, which
 --- is what makes substituting it safe: the ownership annotations, the range
---- guard and the one-statement `unsafe do` are all checked rather than trusted.
+--- guard and the narrow `unsafe do` are all checked rather than trusted.
 function binding.replacement(program: scalarIR.Program, library: string): string
     local lines: {string} = {}
+    if #(program.resultTypes or {}) > 1 then
+        for _, line in ipairs(binding.resultStruct(program)) do
+            lines[#lines + 1] = line
+        end
+        lines[#lines + 1] = ""
+    end
     for _, layout in ipairs(program.layouts or {}) do
         for _, line in ipairs(binding.layoutReporters(program.symbol, layout, library)) do
             lines[#lines + 1] = line
@@ -306,6 +376,10 @@ function binding.module(programs: {scalarIR.Program}, library: string): string
     end
 
     for _, program in ipairs(programs) do
+        if #(program.resultTypes or {}) > 1 then
+            append(binding.resultStruct(program))
+            lines[#lines + 1] = ""
+        end
         append(binding.foreign(program, library))
         lines[#lines + 1] = ""
         append(binding.wrapper(program))

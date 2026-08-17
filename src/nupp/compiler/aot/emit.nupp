@@ -178,12 +178,22 @@ function emit.scalar(node: scalarIR.Expr): string
         return (node as scalarIR.Bool).value and "true" or "false"
     elseif operation == "uniform" then
         return "p_" .. (node as scalarIR.Name).name
+    elseif operation == "span_count" then
+        return "((double)count_" .. (node as scalarIR.SpanCount).span .. ")"
     elseif operation == "local" or operation == "helper_param" then
         return (node as scalarIR.Name).cName or ""
     elseif operation == "load" then
-        return "p_" .. (node as scalarIR.Load).span .. "[i]"
+        local loaded = node as scalarIR.Load
+        local index = loaded.cursorCName ~= nil and "((size_t)" .. tostring(loaded.cursorCName) .. ")"
+            or loaded.indexCName == "i" and "i"
+            or "((size_t)(" .. tostring(loaded.indexCName) .. " - 1))"
+        return "p_" .. loaded.span .. "[" .. index .. "]"
     elseif operation == "element_ref" then
-        return "(&p_" .. (node as scalarIR.ElementRef).span .. "[i])"
+        local referenced = node as scalarIR.ElementRef
+        local index = referenced.cursorCName ~= nil and "((size_t)" .. tostring(referenced.cursorCName) .. ")"
+            or referenced.indexCName == "i" and "i"
+            or "((size_t)(" .. tostring(referenced.indexCName) .. " - 1))"
+        return "(&p_" .. referenced.span .. "[" .. index .. "])"
     elseif operation == "field_load" then
         local field = node as scalarIR.FieldLoad
 
@@ -241,6 +251,16 @@ function emit.scalarCall(node: scalarIR.Expr): string
         return "((int32_t)(nupp_u32(" .. emit.scalar(
             binary.left
         ) .. ") " .. (operator as string) .. " nupp_u32(" .. emit.scalar(binary.right) .. ")))"
+    end
+
+    local unsigned = {["u32_add"] = "+", ["u32_sub"] = "-", ["u32_mul"] = "*"}
+    operator = unsigned[operation]
+    if operator ~= nil then
+        local binary = node as scalarIR.Binary
+
+        return "((uint32_t)(" .. emit.scalar(binary.left) .. " " .. (operator as string) .. " " .. emit.scalar(
+            binary.right
+        ) .. "))"
     end
 
     if operation == "f32_sqrt" then
@@ -612,7 +632,7 @@ end
 --- A writable span is `restrict` and a readable one is not, which is the alias
 --- matrix the checker proved, stated where the C compiler can use it. Nothing
 --- infers it from the pointer types.
-function emit.parameters(params: {any}): string
+function emit.parameters(params: {any}, independentCounts: boolean?): string
     local parts: {string} = {}
     for position, param in ipairs(params) do
         local name = "p_" .. param.name
@@ -632,7 +652,15 @@ function emit.parameters(params: {any}): string
             parts[position] = emit.cType(param.type) .. " " .. name
         end
     end
-    parts[#parts + 1] = "size_t count"
+    if independentCounts then
+        for _, param in ipairs(params) do
+            if param.kind == "write_span" or param.kind == "read_span" then
+                parts[#parts + 1] = "size_t count_" .. param.name
+            end
+        end
+    else
+        parts[#parts + 1] = "size_t count"
+    end
 
     return table.concat(parts, ", ")
 end
@@ -1096,6 +1124,9 @@ record emit.Body
 
     --- How wide a lane store is, for a body that was rewritten.
     lanes: integer
+
+    --- The private aggregate returned by a multi-result entry.
+    resultStruct: string?
 end
 
 --- The C type one local is declared with.
@@ -1153,9 +1184,15 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
                 ) .. " " .. bound.cName .. " = " .. temp .. ".v" .. tostring(position) .. ";"
             end
         elseif op == "store" then
+            local index = statement.cursorCName ~= nil and "((size_t)" .. tostring(statement.cursorCName) .. ")"
+                or statement.indexCName == "i" and "i"
+                or "((size_t)(" .. tostring(statement.indexCName) .. " - 1))"
             lines[
                 #lines + 1
-            ] = prefix .. scalarIR.cIdentifier("p", statement.span) .. "[i] = " .. emit.lane(statement.value) .. ";"
+            ] = prefix .. scalarIR.cIdentifier(
+                "p",
+                statement.span
+            ) .. "[" .. index .. "] = " .. emit.lane(statement.value) .. ";"
         elseif op == "assign" then
             -- Every value into a temporary before any is stored, because
             -- `a, b = b, a` means what it says and storing as it went would not.
@@ -1293,6 +1330,20 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
             lines[#lines + 1] = prefix .. "{"
             nested(statement.body)
             lines[#lines + 1] = prefix .. "}"
+        elseif op == "return" then
+            if #statement.values > 1 then
+                local values: {string} = {}
+                for position, value in ipairs(statement.values) do
+                    values[position] = emit.scalar(value)
+                end
+                lines[
+                    #lines + 1
+                ] = prefix .. "return (" .. tostring(body.resultStruct) .. "){" .. table.concat(values, ", ") .. "};"
+            elseif #statement.values == 1 then
+                lines[#lines + 1] = prefix .. "return " .. emit.scalar(statement.values[1]) .. ";"
+            else
+                lines[#lines + 1] = prefix .. "return;"
+            end
         else
             lines[#lines + 1] = prefix .. op .. ";"
         end
@@ -1336,6 +1387,22 @@ function emit.program(programs: {scalarIR.Program}): string
         end
     end
 
+    -- Lua-callable entries with several scalar results cross the private C ABI
+    -- as one explicitly laid-out aggregate. The wrapper immediately unpacks it;
+    -- the type never becomes part of the Nupp source API.
+    for _, program in ipairs(programs) do
+        local resultTypes = program.resultTypes or {}
+        if #resultTypes > 1 then
+            local resultName = scalarIR.cIdentifier("KsResult", program.symbol)
+            lines[#lines + 1] = "typedef struct {"
+            for position, resultType in ipairs(resultTypes) do
+                lines[#lines + 1] = "    " .. emit.cType(resultType) .. " v" .. tostring(position) .. ";"
+            end
+            lines[#lines + 1] = "} " .. resultName .. ";"
+            lines[#lines + 1] = ""
+        end
+    end
+
     -- One prelude per distinct gang. A file whose functions chose different
     -- gangs needs both, and the mask helpers are suffixed by their mask so the
     -- two sets do not collide.
@@ -1364,27 +1431,39 @@ function emit.program(programs: {scalarIR.Program}): string
 
         local lanes = program.lanes
         local width = lanes ~= nil and (lanes as scalarIR.LaneBody).lanes or 0
-        local body = new emit.Body(helpers = helpers, lanes = width)
-        local params = emit.parameters(program.params)
+        local resultTypes = program.resultTypes or {}
+        local resultStruct = #resultTypes > 1 and scalarIR.cIdentifier("KsResult", program.symbol) or nil
+        local body = new emit.Body(helpers = helpers, lanes = width, resultStruct = resultStruct)
+        local general = program.body ~= nil
+        local params = emit.parameters(program.params, general)
+        local cResult = #resultTypes == 0 and "void"
+            or resultStruct ~= nil and resultStruct
+            or emit.cType(resultTypes[1])
 
         --- One C definition of the kernel.
         local function implementation(symbol: string, forced: boolean): nil
             lines[#lines + 1] = "__attribute__((noinline))"
-            lines[#lines + 1] = "KS_API void " .. symbol .. "(" .. params .. ") {"
+            lines[#lines + 1] = "KS_API " .. cResult .. " " .. symbol .. "(" .. params .. ") {"
             if program.fpContract == true then
                 for _, line in ipairs(emit.contractPragma()) do
                     lines[#lines + 1] = line
                 end
             end
-            for _, line in ipairs(emit.bounds(program.rangeGuard)) do
-                lines[#lines + 1] = line
+            if not general then
+                for _, line in ipairs(emit.bounds(program.rangeGuard)) do
+                    lines[#lines + 1] = line
+                end
             end
-            if forced then
+            if forced and not general then
                 for _, line in ipairs(emit.forcedScalarPragma()) do
                     lines[#lines + 1] = line
                 end
             end
-            if lanes ~= nil and not forced then
+            if general then
+                for _, line in ipairs(emit.block(program.body or {}, 1, body)) do
+                    lines[#lines + 1] = line
+                end
+            elseif lanes ~= nil and not forced then
                 for _, line in ipairs(emit.groupBound(width)) do
                     lines[#lines + 1] = line
                 end
@@ -1393,16 +1472,20 @@ function emit.program(programs: {scalarIR.Program}): string
                 end
                 lines[#lines + 1] = "    }"
             end
-            lines[#lines + 1] = "    for (; i < end; ++i) {"
-            for _, line in ipairs(emit.block(program.loop.statements, 2, body)) do
-                lines[#lines + 1] = line
+            if not general then
+                lines[#lines + 1] = "    for (; i < end; ++i) {"
+                for _, line in ipairs(emit.block((program.loop as scalarIR.Loop).statements, 2, body)) do
+                    lines[#lines + 1] = line
+                end
+                lines[#lines + 1] = "    }"
             end
-            lines[#lines + 1] = "    }"
             lines[#lines + 1] = "}"
             lines[#lines + 1] = ""
         end
 
-        implementation(program.symbol .. "_forced_scalar", true)
+        if not general then
+            implementation(program.symbol .. "_forced_scalar", true)
+        end
         implementation(program.symbol, false)
     end
 
