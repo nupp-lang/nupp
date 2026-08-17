@@ -228,10 +228,31 @@ work makes sense in.
         nothing to round. Of the 4.5x the all-or-nothing rule had been costing,
         rounding was 2.3x and the lane count 1.9x -- so the larger half is closed
         and the plan's phrase "gang sizing" named the smaller one.
-        What remains is eight lanes with a binary64 value in the loop. A binary64
-        value needs 64-bit lanes whatever else the loop holds, so four is what
-        fits in 32 bytes; eight wants either a wider register file or one value
-        spanning two registers, and neither is a decision anyone has taken.
+        What remains is eight lanes with a binary64 value in the loop, and the
+        way to get there is now known to be narrower than it looked. A binary64
+        value needs 64-bit lanes whatever else the loop holds, so eight of them
+        is a 64-byte vector.
+
+        Letting one value span two registers does not work. Clang refuses a
+        64-byte vector on x86-64 at both feature tiers:
+
+            AVX vector return of type 'f64x8' (vector of 8 'double' values)
+            without 'avx512f' enabled changes the ABI [-Wpsabi]
+
+        and it says so at the call site of a `static inline` helper, so the
+        reasoning the target model rested on -- that inline helpers never cross
+        an ABI boundary -- does not hold for the diagnostic. arm64 compiles the
+        same file clean, which is the blind spot that hid the 32-byte version of
+        this until a native x86-64 run reported it.
+
+        So this wants an `avx512f` tier whose register class is 64 bytes, and a
+        gang that exists only there. That extends the rule the target model
+        already enforces rather than making an exception to it: a vector wider
+        than the register class is not a gang. It also means the eight-lane
+        binary64 gang is AVX-512 hardware or nothing, which is a much smaller
+        claim than "a wider register file or two registers per value" -- and one
+        no machine in CI can currently execute, so admitting it needs a way to
+        check it that is not "it compiled".
         The original entry follows.
 - [ ] mixed-width gangs. Half of this is done and the half that is left is
         smaller than it was.
