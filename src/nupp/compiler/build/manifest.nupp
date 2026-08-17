@@ -8,6 +8,7 @@ message names the path to what was wrong -- `build.targets.nupp.compiler.entries
 -- because that is what the author has to go and edit.
 ]]
 
+local aotTargets = require("nupp.compiler.aot.target")
 local check = require("nupp.compiler.check")
 local fs = require("nupp.compiler.fs")
 local native = require("nupp.compiler.native")
@@ -278,6 +279,7 @@ local CONFIG_KEYS = {"name", "include", "fmt", "lints", "dependencies", "build",
 local TARGET_KEYS = {
     "kind",
     "aot",
+    "aotFeatures",
     "description",
     "outDir",
     "output",
@@ -596,6 +598,25 @@ local function validateTarget(target, label, dependencies)
         end
         if target.aot ~= "off" and target.aot ~= "emit-c" and target.aot ~= "require" then
             return nil, label .. ".aot must be \"off\", \"emit-c\" or \"require\""
+        end
+    end
+    if target.aotFeatures ~= nil then
+        -- Which instructions the build promises the machine has, which decides
+        -- how wide a gang can be. Named rather than detected: a build that
+        -- measured the machine in front of it would produce an artifact that
+        -- only runs there.
+        local valid, err = validateString(target.aotFeatures, label .. ".aotFeatures")
+        if not valid then
+            return nil, err
+        end
+        if aotTargets.TIERS[target.aotFeatures] == nil then
+            local known: {string} = {}
+            for tier in pairs(aotTargets.TIERS) do
+                known[#known + 1] = tier
+            end
+            table.sort(known)
+
+            return nil, label .. ".aotFeatures must be one of " .. table.concat(known, ", ")
         end
     end
     local valid, err = validateArray(

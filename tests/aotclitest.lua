@@ -342,26 +342,44 @@ function M.everyAotFunctionInAFileIsCompiled()
       "the generated module exports both wrappers: " .. binding:sub(-200))
 end
 
--- A gang is 32 bytes: one AVX register, two NEON registers, and on x86-64
--- without AVX nothing at all. The tier is selected rather than measured, because
--- a build that probed the machine in front of it would produce an artifact that
--- only runs there.
-function M.theBaselineX86TierHasNoGang()
+-- A gang is 16 or 32 bytes. The tier decides which fit: 32 is one AVX register
+-- and two NEON registers, 16 is the SSE2 register every x86-64 has. The tier is
+-- selected rather than measured, because a build that probed the machine in
+-- front of it would produce an artifact that only runs there.
+function M.theBaselineX86TierGetsTheNarrowGang()
    local dir = project{["compute.nupp"] = COMPUTE}
-   local out, code = run(dir, "--check --target x86_64-unknown-linux-gnu compute.nupp")
-   test.equal(code, 1, "a target with no gang is reported, not silently scalar\n" .. out)
-   assert(out:find("no 32-byte vector", 1, true), "and says what the target lacks: " .. out)
-   assert(out:find("select avx2", 1, true), "and what would give it one: " .. out)
+   local out, code = run(dir, "--json --target x86_64-unknown-linux-gnu compute.nupp")
+   test.equal(code, 0, "plain x86-64 vectorises rather than refusing\n" .. out)
+   local decoded = require("cjson").decode(out)
+   test.equal(decoded.target.tier, "baseline", "and did not quietly promise instructions nobody asked for")
+   test.equal(decoded.functions[1].lanes.shape, "f64x2")
+   test.equal(decoded.functions[1].lanes.lanes, 2,
+      "half the lanes of AVX, which is the point: a smaller win, not no win")
+
+   local checkOut, checkCode = run(dir, "--check --target x86_64-unknown-linux-gnu compute.nupp")
+   test.equal(checkCode, 0, "and --check agrees it lowered\n" .. checkOut)
 end
 
-function M.aWiderTierGetsTheGang()
+function M.aWiderTierGetsTheWiderGang()
    local dir = project{["compute.nupp"] = COMPUTE}
    local out, code = run(dir, "--json --target x86_64-unknown-linux-gnu --features avx2 compute.nupp")
    test.equal(code, 0, out)
    local decoded = require("cjson").decode(out)
    test.equal(decoded.target.triple, "x86_64-unknown-linux-gnu")
    test.equal(decoded.target.tier, "avx2", "the tier is reported, because it changed the answer")
+   test.equal(decoded.functions[1].lanes.shape, "f64x4")
    test.equal(decoded.functions[1].lanes.lanes, 4)
+end
+
+function M.theWidestGangThatFitsWins()
+   -- Both widths are available at avx2, so the choice has to be the wider one.
+   -- Preference used to come from the order the shapes were listed in, which
+   -- would have picked four narrow lanes over four wide ones here.
+   local dir = project{["compute.nupp"] = COMPUTE}
+   local out = select(1, run(dir, "--json --target x86_64-unknown-linux-gnu --features avx2 compute.nupp"))
+   local decoded = require("cjson").decode(out)
+   test.equal(decoded.functions[1].lanes.shape, "f64x4",
+      "not f64x2, which also fits and holds half as much")
 end
 
 function M.armHasOneTierAndNeedsNoSelection()

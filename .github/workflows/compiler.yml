@@ -82,6 +82,18 @@ jobs:
           NUPP_CHECK_CFLAGS: -march=x86-64-v3
         run: bench/kernel-subset-spike/crosscheck.sh
 
+      # And at the x86-64 baseline, which is what a build gets when nothing asked
+      # for a wider tier -- the 16-byte gangs, compiled for plain SSE2. This is
+      # the combination most users get, so it is the one least worth inferring
+      # from the others.
+      - name: Compare them at the x86-64 baseline
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          NUPP_CHECK_GANG_FEATURES: baseline
+          NUPP_CHECK_CFLAGS: " "
+        run: bench/kernel-subset-spike/crosscheck.sh
+
       # Everything so far has been compiled by Clang. `aot=require` will hand
       # the generated C to whatever compiler the user has, so if GCC does not
       # accept it that is better known now than at the point it compiles for

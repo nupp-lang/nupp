@@ -631,7 +631,7 @@ end
 ---
 --- A mask lane is as wide as the values it selects between, so a binary64 gang
 --- masks with 64-bit lanes and a 32-bit gang with 32-bit ones.
-const emit.MASK_C = {["m64x4"] = "long long", ["m32x8"] = "int"}
+const emit.MASK_C = {["m64x4"] = "long long", ["m32x8"] = "int", ["m64x2"] = "long long", ["m32x4"] = "int",}
 
 --- What every generated file starts with.
 function emit.includes(): {string}
@@ -712,10 +712,14 @@ end
 --- Emitted whole, and marked unused below, so a kernel that uses one shape does
 --- not fail `-Werror` for a conversion the other shape would have needed.
 local function vectorTypes(shape: lane.Shape): {string}
+    -- The mask is as wide as the gang, which is not always 32 bytes: the same
+    -- shapes exist at 16 for a target whose widest register class is that.
     local lines: {
         string
     } = {
-        "typedef " .. tostring(emit.MASK_C[shape.mask]) .. " ks_" .. shape.mask .. " __attribute__((vector_size(32)));",
+        "typedef " .. tostring(
+            emit.MASK_C[shape.mask]
+        ) .. " ks_" .. shape.mask .. " __attribute__((vector_size(" .. tostring(shape.bytes) .. ")));",
     }
 
     local vectors: {[string]: boolean} = {}

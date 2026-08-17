@@ -49,14 +49,22 @@ type aotLane.Vector = string
 type aotLane.Element = 'f64' | 'f32' | 'i32' | 'u32' | 'bool'
 
 --- One gang: how many iterations run at once, and which vector type each element
---- is carried in. Both shapes are 32 bytes, so four binary64 lanes and eight
---- 32-bit ones cost the same registers.
+--- is carried in. Within one width, a binary64 gang and a 32-bit gang cost the
+--- same registers and differ only in how many iterations they hold.
 record aotLane.Shape
     --- The name this shape is known by, and what a diagnostic calls it.
     name: string
 
     --- Iterations per group.
     lanes: integer
+
+    --- How wide one of its vectors is, in bytes.
+    ---
+    --- What decides whether a target can hold this gang at all. A vector wider
+    --- than the widest register class the target has is not a slower gang, it is
+    --- not a gang: it has no stable ABI at a function boundary, and the compiler
+    --- says so.
+    bytes: integer
 
     --- The mask vector. One lane per iteration, all bits set or none.
     mask: aotLane.Vector
@@ -317,19 +325,26 @@ end
 
 --- The gangs this backend chooses between.
 ---
---- Both are 32 bytes, so a group costs the same registers either way and only
---- the lane count differs. Ordinary Nupp arithmetic is binary64, so a loop
---- written with operators gets four lanes; one whose values the source
---- established as `float` and `int32` through `nupp.math` gets eight.
+--- Two widths, and within each width a binary64 gang and a 32-bit one. Ordinary
+--- Nupp arithmetic is binary64, so a loop written with operators takes the
+--- binary64 gang; one whose values the source established as `float` and `int32`
+--- through `nupp.math` takes the 32-bit one and gets twice the lanes for the
+--- same registers.
 ---
---- Selection is all-or-nothing today: a single binary64 varying value drops the
---- whole loop to four lanes. The rule it stands in for is a gang size chosen
---- from aggregate register pressure, with each value occupying however many
---- registers its element needs, which wants mask widths to convert.
+--- The 16-byte pair exists because the widest vector a target has a register
+--- class for is not always 32 bytes. x86-64 without AVX has 16, and until these
+--- were here that meant no lanes at all rather than half as many -- which made
+--- the most common target the one the lowering did nothing for.
+---
+--- Selection is all-or-nothing within a width: a single binary64 varying value
+--- drops the whole loop to the binary64 gang. The rule it stands in for is a
+--- gang size chosen from aggregate register pressure, with each value occupying
+--- however many registers its element needs, which wants mask widths to convert.
 const aotLane.SHAPES = {
     new aotLane.Shape(
         name = "f64x4",
         lanes = 4,
+        bytes = 32,
         mask = "m64x4",
         -- Integers ride in binary64 lanes because every int32 and uint32 is an
         -- exact binary64 value, which is also what ordinary Nupp does with them.
@@ -340,11 +355,29 @@ const aotLane.SHAPES = {
     new aotLane.Shape(
         name = "f32x8",
         lanes = 8,
+        bytes = 32,
         mask = "m32x8",
         -- No `f64` entry: a binary64 varying value cannot enter a 32-bit gang,
         -- and narrowing one here would change an answer the source did not.
         vectorFor = {["f32"] = "f32x8", ["i32"] = "i32x8", ["u32"] = "i32x8", ["bool"] = "m32x8"},
         bits = "i32x8"
+    ),
+    new aotLane.Shape(
+        name = "f64x2",
+        lanes = 2,
+        bytes = 16,
+        mask = "m64x2",
+        vectorFor = {["f64"] = "f64x2", ["f32"] = "f64x2", ["i32"] = "f64x2", ["u32"] = "f64x2", ["bool"] = "m64x2"},
+        bits = "u32x2",
+        rounding = {["f32"] = "f32x2"}
+    ),
+    new aotLane.Shape(
+        name = "f32x4",
+        lanes = 4,
+        bytes = 16,
+        mask = "m32x4",
+        vectorFor = {["f32"] = "f32x4", ["i32"] = "i32x4", ["u32"] = "i32x4", ["bool"] = "m32x4"},
+        bits = "i32x4"
     ),
 }
 

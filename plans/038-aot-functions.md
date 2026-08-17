@@ -1018,10 +1018,10 @@ is new is doing it for compiler-generated C, keyed on the IR that produced it.
    function per file. The uniform multiple binding that produces a
    `helper_result` node no verifier rule covers. These are what a user meets
    first, and none of them is a design question.
-2. **Feature tiers.** Both gang shapes are 32 bytes, which is one AVX register
-   and two NEON registers, so there is no gang for x86-64 below AVX. Either a
-   16-byte shape or a stated refusal, and then a decision between pinning one
-   baseline at build time and multiversioning with runtime dispatch.
+2. **Feature tiers.** The gang shapes come in 16 and 32 bytes, so a tier takes
+   the widest pair it has a register class for and x86-64 below AVX gets two
+   lanes rather than none. What is still open is multiversioning: a build pins
+   one tier, and dispatching between several at run time is a separate decision.
 3. **`aot=emit-c` in `nupp build`.** Exercises policy selection, artifact
    naming, the cache key and its validation with no toolchain in play, so it
    cannot fail for a reason unrelated to the feature.

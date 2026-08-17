@@ -53,18 +53,41 @@ fi
 # because the compiler splits it, but it has no stable ABI at a function
 # boundary and says so. Rather than silence that, this targets the tier the gang
 # shapes were designed for -- and a build that forces a lower one gets the
-# warning, which is the honest answer, because no 16-byte gang exists yet.
+# warning, which is the honest answer.
 case $ARCH in
     x86_64|amd64) DEFAULT_CFLAGS="-mavx2" ;;
     *) DEFAULT_CFLAGS="" ;;
 esac
+
+# Which gang the backend picks, as opposed to which instructions the C is
+# compiled for. The two are separate on purpose: the generated C names vector
+# widths and nothing else target-specific, so a 16-byte gang chosen for x86-64
+# without AVX compiles and runs anywhere with a 16-byte register class -- which
+# is every machine this runs on. That is what lets one host check both widths.
+#
+# The default keeps the two in step: where the C is compiled with -mavx2, the
+# gang is chosen for a tier that has 32-byte registers, because a run whose gang
+# and whose flags disagreed would be checking neither combination.
+GANG_TARGET=${NUPP_CHECK_GANG_TARGET:-}
+case $ARCH in
+    x86_64|amd64) DEFAULT_GANG_FEATURES="avx2" ;;
+    *) DEFAULT_GANG_FEATURES="" ;;
+esac
+GANG_FEATURES=${NUPP_CHECK_GANG_FEATURES-$DEFAULT_GANG_FEATURES}
+GANG_FLAGS=""
+if [ -n "$GANG_TARGET" ]; then
+    GANG_FLAGS="--target $GANG_TARGET"
+fi
+if [ -n "$GANG_FEATURES" ]; then
+    GANG_FLAGS="$GANG_FLAGS --features $GANG_FEATURES"
+fi
 
 ./bin/nupp build
 mkdir -p "$OUT"
 
 status=0
 for kernel in $KERNELS; do
-    ./bin/nupp aot --emit c "$SPIKE/$kernel.nupp" > "$OUT/$kernel.c"
+    ./bin/nupp aot --emit c $GANG_FLAGS "$SPIKE/$kernel.nupp" > "$OUT/$kernel.c"
     # -Werror because the generated C is meant to be warning-clean on every
     # target it claims, not only the one it was written on.
     $CC -std=c11 -O2 -ffp-contract=off -fno-fast-math \

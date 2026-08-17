@@ -1657,28 +1657,52 @@ end
 --- a real error rather than swallowing one.
 local REFUSED = {}
 
---- Rewrites the loop to the widest gang that admits it.
+--- Rewrites the loop to the gang that runs the most iterations at once.
 ---
---- Widest lane count first. The 32-bit gang refuses the moment any varying value
---- turns out to be binary64, so a loop written with ordinary operators lands on
---- four lanes exactly as it would have, and a loop whose values the source
+--- Most lanes first. The 32-bit gang refuses the moment any varying value turns
+--- out to be binary64, so a loop written with ordinary operators lands on the
+--- binary64 gang exactly as it would have, and a loop whose values the source
 --- established as `float` or `int32` gets twice the lanes for the same
 --- registers. Each attempt builds fresh IR and touches nothing else, so a
 --- refused one costs a retry and leaves no state behind.
 ---
+--- Order comes from the shapes rather than from the order they arrive in.
+--- Preference used to be positional -- the caller passed them widest last -- and
+--- that was fine while there were two. With a 16-byte pair beside the 32-byte
+--- one it would silently prefer four narrow lanes to eight wide ones, so the
+--- rule is written down instead of arranged.
+---
 --- A body that cannot lower at any width is not an error: it keeps its scalar
 --- loop, and the refusals say which construct stopped it.
 ---
---- @param shapes the gangs this target can hold, narrowest first. Empty when it
----   can hold none, in which case there is nothing to try.
---- @return one entry per gang that was refused, widest first. Empty when the
----   widest one took it.
+--- @param shapes the gangs this target can hold, in any order. Empty when it can
+---   hold none, in which case there is nothing to try.
+--- @return one entry per gang that was refused, in the order they were tried.
+---   Empty when the first one took it.
 --- @raises when an attempt fails for any reason other than refusing the loop,
 ---   which is a compiler bug rather than a width that does not fit
 function rewrite.select(program: scalarIR.Program, shapes: {lane.Shape}): {rewrite.Attempt}
+    local ordered: {lane.Shape} = {}
+    for _, shape in ipairs(shapes) do
+        ordered[#ordered + 1] = shape
+    end
+    -- More lanes wins; at equal lanes the wider gang wins, because it is the one
+    -- that admits binary64 and so refuses less. Sorted by name last so two gangs
+    -- that tie on both order the same way in every process.
+    table.sort(ordered, function(a: lane.Shape, b: lane.Shape): boolean
+        if a.lanes ~= b.lanes then
+            return a.lanes > b.lanes
+        end
+        if a.bytes ~= b.bytes then
+            return a.bytes > b.bytes
+        end
+
+        return a.name < b.name
+    end)
+
     local attempts: {rewrite.Attempt} = {}
-    for position = #shapes, 1, -1 do
-        local shape = shapes[position]
+    for position = 1, #ordered do
+        local shape = ordered[position]
         local refusals: {string} = {}
         local lowered: scalarIR.LaneBody? = nil
         local ok, problem = pcall(function(): nil

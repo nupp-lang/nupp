@@ -354,7 +354,7 @@ layout nor element width moves that. What separates them is how much arithmetic
 there is to amortize assembling and taking apart the vectors, so the estimate is
 arithmetic operations per byte the body touches, with a threshold of 1.0.
 
-**How wide.** Both gangs are 32 bytes, so a group costs the same registers
+**How wide.** Gangs come in two widths, and within a width a group costs the same registers
 either way and only the lane count differs. Ordinary Nupp arithmetic is
 binary64, so a loop written with operators gets four lanes. A loop whose varying
 values are all 32-bit — because the source asked for binary32 or wrapping int32
@@ -409,41 +409,56 @@ pass.
 
 ### Targets and feature tiers
 
-A gang is 32 bytes. That is one AVX register on x86-64, two NEON registers on
-aarch64, and on x86-64 without AVX it is nothing at all — a 32-byte vector has
-no register class there, so it compiles only by being split and has no stable
-ABI at a function boundary.
+A gang is 16 or 32 bytes. 32 is one AVX register on x86-64 and two NEON
+registers on aarch64; 16 is one SSE2 register, which every x86-64 has. A target
+takes the widest shapes that fit its register class and no wider — a 32-byte
+vector on x86-64 without AVX compiles only by being split and has no stable ABI
+at a function boundary.
 
 ```
- Tier      Widest vector   Gangs   Default for
- ────────  ─────────────   ─────   ───────────
- baseline  16 bytes        none    x86-64, i686
- avx2      32 bytes        both
- neon      32 bytes        both    aarch64
+ Tier      Widest vector   Gangs             Default for
+ ────────  ─────────────   ───────────────   ───────────
+ baseline  16 bytes        f64x2, f32x4      x86-64, i686
+ avx2      32 bytes        all four
+ neon      32 bytes        all four          aarch64
 ```
 
-x86-64 defaults to `baseline`, so lane lowering refuses there until you ask for
-a tier. That is deliberate: a binary built for AVX2 does not run on a machine
-without it, and a default that assumed otherwise would produce artifacts that
-fail on hardware the triple says they support. The tier is selected, never
-measured — a build that probed the machine in front of it would produce an
-artifact that only runs there.
+x86-64 defaults to `baseline`, so a loop written with ordinary operators gets
+two lanes there and four at `avx2`. The conservative default is deliberate: a
+binary built for AVX2 does not run on a machine without it, and a default that
+assumed otherwise would produce artifacts that fail on hardware the triple says
+they support. The tier is selected, never measured — a build that probed the
+machine in front of it would produce an artifact that only runs there.
+
+Ask for a wider one per target in `nupp.lua`:
+
+```lua
+targets = {
+   game = {kind = "modules", entries = {"game"}, aot = "require", aotFeatures = "avx2"},
+}
+```
+
+or per invocation:
 
 ```bash
 nupp aot --target x86_64-unknown-linux-gnu --features avx2 src/kernel.nupp
 ```
 
-A target with no gang refuses rather than going quietly scalar, and says what
-would give it one:
+The tier is part of the artifact key, so changing it rebuilds rather than
+reusing what the other tier produced.
+
+Within a tier, the widest gang that admits the loop wins: a body with any
+binary64 varying value takes the binary64 gang, and one whose values the source
+established as `float` and `int32` takes the 32-bit gang and twice the lanes.
+
+A target too narrow for even the 16-byte pair refuses rather than going quietly
+scalar, and says what would give it a gang:
 
 ```text
 nupp: mandelbrot ran one iteration at a time
-  src/kernel.nupp:50:5: aot: the baseline feature tier has no 32-byte vector;
+  src/kernel.nupp:50:5: aot: the baseline feature tier has no 16-byte vector;
   select avx2 to run several iterations at once
 ```
-
-There is no 16-byte gang. Adding one is a real option for the x86-64 baseline
-and nobody has designed it.
 
 ### Influencing it
 
@@ -769,9 +784,6 @@ Named so you can tell what you are looking at:
   where the build ran, so a built program is run from its project root. Loading
   it relative to the module's own location needs a runtime helper that does not
   exist yet. `kind = "c"` dependencies have the same property.
-- **A 16-byte gang.** Both shapes are 32 bytes, so x86-64 below AVX2 gets no
-  lanes at all. The target model says so rather than compiling a vector with no
-  register class, but a baseline build still loses the lowering entirely.
 - **Mixed-width gangs.** Width selection is all-or-nothing: a single binary64
   varying value drops the whole loop to four lanes, where the rule should be a
   gang size fixed from register pressure with each value taking however many

@@ -225,6 +225,64 @@ function M.theKeyIsOverTheIRRatherThanTheSource()
       "two sources that lower to one program share one artifact: a comment is not a rebuild")
 end
 
+function M.anUnknownFeatureTierIsRejected()
+   local dir = project("emit-c")
+   local manifest = assert(io.open(dir .. "/nupp.lua", "rb"))
+   local text = manifest:read("*a")
+   manifest:close()
+   manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write((text:gsub('aot = "emit%-c",', 'aot = "emit-c", aotFeatures = "avx9",')))
+   manifest:close()
+
+   local out, code = build(dir)
+   test.equal(code, 1, out)
+   assert(out:find("aotFeatures must be one of", 1, true),
+      "and names the tiers there are rather than only refusing: " .. out)
+end
+
+--- The widest tier this host's architecture has, and whether asking for it
+--- changes anything. x86-64 defaults to `baseline` and widens to `avx2`;
+--- aarch64 has one tier, so naming it is accepted and changes nothing.
+local function widestTier()
+   local pipe = assert(io.popen("uname -m"))
+   local machine = pipe:read("*l")
+   pipe:close()
+   if machine == "x86_64" or machine == "amd64" then
+      return "avx2", true
+   end
+   return "neon", false
+end
+
+function M.theFeatureTierReachesTheBackend()
+   local tier, widens = widestTier()
+   local dir = project("emit-c")
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   local before = assert(read(dir .. "/build/native/aot/src/kernel.c"))
+
+   local manifest = assert(io.open(dir .. "/nupp.lua", "rb"))
+   local text = manifest:read("*a")
+   manifest:close()
+   manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write((text:gsub('aot = "emit%-c",', 'aot = "emit-c", aotFeatures = "' .. tier .. '",')))
+   manifest:close()
+
+   out, code = build(dir)
+   test.equal(code, 0, "the manifest key is accepted\n" .. out)
+   local after = assert(read(dir .. "/build/native/aot/src/kernel.c"))
+   assert(after:find("vector_size(32)", 1, true),
+      "the widest tier gets the widest gang: " .. after:sub(1, 200))
+
+   if widens then
+      assert(before:find("vector_size(16)", 1, true),
+         "and the default was the narrow one, since nothing promised AVX")
+      assert(after ~= before, "so asking widened it")
+   else
+      test.equal(after, before, "naming the only tier an architecture has changes nothing")
+   end
+   assert(key(dir), "and the artifact is recorded under a key that carries the tier")
+end
+
 function M.anUnknownPolicyIsRejected()
    local dir = project("sometimes")
    local out, code = build(dir)

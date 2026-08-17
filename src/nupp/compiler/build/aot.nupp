@@ -399,14 +399,15 @@ function aot.emitC(
     root: string,
     outDir: string,
     roots: {string},
-    previous: {[string]: string}
+    previous: {[string]: string},
+    features: string?
 ): ({aot.Emitted}?, string?, {[string]: compile.Artifacts})
-    -- The host's target, at its architecture's default tier. A build that wants
-    -- another one will say so once there is a manifest key for it; until then
-    -- the honest default is the machine the build is running on, conservatively
-    -- featured.
+    -- The host's target, at the tier the manifest asked for or its
+    -- architecture's default. Conservative when nothing asked: a binary built
+    -- for AVX2 does not run on a machine without it, so widening the promise is
+    -- something a project says out loud.
     local produced: {[string]: compile.Artifacts} = {}
-    local selected, targetErr = targets.select(nil, nil)
+    local selected, targetErr = targets.select(nil, features)
     if selected == nil then
         return nil, tostring(targetErr), produced
     end
@@ -505,9 +506,10 @@ function aot.apply(
     roots: {string},
     name: string,
     previous: {[string]: string},
-    previousLibraryKey: string?
+    previousLibraryKey: string?,
+    features: string?
 ): (aot.Result?, string?)
-    local emitted, emitErr, produced = aot.emitC(root, outDir, roots, previous)
+    local emitted, emitErr, produced = aot.emitC(root, outDir, roots, previous, features)
     if emitted == nil then
         return nil, emitErr
     end
@@ -519,7 +521,7 @@ function aot.apply(
     if chain == nil then
         return nil, tostring(chainErr)
     end
-    local selected, targetErr = targets.select(nil, nil)
+    local selected, targetErr = targets.select(nil, features)
     if selected == nil then
         return nil, tostring(targetErr)
     end

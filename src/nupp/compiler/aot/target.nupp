@@ -1,16 +1,21 @@
 --[[
 What a target can hold, which decides what a gang can be.
 
-A gang is 32 bytes. That is one AVX register on x86-64, two NEON registers on
-aarch64, and on x86-64 without AVX it is nothing at all: a 32-byte vector has no
-register class there, so it compiles by being split and has no stable ABI at a
-function boundary. Clang says so through `-Wpsabi`, and it is right to -- a tier
-the gang shapes do not fit is a tier with no gang.
+A gang is 16 or 32 bytes. 32 is one AVX register on x86-64 and two NEON registers
+on aarch64; 16 is one SSE2 register, which every x86-64 has. A target takes the
+widest shapes that fit its register class and no wider: a 32-byte vector on
+x86-64 without AVX still compiles, because the compiler splits it, but it has no
+stable ABI at a function boundary. Clang says so through `-Wpsabi`, and it is
+right to.
 
-So this is where lane lowering finds out whether it may happen. A target with no
-gang is not an error and not a silent scalar body: it is a refusal that names the
-tier, because the fix is either selecting a wider one or accepting that this
-target runs the loop one iteration at a time.
+So this is where lane lowering finds out how wide it may be. The answer used to
+be all or nothing -- a tier without a 32-byte register class got no lanes, which
+made plain x86-64 the target the whole lowering did nothing for. Now it gets half
+as many lanes, and only a target too narrow for even the 16-byte pair gets none.
+
+A target with no gang is still not an error and not a silent scalar body: it is a
+refusal that names the tier, because the fix is either selecting a wider one or
+accepting that this target runs the loop one iteration at a time.
 
 Nothing here probes the machine by running anything. A tier is selected, not
 discovered, because a build that measured the machine in front of it would
@@ -25,17 +30,18 @@ local targetLayout = require("nupp.compiler.target_layout")
 
 local target = {}
 
---- How wide a vector the gang shapes need, in bytes.
+--- The narrowest gang there is, in bytes.
 ---
---- Both shapes are this wide, which is the whole reason a gang costs the same
---- registers whichever it is and only the lane count differs.
-const target.GANG_BYTES = 32
+--- A target whose widest register class is under this has no gang at all. There
+--- is no 8-byte shape, and one would be a single binary64 lane, which is a
+--- scalar loop with more machinery around it.
+const target.NARROWEST_GANG = 16
 
 --- The widest vector each CPU feature tier has a register class for.
 ---
 --- A tier is a name for a set of instructions a build promises the machine has.
 --- These are the only ones that matter here, because the only question this
---- module answers is whether a 32-byte value has somewhere to live.
+--- module answers is how wide a value can be and still have somewhere to live.
 const target.TIERS = {
     --- x86-64 as the architecture defines it: SSE2, 16-byte registers.
     ["baseline"] = 16,
@@ -120,33 +126,44 @@ end
 
 --- The gangs this target can hold.
 ---
---- Empty when its widest vector is narrower than a gang, which is the honest
---- answer rather than a narrower gang nobody has designed: the shapes are 32
---- bytes each and there is no 16-byte one.
+--- Every shape that fits in its widest register class. A tier with 16 bytes gets
+--- the 16-byte pair rather than nothing: half the lanes is a smaller win than
+--- the full width and a far larger one than compiling the loop an iteration at a
+--- time.
+---
+--- A shape that does not fit is left out rather than split. A vector wider than
+--- the register class still compiles, because the compiler splits it, but it has
+--- no stable ABI at a function boundary -- and taking it anyway is how a gang
+--- becomes a `-Wpsabi` warning in generated code.
 function target.gangs(selected: target.Target): {lane.Shape}
     local widest = target.TIERS[selected.tier] or 0
-    if widest < target.GANG_BYTES then
-        return {}
+    local held: {lane.Shape} = {}
+    for _, shape in ipairs(lane.SHAPES) do
+        if shape.bytes <= widest then
+            held[#held + 1] = shape
+        end
     end
 
-    return lane.SHAPES
+    return held
 end
 
 --- Why this target has no gang, for a refusal that has to explain itself.
 function target.noGangReason(selected: target.Target): string
     local wider: {string} = {}
     for _, one in ipairs(target.tiers(selected.architecture)) do
-        if (target.TIERS[one] or 0) >= target.GANG_BYTES then
+        if (target.TIERS[one] or 0) >= target.NARROWEST_GANG then
             wider[#wider + 1] = one
         end
     end
     if #wider == 0 then
-        return ("%s has no %d-byte vector at any known feature tier"):format(selected.architecture, target.GANG_BYTES)
+        return (
+            "%s has no %d-byte vector at any known feature tier"
+        ):format(selected.architecture, target.NARROWEST_GANG)
     end
 
     return (
         "the %s feature tier has no %d-byte vector; select %s to run several iterations at once"
-    ):format(selected.tier, target.GANG_BYTES, table.concat(wider, " or "))
+    ):format(selected.tier, target.NARROWEST_GANG, table.concat(wider, " or "))
 end
 
 return target
