@@ -78,7 +78,7 @@
 /* The playground follows the hero directly, so it does not need the regular
  * section rule or the large gap used by lower-priority homepage sections. */
 .nuppdoc-home-hero {
-  margin-bottom: 1.5rem;
+  margin-bottom: 3rem;
 }
 
 .nuppdoc-home-hero + h2 {
