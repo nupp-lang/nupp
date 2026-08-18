@@ -4,6 +4,10 @@ Nupp libraries are distributed as Lua rocks. LuaRocks owns versions, dependency
 resolution, servers, and publication; Nupp adds a typed module surface beside
 the Lua that `require` loads.
 
+```bash
+nupp rock init string-tools
+```
+
 ## Start a library
 
 ```bash

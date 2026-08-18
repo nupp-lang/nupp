@@ -4,6 +4,17 @@ Nupp is LuaJIT with types, safer resource handling, and a toolchain in the box.
 It is a superset: your Lua already compiles, and each thing below is something
 you opt into on the declaration where you want it.
 
+```nupp
+local record Point
+    x: number
+    y: number
+end
+
+local function scale(p: Point, k: number): Point
+    return new Point(x = p.x * k, y = p.y * k)
+end
+```
+
 ## Types you add one file at a time
 
 Your Lua already builds: a `.lua` file is required, compiled and run
@@ -165,7 +176,7 @@ implied: arrays are covariant, `as` is unchecked, `table` is gradual in both
 directions, and a declared `is` edge is trusted instead of proved. Each buys
 compatibility with how Lua is actually written.
 
-## Where to start
+## Next
 
 In this order:
 

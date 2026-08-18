@@ -5,6 +5,12 @@ expanded call arguments, assignments, returns, varargs, and coroutine transfers
 all use the same representation. A tuple type such as `{number, string}` is
 still a table; `(number, string)` is a sequence of two values.
 
+```nupp
+local function apply<A..., R...>(callback: function(A...): R..., ...: A...): R...
+    return callback(...)
+end
+```
+
 ## Syntax
 
 ```nupp

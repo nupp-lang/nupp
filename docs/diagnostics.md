@@ -173,7 +173,7 @@ output against it, so the two cannot drift.
 `nupp run` is absent because the program's own output is the output, and
 `nupp doc` because it writes a site rather than an answer.
 
-## Suggested agent workflow
+## Agent workflow
 
 1. Run `./bin/nupp check --json --strict`. Read `ok` before `diagnostics`: an
    empty list means the project is clean only when `ok` is true, since a run

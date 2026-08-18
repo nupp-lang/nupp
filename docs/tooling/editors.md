@@ -1,7 +1,12 @@
 # Editors
 
-Both integrations start the same language server, `nupp lsp serve`. See
-[the language server](lsp.md) for what it provides.
+Both integrations start the same language server:
+
+```bash
+nupp lsp serve
+```
+
+See [the language server](lsp.md) for what it provides.
 
 ## Visual Studio Code
 

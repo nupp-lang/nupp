@@ -14,6 +14,18 @@ The parallel is exact: `record M.Point` is to `record` what `function M.f` is
 to `function`. A dot puts the thing on a table; `local` keeps it in the file;
 neither makes it global.
 
+```nupp
+local models = {}
+
+local type UserId = uint32
+
+record models.User
+    id: UserId
+end
+
+return models
+```
+
 ## Module forms
 
 ```nupp:playground

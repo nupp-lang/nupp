@@ -9,6 +9,18 @@ direct calls; they are not runtime dispatch functions hidden behind one name.
 an inherited interface default with the same parameter pack. Repeated names
 create overloads automatically, so there is no `@overload` annotation.
 
+```nupp
+local record Ast
+    source: string
+end
+
+local type Decode = function(string): Ast & function({string}): Ast
+
+local decode: Decode = nil as any
+const parsed: Ast = decode("name")
+const rebuilt: Ast = decode({"name"})
+```
+
 ## Callable intersections
 
 An intersection containing only function types is an overload contract:

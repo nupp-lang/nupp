@@ -6,6 +6,12 @@ dependency. Files and processes build on the same reader and writer contracts
 when their native features are selected; sockets and general asynchronous
 streams remain separate future layers.
 
+```nupp
+local bytes = nupp.io.newBuffer("hello")
+local reader = bytes:newReader()
+assert(reader:read(5) == "hello")
+```
+
 ## Buffers
 
 `newBuffer()` creates an empty growable buffer. A string supplies initial bytes;

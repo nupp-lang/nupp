@@ -5,6 +5,14 @@ LuaJIT 3.0 syntax extension. Level 1 is the typed layer on top. Both are
 implemented, and the normative definition is
 [the ABNF grammar](../grammar.md).
 
+```nupp
+local prices = {10, 20, 30}
+local total = 0
+for _, price in ipairs(prices) do
+    total += price
+end
+```
+
 ## Level 0: the untyped base
 
 This is LuaJIT 3.0's dialect

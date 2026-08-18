@@ -37,7 +37,7 @@ is `NUPP1006` rather than a silently ignored comment, because the extension has
 already settled that the file is Lua and an annotation written into it would
 govern nothing.
 
-## Strict adds two things
+## Strict adds two rules
 
 An unknown variable is an error rather than a global read. An exported
 declaration needs an annotation, so nothing untyped crosses a module boundary.

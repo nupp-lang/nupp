@@ -7,6 +7,14 @@ time.
 
 That sentence is the design. Everything below follows from it.
 
+```nupp
+local i = 1
+i = i / 2
+
+local m = {a = 1}
+m.b = 2
+```
+
 ## Inference
 
 | Position | Inferred? |

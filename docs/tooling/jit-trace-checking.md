@@ -11,6 +11,17 @@ compile, or remain compiled for every input. A clean static result means there
 is no catalogued unconditional blocker in the checked scope for that trace
 profile.
 
+```nupp
+@jit
+local function sum(values: {integer}): integer
+    local total: integer = 0
+    for index = 1, #values do
+        total = total + values[index]
+    end
+    return total
+end
+```
+
 ## Result kinds
 
 | Result | Meaning | Can fail a build? |

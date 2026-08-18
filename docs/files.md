@@ -187,7 +187,7 @@ Lua. `seek(offset, origin)` moves the cursor, with `origin` one of `set`,
 file is. A reader or writer over a closed file answers a reason rather than
 raising.
 
-## Where the platform keeps things
+## Platform directories
 
 ```nupp
 print(assert(files.currentDirectory()))

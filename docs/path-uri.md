@@ -6,6 +6,11 @@ contains only Nupp values; parsing and normalization are delegated to a
 feature-gated Rust provider. Selecting either builds the shared provider once
 with only the required Cargo features.
 
+```nupp
+local source = nupp.io.Path.new("src", "main.nupp")
+assert(source:extension() == "nupp")
+```
+
 ## Paths
 
 A path is platform-native UTF-8 text. Constructing joins components using the

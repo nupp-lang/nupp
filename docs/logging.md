@@ -61,7 +61,7 @@ rename.
 is bound once per module, and `on` is an array indexed by severity, shared with
 every other module so a level change is seen everywhere at once.
 
-### When it is not lowered
+### Spellings that stay calls
 
 Every other form keeps an ordinary call meaning exactly the same thing, only
 slower. The module shows as `?`, and the arguments are evaluated:

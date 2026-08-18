@@ -13,6 +13,21 @@ for one file; `@!internal` hides one file from public documentation and, when it
 is placed on `init.nupp`, hides the entire module namespace beneath it. They are
 compiler directives rather than user-defined annotation traits.
 
+An annotation is a record declaration, applied by name where its `targets`
+allow it:
+
+```nupp
+@annotation(targets = {"function"})
+record retry
+    attempts: integer
+end
+
+@retry(attempts = 3)
+local function fetch(url: string): string
+    return url
+end
+```
+
 ## Defining an annotation
 
 Apply the built-in `@annotation` annotation to a record or struct. Its
@@ -391,7 +406,7 @@ nupp build --relax=frames --relax=function-identity
 A name outside the closed set is **NUPP2112**, so a typo is refused rather than
 silently granting nothing.
 
-### Recording one does not request a rewrite
+### Recording a guarantee does not request a rewrite
 
 `@relax` widens what a pass is allowed to do; it never asks for anything. A pass
 still has to name the guarantee it would change and check that the site granted

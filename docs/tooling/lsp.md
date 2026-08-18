@@ -146,7 +146,7 @@ same normalized blocker and risk identities used by `@jit`, including resolved
 callee paths. It reads the language server's unsaved document overlay, runs no
 program, and does not add an annotation or persist a contract.
 
-## Suggested workflow for an agent
+## Agent workflow
 
 1. `nupp check --json --strict`.
 2. Apply a whole titled fix from `diagnostics[].fixes` when its title matches

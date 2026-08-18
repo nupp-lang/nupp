@@ -194,7 +194,7 @@ local name: string? = maybeName()
 local sure = assert(name) -- sure is string
 ```
 
-## There is no explicit type argument at a call site
+## Call sites take no explicit type argument
 
 `f<number>(x)` parses as two comparisons, exactly as it does in Lua:
 

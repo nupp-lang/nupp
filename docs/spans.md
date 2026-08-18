@@ -7,6 +7,14 @@ an affine lifetime, so the pointer cannot outlive or overlap its owner.
 Use spans at checked boundaries. Direct indexing through a pointer or
 variable-length C array remains an `unsafe` operation.
 
+```nupp
+local span = require("nupp.span")
+
+const text = "hello"
+const bytes = span.fromString(text)
+assert(#bytes == 5)
+```
+
 ## Creating a shared span
 
 `fromCarray(source, count)` borrows a C array and records its logical element

@@ -65,7 +65,7 @@ contract an upper bound: an implementation may become less effectful without
 changing its contract. Declaring less is invalid because a caller could then
 make an unsound decision from the missing fact.
 
-## Where contracts are checked and trusted
+## Visible and opaque implementations
 
 The meaning of an effect annotation depends on whether its implementation is
 visible.
@@ -385,7 +385,7 @@ A same-file function definition takes precedence over this list. The fallback
 recognition is otherwise spelling-based today, so do not rely on an unresolved
 value shadowing one of these names when writing a verified contract.
 
-## How contracts are verified
+## Contract verification
 
 For each visible function carrying `@effects`, the checker:
 
@@ -515,7 +515,7 @@ The checker infers effects for visible functions whether or not they carry
 `@effects`. Add a contract only when its complete upper bound belongs to the
 API or must remain stable across implementation changes. [Inference without an
 annotation](#inference-without-an-annotation) explains the boundary, and
-[trusted declarations](#where-contracts-are-checked-and-trusted) cover code
+[trusted declarations](#visible-and-opaque-implementations) cover code
 whose body is unavailable.
 
 ### Do effect contracts add runtime work?

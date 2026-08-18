@@ -20,6 +20,15 @@ macOS and Windows rather than argued from one of them, as
 [Verification](#verification) records. The edges the backend has not reached are
 in [Not built yet](#not-built-yet); those are edges, not unkept promises.
 
+```nupp
+@aot
+local function clamp(value: number, low: number, high: number): number
+    if value < low then return low end
+    if value > high then return high end
+    return value
+end
+```
+
 ## Annotation guarantees
 
 Three things, in order of how much they matter.
@@ -1057,7 +1066,7 @@ Named so you can tell what you are looking at:
   several at run time, so one binary uses AVX2 where it is present and the
   baseline where it is not, is a separate decision nobody has taken.
 
-## See also
+## Next
 
 - [Performance](performance.md): what the ordinary Lua backend does
 - [LuaJIT trace checking](jit-trace-checking.md): the same category of

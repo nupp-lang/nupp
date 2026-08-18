@@ -9,6 +9,13 @@ function, or a foreign runtime.
 This division supports APIs where records declare their callable surface before
 a generic registrar installs `__call` on the record's runtime type table.
 
+```nupp
+local record Counter
+    total: integer
+    metamethod __len: function(self): integer
+end
+```
+
 ## Declaring a contract
 
 Declare a metamethod inside a record or interface with `metamethod`, its Lua

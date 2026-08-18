@@ -19,6 +19,18 @@ layout. Choosing between them is choosing a representation.
 | metamethod contracts | Yes | Rejected |
 | `is` runtime test | getmetatable(v)?.__index | R        ffi.istype(S, v) |
 
+```nupp
+local record Point
+    x: number
+    y: number
+end
+
+local struct Pixel
+    x: float
+    y: float
+end
+```
+
 ## Records
 
 ```nupp:playground

@@ -29,6 +29,12 @@ it has any.
 - [`lsp`](#lsp): language-server and semantic source operations
 - [`help`](#help): show general or command-specific help
 
+```bash
+nupp check
+nupp build
+nupp run src/main.nupp
+```
+
 ## Options every command takes
 
 - `--color[=WHEN]`: always, never, or auto, the default

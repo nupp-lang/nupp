@@ -8,6 +8,12 @@ Each nested module has a page of its own: [`nupp.data.json`](json.md),
 [`nupp.data.utf8`](utf8.md) and [`nupp.data.bitset`](bitsets.md). What is
 described here is what the namespace holds directly.
 
+```nupp
+local eventID = nupp.data.uuid7()
+local digest = nupp.data.sha256("payload")
+print(eventID, digest)
+```
+
 ## UUIDs
 
 `uuid4()` returns a random RFC 9562 version 4 identifier. `uuid7()` returns a

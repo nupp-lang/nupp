@@ -4,6 +4,12 @@ Nupp is written in Nupp. A checkout carries a stage-0 compiler already lowered
 to Lua, so building the real one takes LuaJIT, LPeg, simdjson, and a C++17
 compiler.
 
+```bash
+git clone https://github.com/nupp-lang/nupp
+cd nupp
+./bin/nupp build
+```
+
 ## Requirements
 
 **LuaJIT 2.1.1784535649 or newer.** Generated Nupp is written in the LuaJIT 3.0
@@ -38,12 +44,6 @@ first ones already, as [the binary](#self-contained-binary) describes, and
 needs nothing installed to check, compile, run or document a project.
 
 ## From a checkout
-
-```bash
-git clone https://github.com/nupp-lang/nupp
-cd nupp
-./bin/nupp build
-```
 
 `bin/nupp` is the entry point and it builds on demand: it runs
 `build/nupp/compiler` when that exists and no source is newer, and compiles the

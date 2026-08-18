@@ -26,6 +26,12 @@ about what your code means.
 
 Every command takes `-h`, and `nupp help <command>` prints the same reference.
 
+```bash
+nupp check
+nupp build
+nupp test
+```
+
 ## Checking
 
 ```bash

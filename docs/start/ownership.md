@@ -6,6 +6,16 @@ and automatic lexical destruction.
 
 The [ownership reference](../ownership.md) covers the complete model.
 
+```nupp
+local record File
+    closed: boolean
+
+    function drop(takes self): nil
+        self.closed = true
+    end
+end
+```
+
 ## Exact cleanup policies
 
 An affine type names one exact cleanup function:

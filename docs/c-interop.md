@@ -15,6 +15,14 @@ publish ordinary Nupp structs to C:
 | `bindings.bridge` in `nupp.lua` | The header contains `static inline` functions or typed function-like macros |
 | nupp export-c -o mini.h ... | C needs to consume Nupp struct layouts |
 
+The smallest of them is one declaration:
+
+```nupp
+cdef function abs(value: int32): int32
+
+const magnitude = abs(-3)
+```
+
 ## Export ordinary structs to C
 
 Define an ordinary reified struct once in Nupp, then select it and any typed C

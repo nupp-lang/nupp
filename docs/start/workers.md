@@ -10,6 +10,14 @@ payload from which worker entries load, and the early machine-code address-space
 reservation needed by later LuaJIT states. Builds refuse workers in module and
 bundle targets or with a third-party binary stub.
 
+```nupp
+local workers = require("nupp.workers")
+
+local worker = workers.spawn("jobs.hash")
+local answer = worker:call({name = "level1"})
+print(answer)
+```
+
 ## Start and call a worker
 
 List every independently loaded worker entry in the target so it is carried in

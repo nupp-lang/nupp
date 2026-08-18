@@ -34,6 +34,15 @@ type-generator calls, not runtime calls. See [Affine types](affine-types.md).
 Bare `metatable` and the removed `Borrowed` and `Pinned` wrapper names are
 unknown types.
 
+```nupp
+local function decode(payload: string): unknown
+    return payload
+end
+
+local reply = decode("{}")
+local text = reply as string
+```
+
 ## `unknown`, the top type
 
 `any` is the gradual opt-out: it is compatible with everything in both

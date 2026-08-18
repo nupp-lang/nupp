@@ -12,6 +12,13 @@ force. It is separate from a type error, and the difference is the whole design:
 
 Clippy's split between `rustc` errors and `clippy::` lints is the same line.
 
+One annotation turns any of them off for one statement:
+
+```nupp
+@allow("unused-binding")
+local pending = 1
+```
+
 ## Severity levels
 
 | level | reported | build | @allow | editor |

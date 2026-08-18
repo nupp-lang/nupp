@@ -7,6 +7,23 @@ disagree, the rule wins and the page gets fixed.
 
 The short version: name the thing, show it working, then layer in the rest.
 
+A page that follows it opens like this:
+
+````markdown
+# Owned resources
+
+A file, a socket, a C allocation, or any other value produced by a function
+returning `affine(T, cleanup)` carries a cleanup obligation the checker will
+not let you drop. An ordinary local discharges it at its scope boundary:
+
+```nupp
+local function slurp(path: string): string
+    local file = files.open(path)
+    return file:read("*a")
+end
+```
+````
+
 ## Page shape
 
 Every page opens the same way.
@@ -27,22 +44,6 @@ Every page opens the same way.
    concept cannot be shown in fifteen lines, show the smallest useful part of
    it and layer the rest.
 4. **Everything else**, in layers.
-
-````markdown
-# Owned resources
-
-A file, a socket, a C allocation, or any other value produced by a function
-returning `affine(T, cleanup)` carries a cleanup obligation the checker will not let you
-drop.
-An ordinary local discharges it at its scope boundary:
-
-```nupp
-local function slurp(path: string): string
-    local file = files.open(path)
-    return file:read("*a")
-end
-```
-````
 
 A page owns one concept. If it needs two H1-sized ideas, it is two pages with a
 link between them.
@@ -425,14 +426,10 @@ Before a page lands:
 
 ## Known deviations
 
-These predate the guide and are the standing fix list. Correct them when the
-page is next edited, rather than in one sweep.
-
-- Em dashes are still live in doc comments under `src/`. The handwritten pages
-  under `docs/` and the CLI help text no longer carry any.
-- Several pages open on prose that runs past the first subheading before any
-  example. The fix is one example per page, written where the page's first
-  claim is made.
+None standing. The em dashes that used to live in the `---` doc comments under
+`src/` and in the CLI help text are gone, and every page opens on an example. A
+rule a page cannot yet hold is listed here, with the page, so the next edit
+fixes it rather than rediscovering it.
 
 ## Next
 

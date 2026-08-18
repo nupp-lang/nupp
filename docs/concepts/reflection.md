@@ -12,6 +12,16 @@ Both describe declarations, not object layout. Use `nupp.sizeof`,
 `nupp.alignof`, `nupp.offsetof`, and `layoutof` for the target-specific layout
 of a `struct`.
 
+```nupp
+local record User
+    id: integer
+    name: string
+end
+
+const descriptor = User.reflect()
+print(descriptor.name)
+```
+
 ## Type witnesses
 
 Every record has a visible nominal type value. Its declaration name is a

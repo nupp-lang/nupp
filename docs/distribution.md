@@ -11,6 +11,10 @@ Nupp is the first stub, not the only one: an engine or framework can publish its
 own host, one that opens a window or owns an event loop, and Nupp will stamp
 programs into it without knowing what it is.
 
+```text
+[ stub executable ][ payload chunk ][ trailer ]
+```
+
 ## Contract before code
 
 Everything else here can be revised. This cannot: once somebody publishes a stub

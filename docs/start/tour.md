@@ -4,6 +4,17 @@ This walks the whole language in one pass. Nothing here is a preview of a
 feature described properly later. It is the short version of each thing, with a
 link to the long one.
 
+```nupp
+local record Point
+    x: number
+    y: number
+end
+
+local function scale(p: Point, k: number): Point
+    return new Point(x = p.x * k, y = p.y * k)
+end
+```
+
 ## It starts as Lua
 
 Every valid LuaJIT program is a valid Nupp program. Rename a `.lua` file to
