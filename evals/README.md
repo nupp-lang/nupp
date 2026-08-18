@@ -64,6 +64,29 @@ diagnostic and repairs is doing the thing the tooling exists for; one that
 checks eight times is paying for something the first answer should have told
 it.
 
+### Running the whole corpus
+
+One task is a sample. `batch.py` runs many and reports the distributions:
+
+```sh
+evals/batch.py --model sonnet --jobs 4            # the whole corpus
+evals/batch.py --limit 4 --jobs 2 --model haiku   # a smoke test first
+evals/batch.py --codes NUPP2105 NUPP2004          # a chosen few
+```
+
+It writes every per-task record as usual, plus a `<label>-scoreboard.json`
+holding the rates, the spreads, and the failures worth reading. `--label` is
+how two conditions are told apart when the point is to compare them.
+
+Results are sliced by whether the compiler offered a fix for the diagnostic.
+A code whose diagnostic carries an edit is a different task from one that only
+describes the problem, and a single average over both mostly reports how many
+of each the catalogue happens to hold.
+
+A task that could not be posed at all — a code with no worked example, or one
+whose example stopped reporting it — is counted as `invalid` rather than as a
+failure, so the denominator stays honest.
+
 ## Tier 2: replayed history
 
 One task is one merged commit that touched both the compiler and its tests.
@@ -116,11 +139,17 @@ under test, which is minutes, not the seconds tier 1 takes.
 - **One task is a sample, not a measurement.** Two runs of the same task on
   the same model differed by a turn and a tool call. Compare distributions
   across repeated runs, not single numbers.
-- **Easy codes measure less than they look like they do.** `NUPP2105` on a
-  near-miss typo carries a fix in the diagnostic, so an agent that can read
-  is expected to pass. It is a good plumbing test and a weak difficulty
-  signal. The codes worth the money are the ones whose diagnostic carries no
-  fix and whose repair is a judgement — see the tier-1 discussion in the plan.
+- **Tier 1 does not discriminate on pass/fail.** The first full sweep, 125
+  tasks on Sonnet, passed **125**. That is a real answer — an agent given only
+  the compiler's output repairs every diagnostic the catalogue holds an example
+  for — but it means the pass rate is at its ceiling and cannot move. Compare
+  effort instead: it ranged from 4 tool calls and $0.08 to 37 and $0.82, and
+  that spread is what an experiment can shift.
+- **The fix/no-fix slice explains nothing here.** The guess was that codes
+  carrying a machine-applicable fix would be the easy ones. Only 7 of 125 tasks
+  had one, and the other 118 passed anyway. The slice is still recorded because
+  it is cheap and the populations are genuinely different, but it did not turn
+  out to be where difficulty lives.
 - **A tier-2 pass is the suite's opinion, not a review.** The commit's tests
   decide, so a repair that satisfies them by a route the original commit would
   not have taken still passes. The diff is recorded on every run for exactly

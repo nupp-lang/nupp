@@ -62,6 +62,16 @@ return {
 }
 """
 
+# Written beside every task, matching `tests/explaintest.lua`. A missing
+# require is only reportable when the project really holds the module the
+# unresolved name would bind; without it that example reports an unknown
+# variable instead, and the task stops being the task. Inert for the rest.
+COMPANION = (
+    "local mathutil = {}\n"
+    "function mathutil.double(value: number): number return value * 2 end\n"
+    "return mathutil\n"
+)
+
 
 def load_task(nupp: Path, code: str) -> dict:
     """The catalogue entry for one code, as the task to repair.
@@ -93,6 +103,7 @@ def make_workspace(root: Path, nupp: Path, entry: dict) -> Path:
     (workspace / "bin").mkdir(parents=True)
     (workspace / "nupp.lua").write_text(MANIFEST)
     (workspace / "sample.nupp").write_text(entry["wrong"])
+    (workspace / "mathutil.g.nupp").write_text(COMPANION)
 
     shim = workspace / "bin" / "nupp"
     shim.write_text(f'#!/bin/sh\nexec "{nupp}" "$@"\n')
@@ -166,6 +177,72 @@ def grade(before: list[dict], after: list[dict], entry: dict, source: str) -> di
     }
 
 
+def evaluate(
+    nupp: Path,
+    code: str,
+    out: Path,
+    model: str | None = None,
+    keep: bool = False,
+) -> dict:
+    """Run one task end to end and return its record.
+
+    Separate from `main` so a batch can call it directly. Everything that can
+    make the task invalid rather than merely failed -- a code with no example,
+    an example that does not report its own code, a workspace that cannot be
+    checked -- raises, so a sweep can tell "the agent did not repair it" from
+    "there was nothing here to repair".
+    """
+    entry = load_task(nupp, code)
+    out.mkdir(parents=True, exist_ok=True)
+    root = Path(tempfile.mkdtemp(prefix=f"nupp-eval-{code}-"))
+    try:
+        workspace = make_workspace(root, nupp, entry)
+
+        before = check(nupp, workspace, entry)
+        reported = {diagnostic.get("code") for diagnostic in before}
+        if entry["code"] not in reported:
+            # The catalogue says this program reports this code. If it does not
+            # here, the task is not the task, and a pass would mean nothing.
+            raise SystemExit(
+                f"{entry['code']} is not reported by its own example;"
+                f" got {sorted(c for c in reported if c)}"
+            )
+
+        transcript = out / f"{code}-transcript.jsonl"
+        result, events = run_agent(
+            workspace, PROMPT, transcript, model,
+            path_prefix=workspace / "bin",
+        )
+
+        sample = workspace / "sample.nupp"
+        source = sample.read_text() if sample.exists() else ""
+        after = check(nupp, workspace, entry)
+
+        record = {
+            "task": {
+                "tier": 1,
+                "code": entry["code"],
+                "summary": entry["summary"],
+                "strict": bool(entry.get("strict")),
+                # Whether the compiler offered an edit for this diagnostic.
+                # A code that carries one is a different task from a code that
+                # only describes the problem, and a sweep that does not
+                # separate them reports the average of two populations.
+                "hadFix": any(d.get("fixes") for d in before),
+            },
+            "agent": agent_record(result, events, model),
+            "grade": grade(before, after, entry, source),
+            "finalSource": source,
+            "transcript": str(transcript),
+            "workspace": str(workspace) if keep else None,
+        }
+        (out / f"{code}-run.json").write_text(json.dumps(record, indent=2) + "\n")
+        return record
+    finally:
+        if not keep:
+            shutil.rmtree(root, ignore_errors=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -197,67 +274,21 @@ def main() -> int:
     if not shutil.which("claude"):
         raise SystemExit("the `claude` CLI is not on PATH")
 
-    entry = load_task(nupp, args.code)
-    args.out.mkdir(parents=True, exist_ok=True)
-
-    root = Path(tempfile.mkdtemp(prefix=f"nupp-eval-{args.code}-"))
-    try:
-        workspace = make_workspace(root, nupp, entry)
-
-        before = check(nupp, workspace, entry)
-        reported = {diagnostic.get("code") for diagnostic in before}
-        if entry["code"] not in reported:
-            # The catalogue says this program reports this code. If it does not
-            # here, the task is not the task, and a pass would mean nothing.
-            raise SystemExit(
-                f"{entry['code']} is not reported by its own example;"
-                f" got {sorted(c for c in reported if c)}"
-            )
-
-        transcript = args.out / f"{args.code}-transcript.jsonl"
-        result, events = run_agent(
-            workspace, PROMPT, transcript, args.model,
-            path_prefix=workspace / "bin",
-        )
-
-        source = (workspace / "sample.nupp").read_text() if (
-            workspace / "sample.nupp"
-        ).exists() else ""
-        after = check(nupp, workspace, entry)
-
-        record = {
-            "task": {
-                "tier": 1,
-                "code": entry["code"],
-                "summary": entry["summary"],
-                "strict": bool(entry.get("strict")),
-            },
-            "agent": agent_record(result, events, args.model),
-            "grade": grade(before, after, entry, source),
-            "finalSource": source,
-            "transcript": str(transcript),
-        }
-        record_path = args.out / f"{args.code}-run.json"
-        record_path.write_text(json.dumps(record, indent=2) + "\n")
-
-        verdict = "PASS" if record["grade"]["passed"] else "FAIL"
-        agent = record["agent"]
-        print(f"{verdict}  {entry['code']}  {entry['summary']}")
-        print(
-            f"  turns={agent['turns']} tools={agent['toolCallTotal']}"
-            f" nupp={agent['nuppInvocations']} cost={spent(agent)}"
-        )
-        print(f"  before={record['grade']['diagnosticsBefore']}")
-        print(f"  after={record['grade']['diagnosticsAfter']}")
-        if record["grade"]["suspiciousShrink"]:
-            print("  note: the file shrank by more than half; check the repair")
-        print(f"  record={record_path}")
-        if args.keep:
-            print(f"  workspace={workspace}")
-        return 0 if record["grade"]["passed"] else 1
-    finally:
-        if not args.keep:
-            shutil.rmtree(root, ignore_errors=True)
+    record = evaluate(nupp, args.code, args.out, args.model, args.keep)
+    verdict = "PASS" if record["grade"]["passed"] else "FAIL"
+    agent = record["agent"]
+    print(f"{verdict}  {record['task']['code']}  {record['task']['summary']}")
+    print(
+        f"  turns={agent['turns']} tools={agent['toolCallTotal']}"
+        f" nupp={agent['nuppInvocations']} cost={spent(agent)}"
+    )
+    print(f"  before={record['grade']['diagnosticsBefore']}")
+    print(f"  after={record['grade']['diagnosticsAfter']}")
+    if record["grade"]["suspiciousShrink"]:
+        print("  note: the file shrank by more than half; check the repair")
+    if record["workspace"]:
+        print(f"  workspace={record['workspace']}")
+    return 0 if record["grade"]["passed"] else 1
 
 
 if __name__ == "__main__":

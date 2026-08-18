@@ -1,26 +1,32 @@
 # Agent evaluation harness
 
-Status: delivery steps 1 and 4 implemented as `evals/tier1.py` and
-`evals/tier2.py`, one task per run rather than a whole corpus; steps 2, 3 and 5
-proposed. Four divergences worth knowing. The tier-1 workspace needs a manifest
-with a real build target, not the bare `return {include = {"."}}` that
+Status: delivery steps 1, 2 and 4 implemented as `evals/tier1.py`,
+`evals/batch.py` and `evals/tier2.py`; steps 3 and 5 proposed. The first full
+tier-1 sweep, 125 tasks on Sonnet, is an evidence record of its own: it passed
+125 of 125, at $26.46 and half an hour, which settles that an agent given only
+the compiler's output repairs every diagnostic the catalogue holds an example
+for -- and settles that tier 1's pass rate cannot be the measurement, since it
+is already at its ceiling. Effort is what varies, from 4 tool calls and $0.08
+to 37 and $0.82, so the experiments below should compare cost and tool calls
+rather than success. The plan's guess that codes carrying a machine-applicable
+fix would be the easy ones did not survive: only 7 of the 125 carried one and
+the other 118 passed regardless.
+
+Divergences worth knowing. The tier-1 workspace needs a manifest with a real
+build target, not the bare `return {include = {"."}}` that
 `tests/explaintest.lua` uses -- a whole-project `nupp check` against that one
 reported no diagnostics, so an agent doing the obvious thing was told nothing
 was wrong; `nupp check --json` now answers `ok` so that case is distinguishable
 at all, which is a compiler change this harness caused rather than observed,
-against the plan's own non-goal of changing what the compiler reports. Part of
-step 2 arrived with step 1: streaming the agent's events costs no more than
-taking its final result, so tool counts and a full auditable transcript are
-recorded from the first run. Tier 2 turned out to want a sharper rule than the
-plan's "revert it and fix what broke" -- export the tree at the commit's
-parent, carry only its tests forward, and fail any run that edits one, so the
-suite is the whole specification and weakening it cannot score. The workspace
-also has to have no `.git` in it: the first shape of this reverted files inside
-a worktree at the commit, which left the answer in `HEAD`, and the first agent
-to run it scored a pass with `git restore` without writing any code. And step 4
-preceded step 3, because tier 2 needed no metrics work that step 1 had not
-already done, where the before/after experiment needs a second checkout built
-at an older commit.
+against the plan's own non-goal of changing what the compiler reports. Tier 2
+turned out to want a sharper rule than the plan's "revert it and fix what
+broke" -- export the tree at the commit's parent, carry only its tests forward,
+and fail any run that edits one, so the suite is the whole specification and
+weakening it cannot score. The workspace also has to have no `.git` in it: the
+first shape of this reverted files inside a worktree at the commit, which left
+the answer in `HEAD`, and the first agent to run it scored a pass with `git
+restore` without writing any code. And step 4 preceded step 3, because tier 2
+needed no metrics work step 1 had not already done.
 
 ## Decision
 
