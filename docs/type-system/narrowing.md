@@ -29,9 +29,26 @@ end
 | while cond do | the body sees the condition |
 | Guard clauses | if not s then return end |
 | never-returning helper calls | bail() narrows like an inline error |
+| assert as a statement | assert(s) |
 
 Discriminant narrowing also follows a copied local, so binding the value to a
 new name first does not lose the fact.
+
+`assert` narrows in both positions. Its signature subtracts `nil` from the
+*return value*, and as a bare statement it narrows its argument the same way a
+never-returning helper does, because the builtin returns only on the truthy arm:
+
+```nupp
+assert(s)
+local a: string = s -- s is string here
+
+local b = assert(s) -- so is b
+```
+
+Being truthy, it subtracts `false` as well as `nil`, and it reads a name or a
+dotted path like every other test. A message argument makes no difference. It
+narrows only when `assert` is the builtin: a locally shadowed `assert` is an
+ordinary call and proves nothing.
 
 ## Tests that do not narrow
 
@@ -58,16 +75,6 @@ LuaJIT never returns is caught where it is written, and a returning dispatch
 over the set reports the [`exhaustiveness`](../lints.md) lint for the names it
 leaves out. A guard chain whose remaining cases are handled by the code after
 it says so with `@allow("exhaustiveness")`.
-
-**`assert(x)` as a statement does not narrow `x`.** It narrows through its
-*return value*, because its signature subtracts `nil`:
-
-```nupp
-assert(s)
-local a: string = s -- still an error
-
-local b = assert(s) -- b is string
-```
 
 **Only names and dotted paths narrow.** An index like `a[i]`, a call, or any
 computed expression has no stable key to attach a fact to.
