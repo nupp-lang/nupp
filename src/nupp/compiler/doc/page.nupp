@@ -131,7 +131,7 @@ local function moduleBranchContains(node, current)
     return false
 end
 
-local function moduleTreeHtml(node, current, prefix, path, depth)
+local function moduleTreeHtml(node, current, prefix, path)
     local parts = {}
     for _, name in ipairs(node.order) do
         local child = node.children[name]
@@ -147,7 +147,7 @@ local function moduleTreeHtml(node, current, prefix, path, depth)
                 module.name
             ) .. '" aria-label="' .. htmlEscape(module.name) .. '"><code>' .. htmlEscape(name) .. "</code></a></li>"
         else
-            local open = (depth == 0 or moduleBranchContains(child, current)) and " open" or ""
+            local open = moduleBranchContains(child, current) and " open" or ""
             local label = "<code>" .. htmlEscape(name) .. "</code>"
             local item, summary = '<li class="nuppdoc-module-branch">', "<summary>" .. label .. "</summary>"
             -- A branch that is itself a module leads to that module's own page, so the
@@ -165,7 +165,7 @@ local function moduleTreeHtml(node, current, prefix, path, depth)
                 ) .. '" aria-label="' .. htmlEscape(module.name) .. '">' .. label .. "</a></summary>"
             end
             parts[#parts + 1] = item .. "<details" .. open .. ">" .. summary .. '<ul class="nuppdoc-module-tree">'
-            parts[#parts + 1] = moduleTreeHtml(child, current, prefix, childPath, depth + 1)
+            parts[#parts + 1] = moduleTreeHtml(child, current, prefix, childPath)
             parts[#parts + 1] = "</ul></details></li>"
         end
     end
@@ -182,18 +182,26 @@ local function sidebar(modules, current, prefix, pages, currentPath)
             -- name gives, rather than in an "other pages" bucket beside it.
             local key = candidate.path:match("^([^/]+)") or "Pages"
             if not byGroup[key] then
-                byGroup[key] = {key = key, pages = {}}
+                byGroup[key] = {key = key, pages = {}, open = false}
                 groups[#groups + 1] = byGroup[key]
             end
             byGroup[key].pages[#byGroup[key].pages + 1] = candidate
+            -- Only the section the reader is inside stands open, so a long sidebar
+            -- reads as its sections rather than as every page in all of them.
+            if candidate.path == currentPath then
+                byGroup[key].open = true
+            end
         end
     end
     for _, group in ipairs(groups) do
         local label = group.key:gsub("[-_]", " ")
         label = label:sub(1, 1):upper() .. label:sub(2)
+        local open = group.open and " open" or ""
         out[
             #out + 1
-        ] = '<li class="nuppdoc-sidebar-section"><details open><summary>' .. htmlEscape(label) .. '</summary><ul>'
+        ] = '<li class="nuppdoc-sidebar-section"><details' .. open .. '><summary>' .. htmlEscape(
+            label
+        ) .. '</summary><ul>'
         for _, candidate in ipairs(group.pages) do
             local active = candidate.path == currentPath and ' aria-current="page"' or ""
             out[
@@ -205,16 +213,12 @@ local function sidebar(modules, current, prefix, pages, currentPath)
         end
         out[#out + 1] = "</ul></details></li>"
     end
+    local apiOpen = current and current ~= "" and " open" or ""
     out[
         #out + 1
-    ] = '<li class="nuppdoc-sidebar-section"><details open><summary>API reference</summary><ul class="nuppdoc-module-tree">'
-        .. moduleTreeHtml(
-        moduleTree(modules),
-        current,
-        prefix,
-        "",
-        0
-    )
+    ] = '<li class="nuppdoc-sidebar-section"><details' .. apiOpen .. '><summary>API reference</summary>'
+        .. '<ul class="nuppdoc-module-tree">'
+        .. moduleTreeHtml(moduleTree(modules), current, prefix, "")
     out[#out + 1] = "</ul></details></li></ul></aside>"
 
     return table.concat(out)

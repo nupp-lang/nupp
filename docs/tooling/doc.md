@@ -285,6 +285,11 @@ is listed under that section, the way a module page lists a declaration under
 its group. A long generated page opens as the handful of sections it is made
 of rather than as a list of everything on it.
 
+The sidebar behaves the same way across pages. Its sections are collapsed
+except the one holding the page being read, and the API reference is open only
+on a module page, where the branches leading to that module are the ones
+expanded.
+
 ## Moved pages
 
 `redirects` lists the routes a page used to answer at. A stub is written at
