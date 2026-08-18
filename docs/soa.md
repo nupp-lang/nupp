@@ -234,7 +234,7 @@ The canonical loop `for index = 1, #rows` proves every indexed row access is in
 bounds, and an arbitrary index keeps its runtime bounds check. How that proof
 lowers to direct typed-column loads and stores, and what an [`@aot`](tooling/aot.md)
 kernel retains, is in
-[Performance](tooling/performance.md#structure-of-arrays-hot-loops).
+[Performance](tooling/performance.md#opt-6-indexed-views).
 
 ## Snapshots and ECS storage
 

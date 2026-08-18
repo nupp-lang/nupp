@@ -502,6 +502,11 @@ nupp lsp            # start the language server]],
                   source = "docs/concepts/calls.md",
                },
                {
+                  path = "concepts/switch-expressions",
+                  title = "Switch expressions",
+                  source = "docs/switch-expressions.md",
+               },
+               {
                   path = "concepts/declarations",
                   title = "Declarations and modules",
                   source = "docs/modules.md",

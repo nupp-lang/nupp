@@ -145,7 +145,7 @@ level: it is what permits those calls inside `noraise` code.
 
 How that proof is spent at `-O1` — direct FFI element access, and virtual
 slices that allocate no wrapper — is in
-[Performance](tooling/performance.md#indexed-views-and-ranges).
+[Performance](tooling/performance.md#opt-6-indexed-views).
 
 ## Passing a span to C
 
