@@ -555,6 +555,41 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             "Lua tree null replacement is not rooted"
         )
         scalarWalk(tree.nullValue, values, scope)
+    elseif op == "lua_builder" then
+        local builder = node as scalarIR.LuaBuilder
+        holds(scope.entryMode == "lua-builder" and node.type == "lua_builder", "value stream outside a builder")
+        holds(
+            builder.nullValue.type == "lua_value" and builder.nullValue.op == "local",
+            "value stream null is not rooted"
+        )
+        scalarWalk(builder.nullValue, values, scope)
+    elseif op == "lua_string_byte" or op == "lua_string_u32" or op == "lua_string_length" then
+        local bytes = node as scalarIR.LuaBytes
+        holds(scope.entryMode == "lua-builder" and node.type == "u32", "rooted byte read outside a builder")
+        holds(bytes.bytes.type == "lua_string" and bytes.bytes.op == "local", "byte input is not a rooted string")
+        scalarWalk(bytes.bytes, values, scope)
+        if op == "lua_string_length" then
+            holds(bytes.index == nil, "string length carried an index")
+        else
+            holds(bytes.index ~= nil and (bytes.index as scalarIR.Expr).type == "u32", "byte read index is not uint32")
+            scalarWalk(bytes.index as scalarIR.Expr, values, scope)
+        end
+    elseif op == "lua_builder_finish" then
+        local finished = node as scalarIR.LuaBuilderFinish
+        holds(scope.entryMode == "lua-builder" and node.type == "lua_value", "value stream finish outside a builder")
+        holds(
+            finished.builder.type == "lua_builder" and finished.builder.op == "local",
+            "finished value stream is not local"
+        )
+        scalarWalk(finished.builder, values, scope)
+    elseif op == "lua_builder_depth" or op == "lua_builder_kind" or op == "lua_builder_count" then
+        local query = node as scalarIR.LuaBuilderQuery
+        holds(scope.entryMode == "lua-builder" and node.type == "u32", "value stream query outside a builder")
+        holds(
+            query.builder.type == "lua_builder" and query.builder.op == "local",
+            "value stream query has no local builder"
+        )
+        scalarWalk(query.builder, values, scope)
     elseif op == "neg" or op == "not" or op == "bnot" then
         local operand = (node as scalarIR.Unary).value
         scalarWalk(operand, values, scope)
@@ -1026,6 +1061,58 @@ local function block(
                 or write.value.type == "lua_nil",
                 "unsupported Lua table value"
             )
+        elseif tostring(statement.op):match("^lua_builder_") ~= nil then
+            local event = statement as scalarIR.LuaBuild
+            holds(
+                scope.entryMode == "lua-builder" and event.type == "lua_effect",
+                "value stream event outside a builder"
+            )
+            holds(
+                event.builder.type == "lua_builder" and event.builder.op == "local",
+                "value stream event has no local builder"
+            )
+            scalarWalk(event.builder, values, scope)
+            if event.op == "lua_builder_open_array" or event.op == "lua_builder_open_object" then
+                holds(
+                    event.capacity ~= nil and (event.capacity as scalarIR.Expr).type == "u32",
+                    "invalid value stream capacity"
+                )
+                scalarWalk(event.capacity as scalarIR.Expr, values, scope)
+            elseif event.op == "lua_builder_key" or event.op == "lua_builder_string" then
+                holds(
+                    event.sourceBytes ~= nil and (
+                        event.sourceBytes as scalarIR.Expr
+                    ).type == "lua_string" and event.start ~= nil and (
+                        event.start as scalarIR.Expr
+                    ).type == "u32" and event.length ~= nil and (
+                        event.length as scalarIR.Expr
+                    ).type == "u32" and event.escaped ~= nil and (event.escaped as scalarIR.Expr).type == "bool",
+                    "invalid value stream string event"
+                )
+                for _, value in ipairs({event.sourceBytes, event.start, event.length, event.escaped}) do
+                    scalarWalk(value as scalarIR.Expr, values, scope)
+                end
+            elseif event.op == "lua_builder_number_slice" then
+                holds(
+                    event.sourceBytes ~= nil and (
+                        event.sourceBytes as scalarIR.Expr
+                    ).type == "lua_string" and event.start ~= nil and (
+                        event.start as scalarIR.Expr
+                    ).type == "u32" and event.length ~= nil and (event.length as scalarIR.Expr).type == "u32",
+                    "invalid value stream number slice"
+                )
+                for _, value in ipairs({event.sourceBytes, event.start, event.length}) do
+                    scalarWalk(value as scalarIR.Expr, values, scope)
+                end
+            elseif event.op == "lua_builder_number" then
+                holds(event.value ~= nil and (event.value as scalarIR.Expr).type == "f64", "invalid streamed number")
+                scalarWalk(event.value as scalarIR.Expr, values, scope)
+            elseif event.op == "lua_builder_boolean" then
+                holds(event.value ~= nil and (event.value as scalarIR.Expr).type == "bool", "invalid streamed boolean")
+                scalarWalk(event.value as scalarIR.Expr, values, scope)
+            else
+                holds(event.op == "lua_builder_null" or event.op == "lua_builder_close", "unknown value stream event")
+            end
         elseif statement.op == "assign" then
             for _, entry in ipairs(statement.values) do
                 assignment(entry, values, scope, stored)
@@ -1514,6 +1601,10 @@ local function constructionStack(statements: {scalarIR.Statement}, inLoop: boole
         if statement.op == "let" then
             local nested, allocates = constructionExpression(statement.value)
             holds(not (inLoop and allocates), "fresh Lua table allocation inside a loop is not stack bounded")
+            holds(
+                not (inLoop and statement.type == "lua_builder"),
+                "value stream creation inside a loop is not stack bounded"
+            )
             depth = math.max(depth, nested)
             if statement.type == "lua_table"
                 or statement.type == "lua_string"
@@ -1551,6 +1642,29 @@ local function constructionStack(statements: {scalarIR.Statement}, inLoop: boole
     return roots as integer, depth as integer
 end
 
+--- Counts stream-builder declarations through every authored branch.
+---
+--- One stream owns the dynamic top of the Lua stack. Interleaving two would
+--- make a close from one consume the other's unfinished table, so the current
+--- physical assignment admits at most one per entry.
+local function streamBuilders(statements: {scalarIR.Statement}): number
+    local count = 0
+    for _, statement in ipairs(statements) do
+        if statement.op == "let" and statement.type == "lua_builder" then
+            count = count + 1
+        elseif statement.op == "if" then
+            for _, clause in ipairs(statement.clauses) do
+                count = count + streamBuilders(clause.body)
+            end
+            count = count + streamBuilders(statement.elseBody or {})
+        elseif statement.op == "fornum" or statement.op == "while" or statement.op == "block" then
+            count = count + streamBuilders(statement.body)
+        end
+    end
+
+    return count
+end
+
 --- Checks one whole AOT program, and everything under it.
 ---
 --- @param program the lowered function
@@ -1571,6 +1685,7 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
             holds(param.kind == "uniform" or param.kind == "scalar", "Lua builder parameter needs a VM-stack ABI")
         end
         local roots, depth = constructionStack(program.body or {}, false)
+        holds(streamBuilders(program.body or {}) <= 1, "a Lua builder entry has more than one value stream")
         local needed = roots + depth + 4
         holds(needed <= 256, "Lua builder exceeds the 256-slot construction limit")
         holds(program.maxStack == nil or program.maxStack == needed, "Lua builder stack bound changed")

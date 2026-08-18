@@ -1560,6 +1560,15 @@ ordinary module implementation supplies the same behavior with `aot = "off"`.
 The operation is a construction boundary, not access to `lua_State` or raw VM
 stack positions.
 
+An iterative parser may instead use the resolved `nupp.value_builder` stream.
+`new` roots the null replacement; `openArray`, `openObject`, primitive and
+source-slice value operations, `key`, and `close` build one graph; `finish`
+publishes it. `byte`, native-endian `word`, and `length` read rooted string
+storage without a substring, while `depth`, `kind`, and `count` expose the
+current bounded construction frame. Ranges and word indexes are zero-based.
+The handle is local construction state: it cannot be reassigned, stored,
+returned, or passed to ordinary calls. At most 1,024 containers may be open.
+
 An AOT block kernel may use independently sized spans, structured scalar
 control flow, and up to four numeric or boolean results. A loop from one through
 `#input` authorizes access to that input. A zero-based `uint32` append cursor

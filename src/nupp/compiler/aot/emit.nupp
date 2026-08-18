@@ -192,6 +192,20 @@ function emit.scalar(node: scalarIR.Expr): string
         return "p_" .. (node as scalarIR.Name).name
     elseif operation == "span_count" then
         return "((double)count_" .. (node as scalarIR.SpanCount).span .. ")"
+    elseif operation == "lua_string_length" then
+        local bytes = (node as scalarIR.LuaBytes).bytes as scalarIR.Name
+        return "ks_lua_string_length(L, ks_length_" .. tostring(bytes.cName) .. ")"
+    elseif operation == "lua_string_byte" or operation == "lua_string_u32" then
+        local loaded = node as scalarIR.LuaBytes
+        local bytes = loaded.bytes as scalarIR.Name
+        local helper = operation == "lua_string_byte" and "ks_lua_string_byte" or "ks_lua_string_u32"
+        return helper .. "(L, ks_bytes_" .. tostring(
+            bytes.cName
+        ) .. ", ks_length_" .. tostring(bytes.cName) .. ", " .. emit.scalar(loaded.index as scalarIR.Expr) .. ")"
+    elseif operation == "lua_builder_depth" or operation == "lua_builder_kind" or operation == "lua_builder_count" then
+        local query = node as scalarIR.LuaBuilderQuery
+        local which = operation == "lua_builder_depth" and "0u" or operation == "lua_builder_kind" and "1u" or "2u"
+        return "ks_lua_builder_query(L, &" .. tostring((query.builder as scalarIR.Name).cName) .. ", " .. which .. ")"
     elseif operation == "local" or operation == "helper_param" then
         return (node as scalarIR.Name).cName or ""
     elseif operation == "load" then
@@ -1052,6 +1066,87 @@ function emit.luaPrelude(): {string}
         "    KsLuaTree tree = {(const unsigned char *)nodes, (const unsigned char *)links, (const unsigned char *)source, node_bytes / sizeof(KsLuaTreeNode), link_bytes / sizeof(uint32_t), source_length, null_index};",
         "    return ks_tree_push_node(L, &tree, (uint32_t)root, 1u);",
         "}",
+        "typedef struct { int table_index; uint32_t kind, next, count; int expects_key; } KsLuaBuildFrame;",
+        "typedef struct { int null_index, root_index; uint32_t depth; KsLuaBuildFrame frames[1024]; } KsLuaBuilder;",
+        "static KS_UNUSED uint32_t ks_lua_string_length(lua_State *L, size_t length) {",
+        "    if (length > (size_t)UINT32_MAX) { luaL_error(L, \"AOT builder string exceeds uint32 range\"); return 0u; }",
+        "    return (uint32_t)length;",
+        "}",
+        "static KS_UNUSED uint32_t ks_lua_string_byte(lua_State *L, const unsigned char *bytes, size_t length, uint32_t offset) {",
+        "    if ((size_t)offset >= length) { luaL_error(L, \"AOT builder byte is out of bounds\"); return 0u; }",
+        "    return (uint32_t)bytes[offset];",
+        "}",
+        "static KS_UNUSED uint32_t ks_lua_string_u32(lua_State *L, const unsigned char *bytes, size_t length, uint32_t index) {",
+        "    if ((size_t)index > SIZE_MAX / sizeof(uint32_t)) { luaL_error(L, \"AOT builder word index overflows\"); return 0u; }",
+        "    size_t offset = (size_t)index * sizeof(uint32_t); uint32_t value = 0u;",
+        "    if (offset > length || sizeof(uint32_t) > length - offset) { luaL_error(L, \"AOT builder word is out of bounds\"); return 0u; }",
+        "    memcpy(&value, bytes + offset, sizeof(value)); return value;",
+        "}",
+        "static KS_UNUSED int ks_lua_builder_put(lua_State *L, KsLuaBuilder *builder) {",
+        "    if (builder->depth == 0u) {",
+        "        if (builder->root_index != 0) return luaL_error(L, \"AOT value stream has more than one root\");",
+        "        builder->root_index = lua_gettop(L); return 1;",
+        "    }",
+        "    KsLuaBuildFrame *frame = &builder->frames[builder->depth - 1u];",
+        "    if (frame->kind == 5u) {",
+        "        if (lua_gettop(L) != frame->table_index + 1) return luaL_error(L, \"AOT value stream value is not above its array\");",
+        "        if (frame->next > (uint32_t)INT_MAX) return luaL_error(L, \"AOT value stream array exceeds C API range\");",
+        "        lua_rawseti(L, frame->table_index, (int)frame->next++); return 1;",
+        "    }",
+        "    if (frame->expects_key) return luaL_error(L, \"AOT value stream object needs a key\");",
+        "    if (lua_gettop(L) != frame->table_index + 2) return luaL_error(L, \"AOT value stream key and value are not above their object\");",
+        "    if (frame->count == UINT32_MAX) return luaL_error(L, \"AOT value stream object is too large\");",
+        "    lua_rawset(L, frame->table_index); frame->expects_key = 1; frame->count += 1u; return 1;",
+        "}",
+        "static KS_UNUSED int ks_lua_builder_open(lua_State *L, KsLuaBuilder *builder, uint32_t kind, uint32_t capacity) {",
+        "    if (builder->depth >= 1024u) return luaL_error(L, \"AOT value stream nesting is excessive\");",
+        "    if (builder->depth == 0u && builder->root_index != 0) return luaL_error(L, \"AOT value stream has more than one root\");",
+        "    if (capacity > (uint32_t)INT_MAX) return luaL_error(L, \"AOT value stream capacity exceeds C API range\");",
+        "    if (!lua_checkstack(L, 4)) return luaL_error(L, \"AOT builder Lua stack exhausted\");",
+        "    lua_createtable(L, kind == 5u ? (int)capacity : 0, kind == 6u ? (int)capacity : 0);",
+        "    KsLuaBuildFrame *frame = &builder->frames[builder->depth++];",
+        "    frame->table_index = lua_gettop(L); frame->kind = kind; frame->next = 1u; frame->count = 0u; frame->expects_key = kind == 6u;",
+        "    return 1;",
+        "}",
+        "static KS_UNUSED uint32_t ks_lua_builder_query(lua_State *L, KsLuaBuilder *builder, uint32_t query) {",
+        "    if (query == 0u) return builder->depth;",
+        "    if (builder->depth == 0u) { luaL_error(L, \"AOT value stream has no current container\"); return 0u; }",
+        "    KsLuaBuildFrame *frame = &builder->frames[builder->depth - 1u];",
+        "    if (query == 1u) return frame->kind;",
+        "    return frame->kind == 5u ? frame->next - 1u : frame->count;",
+        "}",
+        "static KS_UNUSED int ks_lua_builder_key(lua_State *L, KsLuaBuilder *builder) {",
+        "    if (builder->depth == 0u) return luaL_error(L, \"AOT value stream key is outside an object\");",
+        "    KsLuaBuildFrame *frame = &builder->frames[builder->depth - 1u];",
+        "    if (frame->kind != 6u || !frame->expects_key) return luaL_error(L, \"AOT value stream object is not expecting a key\");",
+        "    if (lua_gettop(L) != frame->table_index + 1) return luaL_error(L, \"AOT value stream key is not above its object\");",
+        "    frame->expects_key = 0; return 1;",
+        "}",
+        "static KS_UNUSED int ks_lua_builder_string(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int escaped, int key) {",
+        "    KsLuaTree tree = {NULL, NULL, source, 0u, 0u, source_length, builder->null_index};",
+        "    KsLuaTreeNode node = {0.0, 4u, start, length, 0u, 0u, 0u, escaped ? 1u : 0u};",
+        "    ks_tree_string(L, &tree, &node); return key ? ks_lua_builder_key(L, builder) : ks_lua_builder_put(L, builder);",
+        "}",
+        "static KS_UNUSED int ks_lua_builder_number_slice(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length) {",
+        "    size_t first = (size_t)start, count = (size_t)length; char *end = NULL;",
+        "    if (first > source_length || count > source_length - first) return luaL_error(L, \"AOT value stream number is out of bounds\");",
+        "    double value = strtod((const char *)(source + first), &end);",
+        "    if (end != (char *)(source + first + count)) return luaL_error(L, \"AOT value stream number is invalid\");",
+        "    lua_pushnumber(L, value); return ks_lua_builder_put(L, builder);",
+        "}",
+        "static KS_UNUSED int ks_lua_builder_close(lua_State *L, KsLuaBuilder *builder) {",
+        "    if (builder->depth == 0u) return luaL_error(L, \"AOT value stream close has no container\");",
+        "    KsLuaBuildFrame *frame = &builder->frames[builder->depth - 1u];",
+        "    if (frame->kind == 6u && !frame->expects_key) return luaL_error(L, \"AOT value stream object has an unmatched key\");",
+        "    if (lua_gettop(L) != frame->table_index) return luaL_error(L, \"AOT value stream container is not on top\");",
+        "    builder->depth -= 1u; return ks_lua_builder_put(L, builder);",
+        "}",
+        "static KS_UNUSED int ks_lua_builder_finish(lua_State *L, KsLuaBuilder *builder) {",
+        "    if (builder->depth != 0u) return luaL_error(L, \"AOT value stream has an unclosed container\");",
+        "    if (builder->root_index == 0) return luaL_error(L, \"AOT value stream has no root\");",
+        "    if (builder->root_index != lua_gettop(L)) return luaL_error(L, \"AOT value stream root is not on top\");",
+        "    return 1;",
+        "}",
         "",
     }
 end
@@ -1666,7 +1761,13 @@ local function luaPush(value: scalarIR.Expr, prefix: string): {string}
         end
         return {prefix .. "lua_pushvalue(L, " .. tostring((value as scalarIR.Name).cName) .. ");"}
     elseif value.type == "lua_value" then
-        if value.op == "lua_tree" then
+        if value.op == "lua_builder_finish" then
+            return {
+                prefix .. "ks_lua_builder_finish(L, &" .. tostring(
+                    ((value as scalarIR.LuaBuilderFinish).builder as scalarIR.Name).cName
+                ) .. ");",
+            }
+        elseif value.op == "lua_tree" then
             local tree = value as scalarIR.LuaTree
             return {
                 prefix .. "ks_lua_tree_push(L, " .. tostring(
@@ -1710,7 +1811,14 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
     end
 
     for _, statement in ipairs(statements) do
-        if statement.op == "let" and (
+        if statement.op == "let" and statement.type == "lua_builder" then
+            local started = statement.value as scalarIR.LuaBuilder
+            lines[
+                #lines + 1
+            ] = prefix .. "KsLuaBuilder " .. statement.cName .. " = {" .. tostring(
+                (started.nullValue as scalarIR.Name).cName
+            ) .. ", 0, 0u, {{0}}};"
+        elseif statement.op == "let" and (
             statement.type == "lua_table"
             or statement.type == "lua_string"
             or statement.type == "lua_nil"
@@ -1737,10 +1845,69 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
             append(luaPush(write.key, prefix))
             append(luaPush(write.value, prefix))
             lines[#lines + 1] = prefix .. "lua_rawset(L, " .. tostring((write.table as scalarIR.Name).cName) .. ");"
+        elseif tostring(statement.op):match("^lua_builder_") ~= nil then
+            local event = statement as scalarIR.LuaBuild
+            local builder = "&" .. tostring((event.builder as scalarIR.Name).cName)
+            if event.op == "lua_builder_open_array" or event.op == "lua_builder_open_object" then
+                local kind = event.op == "lua_builder_open_array" and "5u" or "6u"
+                lines[
+                    #lines + 1
+                ] = prefix .. "ks_lua_builder_open(L, " .. builder .. ", " .. kind .. ", " .. emit.scalar(
+                    event.capacity as scalarIR.Expr
+                ) .. ");"
+            elseif event.op == "lua_builder_key" or event.op == "lua_builder_string" then
+                local bytes = event.sourceBytes as scalarIR.Name
+                lines[
+                    #lines + 1
+                ] = prefix .. "ks_lua_builder_string(L, " .. builder .. ", ks_bytes_" .. tostring(
+                    bytes.cName
+                ) .. ", ks_length_" .. tostring(
+                    bytes.cName
+                ) .. ", " .. emit.scalar(
+                    event.start as scalarIR.Expr
+                ) .. ", " .. emit.scalar(
+                    event.length as scalarIR.Expr
+                ) .. ", " .. emit.scalar(
+                    event.escaped as scalarIR.Expr
+                ) .. ", " .. (event.op == "lua_builder_key" and "1" or "0") .. ");"
+            elseif event.op == "lua_builder_number_slice" then
+                local bytes = event.sourceBytes as scalarIR.Name
+                lines[
+                    #lines + 1
+                ] = prefix .. "ks_lua_builder_number_slice(L, " .. builder .. ", ks_bytes_" .. tostring(
+                    bytes.cName
+                ) .. ", ks_length_" .. tostring(
+                    bytes.cName
+                ) .. ", " .. emit.scalar(
+                    event.start as scalarIR.Expr
+                ) .. ", " .. emit.scalar(event.length as scalarIR.Expr) .. ");"
+            elseif event.op == "lua_builder_number" then
+                lines[
+                    #lines + 1
+                ] = prefix .. "lua_pushnumber(L, " .. emit.scalar(
+                    event.value as scalarIR.Expr
+                ) .. "); ks_lua_builder_put(L, " .. builder .. ");"
+            elseif event.op == "lua_builder_boolean" then
+                lines[
+                    #lines + 1
+                ] = prefix .. "lua_pushboolean(L, " .. emit.scalar(
+                    event.value as scalarIR.Expr
+                ) .. "); ks_lua_builder_put(L, " .. builder .. ");"
+            elseif event.op == "lua_builder_null" then
+                lines[
+                    #lines + 1
+                ] = prefix .. "lua_pushvalue(L, " .. tostring(
+                    ((event.builder as scalarIR.Name).cName)
+                ) .. ".null_index); ks_lua_builder_put(L, " .. builder .. ");"
+            elseif event.op == "lua_builder_close" then
+                lines[#lines + 1] = prefix .. "ks_lua_builder_close(L, " .. builder .. ");"
+            end
         elseif statement.op == "assign" then
             -- Builder scalar assignments retain the ordinary simultaneous
             -- assignment lowering. Lua handles are immutable logical roots.
-            append(emit.block({statement}, depth, body))
+            lines[#lines + 1] = prefix .. "{"
+            append(emit.block({statement}, depth + 1, body))
+            lines[#lines + 1] = prefix .. "}"
         elseif statement.op == "if" then
             for position, clause in ipairs(statement.clauses) do
                 lines[
@@ -2062,7 +2229,7 @@ function emit.program(programs: {scalarIR.Program}): string
     -- the type never becomes part of the Nupp source API.
     for _, program in ipairs(programs) do
         local resultTypes = program.resultTypes or {}
-        if #resultTypes > 1 then
+        if program.entryMode ~= "lua-builder" and #resultTypes > 1 then
             local resultName = scalarIR.cIdentifier("KsResult", program.symbol)
             lines[#lines + 1] = "typedef struct {"
             for position, resultType in ipairs(resultTypes) do
@@ -2137,6 +2304,17 @@ function emit.program(programs: {scalarIR.Program}): string
                 elseif param.kind == "scalar" and (param.type == "lua_string" or param.type == "lua_value") then
                     -- The argument itself is the root. Source uses carry this
                     -- positive absolute stack index; no GC pointer is taken.
+                    if param.type == "lua_string" then
+                        lines[#lines + 1] = "    size_t ks_length_" .. tostring(param.cName) .. " = 0u;"
+                        lines[
+                            #lines + 1
+                        ] = "    const unsigned char *ks_bytes_" .. tostring(
+                            param.cName
+                        ) .. " = (const unsigned char *)luaL_checklstring(L, " .. tostring(
+                            position
+                        ) .. ", &ks_length_" .. tostring(param.cName) .. ");"
+                        lines[#lines + 1] = "    (void)ks_bytes_" .. tostring(param.cName) .. ";"
+                    end
                 else
                     error("Lua builders currently take scalar parameters", 0)
                 end

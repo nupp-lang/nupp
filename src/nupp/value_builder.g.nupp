@@ -181,4 +181,158 @@ function valueBuilder.materializeTree(
     return materialize(root, 1)
 end
 
+--- Starts a direct stream of values. The ordinary implementation is the
+--- `aot=off` oracle; VM-aware AOT keeps the same state in a bounded C stack
+--- object and roots every unfinished container on the Lua stack.
+function valueBuilder.new(nullValue: any): any
+    return {nullValue = nullValue, stack = {}, result = nil, hasResult = false}
+end
+
+local function put(builder: any, value: any): nil
+    local stack = builder.stack
+    local frame = stack[#stack]
+    if frame == nil then
+        if builder.hasResult then
+            error("value stream has more than one root", 2)
+        end
+        builder.result = value
+        builder.hasResult = true
+    elseif frame.kind == 5 then
+        frame.value[frame.next] = value
+        frame.next = frame.next + 1
+    else
+        if frame.key == nil then
+            error("value stream object needs a key", 2)
+        end
+        frame.value[frame.key] = value
+        frame.key = nil
+        frame.count = frame.count + 1
+    end
+end
+
+--- Returns the rooted string's byte length without making a substring.
+function valueBuilder.length(bytes: string): uint32
+    return nupp.math.u32.wrap(#bytes)
+end
+
+--- Reads one byte at a zero-based offset.
+--- @raises when offset is outside bytes
+function valueBuilder.byte(bytes: string, offset: uint32): uint32
+    local value = bytes:byte(offset + 1)
+    if value == nil then
+        error("value stream byte is out of bounds", 2)
+    end
+
+    return nupp.math.u32.wrap(value)
+end
+
+--- Reads one native-endian uint32 at a zero-based word index.
+--- @raises when the complete word is outside bytes
+function valueBuilder.word(bytes: string, index: uint32): uint32
+    local offset = index * 4
+    if offset > #bytes - 4 then
+        error("value stream word is out of bounds", 2)
+    end
+    local pointer: any = ffi.cast(LinkPointer, bytes)
+    local value = tonumber(pointer[index])
+    if value == nil then
+        error("value stream word is invalid", 2)
+    end
+
+    return nupp.math.u32.wrap(value as integer)
+end
+
+function valueBuilder.openArray(builder: any, capacity: uint32): nil
+    local stack = builder.stack
+    stack[#stack + 1] = {kind = 5, value = table.new(capacity, 0), next = 1}
+end
+
+function valueBuilder.openObject(builder: any, capacity: uint32): nil
+    local stack = builder.stack
+    stack[#stack + 1] = {kind = 6, value = table.new(0, capacity), count = 0}
+end
+
+function valueBuilder.depth(builder: any): uint32
+    return nupp.math.u32.wrap(#builder.stack)
+end
+
+--- Returns the current container tag.
+--- @raises when the stream has no open container
+function valueBuilder.kind(builder: any): uint32
+    local frame = builder.stack[#builder.stack]
+    if frame == nil then
+        error("value stream has no current container", 2)
+    end
+
+    return nupp.math.u32.wrap(frame.kind as integer)
+end
+
+--- Returns the number of complete values in the current container.
+--- @raises when the stream has no open container
+function valueBuilder.count(builder: any): uint32
+    local frame = builder.stack[#builder.stack]
+    if frame == nil then
+        error("value stream has no current container", 2)
+    end
+    local count = frame.kind == 5 and frame.next - 1 or frame.count
+
+    return nupp.math.u32.wrap(count as integer)
+end
+
+function valueBuilder.key(builder: any, source: string, start: uint32, length: uint32, escaped: boolean): nil
+    local frame = builder.stack[#builder.stack]
+    if frame == nil or frame.kind ~= 6 or frame.key ~= nil then
+        error("value stream key is outside an object", 2)
+    end
+    frame.key = decodeString(source, start, length, escaped)
+end
+
+function valueBuilder.string(builder: any, source: string, start: uint32, length: uint32, escaped: boolean): nil
+    put(builder, decodeString(source, start, length, escaped))
+end
+
+function valueBuilder.number(builder: any, value: number): nil
+    put(builder, value)
+end
+
+function valueBuilder.numberSlice(builder: any, source: string, start: uint32, length: uint32): nil
+    local value = tonumber(source:sub(start + 1, start + length))
+    if value == nil then
+        error("value stream number is invalid", 2)
+    end
+    put(builder, value)
+end
+
+function valueBuilder.boolean(builder: any, value: boolean): nil
+    put(builder, value)
+end
+
+function valueBuilder.null(builder: any): nil
+    put(builder, builder.nullValue)
+end
+
+function valueBuilder.close(builder: any): nil
+    local stack = builder.stack
+    local frame = stack[#stack]
+    if frame == nil then
+        error("value stream close has no container", 2)
+    end
+    if frame.kind == 6 and frame.key ~= nil then
+        error("value stream object has an unmatched key", 2)
+    end
+    stack[#stack] = nil
+    put(builder, frame.value)
+end
+
+function valueBuilder.finish(builder: any): any
+    if #builder.stack ~= 0 then
+        error("value stream has an unclosed container", 2)
+    end
+    if not builder.hasResult then
+        error("value stream has no root", 2)
+    end
+
+    return builder.result
+end
+
 return valueBuilder

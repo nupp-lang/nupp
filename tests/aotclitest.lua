@@ -753,6 +753,58 @@ return {materialize = materialize}
    assert(decoded.c:find("luaL_checklstring", 1, true), decoded.c)
 end
 
+function M.valueStreamsFuseRootedByteReadsAndLuaConstruction()
+   local dir = project{
+      ["nupp/value_builder.g.nupp"] = [[
+local builder = {}
+function builder.new(nullValue: any): any return {} end
+function builder.byte(bytes: string, offset: uint32): uint32 return offset end
+function builder.word(bytes: string, index: uint32): uint32 return index end
+function builder.length(bytes: string): uint32 return nupp.math.u32.wrap(#bytes) end
+function builder.depth(state: any): uint32 return nupp.math.u32.wrap(0) end
+function builder.kind(state: any): uint32 return nupp.math.u32.wrap(0) end
+function builder.count(state: any): uint32 return nupp.math.u32.wrap(0) end
+function builder.openArray(state: any, capacity: uint32): nil end
+function builder.openObject(state: any, capacity: uint32): nil end
+function builder.key(state: any, source: string, start: uint32, length: uint32, escaped: boolean): nil end
+function builder.string(state: any, source: string, start: uint32, length: uint32, escaped: boolean): nil end
+function builder.number(state: any, value: number): nil end
+function builder.numberSlice(state: any, source: string, start: uint32, length: uint32): nil end
+function builder.boolean(state: any, value: boolean): nil end
+function builder.null(state: any): nil end
+function builder.close(state: any): nil end
+function builder.finish(state: any): any return nil end
+return builder
+]],
+      ["stream.g.nupp"] = [[
+local builder = require("nupp.value_builder")
+@aot(lanes = false)
+local function decode(source: string, tape: string, nullValue: any): (any, uint32, uint32)
+    local state = builder.new(nullValue)
+    local count = builder.length(source)
+    builder.openObject(state, nupp.math.u32.wrap(1))
+    builder.key(state, source, nupp.math.u32.wrap(0), count, false)
+    builder.openArray(state, nupp.math.u32.wrap(2))
+    builder.number(state, 1)
+    builder.numberSlice(state, source, nupp.math.u32.wrap(0), count)
+    builder.close(state)
+    builder.close(state)
+    return builder.finish(state), builder.byte(source, nupp.math.u32.wrap(0)), builder.word(tape, nupp.math.u32.wrap(0))
+end
+return {decode = decode}
+]],
+   }
+   local out, code = run(dir, "--json stream.g.nupp")
+   test.equal(code, 0, out)
+   local decoded = require("cjson").decode(out)
+   assert(decoded.ir:find("lua_builder_open_object", 1, true), decoded.ir)
+   assert(decoded.ir:find("lua_string_byte", 1, true), decoded.ir)
+   assert(decoded.ir:find("lua.builder_finish", 1, true), decoded.ir)
+   assert(decoded.c:find("KsLuaBuilder", 1, true), decoded.c)
+   assert(decoded.c:find("ks_lua_builder_number_slice", 1, true), decoded.c)
+   assert(decoded.binding:find("nupp.math.u32.wrap", 1, true), decoded.binding)
+end
+
 function M.aFileWithNoAotFunctionIsAnError()
    local dir = project{["plain.nupp"] = "local m = {}\n\nreturn m\n"}
    local out, code = run(dir, "plain.nupp")

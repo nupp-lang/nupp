@@ -818,6 +818,131 @@ local function call(
             type = "lua_value",
             source = lower.site(node)
         )
+    elseif identity == "nupp.value_builder.new" then
+        if #args ~= 1 or args[1].type ~= "lua_value" or args[1].op ~= "local" then
+            context.reject(lower.site(node), "value_builder.new takes one rooted null replacement")
+        end
+        kernel.usesLua = true
+        return new scalarIR.LuaBuilder(
+            op = "lua_builder",
+            nullValue = args[1],
+            type = "lua_builder",
+            source = lower.site(node)
+        )
+    elseif identity == "nupp.value_builder.byte"
+        or identity == "nupp.value_builder.word"
+        or identity == "nupp.value_builder.length"
+    then
+        local takesIndex = identity ~= "nupp.value_builder.length"
+        if #args ~= (
+            takesIndex and 2 or 1
+        ) or args[1].type ~= "lua_string" or args[1].op ~= "local" or takesIndex and args[2].type ~= "u32" then
+            context.reject(lower.site(node), "value_builder rooted byte access has an invalid argument")
+        end
+        kernel.usesLua = true
+        return new scalarIR.LuaBytes(
+            op = identity == "nupp.value_builder.byte"
+            and "lua_string_byte"
+            or identity == "nupp.value_builder.word"
+            and "lua_string_u32"
+            or "lua_string_length",
+            bytes = args[1],
+            index = takesIndex and args[2] or nil,
+            type = "u32",
+            source = lower.site(node)
+        )
+    elseif identity == "nupp.value_builder.finish" then
+        if #args ~= 1 or args[1].type ~= "lua_builder" or args[1].op ~= "local" then
+            context.reject(lower.site(node), "value_builder.finish takes one local builder")
+        end
+        kernel.usesLua = true
+        return new scalarIR.LuaBuilderFinish(
+            op = "lua_builder_finish",
+            builder = args[1],
+            type = "lua_value",
+            source = lower.site(node)
+        )
+    elseif identity == "nupp.value_builder.depth"
+        or identity == "nupp.value_builder.kind"
+        or identity == "nupp.value_builder.count"
+    then
+        if #args ~= 1 or args[1].type ~= "lua_builder" or args[1].op ~= "local" then
+            context.reject(lower.site(node), "value_builder stream query takes one local builder")
+        end
+        kernel.usesLua = true
+        return new scalarIR.LuaBuilderQuery(
+            op = identity == "nupp.value_builder.depth"
+            and "lua_builder_depth"
+            or identity == "nupp.value_builder.kind"
+            and "lua_builder_kind"
+            or "lua_builder_count",
+            builder = args[1],
+            type = "u32",
+            source = lower.site(node)
+        )
+    elseif identity ~= nil and identity:match("^nupp%.value_builder%.") ~= nil then
+        local action = tostring(identity):match("^nupp%.value_builder%.(.+)$")
+        local operations: {
+            [string]: string
+        } = {
+            openArray = "lua_builder_open_array",
+            openObject = "lua_builder_open_object",
+            key = "lua_builder_key",
+            string = "lua_builder_string",
+            number = "lua_builder_number",
+            numberSlice = "lua_builder_number_slice",
+            boolean = "lua_builder_boolean",
+            null = "lua_builder_null",
+            close = "lua_builder_close",
+        }
+        local operation = operations[tostring(action)]
+        if operation ~= nil then
+            if #args < 1 or args[1].type ~= "lua_builder" or args[1].op ~= "local" then
+                context.reject(lower.site(node), "value_builder event needs one local builder")
+            end
+            local event = new scalarIR.LuaBuild(
+                op = operation as any,
+                builder = args[1],
+                type = "lua_effect",
+                source = lower.site(node)
+            )
+            if action == "openArray" or action == "openObject" then
+                if #args ~= 2 or args[2].type ~= "u32" then
+                    context.reject(lower.site(node), "value_builder container opening needs a uint32 capacity")
+                end
+                event.capacity = args[2]
+            elseif action == "key" or action == "string" then
+                if #args ~= 5 or args[
+                    2
+                ].type ~= "lua_string" or args[
+                    2
+                ].op ~= "local" or args[3].type ~= "u32" or args[4].type ~= "u32" or args[5].type ~= "bool" then
+                    context.reject(lower.site(node), "value_builder string event has invalid arguments")
+                end
+                event.sourceBytes, event.start, event.length, event.escaped = args[2], args[3], args[4], args[5]
+            elseif action == "numberSlice" then
+                if #args ~= 4 or args[
+                    2
+                ].type ~= "lua_string" or args[2].op ~= "local" or args[3].type ~= "u32" or args[4].type ~= "u32" then
+                    context.reject(lower.site(node), "value_builder number slice has invalid arguments")
+                end
+                event.sourceBytes, event.start, event.length = args[2], args[3], args[4]
+            elseif action == "number" then
+                if #args ~= 2 or args[2].type ~= "f64" then
+                    context.reject(lower.site(node), "value_builder.number takes one number")
+                end
+                event.value = args[2]
+            elseif action == "boolean" then
+                if #args ~= 2 or args[2].type ~= "bool" then
+                    context.reject(lower.site(node), "value_builder.boolean takes one boolean")
+                end
+                event.value = args[2]
+            elseif #args ~= 1 then
+                context.reject(lower.site(node), "value_builder event takes only its builder")
+            end
+            kernel.usesLua = true
+            return event
+        end
     end
     if identity == "table.new"
         or path == "table.new"
@@ -1961,7 +2086,12 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         if kind == "localStmt" then
             localStmt(stat as cst.LocalStmt, out, environment, kernel)
         elseif kind == "callStmt" then
-            context.reject(lower.site(stat), "native element stores use output[index] = value")
+            local statement = stat as cst.CallStmt
+            local effect = lower.expression(statement.expr as cst.Node, environment, kernel.index, kernel)
+            if effect.type ~= "lua_effect" or tostring(effect.op):match("^lua_builder_") == nil then
+                context.reject(lower.site(stat), "native element stores use output[index] = value")
+            end
+            out[#out + 1] = effect as scalarIR.LuaBuild
         elseif kind == "assignStmt" then
             assignStmt(stat as cst.AssignStmt, out, environment, kernel)
         elseif kind == "ifStmt" then

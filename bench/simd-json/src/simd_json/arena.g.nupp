@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local indexer = require("simd_json.indexer")
 local parser = require("simd_json.parser")
+local fused = require("simd_json.fused")
 local span = require("nupp.span")
 local _valueBuilder = require("nupp.value_builder")
 local _materializeTree = _valueBuilder.materializeTree
@@ -205,6 +206,28 @@ end
 
 function arena.decodeBuilder(source: string, nullValue: any): any
     return arena.materializeBuilder(arena.parse(source), nullValue)
+end
+
+--- Retains SIMD structural indexing, then parses and constructs ordinary Lua
+--- values in one VM-aware AOT entry. The rooted tape copy is the only retained
+--- intermediate representation.
+function arena.decodeFused(source: string, nullValue: any): any
+    local length: integer = #source
+    local capacity: integer = math.max(length, 1)
+    local tapeStorage = ffi.new("uint32_t[?]", capacity) as uint32[?]
+    local tapeWrite = span.writeCarray(tapeStorage, length)
+    local tapeCount, indexStatus, indexPosition = indexer.index(span.fromString(source), tapeWrite)
+    drop tapeWrite
+    if indexStatus ~= indexer.OK then
+        fail(indexPosition, "indexing", indexStatus, 2)
+    end
+    local tape = ffi.string(tapeStorage, (tapeCount as integer) * 4)
+    local value, status, errorByte = fused.decode(source, tape, tapeCount, nullValue)
+    if status ~= fused.OK then
+        fail(errorByte, "parser", status, 2)
+    end
+
+    return value
 end
 
 return arena

@@ -116,6 +116,8 @@ return m
 ]]
 
 local BUILDER = [[
+local valueBuilder = require("nupp.value_builder")
+
 @aot
 local function rows(count: integer): {number}
     local result = table.new(count, 0)
@@ -132,7 +134,20 @@ local function object(name: string): {[string]: any}
     return result
 end
 
-return {rows = rows, object = object}
+@aot(lanes = false)
+local function stream(source: string, tape: string, nullValue: any): (any, uint32, uint32)
+    local state = valueBuilder.new(nullValue)
+    valueBuilder.openObject(state, nupp.math.u32.wrap(2))
+    valueBuilder.key(state, source, nupp.math.u32.wrap(0), nupp.math.u32.wrap(4), false)
+    valueBuilder.numberSlice(state, source, nupp.math.u32.wrap(4), nupp.math.u32.wrap(2))
+    valueBuilder.key(state, source, nupp.math.u32.wrap(6), nupp.math.u32.wrap(4), false)
+    valueBuilder.boolean(state, true)
+    valueBuilder.close(state)
+    return valueBuilder.finish(state), valueBuilder.byte(source, nupp.math.u32.wrap(4)),
+        valueBuilder.word(tape, nupp.math.u32.wrap(0))
+end
+
+return {rows = rows, object = object, stream = stream}
 ]]
 
 local function project(policy)
@@ -179,7 +194,7 @@ return {
 }
 ]=]):format(policy))
    manifest:close()
-   local source = assert(io.open(dir .. "/src/builder.nupp", "wb"))
+   local source = assert(io.open(dir .. "/src/builder.g.nupp", "wb"))
    source:write(BUILDER)
    source:close()
    return dir
@@ -504,12 +519,15 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
          local builder = require("builder")
          local rows = builder.rows(4)
          local object = builder.object("nupp")
+         local streamed, byte, word = builder.stream("name42flag", string.char(7, 0, 0, 0), {})
          print(table.concat(rows, ","))
          print(object.name, object.ready, table.concat(object.nested, ","))
+         print(streamed.name, streamed.flag, byte, word)
       ]]
       local pipe = assert(io.popen((
          "cd %q && luajit -e %q 2>&1"
-      ):format(dir, 'package.path="build/native/?.lua;"..package.path;' .. script)))
+      ):format(dir, ('package.path="build/native/?.lua;%s/../build/?.lua;"..package.path;'):format(HERE)
+         .. script)))
       local result = pipe:read("*a")
       pipe:close()
       return result, dir
@@ -520,18 +538,20 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
    test.equal(native, ordinary, "the VM-aware ABI preserves the ordinary source answer")
    assert(native:find("2,4,6,8", 1, true), native)
    assert(native:find("nupp\ttrue\t1,2,3", 1, true), native)
+   assert(native:find("42\ttrue\t52\t7", 1, true), native)
    local generated = assert(read(dir .. "/build/native/builder.lua"))
    assert(generated:find("ks_register_", 1, true), generated)
    assert(not generated:find("cdef function ks_object", 1, true),
       "a builder loads a C closure rather than fabricating lua_State through FFI")
    local failure = assert(io.popen((
       "cd %q && luajit -e %q 2>&1"
-   ):format(dir, 'package.path="build/native/?.lua;"..package.path;local b=require("builder");'
+   ):format(dir, ('package.path="build/native/?.lua;%s/../build/?.lua;"..package.path;'):format(HERE)
+      .. 'local b=require("builder");'
       .. 'local ok,why=pcall(b.rows,-1);print(ok,tostring(why))')))
    local failureText = failure:read("*a")
    failure:close()
    assert(failureText:find("false", 1, true) and
-      failureText:find("array capacity at 3:", 1, true),
+      failureText:find("array capacity at 5:", 1, true),
       "a modeled native failure is protected and source-attributed: " .. failureText)
 end
 

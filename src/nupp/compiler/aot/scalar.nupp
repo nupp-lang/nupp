@@ -26,7 +26,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 7
+const scalarIR.VERSION = 8
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -150,6 +150,42 @@ record scalarIR.LuaTree
     root: scalarIR.Expr
     nullValue: scalarIR.Expr
     type: 'lua_value'
+    source: scalarIR.Source?
+end
+
+--- Starts one bounded, stack-rooted stream of ordinary Lua values.
+---
+--- The handle is native construction state, not a Lua value. It may be used
+--- only by the value-stream statements below and finished exactly once.
+record scalarIR.LuaBuilder
+    op: 'lua_builder'
+    nullValue: scalarIR.Expr
+    type: 'lua_builder'
+    source: scalarIR.Source?
+end
+
+--- Reads rooted Lua string storage without creating a substring.
+record scalarIR.LuaBytes
+    op: 'lua_string_byte' | 'lua_string_u32' | 'lua_string_length'
+    bytes: scalarIR.Expr
+    index: scalarIR.Expr?
+    type: 'u32'
+    source: scalarIR.Source?
+end
+
+--- Publishes the single completed value produced by a stream builder.
+record scalarIR.LuaBuilderFinish
+    op: 'lua_builder_finish'
+    builder: scalarIR.Expr
+    type: 'lua_value'
+    source: scalarIR.Source?
+end
+
+--- Inspects the current container of a direct value stream.
+record scalarIR.LuaBuilderQuery
+    op: 'lua_builder_depth' | 'lua_builder_kind' | 'lua_builder_count'
+    builder: scalarIR.Expr
+    type: 'u32'
     source: scalarIR.Source?
 end
 
@@ -390,6 +426,11 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.LuaString
     | scalarIR.LuaNewTable
     | scalarIR.LuaTree
+    | scalarIR.LuaBuilder
+    | scalarIR.LuaBytes
+    | scalarIR.LuaBuilderFinish
+    | scalarIR.LuaBuilderQuery
+    | scalarIR.LuaBuild
     | scalarIR.Name
     | scalarIR.SpanCount
     | scalarIR.Load
@@ -491,6 +532,33 @@ record scalarIR.LuaSet
     source: scalarIR.Source?
 end
 
+--- One direct construction event applied to a bounded value stream.
+---
+--- `sourceBytes`, `start`, `length`, and `escaped` belong to string/key and
+--- number-slice events. `value` belongs to boolean/number events. `capacity`
+--- belongs to container openings. Keeping one record makes the legal shapes
+--- explicit in the verifier while avoiding an open-ended call opcode.
+record scalarIR.LuaBuild
+    op: 'lua_builder_open_array'
+        | 'lua_builder_open_object'
+        | 'lua_builder_key'
+        | 'lua_builder_string'
+        | 'lua_builder_number'
+        | 'lua_builder_number_slice'
+        | 'lua_builder_boolean'
+        | 'lua_builder_null'
+        | 'lua_builder_close'
+    builder: scalarIR.Expr
+    sourceBytes: scalarIR.Expr?
+    start: scalarIR.Expr?
+    length: scalarIR.Expr?
+    escaped: scalarIR.Expr?
+    value: scalarIR.Expr?
+    capacity: scalarIR.Expr?
+    type: 'lua_effect'
+    source: scalarIR.Source?
+end
+
 --- One arm of a conditional.
 record scalarIR.Clause
     condition: scalarIR.Expr
@@ -581,6 +649,7 @@ type scalarIR.Statement = scalarIR.Let
     | scalarIR.Assign
     | scalarIR.Store
     | scalarIR.LuaSet
+    | scalarIR.LuaBuild
     | scalarIR.If
     | scalarIR.While
     | scalarIR.Fornum

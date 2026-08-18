@@ -161,10 +161,12 @@ for _, source in ipairs(corpus) do
    local actual = json.decode(source)
    local arenaActual = arena.decode(source, json.null)
    local builderActual = arena.decodeBuilder(source, json.null)
+   local fusedActual = arena.decodeFused(source, json.null)
    local expected = cjson.decode(source)
    check(same(actual, expected), "differential mismatch for " .. source)
    check(same(arenaActual, expected), "arena differential mismatch for " .. source)
    check(same(builderActual, expected), "builder differential mismatch for " .. source)
+   check(same(fusedActual, expected), "fused differential mismatch for " .. source)
    local valid, why = json.validate(source)
    check(valid and why == nil, "valid input rejected: " .. tostring(why))
    local expectedTape = referenceTape(source)
@@ -193,6 +195,22 @@ for _, source in ipairs(corpus) do
       local _, linkStatus = parsed(source, nodeCount, nodeCount - 2)
       check(linkStatus == parser.LINK_CAPACITY, "one-short link arena was accepted")
    end
+end
+
+do
+   local stream = valueBuilder.new(json.null)
+   valueBuilder.openObject(stream, nupp.math.u32.wrap(2))
+   valueBuilder.key(stream, "alpha", nupp.math.u32.wrap(0), nupp.math.u32.wrap(5), false)
+   valueBuilder.openArray(stream, nupp.math.u32.wrap(2))
+   valueBuilder.number(stream, 1)
+   valueBuilder.null(stream)
+   valueBuilder.close(stream)
+   valueBuilder.key(stream, "escaped\\n", nupp.math.u32.wrap(0), nupp.math.u32.wrap(9), true)
+   valueBuilder.boolean(stream, true)
+   valueBuilder.close(stream)
+   local built = valueBuilder.finish(stream)
+   check(built.alpha[1] == 1 and built.alpha[2] == json.null and built["escaped\n"] == true,
+      "ordinary value stream built the wrong graph")
 end
 
 do
@@ -250,6 +268,8 @@ for _, source in ipairs(invalid) do
    check(not valid and type(why) == "string", "invalid input accepted: " .. source)
    local arenaValid = pcall(arena.decode, source, json.null)
    check(not arenaValid, "invalid input accepted by arena parser: " .. source)
+   local fusedValid = pcall(arena.decodeFused, source, json.null)
+   check(not fusedValid, "invalid input accepted by fused parser: " .. source)
 end
 
 do
@@ -271,9 +291,13 @@ do
          "generated arena differential mismatch at case " .. case)
       check(same(arena.decodeBuilder(source, json.null), cjson.decode(source)),
          "generated builder differential mismatch at case " .. case)
+      check(same(arena.decodeFused(source, json.null), cjson.decode(source)),
+         "generated fused differential mismatch at case " .. case)
       local truncated = source:sub(1, -2)
       check(not pcall(arena.decode, truncated, json.null),
          "truncated generated document accepted at case " .. case)
+      check(not pcall(arena.decodeFused, truncated, json.null),
+         "truncated generated document accepted by fused parser at case " .. case)
    end
 end
 

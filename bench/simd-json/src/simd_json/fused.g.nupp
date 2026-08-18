@@ -1,0 +1,481 @@
+local _valueBuilder = require("nupp.value_builder")
+
+local fused = {}
+
+const fused.OK = 0
+const fused.SYNTAX = 1
+const fused.TAPE = 5
+
+--- Parses a structurally indexed document directly into ordinary Lua values.
+--- @raises when the native builder cannot be loaded or value allocation fails
+@aot(lanes = false)
+local function decode(source: string, tape: string, tapeCount: uint32, nullValue: any): (any, uint32, uint32)
+    local sourceCount = _valueBuilder.length(source)
+    local values = _valueBuilder.new(nullValue)
+    local cursor: uint32 = 0
+    local tapeCursor: uint32 = 0
+    local needValue = true
+    local done = false
+
+    while not done do
+        local skipping = true
+        while skipping and cursor < sourceCount do
+            local byte: uint32 = 0
+            if cursor < sourceCount then
+                byte = _valueBuilder.byte(source, cursor)
+            end
+            if byte == 32 or byte == 9 or byte == 10 or byte == 13 then
+                cursor = nupp.math.u32.add(cursor, 1)
+            else
+                skipping = false
+            end
+        end
+
+        if needValue then
+            if cursor >= sourceCount then
+                return nullValue, 1, nupp.math.u32.add(cursor, 1)
+            end
+
+            local tag: uint32 = 0
+            local start: uint32 = cursor
+            local length: uint32 = 0
+            local numberValue: number = 0
+            local flags: uint32 = 0
+            local byte: uint32 = 0
+            if cursor < sourceCount then
+                byte = _valueBuilder.byte(source, cursor)
+            end
+
+            if byte == 34 then
+                tag = 4
+                if tapeCursor < tapeCount then
+                    local opening = _valueBuilder.word(tape, tapeCursor)
+                    if opening ~= cursor then
+                        return nullValue, 5, nupp.math.u32.add(cursor, 1)
+                    end
+                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                else
+                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
+                end
+                if tapeCursor < tapeCount then
+                    local closing = _valueBuilder.word(tape, tapeCursor)
+                    start = nupp.math.u32.add(cursor, 1)
+                    length = nupp.math.u32.sub(closing, start)
+                    local stringCursor: uint32 = start
+                    while stringCursor < closing and stringCursor < sourceCount do
+                        local stringByte = _valueBuilder.byte(source, stringCursor)
+                        if stringByte == 92 then
+                            flags = 1
+                            stringCursor = nupp.math.u32.add(stringCursor, 1)
+                            if stringCursor >= closing or stringCursor >= sourceCount then
+                                return nullValue, 1, nupp.math.u32.add(stringCursor, 1)
+                            end
+                            local escaped: uint32 = 0
+                            if stringCursor < sourceCount then
+                                escaped = _valueBuilder.byte(source, stringCursor)
+                            else
+                                return nullValue, 1, nupp.math.u32.add(stringCursor, 1)
+                            end
+                            if escaped == 117 then
+                                stringCursor = nupp.math.u32.add(stringCursor, 1)
+                                local codepoint: uint32 = 0
+                                local digits: uint32 = 0
+                                while digits < 4 do
+                                    local at = nupp.math.u32.add(stringCursor, digits)
+                                    if at >= closing or at >= sourceCount then
+                                        return nullValue, 1, nupp.math.u32.add(at, 1)
+                                    end
+                                    local encoded: uint32 = 0
+                                    if at < sourceCount then
+                                        encoded = _valueBuilder.byte(source, at)
+                                    else
+                                        return nullValue, 1, nupp.math.u32.add(at, 1)
+                                    end
+                                    local nibble: uint32 = 16
+                                    if encoded >= 48 and encoded <= 57 then
+                                        nibble = nupp.math.u32.sub(encoded, 48)
+                                    elseif encoded >= 65 and encoded <= 70 then
+                                        nibble = nupp.math.u32.add(nupp.math.u32.sub(encoded, 65), 10)
+                                    elseif encoded >= 97 and encoded <= 102 then
+                                        nibble = nupp.math.u32.add(nupp.math.u32.sub(encoded, 97), 10)
+                                    end
+                                    if nibble >= 16 then
+                                        return nullValue, 1, nupp.math.u32.add(at, 1)
+                                    end
+                                    codepoint = nupp.math.u32.add(nupp.math.u32.mul(codepoint, 16), nibble)
+                                    digits = nupp.math.u32.add(digits, 1)
+                                end
+                                stringCursor = nupp.math.u32.add(stringCursor, 4)
+                                if codepoint >= 0xD800 and codepoint <= 0xDBFF then
+                                    if stringCursor >= closing or stringCursor >= sourceCount then
+                                        return nullValue, 1, nupp.math.u32.add(stringCursor, 1)
+                                    end
+                                    local slash: uint32 = 0
+                                    if stringCursor < sourceCount then
+                                        slash = _valueBuilder.byte(source, stringCursor)
+                                    else
+                                        return nullValue, 1, nupp.math.u32.add(stringCursor, 1)
+                                    end
+                                    local markerAt = nupp.math.u32.add(stringCursor, 1)
+                                    if markerAt >= closing or markerAt >= sourceCount then
+                                        return nullValue, 1, nupp.math.u32.add(markerAt, 1)
+                                    end
+                                    local marker: uint32 = 0
+                                    if markerAt < sourceCount then
+                                        marker = _valueBuilder.byte(source, markerAt)
+                                    else
+                                        return nullValue, 1, nupp.math.u32.add(markerAt, 1)
+                                    end
+                                    if slash ~= 92 or marker ~= 117 then
+                                        return nullValue, 1, nupp.math.u32.add(stringCursor, 1)
+                                    end
+                                    stringCursor = nupp.math.u32.add(stringCursor, 2)
+                                    local low: uint32 = 0
+                                    digits = 0
+                                    while digits < 4 do
+                                        local at = nupp.math.u32.add(stringCursor, digits)
+                                        if at >= closing or at >= sourceCount then
+                                            return nullValue, 1, nupp.math.u32.add(at, 1)
+                                        end
+                                        local encoded: uint32 = 0
+                                        if at < sourceCount then
+                                            encoded = _valueBuilder.byte(source, at)
+                                        else
+                                            return nullValue, 1, nupp.math.u32.add(at, 1)
+                                        end
+                                        local nibble: uint32 = 16
+                                        if encoded >= 48 and encoded <= 57 then
+                                            nibble = nupp.math.u32.sub(encoded, 48)
+                                        elseif encoded >= 65 and encoded <= 70 then
+                                            nibble = nupp.math.u32.add(nupp.math.u32.sub(encoded, 65), 10)
+                                        elseif encoded >= 97 and encoded <= 102 then
+                                            nibble = nupp.math.u32.add(nupp.math.u32.sub(encoded, 97), 10)
+                                        end
+                                        if nibble >= 16 then
+                                            return nullValue, 1, nupp.math.u32.add(at, 1)
+                                        end
+                                        low = nupp.math.u32.add(nupp.math.u32.mul(low, 16), nibble)
+                                        digits = nupp.math.u32.add(digits, 1)
+                                    end
+                                    if low < 0xDC00 or low > 0xDFFF then
+                                        return nullValue, 1, nupp.math.u32.add(stringCursor, 1)
+                                    end
+                                    stringCursor = nupp.math.u32.add(stringCursor, 4)
+                                elseif codepoint >= 0xDC00 and codepoint <= 0xDFFF then
+                                    return nullValue, 1, nupp.math.u32.add(stringCursor, 1)
+                                end
+                            elseif escaped == 34
+                                or escaped == 92
+                                or escaped == 47
+                                or escaped == 98
+                                or escaped == 102
+                                or escaped == 110
+                                or escaped == 114
+                                or escaped == 116
+                            then
+                                stringCursor = nupp.math.u32.add(stringCursor, 1)
+                            else
+                                return nullValue, 1, nupp.math.u32.add(stringCursor, 1)
+                            end
+                        else
+                            stringCursor = nupp.math.u32.add(stringCursor, 1)
+                        end
+                    end
+                    cursor = nupp.math.u32.add(closing, 1)
+                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                else
+                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                end
+            elseif byte == 91 or byte == 123 then
+                if byte == 91 then
+                    tag = 5
+                else
+                    tag = 6
+                end
+                cursor = nupp.math.u32.add(cursor, 1)
+                if tapeCursor < tapeCount then
+                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                else
+                    return nullValue, 5, cursor
+                end
+            elseif byte == 116 then
+                tag = 1
+                local matched: uint32 = 0
+                while matched < 4 do
+                    local at: uint32 = nupp.math.u32.add(cursor, matched)
+                    if at < sourceCount then
+                        local actual = _valueBuilder.byte(source, at)
+                        local expected: uint32 = switch matched do
+                            case 0 -> 116
+                            case 1 -> 114
+                            case 2 -> 117
+                            else -> 101
+                        end
+                        if actual ~= expected then
+                            return nullValue, 1, nupp.math.u32.add(at, 1)
+                        end
+                    else
+                        return nullValue, 1, nupp.math.u32.add(at, 1)
+                    end
+                    matched = nupp.math.u32.add(matched, 1)
+                end
+                length = 4
+                cursor = nupp.math.u32.add(cursor, 4)
+            elseif byte == 102 then
+                tag = 2
+                local matched: uint32 = 0
+                while matched < 5 do
+                    local at: uint32 = nupp.math.u32.add(cursor, matched)
+                    if at < sourceCount then
+                        local actual = _valueBuilder.byte(source, at)
+                        local expected: uint32 = switch matched do
+                            case 0 -> 102
+                            case 1 -> 97
+                            case 2 -> 108
+                            case 3 -> 115
+                            else -> 101
+                        end
+                        if actual ~= expected then
+                            return nullValue, 1, nupp.math.u32.add(at, 1)
+                        end
+                    else
+                        return nullValue, 1, nupp.math.u32.add(at, 1)
+                    end
+                    matched = nupp.math.u32.add(matched, 1)
+                end
+                length = 5
+                cursor = nupp.math.u32.add(cursor, 5)
+            elseif byte == 110 then
+                tag = 0
+                local matched: uint32 = 0
+                while matched < 4 do
+                    local at: uint32 = nupp.math.u32.add(cursor, matched)
+                    if at < sourceCount then
+                        local actual = _valueBuilder.byte(source, at)
+                        local expected: uint32 = switch matched do
+                            case 0 -> 110
+                            case 1 -> 117
+                            else -> 108
+                        end
+                        if actual ~= expected then
+                            return nullValue, 1, nupp.math.u32.add(at, 1)
+                        end
+                    else
+                        return nullValue, 1, nupp.math.u32.add(at, 1)
+                    end
+                    matched = nupp.math.u32.add(matched, 1)
+                end
+                length = 4
+                cursor = nupp.math.u32.add(cursor, 4)
+            elseif byte == 45 or byte >= 48 and byte <= 57 then
+                tag = 3
+                if byte == 45 then
+                    cursor = nupp.math.u32.add(cursor, 1)
+                    if cursor >= sourceCount then
+                        return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                    end
+                    if cursor < sourceCount then
+                        byte = _valueBuilder.byte(source, cursor)
+                    end
+                end
+                if byte == 48 then
+                    cursor = nupp.math.u32.add(cursor, 1)
+                    if cursor < sourceCount then
+                        local following = _valueBuilder.byte(source, cursor)
+                        if following >= 48 and following <= 57 then
+                            return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                        end
+                    end
+                elseif byte >= 49 and byte <= 57 then
+                    local digits = true
+                    while digits and cursor < sourceCount do
+                        local digit = _valueBuilder.byte(source, cursor)
+                        if digit >= 48 and digit <= 57 then
+                            cursor = nupp.math.u32.add(cursor, 1)
+                        else
+                            digits = false
+                        end
+                    end
+                else
+                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                end
+                if cursor < sourceCount then
+                    local point = _valueBuilder.byte(source, cursor)
+                    if point == 46 then
+                        cursor = nupp.math.u32.add(cursor, 1)
+                        if cursor >= sourceCount then
+                            return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                        end
+                        local fractions = false
+                        local scanning = true
+                        while scanning and cursor < sourceCount do
+                            local digit = _valueBuilder.byte(source, cursor)
+                            if digit >= 48 and digit <= 57 then
+                                fractions = true
+                                cursor = nupp.math.u32.add(cursor, 1)
+                            else
+                                scanning = false
+                            end
+                        end
+                        if not fractions then
+                            return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                        end
+                    end
+                end
+                if cursor < sourceCount then
+                    local exponent = _valueBuilder.byte(source, cursor)
+                    if exponent == 69 or exponent == 101 then
+                        cursor = nupp.math.u32.add(cursor, 1)
+                        if cursor < sourceCount then
+                            local sign = _valueBuilder.byte(source, cursor)
+                            if sign == 43 or sign == 45 then
+                                cursor = nupp.math.u32.add(cursor, 1)
+                            end
+                        end
+                        local exponentDigits = false
+                        local scanning = true
+                        while scanning and cursor < sourceCount do
+                            local digit = _valueBuilder.byte(source, cursor)
+                            if digit >= 48 and digit <= 57 then
+                                exponentDigits = true
+                                cursor = nupp.math.u32.add(cursor, 1)
+                            else
+                                scanning = false
+                            end
+                        end
+                        if not exponentDigits then
+                            return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                        end
+                    end
+                end
+                length = nupp.math.u32.sub(cursor, start)
+            else
+                return nullValue, 1, nupp.math.u32.add(cursor, 1)
+            end
+
+            if tag == 0 then
+                _valueBuilder.null(values)
+            elseif tag == 1 then
+                _valueBuilder.boolean(values, true)
+            elseif tag == 2 then
+                _valueBuilder.boolean(values, false)
+            elseif tag == 3 then
+                if flags == 1 then
+                    _valueBuilder.number(values, numberValue)
+                else
+                    _valueBuilder.numberSlice(values, source, start, length)
+                end
+            elseif tag == 4 then
+                _valueBuilder.string(values, source, start, length, flags == 1)
+            elseif tag == 5 then
+                _valueBuilder.openArray(values, nupp.math.u32.wrap(0))
+            else
+                _valueBuilder.openObject(values, nupp.math.u32.wrap(0))
+            end
+            needValue = false
+        elseif _valueBuilder.depth(values) == 0 then
+            if cursor < sourceCount then
+                return nullValue, 1, nupp.math.u32.add(cursor, 1)
+            end
+            done = true
+        else
+            if cursor >= sourceCount then
+                return nullValue, 1, nupp.math.u32.add(cursor, 1)
+            end
+            local byte = _valueBuilder.byte(source, cursor)
+            local kind = _valueBuilder.kind(values)
+            local count = _valueBuilder.count(values)
+            local closing = kind == 5 and byte == 93 or kind == 6 and byte == 125
+            if closing then
+                if tapeCursor >= tapeCount or _valueBuilder.word(tape, tapeCursor) ~= cursor then
+                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
+                end
+                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                cursor = nupp.math.u32.add(cursor, 1)
+                _valueBuilder.close(values)
+            elseif kind == 5 then
+                if count == 0 then
+                    needValue = true
+                elseif byte == 44 then
+                    cursor = nupp.math.u32.add(cursor, 1)
+                    if tapeCursor >= tapeCount then
+                        return nullValue, 5, cursor
+                    end
+                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                    needValue = true
+                else
+                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                end
+            else
+                if count > 0 then
+                    if byte ~= 44 then
+                        return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                    end
+                    cursor = nupp.math.u32.add(cursor, 1)
+                    if tapeCursor >= tapeCount then
+                        return nullValue, 5, cursor
+                    end
+                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                    local keySkipping = true
+                    while keySkipping and cursor < sourceCount do
+                        local keyByte = _valueBuilder.byte(source, cursor)
+                        if keyByte == 32 or keyByte == 9 or keyByte == 10 or keyByte == 13 then
+                            cursor = nupp.math.u32.add(cursor, 1)
+                        else
+                            keySkipping = false
+                        end
+                    end
+                end
+                if cursor >= sourceCount or _valueBuilder.byte(source, cursor) ~= 34 then
+                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                end
+                local opening = cursor
+                if tapeCursor >= tapeCount or _valueBuilder.word(tape, tapeCursor) ~= opening then
+                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
+                end
+                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                if tapeCursor >= tapeCount then
+                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                end
+                local closingQuote = _valueBuilder.word(tape, tapeCursor)
+                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                local keyStart = nupp.math.u32.add(opening, 1)
+                local keyLength = nupp.math.u32.sub(closingQuote, keyStart)
+                local keyCursor = keyStart
+                local keyEscaped = false
+                while keyCursor < closingQuote and keyCursor < sourceCount do
+                    if _valueBuilder.byte(source, keyCursor) == 92 then
+                        keyEscaped = true
+                    end
+                    keyCursor = nupp.math.u32.add(keyCursor, 1)
+                end
+                _valueBuilder.key(values, source, keyStart, keyLength, keyEscaped)
+                cursor = nupp.math.u32.add(closingQuote, 1)
+                local colonSkipping = true
+                while colonSkipping and cursor < sourceCount do
+                    local colonByte = _valueBuilder.byte(source, cursor)
+                    if colonByte == 32 or colonByte == 9 or colonByte == 10 or colonByte == 13 then
+                        cursor = nupp.math.u32.add(cursor, 1)
+                    else
+                        colonSkipping = false
+                    end
+                end
+                if cursor >= sourceCount or _valueBuilder.byte(source, cursor) ~= 58 then
+                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                end
+                if tapeCursor >= tapeCount or _valueBuilder.word(tape, tapeCursor) ~= cursor then
+                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
+                end
+                cursor = nupp.math.u32.add(cursor, 1)
+                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                needValue = true
+            end
+        end
+    end
+
+    return _valueBuilder.finish(values), 0, 0
+end
+
+fused.decode = decode as function(string, string, uint32, any): (any, uint32, uint32)
+
+return fused

@@ -91,7 +91,7 @@ local report = {
 }
 
 local names = indexOnly and {"classify", "index"} or {
-   "classify", "index", "parse", "materialize", "build", "legacy", "arena", "nupp", "cjson",
+   "classify", "index", "parse", "materialize", "build", "legacy", "arena", "builder", "nupp", "cjson",
 }
 
 local function sorted(values)
@@ -221,6 +221,13 @@ for payloadIndex, payload in ipairs(payloads) do
          end
          return os.clock() - started
       end,
+      builder = function()
+         local started = os.clock()
+         for _ = 1, iterations do
+            arena.decodeBuilder(source, json.null)
+         end
+         return os.clock() - started
+      end,
       nupp = function()
          local started = os.clock()
          for _ = 1, iterations do
@@ -245,7 +252,7 @@ for payloadIndex, payload in ipairs(payloads) do
 
    local raw = {
       classify = {}, index = {}, parse = {}, materialize = {}, build = {},
-      legacy = {}, arena = {}, nupp = {}, cjson = {},
+      legacy = {}, arena = {}, builder = {}, nupp = {}, cjson = {},
    }
    for sample = 1, samples do
       collectgarbage()
@@ -267,9 +274,11 @@ for payloadIndex, payload in ipairs(payloads) do
       summary.materializeMBps = #source * iterations / median(raw.materialize) / 1000000
       summary.buildMBps = #source * iterations / median(raw.build) / 1000000
       summary.arenaMBps = #source * iterations / median(raw.arena) / 1000000
+      summary.builderMBps = #source * iterations / median(raw.builder) / 1000000
       summary.cjsonMBps = #source * iterations / median(raw.cjson) / 1000000
       summary.nuppToLegacyThroughput = ratioSummary(raw.legacy, raw.nupp)
       summary.nuppToArenaThroughput = ratioSummary(raw.arena, raw.nupp)
+      summary.nuppToBuilderThroughput = ratioSummary(raw.builder, raw.nupp)
       summary.nuppToCjsonThroughput = ratioSummary(raw.cjson, raw.nupp)
       summary.classifierShare = ratioSummary(raw.classify, raw.nupp)
    end
@@ -333,6 +342,20 @@ if not indexOnly then
       pairedGeomeans[sample] = math.exp(logSum / count)
    end
    report.largeNuppToArenaThroughput = bootstrapSummary(pairedGeomeans)
+
+   pairedGeomeans = {}
+   for sample = 1, samples do
+      local logSum, count = 0, 0
+      for _, payload in ipairs(report.payloads) do
+         if not payload.short then
+            logSum = logSum + math.log(
+               payload.seconds.builder[sample] / payload.seconds.nupp[sample])
+            count = count + 1
+         end
+      end
+      pairedGeomeans[sample] = math.exp(logSum / count)
+   end
+   report.largeNuppToBuilderThroughput = bootstrapSummary(pairedGeomeans)
 end
 
 if jsonOutput then
@@ -353,15 +376,20 @@ print(("large-payload index/classify geometric mean %.3fx [%.3f, %.3f]"):format(
    report.largeIndexToClassifierThroughput.high95
 ))
 if not indexOnly then
-   print(("large-payload arena/legacy geometric mean %.3fx [%.3f, %.3f]"):format(
+   print(("large-payload fused/legacy geometric mean %.3fx [%.3f, %.3f]"):format(
       report.largeNuppToLegacyThroughput.median,
       report.largeNuppToLegacyThroughput.low95,
       report.largeNuppToLegacyThroughput.high95
    ))
-   print(("large-payload builder/arena geometric mean %.3fx [%.3f, %.3f]"):format(
+   print(("large-payload fused/arena geometric mean %.3fx [%.3f, %.3f]"):format(
       report.largeNuppToArenaThroughput.median,
       report.largeNuppToArenaThroughput.low95,
       report.largeNuppToArenaThroughput.high95
+   ))
+   print(("large-payload fused/builder geometric mean %.3fx [%.3f, %.3f]"):format(
+      report.largeNuppToBuilderThroughput.median,
+      report.largeNuppToBuilderThroughput.low95,
+      report.largeNuppToBuilderThroughput.high95
    ))
 end
 
@@ -396,15 +424,20 @@ for _, payload in ipairs(report.payloads) do
          payload.summary.classifierShare.low95 * 100,
          payload.summary.classifierShare.high95 * 100
       ))
-      print(("  arena/legacy throughput %.3fx [%.3f, %.3f]"):format(
+      print(("  fused/legacy throughput %.3fx [%.3f, %.3f]"):format(
          payload.summary.nuppToLegacyThroughput.median,
          payload.summary.nuppToLegacyThroughput.low95,
          payload.summary.nuppToLegacyThroughput.high95
       ))
-      print(("  builder/arena throughput %.3fx [%.3f, %.3f]"):format(
+      print(("  fused/arena throughput %.3fx [%.3f, %.3f]"):format(
          payload.summary.nuppToArenaThroughput.median,
          payload.summary.nuppToArenaThroughput.low95,
          payload.summary.nuppToArenaThroughput.high95
+      ))
+      print(("  fused/builder throughput %.3fx [%.3f, %.3f]"):format(
+         payload.summary.nuppToBuilderThroughput.median,
+         payload.summary.nuppToBuilderThroughput.low95,
+         payload.summary.nuppToBuilderThroughput.high95
       ))
    end
    print(("  index/classify throughput %.3fx [%.3f, %.3f]"):format(

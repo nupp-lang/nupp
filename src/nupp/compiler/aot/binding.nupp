@@ -361,11 +361,29 @@ function binding.builderWrapper(program: scalarIR.Program): {string}
         lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
     end
     lines[#lines + 1] = "): " .. result
-    lines[
-        #lines + 1
-    ] = "    " .. (
-        #results > 0 and "return " or ""
-    ) .. program.symbol .. "_builder(" .. table.concat(arguments, ", ") .. ")"
+    local call = program.symbol .. "_builder(" .. table.concat(arguments, ", ") .. ")"
+    if #results <= 1 then
+        lines[#lines + 1] = "    " .. (#results > 0 and "return " or "") .. call
+    else
+        local names: {string} = {}
+        local values: {string} = {}
+        for position, resultType in ipairs(results) do
+            names[position] = "native" .. tostring(position)
+            if resultType == "uint32" then
+                values[position] = "nupp.math.u32.wrap(" .. names[position] .. " as integer)"
+            elseif resultType == "int32" then
+                values[position] = "nupp.math.i32.wrap(" .. names[position] .. " as integer)"
+            elseif resultType == "boolean" then
+                values[position] = names[position] .. " as boolean"
+            elseif resultType == "number" or resultType == "float" or resultType == "integer" then
+                values[position] = names[position] .. " as " .. resultType
+            else
+                values[position] = names[position]
+            end
+        end
+        lines[#lines + 1] = "    local " .. table.concat(names, ", ") .. " = " .. call
+        lines[#lines + 1] = "    return " .. table.concat(values, ", ")
+    end
     lines[#lines + 1] = "end"
 
     return lines

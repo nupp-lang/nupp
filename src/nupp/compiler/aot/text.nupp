@@ -168,6 +168,17 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
             },
             ", "
         ) .. ")"
+    elseif op == "lua_builder" then
+        return "lua.builder(" .. text.expression((node as scalarIR.LuaBuilder).nullValue) .. ")"
+    elseif op == "lua_string_length" then
+        return "lua.length(" .. text.expression((node as scalarIR.LuaBytes).bytes) .. ")"
+    elseif op == "lua_string_byte" or op == "lua_string_u32" then
+        local bytes = node as scalarIR.LuaBytes
+        return op .. "(" .. text.expression(bytes.bytes) .. ", " .. text.expression(bytes.index as scalarIR.Expr) .. ")"
+    elseif op == "lua_builder_finish" then
+        return "lua.builder_finish(" .. text.expression((node as scalarIR.LuaBuilderFinish).builder) .. ")"
+    elseif op == "lua_builder_depth" or op == "lua_builder_kind" or op == "lua_builder_count" then
+        return op .. "(" .. text.expression((node as scalarIR.LuaBuilderQuery).builder) .. ")"
     elseif tostring(op):match("^simd_") ~= nil then
         local simd = node as scalarIR.Simd
         local values: {string} = {}
@@ -259,6 +270,22 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
             ] = prefix .. op .. " " .. text.expression(
                 statement.table
             ) .. "[" .. text.expression(statement.key) .. "] = " .. text.expression(statement.value)
+        elseif tostring(op):match("^lua_builder_") ~= nil then
+            local event = statement as scalarIR.LuaBuild
+            local values: {string} = {text.expression(event.builder)}
+            for _, value in ipairs({
+                event.capacity,
+                event.sourceBytes,
+                event.start,
+                event.length,
+                event.escaped,
+                event.value
+            }) do
+                if value ~= nil then
+                    values[#values + 1] = text.expression(value as scalarIR.Expr)
+                end
+            end
+            lines[#lines + 1] = prefix .. op .. "(" .. table.concat(values, ", ") .. ")"
         elseif op == "assign" or op == "vassign" then
             local verb = op == "assign" and "set " or "vset "
             for _, assignment in ipairs(statement.values) do

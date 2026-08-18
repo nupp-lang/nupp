@@ -312,6 +312,24 @@ become Lua-owned strings. The ordinary module implementation is the `aot=off`
 oracle. This is a general codec/AST construction boundary; it does not expose
 `lua_State`, stack indexes, or collector objects.
 
+Streaming parsers can avoid that representation entirely. The resolved
+`nupp.value_builder` stream API starts with `new(nullValue)`, opens arrays or
+objects with an estimated capacity, adds keys and primitive values, closes each
+container, and publishes exactly one root with `finish`. `string`, `key`, and
+`numberSlice` take zero-based ranges of a rooted string, so generated code copies
+or converts directly into the final Lua value without an intermediate substring.
+`byte`, `word`, and `length` let the same AOT entry parse rooted byte strings;
+`word` reads a native-endian uint32 at a zero-based word index. `depth`, `kind`,
+and `count` expose only the current construction-frame metadata needed by an
+iterative parser. The ordinary implementation is the `aot = "off"` oracle.
+
+The stream is bounded to 1,024 open containers. Its handle cannot be returned,
+reassigned, stored, or passed to ordinary calls; only the resolved builder
+operations admit it. Generated code keeps unfinished tables and object keys on
+the VM stack, checks stack growth at every opening, performs barriers through
+raw-set calls, and uses no native heap storage that could leak across a Lua
+allocation failure.
+
 Every live constructed object stays in an absolute Lua stack slot across
 allocating calls. Generated code uses the public Lua 5.1 API for allocation,
 barriers, strings, stack checks, and errors; it does not address LuaJIT collector

@@ -4,24 +4,21 @@ This is a deliberately detachable experiment. Delete `bench/simd-json` to
 remove the JSON implementation; the AOT support it exercises remains useful to
 byte codecs, image kernels, checksums, and other narrow-buffer workloads.
 
-The implementation has four stages:
+The production route has three stages:
 
 1. `simd_json.indexer` uses target-width packed bytes to produce a compact
    structural tape while validating UTF-8, quote/backslash carry, and safe tails.
-2. `simd_json.parser` is an iterative scalar AOT state machine. It validates the
-   complete grammar, escapes and surrogate pairs, then writes pointer-free node,
-   link, frame, and binary64 fields into caller-owned arenas.
-3. `simd_json.arena` bulk-copies the pointer-free nodes and links into rooted
-   strings, then one VM-aware AOT call traverses `nupp.value_builder`'s checked
-   tree recipe and constructs presized ordinary Lua tables and strings. Native
-   construction performs decimal conversion and escape decoding once per value.
-4. Documents below 128 bytes retain the original JIT-friendly recursive decoder,
+2. `simd_json.fused` is one VM-aware scalar AOT state machine. It validates the
+   complete grammar while streaming arrays, objects, strings, numbers, booleans,
+   and null directly into final Lua values. Only the rooted structural-tape copy
+   remains; there are no node, link, or frame arenas and no second traversal.
+3. Documents below 128 bytes retain the original JIT-friendly recursive decoder,
    avoiding native arena setup where it cannot amortize.
 
-The former recursive Lua arena materializer remains as `arena.materialize` and
-`arena.decode` solely for differential tests and paired benchmarks. The normal
-large-document path uses `materializeBuilder`/`decodeBuilder` and performs no
-per-node FFI read in Lua.
+`simd_json.parser`, the former recursive Lua arena materializer, and the checked
+tree-recipe builder remain as explicit differential and benchmark controls.
+`arena.decode`, `arena.decodeBuilder`, and `arena.materializeBuilder` are not on
+the normal large-document path.
 
 `simd_json.scanner` and `json.decodeLegacy` remain as the frozen J0 oracle and
 benchmark baseline; they are no longer the large-document decode path.
@@ -36,9 +33,9 @@ Run the differential tests against `lua-cjson`:
 ./run.sh
 ```
 
-After building, measure classification, structural indexing, native parsing,
-the old Lua materializer, native builder consumption, the legacy/arena/builder
-decoders, and `lua-cjson`:
+After building, measure classification, structural indexing, native arena
+parsing, the old Lua materializer, tree-builder consumption, the
+legacy/arena/tree-builder/fused decoders, and `lua-cjson`:
 
 ```sh
 LUA_PATH='build/?.lua;../../build/?.lua;../../.rocks/share/lua/5.1/?.lua;../../.rocks/share/lua/5.1/?/init.lua;;' \
@@ -56,13 +53,17 @@ luajit benchmark.lua --json 15
 ```
 
 Set `NUPP_JSON_BENCH_OUTPUT` to write that JSON report without shell
-redirection. The completed Apple arm64/NEON builder result is committed at
-`results/arm64-macos-neon-builder.json`. Across the five large payloads its
-paired geometric-mean throughput is 1.870x the old arena decoder (95% bootstrap
-CI 1.827–1.931x) and 3.918x the legacy decoder (3.723–4.058x). Escaped strings
-improve 4.149x over the arena route (3.641–4.619x). The builder remains behind
-`lua-cjson`: 0.693x its throughput for records, 0.714x ASCII, 0.520x Unicode,
-0.440x escaped strings, and 0.226x numbers.
+redirection. The completed Apple arm64/NEON fused result is committed at
+`results/arm64-macos-neon-fused.json`. Across the five large payloads its paired
+geometric-mean throughput is 1.468x the tree builder (95% bootstrap CI
+1.459–1.479x), 2.592x the old arena decoder (2.551–2.659x), and 5.627x the legacy
+decoder (5.548–5.696x). Every large family improves over the tree builder:
+records 1.150x, ASCII 1.422x, Unicode 1.150x, escaped strings 1.305x, and numbers
+2.830x. It reaches 0.810x `lua-cjson` on records, 1.087x on ASCII, 0.664x on
+Unicode, 0.636x on escaped strings, and 0.661x on numbers.
+
+The prior tree result remains at `results/arm64-macos-neon-builder.json` as the
+V4 baseline.
 
 The J0 baseline is `results/arm64-macos-neon-baseline.json`; the structural
 index result is `results/arm64-macos-neon-index.json`. Add separately named
