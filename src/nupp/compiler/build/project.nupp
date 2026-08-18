@@ -398,6 +398,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             opts.produced.target = target.name or opts.target or "default"
             opts.produced.platform = selectedPlatform
             opts.produced.outputs = cache.jsonArray({})
+            opts.produced.timing = report:timing()
         end
         return 0
     end

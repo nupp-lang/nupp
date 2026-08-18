@@ -17,6 +17,17 @@
   under their own summary but carry no example, since a wrong example that
   cannot be verified is worse than the fallback it would replace.
 
+- Report `nupp check --json`'s cache accounting the same way `nupp build
+  --json` already does. AGENTS.md has long said a slow check is worth reading
+  rather than waiting out, but nothing in `check`'s own output said what a
+  given run actually redid -- the accounting was already computed for every
+  check, `nupp build --json`'s `timing` object having published it for a
+  build all along, and `check` silently discarded it before it reached
+  `--json`. `compiledModules = 0` is now the answer to trust that a slow
+  check redid nothing; `slowest` ranks modules by wall-clock time spent
+  either way, since confirming a cache entry is still valid costs time too,
+  just less of it.
+
 - Hold hot reload to the strict floor. `src/nupp/hotreload.g.nupp` and
   `src/nupp/compiler/hot_session.g.nupp` were the only two files under `src` that
   opted out of it, which put the machinery deciding whether an edit may reach a

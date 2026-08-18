@@ -187,6 +187,12 @@ output against it, so the two cannot drift.
 6. Re-run the check after each edit group, then `./bin/nupp test --json` before
    commit, which reports the failing test's name, message, file and line rather
    than a wall of progress text.
+7. When a check of an unchanged project is not answering as fast as expected,
+   read `timing.compiledModules` and `timing.slowest` in the same `--json`
+   answer rather than waiting the next one out: `compiledModules = 0` means
+   nothing was actually redone, and `slowest` names whichever modules cost
+   the most wall-clock time regardless -- confirming a cache entry is still
+   valid costs time too, just less of it on a project this size.
 
 ## Next
 

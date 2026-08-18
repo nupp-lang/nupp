@@ -103,7 +103,10 @@ clean` removes it with everything else.
 This means a slow command is worth reading rather than waiting out. A check
 that takes a second is one that had to redo the project, and the usual reason
 is an edit to an exported type declaration — that invalidates every module,
-where an edit to a function body invalidates one.
+where an edit to a function body invalidates one. `nupp check --json`'s
+`timing.compiledModules` says how many modules a given run actually redid
+rather than leaving that to be inferred from how long it took, and
+`timing.slowest` says where the time went either way.
 
 The first full test run in a helper-created worktree also starts with the
 originating checkout's suite timings, so its parallel shards are balanced from

@@ -476,7 +476,7 @@ Options:
   --no-color       Never colour output; the same as --color=never
   -h, --help       Show this help
 
-With no files, checks the default target from nupp.lua.
+With no files, checks the default target from nupp.lua. Also reports a `timing` object naming how many modules were reused from the cache versus rechecked, and which modules cost the most of the wall-clock time either way -- see docs/diagnostics.md.
 ```
 
 A file's extension decides the floor it is held to, with `.nupp` strict and
@@ -521,6 +521,34 @@ Every diagnostic carries the position, the code, the severity, and the
 A lint carries its `lint` name and a `help` line as well, and a fix carries the
 edits that apply it. See [diagnostics.md](../diagnostics.md) for what a
 diagnostic holds and [lints.md](../lints.md) for the levels.
+
+With no files named, `--json` also carries a `timing` object -- the same shape
+`build` publishes, minus the parts only generation charges time to -- so a
+repeat check that feels slow can be read rather than waited out:
+
+```json [nupp check --json]
+{
+  "diagnostics": [],
+  "timing": {
+    "totalMs": 8.4,
+    "compiledModules": 0,
+    "reusedModules": 2,
+    "phases": [{"name": "check", "durationMs": 3.1}],
+    "slowest": []
+  }
+}
+```
+
+`compiledModules` is how many modules this run actually reparsed and
+rechecked; `reusedModules` is how many it answered from the last run's cache
+without looking at again. `compiledModules = 0` is the answer to trust that
+nothing was redone. `slowest` ranks modules by wall-clock time spent either
+way, longest first -- confirming a reused module's cache entry is still valid
+costs time too, just less of it, so a check that stayed slow on an unchanged
+project still points at a module to look at rather than asking to be
+trusted. `timing` is absent when a diagnostic stopped the check, the same as
+it is for `build`, since a run that did not finish has no account of itself
+to give.
 
 ### `fmt`
 

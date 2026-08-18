@@ -32,10 +32,49 @@ local command = spec.command{
             diagnostics = require("nupp.compiler.cli.report").DIAGNOSTICS,
             platform = {type = "string"},
             platforms = {type = "array", items = {type = "object"}},
+            timing = {
+                type = "object",
+                description = "Where the check's wall-clock time went, and how many "
+                .. "of the project's modules were reused from the cache versus "
+                .. "rechecked this run. Present only with no files named, since a "
+                .. "check of explicit files does not go through the project's module "
+                .. "cache. `compiledModules = 0` is the authoritative answer that "
+                .. "nothing was redone; `slowest` ranks modules by time actually "
+                .. "spent regardless of that answer, since confirming a module's "
+                .. "cache entry is still valid costs time too, only less of it.",
+                properties = {
+                    totalMs = {type = "number", description = "Wall-clock milliseconds for the whole check."},
+                    compiledModules = {type = "integer"},
+                    reusedModules = {type = "integer"},
+                    phases = {
+                        type = "array",
+                        description = "Every activity that took measurable time, longest "
+                        .. "first. One activity is current at a time, so these sum to the whole.",
+                        items = {
+                            type = "object",
+                            properties = {name = {type = "string"}, durationMs = {type = "number"}},
+                            required = {"name", "durationMs"},
+                        },
+                    },
+                    slowest = {
+                        type = "array",
+                        description = "The costliest modules, longest first, each charged "
+                        .. "for its own checking and not for its dependencies'. A module "
+                        .. "reused from the cache still spends time being confirmed valid, "
+                        .. "so it can appear here even when `compiledModules` is 0.",
+                        items = {
+                            type = "object",
+                            properties = {module = {type = "string"}, durationMs = {type = "number"}},
+                            required = {"module", "durationMs"},
+                        },
+                    },
+                },
+                required = {"totalMs", "compiledModules", "reusedModules", "phases", "slowest"},
+            },
         },
         required = {"diagnostics"},
     },
-    detail = "With no files, checks the default target from nupp.lua.",
+    detail = "With no files, checks the default target from nupp.lua. Also reports a `timing` object naming how many modules were reused from the cache versus rechecked, and which modules cost the most of the wall-clock time either way -- see docs/diagnostics.md.",
 }
 
 local function run(parsed: any): integer
@@ -63,6 +102,7 @@ local function run(parsed: any): integer
                 diagnostics = reportMod.diagnosticValues(diagnostics),
                 platform = produced.platform,
                 platforms = produced.platforms,
+                timing = produced.timing,
             })
         end
         return code
