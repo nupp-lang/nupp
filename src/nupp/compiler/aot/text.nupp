@@ -139,6 +139,21 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
         return "constant:f64 " .. node.value
     elseif op == "bool" then
         return "bool " .. tostring(node.value)
+    elseif op == "lua_nil" then
+        return "lua.nil"
+    elseif op == "lua_string" then
+        return "lua.string " .. string.format("%q", node.value)
+    elseif op == "lua_new_table" then
+        local created = node as scalarIR.LuaNewTable
+        local fields: {string} = {}
+        for position, field in ipairs(created.fields or {}) do
+            fields[position] = (field.indexed and "index " or "key ") .. text.expression(
+                field.key
+            ) .. " = " .. text.expression(field.value)
+        end
+        return "lua.new_table(" .. text.expression(created.arrayCapacity) .. ", " .. text.expression(
+            created.hashCapacity
+        ) .. "){" .. table.concat(fields, "; ") .. "}"
     elseif tostring(op):match("^simd_") ~= nil then
         local simd = node as scalarIR.Simd
         local values: {string} = {}
@@ -224,6 +239,12 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
             lines[
                 #lines + 1
             ] = prefix .. "store " .. statement.span .. "[" .. index .. "] = " .. text.expression(statement.value)
+        elseif op == "lua_set_index" or op == "lua_set_key" then
+            lines[
+                #lines + 1
+            ] = prefix .. op .. " " .. text.expression(statement.table) .. "[" .. text.expression(
+                statement.key
+            ) .. "] = " .. text.expression(statement.value)
         elseif op == "assign" or op == "vassign" then
             local verb = op == "assign" and "set " or "vset "
             for _, assignment in ipairs(statement.values) do
@@ -291,6 +312,12 @@ local function preamble(program: scalarIR.Program): {string}
     local lines: {
         string
     } = {"native-c-ir " .. tostring(scalarIR.VERSION), "function " .. program.name, "symbol " .. program.symbol,}
+    lines[#lines + 1] = "entry " .. program.entryMode
+    if program.runtimeAbi ~= nil then
+        lines[
+            #lines + 1
+        ] = "runtime " .. tostring(program.runtimeAbi) .. " registrar(" .. tostring(program.registrar) .. ")"
+    end
 
     -- The contract is part of what the IR means and not a build setting,
     -- because it decides what the function answers rather than only how fast it
@@ -331,8 +358,8 @@ local function preamble(program: scalarIR.Program): {string}
             lines[
                 #lines + 1
             ] = (
-                "  uniform %s:%s source(%s) %s"
-            ):format(param.name, param.type, tostring(param.sourceType), at(param.source))
+                "  %s %s:%s source(%s) %s"
+            ):format(param.kind, param.name, param.type, tostring(param.sourceType), at(param.source))
         end
     end
 
@@ -363,6 +390,9 @@ local function preamble(program: scalarIR.Program): {string}
 
     local resultTypes = program.resultTypes or {}
     lines[#lines + 1] = "results " .. (#resultTypes == 0 and "nil" or table.concat(resultTypes, ","))
+    if program.maxStack ~= nil then
+        lines[#lines + 1] = "lua_stack " .. tostring(program.maxStack)
+    end
 
     local loop = program.loop
     if loop ~= nil then

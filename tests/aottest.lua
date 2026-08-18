@@ -303,7 +303,7 @@ return {total = total}
 ]], "NUPP2903", "a closure has no AOT IR representation")
 end
 
-function M.allocatingConstructsAreRefused()
+function M.freshTableConstructionIsStructurallyAdmitted()
    reports([[
 @aot
 local function build(scale: number): number
@@ -313,8 +313,11 @@ local function build(scale: number): number
 end
 
 return {build = build}
-]], "NUPP2903", "a table constructor")
+]], "", "a fresh table has a VM-aware AOT representation")
 
+end
+
+function M.unmodeledAllocatingConstructsAreRefused()
    reports([[
 @aot
 local function label(name: string): string

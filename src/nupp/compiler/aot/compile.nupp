@@ -19,6 +19,7 @@ something to fail a build over.
 ]]
 
 local bindingRules = require("nupp.compiler.aot.binding")
+local hash = require("nupp.compiler.build.hash")
 local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
 local emit = require("nupp.compiler.aot.emit")
@@ -156,8 +157,26 @@ function compile.lower(
 
         local programs: {scalarIR.Program} = {}
         for position, application in ipairs(found.applications) do
-            programs[position] = verify.program(lower.program(found, application, wasChecked, context))
+            programs[position] = lower.program(found, application, wasChecked, context)
             sites[position] = compile.site(application)
+        end
+
+        local builderSymbols: {string} = {}
+        for _, program in ipairs(programs) do
+            if program.entryMode == "lua-builder" then
+                builderSymbols[#builderSymbols + 1] = program.symbol
+            end
+        end
+        if #builderSymbols > 0 then
+            local registrar = "ks_register_" .. hash.digest(table.concat(builderSymbols, "\0")):sub(1, 16)
+            for _, program in ipairs(programs) do
+                if program.entryMode == "lua-builder" then
+                    program.registrar = registrar
+                end
+            end
+        end
+        for position, program in ipairs(programs) do
+            programs[position] = verify.program(program)
         end
 
         return programs

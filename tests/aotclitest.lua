@@ -695,6 +695,31 @@ function M.anUnknownTargetOrTierIsRejected()
       "and names the tiers it does have: " .. tierOut)
 end
 
+function M.luaBuildersReportAndEmitTheirSeparateVmAbi()
+   local dir = project{["builder.nupp"] = [[
+@aot
+local function object(name: string): {[string]: any}
+    local result = {name = name, values = {1, 2, 3}}
+    result["ready"] = true
+    return result
+end
+return {object = object}
+]]}
+   local out, code = run(dir, "--json builder.nupp")
+   test.equal(code, 0, out)
+   local decoded = require("cjson").decode(out)
+   local only = decoded.functions[1]
+   test.equal(only.entryMode, "lua-builder")
+   test.equal(only.runtimeAbi, "lua-5.1")
+   assert(only.registrar:match("^ks_register_[0-9a-f]+$"), only.registrar)
+   assert(decoded.ir:find("entry lua-builder", 1, true), decoded.ir)
+   assert(decoded.ir:find("lua.new_table", 1, true), decoded.ir)
+   assert(decoded.c:find("static int ks_object_lua(lua_State *L)", 1, true), decoded.c)
+   assert(decoded.c:find("lua_rawset(L", 1, true), decoded.c)
+   assert(decoded.binding:find("package", 1, true) and
+      decoded.binding:find(only.registrar, 1, true), decoded.binding)
+end
+
 function M.aFileWithNoAotFunctionIsAnError()
    local dir = project{["plain.nupp"] = "local m = {}\n\nreturn m\n"}
    local out, code = run(dir, "plain.nupp")

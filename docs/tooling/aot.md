@@ -2,9 +2,11 @@
 
 `@aot` marks a whole function to be compiled ahead of time rather than left to
 LuaJIT. The compiler admits a small structural subset, lowers it to a verified
-IR, and emits private C — and where the function is one numeric map loop, it
-also rewrites that loop to run several iterations at once. Nothing in the source
-names a lane, a mask, or a vector width.
+IR, and emits private C. Pure numeric and span bodies keep the small `kernel`
+ABI. A body that constructs fresh Lua values uses the separate `lua-builder`
+ABI. Where a kernel is one numeric map loop, the compiler may also rewrite that
+loop to run several iterations at once. Nothing in the source names an ABI, a
+lane, a mask, or a vector width.
 
 A build selects what to do with it — see [Build policy](#build-policy): `off` by
 default, `emit-c` to write the C beside the build, `require` to compile it into
@@ -109,12 +111,15 @@ nupp aot bench/kernel-subset-spike/mandelbrot.nupp
 ```
 
 ```text
-bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, 5.19 operations per byte (83 over 16), f64x4, 4 lanes
+bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, 5.19 operations per byte (83 over 16), f64x4, 4 lanes
 ```
 
 A file may hold as many `@aot` functions as you like, and they need not agree
 about width. They come out as one C file: a shared struct is declared once, each
 function brings its own bodies, and each gang's prelude appears once.
+
+`nupp aot` names each function's `kernel` or `lua-builder` entry mode. JSON
+inspection additionally reports the runtime ABI and digest-named registrar.
 
 `--emit ir`, `--emit c` and `--emit binding` print the three artifacts. To
 compile and actually run it — which needs a C compiler and the spike's harness:
@@ -269,6 +274,46 @@ end
 
 The range check and the length agreement are ordinary checked Nupp; `unsafe do`
 holds the foreign call and nothing else.
+
+## Building ordinary Lua values
+
+An admitted body that constructs or returns a Lua table or string is entered as
+a registered Lua C closure instead of through FFI:
+
+```nupp
+@aot
+local function rows(count: integer): {number}
+    local result = table.new(count, 0)
+    for index = 1, count do
+        result[index] = index * 2
+    end
+    return result
+end
+```
+
+With `aot = "off"`, that is unchanged ordinary Nupp. With `require`, the
+resolved `table.new` becomes `lua_createtable`, writes to the fresh unpublished
+table use the public raw-set API, and one native call returns the completed
+ordinary Lua value. Table literals infer their array and hash capacities.
+
+The shipped builder subset admits fresh table literals, exact
+`table.new(arrayCapacity, hashCapacity)`, primitive number/boolean/string/nil
+values, string arguments, nested fresh tables, numeric and string-key writes,
+structured control flow, and final return. It rejects reads during construction,
+mutation of argument or previously published tables, metatables, dynamic calls,
+callbacks, userdata, cycles, and arbitrary Lua execution.
+
+Every live constructed object stays in an absolute Lua stack slot across
+allocating calls. Generated code uses the public Lua 5.1 API for allocation,
+barriers, strings, stack checks, and errors; it does not address LuaJIT collector
+objects. Dynamic capacities and array indexes are checked for integral,
+nonnegative/positive C-API range before use. Strings are ordinary Lua-owned
+strings, not shared-memory views.
+
+All builders in one generated C file share one digest-named registrar. The
+generated module loads it with `package.loadlib`, validates the returned closure
+table, and caches that table for the Lua state. Pure kernels retain their
+existing FFI path and have no Lua pointer or GC authority.
 
 ## Benchmarks
 
@@ -681,8 +726,10 @@ default:
 | NUPP2902 | `@aot` on something that is not a whole function |
 | NUPP2903 | A construct in an `@aot` body with no AOT IR form |
 
-A closure, table, interpolated string, vararg, `goto`, dynamic call or unsafe
-operation inside an `@aot` body reports NUPP2903 at the construct.
+A closure, interpolated string, vararg, `goto`, dynamic call or unsafe operation
+inside an `@aot` body reports NUPP2903 at the construct. Fresh table
+construction is admitted; unsupported table reads or mutations are refused by
+the value-level AOT lowering with a source position.
 
 ## Build policy
 
@@ -717,6 +764,8 @@ compiled code, not that there must be some.
 Under `require`, calls reach the compiled code. The build replaces each `@aot`
 function with the generated wrapper where it was written, so every call in the
 file and every importer gets the compiled body without naming anything new.
+Kernel wrappers call FFI symbols. Builder wrappers call a cached registered Lua
+C closure, so no generated FFI code fabricates or discovers a `lua_State *`.
 
 ### Accepting a C compiler
 
@@ -856,6 +905,9 @@ that loads me* rather than *at this path*:
 ```lua
 __nuppLib("@lib/libgame_aot.dylib")
 ```
+
+VM-aware builders resolve the same `@lib/` reference before passing the path and
+registrar symbol to `package.loadlib`.
 
 At load, that is resolved against the chunk the wrapper was compiled into,
 walking up until it finds the directory. Whatever path the loader used to open

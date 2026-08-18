@@ -290,9 +290,12 @@ end
 --- The host's rather than the selected target's: `require` builds something
 --- this build's own loader will open. Cross-compiling to a target whose objects
 --- this machine cannot load is `emit-c`, which is what it is for.
-function aot.linkage(selected: targets.Target): ({string}, string)
+function aot.linkage(selected: targets.Target, needsLua: boolean?): ({string}, string)
     local system = targets.system(selected.triple)
     if system == "darwin" then
+        if needsLua then
+            return {"-dynamiclib", "-undefined", "dynamic_lookup"}, ".dylib"
+        end
         return {"-dynamiclib"}, ".dylib"
     elseif system == "windows" then
         -- No `-lm`: the math functions are in the C runtime there rather than in
@@ -385,7 +388,8 @@ function aot.link(
     selected: targets.Target,
     sources: {string},
     output: string,
-    extra: {string}?
+    extra: {string}?,
+    needsLua: boolean?
 ): string?
     local ordered: {string} = {}
     for _, one in ipairs(sources) do
@@ -393,7 +397,7 @@ function aot.link(
     end
     table.sort(ordered)
 
-    local shared, _ = aot.linkage(selected)
+    local shared, _ = aot.linkage(selected, needsLua)
     local argv: {string} = {chain.command}
     for _, flag in ipairs(shared) do
         argv[#argv + 1] = flag
@@ -590,12 +594,17 @@ function aot.apply(
 
     local sources: {string} = {}
     local keys: {string} = {}
+    local needsLua = false
     for _, one in ipairs(emitted as {aot.Emitted}) do
         sources[#sources + 1] = one.output
         keys[#keys + 1] = one.key
+        local artifact = produced[one.source]
+        for _, program in ipairs(artifact ~= nil and (artifact as compile.Artifacts).programs or {}) do
+            needsLua = needsLua or program.entryMode == "lua-builder"
+        end
     end
 
-    local shared, suffix = aot.linkage(selected as targets.Target)
+    local shared, suffix = aot.linkage(selected as targets.Target, needsLua)
     local library = aot.libraryPath(outDir, name, suffix)
     local reference = aot.libraryReference(name, suffix)
     local key = aot.libraryKey(
@@ -609,7 +618,7 @@ function aot.apply(
     -- library it describes has to still be there. A relink costs seconds; a
     -- stale library loaded because a digest agreed costs a wrong answer.
     if previousLibraryKey ~= key or not fs.exists(library) then
-        local linkErr = aot.link(chain as aot.Toolchain, selected as targets.Target, sources, library, cflags)
+        local linkErr = aot.link(chain as aot.Toolchain, selected as targets.Target, sources, library, cflags, needsLua)
         if linkErr ~= nil then
             return nil, tostring(linkErr)
         end

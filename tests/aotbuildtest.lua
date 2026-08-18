@@ -115,6 +115,26 @@ end
 return m
 ]]
 
+local BUILDER = [[
+@aot
+local function rows(count: integer): {number}
+    local result = table.new(count, 0)
+    for index = 1, count do
+        result[index] = index * 2
+    end
+    return result
+end
+
+@aot
+local function object(name: string): {[string]: any}
+    local result = {name = name, nested = {1, 2, 3}}
+    result["ready"] = true
+    return result
+end
+
+return {rows = rows, object = object}
+]]
+
 local function project(policy)
    local dir = os.tmpname()
    os.remove(dir)
@@ -141,6 +161,27 @@ return {
       handle:write(source)
       handle:close()
    end
+   return dir
+end
+
+local function builderProject(policy)
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write(([=[
+return {
+   include = {"src"},
+   build = {targets = {native = {
+      kind = "modules", entries = {"builder"}, outDir = "build/native",
+      aot = "%s",
+   }}},
+}
+]=]):format(policy))
+   manifest:close()
+   local source = assert(io.open(dir .. "/src/builder.nupp", "wb"))
+   source:write(BUILDER)
+   source:close()
    return dir
 end
 
@@ -450,6 +491,48 @@ function M.requireBuildsTheLibraryFromTheGeneratedC()
       "require writes the C as well; it is a superset of emit-c, not a replacement")
    assert(read(libraryPath(dir)), "and compiled it into the project's own library")
    assert(libraryKey(dir), "recorded under a key of its own")
+end
+
+function M.luaBuilderRegistrationReturnsOrdinaryTables()
+   if not hasToolchain() then return end
+
+   local function answer(policy)
+      local dir = builderProject(policy)
+      local out, code = build(dir)
+      test.equal(code, 0, out)
+      local script = [[
+         local builder = require("builder")
+         local rows = builder.rows(4)
+         local object = builder.object("nupp")
+         print(table.concat(rows, ","))
+         print(object.name, object.ready, table.concat(object.nested, ","))
+      ]]
+      local pipe = assert(io.popen((
+         "cd %q && luajit -e %q 2>&1"
+      ):format(dir, 'package.path="build/native/?.lua;"..package.path;' .. script)))
+      local result = pipe:read("*a")
+      pipe:close()
+      return result, dir
+   end
+
+   local ordinary = answer("off")
+   local native, dir = answer("require")
+   test.equal(native, ordinary, "the VM-aware ABI preserves the ordinary source answer")
+   assert(native:find("2,4,6,8", 1, true), native)
+   assert(native:find("nupp\ttrue\t1,2,3", 1, true), native)
+   local generated = assert(read(dir .. "/build/native/builder.lua"))
+   assert(generated:find("ks_register_", 1, true), generated)
+   assert(not generated:find("cdef function ks_object", 1, true),
+      "a builder loads a C closure rather than fabricating lua_State through FFI")
+   local failure = assert(io.popen((
+      "cd %q && luajit -e %q 2>&1"
+   ):format(dir, 'package.path="build/native/?.lua;"..package.path;local b=require("builder");'
+      .. 'local ok,why=pcall(b.rows,-1);print(ok,tostring(why))')))
+   local failureText = failure:read("*a")
+   failure:close()
+   assert(failureText:find("false", 1, true) and
+      failureText:find("array capacity at 3:", 1, true),
+      "a modeled native failure is protected and source-attributed: " .. failureText)
 end
 
 function M.theLibraryIsNotRelinkedWhenNothingChanged()

@@ -43,6 +43,10 @@ function lower.sourceValueType(spelling: string): scalarIR.Type?
         return "u32"
     elseif spelling == "int32" then
         return "i32"
+    elseif spelling == "string" then
+        return "lua_string"
+    elseif spelling:sub(1, 1) == "{" or spelling == "table" then
+        return "lua_table"
     end
 
     return nil
@@ -144,6 +148,25 @@ function lower.compactType(node: cst.Child?): string
     end
 
     return (cst.textOf(node as cst.Child):gsub("%s+", ""))
+end
+
+--- The bytes one source string token denotes.
+---
+--- Quoted Nupp strings are raw, and long brackets carry their equality level
+--- in both delimiters. Lowering keeps bytes rather than interpreting Lua
+--- escapes that the source language never assigned.
+local function stringBytes(written: string): string
+    local quote = written:sub(1, 1)
+    if quote == "\"" or quote == "'" then
+        return written:sub(2, -2)
+    end
+    local equals = written:match("^%[(=*)%[")
+    if equals ~= nil then
+        local width = #(equals as string) + 2
+        return written:sub(width + 1, -width - 1)
+    end
+
+    return written
 end
 
 --- Removes source-only grouping and checked casts from an expression shape.
@@ -402,6 +425,9 @@ record lower.Kernel
     cursorBounds: {[string]: string}
 
     usesSimd: boolean
+
+    --- Whether lowering reached an operation that requires the VM-aware ABI.
+    usesLua: boolean
 
     --- How many locals have been named, so two source scopes using one name get
     --- two C names.
@@ -759,6 +785,27 @@ local function call(
 
         return new scalarIR.Simd(op = "simd_species_u8", args = {}, type = "simd_species_u8", source = lower.site(node))
     end
+    if identity == "table.new" or path == "table.new"
+        and kernel.modules.table == "@prelude.table" and environment.table == nil
+    then
+        if #args ~= 2 then
+            context.reject(lower.site(node), "table.new in an AOT builder takes array and hash capacities")
+        end
+        for _, capacity in ipairs(args) do
+            if capacity.type ~= "f64" and capacity.type ~= "i32" and capacity.type ~= "u32" then
+                context.reject(lower.site(node), "table.new capacities must be numeric")
+            end
+        end
+        kernel.usesLua = true
+
+        return new scalarIR.LuaNewTable(
+            op = "lua_new_table",
+            arrayCapacity = args[1],
+            hashCapacity = args[2],
+            type = "lua_table",
+            source = lower.site(node)
+        )
+    end
     local fixed = path ~= nil and admit.fixed(path as string) or nil
     if fixed ~= nil then
         return fixedCall(node, path as string, fixed as admit.Fixed, args, kernel)
@@ -975,6 +1022,79 @@ function lower.expression(
         return new scalarIR.Constant(op = "constant", value = value, type = "f64", source = lower.site(node))
     elseif kind == "trueExpr" or kind == "falseExpr" then
         return new scalarIR.Bool(op = "bool", value = kind == "trueExpr", type = "bool", source = lower.site(node))
+    elseif kind == "nilExpr" then
+        kernel.usesLua = true
+        return new scalarIR.LuaNil(op = "lua_nil", type = "lua_nil", source = lower.site(node))
+    elseif kind == "string" then
+        local token = (node as cst.StringLit).token
+        local written = token ~= nil and (token as lexer.Token).text or "\"\""
+        kernel.usesLua = true
+        return new scalarIR.LuaString(
+            op = "lua_string",
+            value = stringBytes(written),
+            type = "lua_string",
+            source = lower.site(node)
+        )
+    elseif kind == "tableExpr" then
+        local literal = node as cst.TableExpr
+        local fields: {scalarIR.LuaField} = {}
+        local arrayCapacity, hashCapacity = 0, 0
+        for _, raw in ipairs(literal.fields or {}) do
+            local key: scalarIR.Expr
+            local value: scalarIR.Expr
+            local indexed = false
+            if raw.kind == "fieldItem" then
+                arrayCapacity = arrayCapacity + 1
+                indexed = true
+                key = new scalarIR.IntConstant(
+                    op = "constant_i32",
+                    value = tostring(arrayCapacity),
+                    type = "i32",
+                    source = lower.site(raw)
+                )
+                value = lower.expression((raw as cst.FieldItem).value as cst.Node, environment, activeIndex, kernel)
+            elseif raw.kind == "fieldNamed" then
+                hashCapacity = hashCapacity + 1
+                local named = raw as cst.FieldNamed
+                key = new scalarIR.LuaString(
+                    op = "lua_string",
+                    value = named.name ~= nil and (named.name as lexer.Token).text or "",
+                    type = "lua_string",
+                    source = lower.site(raw)
+                )
+                value = lower.expression(named.value as cst.Node, environment, activeIndex, kernel)
+            else
+                hashCapacity = hashCapacity + 1
+                local bracket = raw as cst.FieldBracket
+                key = lower.expression(bracket.key as cst.Node, environment, activeIndex, kernel)
+                value = lower.expression(bracket.value as cst.Node, environment, activeIndex, kernel)
+            end
+            fields[#fields + 1] = new scalarIR.LuaField(
+                key = key,
+                value = value,
+                indexed = indexed,
+                source = lower.site(raw)
+            )
+        end
+        kernel.usesLua = true
+        return new scalarIR.LuaNewTable(
+            op = "lua_new_table",
+            arrayCapacity = new scalarIR.Constant(
+                op = "constant",
+                value = tostring(arrayCapacity),
+                type = "f64",
+                source = lower.site(node)
+            ),
+            hashCapacity = new scalarIR.Constant(
+                op = "constant",
+                value = tostring(hashCapacity),
+                type = "f64",
+                source = lower.site(node)
+            ),
+            fields = fields,
+            type = "lua_table",
+            source = lower.site(node)
+        )
     elseif kind == "unop" and (node as cst.Unop).op ~= nil then
         local operator = node as cst.Unop
         local counted = lower.dotCount(operator)
@@ -1514,6 +1634,9 @@ local function assignTarget(target: cst.Node, environment: {[string]: any}, kern
         if binding == nil or binding.kind ~= "local" then
             context.reject(lower.site(target), "native assignment target must be a local")
         end
+        if tostring(binding.type):match("^lua_") ~= nil then
+            context.reject(lower.site(target), "Lua construction handles cannot be reassigned")
+        end
 
         return new scalarIR.Target(kind = "local", name = binding.name, cName = binding.cName, type = binding.type)
     end
@@ -1562,10 +1685,68 @@ local function assignStmt(
     local exprs = stat.exprs or {}
     local targets = stat.targets or {}
 
+    if #targets == 1 and #exprs == 1 and targets[1].kind == "dotIndex" then
+        local target = targets[1] as cst.DotIndex
+        local tableName = lower.nameOf(target.obj)
+        local tableBinding = tableName ~= nil and environment[tableName as string] or nil
+        if tableBinding ~= nil and tableBinding.type == "lua_table" and target.name ~= nil then
+            local value = lower.expression(exprs[1], environment, kernel.index, kernel)
+            out[#out + 1] = new scalarIR.LuaSet(
+                op = "lua_set_key",
+                table = new scalarIR.Name(
+                    op = "local",
+                    name = tableBinding.name,
+                    cName = tableBinding.cName,
+                    type = "lua_table",
+                    source = lower.site(target.obj)
+                ),
+                key = new scalarIR.LuaString(
+                    op = "lua_string",
+                    value = (target.name as lexer.Token).text,
+                    type = "lua_string",
+                    source = lower.site(target.name)
+                ),
+                value = value,
+                source = lower.site(stat)
+            )
+            kernel.usesLua = true
+            return
+        end
+    end
+
     if #targets == 1 and #exprs == 1 and targets[1].kind == "bracketIndex" then
         local target = targets[1] as cst.BracketIndex
         local spanName = lower.nameOf(target.obj)
         local output = spanName ~= nil and kernel.params[spanName as string] or nil
+        local tableBinding = spanName ~= nil and environment[spanName as string] or nil
+        if tableBinding ~= nil and tableBinding.type == "lua_table" then
+            local key = lower.expression(target.expr as cst.Node, environment, kernel.index, kernel)
+            if key.type ~= "f64" and key.type ~= "i32" and key.type ~= "u32" and key.type ~= "lua_string" then
+                context.reject(lower.site(target.expr), "fresh table keys must be numeric or strings")
+            end
+            local value = lower.expression(exprs[1], environment, kernel.index, kernel)
+            if value.type ~= "f64" and value.type ~= "f32" and value.type ~= "i32"
+                and value.type ~= "u32" and value.type ~= "bool" and value.type ~= "lua_table"
+                and value.type ~= "lua_string" and value.type ~= "lua_nil"
+            then
+                context.reject(lower.site(exprs[1]), "fresh table values must be admitted Lua primitives or tables")
+            end
+            out[#out + 1] = new scalarIR.LuaSet(
+                op = (key.type == "lua_string" and "lua_set_key" or "lua_set_index") as any,
+                table = new scalarIR.Name(
+                    op = "local",
+                    name = tableBinding.name,
+                    cName = tableBinding.cName,
+                    type = "lua_table",
+                    source = lower.site(target.obj)
+                ),
+                key = key,
+                value = value,
+                source = lower.site(stat)
+            )
+            kernel.usesLua = true
+            return
+        end
         if output == nil or output.kind ~= "write_span" then
             context.reject(lower.site(target), "native indexed stores require a writable span")
         end
@@ -1995,6 +2176,28 @@ function lower.parameters(
                 sourceType = spelling,
                 source = lower.site(raw)
             )
+        elseif spelling == "boolean" then
+            if mode ~= nil then
+                context.reject(lower.site(raw), "a boolean parameter has no ownership mode")
+            end
+            param = new scalarIR.Param(
+                kind = "uniform",
+                name = name as string,
+                type = "bool",
+                sourceType = spelling,
+                source = lower.site(raw)
+            )
+        elseif spelling == "string" then
+            if mode ~= nil then
+                context.reject(lower.site(raw), "a string parameter has no ownership mode")
+            end
+            param = new scalarIR.Param(
+                kind = "scalar",
+                name = name as string,
+                type = "lua_string",
+                sourceType = spelling,
+                source = lower.site(raw)
+            )
         else
             context.reject(lower.site(at), "parameter type " .. spelling .. " is not admitted")
             param = new scalarIR.Param(kind = "uniform", name = name as string, type = "f64")
@@ -2258,7 +2461,7 @@ function lower.scan(chunk: cst.Chunk, checked: boolean): lower.Declarations
         applications = {},
         helpers = {},
         structs = {},
-        modules = {},
+        modules = {table = "@prelude.table"},
         intrinsicAliases = {}
     )
     for _, block in ipairs(chunk.blocks or {}) do
@@ -2266,6 +2469,11 @@ function lower.scan(chunk: cst.Chunk, checked: boolean): lower.Declarations
             if stat.kind == "localStmt" then
                 local declaration = stat as cst.LocalStmt
                 local names, exprs = declaration.names or {}, declaration.exprs or {}
+                for _, declared in ipairs(names) do
+                    if declared.text == "table" then
+                        found.modules.table = "@shadowed.table"
+                    end
+                end
                 if #names == 1 and #exprs == 1 and exprs[1].kind == "call" then
                     local required = (exprs[1] as any).requiredModule
                     local called = exprs[1] as cst.Call
@@ -2462,8 +2670,15 @@ function lower.program(
     for position, result in ipairs(rets) do
         local sourceType = lower.compactType(result)
         local resultType = lower.helperValueType(sourceType)
+        if resultType == nil and sourceType == "string" then
+            resultType = "lua_string"
+        elseif resultType == nil and sourceType == "nil" then
+            resultType = "lua_nil"
+        elseif resultType == nil and (sourceType:sub(1, 1) == "{" or sourceType == "table") then
+            resultType = "lua_table"
+        end
         if resultType == nil then
-            context.reject(lower.site(result), "AOT entry results are numeric or boolean scalar values")
+            context.reject(lower.site(result), "AOT entry results are admitted scalar values or fresh tables")
         end
         resultTypes[position] = resultType as scalarIR.Type
         resultSourceTypes[position] = sourceType
@@ -2495,12 +2710,23 @@ function lower.program(
             resultTypes = resultTypes,
             cursorBounds = {},
             usesSimd = false,
+            usesLua = (function(): boolean
+                for _, resultType in ipairs(resultTypes) do
+                    if resultType == "lua_table" or resultType == "lua_string" or resultType == "lua_nil" then
+                        return true
+                    end
+                end
+                return false
+            end)(),
             serial = 0,
             context = context
         )
         local environment: {[string]: any} = {}
-        for _, param in ipairs(signature.params) do
-            if param.kind == "uniform" then
+        for position, param in ipairs(signature.params) do
+            if param.kind == "uniform" or param.kind == "scalar" then
+                if param.kind == "scalar" then
+                    (param as any).cName = tostring(position)
+                end
                 environment[param.name] = param
             end
         end
@@ -2509,10 +2735,14 @@ function lower.program(
             context.reject(lower.site(body.body or body), "an AOT block body may not be empty")
         end
 
+        local entryMode = kernel.usesLua and "lua-builder" or "kernel"
         return new scalarIR.Program(
             version = scalarIR.VERSION,
             name = name,
             symbol = scalarIR.privateSymbol(name),
+            entryMode = entryMode as any,
+            runtimeAbi = kernel.usesLua and "lua-5.1" or nil,
+            registrar = kernel.usesLua and scalarIR.privateSymbol(name) .. "_register" or nil,
             fpContract = contract.fpContract,
             wantsLanes = false,
             lanesRequired = false,
@@ -2577,13 +2807,17 @@ function lower.program(
         resultTypes = {},
         cursorBounds = {},
         usesSimd = false,
+        usesLua = false,
         serial = 0,
         context = context
     )
 
     local environment: {[string]: any} = {}
-    for _, param in ipairs(signature.params) do
-        if param.kind == "uniform" then
+    for position, param in ipairs(signature.params) do
+        if param.kind == "uniform" or param.kind == "scalar" then
+            if param.kind == "scalar" then
+                (param as any).cName = tostring(position)
+            end
             environment[param.name] = param
         end
     end
@@ -2598,6 +2832,7 @@ function lower.program(
         version = scalarIR.VERSION,
         name = name,
         symbol = scalarIR.privateSymbol(name),
+        entryMode = "kernel",
         fpContract = contract.fpContract,
         wantsLanes = contract.wantsLanes,
         lanesRequired = contract.lanesRequired,

@@ -525,10 +525,12 @@ end
 --- on what was compiled before it, and an artifact cache keyed on the source
 --- would then be wrong rather than merely cold.
 local laneTemporary = 0
+local luaTemporary = 0
 
 --- Starts one function's emission.
 function emit.begin(): nil
     laneTemporary = 0
+    luaTemporary = 0
     explicitWidth = 0
     explicitScalar = false
 end
@@ -869,6 +871,61 @@ function emit.includes(): {string}
         "#endif",
         "",
     }
+end
+
+--- The pinned public Lua 5.1 API surface used by VM-aware AOT entries.
+---
+--- Kept self-contained so `emit-c` is useful without locating development
+--- headers. These declarations are the public ABI declarations, not LuaJIT
+--- object layouts; the artifact fingerprint names the ABI family separately.
+function emit.luaPrelude(): {string}
+    return {
+        "#include <limits.h>",
+        "typedef struct lua_State lua_State;",
+        "typedef int (*lua_CFunction)(lua_State *L);",
+        "extern int lua_checkstack(lua_State *L, int extra);",
+        "extern int lua_gettop(lua_State *L);",
+        "extern double luaL_checknumber(lua_State *L, int narg);",
+        "extern int lua_toboolean(lua_State *L, int index);",
+        "extern void lua_createtable(lua_State *L, int narr, int nrec);",
+        "extern void lua_pushnumber(lua_State *L, double value);",
+        "extern void lua_pushboolean(lua_State *L, int value);",
+        "extern void lua_pushnil(lua_State *L);",
+        "extern const char *lua_pushlstring(lua_State *L, const char *value, size_t length);",
+        "extern void lua_pushvalue(lua_State *L, int index);",
+        "extern void lua_pushcclosure(lua_State *L, lua_CFunction function, int upvalues);",
+        "extern void lua_rawseti(lua_State *L, int index, int key);",
+        "extern void lua_rawset(lua_State *L, int index);",
+        "extern int luaL_error(lua_State *L, const char *format, ...);",
+        "",
+        "static int ks_lua_count(lua_State *L, double value, const char *what) {",
+        "    if (!(value >= 0.0) || value > (double)INT_MAX || floor(value) != value)",
+        "        return luaL_error(L, \"AOT builder %s must be a nonnegative integer in C API range\", what);",
+        "    return (int)value;",
+        "}",
+        "static int ks_lua_index(lua_State *L, double value, const char *site) {",
+        "    if (!(value >= 1.0) || value > (double)INT_MAX || floor(value) != value)",
+        "        return luaL_error(L, \"AOT builder array index at %s must be a positive integer in C API range\", site);",
+        "    return (int)value;",
+        "}",
+        "",
+    }
+end
+
+--- Bytes as an unambiguous C string literal.
+local function cBytes(value: string): string
+    local bytes: {string} = {}
+    for index = 1, #value do
+        bytes[index] = ("\\x%02x"):format(value:byte(index))
+    end
+
+    return '"' .. table.concat(bytes) .. '"'
+end
+
+local function luaSite(source: scalarIR.Source?): string
+    return source ~= nil and tostring((source as scalarIR.Source).line) .. ":" .. tostring(
+        (source as scalarIR.Source).column
+    ) or "1:1"
 end
 
 --- What the compiled object reports about one struct's layout.
@@ -1408,6 +1465,163 @@ record emit.Body
     resultStruct: string?
 end
 
+--- Pushes one verified construction value on the Lua stack.
+--- @raises when called with a value the construction verifier does not admit
+local function luaPush(value: scalarIR.Expr, prefix: string): {string}
+    if value.type == "lua_table" then
+        if value.op == "lua_new_table" then
+            local created = value as scalarIR.LuaNewTable
+            luaTemporary = luaTemporary + 1
+            local slot = "lt" .. tostring(luaTemporary)
+            local lines: {string} = {
+                prefix .. "if (!lua_checkstack(L, 3)) return luaL_error(L, \"AOT builder Lua stack exhausted\");",
+                prefix .. "lua_createtable(L, ks_lua_count(L, " .. emit.scalar(
+                    created.arrayCapacity
+                ) .. ", \"array capacity at " .. luaSite(created.source) .. "\"), ks_lua_count(L, " .. emit.scalar(
+                    created.hashCapacity
+                ) .. ", \"hash capacity at " .. luaSite(created.source) .. "\"));",
+            }
+            if #(created.fields or {}) > 0 then
+                lines[#lines + 1] = prefix .. "int " .. slot .. " = lua_gettop(L);"
+            end
+            for _, field in ipairs(created.fields or {}) do
+                if field.indexed then
+                    for _, line in ipairs(luaPush(field.value, prefix)) do
+                        lines[#lines + 1] = line
+                    end
+                    lines[
+                        #lines + 1
+                    ] = prefix .. "lua_rawseti(L, " .. slot .. ", ks_lua_index(L, " .. emit.scalar(
+                        field.key
+                    ) .. ", \"" .. luaSite(field.source) .. "\"));"
+                else
+                    for _, part in ipairs({field.key, field.value}) do
+                        for _, line in ipairs(luaPush(part, prefix)) do
+                            lines[#lines + 1] = line
+                        end
+                    end
+                    lines[#lines + 1] = prefix .. "lua_rawset(L, " .. slot .. ");"
+                end
+            end
+
+            return lines
+        end
+        return {prefix .. "lua_pushvalue(L, " .. tostring((value as scalarIR.Name).cName) .. ");"}
+    elseif value.type == "lua_nil" then
+        return {prefix .. "lua_pushnil(L);"}
+    elseif value.type == "lua_string" then
+        if value.op == "lua_string" then
+            local literal = value as scalarIR.LuaString
+            return {
+                prefix .. "lua_pushlstring(L, " .. cBytes(literal.value) .. ", " .. tostring(#literal.value) .. "u);",
+            }
+        end
+        return {prefix .. "lua_pushvalue(L, " .. tostring((value as scalarIR.Name).cName) .. ");"}
+    elseif value.type == "bool" then
+        return {prefix .. "lua_pushboolean(L, " .. emit.scalar(value) .. ");"}
+    elseif emit.SCALAR_C[value.type] ~= nil then
+        return {prefix .. "lua_pushnumber(L, (double)(" .. emit.scalar(value) .. "));"}
+    end
+
+    error("no Lua construction push for " .. tostring(value.type), 0)
+end
+
+--- One verified Lua-construction block.
+---
+--- Logical handles are C integers naming absolute Lua stack slots. The objects
+--- themselves never leave the stack, so every allocating API call sees all
+--- live construction values rooted.
+function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: emit.Body): {string}
+    local lines: {string} = {}
+    local prefix = string.rep("    ", depth)
+
+    local function append(more: {string}): nil
+        for _, line in ipairs(more) do
+            lines[#lines + 1] = line
+        end
+    end
+
+    local function nested(inner: {scalarIR.Statement}): nil
+        append(emit.luaBlock(inner, depth + 1, body))
+    end
+
+    for _, statement in ipairs(statements) do
+        if statement.op == "let" and (
+            statement.type == "lua_table" or statement.type == "lua_string" or statement.type == "lua_nil"
+        ) then
+            append(luaPush(statement.value, prefix))
+            lines[#lines + 1] = prefix .. "int " .. statement.cName .. " = lua_gettop(L);"
+        elseif statement.op == "let" then
+            lines[
+                #lines + 1
+            ] = prefix .. emit.cType(statement.type) .. " " .. statement.cName .. " = " .. emit.scalar(
+                statement.value
+            ) .. ";"
+        elseif statement.op == "lua_set_index" then
+            local write = statement as scalarIR.LuaSet
+            append(luaPush(write.value, prefix))
+            lines[
+                #lines + 1
+            ] = prefix .. "lua_rawseti(L, " .. tostring(
+                (write.table as scalarIR.Name).cName
+            ) .. ", ks_lua_index(L, " .. emit.scalar(
+                write.key
+            ) .. ", \"" .. luaSite(write.source) .. "\"));"
+        elseif statement.op == "lua_set_key" then
+            local write = statement as scalarIR.LuaSet
+            append(luaPush(write.key, prefix))
+            append(luaPush(write.value, prefix))
+            lines[
+                #lines + 1
+            ] = prefix .. "lua_rawset(L, " .. tostring((write.table as scalarIR.Name).cName) .. ");"
+        elseif statement.op == "assign" then
+            -- Builder scalar assignments retain the ordinary simultaneous
+            -- assignment lowering. Lua handles are immutable logical roots.
+            append(emit.block({statement}, depth, body))
+        elseif statement.op == "if" then
+            for position, clause in ipairs(statement.clauses) do
+                lines[
+                    #lines + 1
+                ] = prefix .. (position == 1 and "if (" or "else if (") .. emit.scalar(clause.condition) .. ") {"
+                nested(clause.body)
+                lines[#lines + 1] = prefix .. "}"
+            end
+            if statement.elseBody ~= nil then
+                lines[#lines + 1] = prefix .. "else {"
+                nested(statement.elseBody)
+                lines[#lines + 1] = prefix .. "}"
+            end
+        elseif statement.op == "fornum" then
+            lines[
+                #lines + 1
+            ] = prefix .. "for (int32_t " .. statement.binding.cName .. " = " .. emit.scalar(
+                statement.from
+            ) .. "; " .. statement.binding.cName .. " <= (int32_t)" .. emit.scalar(
+                statement.to
+            ) .. "; ++" .. statement.binding.cName .. ") {"
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "}"
+        elseif statement.op == "while" then
+            lines[#lines + 1] = prefix .. "while (" .. emit.scalar(statement.condition) .. ") {"
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "}"
+        elseif statement.op == "block" then
+            lines[#lines + 1] = prefix .. "{"
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "}"
+        elseif statement.op == "return" then
+            for _, value in ipairs(statement.values) do
+                append(luaPush(value, prefix))
+            end
+            lines[#lines + 1] = prefix .. "return " .. tostring(#statement.values) .. ";"
+        else
+            lines[#lines + 1] = prefix .. statement.op .. ";"
+        end
+    end
+
+    return lines
+end
+
 --- The C type one local is declared with.
 ---
 --- A pointer to a struct element carries its own constness, because that is
@@ -1649,10 +1863,20 @@ end
 --- against. The oracle must not share the real body's lowering, which is why it
 --- keeps the scalar statements and carries a pragma refusing vectorisation --
 --- including whatever the C compiler would have done on its own.
+--- @raises when passed malformed or unverified IR
 function emit.program(programs: {scalarIR.Program}): string
     emit.begin()
 
     local lines = emit.includes()
+    local hasBuilder = false
+    for _, program in ipairs(programs) do
+        hasBuilder = hasBuilder or program.entryMode == "lua-builder"
+    end
+    if hasBuilder then
+        for _, line in ipairs(emit.luaPrelude()) do
+            lines[#lines + 1] = line
+        end
+    end
     local declared: {[string]: boolean} = {}
     for _, program in ipairs(programs) do
         for _, layout in ipairs(program.layouts or {}) do
@@ -1729,6 +1953,38 @@ function emit.program(programs: {scalarIR.Program}): string
         local resultStruct = #resultTypes > 1 and scalarIR.cIdentifier("KsResult", program.symbol) or nil
         local body = new emit.Body(helpers = helpers, lanes = width, resultStruct = resultStruct)
         local general = program.body ~= nil
+        if program.entryMode == "lua-builder" then
+            explicitScalar = false
+            lines[#lines + 1] = "static int " .. program.symbol .. "_lua(lua_State *L) {"
+            lines[
+                #lines + 1
+            ] = "    if (!lua_checkstack(L, " .. tostring(
+                program.maxStack or 4
+            ) .. ")) return luaL_error(L, \"AOT builder Lua stack exhausted\");"
+            for position, param in ipairs(program.params) do
+                if param.kind == "uniform" then
+                    local read = param.type == "bool" and "lua_toboolean(L, " .. tostring(
+                        position
+                    ) .. ")" or "luaL_checknumber(L, " .. tostring(position) .. ")"
+                    lines[
+                        #lines + 1
+                    ] = "    " .. emit.cType(param.type) .. " p_" .. param.name .. " = (" .. emit.cType(
+                        param.type
+                    ) .. ")(" .. read .. ");"
+                elseif param.kind == "scalar" and param.type == "lua_string" then
+                    -- The argument itself is the root. Source uses carry this
+                    -- positive absolute stack index; no GC pointer is taken.
+                else
+                    error("Lua builders currently take scalar parameters", 0)
+                end
+            end
+            for _, line in ipairs(emit.luaBlock(program.body or {}, 1, body)) do
+                lines[#lines + 1] = line
+            end
+            lines[#lines + 1] = "    return 0;"
+            lines[#lines + 1] = "}"
+            lines[#lines + 1] = ""
+        else
         local params = emit.parameters(program.params, general)
         local cResult = #resultTypes == 0 and "void" or resultStruct ~= nil and resultStruct or emit.cType(
             resultTypes[1]
@@ -1788,6 +2044,35 @@ function emit.program(programs: {scalarIR.Program}): string
             implementation(program.symbol .. "_forced_scalar", true)
         end
         implementation(program.symbol, false)
+        end
+    end
+
+    local builders: {scalarIR.Program} = {}
+    local registrar: string? = nil
+    for _, program in ipairs(programs) do
+        if program.entryMode == "lua-builder" then
+            registrar = registrar or program.registrar
+            if registrar ~= program.registrar then
+                error("one translation unit carried multiple Lua registrars", 0)
+            end
+            builders[#builders + 1] = program
+        end
+    end
+    if #builders > 0 then
+        lines[#lines + 1] = "KS_API int " .. tostring(registrar) .. "(lua_State *L) {"
+        lines[#lines + 1] = "    if (!lua_checkstack(L, 3)) return luaL_error(L, \"AOT builder Lua stack exhausted\");"
+        lines[#lines + 1] = "    lua_createtable(L, 0, " .. tostring(#builders) .. ");"
+        lines[#lines + 1] = "    int registry = lua_gettop(L);"
+        for _, program in ipairs(builders) do
+            lines[
+                #lines + 1
+            ] = "    lua_pushlstring(L, " .. cBytes(program.name) .. ", " .. tostring(#program.name) .. "u);"
+            lines[#lines + 1] = "    lua_pushcclosure(L, " .. program.symbol .. "_lua, 0);"
+            lines[#lines + 1] = "    lua_rawset(L, registry);"
+        end
+        lines[#lines + 1] = "    return 1;"
+        lines[#lines + 1] = "}"
+        lines[#lines + 1] = ""
     end
 
     return table.concat(lines, "\n") .. "\n"

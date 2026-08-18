@@ -301,6 +301,74 @@ function binding.wrapper(program: scalarIR.Program): {string}
     return lines
 end
 
+--- Loads one VM-aware entry through the platform's supported Lua module path.
+---
+--- `@lib/` has the same relocatable meaning as it does for generated FFI
+--- bindings. `package.loadlib` needs the resolved filesystem path, so this
+--- small loader performs the same bounded upward search and caches the closure
+--- in the generated module local.
+function binding.builderLoader(program: scalarIR.Program, library: string): {string}
+    local prefix = program.symbol .. "_builder"
+    local relative = library:match("^@(.+)$") or library
+    return {
+        "local function " .. prefix .. "Load()",
+        "    local modules: any = rawget(_G, \"__nuppAotBuilderModules\") or {}",
+        "    rawset(_G, \"__nuppAotBuilderModules\", modules)",
+        "    local here = debug.getinfo(1, \"S\").source:match(\"^@(.*)$\")",
+        "    local directory = here and here:match(\"^(.*)[/\\\\]\") or \".\"",
+        "    local started = directory",
+        "    for _ = 0, 8 do",
+        "        local path = directory .. \"/" .. relative .. "\"",
+        "        local cacheKey = path .. \"\\0" .. tostring(program.registrar) .. "\"",
+        "        local registered: any = modules[cacheKey]",
+        "        if registered then return registered[\"" .. program.name .. "\"] end",
+        "        local probe = io.open(path, \"rb\")",
+        "        if probe then",
+        "            probe:close()",
+        "            local loadlib = rawget(package, \"loadlib\")",
+        "            local open, why = loadlib(path, \"" .. tostring(program.registrar) .. "\")",
+        "            if not open then error(\"cannot register AOT builder: \" .. tostring(why), 0) end",
+        "            registered = open()",
+        "            if type(registered) ~= \"table\" or type(registered[\"" .. program.name
+            .. "\"]) ~= \"function\" then error(\"malformed AOT builder registration\", 0) end",
+        "            modules[cacheKey] = registered",
+        "            return registered[\"" .. program.name .. "\"]",
+        "        end",
+        "        directory = directory .. \"/..\"",
+        "    end",
+        "    error(\"cannot find " .. relative .. " at or above \" .. started"
+            .. " .. \"; the compiled library has to travel with the module that calls it\", 0)",
+        "end",
+        "local " .. prefix .. " = " .. prefix .. "Load()",
+    }
+end
+
+--- The source-level wrapper around one registered Lua C closure.
+function binding.builderWrapper(program: scalarIR.Program): {string}
+    local params: {string} = {}
+    local arguments: {string} = {}
+    for position, param in ipairs(program.params) do
+        params[position] = logical(param)
+        arguments[position] = param.name
+    end
+    local results = program.resultSourceTypes or {}
+    local result = #results == 0 and "nil" or #results == 1 and results[1] or "(" .. table.concat(results, ", ") .. ")"
+    local lines: {string} = {"local function " .. program.name .. "("}
+    for position, param in ipairs(params) do
+        lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
+    end
+    lines[#lines + 1] = "): " .. result
+    lines[
+        #lines + 1
+    ] = "    " .. (#results > 0 and "return " or "") .. program.symbol .. "_builder(" .. table.concat(
+        arguments,
+        ", "
+    ) .. ")"
+    lines[#lines + 1] = "end"
+
+    return lines
+end
+
 --- What stands in for one `@aot` declaration in the source it was written in.
 ---
 --- Everything `binding.module` emits for one program except the struct
@@ -312,7 +380,24 @@ end
 --- This is ordinary Nupp. It goes through the checker like anything else, which
 --- is what makes substituting it safe: the ownership annotations, the range
 --- guard and the narrow `unsafe do` are all checked rather than trusted.
+--- @raises when passed malformed or unverified IR
 function binding.replacement(program: scalarIR.Program, library: string): string
+    if program.entryMode == "lua-builder" then
+        local builder: {string} = {}
+        for _, line in ipairs(binding.builderLoader(program, library)) do
+            builder[#builder + 1] = line
+        end
+        builder[#builder + 1] = ""
+        for _, line in ipairs(binding.builderWrapper(program)) do
+            builder[#builder + 1] = line
+        end
+
+        return table.concat(builder, "\n")
+    elseif program.entryMode == "kernel" then
+        -- Continue through the established FFI binding path below.
+    else
+        error("unknown AOT entry mode", 0)
+    end
     local lines: {string} = {}
     if #(program.resultTypes or {}) > 1 then
         for _, line in ipairs(binding.resultStruct(program)) do
@@ -373,6 +458,13 @@ function binding.module(programs: {scalarIR.Program}, library: string): string
     end
 
     for _, program in ipairs(programs) do
+        if program.entryMode == "lua-builder" then
+            append(binding.builderLoader(program, library))
+            lines[#lines + 1] = ""
+            append(binding.builderWrapper(program))
+            lines[#lines + 1] = ""
+            exports[#exports + 1] = program.name .. " = " .. program.name
+        else
         if #(program.resultTypes or {}) > 1 then
             append(binding.resultStruct(program))
             lines[#lines + 1] = ""
@@ -382,6 +474,7 @@ function binding.module(programs: {scalarIR.Program}, library: string): string
         append(binding.wrapper(program))
         lines[#lines + 1] = ""
         exports[#exports + 1] = program.name .. " = " .. program.name
+        end
     end
 
     lines[#lines + 1] = "return {" .. table.concat(exports, ", ") .. ",}"

@@ -63,6 +63,8 @@ record verify.Scope
     cursorBounds: {[string]: string}
 
     resultTypes: {scalarIR.Type}
+
+    entryMode: scalarIR.EntryMode
 end
 
 --- What the lane rules need beyond the scope.
@@ -502,6 +504,34 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         holds(node.type == "f64" and tonumber(node.value) ~= nil, "invalid constant")
     elseif op == "bool" then
         holds(node.type == "bool" and type(node.value) == "boolean", "invalid boolean")
+    elseif op == "lua_nil" then
+        holds(scope.entryMode == "lua-builder" and node.type == "lua_nil", "Lua nil outside a builder")
+    elseif op == "lua_string" then
+        holds(
+            scope.entryMode == "lua-builder" and node.type == "lua_string" and type(node.value) == "string",
+            "Lua string outside a builder"
+        )
+    elseif op == "lua_new_table" then
+        local created = node as scalarIR.LuaNewTable
+        holds(scope.entryMode == "lua-builder" and node.type == "lua_table", "Lua allocation outside a builder")
+        for _, capacity in ipairs({created.arrayCapacity, created.hashCapacity}) do
+            holds(verify.NUMERIC[capacity.type] == true, "non-numeric Lua table capacity")
+            scalarWalk(capacity, values, scope)
+        end
+        for _, field in ipairs(created.fields or {}) do
+            scalarWalk(field.key, values, scope)
+            scalarWalk(field.value, values, scope)
+            holds(
+                verify.NUMERIC[field.key.type] == true or field.key.type == "lua_string",
+                "unsupported fresh-table literal key"
+            )
+            holds(
+                verify.NUMERIC[field.value.type] == true or field.value.type == "bool"
+                    or field.value.type == "lua_nil" or field.value.type == "lua_string"
+                    or field.value.type == "lua_table",
+                "unsupported fresh-table literal value"
+            )
+        end
     elseif op == "neg" or op == "not" or op == "bnot" then
         local operand = (node as scalarIR.Unary).value
         scalarWalk(operand, values, scope)
@@ -955,6 +985,19 @@ local function block(
             scalarWalk(statement.value, values, scope)
             holds(statement.value.type == (scope.spans[statement.span] as scalarIR.Param).type, "store type mismatch")
             stored[statement.span] = true
+        elseif statement.op == "lua_set_index" or statement.op == "lua_set_key" then
+            local write = statement as scalarIR.LuaSet
+            holds(scope.entryMode == "lua-builder", "Lua write outside a builder")
+            holds(write.table.type == "lua_table", "Lua write target is not a fresh table handle")
+            scalarWalk(write.table, values, scope)
+            scalarWalk(write.key, values, scope)
+            scalarWalk(write.value, values, scope)
+            holds(verify.NUMERIC[write.key.type] == true or write.key.type == "lua_string", "unsupported Lua table key")
+            holds(
+                verify.NUMERIC[write.value.type] == true or write.value.type == "bool" or write.value.type == "lua_table"
+                    or write.value.type == "lua_string" or write.value.type == "lua_nil",
+                "unsupported Lua table value"
+            )
         elseif statement.op == "assign" then
             for _, entry in ipairs(statement.values) do
                 assignment(entry, values, scope, stored)
@@ -994,7 +1037,8 @@ local function block(
                     boundSpan = scope.boundSpan,
                     mapIndex = scope.mapIndex,
                     cursorBounds = cursorBounds,
-                    resultTypes = scope.resultTypes
+                    resultTypes = scope.resultTypes,
+                    entryMode = scope.entryMode
                 )
                 block(clause.body, values, nestedScope, stored)
                 for name in pairs(scope.cursorBounds) do
@@ -1027,7 +1071,8 @@ local function block(
                 boundSpan = statement.boundSpan,
                 mapIndex = false,
                 cursorBounds = scope.cursorBounds,
-                resultTypes = scope.resultTypes
+                resultTypes = scope.resultTypes,
+                entryMode = scope.entryMode
             )
             if statement.boundSpan ~= nil then
                 holds(
@@ -1067,7 +1112,8 @@ local function block(
                 boundSpan = scope.boundSpan,
                 mapIndex = scope.mapIndex,
                 cursorBounds = cursorBounds,
-                resultTypes = scope.resultTypes
+                resultTypes = scope.resultTypes,
+                entryMode = scope.entryMode
             )
             block(statement.body, values, nestedScope, stored)
             local invalidated: {string} = {}
@@ -1262,11 +1308,19 @@ local function signature(
     for _, param in ipairs(program.params) do
         holds(byName[param.name] == nil, "duplicate IR parameter")
         holds(
-            param.kind == "write_span" or param.kind == "read_span" or param.kind == "uniform",
+            param.kind == "write_span" or param.kind == "read_span" or param.kind == "uniform" or param.kind == "scalar",
             "unknown IR parameter kind"
         )
         if param.kind == "uniform" then
-            holds(verify.NUMERIC[param.type] == true and param.region == nil, "invalid IR uniform")
+            holds(
+                (verify.NUMERIC[param.type] == true or param.type == "bool") and param.region == nil,
+                "invalid IR uniform"
+            )
+        elseif param.kind == "scalar" then
+            holds(
+                program.entryMode == "lua-builder" and param.type == "lua_string" and param.region == nil,
+                "invalid Lua builder scalar"
+            )
         else
             local structName = param.type:match("^struct:(.+)$")
             local element = structName == nil and validStorage(
@@ -1399,6 +1453,67 @@ local function helperBodies(program: scalarIR.Program, scope: verify.Scope): nil
     end
 end
 
+--- Conservative Lua stack demand and whether an expression allocates a table.
+local function constructionExpression(node: scalarIR.Expr): (integer, boolean)
+    if node.op ~= "lua_new_table" then
+        return 0, false
+    end
+    local depth = 1
+    for _, field in ipairs((node as scalarIR.LuaNewTable).fields or {}) do
+        for _, value in ipairs({field.key, field.value}) do
+            local nested = constructionExpression(value)
+            depth = math.max(depth, 1 + nested) as integer
+        end
+    end
+
+    return depth as integer, true
+end
+
+--- Computes a conservative entry stack reservation.
+---
+--- A table local inside a loop would retain one VM stack root per iteration in
+--- the current physical assignment, so it is rejected rather than relying on
+--- an unbounded stack. Nested literals consumed directly by raw-set are bounded
+--- by their authored depth and are included in the reservation.
+local function constructionStack(statements: {scalarIR.Statement}, inLoop: boolean): (integer, integer)
+    local roots, depth = 0, 0
+    for _, statement in ipairs(statements) do
+        if statement.op == "let" then
+            local nested, allocates = constructionExpression(statement.value)
+            holds(not (inLoop and allocates), "fresh Lua table allocation inside a loop is not stack bounded")
+            depth = math.max(depth, nested)
+            if statement.type == "lua_table" or statement.type == "lua_string" or statement.type == "lua_nil" then
+                roots = roots + 1
+            end
+        elseif statement.op == "lua_set_index" or statement.op == "lua_set_key" then
+            local write = statement as scalarIR.LuaSet
+            local keyDepth = constructionExpression(write.key)
+            local valueDepth, allocates = constructionExpression(write.value)
+            holds(not (inLoop and allocates), "fresh Lua table allocation inside a loop is not stack bounded")
+            depth = math.max(depth, keyDepth, valueDepth) as integer
+        elseif statement.op == "if" then
+            for _, clause in ipairs(statement.clauses) do
+                local nestedRoots, nestedDepth = constructionStack(clause.body, inLoop)
+                roots = roots + nestedRoots
+                depth = math.max(depth, nestedDepth) as integer
+            end
+            local nestedRoots, nestedDepth = constructionStack(statement.elseBody or {}, inLoop)
+            roots = roots + nestedRoots
+            depth = math.max(depth, nestedDepth) as integer
+        elseif statement.op == "fornum" or statement.op == "while" then
+            local nestedRoots, nestedDepth = constructionStack(statement.body, true)
+            roots = roots + nestedRoots
+            depth = math.max(depth, nestedDepth) as integer
+        elseif statement.op == "block" then
+            local nestedRoots, nestedDepth = constructionStack(statement.body, inLoop)
+            roots = roots + nestedRoots
+            depth = math.max(depth, nestedDepth) as integer
+        end
+    end
+
+    return roots as integer, depth as integer
+end
+
 --- Checks one whole AOT program, and everything under it.
 ---
 --- @param program the lowered function
@@ -1407,6 +1522,28 @@ end
 function verify.program(program: scalarIR.Program): scalarIR.Program
     holds(program.version == scalarIR.VERSION, "unknown native C IR version")
     holds(program.symbol == scalarIR.privateSymbol(program.name), "private symbol does not match function identity")
+    holds(program.entryMode == "kernel" or program.entryMode == "lua-builder", "invalid AOT entry mode")
+    if program.entryMode == "lua-builder" then
+        holds(
+            program.runtimeAbi == "lua-5.1"
+                and program.registrar ~= nil
+                and (program.registrar as string):match("^ks_register_[0-9a-f]+$") ~= nil,
+            "invalid Lua builder registration ABI"
+        )
+        for _, param in ipairs(program.params) do
+            holds(param.kind == "uniform" or param.kind == "scalar", "Lua builder parameter needs a VM-stack ABI")
+        end
+        local roots, depth = constructionStack(program.body or {}, false)
+        local needed = roots + depth + 4
+        holds(needed <= 256, "Lua builder exceeds the 256-slot construction limit")
+        holds(program.maxStack == nil or program.maxStack == needed, "Lua builder stack bound changed")
+        program.maxStack = needed
+    else
+        holds(
+            program.runtimeAbi == nil and program.registrar == nil and program.maxStack == nil,
+            "kernel carried a Lua runtime ABI"
+        )
+    end
 
     local layouts = layoutsByName(program)
     local byName, byRegion, writes, primary = signature(program, layouts)
@@ -1426,7 +1563,13 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     local sourceResults = program.resultSourceTypes or {}
     holds(#resultTypes == #sourceResults and #resultTypes <= 4, "invalid AOT entry results")
     for _, resultType in ipairs(resultTypes) do
-        holds(verify.NUMERIC[resultType] == true or resultType == "bool", "invalid AOT entry result type")
+        holds(
+            verify.NUMERIC[resultType] == true or resultType == "bool"
+                or program.entryMode == "lua-builder" and (
+                    resultType == "lua_table" or resultType == "lua_string" or resultType == "lua_nil"
+                ),
+            "invalid AOT entry result type"
+        )
     end
     if program.usesSimd == true then
         holds(body ~= nil and loop == nil, "explicit SIMD requires a block kernel")
@@ -1444,13 +1587,14 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         boundSpan = loop ~= nil and (loop as scalarIR.Loop).count or nil,
         mapIndex = loop ~= nil,
         cursorBounds = {},
-        resultTypes = resultTypes
+        resultTypes = resultTypes,
+        entryMode = program.entryMode
     )
     helperBodies(program, scope)
 
     local uniforms: {[string]: string} = {}
     for _, param in ipairs(program.params) do
-        if param.kind == "uniform" then
+        if param.kind == "uniform" or param.kind == "scalar" then
             uniforms[param.name] = param.type
         end
     end

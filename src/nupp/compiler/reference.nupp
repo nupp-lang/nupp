@@ -1525,13 +1525,31 @@ target's `aot` policy says what a build does with it: `off`, the default, does
 nothing; `emit-c` writes the generated C beside the build; `require` compiles
 that C into the project's own shared library and fails the build when it cannot.
 Under `require` the function is replaced where it was written by a checked
-wrapper that calls the compiled symbol, so every call to it reaches native code
+wrapper that calls the compiled entry, so every call to it reaches native code
 and the struct layouts are compared against the object's own before the module
-finishes loading. A closure, table, interpolated string, vararg, `goto`, dynamic
-call, or unsafe operation inside one reports NUPP2903 at the construct. Stacking
+finishes loading. A closure, interpolated string, vararg, `goto`, dynamic call,
+or unsafe operation inside one reports NUPP2903 at the construct. Stacking
 it with `@jit` promises one body to two compilers and reports NUPP2901, and a
 constructor or inline requirement is not a whole function to compile, so
 annotating one reports NUPP2902.
+
+The compiler classifies an admitted function automatically. Numeric, struct and
+span code uses the pointer-free `kernel` ABI. A function that constructs or
+returns ordinary Lua tables or strings uses the `lua-builder` ABI and is entered
+as a registered Lua C closure. `nupp aot` reports the selected mode; no second
+annotation selects it.
+
+The initial builder subset admits fresh table literals, resolved
+`table.new(arrayCapacity, hashCapacity)`, primitive values, rooted string
+arguments, nested fresh tables, numeric or string-key raw-equivalent writes,
+structured control flow and final return. Capacities and array indexes are
+checked before conversion to the public Lua C API's integer range. Constructed
+values remain rooted in Lua stack slots across allocations, and public Lua 5.1
+API calls provide allocation, barriers, strings and errors. Existing or
+published-table mutation, table reads, metatables, dynamic calls, callbacks,
+userdata and cycles are not admitted. With `aot = "off"`, the unchanged ordinary
+body runs; with `require`, one native call returns the completed ordinary Lua
+value.
 
 An AOT block kernel may use independently sized spans, structured scalar
 control flow, and up to four numeric or boolean results. A loop from one through

@@ -1,6 +1,15 @@
 # Lua-value construction in AOT functions
 
-Status: proposed — follows `plans/038-aot-functions.md` and `plans/062-aot-block-simd-parsing.md`
+Status: V1a and the core V2 subset implemented; V1b and V3 through V6 remain proposed — follows
+`plans/038-aot-functions.md` and `plans/062-aot-block-simd-parsing.md`
+
+The implemented slice selects and fingerprints the VM-aware ABI, emits one
+digest-named registrar per generated translation unit, caches its closure table,
+and verifies rooted construction of presized arrays, maps, nested fresh tables,
+numbers, booleans, nil, string literals, and rooted string arguments. Dynamic
+capacities and indexes are checked with source sites. Pure kernels retain their
+existing FFI ABI. Input slices, transformed `nupp.io` strings, JSON migration,
+the full host matrix, and the performance decisions below remain open stages.
 
 ## Decision
 

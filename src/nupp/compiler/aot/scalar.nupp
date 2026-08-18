@@ -26,7 +26,13 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 5
+const scalarIR.VERSION = 6
+
+--- The calling convention selected for one complete AOT entry.
+---
+--- A kernel has no VM authority. A Lua builder is entered as a Lua C function
+--- and may use only the construction operations represented below.
+type scalarIR.EntryMode = 'kernel' | 'lua-builder'
 
 --- What the arithmetic in an admitted body means.
 ---
@@ -92,6 +98,43 @@ record scalarIR.Bool
     op: 'bool'
     value: boolean
     type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- Lua nil, used as a primitive result or construction value.
+record scalarIR.LuaNil
+    op: 'lua_nil'
+    type: 'lua_nil'
+    source: scalarIR.Source?
+end
+
+--- A source string literal copied into ordinary Lua-owned storage.
+record scalarIR.LuaString
+    op: 'lua_string'
+    value: string
+    type: 'lua_string'
+    source: scalarIR.Source?
+end
+
+--- One authored field of a fresh table literal.
+record scalarIR.LuaField
+    key: scalarIR.Expr
+    value: scalarIR.Expr
+    indexed: boolean
+    source: scalarIR.Source?
+end
+
+--- A fresh, unpublished Lua table rooted on the C entry's Lua stack.
+---
+--- This is an effectful expression and is consequently admitted only as the
+--- value of a `let`. The verifier rejects it anywhere an emitter could evaluate
+--- it twice or move it across another allocation.
+record scalarIR.LuaNewTable
+    op: 'lua_new_table'
+    arrayCapacity: scalarIR.Expr
+    hashCapacity: scalarIR.Expr
+    fields: {scalarIR.LuaField}?
+    type: 'lua_table'
     source: scalarIR.Source?
 end
 
@@ -328,6 +371,9 @@ end
 type scalarIR.Expr = scalarIR.Constant
     | scalarIR.IntConstant
     | scalarIR.Bool
+    | scalarIR.LuaNil
+    | scalarIR.LuaString
+    | scalarIR.LuaNewTable
     | scalarIR.Name
     | scalarIR.SpanCount
     | scalarIR.Load
@@ -412,6 +458,19 @@ record scalarIR.Store
     indexCName: string?
     cursor: string?
     cursorCName: string?
+    value: scalarIR.Expr
+    source: scalarIR.Source?
+end
+
+--- A raw-equivalent write into a fresh unpublished Lua table.
+---
+--- The target remains a rooted logical handle. The C backend maps it to a Lua
+--- stack slot and uses the public raw-set API, which performs the VM barrier
+--- without invoking a metatable.
+record scalarIR.LuaSet
+    op: 'lua_set_index' | 'lua_set_key'
+    table: scalarIR.Expr
+    key: scalarIR.Expr
     value: scalarIR.Expr
     source: scalarIR.Source?
 end
@@ -505,6 +564,7 @@ type scalarIR.Statement = scalarIR.Let
     | scalarIR.MultiLet
     | scalarIR.Assign
     | scalarIR.Store
+    | scalarIR.LuaSet
     | scalarIR.If
     | scalarIR.While
     | scalarIR.Fornum
@@ -572,6 +632,9 @@ record scalarIR.Param
     name: string
     type: scalarIR.Type
     sourceType: string?
+
+    --- Lua-builder scalar arguments use their positive VM stack index here.
+    cName: string?
 
     --- Spans only: the borrow region this parameter is, which alias facts and
     --- region declarations refer to by name.
@@ -685,6 +748,20 @@ record scalarIR.Program
 
     name: string
     symbol: string
+
+    --- The private ABI. Omitted IR from version 5 and earlier is refused by the
+    --- version check rather than being guessed here.
+    entryMode: scalarIR.EntryMode
+
+    --- The public runtime ABI family required by a VM-aware entry.
+    runtimeAbi: string?
+
+    --- The exported registrar which returns the Lua C closure.
+    registrar: string?
+
+    --- Conservative additional Lua stack slots required by verified
+    --- construction. Builders check this once on entry.
+    maxStack: integer?
     params: {scalarIR.Param}
     layouts: {scalarIR.Layout}?
     regions: {scalarIR.Region}

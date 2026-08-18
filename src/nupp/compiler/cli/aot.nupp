@@ -101,6 +101,9 @@ local command = spec.command{
                     properties = {
                         name = {type = "string"},
                         symbol = {type = "string"},
+                        entryMode = {type = "string", enum = {"kernel", "lua-builder"}},
+                        runtimeAbi = {type = "string"},
+                        registrar = {type = "string"},
                         intensity = {
                             type = "object",
                             description = "Arithmetic per byte the loop body touches, and the two counts behind it.",
@@ -181,10 +184,11 @@ local function summarise(path: string, program: any): string
     end
 
     return (
-        "%s: %s, %.2f operations per byte (%d over %d), %s%s"
+        "%s: %s, %s, %.2f operations per byte (%d over %d), %s%s"
     ):format(
         path,
         program.name,
+        program.entryMode,
         program.intensity or 0,
         program.operations or 0,
         program.touchedBytes or 0,
@@ -254,6 +258,9 @@ local function run(parsed: any): integer
             ] = {
                 name = program.name,
                 symbol = program.symbol,
+                entryMode = program.entryMode,
+                runtimeAbi = program.runtimeAbi,
+                registrar = program.registrar,
                 intensity = {
                     perByte = program.intensity,
                     operations = program.operations,

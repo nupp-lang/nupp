@@ -132,6 +132,13 @@ Each used builtin is bound once per generated module and omitted when unused.
 definition, so a locally shadowed `table` is untouched, and generated modules
 remain standalone under external LuaJIT.
 
+Inside a VM-aware `@aot` builder, the same resolved identity has a native
+lowering: its two capacities are checked and passed to `lua_createtable`, and
+writes to the still-fresh table use public raw-set API calls. Table literals
+carry inferred array/hash capacities. Confirm that classification with
+`nupp aot --json`; it reports `entryMode: "lua-builder"`. Table allocation by
+itself is not a reason to add `@aot`—profile the construction loop first.
+
 ### `string.buffer` builtin
 
 `string.buffer` is reachable through the builtin `string` namespace with no
