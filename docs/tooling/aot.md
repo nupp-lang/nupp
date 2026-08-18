@@ -66,12 +66,8 @@ local function mandelbrot(
     last: integer,
     maxIterations: int32
 ): nil
-    if #escapes ~= #points then
-        error("length mismatch", 2)
-    end
-    if first < 1 or last > #escapes or first > last + 1 then
-        error("range out of bounds", 2)
-    end
+    assert(#escapes == #points, "length mismatch")
+    assert(first >= 1 and last <= #escapes and first <= last + 1, "range out of bounds")
 
     for i = first, last do
         local cx = points[i].re
@@ -106,11 +102,11 @@ every element.
 
 The backend does not compile those guards. It matches them, reads the facts out
 of them, and spends the facts on the loop, so each is written in one admitted
-form rather than any equivalent condition. Either polarity is admitted — state
-what must not happen, or state what must hold:
+form rather than any equivalent condition. Stating what must hold is the shorter
+spelling; stating what must not happen works the same way and reaches the same
+kernel:
 
-::: code-group
-```nupp [Refusing]
+```nupp
 if #escapes ~= #points then
     error("length mismatch", 2)
 end
@@ -119,20 +115,14 @@ if first < 1 or last > #escapes or first > last + 1 then
 end
 ```
 
-```nupp [Asserting]
-assert(#escapes == #points, "length mismatch")
-assert(first >= 1 and last <= #escapes and first <= last + 1, "range out of bounds")
-```
-:::
+Use it when the caller should be blamed for the bad argument, which is what
+`error(message, 2)` does and `assert` cannot. The message is optional either way.
 
-Both reach the same kernel and emit the same C. The message is optional in the
-asserted form. Within a spelling the wording is fixed: comparisons join with
-`or` and compare counts with `~=` when refusing, and join with `and` and compare
-with `==` when asserting, and the range guard is matched against the exact form
-quoted in its diagnostic. Reordering the comparisons or writing an equivalent
-inequality is refused, because a guard the backend only approximately understood
-would not be a check. `error(message, 2)` blames the caller for a bad argument;
-`assert` reports at the guard.
+Within a spelling the wording is fixed: comparisons join with `and` and compare
+counts with `==` when asserting, `or` and `~=` when refusing, and the range
+guard is matched against the exact form quoted in its diagnostic. Reordering the
+comparisons or writing an equivalent inequality is refused, because a guard the
+backend only approximately understood would not be a check.
 
 Ask what the backend made of it:
 
@@ -761,9 +751,7 @@ local function classify(
     exclusive output: span.WriteSpan<Code>,
     borrows input: span.Span<Code>
 ): nil
-    if #output ~= #input then
-        error("length mismatch", 2)
-    end
+    assert(#output == #input, "length mismatch")
     for i = 1, #output do
         local code = input[i].value
         local result: int32 = switch code do
