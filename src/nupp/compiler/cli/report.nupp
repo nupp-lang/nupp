@@ -135,10 +135,15 @@ function report.diagnosticValues(diagnostics: {any}): {any}
     return values
 end
 
---- Writes `{"diagnostics": [...]}`, which is what `check --json` promises and what
---- every other command that carries diagnostics embeds under the same key.
-function report.json(diagnostics: {any}): nil
-    report.write({diagnostics = report.diagnosticValues(diagnostics)})
+--- Writes `{"ok": ..., "diagnostics": [...]}`, which is what `check --json` promises
+--- and what every other command that carries diagnostics embeds under the same key.
+---
+--- `ok` is there because an empty `diagnostics` alone cannot say whether the check
+--- found nothing wrong or never got as far as looking: a manifest it could not use
+--- ends the run before any file is read, and that answered with the same empty list a
+--- clean project does. `nupp build --json` has always said `ok` for this reason.
+function report.json(diagnostics: {any}, ok: boolean): nil
+    report.write({ok = ok, diagnostics = report.diagnosticValues(diagnostics)})
 end
 
 --- Whether a diagnostic stops the work. Only an error does.

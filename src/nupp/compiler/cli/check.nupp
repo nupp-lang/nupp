@@ -29,6 +29,13 @@ local command = spec.command{
     schema = {
         type = "object",
         properties = {
+            ok = {
+                type = "boolean",
+                description = "Whether the check ran and found nothing wrong. False "
+                .. "both for a project that reported an error and for a run that never "
+                .. "got as far as checking, such as one whose manifest could not be "
+                .. "used -- an empty `diagnostics` cannot tell those apart on its own.",
+            },
             diagnostics = require("nupp.compiler.cli.report").DIAGNOSTICS,
             platform = {type = "string"},
             platforms = {type = "array", items = {type = "object"}},
@@ -72,7 +79,7 @@ local command = spec.command{
                 required = {"totalMs", "compiledModules", "reusedModules", "phases", "slowest"},
             },
         },
-        required = {"diagnostics"},
+        required = {"ok", "diagnostics"},
     },
     detail = "With no files, checks the default target from nupp.lua. Also reports a `timing` object naming how many modules were reused from the cache versus rechecked, and which modules cost the most of the wall-clock time either way -- see docs/diagnostics.md.",
 }
@@ -99,6 +106,7 @@ local function run(parsed: any): integer
         })
         if asJson then
             reportMod.write({
+                ok = code == 0,
                 diagnostics = reportMod.diagnosticValues(diagnostics),
                 platform = produced.platform,
                 platforms = produced.platforms,
@@ -197,7 +205,7 @@ local function run(parsed: any): integer
     end
     if #remaining == 0 then
         if asJson then
-            reportMod.json(diagnostics)
+            reportMod.json(diagnostics, not failed)
         end
 
         return failed and 1 or 0
@@ -234,7 +242,7 @@ local function run(parsed: any): integer
     -- itself, the next one should not.
     require("nupp.compiler.env").persist(env)
     if asJson then
-        reportMod.json(diagnostics)
+        reportMod.json(diagnostics, not failed)
     end
 
     return failed and 1 or 0

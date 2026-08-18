@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Say whether `nupp check --json` actually checked anything. An empty
+  `diagnostics` meant two different things -- a project with nothing wrong,
+  and a run that never reached a file because it could not use the manifest --
+  and nothing in the payload told them apart, so a reader consuming the JSON
+  and not the exit status read a configuration failure as a clean bill of
+  health. `ok` is now beside `diagnostics`, false in both failing cases, which
+  is what `nupp build --json` has always reported for the same reason. Found by
+  the agent evaluation harness, whose first task workspace was misconfigured
+  in exactly that way and reported clean.
+
 - Give `nupp explain` a worked example for every diagnostic code the compiler
   can actually emit that one is reachable for. 60 of the 149 codes used to
   fall back to their family's generic paragraph -- summary, rule and all --

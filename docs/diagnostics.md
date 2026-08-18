@@ -175,7 +175,10 @@ output against it, so the two cannot drift.
 
 ## Suggested agent workflow
 
-1. Run `./bin/nupp check --json --strict`.
+1. Run `./bin/nupp check --json --strict`. Read `ok` before `diagnostics`: an
+   empty list means the project is clean only when `ok` is true, since a run
+   that could not use the manifest never reached a file and reports the same
+   empty list.
 2. Apply a complete fix from `diagnostics[].fixes` when its title matches the
    intended repair.
 3. Read `docs` on a diagnostic, or run `./bin/nupp explain <code> --json`, when

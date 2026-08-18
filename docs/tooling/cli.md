@@ -500,6 +500,7 @@ Every diagnostic carries the position, the code, the severity, and the
 
 ```json [nupp check --json]
 {
+  "ok": false,
   "diagnostics": [
     {
       "code": "NUPP2001",
@@ -523,12 +524,18 @@ A lint carries its `lint` name and a `help` line as well, and a fix carries the
 edits that apply it. See [diagnostics.md](../diagnostics.md) for what a
 diagnostic holds and [lints.md](../lints.md) for the levels.
 
+`ok` says whether the check ran and found nothing wrong. It is false both for a
+project that reported an error and for a run that never got as far as checking:
+a manifest the command could not use ends the run before any file is read, and
+an empty `diagnostics` cannot tell that apart from a clean project on its own.
+
 With no files named, `--json` also carries a `timing` object -- the same shape
 `build` publishes, minus the parts only generation charges time to -- so a
 repeat check that feels slow can be read rather than waited out:
 
 ```json [nupp check --json]
 {
+  "ok": true,
   "diagnostics": [],
   "timing": {
     "totalMs": 8.4,
