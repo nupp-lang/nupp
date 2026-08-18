@@ -125,11 +125,12 @@ definition, so a shadowed `table` is untouched and generated modules stay
 standalone under external LuaJIT.
 
 ::: tip See also
-An `@aot` builder lowers the same identity to `lua_createtable` and public
-raw-set calls; see
-[building ordinary Lua values](aot.md#building-ordinary-lua-values). Table
-allocation alone is not a reason to add `@aot` — profile the construction loop
-first.
+When the function is marked `@aot`, the same `table.new` identity lowers to
+`lua_createtable`, and the writes that fill the fresh table become public
+raw-set calls, so the whole construction is one native call; see [building
+ordinary Lua values](aot.md#building-ordinary-lua-values). The allocation
+itself costs the same either way, so `@aot` pays where a profile puts the time
+in the construction loop, not wherever a table is allocated.
 :::
 
 ### `string.buffer`

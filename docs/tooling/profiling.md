@@ -1,25 +1,24 @@
 # Profiling
 
-Nupp ships a profiler, so finding out where a program spends its time does not
-mean adding a dependency first.
+The profiler ships with the compiler, so finding out where a program spends its
+time costs a flag rather than a dependency. There are two channels, and they
+answer different questions.
 
-There are two channels, and they answer different questions:
+- **Sampling** (`--profile`) says where the time went. A timer interrupts the
+  program and writes down the stack, and the result is collapsed-stack text
+  that speedscope.app, FlameGraph.pl and inferno all read.
+- **Trace aborts** (`--jit-aborts`) say whether that time was spent compiled or
+  interpreted. Every place LuaJIT tried to record something and gave up becomes
+  a row.
 
-- **Sampling** (`--profile`) says *where* the time went. A timer interrupts the
-  program, writes down the stack, and the result is collapsed-stack text that
-  speedscope.app, FlameGraph.pl and inferno all read.
-- **Trace aborts** (`--jit-aborts`) says *how* the time was spent there,
-  compiled or interpreted. It records every place LuaJIT tried to compile
-  something and gave up.
+The second question is the one a conventional profiler cannot answer, and on
+LuaJIT it is usually the one that matters. Code the compiler refused runs an
+order of magnitude slower than code it took, and nothing says so out loud: the
+function looks the same, it just is not fast.
 
-The second one is the one a conventional profiler cannot answer, and on LuaJIT
-it is usually the one that matters. Code the compiler refused runs an order of
-magnitude slower than code it took, and nothing says so out loud: the function
-looks the same, it just is not fast.
-
-Both handles satisfy `profile.Session`. Its associated `Report` preserves which
-channel produced the handle, so shared lifecycle helpers retain the concrete
-report:
+Both sessions satisfy `profile.Session`. Its associated `Report` is whichever
+report the channel behind the session produces, so a helper written once over
+the lifecycle still hands back the concrete one:
 
 ```nupp:playground
 local profile = require("nupp.profile")
@@ -34,47 +33,57 @@ local aborts: profile.TraceReport = finish(profile.trace())
 
 ## Sampling a program
 
-    nupp run --profile app.nupp
+```bash
+nupp run --profile app.nupp
+```
 
 That writes `profile.out` and prints a summary:
 
-    nupp: 2043 samples on 61 stacks every 10ms, written to profile.out
+```text
+nupp: 2043 samples on 61 stacks every 10ms, written to profile.out
+```
 
 Drop `profile.out` on [speedscope.app](https://speedscope.app) and you have a
 flame graph. `--profile=2` samples every 2 ms instead of the default 10; below
 about 10 the timer begins taking real time from the thread it is measuring, so
-treat a fine interval as something you spend for a short window. `--profile-out`
-puts the text somewhere other than `profile.out`.
+spend a fine interval on a short window. `--profile-out` puts the text somewhere
+other than `profile.out`.
+
+### Stack lines
 
 Each line is one stack: frames separated by semicolons, then the sample count.
 
-    frame;physics;app.nupp:0;app.nupp:step_[N] 431
+```text
+frame;physics;app.nupp:0;app.nupp:step_[N] 431
+```
 
-The leaf carries the VM state most of its samples were in:
+The leaf carries the VM state most of that stack's samples were in:
 
-    _[N]  running compiled machine code
-    _[I]  in the interpreter
-    _[C]  inside a C function
-    _[G]  in the garbage collector
-    _[J]  inside the JIT compiler
+- `_[N]`: running compiled machine code.
+- `_[I]`: in the interpreter.
+- `_[C]`: inside a C function.
+- `_[G]`: in the garbage collector.
+- `_[J]`: inside the JIT compiler.
 
-`_[I]` on something hot is the finding. It means the compiler is not running
-that code, and `--jit-aborts` will say why.
+`_[I]` on something hot is the finding. The compiler is not running that code,
+and `--jit-aborts` says why.
 
-The stacks start at your program. The frames underneath, the loader that read it
-and the pcall that guards it, belong to `nupp run`, not to what you asked about,
-so they are cut.
+### Frames the report omits
 
-One thing to know about reading the frames: LuaJIT inlines a compiled call
-chain into a single trace, and inlined frames are not on the stack to be
-walked. A hot call chain therefore arrives shorter than it reads in the source.
-That is the compiler doing its job, not the profiler losing frames.
+The stacks start at your program. The frames underneath it, the loader that read
+it and the pcall that guards it, belong to `nupp run` rather than to what you
+asked about, so they are cut.
 
-## Naming the parts of a program
+LuaJIT also inlines a compiled call chain into a single trace, and inlined
+frames are not on the stack to be walked, so a hot call chain arrives shorter
+than it reads in the source. That is the compiler doing its job, not the
+profiler losing frames.
 
-Frames tell you which function ran. Zones tell you which *phase* it ran in, and
-that is usually the question, because the same `sort` called from loading and
-from rendering is two different problems.
+## Zones
+
+Frames say which function ran. Zones say which phase it ran in, and that is
+usually the question, because the same `sort` called from loading and from
+rendering is two different problems.
 
 `nupp.zone` is a stack of names that the profiler reads:
 
@@ -99,69 +108,80 @@ end
 Samples taken inside those pushes lead with the zone path, so the flame graph
 opens on your phases and drills into the code under each:
 
-    frame;physics;app.nupp:stepWorld_[N] 812
-    frame;render;app.nupp:drawWorld_[N] 233
+```text
+frame;physics;app.nupp:stepWorld_[N] 812
+frame;render;app.nupp:drawWorld_[N] 233
+```
+
+### Push and pop are intrinsics
 
 Pushing and popping costs nothing while no profiler is listening, because the
-module checks one boolean and returns. What it used to cost, when a session *is*
-running, was a function call in the code being measured, and a call on the
-hottest path can stop a trace forming.
+module checks one boolean and returns. While a session is running, the cost is
+the call itself, and a call on the hottest path can stop a trace forming.
 
-`push` and a `pop` whose result is discarded are compiler intrinsics for
-exactly this reason: written in statement position on a `local zone =
-require("nupp.zone")` receiver, they are generated inline against the module's
-own state rather than called at all, so there is no call left for a hot path
-to pay for.
+So `push`, and a `pop` whose result is discarded, are lowered rather than
+called. Written in statement position on a receiver that is a bare `local zone
+= require("nupp.zone")`, they are generated inline against the module's own
+state, leaving nothing on the hot path to pay for.
 
-| Spelling | Lowered | Why not |
+| Spelling | Lowered | Reason |
 | --- | --- | --- |
-| `zone.push("frame")` | yes |  |
-| `zone.pop()` | yes | result discarded |
-| local name = zone.pop() | no | the popped name is kept |
-| `holder.zone.push("frame")` | no | receiver is not a bare name |
-| `other.push("frame")` | no | other is not nupp.zone |
+| `zone.push("frame")` | yes | |
+| `zone.pop()` | yes | the popped name is discarded |
+| `local name = zone.pop()` | no | the popped name is kept |
+| `holder.zone.push("frame")` | no | the receiver is not a bare name |
+| `other.push("frame")` | no | `other` is not `nupp.zone` |
 
-Mark warm paths, not the innermost loop, regardless: `push`/`pop` still call
-through the ordinary API in every other spelling, and `enter`/`leave` below
-always do.
+Mark warm paths rather than the innermost loop even so. Every other spelling
+calls through the ordinary API, and `enter` and `leave` always do.
 
-Use `zone.enter` and `zone.leave` instead of `push`/`pop` when the two halves
-might not run in the same session, such as a coroutine resumed after the profile
-stopped. `enter` hands back a token that a late `leave` discards rather than
-popping somebody else's zone.
+### `enter` and `leave`
 
-## Finding what the compiler refused
+Use `zone.enter` and `zone.leave` in place of `push` and `pop` when the two
+halves might not run in the same session, such as a coroutine resumed after the
+profile stopped. `enter` hands back a token that a late `leave` discards rather
+than popping somebody else's zone.
 
-For the deterministic source, bytecode, editor, and runtime reason catalog—with
-examples of every current diagnostic—see [LuaJIT trace checking](jit-trace-checking.md).
+## Trace aborts
 
-    nupp run --jit-aborts app.nupp
+```bash
+nupp run --jit-aborts app.nupp
+```
 
 That writes `jit-aborts.csv`:
 
-    severity,count,reason,location,zone
-    warn,7,NYI: bytecode FNEW,app.nupp:41,frame/spawn
+```csv
+severity,count,reason,location,zone
+warn,7,NYI: bytecode FNEW,app.nupp:41,frame/spawn
+```
 
-Each row is one place the compiler gave up, how often, and which zone was open.
-`severity` orders the file:
+Each row is one place the compiler gave up, how often it did, and which zone was
+open. `severity` orders the file:
 
-- `blacklist`: always worth fixing. The trace is permanently demoted to the
-  interpreter for the rest of the process. It will not be retried.
+- `blacklist`: always worth fixing. The trace is demoted to the interpreter for
+  the rest of the process and is never retried.
 - `warn`: a refusal. Whether it matters depends on whether it is hot, which is
   what the sampling channel is for.
-- `info`: trace formation working as designed: a loop was left, recursion was
-  found. Left out unless you ask for it.
+- `info`: trace formation working as designed, such as a loop being left or
+  recursion being found. Left out unless you ask for it.
 
 `NYI: bytecode FNEW` above is a closure being created inside a loop, which
 LuaJIT will not record. Hoisting the closure out of the loop is the fix, and
-running again is how you find out whether it was the only one.
+running again is how you find out whether it was the only one. [LuaJIT trace
+checking](jit-trace-checking.md) carries the whole reason catalog, source,
+bytecode, editor and runtime alike, with an example of every current diagnostic.
 
-For structured output, use `nupp run --jit-aborts=jit-aborts.json --json
-app.nupp`. Each site retains the raw VM detail and also carries a stable
-`reasonId` and `class`; the report carries the exact trace-profile and reason-
-catalog identities. CSV remains unchanged for existing consumers.
+### Structured output
 
-## From a program rather than the command line
+```bash
+nupp run --jit-aborts=jit-aborts.json --json app.nupp
+```
+
+Each site keeps the raw VM detail and adds a stable `reasonId` and `class`, and
+the report names the exact trace profile and reason catalog it was produced
+under. CSV is unchanged for existing consumers.
+
+## Profiling from a program
 
 The flags are a thin wrapper over `nupp.profile`, which is worth using directly
 when the interesting window is not the whole run: a single frame, one request,
@@ -177,16 +197,18 @@ local report = session:stop("render.out")
 print(report.samples, report.stacks)
 ```
 
-`stop` returns the report and ends the session; `tostring` on it is the text
+`stop` ends the session and returns the report, whose `tostring` is the text
 that was written. `pause` and `resume` leave a window out without ending
 anything, which is how a benchmark keeps its own setup out of the numbers.
 
-The `zone` option filters at `stop` rather than while sampling, so narrowing it
-costs nothing at runtime, but it also means you cannot widen it afterwards. What
-fell outside the prefix was still collected; the prefix is fixed when the
-session starts.
+The `zone` option narrows the report at `stop` rather than filtering while
+sampling, so it costs nothing at runtime. The prefix is fixed when the session
+starts: what fell outside it was still collected, but the report cannot be
+widened afterwards.
 
-The trace channel works the same way:
+### Collecting aborts
+
+The trace channel has the same shape:
 
 ```nupp
 local session = profile.trace()
@@ -198,12 +220,21 @@ if report.blacklisted > 0 then
 end
 ```
 
-One session of each kind runs at a time, since both are process-wide because the
-VM hooks they attach to are, and starting a second while one is live is an error
-rather than a silent replacement. A handle dropped without stopping leaves the
-timer running or the hook attached for the rest of the process.
+### Session lifecycle and cost
+
+Both channels attach to VM hooks, which are process-wide, so one session of each
+kind runs at a time. Starting a second while one is live is an error rather than
+a silent replacement, and a handle dropped without stopping leaves the timer
+running or the hook attached for the rest of the process.
 
 Neither channel is free. A sample session pays a timer interrupt, a stack walk
 and a table write at every interval; a trace session pays a callback inside the
 compiler at every abort. Stop a session once the question it was opened for has
 an answer.
+
+## Next
+
+- [LuaJIT trace checking](jit-trace-checking.md): the same aborts as a static
+  check, so a known cliff fails a build rather than a run.
+- [Performance](performance.md): the lowerings and `-O` passes to reach for once
+  the profile says where.

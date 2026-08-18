@@ -147,9 +147,9 @@ One binary, built from one parse of your source:
 
 The profiler is the part people are most surprised to find in a compiler. `nupp
 run --profile` writes collapsed-stack text that speedscope reads, and `nupp run
---jit-aborts` reports every place LuaJIT declined to compile something, which is
-the question a sampling profiler structurally cannot answer, and on LuaJIT
-usually the one that matters.
+--jit-aborts` reports every place LuaJIT declined to compile something. The
+second is the question a sampling profiler structurally cannot answer, and on
+LuaJIT it is usually the one that matters.
 
 ## Limits
 

@@ -1345,7 +1345,7 @@ Hello, world
 ```
 
 `--profile` and `--jit-aborts` take an attached value or none, so `--profile=2`
-rather than `--profile 2`. Defaults are 10 ms and `profile.out`, and
+rather than `--profile 2`. The defaults are 10 ms, `profile.out`, and
 `jit-aborts.csv`. See [profiling](profiling.md).
 With `--json`, the default is `jit-aborts.json` and every site carries both the
 raw VM detail and its stable normalized reason identity.
