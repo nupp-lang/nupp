@@ -13,3 +13,4 @@ tests/build/
 _stage2/
 _stage1/
 /evals/results/
+__pycache__/

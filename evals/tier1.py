@@ -20,14 +20,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import re
 import shutil
-import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from harness import agent_record, run, run_agent, spent  # noqa: E402
 
 
 # What the agent is told. It names no code and quotes no rule: the point of the
@@ -62,21 +61,6 @@ return {
    },
 }
 """
-
-# `nupp` followed by one of its subcommands, so that `which nupp` and a
-# workspace path with the word in it are not counted as the agent asking the
-# compiler something. Several chained in one Bash call each count, since each
-# is a question asked and answered.
-NUPP_COMMAND = re.compile(
-    r"\bnupp\s+(?:check|build|test|explain|fmt|lsp|bc|aot|run|lints|tasks)\b"
-)
-
-
-def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
-    """Run a command, capturing output, without raising on a non-zero exit."""
-    return subprocess.run(
-        argv, capture_output=True, text=True, check=False, **kwargs
-    )
 
 
 def load_task(nupp: Path, code: str) -> dict:
@@ -122,6 +106,12 @@ def check(nupp: Path, workspace: Path, entry: dict) -> list[dict]:
     A NUPP3xxx code is what a checked program cannot be lowered to, so those
     are only reachable through `build`; everything else `check` reports and
     there is no output to write.
+
+    `ok` is read before the list, because an empty `diagnostics` means the
+    project is clean only when the run got as far as checking one. A manifest
+    the command could not use ends it earlier and reports the same empty list,
+    and grading that as a repair would pass every task whose workspace was
+    broken in the right way.
     """
     verb = "build" if entry["code"].startswith("NUPP3") else "check"
     argv = [str(nupp), verb, "--json"]
@@ -129,95 +119,19 @@ def check(nupp: Path, workspace: Path, entry: dict) -> list[dict]:
         argv.append("--strict")
     done = run(argv, cwd=workspace)
     try:
-        return json.loads(done.stdout).get("diagnostics", [])
+        answer = json.loads(done.stdout)
     except json.JSONDecodeError:
         raise SystemExit(
             f"{verb} --json wrote no JSON: {done.stdout[:200]}"
             f" / {done.stderr[:200]}"
         )
-
-
-def run_agent(
-    workspace: Path, transcript: Path, model: str | None
-) -> tuple[dict, list[dict]]:
-    """Run one agent against the workspace, keeping its whole transcript.
-
-    Streaming rather than a single result, because the events say what the
-    agent did and not only what it ended with: the tool calls are where the
-    cost went and are the part worth comparing between two runs that both
-    passed.
-    """
-    argv = [
-        "claude",
-        "-p",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--permission-mode",
-        "bypassPermissions",
-    ]
-    if model:
-        argv += ["--model", model]
-    argv.append(PROMPT)
-
-    environment = dict(os.environ)
-    environment["PATH"] = f"{workspace / 'bin'}{os.pathsep}{environment['PATH']}"
-
-    started = time.monotonic()
-    done = run(argv, cwd=workspace, env=environment)
-    elapsed = time.monotonic() - started
-
-    events = []
-    for line in done.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            events.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    transcript.write_text(
-        "".join(json.dumps(event) + "\n" for event in events)
-    )
-
-    if not events:
+    diagnostics = answer.get("diagnostics", [])
+    if not answer.get("ok") and not diagnostics:
         raise SystemExit(
-            f"the agent produced no events; exit {done.returncode}:"
-            f" {done.stderr[:400]}"
+            f"{verb} --json reported neither success nor a diagnostic;"
+            f" the workspace is not checkable: {done.stderr[:200]}"
         )
-    result = next(
-        (event for event in reversed(events) if event.get("type") == "result"),
-        {},
-    )
-    result["wallClockSeconds"] = round(elapsed, 1)
-    return result, events
-
-
-def tool_calls(events: list[dict]) -> tuple[dict[str, int], int]:
-    """How many times each tool was called, and how many of those ran `nupp`.
-
-    The second number is the one worth watching: an agent that checks once,
-    reads the diagnostic and repairs is doing the thing the tooling is for,
-    and one that checks eight times is paying for something the first answer
-    was supposed to have told it.
-    """
-    counts: dict[str, int] = {}
-    nupp_runs = 0
-    for event in events:
-        if event.get("type") != "assistant":
-            continue
-        content = event.get("message", {}).get("content", [])
-        if not isinstance(content, list):
-            continue
-        for block in content:
-            if not isinstance(block, dict) or block.get("type") != "tool_use":
-                continue
-            name = block.get("name", "?")
-            counts[name] = counts.get(name, 0) + 1
-            command = block.get("input", {}).get("command", "")
-            if name == "Bash" and isinstance(command, str):
-                nupp_runs += len(NUPP_COMMAND.findall(command))
-    return counts, nupp_runs
+    return diagnostics
 
 
 def grade(before: list[dict], after: list[dict], entry: dict, source: str) -> dict:
@@ -301,8 +215,10 @@ def main() -> int:
             )
 
         transcript = args.out / f"{args.code}-transcript.jsonl"
-        result, events = run_agent(workspace, transcript, args.model)
-        counts, nupp_runs = tool_calls(events)
+        result, events = run_agent(
+            workspace, PROMPT, transcript, args.model,
+            path_prefix=workspace / "bin",
+        )
 
         source = (workspace / "sample.nupp").read_text() if (
             workspace / "sample.nupp"
@@ -316,18 +232,7 @@ def main() -> int:
                 "summary": entry["summary"],
                 "strict": bool(entry.get("strict")),
             },
-            "agent": {
-                "model": args.model or "default",
-                "turns": result.get("num_turns"),
-                "costUsd": result.get("total_cost_usd"),
-                "durationMs": result.get("duration_ms"),
-                "wallClockSeconds": result.get("wallClockSeconds"),
-                "outputTokens": result.get("usage", {}).get("output_tokens"),
-                "isError": result.get("is_error"),
-                "toolCalls": counts,
-                "toolCallTotal": sum(counts.values()),
-                "nuppInvocations": nupp_runs,
-            },
+            "agent": agent_record(result, events, args.model),
             "grade": grade(before, after, entry, source),
             "finalSource": source,
             "transcript": str(transcript),
@@ -336,14 +241,11 @@ def main() -> int:
         record_path.write_text(json.dumps(record, indent=2) + "\n")
 
         verdict = "PASS" if record["grade"]["passed"] else "FAIL"
-        cost = record["agent"]["costUsd"]
-        spent = f"${cost:.4f}" if isinstance(cost, (int, float)) else "?"
+        agent = record["agent"]
         print(f"{verdict}  {entry['code']}  {entry['summary']}")
         print(
-            f"  turns={record['agent']['turns']}"
-            f" tools={record['agent']['toolCallTotal']}"
-            f" nupp={nupp_runs}"
-            f" cost={spent}"
+            f"  turns={agent['turns']} tools={agent['toolCallTotal']}"
+            f" nupp={agent['nuppInvocations']} cost={spent(agent)}"
         )
         print(f"  before={record['grade']['diagnosticsBefore']}")
         print(f"  after={record['grade']['diagnosticsAfter']}")

@@ -1,13 +1,24 @@
 # Agent evaluations
 
 Measurements of how well an isolated agent completes a Nupp task, and what it
-costs to do it. The design and the tiers above this one are in
+costs to do it. The design, and the tier above these two, are in
 [plans/065-agent-evaluation-harness.md](../plans/065-agent-evaluation-harness.md);
-this directory holds what is built, which is tier 1.
+this directory holds what is built, which is tiers 1 and 2.
 
-These run real agents against the real compiler and **cost real money**,
-about nine cents per tier-1 task on Sonnet at the time of writing. Nothing
-here runs as part of `nupp test`, and nothing here gates a build.
+These run real agents against the real compiler and **cost real money**.
+Nothing here runs as part of `nupp test`, and nothing here gates a build.
+
+```
+ Tier  Task                          Grader                     Per run
+ ----  ----------------------------  -------------------------  -----------
+ 1     repair one diagnostic         the code is gone           seconds, ~$0.09
+ 2     make a reverted commit's      its suites pass, and the   minutes, more
+       own tests pass again          tests are untouched
+```
+
+`evals/harness.py` holds what both tiers share: starting an agent, keeping its
+transcript, and counting what it did. A tier module owns only its task and its
+grader.
 
 ## Tier 1: diagnostic micro-repair
 
@@ -53,6 +64,41 @@ diagnostic and repairs is doing the thing the tooling exists for; one that
 checks eight times is paying for something the first answer should have told
 it.
 
+## Tier 2: replayed history
+
+One task is one merged commit that touched both the compiler and its tests.
+The tree is exported at the commit's *parent*, the suites the commit added are
+carried forward into it, and what remains is a suite failing for exactly the
+reason the commit was written. The commit is the known-good answer, so nobody
+authors a fixture and nobody writes an expected diff.
+
+The workspace has no `.git` in it, and that is load-bearing rather than tidy.
+The first version of this made a worktree at the commit and reverted the files,
+which left the answer sitting in `HEAD`: the first agent to run it never wrote
+a line of code — it ran `git restore --staged --worktree` and scored a pass in
+eight shell commands. An empty recorded diff beside a passing suite is what
+caught it. History has to be absent, not discouraged.
+
+```sh
+evals/tier2.py --candidates 60      # replayable commits in recent history
+evals/tier2.py e56083fd --model sonnet
+```
+
+The agent is told which suite fails and that the tests are the specification.
+Grading is that the suites pass **and that nothing under `tests/` was
+touched** — weakening the spec until it goes green is the one repair that must
+never score, so it fails the run outright whatever the suite says afterwards.
+The agent's whole diff is kept in the record.
+
+Docs the commit changed stay at the parent version along with the code. A
+guide written alongside a feature describes it, and leaving it in place would
+hand over in prose the specification the test is supposed to be.
+
+Cases refresh themselves: every future commit that lands with a narrow test
+story is a candidate, so the bank grows with the project rather than being
+maintained. What it costs is time — the compiler has to be built at the commit
+under test, which is minutes, not the seconds tier 1 takes.
+
 ## Known limits
 
 - **Isolation is by prompt, not enforced.** The agent is told to work only in
@@ -75,3 +121,11 @@ it.
   is expected to pass. It is a good plumbing test and a weak difficulty
   signal. The codes worth the money are the ones whose diagnostic carries no
   fix and whose repair is a judgement — see the tier-1 discussion in the plan.
+- **A tier-2 pass is the suite's opinion, not a review.** The commit's tests
+  decide, so a repair that satisfies them by a route the original commit would
+  not have taken still passes. The diff is recorded on every run for exactly
+  this reason; read it before believing a surprising pass.
+- **Tier-2 candidates are not uniformly hard.** `--candidates` finds commits
+  by shape — small, touching both source and tests — which says nothing about
+  whether the change was obvious or subtle. Curate before drawing a trend from
+  a set of them.

@@ -1,15 +1,26 @@
 # Agent evaluation harness
 
-Status: delivery step 1 implemented as `evals/tier1.py`, one task per run
-rather than the whole corpus; steps 2 through 5 proposed. Two divergences
-worth knowing. The task workspace needs a manifest with a real build target,
-not the bare `return {include = {"."}}` that `tests/explaintest.lua` uses — a
-whole-project `nupp check` against that one writes `build.entries must contain
-at least one entry` to stderr and then reports no diagnostics, so an agent
-doing the obvious thing would be told nothing is wrong. And part of step 2
-arrived with step 1: streaming the agent's events costs no more than taking
-its final result, so tool counts, `nupp` invocation counts and a full
-auditable transcript are recorded from the first run.
+Status: delivery steps 1 and 4 implemented as `evals/tier1.py` and
+`evals/tier2.py`, one task per run rather than a whole corpus; steps 2, 3 and 5
+proposed. Four divergences worth knowing. The tier-1 workspace needs a manifest
+with a real build target, not the bare `return {include = {"."}}` that
+`tests/explaintest.lua` uses -- a whole-project `nupp check` against that one
+reported no diagnostics, so an agent doing the obvious thing was told nothing
+was wrong; `nupp check --json` now answers `ok` so that case is distinguishable
+at all, which is a compiler change this harness caused rather than observed,
+against the plan's own non-goal of changing what the compiler reports. Part of
+step 2 arrived with step 1: streaming the agent's events costs no more than
+taking its final result, so tool counts and a full auditable transcript are
+recorded from the first run. Tier 2 turned out to want a sharper rule than the
+plan's "revert it and fix what broke" -- export the tree at the commit's
+parent, carry only its tests forward, and fail any run that edits one, so the
+suite is the whole specification and weakening it cannot score. The workspace
+also has to have no `.git` in it: the first shape of this reverted files inside
+a worktree at the commit, which left the answer in `HEAD`, and the first agent
+to run it scored a pass with `git restore` without writing any code. And step 4
+preceded step 3, because tier 2 needed no metrics work that step 1 had not
+already done, where the before/after experiment needs a second checkout built
+at an older commit.
 
 ## Decision
 
