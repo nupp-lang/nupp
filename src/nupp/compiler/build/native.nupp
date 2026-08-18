@@ -16,6 +16,34 @@ local stage = {}
 
 local join = fs.join
 
+--- Where cargo keeps what it built for the compiler's own crates.
+---
+--- Not under the project's output directory, which is where this used to be. The crates
+--- belong to the compiler rather than to the project, and a target directory per
+--- project meant every project that reached a native facility compiled `url`, `glob`,
+--- `icu`, and for the http provider the whole of `reqwest`, `rustls` and `tokio`, from
+--- nothing. A test suite that makes a project per case paid that per case.
+---
+--- One directory per crate and feature set rather than one for everything. Cargo names
+--- what it uplifts after the crate, not after the features it was built with, so two
+--- feature sets sharing a directory take turns overwriting one another's library and a
+--- build stages whichever ran last. `bin/nupp` keeps its development provider apart for
+--- the same reason and says so.
+---
+--- `NUPP_NATIVE_CACHE_DIR` names the root; `bin/nupp` sets it to one the repository's
+--- worktrees share. Without it the root sits beside the compiler's own source, which is
+--- the tree these crates come from.
+local function cargoTargetDir(compilerRoot: string, crate: string, features: {string}): string
+    local named = os.getenv("NUPP_NATIVE_CACHE_DIR")
+    local root = (named and named ~= "") and named or join(compilerRoot, ".nupp-cache")
+    local name = crate
+    if #features > 0 then
+        name = name .. "-" .. table.concat(features, "-")
+    end
+
+    return join(root, name)
+end
+
 --- Adds effects found in the Lua modules selected from rock dependencies.
 function stage.dependencyEffects(
     root: string,
@@ -85,7 +113,7 @@ function stage.hostStub(
         end
     end
     table.sort(featureNames)
-    local targetDir = join(root, join(outDir, "native/host"))
+    local targetDir = cargoTargetDir(compilerRoot, "host", featureNames)
     local argv = {
         "cargo",
         "build",
@@ -171,7 +199,7 @@ function stage.build(
         end
         table.sort(provider.names)
         table.sort(provider.cargoFeatures)
-        local targetDir = join(root, join(outDir, "native/" .. provider.library))
+        local targetDir = cargoTargetDir(compilerRoot, provider.library, provider.cargoFeatures)
         local argv = {
             "cargo",
             "build",

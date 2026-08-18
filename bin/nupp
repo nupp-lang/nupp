@@ -90,6 +90,15 @@ else
         NATIVE_TARGET="$ROOT/build/native/nupp_native"
     fi
 fi
+# Where the target directories for the compiler's own crates go, which the build
+# system reads when it stages a native facility for a project. Named from the
+# repository rather than from the checkout so worktrees share one, the same way
+# the development provider above does: these crates belong to the compiler, and a
+# project that reaches one should not be compiling `reqwest` again to get it.
+# A caller that named one keeps it, the way `NUPP_NATIVE_TARGET_DIR` above works.
+: "${NUPP_NATIVE_CACHE_DIR:=$(dirname "$NATIVE_TARGET")}"
+export NUPP_NATIVE_CACHE_DIR
+
 build_native() {
     command -v cargo >/dev/null 2>&1 || {
         echo "nupp: cargo is not on PATH, and the compiler needs the native" \
