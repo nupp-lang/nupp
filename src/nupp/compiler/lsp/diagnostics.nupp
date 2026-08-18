@@ -3,7 +3,7 @@ Publishing what the checker found.
 
 A diagnostic crossing the wire is the compiler's, converted: byte offsets become
 UTF-16 positions, a fix becomes data the code-action handler can find again, and
-a few codes are shown at a lower severity than a build would use — a file being
+a few codes are shown at a lower severity than a build would use, since a file being
 typed into is half-written by definition, and the missing half is usually the
 next thing its author writes.
 

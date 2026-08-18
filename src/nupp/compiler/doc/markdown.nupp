@@ -120,7 +120,7 @@ end
 
 -- Methods, nested types, and fields, at `level` for the group heading (`Methods` /
 -- `Types` / `Fields`). A nested type recurses at two levels deeper than its own group
--- heading — one for its name, one for its own groups — the same relationship an item
+-- heading, one for its name and one for its own groups, the same relationship an item
 -- has to its top-level Methods/Types/Fields, so a type nested arbitrarily deep still
 -- gets real sub-headings instead of losing its members to a flattened table. A field
 -- gets the same sub-heading a method does, so the anchor the structure's own signature

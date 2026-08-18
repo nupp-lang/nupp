@@ -2,7 +2,7 @@
 Type representation, with content-addressed interning.
 
 Structural types are hash-consed. Each is built bottom-up into a canonical string
-key — children are interned first, so a key embeds its children's keys — and
+key, where children are interned first so a key embeds its children's keys, and
 identical structure yields the same Lua object. Type equality is therefore object
 identity, and the relation caches can key on identity pairs.
 
@@ -20,7 +20,7 @@ local types = {}
 --- A type.
 ---
 --- One record per tag, and `Type` is their union. `tag` is a literal type on each, so
---- testing it says which record is in hand and therefore which fields are there —
+--- testing it says which record is in hand and therefore which fields are there,
 --- including through a copy, which is how the checker and the subtyping relation are
 --- written.
 ---

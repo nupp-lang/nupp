@@ -13,7 +13,7 @@ in the severity's own colour, so the eye reaches the marked span by the same
 route it reached the word "error".
 
 A whole report is built up and written once. stderr is unbuffered, so a line at
-a time was a write syscall per line — five or six per diagnostic — where the
+a time was a write syscall per line, five or six per diagnostic, where the
 reader only ever sees the finished report anyway.
 
 See `docs/diagnostics.md` for the shape of what is being rendered, and

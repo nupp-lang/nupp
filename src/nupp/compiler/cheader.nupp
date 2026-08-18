@@ -5,7 +5,7 @@ The header is handed to the compiler's own `ffi.cdef`, and the resulting
 declarations are read back out through `ffi.typeinfo`. LuaJIT's C parser is
 therefore the source of truth for what a header declares, rather than a pattern
 matcher of ours, and the sizes it reports are the ones that hold on the machine
-doing the build — so `long` and `size_t` come out right on every platform
+doing the build, so `long` and `size_t` come out right on every platform
 instead of being baked in by whoever generated a bindings file.
 
 Most headers a project owns need no preprocessing at all: dropping the

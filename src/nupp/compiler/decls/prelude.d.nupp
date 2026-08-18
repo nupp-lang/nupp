@@ -4296,13 +4296,13 @@ local jit: {
     --- The handler's own signature is decided by the event, which is why this one is
     --- variadic:
     ---
-    --- * `"bc"` — `(func)`, once per function the VM records bytecode for. * `"trace"`
-    --- — `(what, tr, func, pc, otr, oex)`, where `what` is
+    --- * `"bc"`: `(func)`, once per function the VM records bytecode for. * `"trace"`:
+    --- `(what, tr, func, pc, otr, oex)`, where `what` is
     ---     `"start"`, `"stop"`, `"abort"`, `"flush"` or `"free"`. On
     ---     `"abort"`, `otr` is an error code to look up in
     ---     `require("jit.vmdef").traceerr` and `oex` is its argument; on
     ---     `"start"` for a side trace they are the parent trace and its exit.
-    --- * `"record"` — `(tr, func, pc, depth)`, per bytecode recorded. * `"texit"` —
+    --- * `"record"`: `(tr, func, pc, depth)`, per bytecode recorded. * `"texit"`:
     --- `(tr, ex, ngpr, nfpr)`, per trace exit.
     ---
     --- A handler runs inside the compiler, so it must not allocate heavily, raise, or

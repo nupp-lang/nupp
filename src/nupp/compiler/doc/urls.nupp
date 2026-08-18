@@ -85,8 +85,8 @@ local function symbolLinkIndex(modules: {nupp.compiler.doc.extract.Module}, targ
     return links
 end
 
---- A markdown link whose target names something the documentation knows — a module, a
---- declaration, or a member — is written as that name rather than as a path, and is
+--- A markdown link whose target names something the documentation knows, a module, a
+--- declaration or a member, is written as that name rather than as a path, and is
 --- resolved here against whatever `resolve` answers. A target that reads as a URL or as
 --- a path is left alone, and so is a name nothing answers to, so an ordinary link is
 --- never captured by accident.

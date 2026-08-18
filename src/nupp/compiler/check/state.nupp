@@ -9,7 +9,7 @@ instead, which requires nothing but the vocabulary the fields are written in.
 
 Nothing is installed or constructed here. This is the shape the walk fills in
 and the passes read, so it says what a field is for rather than what to do with
-it — the walk itself is in nupp.compiler.check.
+it. The walk itself is in nupp.compiler.check.
 ]]
 
 local T = require("nupp.compiler.types")
@@ -34,7 +34,7 @@ type state.Parse = {[string]: any}
 
 --- The project environment: the globals and their types, the string library's shape,
 --- and the functions that resolve a name into another file's declarations. Open for the
---- same reason — `nupp.compiler.env` fills it in a piece at a time, across several
+--- same reason: `nupp.compiler.env` fills it in a piece at a time, across several
 --- passes,
 --- and a
 --- run reads whichever pieces are there.
@@ -92,7 +92,7 @@ type state.Facts = {
 
 --- Everything one run of the checker carries: what it is checking, what it has found,
 --- and where it currently is. Declaring it is what lets the walk be split across
---- modules — a pass reaches the run through this rather than through a closure it has
+--- modules, so a pass reaches the run through this rather than through a closure it has
 --- to be lexically inside of.
 record state.Checker
     -- What is being checked. Fixed for the whole run.
@@ -502,7 +502,7 @@ record state.Checker
     constModulePaths: {[string]: boolean}
 
     --- Whether that table was annotated. An annotated binding keeps the type it was
-    --- given, which is how a module says its surface is wider than what can be seen —
+    --- given, which is how a module says its surface is wider than what can be seen,
     --- `local M: {[string]: any} = {}`.
     moduleLocalAnnotated: boolean
 

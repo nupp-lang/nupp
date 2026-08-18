@@ -4,7 +4,7 @@ number of owners.
 
 `io.open` hands back a borrowed handle, which means nothing has to close it and
 nothing complains when nobody does. These are the same calls annotated as owners,
-so the checker knows a handle must be discharged and lexical cleanup can do it —
+so the checker knows a handle must be discharged and lexical cleanup can do it,
 on fallthrough, on error, and on structured control flow alike.
 
 Producing owners and holding them are the two halves of one subject, so they are

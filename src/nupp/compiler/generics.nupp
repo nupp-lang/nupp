@@ -3,8 +3,8 @@ Substitution and instantiation over interned types.
 
 A generic declaration is one type with binders in it; every use is that type with
 the binders replaced. Doing the replacing, and working out what to replace them
-with from the arguments at a call, are operations on types alone — no scopes, no
-tree, nothing to report — so they live here rather than inside the checker that
+with from the arguments at a call, are operations on types alone, with no scopes,
+no tree and nothing to report, so they live here rather than inside the checker that
 decides when to ask for them.
 
 Applying the same arguments to the same declaration yields the identical type, so

@@ -15,7 +15,7 @@ Name resolution already reports through `captureWatches` for cleanup regions, so
 this rides along and costs one integer compare per lookup.
 
 A function that does read the iteration is a different function every pass and
-cannot be lifted, so there is no edit to suggest — but LuaJIT has no recording
+cannot be lifted, so there is no edit to suggest. LuaJIT still has no recording
 for the bytecode that builds one, so the loop aborts trace recording, is
 blacklisted, and never compiles however hot it gets. That is worth saying and
 not worth insisting on, so it is `jit-loop-closure`: quiet by default, found by
@@ -26,7 +26,7 @@ at this boundary behave.
 
 Two shapes are excused because the function is built once whatever the loop
 does: it is the value of a `return`, or the loop leaves on its first pass. Both
-are cheap and easy to explain, and neither is a substitute for flow analysis —
+are cheap and easy to explain, and neither is a substitute for flow analysis,
 a `break` under a condition still reports, because that loop really can go round
 again. Neither shape can cost a trace either: a loop that goes round once is
 never hot.

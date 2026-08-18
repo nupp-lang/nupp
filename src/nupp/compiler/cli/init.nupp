@@ -2,7 +2,7 @@
 The command line: which commands exist, and what happens to an argument list.
 
 Every subcommand is a file under `nupp/cli`, and every one of them is the same
-two things — a grammar, declared with `nupp.compiler.cli.spec`, and a function that does
+two things: a grammar, declared with `nupp.compiler.cli.spec`, and a function that does
 the work once the arguments have been taken apart. Nothing here knows what any
 of them do.
 

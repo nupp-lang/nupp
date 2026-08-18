@@ -2255,8 +2255,8 @@ function calls.install(c: state.Checker): calls.Ops
         end
         -- A result declared `borrows p` is tied to whatever was passed for that
         -- parameter, so the call node carries the same borrow link a `borrow(owner)`
-        -- expression would. Everything downstream — binding it, blocking a move of the
-        -- owner, releasing at scope exit — is the machinery lexical borrows already
+        -- expression would. Everything downstream, binding it, blocking a move of the
+        -- owner, releasing at scope exit, is the machinery lexical borrows already
         -- use.
         if calleeT and calleeT.tag == "func" and (
             calleeT.borrowsParam or calleeT.borrowsSelf or calleeT.borrowsParams

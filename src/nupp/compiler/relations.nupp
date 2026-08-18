@@ -626,8 +626,8 @@ local function check(a: Type, b: Type): boolean, string?
     end
     -- `never` is uninhabited, so a value of it (there being none) fits anywhere.
     -- `unknown` is the reverse: everything fits into it, but it fits nowhere else on
-    -- its own — narrow it or write `as` first. Neither is gradual like `any`: only one
-    -- direction is free.
+    -- its own, so narrow it or write `as` first. Neither is gradual like `any`: only
+    -- one direction is free.
     if atag == "never" then
         return true
     end

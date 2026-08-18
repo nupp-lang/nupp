@@ -2,7 +2,7 @@
 `nupp tasks`: what the manifest configured, and what each of those means.
 
 With no name, the build targets plus the configured test and self-host actions.
-With a name, that task's effective configuration — what a build would actually
+With a name, that task's effective configuration, meaning what a build would actually
 use, after the defaults have been filled in.
 ]]
 

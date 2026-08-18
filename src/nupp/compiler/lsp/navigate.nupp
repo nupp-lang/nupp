@@ -276,9 +276,9 @@ function navigate.install(s: navigate.Session): navigate.Api
     --
     -- References run over the whole project, not only what the editor has open: a
     -- rename that silently skipped a closed file would leave the project broken with
-    -- nothing said. Text is the cheap filter — a reference has to spell the name, so a
-    -- file that never does needs no checking, and checking is the expensive half. Open
-    -- s.documents contribute their overlay and are never read from disk behind the
+    -- nothing said. Text is the cheap filter, since a reference has to spell the name,
+    -- so a file that never does needs no checking, and checking is the expensive half.
+    -- Open s.documents contribute their overlay and are never read from disk behind the
     -- editor's back.
     local function documentsMentioning(name)
         local out, seen = {}, {}
@@ -353,7 +353,7 @@ function navigate.install(s: navigate.Session): navigate.Api
     -- A member is not a symbol the checker bound, so none of the machinery above
     -- reaches it: there is no definition object to key on and no interned type to
     -- compare. What there is instead is the same syntactic question asked of every file
-    -- — which `m.f` names this member — so these run over the project exactly the way
+    -- of which `m.f` names this member, so these run over the project exactly the way
     -- references does, and for the same reason: a rename that skipped a closed file
     -- would break it silently.
 
@@ -439,8 +439,8 @@ function navigate.install(s: navigate.Session): navigate.Api
     end
 
     --- Hover for a member: the declaration as it was written, and its docblock. There
-    --- is no type to render — the table it sits on was inferred open — and the line the
-    --- author wrote says more than `any` would.
+    --- is no type to render, the table it sits on having been inferred open, and the
+    --- line the author wrote says more than `any` would.
     local function memberHover(member)
         local path, tok, stat = memberDeclaration(member.moduleName, member.name)
         if not path then

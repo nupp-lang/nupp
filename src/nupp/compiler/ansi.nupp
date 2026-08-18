@@ -5,8 +5,8 @@ Escape codes are easy; deciding to write them is the whole problem. A compiler
 writes to a terminal, to a pipe, to a CI log, and to a file a script will read
 back, and only the first of those wants control characters in it. So the
 decision is made once per stream, from the conventions every other tool already
-follows — `NO_COLOR`, `CLICOLOR_FORCE`, `TERM=dumb`, `--color`, and failing all
-of those, whether the stream is a terminal — and cached, because none of those
+follows, reading `NO_COLOR`, `CLICOLOR_FORCE`, `TERM=dumb`, `--color`, and failing
+all of those, whether the stream is a terminal. It is cached, because none of those
 answers change while a process runs.
 
 What comes back is a style table whose entries are functions. When colour is on

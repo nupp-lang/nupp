@@ -5,7 +5,7 @@ Documentation deliberately stops after parsing. The lossless CST already contain
 declaration structure, source locations, types, and doc trivia, so invoking the
 checker would add work without improving the rendered API.
 
-A long comment at the very top of a file — this one — is that file's module
+A long comment at the very top of a file, this one included, is that file's module
 documentation, and is rendered as markdown.
 ]]
 

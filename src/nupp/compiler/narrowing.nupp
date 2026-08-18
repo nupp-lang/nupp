@@ -4,7 +4,7 @@ The type algebra that narrowing is built from.
 Deciding what a test proves is two jobs: reading the condition, which needs the
 checker's scopes and the tree, and computing the residue, which needs only the
 types. This is the second. Removing a possibility from a type, and enumerating
-the values a type still admits, are questions about the types alone — so they are
+the values a type still admits, are questions about the types alone, so they are
 answerable, and testable, without a checker.
 ]]
 
@@ -143,7 +143,7 @@ end
 
 --- What testing a value for truth proves about it, on each side of the test. Falsy in
 --- Lua is nil or false and nothing else, so the truthy side loses both and the falsy
---- side keeps only those — which is what lets a function returning `integer | false`
+--- side keeps only those, which is what lets a function returning `integer | false`
 --- narrow to `integer` when it is tested.
 ---
 --- @param vt the type being tested

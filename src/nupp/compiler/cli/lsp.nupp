@@ -1,8 +1,8 @@
 --[[
 `nupp lsp`: the language server, and its operations asked one at a time.
 
-Everything the server answers over stdio — inspect, definition, references,
-symbols, rename, actions — asked once from a shell and printed as text or as
+Everything the server answers over stdio, meaning inspect, definition, references,
+symbols, rename and actions, asked once from a shell and printed as text or as
 JSON. The point is that a script, or a person, can ask the compiler what it knows
 without speaking the protocol, and get an answer computed by exactly the same
 code an editor would have got.

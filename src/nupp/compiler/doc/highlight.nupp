@@ -7,23 +7,23 @@ Every other language in a fenced block is handed to
 Scintillua, a rock the documentation target depends on; without it a block
 renders as plain escaped text.
 
-Scintillua's lexers find each other by path rather than by `require` — a lexer
+Scintillua's lexers find each other by path rather than by `require`. A lexer
 embeds another by reading its file out of the directory named in the
-`scintillua.lexers` property — so what is wanted here is the directory, not the
+`scintillua.lexers` property, so what is wanted here is the directory, not the
 module. It is found where `require` would look, which is what keeps it the same
 tree the rest of the toolchain is using.
 
 That property is allowed to name more than one directory, semicolon-separated,
 searched in order. A project's own `lexers` directory is put ahead of the
-installed rock's so it can add a lexer the rock does not carry — an ABNF lexer
-for the grammar reference, say — without vendoring the few hundred lexers the
+installed rock's so it can add a lexer the rock does not carry, an ABNF lexer
+for the grammar reference being one, without vendoring the few hundred lexers the
 rock already ships to do it. `lexer.lua` itself still loads from the rock; only
 the search path a loaded lexer walks to find another gains the extra entry.
 
 A stamped binary has no rock tree and no directory to name, and carries the
 lexers it was built with as preloaded modules instead. The property then names
 a path no filesystem has, and the `loadfile` those lexers are found through is
-this module's rather than Lua's — which is all Scintillua's loader needs, since
+this module's rather than Lua's, which is all Scintillua's loader needs, since
 it looks a lexer up by asking `loadfile` for it and reading the answer.
 ]]
 

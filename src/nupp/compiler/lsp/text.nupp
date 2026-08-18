@@ -111,7 +111,7 @@ function text.tokenRange(source: string, tok: lexer.Token): text.Range
 end
 
 --- The lines of `text`, each keeping its own newline, so concatenating them reproduces
---- the text exactly — including a final line with no newline at all.
+--- the text exactly, including a final line with no newline at all.
 function text.splitLines(source: string): {string}
     local lines = {}
     local pos = 1

@@ -180,8 +180,8 @@ end
 ---
 --- Anything written across more than one line: a declaration, a function, a branch, a
 --- table. The construct rather than the block inside it, so a fold starts at the line
---- that says what is being folded — a body alone would collapse to a header the editor
---- never showed as foldable.
+--- that says what is being folded, since a body alone would collapse to a header the
+--- editor never showed as foldable.
 function symbols.foldableSpans(result: tree.Parse): {{integer}}
     local spans = {}
     tree.walkNodes(result.root, function(node)

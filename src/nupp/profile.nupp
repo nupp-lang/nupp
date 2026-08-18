@@ -62,7 +62,7 @@ type profile.SampleOptions = {
     --- the outermost frame from it is dropped.
     ---
     --- A profiler samples the whole stack it is embedded in, and what is under the
-    --- program — the loader that read it, the pcall that guards it — is not the
+    --- program, the loader that read it and the pcall that guards it, is not the
     --- program. Naming its module cuts the report back to it.
     ---
     --- Frames read "<module>:<name>", so the module is the part to give. A stack with
@@ -73,7 +73,7 @@ type profile.SampleOptions = {
 
 --- What `profile.trace` counts. Every field is optional.
 type profile.TraceOptions = {
-    --- Include the aborts that are ordinary trace formation rather than a refusal —
+    --- Include the aborts that are ordinary trace formation rather than a refusal:
     --- leaving a loop, recursion, an inner loop. False by default; turn it on when the
     --- question is why a particular trace never formed.
     includeBenign: boolean?
@@ -526,7 +526,7 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
 end
 
 --- Stops recording without ending the session. The timer keeps firing, at the cost of
---- one test per sample, and what was recorded on either side of the pause is kept —
+--- one test per sample, and what was recorded on either side of the pause is kept,
 --- which is how a benchmark leaves its setup out.
 ---
 --- Idempotent.
@@ -641,7 +641,7 @@ local function severityRank(severity: profile.Severity): integer
 end
 
 -- Lua prefixes a file source with "@", and the function descriptions inherit it. Strip
--- it so a row reads "path:line". A source that is not a file — "[C]", a loaded string —
+-- it so a row reads "path:line". A source that is not a file, "[C]" or a loaded string,
 -- does not carry the prefix and is left as it is.
 local function trimSource(source: string): string
     if source:sub(1, 1) == "@" then

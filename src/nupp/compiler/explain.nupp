@@ -459,8 +459,8 @@ local ENTRIES: {any} = {
         .. "comparisons against literals, `type()` tests, `and`, `or`, "
         .. "`not`. A call, arithmetic, or a name from outside the subject "
         .. "cannot be evaluated there. A refinement that always answers the "
-        .. "same way is also refused — always true identifies every value, "
-        .. "always false leaves the type uninhabited — and so is one on a "
+        .. "same way is also refused, since always true identifies every value "
+        .. "and always false leaves the type uninhabited, and so is one on a "
         .. "struct, which `ffi.istype` already answers exactly.\n\n"
         .. "A declaration is also held to the refinements of the interfaces "
         .. "it declares. `record C is Shape` is a claim the checker proves, "
@@ -483,7 +483,7 @@ local ENTRIES: {any} = {
         summary = "A metatable value does not fit the key it is written under",
         rule = "A metamethod declaration is a contract, and a metatable literal "
         .. "is where the value fulfilling it is written, so the value is "
-        .. "held to it — with `self` specialized to the receiver, through a "
+        .. "held to it, with `self` specialized to the receiver, through a "
         .. "bounded type parameter as readily as through a concrete type. "
         .. "Where the declaration contracts for nothing, LuaJIT still says "
         .. "what it will do with the key: `__mode` is read as a string, "
@@ -1157,7 +1157,7 @@ local ENTRIES: {any} = {
         summary = "A constructor does not hold up its declaration",
         rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The "
         .. "instance is made before it and returned after it, so its whole "
-        .. "job is to fill the fields in — and every field that cannot hold "
+        .. "job is to fill the fields in, and every field that cannot hold "
         .. "nil has to be filled, or the value handed back does not match "
         .. "the declaration it claims. That guarantee is the reason to "
         .. "prefer a constructor over a literal, so declaring one closes "
@@ -1179,7 +1179,7 @@ local ENTRIES: {any} = {
     {
         code = "NUPP3005",
         summary = "Generated code that a Lua VM will not load",
-        rule = "The generator writes Lua and this is that Lua refusing to parse. Almost always it is one limit: a function may capture at most sixty names from around it, and one that reaches past that cannot be loaded at all. A function reading that many things from its scope is usually reading a record it could take as one argument instead — pass what varies, or gather what it reads into one value and capture that.\n\nAny other spelling of this is a bug in the compiler rather than in the program, and `nupp bc FILE` shows the code it wrote. It is reported where the file is built rather than where the module is first required, because the line a VM would name belongs to generated text and the line here is the one that was written.",
+        rule = "The generator writes Lua and this is that Lua refusing to parse. Almost always it is one limit: a function may capture at most sixty names from around it, and one that reaches past that cannot be loaded at all. A function reading that many things from its scope is usually reading a record it could take as one argument instead. Pass what varies, or gather what it reads into one value and capture that.\n\nAny other spelling of this is a bug in the compiler rather than in the program, and `nupp bc FILE` shows the code it wrote. It is reported where the file is built rather than where the module is first required, because the line a VM would name belongs to generated text and the line here is the one that was written.",
         related = {"NUPP3004"},
         docs = "docs/diagnostics.md#code-families",
     },
@@ -1188,7 +1188,7 @@ local ENTRIES: {any} = {
         summary = "`is` has nothing to test against this type",
         rule = "A record is identified by the metatable it stamps and a struct "
         .. "by its ctype, so both answer `is` exactly. An interface has "
-        .. "neither, by design — it is conformance rather than provenance — "
+        .. "neither, by design, being conformance rather than provenance, "
         .. "so something has to stand in for one.\n\n"
         .. "Three things can. A literal-typed field is a tag, and the test "
         .. "is read off it with nothing written. A `satisfies` declaration "
@@ -1359,7 +1359,7 @@ ENTRIES[
 ] = {
     code = "NUPP1004",
     summary = "A required expression is missing",
-    rule = "An expression position — a parenthesized operand, a call argument, or the whole of a value — must actually contain one; a token that cannot begin an expression is reported there and replaced with a zero-width placeholder. `new` is held to the same requirement in its own way: it takes a suffixed expression that must end in a call, since a bare `new T` would be a second spelling of `new T()`.",
+    rule = "An expression position, whether a parenthesized operand, a call argument, or the whole of a value, must actually contain one; a token that cannot begin an expression is reported there and replaced with a zero-width placeholder. `new` is held to the same requirement in its own way: it takes a suffixed expression that must end in a call, since a bare `new T` would be a second spelling of `new T()`.",
     wrong = "local record Point\n    x: integer\nend\n\nlocal bare = new Point\n\nreturn bare\n",
     right = "local record Point\n    x: integer\nend\n\nlocal made = new Point(x = 1)\n\nreturn made\n",
     related = {"NUPP1002", "NUPP1003"},
@@ -1371,7 +1371,7 @@ ENTRIES[
 ] = {
     code = "NUPP1005",
     summary = "Another syntax or recovery constraint failed",
-    rule = "The catch-all syntax code, used for a structural violation that is not a missing token, name, or expression — a `return` that is not the last statement in its block, a `const` path that is not static, and similar constraints the parser enforces directly. Each diagnostic's message names the specific rule that failed.",
+    rule = "The catch-all syntax code, used for a structural violation that is not a missing token, name, or expression: a `return` that is not the last statement in its block, a `const` path that is not static, and similar constraints the parser enforces directly. Each diagnostic's message names the specific rule that failed.",
     wrong = "return 1\nlocal x = 2\n",
     right = "local x = 2\nreturn x\n",
     related = {"NUPP1002", "NUPP1004"},
@@ -2000,7 +2000,7 @@ ENTRIES[
 ] = {
     code = "NUPP2619",
     summary = "A borrowed field's value does not derive from its declared root",
-    rule = "A field declared `T borrows (source)` must be provably derived from the sibling field named as its `source` — the same provenance chain, not merely an equal or coincidentally matching value. Constructing the borrowed field from a different root than the one passed as `source`, or returning a declared borrowed result whose sources cannot be traced to the matching arguments, is refused.",
+    rule = "A field declared `T borrows (source)` must be provably derived from the sibling field named as its `source`, sharing the same provenance chain rather than merely an equal or coincidentally matching value. Constructing the borrowed field from a different root than the one passed as `source`, or returning a declared borrowed result whose sources cannot be traced to the matching arguments, is refused.",
     wrong = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal right = new Buffer(value = \"right\")\nlocal cursor = new Cursor(source = left, bytes = view(right))\nprint(cursor.bytes.value)\n",
     right = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal cursor = new Cursor(source = left, bytes = view(left))\nprint(cursor.bytes.value)\n",
     related = {"NUPP2602", "NUPP2203", "NUPP2707"},
@@ -2012,7 +2012,7 @@ ENTRIES[
 ] = {
     code = "NUPP3002",
     summary = "A struct field's type has no C declarator the generator can emit",
-    rule = "Every field of a reified `struct` lowers to a literal C declarator inside the `ffi.typeof` string the record compiles to. The checker admits any pointer or fixed array uniformly as a reifiable field, but the generator still has to spell each concrete shape syntactically, and some admitted shapes — an array whose element is itself a pointer, chief among them — have no case in that spelling. Such a field is refused at generation rather than at check.",
+    rule = "Every field of a reified `struct` lowers to a literal C declarator inside the `ffi.typeof` string the record compiles to. The checker admits any pointer or fixed array uniformly as a reifiable field, but the generator still has to spell each concrete shape syntactically, and some admitted shapes have no case in that spelling, chief among them an array whose element is itself a pointer. Such a field is refused at generation rather than at check.",
     wrong = "local record Widget\n    id: integer\nend\n\nlocal struct Holder\n    items: Widget*[3]\nend\n\nreturn Holder\n",
     right = "cdef struct Widget\n    id: integer\nend\n\nlocal struct Holder\n    items: Widget*\n    count: int32\nend\n\nreturn Holder\n",
     related = {"NUPP2201", "NUPP3003", "NUPP3004"},
@@ -2024,7 +2024,7 @@ ENTRIES[
 ] = {
     code = "NUPP3003",
     summary = "A cdef struct field or function signature has no C spelling",
-    rule = "`cdef struct` and `cdef function` declare literal C, and every field and parameter type must render as one. A pointer to an ordinary Nupp record — one with no `cdef struct` layout of its own — passes the checker's general rule that any pointer is reifiable, but has no C declarator: only cdef-declared aggregates, primitives, `cstring`, `voidptr`, and pointers built from those actually render. Point at a `cdef struct` instead of a plain `record`.",
+    rule = "`cdef struct` and `cdef function` declare literal C, and every field and parameter type must render as one. A pointer to an ordinary Nupp record, one with no `cdef struct` layout of its own, passes the checker's general rule that any pointer is reifiable, but has no C declarator: only cdef-declared aggregates, primitives, `cstring`, `voidptr`, and pointers built from those actually render. Point at a `cdef struct` instead of a plain `record`.",
     wrong = "local record Widget\n    id: integer\nend\n\ncdef function inspect(target: Widget*)\n\nreturn inspect\n",
     right = "cdef struct Widget\n    id: integer\nend\n\ncdef function inspect(target: Widget*)\n\nreturn inspect\n",
     related = {"NUPP2203", "NUPP3002", "NUPP3004"},

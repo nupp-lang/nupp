@@ -2,7 +2,7 @@
 `nupp ast`: the parse, as the parser saw it.
 
 The tree is lossless, so what is printed is not a summary of the file but the
-file itself in another shape — every token, every piece of trivia, every
+file itself in another shape, with every token, every piece of trivia, every
 position. A parse that failed still prints, since a recovered tree is what
 explains the failure.
 ]]

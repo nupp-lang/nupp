@@ -199,8 +199,8 @@ end
 --
 -- The lists are closed on purpose: a manifest is a small enough thing to be exact
 -- about. They cover what the generator reads plus what any build target takes, because
--- a docs target is still one of those — this project's declares `dependencies`, which
--- is how `nupp doc` gets the rocks it renders with.
+-- a docs target is still one of those, and this project's declares `dependencies`,
+-- which is how `nupp doc` gets the rocks it renders with.
 local DOCS_KEYS = {
     -- read by nupp.compiler.doc
     "sources",

@@ -2,7 +2,7 @@
 Declaring C to the checker.
 
 `cdef struct` and `cdef function` describe memory and entry points that already
-exist, so unlike the rest of the language nothing here is defined — it is
+exist, so unlike the rest of the language nothing here is defined. It is
 asserted, and the assertion has to be one LuaJIT's FFI can honour. Every field
 must be laid out in C memory and every parameter must be a C type, which is what
 the reifiability test enforces.

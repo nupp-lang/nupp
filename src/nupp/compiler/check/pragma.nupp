@@ -3,8 +3,8 @@ An annotation attached to a statement.
 
 `@name(...)` before a declaration is a pragma: the statement it decorates is
 checked as it would have been anyway, and the annotation is checked against the
-definition that declares it. Some are the checker's own — `@allow` silences a
-lint for the statement beneath it, `@annotation` declares a new name — and the
+definition that declares it. Some are the checker's own, where `@allow` silences a
+lint for the statement beneath it and `@annotation` declares a new name, and the
 rest are validated and recorded for whatever reads them later.
 
 Nesting is allowed, so a statement may carry several, and the walk recurs

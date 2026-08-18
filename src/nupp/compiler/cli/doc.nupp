@@ -1,7 +1,7 @@
 --[[
 `nupp doc`: the API documentation, generated from what the source already says.
 
-The format is a word rather than an option — `nupp doc markdown` — because it
+The format is a word rather than an option, as in `nupp doc markdown`, because it
 names what is being produced rather than modifying how. Everything else the
 manifest already configured; the options here override it for one run.
 ]]

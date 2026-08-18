@@ -3,13 +3,13 @@ An option grammar, given once and used twice.
 
 Every subcommand used to carry two descriptions of itself: a `while` loop that
 took its arguments apart, and a block of help text that said what that loop
-accepted. Nothing held the two together, so they drifted — an option the parser
+accepted. Nothing held the two together, so they drifted, leaving an option the parser
 took and the help never mentioned, a spelling documented and never implemented.
 
 Here a command declares its options once. The same declaration parses the
 argument list and renders the `Options:` block, so the help cannot describe a
-flag the parser does not take. The prose around it — what the command is for,
-what it does with no arguments — stays hand-written, because that part is not
+flag the parser does not take. The prose around it, what the command is for and
+what it does with no arguments, stays hand-written, because that part is not
 derivable from a grammar and is worth more than consistency.
 
 The spellings a command can ask for are the ones the existing commands already

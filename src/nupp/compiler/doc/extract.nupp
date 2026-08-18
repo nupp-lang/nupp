@@ -1,8 +1,8 @@
 --[[
 The CST of one file, read as its documented declarations.
 
-Every question this asks — what a declaration is called, what it is spelled like,
-which `---` run belongs to it — is answered by the parse alone, which is why
+Every question this asks is answered by the parse alone: what a declaration is
+called, what it is spelled like, which `---` run belongs to it. That is why
 documentation never invokes the checker.
 ]]
 
@@ -202,7 +202,7 @@ end
 
 -- The entries of a record, interface, or struct that documentation leaves out: a name
 -- starting with `_`, and anything tagged `@internal`. A metamethod is exempt from the
--- name rule rather than an exception to it — a metamethod is named for the Lua
+-- name rule rather than an exception to it, since a metamethod is named for the Lua
 -- operation
 -- it implements, so `__index` says which operator this is and never says private.
 local function hiddenEntry(entry, includePrivate)
@@ -220,9 +220,9 @@ end
 -- whole of what was written for it: an annotation is parsed before the entry it
 -- modifies and attached to the enclosing structure, so dropping only the entry strands
 -- its annotations in the block above the next visible one. Collecting the set up front
--- also keeps the walk from asking about nodes that are not entries at all — it reaches
--- parameters, type references and expressions too, and any of those can be named `_x`
--- without that saying anything about what a reader may see.
+-- also keeps the walk from asking about nodes that are not entries at all, since it
+-- reaches parameters, type references and expressions too, and any of those can be
+-- named `_x` without that saying anything about what a reader may see.
 local function hiddenNodes(node, includePrivate)
     local dropped = {}
     local function mark(current)
@@ -471,8 +471,8 @@ local function functionDetails(stat, info)
     return details
 end
 
--- A declaration file writes its functions as typed bindings — `local ipairs:
--- function<V>(t: {V}): ...` — and a record writes its methods as fields, so the
+-- A declaration file writes its functions as typed bindings, as in `local ipairs:
+-- function<V>(t: {V}): ...`, and a record writes its methods as fields, so the
 -- parameters and results live in a `tfunc` type node instead of a function body. They
 -- carry the same annotations and document the same way.
 --
@@ -564,17 +564,17 @@ local function fieldItem(field, childModuleName, includePrivate)
 end
 
 -- A named type this file also declares, for a field spelled by reference rather than
--- inline — `math: nupp.MathLibrary` beside `record nupp.MathLibrary ... end`.
+-- inline, as `math: nupp.MathLibrary` beside `record nupp.MathLibrary ... end`.
 -- Documenting
 -- never resolves a type the way the checker does, so the only reference this can follow
 -- is one this same file answers itself.
 --
 -- Tried first as a full path from a top-level declaration, which is how a field outside
 -- the record it names has to spell it. Failing that, as a bare reference to a type
--- nested somewhere in this file — `files: Files.Library` inside `record nupp.io`, which
--- answers to its own simple name the same as any other nested reference does inside the
--- body it sits in, so resolving it has to search every record's own nested types too,
--- not just the top-level ones a full path starts from.
+-- nested somewhere in this file, as `files: Files.Library` inside `record nupp.io`,
+-- which answers to its own simple name the same as any other nested reference does
+-- inside the body it sits in, so resolving it has to search every record's own nested
+-- types too, not just the top-level ones a full path starts from.
 local function recordNamed(blocks, targetName)
     local function find(stat, prefix)
         if stat.kind ~= "recordDecl" then
@@ -1188,7 +1188,7 @@ function extract.extract(
                 result.text = type(info.tags.module) == "string" and info.tags.module or info.text
             end
             -- `@namespace` replaces one declaration with the modules its own fields
-            -- imply, for a shape with no file of its own to be documented from — the
+            -- imply, for a shape with no file of its own to be documented from. The
             -- prelude's ambient globals, not an ordinary declaration. Public by the
             -- same
             -- rule as any other declaration, so a private `local` stays out unless
@@ -1295,8 +1295,8 @@ end
 --- The namespaces a set of modules implies: every dotted prefix that holds modules but
 --- is not one itself, as a module with no declarations.
 ---
---- A directory with no `init.nupp` is still a name a reader meets — in a require path,
---- in the sidebar, in the name of every module under it — and without this it is the
+--- A directory with no `init.nupp` is still a name a reader meets, in a require path,
+--- in the sidebar, and in the name of every module under it, and without this it is the
 --- one name that leads nowhere. `nupp.compiler.build` is that name in this project's
 --- own documentation. Answering with a module rather than a special case is what lets
 --- the page, the navigation, the search index, and the markdown treat it like any

@@ -285,7 +285,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
 
     -- Which folders a session answers for decides which project a file is read under,
     -- what a module name resolves to, which file list a rename runs over, and which
-    -- declarations a name can mean — everything the query graphs were built around. So
+    -- declarations a name can mean, everything the query graphs were built around. So
     -- a folder change rebuilds them rather than patching them, and the open buffers are
     -- handed back as overlays so the editor's unsaved text is still what the new graph
     -- reads. Diagnostics are then republished unconditionally: a file can be clean
@@ -1161,8 +1161,8 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             respond(id, json.asArray({}));
             return
         end
-        -- The formatter is a whole-document formatter — that is what makes its output
-        -- canonical — so a range is served by keeping the edits that fall inside it. A
+        -- The formatter is a whole-document formatter, which is what makes its output
+        -- canonical, so a range is served by keeping the edits that fall inside it. A
         -- run of changed lines reaching past the selection is a change the request did
         -- not ask for, so it is not offered: formatting a selection must not rewrite
         -- the lines around it.

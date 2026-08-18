@@ -2,7 +2,7 @@
 The lossless lexer.
 
 The token stream preserves every byte of the input: each token carries its
-leading trivia — whitespace, comments, hashbang, byte-order mark — and the final
+leading trivia, meaning whitespace, comments, hashbang and byte-order mark, and the final
 `eof` token carries the file's trailing trivia. The invariant is that
 concatenating every token's trivia and text, in order, reproduces the source.
 
@@ -193,8 +193,8 @@ type lexer.Token = {
     propertyCapability: string?,
 
     --- The last token of the type a `new` builds. A construction's brace stands off its
-    --- type — `new R(x = 1)` — where the `f{...}` call sugar it otherwise looks like
-    --- hugs its callee.
+    --- type, as in `new R(x = 1)`, where the `f{...}` call sugar it otherwise looks
+    --- like hugs its callee.
     constructTarget: boolean?,
 
     --- Where the name this token spells was declared, attached by the checker so the
@@ -722,7 +722,7 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
                 kind = "error"
                 addError(start, l, c, "unterminated string")
             end
-        elseif ch == 96 then -- '`' — interpolated string
+        elseif ch == 96 then -- '`', interpolated string
             kind = scanIstring(true)
         elseif ch == 123 and #interp > 0 then -- '{' inside an interpolation
             interp[#interp] = interp[#interp] + 1
@@ -734,7 +734,7 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
             interp[#interp] = interp[#interp] - 1
             pos = pos + 1
             kind = "}"
-        elseif ch == 91 then -- '[' — long string or bracket
+        elseif ch == 91 then -- '[', long string or bracket
             local after, terminated = scanLongBracket(source, pos)
             if after and terminated then
                 pos = after

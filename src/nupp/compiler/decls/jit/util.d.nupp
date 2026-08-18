@@ -4,7 +4,7 @@ Declarations for LuaJIT's jit.util module, loaded for `require("jit.util")`.
 Not a field on `jit`: LuaJIT registers this under `package.loaded` only, so it
 has to be require()d.
 
-Everything here reads VM internals — bytecode, IR, snapshots, machine code —
+Everything here reads VM internals, meaning bytecode, IR, snapshots and machine code,
 whose shape tracks the LuaJIT build rather than any stable contract, and an index
 that does not exist answers nil rather than raising. Treat the results as
 diagnostic output to print, not as data to compute with.

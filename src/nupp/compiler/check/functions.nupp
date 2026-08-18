@@ -2,7 +2,7 @@
 A function statement, named or local.
 
 Both forms do the same two things: work out the signature the annotations give,
-and check the body against it. What differs is where the name goes — a `local
+and check the body against it. What differs is where the name goes, since a `local
 function` binds in the current scope, while `function m.f` and `function R:m`
 attach to whatever they qualify, which is what makes them a module member or a
 method.

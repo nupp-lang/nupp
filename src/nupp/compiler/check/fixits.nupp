@@ -7,7 +7,7 @@ source, and applying a fix is all-or-nothing. Only unambiguous rewrites qualify;
 where a message lists alternatives, each alternative is its own fix rather than a
 guess between them.
 
-None of this reads the checker's scopes — only the parse and the project index —
+None of this reads the checker's scopes, only the parse and the project index,
 so it is built once per file and asked, rather than threaded through the walk.
 ]]
 
@@ -17,7 +17,7 @@ local state = require("nupp.compiler.check.state")
 local fixits = {}
 
 --- The edits one file's diagnostics can offer. Built once per file and asked, since
---- none of it reads the walk's scopes — only the parse and the project index.
+--- none of it reads the walk's scopes, only the parse and the project index.
 type fixits.Edits = {
     --- A named fix, and the edits applying it makes. Applying one is all-or-nothing.
     fix: function(title: string, ...: any): any,
@@ -241,7 +241,7 @@ function fixits.new(result: state.Parse, env: state.Env?): fixits.Edits
 
     --- An edit adding `local <name> = require("<module>")` where this file keeps its
     --- requires: after the last one, or on the first statement's own line when there
-    --- are none — never above the header comment that statement carries as trivia.
+    --- are none, never above the header comment that statement carries as trivia.
     function self.requireEdit(name: string, moduleName: string): any?
         local line = ("local %s = require(%q)"):format(name, moduleName)
         local requires = topLevelRequires()

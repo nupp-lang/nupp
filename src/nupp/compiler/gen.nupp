@@ -2,8 +2,8 @@
 Type erasure: a checked CST, lowered to LuaJIT 2.1 Lua.
 
 The invariant is that generated code never changes the line count. Tokens are
-emitted at their source lines — a cursor inserts newlines to catch up and never
-goes back — so an `@file.nupp` chunkname gives correct stack traces with no
+emitted at their source lines, where a cursor inserts newlines to catch up and
+never goes back, so an `@file.nupp` chunkname gives correct stack traces with no
 sourcemap machinery at all.
 
 Erased outright: type annotations, type declarations, generics, `as` casts, and
@@ -13,7 +13,7 @@ Most of the syntax Nupp takes from LuaJIT 3.0 is written out unchanged, because
 LuaJIT 2.1 backported it: the bit operators, the customary spellings, `?:`,
 `?.`, `??`, compound assignment, `continue`, `const`, short functions and
 underscores in numerals. Passing them through is not only shorter code, it is
-better code — a native `?.` is one branch where the equivalent lowering was a
+better code, since a native `?.` is one branch where the equivalent lowering was a
 closure call.
 
 Lowered, because this runtime does not have them:
@@ -336,8 +336,8 @@ end
 
 --- What `generate` lowers: a parse the checker has already been over. The side effects
 --- are the checker's rather than the parser's, which is why this is not
---- `parser.ParseResult` — a generator that took one would be claiming it runs before
---- checking, which it never does.
+--- `parser.ParseResult`, since a generator that took one would be claiming it runs
+--- before checking, which it never does.
 type gen.Checked = {
     readonly root: cst.Chunk,
     readonly tokens: {any}?,
@@ -2433,7 +2433,7 @@ function gen.generate(
     ---
     --- A reference rather than a copy: the body's source lines are in the interface's
     --- file, and this file has none to attribute a duplicate to. That is also why the
-    --- interface has to be reachable — through a `require` when it lives in another
+    --- interface has to be reachable, through a `require` when it lives in another
     --- module, which is what the checker resolved the name to.
     local function emitInheritedDefaults(x, runtimeName)
         local taken = x.inheritedDefaultNames
@@ -3913,8 +3913,8 @@ function gen.generate(
                 -- A record is nominal: the question is whether the value came from this
                 -- declaration. `new R{...}` stamps the record itself, but a constructor
                 -- that links back rather than stamping directly is an ordinary Lua
-                -- shape — tecs builds its event instances that way, with a per-instance
-                -- metatable whose `__index` is the record — and those are instances
+                -- shape. tecs builds its event instances that way, with a per-instance
+                -- metatable whose `__index` is the record, and those are instances
                 -- too.
                 --
                 -- Reaching the record through `__index` answers both, because the

@@ -6,7 +6,7 @@ value is one of these. Two very different readers need it: the checker, which
 validates it against the declaration's own fields, and the generator, which
 compiles `x is T` into it. Handing the generator an expression tree, or worse a
 piece of source text to resolve again, is how a spelling ends up being resolved
-twice and disagreeing — the mistake `plans/019-todo.md` records for cleanups.
+twice and disagreeing, the mistake `plans/019-todo.md` records for cleanups.
 
 So the clause is read once, into a small tree of plain data whose only free
 variable is the subject. Nothing in it needs a scope: a path is a list of field
@@ -89,7 +89,7 @@ local function unwrap(node: cst.Node?): cst.Node?
 end
 
 --- The field path `node` names, when it is rooted at `self` and reaches it only through
---- named fields. Anything computed — a bracket index, a call — has no path, because the
+--- named fields. Anything computed, a bracket index or a call, has no path, because the
 --- test has to mean the same thing every time it runs.
 local function pathOf(node: cst.Node?): {string}?
     node = unwrap(node)
@@ -399,8 +399,8 @@ end
 --- must fail it, or cannot be told either way.
 ---
 --- Three-valued on purpose. A declaration that provably fails an interface's own test
---- is a contradiction worth reporting — the checker would prove it conforms while `is`
---- answered no — but an answer that merely cannot be computed is not evidence of
+--- is a contradiction worth reporting, since the checker would prove it conforms while
+--- `is` answered no. An answer that merely cannot be computed is not evidence of
 --- anything, so it stays silent.
 ---
 --- @param node the refinement
@@ -510,9 +510,9 @@ end
 --- The refinement as a Lua expression testing `subject`.
 ---
 --- `subject` is substituted rather than bound, so the caller has already decided that
---- evaluating it more than once is safe — a plain name, or a temporary it hoisted.
---- Reaching through a field guards the step before it, because the test runs against
---- values that are not of the type yet; that is what it is for.
+--- evaluating it more than once is safe, meaning a plain name or a temporary it
+--- hoisted. Reaching through a field guards the step before it, because the test runs
+--- against values that are not of the type yet; that is what it is for.
 function predicate.render(node: predicate.Node?, subject: string): string
     if not node then
         return "true"
@@ -530,7 +530,7 @@ function predicate.render(node: predicate.Node?, subject: string): string
     end
 
     -- Reaching through a field guards the step before it, because the test runs against
-    -- values that are not of the type yet — that is what it is for. `?.` is the
+    -- values that are not of the type yet, which is what it is for. `?.` is the
     -- runtime's own answer to exactly that, and it reads each step once where a
     -- written-out guard reads it twice.
     local access = subject

@@ -3,7 +3,7 @@
 
 The one command whose arguments are not its own. Everything after the name is
 appended to `test.argv` from nupp.lua and belongs to the program that ends up
-running, so nothing here reads it — including `--color`, which is why this
+running, so nothing here reads it, including `--color`, which is why this
 command's grammar says it does not accept the options every other one does.
 ]]
 

@@ -599,8 +599,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- Everything the project is written in, not the closure of its entries.
     --
     -- A compiler compiles its source set. Deciding what to compile by walking require
-    -- edges out from an entry answers three questions with one walk — what to compile,
-    -- what to check, and what a bundle carries — and gets two of them wrong. A module
+    -- edges out from an entry answers three questions with one walk, what to compile,
+    -- what to check, and what a bundle carries, and gets two of them wrong. A module
     -- nothing requires goes unchecked, so `nupp check` stops meaning "this project is
     -- well typed" and starts meaning "the part I could reach is". And a module reached
     -- only by `require(name)`, where the name is computed, is absent from the build and
@@ -665,9 +665,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
             return nil, "build.entries must contain at least one entry"
         end
 
-        -- An entry may live outside the include roots — a file named on the command
+        -- An entry may live outside the include roots, as a file named on the command
         -- line
-        -- does — so it is seeded first and the source set is added around it.
+        -- does, so it is seeded first and the source set is added around it.
         for _, path in ipairs(envMod.listSourceFiles(inc.env, false)) do
             local name = envMod.moduleNameForPath(inc.env, path)
             if name then

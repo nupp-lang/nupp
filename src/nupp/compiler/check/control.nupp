@@ -4,7 +4,7 @@ The statements that branch, repeat, and leave.
 Control flow is where narrowing is made and unmade: a condition proves something
 on each side of itself, a loop body may run zero times, and joining the branches
 of an `if` keeps only what every path agreed on. It is also where an affine value
-can escape — by being returned, stored, or captured past its lexical source —
+can escape, by being returned, stored, or captured past its lexical source,
 so the ownership questions are asked here too.
 ]]
 

@@ -3,8 +3,8 @@ The incremental computation core.
 
 A small library, not a framework. An input carries a revision stamp; a derived
 query memoizes its value along with when that value last changed, when it was
-last verified, and what it depended on. A read first tries cheap validation —
-no dependency has changed since the last verify — and a recomputation compares
+last verified, and what it depended on. A read first tries cheap validation,
+meaning no dependency has changed since the last verify, and a recomputation compares
 the new value against the old and backdates the change stamp when they are equal.
 That backdating is the early cutoff, and it is what stops an edit from cascading.
 

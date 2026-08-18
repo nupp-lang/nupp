@@ -527,7 +527,7 @@ local function loadState(path: string): cache.State
     state.dependencies = state.dependencies or {}
     state.outputs = state.outputs or {}
     -- Target name -> what that target last produced. Two targets can share one output
-    -- directory — a bundle and the binary stamped from it naturally do — and each has
+    -- directory, as a bundle and the binary stamped from it naturally do, and each has
     -- to be able to remove its own leftovers without removing the other's.
     state.targets = state.targets or {}
 

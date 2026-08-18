@@ -7,7 +7,7 @@ the wrong name, and both are cheaper to see than to find. The other half of
 being required, and this one says a require binds a name nothing wants.
 
 Every name resolution goes through `lookupEntry`, so a read is recorded there
-and nowhere else — the same chokepoint the capture watches ride on. That makes
+and nowhere else, the same chokepoint the capture watches ride on. That makes
 a write count as a read, since an assignment resolves its target through the
 same path. Reporting `x = 1` on a binding nobody reads afterwards is a
 different question, asked flow-sensitively, and answering it wrongly here would
@@ -48,9 +48,9 @@ function unused.install(c: state.Checker): unused.Ops
     local ops = {}
 
     -- Definitions something has read. Keyed by the definition rather than the entry,
-    -- because a binding is re-entered whenever its type is refined — `local function`
+    -- because a binding is re-entered whenever its type is refined, as `local function`
     -- binds twice, once to be visible to its own body and once with the type that body
-    -- turned out to have — and the definition is what survives that.
+    -- turned out to have, and the definition is what survives that.
     c.reads = {}
 
     -- Declarations to judge once the file is read, in source order.

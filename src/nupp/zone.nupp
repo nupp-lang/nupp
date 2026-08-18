@@ -18,7 +18,7 @@ This is process-wide, not per-coroutine.
 `push` and `pop` are compiler intrinsics: a call in statement position on a
 receiver statically known to hold this module is generated inline against the
 fields below, rather than made, with `pop`'s popped name also needing to be
-discarded — the same call a hot path would otherwise pay for is what the note
+discarded. The same call a hot path would otherwise pay for is what the note
 above is about. The fields exist for that generated code to reach; every other
 call site, and every function below, still goes through the ordinary API.
 ]]
@@ -98,7 +98,7 @@ end
 --- Pushes a zone. A no-op while inactive.
 ---
 --- Called in statement position on a receiver statically known to be this module,
---- this is generated inline against the fields above rather than called — see the
+--- this is generated inline against the fields above rather than called. See the
 --- module comment.
 function zone.push(name: string): nil
     if not zone.__nuppActive then
@@ -115,7 +115,7 @@ end
 --- session.
 ---
 --- Called in statement position on a receiver statically known to be this module,
---- with the popped name discarded, this is generated inline instead — see the module
+--- with the popped name discarded, this is generated inline instead. See the module
 --- comment.
 function zone.pop(): string?
     if not zone.__nuppActive or zone.__nuppDepth == 0 then
@@ -143,7 +143,7 @@ end
 --- Cached until the stack next changes, so reading it repeatedly between two pushes
 --- costs a comparison. That is worth the two words it takes: a profiler reads this from
 --- the sampling callback, on the thread it interrupted, and a string built fresh there
---- is an allocation charged to whatever the program happened to be doing — which the
+--- is an allocation charged to whatever the program happened to be doing, which the
 --- same profiler then reports as collector time the program did not spend.
 function zone.path(): string
     if zone.__nuppVersion == pathVersion then
@@ -165,7 +165,7 @@ end
 
 --- Pushes a zone and returns a token for `leave`, or 0 when inactive.
 ---
---- The paired form, for a `leave` that may run after its session ended — usually a
+--- The paired form, for a `leave` that may run after its session ended, usually a
 --- coroutine resumed after a profile stopped. The token carries the generation, so a
 --- late `leave` is discarded rather than popping someone else's zone.
 function zone.enter(name: string): integer

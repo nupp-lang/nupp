@@ -2,7 +2,7 @@
 `nupp clean`: remove what a build wrote.
 
 The refusal to delete anything outside the project, or the project root itself,
-lives in `nupp.compiler.build.project` rather than here — it is a property of cleaning,
+lives in `nupp.compiler.build.project` rather than here, being a property of cleaning,
 not of the command line, and a caller reaching it another way should meet it too.
 ]]
 

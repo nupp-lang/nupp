@@ -367,8 +367,8 @@ end
 -- they answer a question about a program that already checks and so has no diagnostic
 -- to hang from.
 --
--- Both kinds speak the same edit shape the checker uses — {offset, length, newText}
--- over the original document — so a whole action converts to LSP TextEdits in one
+-- Both kinds speak the same edit shape the checker uses, {offset, length, newText}
+-- over the original document, so a whole action converts to LSP TextEdits in one
 -- place, and the offsets never have to account for each other.
 
 --- Installs the semantic-token questions on one session. They need no session state;

@@ -22,7 +22,7 @@ local readFile: (
 ), exists: (function(path: string): boolean) = fs.readFile, fs.exists
 
 -- `nupp doc --json` reports the paths a run wrote, and a site is written from a dozen
--- places — pages, assets, redirects, the copied public tree. Recording at the one
+-- places: pages, assets, redirects, the copied public tree. Recording at the one
 -- function all of them already call beats returning a list from each and threading it
 -- back out through every renderer.
 local collector: {string}? = nil
@@ -42,8 +42,8 @@ function files.collect(into: {string}?): nil
 end
 
 -- The parentheses matter: `gsub` also returns how many replacements it made, and a path
--- that arrives somewhere expecting varargs — `loadfile(path)` — would silently pick
--- that count up as a second argument.
+-- that arrives somewhere expecting varargs, as `loadfile(path)` does, would silently
+-- pick that count up as a second argument.
 local function hiddenBelow(root, candidate)
     local relative = candidate
     if candidate:sub(1, #root + 1) == root .. "/" then

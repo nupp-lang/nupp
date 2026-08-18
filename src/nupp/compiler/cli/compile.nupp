@@ -1,5 +1,5 @@
 --[[
-Parse, check, optimize, generate — the sequence `build` and `run` both need.
+Parse, check, optimize, generate: the sequence `build` and `run` both need.
 
 The compiler's own settings used to be four variables at the top of the command
 line that option parsing assigned to and compilation read back, which worked only

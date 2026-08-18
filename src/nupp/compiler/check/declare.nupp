@@ -4,7 +4,7 @@ Checking a declaration, and publishing what it declares.
 A record, interface, or struct introduces a nominal type: one identity per
 declaration, never shared with another of the same shape. This is where that
 identity is made, its members are checked and its contracts imported, and where
-the result is published — to the file, to the module, or to the project —
+the result is published, whether to the file, the module, or the project,
 according to what the declaration said about visibility.
 
 Struct declarations carry the extra requirement that every field be laid out in
@@ -367,7 +367,7 @@ function declare.install(
 
         -- A record's identity is the metatable `new` stamps, and a struct's is its
         -- ctype. Both already answer `is` exactly, so a refinement beside one would be
-        -- a second answer to a settled question — and which answer `is R` gave would
+        -- a second answer to a settled question, and which answer `is R` gave would
         -- depend on whether a body happened to carry this. An interface has no runtime
         -- table at all, so this is the only identity it can have, and the only
         -- declaration that needs one.
@@ -880,7 +880,7 @@ function declare.install(
     ---
     --- Anywhere is deliberate. A field set in one arm of an `if` and not the other
     --- counts as assigned, which under-reports rather than refusing a constructor that
-    --- is in fact correct — the same direction the unassigned binding check takes, and
+    --- is in fact correct, the same direction the unassigned binding check takes, and
     --- for the same reason.
     local function assignedFields(node: any, out: any): any
         out = out or {}
@@ -912,7 +912,7 @@ function declare.install(
     ---
     --- The instance exists before the body runs and is returned after it, so the body
     --- has one job: put a value in every field that cannot hold nil. That is the whole
-    --- reason a constructor is worth having over a literal — a literal may leave a
+    --- reason a constructor is worth having over a literal, since a literal may leave a
     --- declared field out, and a constructor may not.
     local function checkConstructor(e: any, n: any, stat: any)
         if stat.declKind == "interface" then
@@ -2163,8 +2163,8 @@ function declare.install(
             --
             -- Interfaces only. A record and a struct already answer `is` exactly, so a
             -- derived test beside either would be a second answer chosen by whether the
-            -- fields happened to be literals — an interface has no identity for it to
-            -- disagree with.
+            -- fields happened to be literals, since an interface has no identity for it
+            -- to disagree with.
             if stat.declKind == "interface" and not n.predicate then
                 local derived = nil
                 for _, name in ipairs(n.fieldOrder or {}) do

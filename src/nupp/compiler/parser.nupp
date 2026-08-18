@@ -3,7 +3,7 @@ The error-tolerant recursive-descent parser.
 
 It never throws and never drops a token. Every token, including garbage, ends up
 in exactly one node's array part, so reprinting the root reproduces the source
-for arbitrary input — which is what the formatter and the language server rely
+for arbitrary input, which is what the formatter and the language server rely
 on. A syntax error becomes an error record plus an error node and zero-width
 missing tokens, and parsing continues to the end of the file.
 
@@ -152,7 +152,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     end
 
     --- How to name a token in a message. The kind, which for an operator is its own
-    --- spelling — except for a customary one, where the kind is the classic form and
+    --- spelling, except for a customary one, where the kind is the classic form and
     --- quoting it back would name something the file does not contain.
     local function spelling(tok: Token): string
         return lexer.CUSTOMARY[tok.text] and tok.text or tok.kind
@@ -326,7 +326,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- The binary operator a compound assignment at the cursor is built from, or nil
     --- when there is no compound assignment there. Only `~=` needs the second look:
     --- `!=` is the same token kind, but it spells inequality and nothing else, so `a !=
-    --- b` stays what it was — a statement that is not one.
+    --- b` stays what it was, a statement that is not one.
     local function compoundOp(): string?
         local tok = tokens[i]
         if tok.kind == "~=" and tok.text ~= "~=" then
@@ -1500,8 +1500,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
     -- "new" is contextual [CS-12]: it introduces a construction only when a name
     -- follows it on the same line. That is what keeps `local new = 1`, `f(new)` and a
-    -- `new` left at the end of a line meaning what they always did — a name is a name
-    -- everywhere the next token does not make it an operator.
+    -- `new` left at the end of a line meaning what they always did, since a name is a
+    -- name everywhere the next token does not make it an operator.
 
     --- Whether a construction begins at the cursor.
     local function atNewexp(): boolean
@@ -2015,7 +2015,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         -- `T borrows (p)`: the value is a borrow of `p` and cannot outlive it. The
         -- sources are always parenthesised, because they are a list and one source is a
         -- list of length one, while a mode written on a parameter modifies that one
-        -- parameter and stays bare. `borrows` remains contextual — it opens this form
+        -- parameter and stays bare. `borrows` remains contextual, so it opens this form
         -- only directly after a related type and directly before `(`, and no statement
         -- can begin that way. [CS-18]
         -- A bare name still opens the form so that the old spelling is answered by

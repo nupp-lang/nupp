@@ -6,7 +6,7 @@ line to its origin file, so only the requested header's own declarations are
 kept; attributes and asm renames are normalized away; LuaJIT's own C parser
 supplies a neutral declaration model through `nupp.compiler.cdecl`; and that model is
 emitted as typed `cdef` declarations. Anything the Nupp C surface cannot express
-is ejected as a comment — the output is a committed, hand-editable file, never a
+is ejected as a comment, since the output is a committed, hand-editable file, never a
 black box.
 
 Constants come from two places and land together: an enum's members, which
@@ -532,8 +532,8 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
     --
     -- What the target header declares itself is left out of it. Those statements are
     -- about to be parsed as the target, and a name LuaJIT already holds cannot be
-    -- declared twice — pre-declaring one here would fail the parse of the very header
-    -- being imported.
+    -- declared twice, since pre-declaring one here would fail the parse of the very
+    -- header being imported.
     local ownTypedefs = {}
     for _, def in ipairs(collectTypedefs(statements(text))) do
         ownTypedefs[def.name] = true
@@ -848,8 +848,8 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
     end
 
     -- An enum's members, which are what a header declares an enum for. The type itself
-    -- is already an integer everywhere it appears — C's own enum tag checks nothing a
-    -- caller could rely on — so the members come across as the named constants they
+    -- is already an integer everywhere it appears, and C's own enum tag checks nothing
+    -- a caller could rely on, so the members come across as the named constants they
     -- are, and are usable anywhere `int32` is.
     for _, declaration in ipairs(parsed.enums or {}) do
         for _, member in ipairs(declaration.values) do

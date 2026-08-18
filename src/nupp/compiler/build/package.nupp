@@ -83,7 +83,7 @@ end
 --- [distribution.md](../../../docs/distribution.md).
 ---
 --- Resources go in rather than beside, keyed by their path relative to the entry
---- module's directory — the same key `nupp.compiler.env` reads its own declarations
+--- module's directory, the same key `nupp.compiler.env` reads its own declarations
 --- through, so a program's resources and the compiler's behave identically. A bundle
 --- that carried them beside itself would lose them the moment somebody moved the one
 --- file, and lose them quietly.
@@ -172,7 +172,7 @@ local function bundleText(
     --
     -- Not every `.lua` under the output directory, which was the first attempt and is
     -- wrong twice over. That directory is also where native dependencies build, and
-    -- their trees are full of `.lua` that is examples and scripts — some libraries'
+    -- their trees are full of `.lua` that is examples and scripts, some libraries'
     -- opens with a hashbang, a syntax error the moment a preload wraps it in a
     -- function. And a resource that happens to end in `.lua` is not a module: a table
     -- of lexers opened by path, never required, once added sixteen thousand lines to

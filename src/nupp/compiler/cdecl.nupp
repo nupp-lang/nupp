@@ -324,7 +324,7 @@ local INT32_MAX, UINT32 = 2147483647, 4294967296
 --
 -- LuaJIT keeps it in the `size` slot of the constant's entry, where -1 is
 -- indistinguishable from the sentinel that means "this has no size" and comes back as
--- nil — and `ERROR = -1` is a common thing for a header to say. Reading the name back
+-- nil, and `ERROR = -1` is a common thing for a header to say. Reading the name back
 -- through the C namespace asks LuaJIT what it would use, which is the answer that
 -- matters, and the entry is only the fallback.
 --
@@ -416,7 +416,7 @@ function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): 
     --
     -- One at a time, and a failure is dropped rather than fatal. A system header's
     -- vocabulary is a chain, and the chain runs through spellings this vocabulary does
-    -- not carry — Darwin reaches `__darwin_mbstate_t` through a `union` body — so an
+    -- not carry, as Darwin reaches `__darwin_mbstate_t` through a `union` body, so an
     -- unresolvable link costs the declarations that needed it and nothing else.
     -- Redeclaring a name LuaJIT already holds fails the same way and is equally
     -- harmless: the registry is global and process-wide, so a second import of an
@@ -433,9 +433,9 @@ function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): 
     end
 
     -- What LuaJIT will not parse is set aside rather than taken as the answer for the
-    -- whole header. One declaration commonly fails for a reason local to itself — a
+    -- whole header. One declaration commonly fails for a reason local to itself, as a
     -- struct laid out from a type whose definition lives in a header that was filtered
-    -- away — and the rest of the file is unaffected and worth having. The caller is
+    -- away, and the rest of the file is unaffected and worth having. The caller is
     -- told what it lost.
     local rejected = {}
     for _, unit in ipairs(units) do

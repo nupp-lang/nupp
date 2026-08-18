@@ -159,11 +159,11 @@ function tree.fromTrivia(triviaList: {lexer.Trivia}?): string?
     return documentationFrom(|index| -> list[index].kind, |index| -> list[index].text, #list)
 end
 
--- A docblock is trivia on the token that opens the declaration — `local` for a typed
--- binding, `function` for a function — while a definition points at the name token. The
--- docs are therefore searched for backwards along the line that the name sits on, in
--- the token stream of the declaring file, which for a cross-file definition is not the
--- document being edited.
+-- A docblock is trivia on the token that opens the declaration, `local` for a typed
+-- binding and `function` for a function, while a definition points at the name token.
+-- The docs are therefore searched for backwards along the line that the name sits on,
+-- in the token stream of the declaring file, which for a cross-file definition is not
+-- the document being edited.
 function tree.documentationAt(tokens: {lexer.Token}, index: integer): string?
     local tok = tokens[index]
     if not tok then
@@ -303,8 +303,8 @@ end
 
 -- Plain module members ------------------------------------------------------
 --
--- `function m.f` puts a value on the table a file returns. Nothing types that table —
--- it is inferred open, which is what lets an untyped module keep working — so `f` has
+-- `function m.f` puts a value on the table a file returns. Nothing types that table:
+-- it is inferred open, which is what lets an untyped module keep working, so `f` has
 -- no declaration for the checker to intern and no type for a definition to hang from.
 -- It still means one particular place, and saying so is the whole of what an editor is
 -- being asked here.
@@ -316,7 +316,7 @@ end
 -- stale behind an edit.
 
 --- The name a member expression is written on, when it is a plain name: `m` in `m.f`,
---- `m:f` and `function m.f`. Anything else — a call result, a nested table — is holding
+--- `m:f` and `function m.f`. Anything else, a call result or a nested table, is holding
 --- a value nothing here can trace back to a module.
 ---
 --- A `funcname` is read through the statement that owns it, so a declaration arrives
@@ -353,8 +353,8 @@ end
 
 --- The declaration line of a function statement: its text up to the block, so a reader
 --- is shown the parameters and returns as they were written. A plain member has nothing
---- else to show — no type was ever computed for the table it sits on, and inventing one
---- from the body would say more than is known.
+--- else to show, because no type was ever computed for the table it sits on, and
+--- inventing one from the body would say more than is known.
 function tree.functionSignature(stat: cst.FuncStmt): string
     -- A statement holds its funcbody as a plain node, so reaching the block inside it
     -- says which production that node is.
@@ -500,9 +500,9 @@ end
 --
 -- A completion request arrives in the middle of the expression it is about: `util.` is
 -- not a program, and neither is `local p: shapes.`. So the context is read off the
--- token stream rather than the tree — the tokens are there whether or not the parse
--- succeeded — while the *types* come from the last state of this file that checked.
--- That state is one keystroke stale, which is the right staleness: the receiver is the
--- part the author already finished.
+-- token stream rather than the tree, since the tokens are there whether or not the
+-- parse succeeded, while the *types* come from the last state of this file that
+-- checked. That state is one keystroke stale, which is the right staleness: the
+-- receiver is the part the author already finished.
 
 return tree

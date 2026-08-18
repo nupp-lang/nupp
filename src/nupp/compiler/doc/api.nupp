@@ -65,7 +65,7 @@ local function htag(level)
 end
 
 -- A constructor is a plain function whose name says it is one. Deciding by result type
--- instead — a function returning a type this module declares — files every accessor and
+-- instead, a function returning a type this module declares, files every accessor and
 -- every query under Constructors as well, which is why the name is what answers.
 local function isConstructor(item, pattern)
     if pattern == "" or item.kind ~= "function" then
@@ -265,7 +265,7 @@ end
 
 -- Methods, nested types, and fields, at `level` for the group heading (`Methods` /
 -- `Types` / `Fields`). A nested type recurses at two levels deeper than its own group
--- heading — one for its name, one for its own groups — the same relationship an item
+-- heading, one for its name and one for its own groups, the same relationship an item
 -- has to its top-level Methods/Types/Fields, so a type nested arbitrarily deep still
 -- gets a real heading and its own `<div>` instead of losing its members to a flattened
 -- table. A field gets the same heading a method does: the structure's signature links

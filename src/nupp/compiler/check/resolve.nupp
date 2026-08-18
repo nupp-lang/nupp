@@ -3,7 +3,7 @@ The type an annotation names.
 
 An annotation is syntax; this is the type it means. Names are looked up through
 the scopes and then the project, generic applications are instantiated, and the
-shorthands — optionals, pointers, arrays, unions, shapes — are built out of what
+shorthands, meaning optionals, pointers, arrays, unions and shapes, are built out of what
 they contain.
 
 It is also where the advice for a name that resolves to nothing is composed,
@@ -102,7 +102,7 @@ function resolve.install(c: state.Checker): nil
     --- Fixes for an unqualified type name that a project module exports: spell it
     --- through the module. When this file already requires that module, qualifying is
     --- the whole edit; otherwise the require comes with it, bound to the module's last
-    --- segment — and only when that name is free, since binding over something already
+    --- segment, and only when that name is free, since binding over something already
     --- in scope would fix a type name by breaking a value one.
     local function exportingModuleFixes(name: string, base: any): {any}
         if not c.env or not c.env.modulesExporting or not base then

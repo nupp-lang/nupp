@@ -3,7 +3,7 @@ The concrete syntax tree.
 
 A node holds every token it consumed, in source order, in its array part, so
 reprinting that array reproduces the source exactly. Nodes also carry named
-fields — `n.cond`, `n.body` — that alias entries of the array part for structured
+fields, `n.cond` and `n.body` among them, that alias entries of the array part for structured
 access; a named field never owns a token, so nothing is printed twice.
 
 Tokens inserted by error recovery have empty text and are marked missing, so they

@@ -1,8 +1,8 @@
 --[[
 Escaping and trimming.
 
-Every renderer here writes into one of three grammars — markdown tables, HTML, or
-a JavaScript string literal — and each of them has a character it cannot take
+Every renderer here writes into one of three grammars, markdown tables, HTML and
+a JavaScript string literal, and each of them has a character it cannot take
 literally.
 ]]
 
@@ -67,7 +67,7 @@ local function summaryText(text: string?): string
         text = text .. "..."
     end
 
-    return text ~= "" and text or "—"
+    return text
 end
 
 local function escapeJs(text: string?): string

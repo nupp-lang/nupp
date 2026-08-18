@@ -555,7 +555,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     -- Only what this target produced last time and does not produce now. The old rule
     -- was every output the directory had ever held, which meant a bundle build deleted
-    -- the binary stamped from it and a binary build deleted the bundle — quietly, since
+    -- the binary stamped from it and a binary build deleted the bundle, quietly, since
     -- removing a file nobody asked about looks exactly like tidying up.
     local mine = {}
     for output in pairs(newState.outputs) do
@@ -721,7 +721,7 @@ end
 --- Runs `tasks.<name>` from the manifest: builds `tasks.<name>.build` first if it names
 --- one, then execs `tasks.<name>.argv` with `args` appended. Unlike `test`, which
 --- always builds (there is exactly one test command and it is nothing without the code
---- under test), a custom task only builds when it says to — most won't name a build
+--- under test), a custom task only builds when it says to, and most won't name a build
 --- target at all.
 function project.runTask(root: string?, name: string, args: {string}?): integer
     root = root or "."
@@ -1019,7 +1019,7 @@ end
 --- The compiler proves it can compile itself on every change; this is the same claim
 --- one level up, and it is what makes the emitter trustworthy rather than plausible. It
 --- fails if the payload is not deterministic, if the trailer does not round-trip, or if
---- the emitter's idea of where a payload starts disagrees with the stub's — and it is
+--- the emitter's idea of where a payload starts disagrees with the stub's, and it is
 --- the gate before anybody outside this project builds a stub against the format,
 --- because after that the format cannot move.
 ---

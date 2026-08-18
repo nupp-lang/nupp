@@ -182,8 +182,8 @@ end
 -- guess. A statement that does not mention the local at all is stepped over: until the
 -- table escapes, nothing else can reach it.
 --
--- Over-counting is safe — a table sized for more than it receives wastes a little
--- memory and nothing else — so a conditional write is counted, an opaque key is counted
+-- Over-counting is safe, since a table sized for more than it receives wastes a little
+-- memory and nothing else, so a conditional write is counted, an opaque key is counted
 -- as one slot, and a run that is cut short simply keeps what it had. Under-counting is
 -- safe too. Capacity is not observable, which is what makes this pass free of any
 -- promise about behaviour.

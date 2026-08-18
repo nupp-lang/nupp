@@ -53,7 +53,7 @@ local type Token = lexer.Token
 --- that takes them all reads `node.valuePack` rather than the one type inference
 --- answered with. Only a call expands: `local a, b = f()` takes both of f's results,
 --- while `local a, b = g` takes g and nothing. Inferring anything else may still have
---- run a call — a function expression whose body calls something does — so the
+--- run a call, though a function expression whose body calls something does, so the
 --- expansion asks what the expression is rather than what ran last.
 local EXPANDS: {[string]: boolean} = {call = true, methodCall = true, safeCall = true, vararg = true}
 
@@ -1258,8 +1258,8 @@ function expr.install(c: state.Checker): nil
         end
         -- A reader that wants every value an expanding expression produces finds them
         -- on the node. Some paths through a call answer with one type and publish
-        -- nothing — an unresolvable method, an intrinsic, a resolved `require` — and
-        -- without a pack of their own the reader would take whichever call ran last
+        -- nothing, as an unresolvable method, an intrinsic or a resolved `require` can,
+        -- and without a pack of their own the reader would take whichever call ran last
         -- while the arguments were inferred, which is one of this call's own arguments.
         node.valuePack = node.valuePack or T.pack({first})
         for index, result in ipairs(node.valuePack.head or {}) do

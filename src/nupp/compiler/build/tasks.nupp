@@ -113,9 +113,9 @@ local function copyResources(items)
 end
 
 -- A docs target that names no `outDir` does not land in the manifest's default
--- directory — the generator has one of its own, and it is the generator that decides
--- where a build goes. Asking it beats keeping a second copy of the answer here, which
--- is how the two came to disagree.
+-- directory, since the generator has one of its own, and it is the generator that
+-- decides where a build goes. Asking it beats keeping a second copy of the answer here,
+-- which is how the two came to disagree.
 local function outDirOf(target)
     if target.outDir then
         return target.outDir

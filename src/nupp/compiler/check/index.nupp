@@ -718,8 +718,8 @@ function index.install(c: state.Checker): state.ExprHandlers
             if not (it == T.any or isA(it, T.integer)) then
                 c.diag("NUPP2004", key, ("array index must be integer, got %s"):format(T.tostring(it)))
             end
-            -- pragmatic: dense-array reads yield T, not T? — maps keep the optional,
-            -- where absent keys are expected
+            -- pragmatic: dense-array reads yield T rather than T?, while maps keep the
+            -- optional, where absent keys are expected
             return ot.elem
         elseif ot.tag == "map" then
             if writing and not ot.writeValue then

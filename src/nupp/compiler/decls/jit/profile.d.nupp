@@ -15,12 +15,12 @@ local record JitProfile
     ---
     --- `mode` is a string of option characters:
     ---
-    --- * `"f"` — sample the function, `"l"` the line, `"z"` the zone (see
+    --- * `"f"`: sample the function, `"l"` the line, `"z"` the zone (see
     ---     the bundled `jit.zone` module).
-    --- * `"i<n>"` — sample every `n` milliseconds, 10 by default. Below
+    --- * `"i<n>"`: sample every `n` milliseconds, 10 by default. Below
     ---     about 10 the timer starts taking real time away from the thread it
     ---     is measuring.
-    --- * `"r"` — report raw sample counts rather than accumulating. * `"v"` — report
+    --- * `"r"`: report raw sample counts rather than accumulating. * `"v"`: report
     --- the VM state.
     ---
     --- The callback runs on the interrupted thread, so it must not allocate heavily or

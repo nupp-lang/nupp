@@ -6,7 +6,7 @@ A gradual type checker over the CST. Anything unannotated or unresolvable is
 that reports nothing; annotations are what turn checking on, one declaration at
 a time.
 
-This module holds the run — the scopes, the diagnostics, the per-file state — and
+This module holds the run, meaning the scopes, the diagnostics and the per-file state, and
 the statement walk that drives everything else. The questions the walk asks are
 answered next door: what an expression's type is by `expr`, what a call means by
 `calls`, what a declaration introduces by `declare`, what a condition proves by
@@ -178,7 +178,7 @@ end
 --
 -- env (optional): { globals = {name -> entry}, globalTypes = {name -> type}, stringLib
 -- = shape type for string-method calls, resolveModule = function(env, modname) -> type?
--- } — shared across files. opts may provide declareGlobals (prelude/declaration files),
+-- }, shared across files. opts may provide declareGlobals (prelude/declaration files),
 -- moduleName, an annotation registry, and a seeded module export interface for
 -- recursive project declarations.
 
@@ -1437,7 +1437,7 @@ function checkMod.check(
     end
 
     --- The scope key a declaration binds under. A qualified name binds under its whole
-    --- path, so `record M.Point` is reached as `M.Point` and declares no bare `Point` —
+    --- path, so `record M.Point` is reached as `M.Point` and declares no bare `Point`,
     --- the same rule `function M.f` follows. The dot keeps the key clear of any
     --- identifier.
     c.declKey = function(stat): string
@@ -1471,8 +1471,8 @@ function checkMod.check(
         end
     end
 
-    --- Binds the value a declaration also introduces — a record's runtime table, a
-    --- struct's ctype constructor — under the same key as its type, so `M.Point{...}`
+    --- Binds the value a declaration also introduces, a record's runtime table or a
+    --- struct's ctype constructor, under the same key as its type, so `M.Point{...}`
     --- is recognized as a construction.
     c.bindDeclaredVar = function(stat, t)
         c.bindVar(c.declKey(stat), t, false, stat.name)

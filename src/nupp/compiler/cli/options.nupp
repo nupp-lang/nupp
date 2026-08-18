@@ -6,8 +6,8 @@ described in the same words, which is hard to arrange when each command spells
 it out for itself. These are the declarations, written once; a command lists the
 ones it wants among its own.
 
-Nothing here is mutated after it is declared — `nupp.compiler.cli.spec` copies what it
-needs into its own option records — so one table per option serves every command
+Nothing here is mutated after it is declared, since `nupp.compiler.cli.spec` copies
+what it needs into its own option records, so one table per option serves every command
 that names it.
 ]]
 

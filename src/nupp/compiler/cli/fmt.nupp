@@ -3,7 +3,7 @@
 
 Naming files makes it a filter: each is formatted to stdout, or rewritten with
 --write. Naming none makes the project the subject, and a filter is then the
-wrong shape — printing forty files to stdout answers nothing anybody asked — so
+wrong shape, since printing forty files to stdout answers nothing anybody asked, so
 what comes back is the list of files that are not formatted, and a non-zero
 status a build can gate on.
 

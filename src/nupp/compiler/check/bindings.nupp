@@ -6,8 +6,8 @@ are any and from the initializers where there are not. Assignment checks the
 value against what the target already holds, and a compound assignment is the
 operator and the assignment together.
 
-A write is also the thing that invalidates a narrowing, and — when the target is
-the module's own table — what publishes a member of it.
+A write is also the thing that invalidates a narrowing, and, when the target is
+the module's own table, what publishes a member of it.
 ]]
 
 local T = require("nupp.compiler.types")
@@ -91,10 +91,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     )
                 end
             end
-            -- Inferred types are hints, not shackles — mutable unannotated bindings
-            -- widen so common Lua idioms keep checking: literal shapes stay OPEN
-            -- ("local M =
-            -- {a=1}; M.b = 2") —
+            -- Inferred types are hints rather than shackles, so mutable unannotated
+            -- bindings widen so common Lua idioms keep checking: literal shapes stay
+            -- OPEN ("local M = {a=1}; M.b = 2"),
             --     but shapes RETURNED by calls (modules!) keep their type,
             -- integer widens ("local i = 1; i = i / 2"), nil init means "declared,
             -- assigned later". A const cannot be reassigned, so it keeps an inferred
