@@ -401,24 +401,20 @@ local function widenLoad(loaded: scalarIR.Expr, source: scalarIR.Source?): scala
     return new scalarIR.Convert(op = "widen_f32_f64", value = loaded, type = "f64", source = source)
 end
 
---- One `span:get(i)` or `span:getMut(i)`.
+--- One indexed span read.
 ---
 --- The index has to be the loop's own, exactly. Consecutive access is the whole
 --- of the licence to run several iterations at once, and an index this backend
 --- cannot prove consecutive is one it will not admit.
-local function spanRead(node: cst.MethodCall, activeIndex: string?, kernel: lower.Kernel): scalarIR.Expr
+local function spanRead(node: cst.BracketIndex, activeIndex: string?, kernel: lower.Kernel): scalarIR.Expr
     local context = kernel.context
     local spanName = lower.nameOf(node.obj)
     local param = spanName ~= nil and kernel.params[spanName as string] or nil
-    local args = node.args ~= nil and (node.args as cst.Args).exprs or {}
-    local method = node.name ~= nil and (node.name as lexer.Token).text or ""
-    local readable = param ~= nil and (
-        param.kind == "read_span" and method == "get" or param.kind == "write_span" and method == "getMut"
-    )
+    local readable = param ~= nil and (param.kind == "read_span" or param.kind == "write_span")
     if not readable then
-        context.reject(lower.site(node), "span reads use input:get(index) or output:getMut(index)")
+        context.reject(lower.site(node), "span reads use input[index] or output[index]")
     end
-    if activeIndex == nil or #args ~= 1 or lower.nameOf(args[1]) ~= activeIndex then
+    if activeIndex == nil or lower.nameOf(node.expr) ~= activeIndex then
         context.reject(lower.site(node), "span loads must use the active loop index exactly")
     end
 
@@ -765,8 +761,8 @@ function lower.expression(
         local operator = node as cst.Unop
 
         return unary(operator, lower.expression(operator.operand as cst.Node, environment, activeIndex, kernel), kernel)
-    elseif kind == "methodCall" then
-        return spanRead(node as cst.MethodCall, activeIndex, kernel)
+    elseif kind == "bracketIndex" then
+        return spanRead(node as cst.BracketIndex, activeIndex, kernel)
     elseif kind == "dotIndex" and (node as cst.DotIndex).name ~= nil then
         local indexed = node as cst.DotIndex
 
@@ -1255,40 +1251,6 @@ local function localStmt(
     end
 end
 
---- One `output:set(index, value)`, which is the only call statement admitted.
-local function callStmt(
-    stat: cst.CallStmt,
-    out: {scalarIR.Statement},
-    environment: {[string]: any},
-    kernel: lower.Kernel
-): nil
-    local context = kernel.context
-    local call = stat.expr
-    local spanName = call ~= nil and call.kind == "methodCall" and lower.nameOf((call as cst.MethodCall).obj) or nil
-    local output = spanName ~= nil and kernel.params[spanName as string] or nil
-    local method = call ~= nil and call.kind == "methodCall" and (call as cst.MethodCall).name or nil
-    local args = call ~= nil and call.kind == "methodCall" and (
-        call as cst.MethodCall
-    ).args ~= nil and ((call as cst.MethodCall).args as cst.Args).exprs or {}
-    if output == nil or output.kind ~= "write_span" or method == nil or (method as lexer.Token).text ~= "set" then
-        context.reject(lower.site(stat), "a native call statement must be output:set(index, value)")
-    end
-    if #args ~= 2 or lower.nameOf(args[1]) ~= kernel.index then
-        context.reject(lower.site(call), "span stores must use the active loop index exactly")
-    end
-
-    local value = lower.expression(args[2], environment, kernel.index, kernel)
-    out[
-        #out + 1
-    ] = new scalarIR.Store(
-        op = "store",
-        span = spanName as string,
-        index = kernel.index,
-        value = lower.convert(value, output.element.type, lower.site(call), context),
-        source = lower.site(call)
-    )
-end
-
 --- Where one assignment puts its value.
 local function assignTarget(target: cst.Node, environment: {[string]: any}, kernel: lower.Kernel): scalarIR.Target
     local context = kernel.context
@@ -1344,6 +1306,29 @@ local function assignStmt(
     local context = kernel.context
     local exprs = stat.exprs or {}
     local targets = stat.targets or {}
+
+    if #targets == 1 and #exprs == 1 and targets[1].kind == "bracketIndex" then
+        local target = targets[1] as cst.BracketIndex
+        local spanName = lower.nameOf(target.obj)
+        local output = spanName ~= nil and kernel.params[spanName as string] or nil
+        if output == nil or output.kind ~= "write_span" then
+            context.reject(lower.site(target), "native indexed stores require a writable span")
+        end
+        if lower.nameOf(target.expr) ~= kernel.index then
+            context.reject(lower.site(target), "span stores must use the active loop index exactly")
+        end
+        local value = lower.expression(exprs[1], environment, kernel.index, kernel)
+        out[
+            #out + 1
+        ] = new scalarIR.Store(
+            op = "store",
+            span = spanName as string,
+            index = kernel.index,
+            value = lower.convert(value, output.element.type, lower.site(stat), context),
+            source = lower.site(stat)
+        )
+        return
+    end
 
     local values: {scalarIR.Expr} = {}
     if #exprs == 1 then
@@ -1417,7 +1402,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         if kind == "localStmt" then
             localStmt(stat as cst.LocalStmt, out, environment, kernel)
         elseif kind == "callStmt" then
-            callStmt(stat as cst.CallStmt, out, environment, kernel)
+            context.reject(lower.site(stat), "native element stores use output[index] = value")
         elseif kind == "assignStmt" then
             assignStmt(stat as cst.AssignStmt, out, environment, kernel)
         elseif kind == "ifStmt" then
@@ -1517,18 +1502,17 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
     return out
 end
 
---- The span one `x.count` names, if the node is that.
+--- The span one `#x` names, if the node is that.
 function lower.dotCount(node: cst.Node?): string?
-    if node == nil or node.kind ~= "dotIndex" then
+    if node == nil or node.kind ~= "unop" then
+        return nil
+    end
+    local length = node as cst.Unop
+    if length.op == nil or (length.op as lexer.Token).text ~= "#" then
         return nil
     end
 
-    local indexed = node as cst.DotIndex
-    if indexed.name == nil or (indexed.name as lexer.Token).text ~= "count" then
-        return nil
-    end
-
-    return lower.nameOf(indexed.obj)
+    return lower.nameOf(length.operand)
 end
 
 --- What the kernel prototype declares.
@@ -1787,19 +1771,17 @@ function lower.rangeGuard(
 ): scalarIR.RangeGuard
     local primary = signature.writes[1]
     local written = lower.compactType(clause.cond)
-    local firstName, lastName = written:match("^([%a_][%w_]*)<1or([%a_][%w_]*)>[%a_][%w_]*%.countor")
+    local firstName, lastName = written:match("^([%a_][%w_]*)<1or([%a_][%w_]*)>#([%a_][%w_]*)or")
+    local countName = select(3, written:match("^([%a_][%w_]*)<1or([%a_][%w_]*)>#([%a_][%w_]*)or"))
     local expected = firstName ~= nil and (
         tostring(
             firstName
         ) .. "<1or" .. tostring(
             lastName
-        ) .. ">" .. primary.name .. ".countor" .. tostring(firstName) .. ">" .. tostring(lastName) .. "+1"
+        ) .. ">#" .. primary.name .. "or" .. tostring(firstName) .. ">" .. tostring(lastName) .. "+1"
     ) or ""
-    if written ~= expected then
-        context.reject(
-            lower.site(clause.cond),
-            "range guard must be `first < 1 or last > output.count or first > last + 1`"
-        )
+    if written ~= expected or countName ~= primary.name then
+        context.reject(lower.site(clause.cond), "range guard must be `first < 1 or last > #output or first > last + 1`")
     end
 
     local first = signature.byName[tostring(firstName)]

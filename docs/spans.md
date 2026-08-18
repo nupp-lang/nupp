@@ -23,14 +23,26 @@ end
 
 const storage = carray(Point, 4)
 const points = span.fromCarray(storage, 4)
-assert(points.count == 4)
-assert(points:get(1).x == 0)
+assert(#points == 4)
+assert(points[1].x == 0)
 ```
 
-Indexes start at one. `get(index)` raises when the index is outside `1` through
-`count`. `slice(first, last)` includes both endpoints and borrows the parent;
+Indexes start at one. `view[index]` raises when the index is outside `1` through
+`#view`. `slice(first, last)` includes both endpoints and borrows the parent;
 omitting `last` extends through the end. An empty slice uses `first,
 first - 1`.
+
+The operator surface replaces the former element methods and public count field:
+
+| Former spelling | Current spelling |
+| --- | --- |
+| `view.count` | `#view` |
+| `view:get(index)` | `view[index]` |
+| `view:set(index, value)` | `view[index] = value` |
+| `view:getMut(index).field` | `view[index].field` |
+| `span.range(first, last, ...)` | `indexed.range(first, last, ...)` |
+
+The former spellings are migration errors, not deprecated alternate APIs.
 
 `fromFixedCarray(source, count)` returns `FixedSpan<T, N>` when the array and
 literal count carry the same static `N`. It satisfies `Span<T>`, while preserving
@@ -43,6 +55,7 @@ the exact count for checks and generated code.
 
 ```nupp
 local span = require("nupp.span")
+local indexed = require("nupp.indexed")
 
 local struct Point
     x: float
@@ -50,9 +63,9 @@ local struct Point
 end
 
 local function clear(exclusive points: span.WriteSpan<Point>): nil
-    const indexes = span.range(1, points.count, points)
+    const indexes = indexed.range(1, #points, points)
     for index = indexes.first, indexes.last do
-        points:set(index, new Point(0, 0))
+        points[index] = new Point(0, 0)
     end
 end
 
@@ -62,9 +75,9 @@ with points = span.writeCarray(storage, 4) do
 end
 ```
 
-`set(index, value)` writes one element after checking its index. `getMut(index)`
-returns a checked mutable element pointer borrowed from the writer. `shared()`
-downgrades the writer to a shared view for the returned view's lifetime.
+Whole-element and direct field assignments write through the checked indexed
+place. `shared()` downgrades the writer to a shared view for the returned
+view's lifetime.
 
 A writable span is affine because it represents exclusive access rather than
 owned memory. Dropping it, explicitly or at scope exit, ends that access; it
@@ -89,11 +102,12 @@ overlap.
 
 ## One range for several spans
 
-`span.range(first, last, ...)` checks one inclusive range against every supplied
-span and returns ordinary `first` and `last` integers:
+`indexed.range(first, last, ...)` checks one inclusive range against every
+trusted Span or SoA view and returns ordinary `first` and `last` integers:
 
 ```nupp
 local span = require("nupp.span")
+local indexed = require("nupp.indexed")
 
 local struct Value
     n: integer
@@ -103,10 +117,10 @@ local function dot(
     left: span.Span<Value>,
     right: span.Span<Value>
 ): integer
-    const indexes = span.range(1, left.count, left, right)
+    const indexes = indexed.range(1, #left, left, right)
     local total = 0
     for index = indexes.first, indexes.last do
-        total = total + left:get(index).n * right:get(index).n
+        total = total + left[index].n * right[index].n
     end
     return total
 end
@@ -117,17 +131,24 @@ convention as slices. The typed borrowed vararg passes each original span
 directly and allocates no container or interface wrapper.
 
 When the bounds and spans are const-bound in the same function, the successful
-range check proves matching `get`, `getMut`, and `set` indexes non-raising inside
+range check proves matching indexed reads and writes non-raising inside
 the dominated numeric loop. This proof is part of checking at every optimization
 level: it is what permits those calls inside `noraise` code.
 
-With `-O1` and `frames` relaxed, the regular backend also uses the proof to emit
+With `-O1`, the regular backend also uses the proof to emit
 direct FFI element access for the exact span and bare loop index. The range call
 still validates every span once, and the generated access still includes the
 span's physical offset. `-O0`, held frames, a computed index, a different span,
-or an access outside the witnessed loop retains the ordinary checked method.
-The proof is local to the function containing `span.range`; passing its bounds
+or an access outside the witnessed loop retains one checked helper operation.
+The proof is local to the function containing `indexed.range`; passing its bounds
 or result to another function does not transport it.
+
+At `-O1`, a nonescaping const slice used only by proved indexed operations can
+remain virtual. Nupp keeps its checked finish, root, offset, count, and access
+capability as compiler facts instead of allocating the slice wrapper. Nested
+slices compose offsets, while the bounds check still executes once at each
+authored `slice` expression. Returning, capturing, storing, or passing the slice
+to an unsupported call keeps the ordinary rooted runtime object.
 
 ## Passing a span to C
 

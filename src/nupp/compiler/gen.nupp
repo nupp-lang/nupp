@@ -1263,8 +1263,6 @@ function gen.generate(
     end
 
     local emit
-    local soaLoopBounds: {[any]: any} = {}
-
     local function sourceLine(node)
         if not node then
             return nil
@@ -1306,24 +1304,12 @@ function gen.generate(
         return nil, nil
     end
 
-    --- A numeric `for i = 1, rows.count` proves every `rows[i]` access in its
+    --- A numeric `for i = 1, #rows` proves every `rows[i]` access in its
     --- body in bounds. Recording the two source bindings lets generated hot loops
     --- address the already-offset column directly, while every other expression
     --- keeps its checked access and once-only evaluation rules.
     local function soaUncheckedRow(row): boolean
-        local view = row and row.obj
-        local index = row and row.expr
-        return view ~= nil
-            and view.kind == "name"
-            and view.token ~= nil
-            and index ~= nil
-            and index.kind == "name"
-            and index.token ~= nil
-            and index.token.definition ~= nil
-            and view.token.definition ~= nil
-            and soaLoopBounds[
-            index.token.definition
-        ] == view.token.definition
+        return row ~= nil and row.indexedDirectAccess == true
     end
 
     local function soaSlot(view: string, ordinal: integer, index: string, unchecked: boolean): string
@@ -1333,32 +1319,107 @@ function gen.generate(
         return ("%s.columns[%d][%s:checkedIndex(%s)]"):format(view, ordinal, view, index)
     end
 
-    local function soaCountedLoop(node): any, any
-        if node.kind ~= "fornumStmt" or not node.var or node.step then
-            return nil, nil
-        end
-        local start = node.start
-        local stop = node.stop
-        local startToken = start and cst.firstToken(start) or nil
-        if not startToken or startToken.kind ~= "number" or tonumber(startToken.text) ~= 1 then
-            return nil, nil
-        end
-        if not stop
-            or stop.kind ~= "dotIndex"
-            or not stop.name
-            or stop.name.text ~= "count"
-            or not stop.obj
-            or stop.obj.kind ~= "name"
-            or not stop.obj.token
-        then
-            return nil, nil
-        end
+    -- One captured lowering service keeps `emit` under Lua's 60-upvalue ceiling.
+    emitDepth.soa = {unchecked = soaUncheckedRow, slot = soaSlot,}
 
-        return node.var.definition, stop.obj.token.definition
+    local function virtualView(node)
+        return node
+            and node.kind == "name"
+            and node.token
+            and node.token.definition
+            and node.token.definition.virtualIndexedView
+            or nil
     end
 
-    -- One captured lowering service keeps `emit` under Lua's 60-upvalue ceiling.
-    emitDepth.soa = {bounds = soaLoopBounds, unchecked = soaUncheckedRow, slot = soaSlot, countedLoop = soaCountedLoop,}
+    local function emitViewRoot(node)
+        local view = virtualView(node)
+        if view then
+            emitViewRoot(view.source)
+        else
+            emit(node)
+        end
+    end
+
+    local function emitViewCount(node)
+        local view = virtualView(node)
+        if view then
+            if view.kind == "slice" then
+                e("(")
+                emit(node)
+                e("-")
+                emit(view.first)
+                e("+1)")
+            else
+                emit(node)
+            end
+        else
+            emit(node)
+            e(".count")
+        end
+    end
+
+    local function emitViewOffset(node)
+        local view = virtualView(node)
+        if view then
+            emitViewOffset(view.source)
+            if view.kind == "slice" then
+                e("+")
+                emit(view.first)
+                e("-1")
+            end
+        else
+            emit(node)
+            e(".offset")
+        end
+    end
+
+    local function projectedView(node)
+        local view = virtualView(node)
+        if not view then
+            return nil
+        end
+        if view.kind == "field" then
+            return view
+        end
+
+        return projectedView(view.source)
+    end
+
+    local function emitSpanSlot(view, index, field)
+        local projection = projectedView(view)
+        if projection then
+            emitViewRoot(projection.source)
+            e((".columns[%d]["):format(projection.ordinal))
+        else
+            emitViewRoot(view)
+            e(".pointer[")
+        end
+        emitViewOffset(view)
+        e("+")
+        emit(index)
+        e("-1]")
+        if field then
+            e("." .. field)
+        end
+    end
+
+    local function emitSoaSlot(view, ordinal, index)
+        emitViewRoot(view)
+        e((".columns[%d]["):format(ordinal))
+        emitViewOffset(view)
+        e("+")
+        emit(index)
+        e("-1]")
+    end
+
+    emitDepth.view = {
+        info = virtualView,
+        root = emitViewRoot,
+        count = emitViewCount,
+        offset = emitViewOffset,
+        spanSlot = emitSpanSlot,
+        soaSlot = emitSoaSlot,
+    }
 
     local function emitRuntimeLayout(spec, line, emitCtype)
         needsLayout = true
@@ -1437,9 +1498,6 @@ function gen.generate(
     end
 
     local function pluckableCall(call): boolean
-        if call.spanDirectAccess then
-            return false
-        end
         if call.kind == "methodCall" then
             return call.obj ~= nil and call.name ~= nil
         end
@@ -2803,29 +2861,203 @@ function gen.generate(
         end
         if kind == "assignStmt" and #(x.targets or {}) == 1 and #(x.exprs or {}) == 1 then
             local target = x.targets[1]
+            if target
+                and target.kind == "dotIndex"
+                and target.indexedField
+                and target.indexedField.adapter == "span"
+                and target.obj
+                and target.obj.indexedAccess
+            then
+                local access = target.obj
+                local direct = access.indexedDirectAccess == true
+                if direct and emitDepth.view.info(access.obj) then
+                    emitDepth.view.spanSlot(access.obj, access.expr, target.name.text)
+                    e("=", sourceLine(target))
+                    emit(x.exprs[1])
+                    return
+                elseif direct then
+                    emit(access.obj)
+                    e(".pointer[")
+                    emit(access.obj)
+                    e(".offset+")
+                    emit(access.expr)
+                    e("-1]")
+                else
+                    emit(access.obj)
+                    e(":getMut(")
+                    emit(access.expr)
+                    e(")")
+                end
+                e("." .. target.name.text .. "=", sourceLine(target))
+                emit(x.exprs[1])
+                return
+            elseif target
+                and target.kind == "bracketIndex"
+                and target.indexedAccess
+                and target.indexedAccess.adapter == "span"
+            then
+                if target.indexedDirectAccess and emitDepth.view.info(target.obj) then
+                    emitDepth.view.spanSlot(target.obj, target.expr)
+                    e("=", sourceLine(target))
+                    emit(x.exprs[1])
+                    return
+                else
+                    emit(target.obj)
+                end
+                if target.indexedDirectAccess and not emitDepth.view.info(target.obj) then
+                    e(".pointer[")
+                    emit(target.obj)
+                    e(".offset+")
+                    emit(target.expr)
+                    e("-1]=", sourceLine(target))
+                    emit(x.exprs[1])
+                else
+                    e(":set(", sourceLine(target))
+                    emit(target.expr)
+                    e(",")
+                    emit(x.exprs[1])
+                    e(")")
+                end
+                return
+            end
             local row, ordinal = soaFieldTarget(target)
             if row and ordinal then
-                local viewName, indexName = nextTemp(), nextTemp()
-                e(("do const %s="):format(viewName), sourceLine(x))
-                emit(row.obj)
-                e(("; const %s="):format(indexName))
-                emit(row.expr)
-                e(("; %s="):format(emitDepth.soa.slot(viewName, ordinal, indexName, emitDepth.soa.unchecked(row))))
-                emit(x.exprs[1])
-                e(" end")
+                if emitDepth.view.info(row.obj) and emitDepth.soa.unchecked(row) then
+                    emitDepth.view.soaSlot(row.obj, ordinal, row.expr)
+                    e("=", sourceLine(x))
+                    emit(x.exprs[1])
+                else
+                    local viewName, indexName = nextTemp(), nextTemp()
+                    e(("do const %s="):format(viewName), sourceLine(x))
+                    emit(row.obj)
+                    e(("; const %s="):format(indexName))
+                    emit(row.expr)
+                    e(("; %s="):format(emitDepth.soa.slot(viewName, ordinal, indexName, emitDepth.soa.unchecked(row))))
+                    emit(x.exprs[1])
+                    e(" end")
+                end
                 return
             elseif target and target.soaRow then
-                emit(target.obj)
-                e(":set(", sourceLine(x))
-                emit(target.expr)
-                e(",")
-                emit(x.exprs[1])
-                e(")")
+                if target.indexedDirectAccess and target.soaRow.element and target.soaRow.element.tag == "nominal" then
+                    local viewName, indexName, valueName = nextTemp(), nextTemp(), nextTemp()
+                    e("do", sourceLine(x))
+                    if not emitDepth.view.info(target.obj) then
+                        e((" const %s="):format(viewName))
+                        emit(target.obj)
+                        e(("; const %s="):format(indexName))
+                        emit(target.expr)
+                    end
+                    e(("; const %s="):format(valueName))
+                    emit(x.exprs[1])
+                    for ordinal, field in ipairs(target.soaRow.element.fieldOrder or {}) do
+                        e(";")
+                        if emitDepth.view.info(target.obj) then
+                            emitDepth.view.soaSlot(target.obj, ordinal, target.expr)
+                            e(("=%s.%s"):format(valueName, field))
+                        else
+                            e(
+                                (
+                                    " %s.columns[%d][%s.offset+%s-1]=%s.%s"
+                                ):format(viewName, ordinal, viewName, indexName, valueName, field)
+                            )
+                        end
+                    end
+                    e(" end")
+                else
+                    emit(target.obj)
+                    e(":set(", sourceLine(x))
+                    emit(target.expr)
+                    e(",")
+                    emit(x.exprs[1])
+                    e(")")
+                end
                 return
             end
         elseif kind == "compoundAssign" and x.target then
+            if x.target.kind == "bracketIndex"
+                and x.target.indexedAccess
+                and x.target.indexedAccess.adapter == "span"
+            then
+                e("do ", sourceLine(x))
+                if x.target.indexedDirectAccess then
+                    if emitDepth.view.info(x.target.obj) then
+                        emitDepth.view.spanSlot(x.target.obj, x.target.expr)
+                        e("=")
+                        emitDepth.view.spanSlot(x.target.obj, x.target.expr)
+                    else
+                        emit(x.target.obj)
+                        e(".pointer[")
+                        emit(x.target.obj)
+                        e(".offset+")
+                        emit(x.target.expr)
+                        e("-1]=")
+                        emit(x.target.obj)
+                        e(".pointer[")
+                        emit(x.target.obj)
+                        e(".offset+")
+                        emit(x.target.expr)
+                        e("-1]")
+                    end
+                    e((" %s "):format(x.op.kind:sub(1, -2)), x.op.line)
+                    emit(x.value)
+                else
+                    local viewName, indexName = nextTemp(), nextTemp()
+                    e(("const %s="):format(viewName))
+                    emit(x.target.obj)
+                    e((";const %s="):format(indexName))
+                    emit(x.target.expr)
+                    e(
+                        (
+                            ";%s:set(%s,%s:get(%s) %s "
+                        ):format(viewName, indexName, viewName, indexName, x.op.kind:sub(1, -2))
+                    )
+                    emit(x.value)
+                    e(")")
+                end
+                e(" end")
+                return
+            elseif x.target.kind == "dotIndex"
+                and x.target.indexedField
+                and x.target.indexedField.adapter == "span"
+                and x.target.obj
+                and x.target.obj.indexedAccess
+            then
+                local target = x.target
+                local access = target.obj
+                if access.indexedDirectAccess and emitDepth.view.info(access.obj) then
+                    e("do ", sourceLine(x))
+                    emitDepth.view.spanSlot(access.obj, access.expr, target.name.text)
+                    e((" %s "):format(x.op.kind), x.op.line)
+                    emit(x.value)
+                    e(" end")
+                    return
+                end
+                local viewName, indexName = nextTemp(), nextTemp()
+                e(("do const %s="):format(viewName), sourceLine(x))
+                emit(access.obj)
+                e(("; const %s="):format(indexName))
+                emit(access.expr)
+                local slot
+                if access.indexedDirectAccess then
+                    slot = ("%s.pointer[%s.offset+%s-1].%s"):format(viewName, viewName, indexName, target.name.text)
+                else
+                    slot = ("%s:getMut(%s).%s"):format(viewName, indexName, target.name.text)
+                end
+                e(("; %s %s "):format(slot, x.op.kind), x.op.line)
+                emit(x.value)
+                e(" end")
+                return
+            end
             local row, ordinal = soaFieldTarget(x.target)
             if row and ordinal then
+                if emitDepth.view.info(row.obj) and emitDepth.soa.unchecked(row) then
+                    e("do ", sourceLine(x))
+                    emitDepth.view.soaSlot(row.obj, ordinal, row.expr)
+                    e((" %s "):format(x.op.kind), x.op.line)
+                    emit(x.value)
+                    e(" end")
+                    return
+                end
                 local viewName, indexName = nextTemp(), nextTemp()
                 e(("do const %s="):format(viewName), sourceLine(x))
                 emit(row.obj)
@@ -2945,46 +3177,54 @@ function gen.generate(
             e(x.folded, sourceLine(x))
             return
         end
+        if kind == "unop" and x.indexedLength and x.operand then
+            emitDepth.view.count(x.operand)
+            return
+        end
         if kind == "dotIndex"
+            and x.indexedField
+            and x.indexedField.adapter == "span"
             and x.obj
-            and x.obj.kind == "methodCall"
-            and x.obj.spanDirectAccess
-            and x.obj.spanDirectAccess.operation == "getMut"
+            and x.obj.indexedAccess
         then
-            local direct = x.obj.spanDirectAccess
-            emit(direct.receiver)
-            e(".pointer[")
-            emit(direct.receiver)
-            e(".offset+")
-            emit(direct.index)
-            e("-1]")
+            local access = x.obj
+            if access.indexedDirectAccess and emitDepth.view.info(access.obj) then
+                emitDepth.view.spanSlot(access.obj, access.expr, x.name and x.name.text or nil)
+                return
+            end
+            emit(access.obj)
+            if access.indexedDirectAccess then
+                e(".pointer[")
+                emit(access.obj)
+                e(".offset+")
+                emit(access.expr)
+                e("-1]")
+            else
+                e(":get(")
+                emit(access.expr)
+                e(")")
+            end
             if x.name then
                 e("." .. x.name.text, sourceLine(x))
             end
             return
         end
-        if kind == "methodCall" and x.spanDirectAccess then
-            local direct = x.spanDirectAccess
-            if direct.operation == "get" or direct.operation == "set" then
-                emit(direct.receiver)
+        if kind == "bracketIndex" and x.indexedAccess and x.indexedAccess.adapter == "span" then
+            if x.indexedDirectAccess and emitDepth.view.info(x.obj) then
+                emitDepth.view.spanSlot(x.obj, x.expr)
+                return
+            end
+            emit(x.obj)
+            if x.indexedDirectAccess then
                 e(".pointer[")
-                emit(direct.receiver)
+                emit(x.obj)
                 e(".offset+")
-                emit(direct.index)
+                emit(x.expr)
                 e("-1]")
-                if direct.operation == "set" then
-                    local args = x.args and x.args.exprs or {}
-                    e("=")
-                    emit(args[2])
-                end
             else
-                e("(", sourceLine(x))
-                emit(direct.receiver)
-                e(".pointer+")
-                emit(direct.receiver)
-                e(".offset+")
-                emit(direct.index)
-                e("-1)")
+                e(":get(", sourceLine(x))
+                emit(x.expr)
+                e(")")
             end
             return
         end
@@ -3862,7 +4102,10 @@ function gen.generate(
                 e(("%s=false;"):format(innerActive))
                 inner.ownershipMoveCleared = true
             end
-            emit(inner)
+            local virtualDrop = innerArgs[1] and emitDepth.view.info(innerArgs[1])
+            if not virtualDrop then
+                emit(inner)
+            end
             inner.ownershipMoveCleared = nil
             e("end")
             return
@@ -5163,19 +5406,11 @@ function gen.generate(
 
         elseif kind == "whileStmt" or kind == "fornumStmt" or kind == "forinStmt" or kind == "repeatStmt" then
             local lastLine = nil
-            local loopIndex, loopView = emitDepth.soa.countedLoop(x)
-            local prior = loopIndex and emitDepth.soa.bounds[loopIndex] or nil
             for _, child in ipairs(x) do
                 if child == x.body then
-                    if loopIndex and loopView then
-                        emitDepth.soa.bounds[loopIndex] = loopView
-                    end
                     emitDepth.loop = emitDepth.loop + 1
                     emit(child)
                     emitDepth.loop = emitDepth.loop - 1
-                    if loopIndex then
-                        emitDepth.soa.bounds[loopIndex] = prior
-                    end
                 else
                     emit(child)
                 end
@@ -5361,16 +5596,45 @@ function gen.generate(
             end
             return
 
-        elseif kind == "methodCall" and x.soaFieldProjection then
+        elseif kind == "methodCall" and x.soaFieldProjection and not x.virtualIndexedView then
             emit(x.obj)
             e((":fieldBySlot(%d)"):format(x.soaFieldProjection.ordinal), sourceLine(x))
+            return
+
+        elseif kind == "methodCall" and x.virtualIndexedView then
+            local view = x.virtualIndexedView
+            if view.kind == "slice" then
+                local moduleName = compilerModuleName("nupp.indexed")
+                e(moduleName .. "._sliceFinish(", sourceLine(x))
+                emitDepth.view.count(view.source)
+                e(",")
+                emit(view.first)
+                e(",")
+                if view.last then
+                    emit(view.last)
+                else
+                    e("nil")
+                end
+                local adapter = view.descriptor and view.descriptor.adapter or "span"
+                local writable = view.descriptor and view.descriptor.writable
+                local message = adapter == "soa"
+                    and "SoA slice out of bounds"
+                    or writable
+                    and "write span slice out of bounds"
+                    or "span slice out of bounds"
+                e((",%q)"):format(message))
+            else
+                emitDepth.view.count(view.source)
+            end
             return
 
         elseif kind == "dotIndex" and x.soaField then
             local row = x.obj
             local view = row and row.obj
             if view and row.expr then
-                if view.kind == "name" then
+                if emitDepth.view.info(view) and emitDepth.soa.unchecked(row) then
+                    emitDepth.view.soaSlot(view, x.soaField.ordinal, row.expr)
+                elseif view.kind == "name" then
                     -- Keep the common loop form as a plain column load. A name is
                     -- stable to evaluate twice. A canonical count-bounded loop uses
                     -- its already-proved physical index; other expressions retain the

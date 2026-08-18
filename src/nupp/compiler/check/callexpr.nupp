@@ -23,6 +23,7 @@ local luaFormat = require("nupp.compiler.LuaFormat") as {analyze: function(strin
 local reflection = require("nupp.compiler.reflection")
 local targetLayout = require("nupp.compiler.target_layout")
 local fixedWidth = require("nupp.compiler.fixed_width")
+local indexedViews = require("nupp.compiler.indexed_views")
 local state = require("nupp.compiler.check.state")
 local pegTyping = require(
     "nupp.compiler.materialize.peg"
@@ -495,6 +496,15 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             argExprs = callArgs.exprs or {}
             argStr = callArgs.str
             argTable = callArgs.table
+        end
+        if baseName ~= "" and memberName == "range" then
+            local holder = c.lookupEntry(baseName)
+            if holder and holder.requiredModule == "nupp.span" then
+                c.diag("NUPP2403", node, "span.range was replaced by indexed.range", nil, {
+                    help = "require nupp.indexed and call indexed.range(first, last, view, ...)"
+                })
+                return T.any
+            end
         end
         local deriveIntrinsic = callee and cst.textOf(callee):gsub("%s+", ""):match("^nupp%.derive%.[%w_]+$")
         if deriveIntrinsic and (c.comptimeFunctionDepth or 0) == 0 then
@@ -1491,6 +1501,36 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
         end
+        local indexedExport = node.kind == "call" and callee and callee.exactCallExport or nil
+        if indexedExport and indexedExport.module == "nupp.indexed" and indexedExport.member == "range" then
+            local views, valid = {}, #argExprs >= 3
+            for position = 3, #argExprs do
+                local argument = argExprs[position]
+                local descriptor = argument and indexedViews.describe(c.infer(argument)) or nil
+                local definition = argument
+                    and argument.kind == "name"
+                    and argument.token
+                    and argument.token.definition
+                    or nil
+                if not descriptor then
+                    valid = false
+                    c.diag("NUPP2403", argument or node, "indexed.range requires a standard Span or SoA view")
+                elseif not definition or not definition.constant then
+                    valid = false
+                    c.diag("NUPP2403", argument or node, "indexed.range views must be const names", nil, {
+                        help = "bind the stable view to const before validating its range"
+                    })
+                else
+                    views[definition] = descriptor
+                end
+            end
+            if #argExprs < 3 then
+                c.diag("NUPP2403", node, "indexed.range requires at least one indexed view")
+            end
+            if valid then
+                node.indexedRangeCall = {views = views,}
+            end
+        end
         if dynamicExport and dynamicExport.module == "nupp.dynamic" then
             local source = argExprs[1]
             local entry = source and c.ownershipEntry(source) or nil
@@ -1573,6 +1613,32 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             ot = withoutNil(ot)
         end
         local rawReceiver = rawType(ot)
+        local indexedView = indexedViews.describe(rawReceiver)
+        if indexedView and member.text == "slice" then
+            node.indexedViewOperation = {kind = "slice", descriptor = indexedView,}
+        elseif indexedView and member.text == "shared" then
+            node.indexedViewOperation = {kind = "shared", descriptor = indexedView,}
+        end
+        if indexedView and (member.text == "get" or member.text == "getMut" or member.text == "set") then
+            local replacement = member.text == "set"
+                and "use view[index] = value"
+                or member.text == "getMut"
+                and "use view[index].field as the writable place"
+                or "use view[index]"
+            c.diag(
+                "NUPP2004",
+                member,
+                ("indexed views no longer expose %q; %s"):format(member.text, replacement),
+                nil,
+                {help = replacement}
+            )
+            local args = node.args and node.args.kind == "args" and (node.args as cst.Args).exprs or {}
+            for _, argument in ipairs(args) do
+                c.infer(argument)
+            end
+            node.valuePack = T.pack({T.any})
+            return T.any
+        end
         local staticOwner = (
             rawReceiver.tag == "metatable" or rawReceiver.tag == "typeobject"
         ) and rawType(rawReceiver.of) or nil
@@ -1718,6 +1784,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     end
                     if projected then
                         first, rets, pack = projected, {projected}, T.pack({projected})
+                        local descriptor = indexedViews.describe(projected)
+                        if descriptor then
+                            node.indexedViewOperation = {kind = "field", descriptor = descriptor, ordinal = ordinal,}
+                        end
                     end
                 end
             end
@@ -1734,18 +1804,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             c.nosuspend.call(node)
             local owner = rawType(ot)
-            local spanMethods = {get = true, getMut = true, set = true}
-            local spanTypes = {Span = true, FixedSpan = true, WriteSpan = true, FixedWriteSpan = true}
-            if owner.tag == "nominal" then
-                local nominal = owner as T.Nominal
-                local origin = nominal.origin
-                if origin and origin.tag == "nominal" then
-                    nominal = origin as T.Nominal
-                end
-                if nominal.moduleName == "nupp.span" and spanTypes[nominal.name] and spanMethods[member.text] then
-                    node.spanAccessorNoAllocate = true
-                end
-            end
             node.overloadMember = pegReplacementMember(
                 ot,
                 member.text,

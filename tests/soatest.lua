@@ -1,5 +1,6 @@
 local parser = require("nupp.compiler.parser")
 local gen = require("nupp.compiler.gen")
+local optimize = require("nupp.compiler.optimize")
 local check = require("fragment")
 local envMod = require("nupp.compiler.env")
 
@@ -21,6 +22,7 @@ local function compile(source)
    for _, diagnostic in ipairs(diagnostics or {}) do
       if diagnostic.severity == "error" then errors[#errors + 1] = diagnostic end
    end
+   optimize.run(parsed, {level = 1})
    local code, generated = gen.generate(parsed, "soa-test.g.nupp")
    return code, errors, generated, parsed
 end
@@ -28,7 +30,12 @@ end
 local function runs(source)
    local code, errors, generated, parsed = compile(source)
    assertEq(#errors, 0, errors[1] and (errors[1].code .. ": " .. errors[1].msg) or "check")
-   assertEq(#generated, 0, "generation diagnostics")
+   assertEq(
+      #generated,
+      0,
+      generated[1] and ((generated[1].code or "generation") .. ": " .. (generated[1].msg or "") .. "\n" .. code)
+         or "generation diagnostics"
+   )
    local chunk, why = loadstring(code, "@soa_test")
    assert(chunk, tostring(why) .. "\n" .. code)
    local ok, value = pcall(chunk)
@@ -61,7 +68,7 @@ function M.directFieldsAndWholeRowsKeepValueSemantics()
    local value, code = runs(PRELUDE .. [[
 local particles = soa.allocate(ffi.typeof<Particle>(), 4)
 with rows = particles:write() do
-    for index = 1, rows.count do
+    for index = 1, #rows do
         rows[index].x = index
         rows[index].y = index * 2
         rows[index].dx = 0.5
@@ -73,7 +80,7 @@ end
 local rows = particles:read()
 local copied: Particle = rows[2]
 copied.x = 99
-return rows[1].x + rows[2].x + copied.x + rows:field("x"):get(4)
+return rows[1].x + rows[2].x + copied.x + rows:field("x")[4]
 ]])
    assertEq(value, 115, "direct, gathered and projected values")
    assert(code:find(".columns[", 1, true), "direct access did not select a column")
@@ -83,11 +90,37 @@ return rows[1].x + rows[2].x + copied.x + rows:field("x"):get(4)
       "a virtual row survived into generated code")
 end
 
+function M.aCommonRangeRelatesSoAAndContiguousViews()
+   local value, code = runs(PRELUDE .. [[
+local indexed = require("nupp.indexed")
+local span = require("nupp.span")
+const storage = carray(Particle, 3)
+storage[0].x = 2
+storage[1].x = 4
+storage[2].x = 6
+const source = span.fromCarray(storage, 3)
+local particles = soa.allocate(ffi.typeof<Particle>(), 3)
+do
+    local rows = particles:write()
+    const output = rows
+    const range = indexed.range(1, #output, output, source)
+    for index = range.first, range.last do
+        output[index].x = source[index].x * 2
+    end
+    drop output
+end
+return particles:read()[3].x
+]])
+   assertEq(value, 12, "mixed indexed range")
+   assert(code:find(".columns[", 1, true), "SoA range did not select a column")
+   assert(code:find(".pointer[", 1, true), "span range did not select its pointer")
+end
+
 function M.nonRaisingWithOverDirectFieldsNeedsNoProtectedBody()
    local value, _, parsed = runs(PRELUDE .. [[
 local particles = soa.allocate(ffi.typeof<Particle>(), 2)
 with rows = particles:write() do
-    for index = 1, rows.count do
+    for index = 1, #rows do
         rows[index].x = index
         rows[index].x += 0.5
     end
@@ -156,7 +189,7 @@ local aos = heap.allocate(ffi.typeof<Particle>(), 1)
 local columns = soa.allocate(ffi.typeof<Particle>(), 1)
 do
     local rows = aos:write()
-    rows:set(1, new Particle(1, 2, 3, 4))
+    rows[1] = new Particle(1, 2, 3, 4)
     drop rows
 end
 do
@@ -166,7 +199,7 @@ do
 end
 local ordinary = layoutof(Particle)
 local split = soa.layoutof(ffi.typeof<Particle>())
-return aos:read():get(1).x == 1
+return aos:read()[1].x == 1
     and columns:read()[1].x == 5
     and ordinary.size == 16
     and #ordinary.fields == #split.fields
@@ -229,15 +262,15 @@ do
     local rows = particles:write()
     local xs: span.Writable<float> = rows:field("x")
     local ys: span.Writable<float> = rows:field("y")
-    xs:set(1, 3.5)
-    ys:set(1, 4.5)
+    xs[1] = 3.5
+    ys[1] = 4.5
     drop xs
     drop ys
     drop rows
 end
 local rows = particles:read()
 local xs: span.Span<float> = rows:field("x")
-return xs:get(1) + rows[1].y
+return xs[1] + rows[1].y
 ]])
    assertEq(value, 8, "typed sibling field spans")
 end
@@ -266,7 +299,7 @@ function M.aotBodiesRetainSemanticUnitStrideFieldFacts()
    local _, errors, _, parsed = compile(PRELUDE .. [[
 @aot
 local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil
-    for i = 1, rows.count do
+    for i = 1, #rows do
         rows[i].x += rows[i].dx * dt
         rows[i].y += rows[i].dy * dt
     end
@@ -306,6 +339,52 @@ local tail = rows:slice(2, 3)
 return rows[1].x + tail[1].x + tail[2].x
 ]])
    assertEq(value, 44.5, "shared and writable slice offsets")
+end
+
+function M.nonescapingSoaSlicesUseScalarOffsets()
+   local value, code = runs(PRELUDE .. [[
+local particles = soa.allocate(ffi.typeof<Particle>(), 4)
+do
+    local rows = particles:write()
+    const middle = rows:slice(2, 3)
+    for index = 1, #middle do
+        middle[index].x = index * 5
+    end
+    drop middle
+    drop rows
+end
+return particles:read()[3].x
+]])
+   assertEq(value, 10, "virtual SoA slice offset")
+   assert(code:find("._sliceFinish(", 1, true), code)
+   assert(not code:find(":slice(2,3)", 1, true), code)
+end
+
+function M.nonescapingFieldProjectionsUseTheSelectedColumn()
+   local value, code = runs(PRELUDE .. [[
+local particles = soa.allocate(ffi.typeof<Particle>(), 3)
+do
+    local rows = particles:write()
+    const xs = rows:field("x")
+    for index = 1, #xs do
+        xs[index] = index * 4
+    end
+    drop xs
+    drop rows
+end
+const readable = particles:read()
+const xs = readable:field("x")
+const tail = xs:slice(2, 3)
+local total = 0
+for index = 1, #tail do
+    total += tail[index]
+end
+return total
+]])
+   assertEq(value, 20, "virtual projected column")
+   assert(not code:find(":fieldBySlot(", 1, true), code)
+   assert(not code:find(":slice(2,3)", 1, true), code)
+   assert(code:find("columns[1]", 1, true), code)
 end
 
 function M.fieldWiseCopyMovesRowsWithoutMaterializingThem()
@@ -350,7 +429,7 @@ function M.zeroCountsAndBoundsAreChecked()
 local layout = soa.layoutof(ffi.typeof<Particle>())
 local empty = soa.allocate(ffi.typeof<Particle>(), 0)
 local zero = layout:forCount(0)
-local okRead = pcall(function() empty:read():get(1) end)
+local okRead = pcall(function() return empty:read()[1] end)
 local one = soa.allocate(ffi.typeof<Particle>(), 1)
 local okDirect = pcall(function()
     local rows = one:write()

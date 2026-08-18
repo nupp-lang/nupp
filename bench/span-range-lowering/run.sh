@@ -7,3 +7,4 @@ cd "$ROOT"
 bench/span-range-lowering/build.sh
 luajit bench/span-range-lowering/main.lua
 luajit bench/span-range-lowering/matrix.lua
+luajit bench/span-range-lowering/sinking.lua

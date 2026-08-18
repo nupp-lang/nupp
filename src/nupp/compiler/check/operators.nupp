@@ -108,6 +108,7 @@ local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
 local state = require("nupp.compiler.check.state")
 local fixedWidth = require("nupp.compiler.fixed_width")
+local indexedViews = require("nupp.compiler.indexed_views")
 
 local isA = relations.isA
 local subtract = narrowing.subtract
@@ -386,6 +387,16 @@ function operators.install(c: state.Checker): state.ExprHandlers
             local origin = lpegPattern(t)
             if origin then
                 return makeLpegPattern(origin, lpegEmpty)
+            end
+            local view = indexedViews.describe(t)
+            if view then
+                local receiverDefinition = operand.kind == "name" and operand.token and operand.token.definition or nil
+                node.indexedLength = {
+                    adapter = view.adapter,
+                    descriptor = view,
+                    receiverDefinition = receiverDefinition,
+                }
+                return view.fixedCount or T.integer
             end
             local mm = c.metamethodOf(t, "__len")
             if mm then

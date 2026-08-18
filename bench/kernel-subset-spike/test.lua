@@ -105,9 +105,9 @@ local function rejected(label, changed, expected)
 end
 
 rejected("unsupported-field", assert(source:gsub("drag: float", "drag: string", 1)), "field type string is not admitted")
-rejected("offset-load", assert(source:gsub("motions:get%(i%)", "motions:get(i + 1)", 1)), "active loop index exactly")
+rejected("offset-load", assert(source:gsub("motions%[i%]", "motions[i + 1]", 1)), "active loop index exactly")
 rejected("dynamic-call", assert(source:gsub("math.sqrt%(dx %* dx %+ dy %* dy%)", "math.random()", 1)), "not an admitted intrinsic or helper")
-rejected("mutable-value-get", assert(source:gsub("transforms:getMut%(i%)", "transforms:get(i)", 1)), "span reads use")
+rejected("shared-output", assert(source:gsub("exclusive transforms", "borrows transforms", 1)), "writable span")
 rejected("allocation", assert(source:gsub("local nextX = transform.x %+ dx", "local nextX = {dx}", 1)), "tableExpr is not admitted")
 rejected(
    "recursive-helper",

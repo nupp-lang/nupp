@@ -1,4 +1,5 @@
 local span = require("nupp.span")
+local indexed = require("nupp.indexed")
 local system = {}
 local TENTH = nupp.math.f32.narrow(0.1)
 
@@ -25,11 +26,11 @@ function system.run(): (float, uint32)
     const writable = span.writeCarray(storage, 8)
     do
         const active = writable:slice(2, 7)
-        const rows = span.range(1, active.count, active)
+        const rows = indexed.range(1, #active, active)
         for index = rows.first, rows.last do
             noalloc do
                 noraise do
-                    local state = active:getMut(index)
+                    local state = active[index]
                     state.x, state.flags = advance(state.x, 2.0)
                 end
             end
@@ -39,7 +40,7 @@ function system.run(): (float, uint32)
 
     const readable = span.fromCarray(storage, 8)
 
-    return readable:get(2).x, readable:get(7).flags
+    return readable[2].x, readable[7].flags
 end
 
 return system

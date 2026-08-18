@@ -113,7 +113,7 @@ function soa._layout(raw: table): soa.Layout
         fields[ordinal] = field
         fingerprint[
             #fingerprint + 1
-        ] = ("%s:%s@%d/%d"):format(field.identity, field.ctype, field.elementSize, field.alignment)
+        ] = string.format("%s:%s@%d/%d", field.identity, field.ctype, field.elementSize, field.alignment)
     end
 
     local layout = new soa.Layout(
@@ -131,11 +131,7 @@ sealed interface soa.ArrayToken
     close: nosuspend function(takes self: ArrayToken): nil
 end
 
-sealed interface soa.CountedSpan
-    readonly count: integer
-end
-
-sealed interface soa.WriteToken is soa.CountedSpan
+sealed interface soa.WriteToken
     drop: nosuspend function(takes self: WriteToken): nil
 end
 
@@ -153,9 +149,9 @@ end
 
 --- A shared checked view over SoA rows.
 --- @export
-sealed interface soa.Span<T> is soa.CountedSpan
-    readonly count: integer
-    get: function(borrows self: Span<T>, index: integer): T
+sealed interface soa.Span<T>
+    metamethod __len: function(self: Span<T>): integer
+    metamethod __index: function(borrows self: Span<T>, index: integer): T
     slice: function(borrows self: Span<T>, first: integer, last: integer?): soa.Span<T> borrows (self)
     field: function(borrows self: Span<T>, name: string): any borrows (self)
 end
@@ -217,8 +213,9 @@ end
 --- An affine exclusive checked view over SoA rows.
 --- @export
 sealed interface soa.WriteSpan<T>
-    get: function(borrows self: WriteSpan<T>, index: integer): T
-    set: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
+    metamethod __len: function(self: WriteSpan<T>): integer
+    metamethod __index: function(borrows self: WriteSpan<T>, index: integer): T
+    metamethod __newindex: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
     field: function(exclusive self: WriteSpan<T>, name: string): any borrows (self)
     shared: function(borrows self: WriteSpan<T>): soa.Span<T> borrows (self)
     copyFrom: function(
@@ -310,7 +307,7 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
             - 1 > self.count
             - count
             or sourceFirst
-            - 1 > source.count
+            - 1 > #source
             - count
         then
             error("SoA copy range is out of bounds", 2)

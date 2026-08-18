@@ -37,9 +37,11 @@ local function direct(positions, velocities, first, last, repeats, scale)
    if positions.count ~= velocities.count then
       error("length mismatch", 2)
    end
-   local rows = spans.range(first, last, positions, velocities)
+   if first < 1 or last > positions.count or first > last + 1 then
+      error("range out of bounds", 2)
+   end
    for _ = 1, repeats do
-      for index = rows.first, rows.last do
+      for index = first, last do
          local position = positions.pointer[positions.offset + index - 1]
          local velocity = velocities.pointer[velocities.offset + index - 1]
          position.x = velocity.x * scale + velocity.y
@@ -121,9 +123,9 @@ verifyRoots()
 
 local results = {
    measure("hand guard + checked", kernelDisabled.guarded, kernelDisabled),
-   measure("span.range + checked", kernelDisabled.ranged, kernelDisabled),
-   measure("span.range + OPT-6", kernelEnabled.ranged, kernelEnabled),
-   measure("span.range + direct", direct, kernelEnabled),
+   measure("indexed.range + checked", kernelDisabled.ranged, kernelDisabled),
+   measure("indexed.range + OPT-6", kernelEnabled.ranged, kernelEnabled),
+   measure("indexed.range + direct", direct, kernelEnabled),
    measure("forced-scalar AOT", forcedScalarAot, kernelEnabled),
 }
 

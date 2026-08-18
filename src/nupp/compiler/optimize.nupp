@@ -19,6 +19,7 @@ See `plans/014-optimizations.md`.
 ]]
 
 local cst = require("nupp.compiler.cst")
+local indexedViews = require("nupp.compiler.indexed_views")
 
 local optimize = {}
 
@@ -48,9 +49,9 @@ optimize.passes = {
     [
         "OPT-6"
     ] = {
-        name = "span-range-access",
+        name = "indexed-range",
         level = 1,
-        summary = "lower proved standard span accesses to direct FFI array operations",
+        summary = "lower proved trusted indexed-view accesses through their physical adapters",
     },
 }
 
@@ -1363,29 +1364,18 @@ local function staticCallableWalk(root, remarks)
     visit(root)
 end
 
--- The checker has already proved each candidate against one exact `span.range`
--- witness. This pass deliberately verifies only that the checked source shape still
--- has a direct generator form; it never infers a second range fact.
-local function spanRangeAccessWalk(result, relaxed, remarks)
-    local globallyRelaxed = relaxed and relaxed.frames == true
-    local bodyFrames = {}
-    for _, info in ipairs(result.analysis and result.analysis.functions or {}) do
-        local body = info.body
-        local block = body and body.body
-        if block then
-            local localRelaxed = info.node and info.node.relaxedGuarantees or body.relaxedGuarantees or {}
-            bodyFrames[block] = globallyRelaxed or localRelaxed.frames == true
-        end
-    end
-
+-- Checking has already attached one representation-independent proof to each
+-- admitted access. Optimization merely selects the direct adapter; it does not
+-- rediscover length, receiver or induction relationships from source spelling.
+local function indexedRangeWalk(result, remarks)
     for _, body in ipairs(result.analysis and result.analysis.bodies or {}) do
         local loops, ordered = {}, {}
-        local function collect(node, parent)
+        local function collect(node)
             if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
                 return
             end
-            if node.kind == "methodCall" and node.rangeProvenNoRaise then
-                local proof = node.spanRangeAccess
+            if node.kind == "bracketIndex" and node.rangeProvenNoRaise and node.indexedRangeAccess then
+                local proof = node.indexedRangeAccess
                 local loop = proof and proof.loop
                 if loop then
                     local entry = loops[loop]
@@ -1394,68 +1384,201 @@ local function spanRangeAccessWalk(result, relaxed, remarks)
                         loops[loop] = entry
                         ordered[#ordered + 1] = entry
                     end
-                    entry.accesses[#entry.accesses + 1] = {call = node, parent = parent}
+                    entry.accesses[#entry.accesses + 1] = node
                 end
             end
             for _, child in ipairs(node) do
-                collect(child, node)
+                collect(child)
             end
         end
 
-        collect(body, nil)
+        collect(body)
 
-        local framesRelaxed = globallyRelaxed or bodyFrames[body] == true
         for _, entry in ipairs(ordered) do
-            local applied, decline = 0, nil
+            local adapters = {}
             for _, access in ipairs(entry.accesses) do
-                local call, parent = access.call, access.parent
-                local proof = call.spanRangeAccess
-                local receiver = call.obj
-                local args = call.args and call.args.kind == "args" and call.args.exprs or {}
-                local index = args[1]
-                local operation = proof and proof.operation
-                local supported = operation == "get" or operation == "getMut" or operation == "set"
-                if not framesRelaxed then
-                    decline = decline or "frames-held"
-                elseif not supported
-                    or not call.name
-                    or call.name.text ~= operation
-                    or not call.spanAccessorNoAllocate
-                then
-                    decline = decline or "complex-access-shape"
-                elseif call.safeObj
-                    or call.safeMethod
-                    or not receiver
-                    or receiver.kind ~= "name"
-                    or not receiver.token
-                    or receiver.token.definition ~= proof.receiverDefinition
-                    or not index
-                    or index.kind ~= "name"
-                    or not index.token
-                    or index.token.definition ~= proof.indexDefinition
-                then
-                    decline = decline or "complex-access-shape"
-                elseif operation == "set" and (
-                    not parent or parent.kind ~= "callStmt" or parent.expr ~= call or not args[2]
-                ) then
-                    decline = decline or "unsupported-value-position"
-                else
-                    call.spanDirectAccess = {operation = operation, receiver = receiver, index = index,}
-                    applied = applied + 1
-                end
+                access.indexedDirectAccess = true
+                local adapter = access.indexedAccess and access.indexedAccess.adapter or "indexed"
+                adapters[adapter] = (adapters[adapter] or 0) + 1
+            end
+            local parts = {}
+            for adapter, count in pairs(adapters) do
+                parts[#parts + 1] = ("%d %s access%s"):format(count, adapter, count == 1 and "" or "es")
+            end
+            table.sort(parts)
+            remark(remarks, entry.loop, "OPT-6", "indexed-range: lowers " .. table.concat(parts, ", "))
+        end
+
+        -- A const derived view used only by proved indexed operations can carry one
+        -- count/finish scalar instead of allocating a wrapper. The source view remains
+        -- the explicit root; generation composes its physical adapter from this
+        -- semantic chain. Any unclassified use keeps the ordinary safe object.
+        local candidates, byConstructor = {}, {}
+        local function stableBound(node): boolean
+            if not node then
+                return true
+            end
+            if isToken(node) then
+                return node.kind == "number"
+            end
+            if node.kind == "number" then
+                return true
+            end
+            if node.kind == "name" then
+                return node.token ~= nil and node.token.definition ~= nil and node.token.definition.constant == true
+            end
+            if node.kind == "paren" then
+                return stableBound(node.expr)
+            end
+            if node.kind == "unop" and node.op and node.op.kind == "-" then
+                return stableBound(node.operand)
+            end
+            if node.kind == "binop" and node.op and (node.op.kind == "+" or node.op.kind == "-") then
+                return stableBound(node.left) and stableBound(node.right)
             end
 
-            if applied > 0 then
+            return false
+        end
+
+        local function findCandidates(node)
+            if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
+                return
+            end
+            if node.kind == "localStmt" and node.isConst and #(node.names or {}) == 1 and #(node.exprs or {}) == 1 then
+                local constructor = node.exprs[1]
+                local source = constructor and constructor.obj
+                local operation = constructor and constructor.indexedViewOperation
+                if not operation
+                    and constructor
+                    and constructor.kind == "methodCall"
+                    and constructor.name
+                    and source
+                    and source.kind == "name"
+                    and source.token
+                then
+                    local descriptor = indexedViews.describe(source.token.inferredType)
+                    if descriptor and constructor.name.text == "slice" then
+                        operation = {kind = "slice", descriptor = descriptor,}
+                    elseif descriptor and constructor.name.text == "shared" then
+                        operation = {kind = "shared", descriptor = descriptor,}
+                    end
+                end
+                local args = constructor and constructor.args and constructor.args.exprs or {}
+                local definition = node.names[1] and node.names[1].definition
+                if operation and (
+                    operation.kind == "slice" or operation.kind == "shared" or operation.kind == "field"
+                ) and source and source.kind == "name" and source.token and source.token.definition and (
+                    operation.kind ~= "slice" or args[1]
+                ) and (
+                    operation.kind ~= "slice" or stableBound(args[1])
+                ) and (operation.kind ~= "slice" or stableBound(args[2])) and definition then
+                    local candidate = {
+                        kind = operation.kind,
+                        definition = definition,
+                        constructor = constructor,
+                        source = source,
+                        sourceDefinition = source.token.definition,
+                        first = args[1],
+                        last = args[2],
+                        descriptor = operation.descriptor,
+                        ordinal = operation.ordinal,
+                        stat = node,
+                        admitted = true,
+                        dependencies = {},
+                    }
+                    candidates[definition] = candidate
+                    byConstructor[constructor] = candidate
+                end
+            end
+            for _, child in ipairs(node) do
+                findCandidates(child)
+            end
+        end
+
+        findCandidates(body)
+
+        local function classify(node, parent, ancestors)
+            if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
+                return
+            end
+            if node.kind == "name" and node.token and candidates[node.token.definition] then
+                local candidate = candidates[node.token.definition]
+                local allowed = parent and parent.kind == "unop" and parent.indexedLength and parent.operand == node
+                allowed = allowed
+                    or parent
+                    and parent.kind == "bracketIndex"
+                    and parent.obj == node
+                    and parent.indexedDirectAccess == true
+                if parent and parent.kind == "methodCall" and parent.obj == node and parent.indexedViewOperation then
+                    local child = byConstructor[parent]
+                    if child then
+                        candidate.dependencies[child.definition] = true
+                        allowed = true
+                    end
+                end
+                for _, ancestor in ipairs(ancestors) do
+                    if ancestor.kind == "call" and ancestor.ownershipSyntax == "drop" then
+                        allowed = true
+                    end
+                end
+                if parent and parent.kind == "callStmt" and parent.expr and parent.expr.ownershipSyntax == "drop" then
+                    allowed = true
+                end
+                if not allowed then
+                    candidate.admitted = false
+                    candidate.decline = parent and parent.kind or "escape"
+                end
+            end
+            ancestors[#ancestors + 1] = node
+            for _, child in ipairs(node) do
+                classify(child, node, ancestors)
+            end
+            ancestors[#ancestors] = nil
+        end
+
+        classify(body, nil, {})
+
+        local changed = true
+        while changed do
+            changed = false
+            for _, candidate in pairs(candidates) do
+                if candidate.admitted then
+                    for dependency in pairs(candidate.dependencies) do
+                        if not candidates[dependency] or not candidates[dependency].admitted then
+                            candidate.admitted = false
+                            changed = true
+                            break
+                        end
+                    end
+                end
+            end
+        end
+        for definition, candidate in pairs(candidates) do
+            if candidate.admitted then
+                definition.virtualIndexedView = candidate
+                candidate.constructor.virtualIndexedView = candidate
+                local owner = candidate.stat.automaticOwners and candidate.stat.automaticOwners[1]
+                if owner then
+                    owner.lowerable = false
+                end
                 remark(
                     remarks,
-                    entry.loop,
+                    candidate.constructor,
                     "OPT-6",
-                    (
-                        "span-range-access: lowers %d checked access%s after one range proof"
-                    ):format(applied, applied == 1 and "" or "es")
+                    "view-scalar-replacement: virtualizes one " .. candidate.kind
                 )
-            elseif decline then
-                remark(remarks, entry.loop, "OPT-6", "span-range-access: not rewritten because " .. decline)
+            else
+                remark(
+                    remarks,
+                    candidate.constructor,
+                    "OPT-6",
+                    "view-scalar-replacement: declines "
+                    .. candidate.kind
+                    .. " (unsupported-view-operation: "
+                    .. tostring(
+                        candidate.decline or "dependent-view-escapes"
+                    ) .. ")"
+                )
             end
         end
     end
@@ -1504,7 +1627,7 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): {any}
         concatBufferWalk(result, remarks)
     end
     if level >= optimize.passes["OPT-6"].level and not disabled["OPT-6"] then
-        spanRangeAccessWalk(result, opts.relaxed or {}, remarks)
+        indexedRangeWalk(result, remarks)
     end
     for _, entry in ipairs(remarks) do
         entry.filename = result.filename or opts.filename

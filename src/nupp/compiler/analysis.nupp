@@ -459,24 +459,6 @@ local function inferFunction(info, byDefinition)
             -- module-lifetime binary32 holder. No per-call allocation or error path.
             return
         end
-        if call.spanAccessorNoAllocate then
-            -- The sealed span implementations only touch existing storage. Bounds
-            -- remain a raising edge unless a dominating `span.range` proved this
-            -- exact receiver/index pair.
-            if not call.rangeProvenNoRaise then
-                out.raises = true
-            end
-            local receiver = rootOf(call.obj)
-            if receiver then
-                local method = call.name and call.name.text or ""
-                if method == "set" or method == "getMut" then
-                    out.writes[receiver .. "[*]"] = true
-                else
-                    out.reads[receiver .. "[*]"] = true
-                end
-            end
-            return
-        end
         local known = knownCall(call, byDefinition)
         local args = callArgs(call)
         if known then
@@ -576,6 +558,8 @@ local function inferFunction(info, byDefinition)
             end
         elseif node.effectUnknownOperation then
             out.top = true
+        elseif node.indexedAccess and not node.rangeProvenNoRaise then
+            out.raises = true
         elseif kind == "call" or kind == "methodCall" then
             applyCall(node)
         elseif kind == "name" and not targetContext then

@@ -3,8 +3,8 @@
 Run the source benchmark from the repository root:
 
 ```sh
-./bin/nupp run bench/soa.nupp
-./bin/nupp build bench/soa.nupp
+./bin/nupp run -O1 bench/soa.nupp
+./bin/nupp build -O1 bench/soa.nupp
 LUA_PATH='src/?.lua;src/?/init.lua;;' luajit -joff bench/soa.lua
 ```
 
@@ -17,11 +17,11 @@ One representative Apple ARM64 run measured:
 
 | mode | Generated SoA | Hand SoA | AoS | Generated / hand |
 | --- | ---: | ---: | ---: | ---: |
-| LuaJIT traced | 3.13 ms | 3.03 ms | 2.69 ms | 1.033x |
+| LuaJIT traced | 3.07 ms | 2.96 ms | 2.59 ms | 1.037x |
 | LuaJIT interpreter | 539.93 ms | 934.96 ms | 986.27 ms | 0.577x |
 
 The traced result is within the plan's ten-percent gate. The canonical
-`for i = 1, rows.count` form proves the row range once and emits direct numeric column
+`for i = 1, #rows` form proves the row range once and emits direct numeric column
 loads/stores with the slice offset; arbitrary indexes retain `checkedIndex`. Inspecting
 the generated Lua and `nupp bc --check` is part of the gate so a future change cannot
 quietly replace the direct form with a proxy, closure, reflective lookup, or helper

@@ -15,7 +15,7 @@ end
 
 local positions = soa.allocate(ffi.typeof<Position>(), 128)
 with rows = positions:write() do
-    for index = 1, rows.count do
+    for index = 1, #rows do
         rows[index].x += rows[index].velocity
     end
 end
@@ -116,12 +116,12 @@ with
     xs: span.WriteSpan<float> = rows:field("x"),
     ys: span.WriteSpan<float> = rows:field("y")
 do
-    xs:set(1, 3.5)
-    ys:set(1, 4.5)
+    xs[1] = 3.5
+    ys[1] = 4.5
 end
 
 local xs: span.Span<float> = particles:read():field("x")
-print(xs:get(1))
+print(xs[1])
 ```
 
 The field name must be a string literal that resolves to a stored field. That
@@ -142,12 +142,17 @@ with rows = samples:write() do
 end
 
 local tail = samples:read():slice(2, 3)
-assert(tail.count == 2)
+assert(#tail == 2)
 assert(tail[1].x == 12.5)
 ```
 
 `slice(first, last)` includes both endpoints. Omitting `last` extends the slice
 through the end of the view. Invalid ranges raise before a slice is created.
+With `-O1`, nonescaping const slices used only by proved indexed operations can
+be scalar-replaced: generated code retains the checked bounds and composed
+column offset but creates no row-view wrapper. The same lowering can erase a
+nonescaping writable-to-shared downgrade and a statically resolved `field`
+projection. Any unsupported or escaping use materializes the safe view normally.
 
 ## Field-wise row copies
 
@@ -214,7 +219,7 @@ matter on the selected target.
 
 ## Hot loops and AOT functions
 
-The canonical loop `for index = 1, rows.count` proves every indexed row access
+The canonical loop `for index = 1, #rows` proves every indexed row access
 is in bounds. Nupp lowers fields inside that loop to direct typed-column loads
 and stores using the view offset. An arbitrary index keeps its runtime bounds
 check.
@@ -234,7 +239,7 @@ local function advance(
     exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>,
     delta: float
 ): nil
-    for index = 1, rows.count do
+    for index = 1, #rows do
         rows[index].x += rows[index].dx * delta
         rows[index].y += rows[index].dy * delta
     end

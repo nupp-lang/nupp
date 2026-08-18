@@ -15,7 +15,7 @@ end
 
 local positions = soa.allocate(ffi.typeof<Position>(), 128)
 with rows = positions:write() do
-    for index = 1, rows.count do
+    for index = 1, #rows do
         rows[index].x += rows[index].velocity
     end
 end

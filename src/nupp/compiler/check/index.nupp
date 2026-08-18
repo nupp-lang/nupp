@@ -16,34 +16,13 @@ local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
 local scalarIntrinsics = require("nupp.compiler.scalar_intrinsics")
 local fixedWidth = require("nupp.compiler.fixed_width")
+local indexedViews = require("nupp.compiler.indexed_views")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
 
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
-
-local function soaView(t: Type): Type?, boolean
-    if t.tag == "intersection" then
-        for _, member in ipairs(t.members) do
-            local element, writable = soaView(member)
-            if element then
-                return element, writable
-            end
-        end
-        return nil, false
-    elseif t.tag ~= "nominal" then
-        return nil, false
-    end
-    local nominal = t as T.Nominal
-    local origin = (nominal.origin or nominal) as T.Nominal
-    local moduleName = origin.moduleName or nominal.moduleName or origin.sealedModule
-    if moduleName ~= "nupp.soa" or (origin.name ~= "Span" and origin.name ~= "WriteSpan") then
-        return nil, false
-    end
-
-    return nominal.typeArgs and nominal.typeArgs[1] or nil, origin.name == "WriteSpan"
-end
 
 local index = {}
 
@@ -203,6 +182,22 @@ function index.install(c: state.Checker): state.ExprHandlers
         local ot = trackedObject
         local base = kind == "safeIndex" and ot.tag == "union" and T.union(ot.members) or ot
         base = rawType(base)
+        local indexedView = indexedViews.describe(base)
+        if indexedView and (
+            memberName == "get" or memberName == "getMut" or memberName == "set" or memberName == "count"
+        ) then
+            local replacement = memberName == "count"
+                and "use #view"
+                or memberName == "set"
+                and "use view[index] = value"
+                or memberName == "getMut"
+                and "use view[index].field as the writable place"
+                or "use view[index]"
+            c.diag("NUPP2004", member, ("indexed views no longer expose %q; %s"):format(memberName, replacement), nil, {
+                help = replacement
+            })
+            return T.any
+        end
         if base.tag == "ptr" and not c.ownershipKind(trackedObject) then
             if c.unsafeDepth == 0 then
                 c.diag(
@@ -350,6 +345,12 @@ function index.install(c: state.Checker): state.ExprHandlers
                 )
                 return T.any
             end
+            if indexedView then
+                c.diag("NUPP2004", member, ("no field %q in %s"):format(memberName, T.tostring(base)), nil, {
+                    help = "use #view for length and view[index] for element access"
+                })
+                return T.any
+            end
             local contractName = writing and "__newindex" or "__index"
             local mm = c.metamethodOf(base, contractName)
             if mm then
@@ -439,7 +440,46 @@ function index.install(c: state.Checker): state.ExprHandlers
         member.additionalDefinitions = fieldDefs
         local out = kind == "safeIndex" and T.optional(ft) or ft
         node.resolvedType = out
-        if kind == "dotIndex" and target.soaRow then
+        if kind == "dotIndex" and target.indexedAccess then
+            local access = target.indexedAccess
+            local element = access.element as Type
+            local ordinal = nil
+            if access.adapter == "soa" and element.tag == "nominal" then
+                for position, name in ipairs(element.fieldOrder or {}) do
+                    if name == memberName then
+                        ordinal = position
+                        break
+                    end
+                end
+            end
+            if writing and not access.writable then
+                c.diag("NUPP2009", member, "shared indexed views are read-only", nil, {
+                    help = "request an exclusive writable view from the owner"
+                })
+            end
+            node.indexedField = {
+                adapter = access.adapter,
+                name = memberName,
+                ordinal = ordinal,
+                writable = access.writable,
+                element = element,
+                access = target,
+            }
+            if access.adapter == "soa" and ordinal then
+                node.soaField = {name = memberName, ordinal = ordinal, writable = access.writable, element = element,}
+                member.soaColumn = {
+                    identity = (element as T.Nominal).name .. "." .. memberName,
+                    ordinal = ordinal,
+                    access = access.writable and "read-write" or "read-only",
+                }
+                if writing then
+                    node.fixedWidthPhysicalStore = true
+                end
+            elseif access.adapter == "span" and writing then
+                node.fixedWidthPhysicalStore = true
+            end
+        elseif kind == "dotIndex" and target.soaRow then
+            -- Kept only while older checked trees are accepted during bootstrap.
             local row = target.soaRow
             local element = row.element as Type
             local ordinal = nil
@@ -497,20 +537,42 @@ function index.install(c: state.Checker): state.ExprHandlers
         local ot = rawType(trackedObject)
         local writing = node.writeContext == true
         local it = c.infer(key)
-        local soaElement, soaWritable = soaView(ot)
-        if soaElement then
+        local view = indexedViews.describe(ot)
+        if view then
             if not (it == T.any or isA(it, T.integer)) then
-                c.diag("NUPP2004", key, ("SoA row index must be integer, got %s"):format(T.tostring(it)))
+                c.diag("NUPP2004", key, ("indexed view index must be integer, got %s"):format(T.tostring(it)))
             end
-            if writing and not soaWritable then
-                c.diag("NUPP2009", node, "SoA shared rows are read-only", nil, {
+            if writing and not view.writable then
+                c.diag("NUPP2009", node, "shared indexed views are read-only", nil, {
                     help = "request an exclusive writable view from the owner"
                 })
+            elseif writing then
+                c.own.checkExclusiveReceiver(target, node)
             end
-            node.soaRow = {element = soaElement, writable = soaWritable}
-            node.containerTag = "soa"
+            local receiverDefinition = target.kind == "name" and target.token and target.token.definition or nil
+            local indexDefinition = key.kind == "name" and key.token and key.token.definition or nil
+            node.indexedAccess = {
+                adapter = view.adapter,
+                element = view.element,
+                writable = view.writable,
+                writing = writing,
+                descriptor = view,
+                receiverDefinition = receiverDefinition,
+                indexDefinition = indexDefinition,
+            }
+            node.indexObjectType, node.indexKeyType = ot, it
+            node.usesIndexContract = true
+            if view.adapter == "soa" then
+                node.soaRow = {element = view.element, writable = view.writable}
+            end
+            node.containerTag = view.adapter
             node.fixedWidthPhysicalStore = writing
-            return soaElement
+            local result = not writing and fixedWidth.loaded(view.element) or view.element
+            if not writing and fixedWidth.isValue(result) then
+                c.fixedWidth.mark(node, result)
+                c.fixedWidth.trust(node, result)
+            end
+            return result
         end
         local staticallyBounded = ot.tag == "carray" and ot.count ~= nil and it.tag == "literal" and type(
             it.constant

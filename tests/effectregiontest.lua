@@ -60,15 +60,16 @@ end
 function M.aCheckedRangeDischargesMatchingSpanBoundsOnly()
    local found = refusals(table.concat({
       "local span = require('nupp.span')",
+      "local indexed = require('nupp.indexed')",
       "local struct Value n: integer end",
       "const storage = carray(Value, 4)",
       "const values = span.fromCarray(storage, 4)",
-      "const rows = span.range(1, 4, values)",
+      "const rows = indexed.range(1, 4, values)",
       "for i = rows.first, rows.last do",
-      "   noalloc do local value = values:get(i) end",
-      "   noraise do local value = values:get(i) end",
+      "   noalloc do local value = values[i] end",
+      "   noraise do local value = values[i] end",
       "end",
-      "noraise do local value = values:get(1) end",
+      "noraise do local value = values[1] end",
    }, "\n"))
    assertEq(#found, 1, "only the access outside the dominated loop can raise")
    assertEq(found[1].code, "NUPP2711")
@@ -77,12 +78,13 @@ end
 function M.rangeProofsRequireStableSpanIdentities()
    local found = refusals(table.concat({
       "local span = require('nupp.span')",
+      "local indexed = require('nupp.indexed')",
       "local struct Value n: integer end",
       "const storage = carray(Value, 2)",
       "local values = span.fromCarray(storage, 2)",
-      "const rows = span.range(1, 2, values)",
+      "const rows = indexed.range(1, 2, values)",
       "for i = rows.first, rows.last do",
-      "   noraise do local value = values:get(i) end",
+      "   noraise do local value = values[i] end",
       "end",
    }, "\n"))
    assertEq(#found, 1, "a rebindable span cannot carry a range proof")
@@ -91,13 +93,14 @@ end
 function M.rangeProofsDoNotEnterNestedFunctions()
    local found = refusals(table.concat({
       "local span = require('nupp.span')",
+      "local indexed = require('nupp.indexed')",
       "local struct Value n: integer end",
       "const storage = carray(Value, 2)",
       "const values = span.fromCarray(storage, 2)",
-      "const rows = span.range(1, 2, values)",
+      "const rows = indexed.range(1, 2, values)",
       "for i = rows.first, rows.last do",
       "   local callback = function(): nil",
-      "      noraise do local value = values:get(i) end",
+      "      noraise do local value = values[i] end",
       "   end",
       "end",
    }, "\n"))

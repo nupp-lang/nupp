@@ -21,14 +21,12 @@ local function advance(
     borrows input: span.Span<Particle>,
     dt: float
 ): nil
-    if output.count ~= input.count then
+    if #output ~= #input then
         error("length mismatch", 2)
     end
 
-    for i = 1, output.count do
-        local target = output:getMut(i)
-        local source = input:get(i)
-        target.x = source.x + source.vx * dt
+    for i = 1, #output do
+        output[i].x = input[i].x + input[i].vx * dt
     end
 end
 ```

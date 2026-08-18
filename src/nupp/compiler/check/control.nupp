@@ -995,7 +995,16 @@ function control.install(c: state.Checker): state.StatHandlers
         local witness = rangeDefinition and rangeDefinition == rangeField(
             to,
             "last"
-        ) and rangeDefinition.spanRangeWitness or nil
+        ) and rangeDefinition.indexedRangeWitness or nil
+        if not witness and not stat.step and to.kind == "unop" and to.indexedLength then
+            local firstToken = cst.firstToken(from)
+            local receiverDefinition = to.indexedLength.receiverDefinition
+            if firstToken and firstToken.kind == "number" and tonumber(
+                firstToken.text
+            ) == 1 and receiverDefinition and receiverDefinition.constant then
+                witness = {views = {[receiverDefinition] = to.indexedLength.descriptor,},}
+            end
+        end
         c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
         if witness and stat.body and var.definition then
@@ -1006,28 +1015,19 @@ function control.install(c: state.Checker): state.StatHandlers
                 if RANGE_NESTED_FUNCTION[node.kind] then
                     return
                 end
-                if node.kind == "methodCall" and node.spanAccessorNoAllocate then
-                    local receiver = node.obj
-                    local receiverDefinition = receiver
-                        and receiver.kind == "name"
-                        and receiver.token
-                        and receiver.token.definition
-                        or nil
-                    local args = node.args and node.args.kind == "args" and node.args.exprs or {}
-                    local index = args[1]
-                    local indexDefinition = index
-                        and index.kind == "name"
-                        and index.token
-                        and index.token.definition
-                        or nil
-                    if witness.spans[receiverDefinition] and indexDefinition == var.definition then
+                if node.kind == "bracketIndex" and node.indexedAccess then
+                    local access = node.indexedAccess
+                    local receiverDefinition = access.receiverDefinition
+                    local indexDefinition = access.indexDefinition
+                    local views = witness.views or witness.spans or {}
+                    if views[receiverDefinition] and indexDefinition == var.definition then
                         node.rangeProvenNoRaise = true
-                        node.spanRangeAccess = {
-                            operation = node.name and node.name.text or nil,
+                        node.indexedRangeAccess = {
                             loop = stat,
                             rangeDefinition = rangeDefinition,
                             receiverDefinition = receiverDefinition,
                             indexDefinition = indexDefinition,
+                            descriptor = access.descriptor,
                         }
                     end
                 end

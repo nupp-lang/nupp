@@ -125,8 +125,8 @@ local function map(
     exclusive output: span.WriteSpan<float>,
     borrows input: span.Span<float>
 ): nil
-    for i = 1, input.count do
-        output:set(i, input:get(i))
+    for i = 1, #input do
+        output[i] = input[i]
     end
 end
 return {map = map}
@@ -224,8 +224,8 @@ local span = require("nupp.span")
 @aot
 local function total(values: span.Span<float>): number
     local sum = 0.0
-    for i = 1, values.count do
-        sum = sum + values:get(i)
+    for i = 1, #values do
+        sum = sum + values[i]
     end
 
     return sum
@@ -239,8 +239,8 @@ local span = require("nupp.span")
 
 @aot
 local function double(exclusive values: span.WriteSpan<float>): nil
-    for i = 1, values.count do
-        values:set(i, values:get(i) * 2.0)
+    for i = 1, #values do
+        values[i] = values[i] * 2.0
     end
 end
 

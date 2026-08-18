@@ -66,16 +66,16 @@ local function escapes(
     last: integer,
     limit: int32
 ): nil
-    if out.count ~= points.count then
+    if #out ~= #points then
         error("length mismatch", 2)
     end
-    if first < 1 or last > out.count or first > last + 1 then
+    if first < 1 or last > #out or first > last + 1 then
         error("range out of bounds", 2)
     end
 
     for i = first, last do
-        local cell = out:getMut(i)
-        local point = points:get(i)
+        local cell = out[i]
+        local point = points[i]
         local cx = point.re
         local cy = point.im
         local zx = 0.0
@@ -126,16 +126,16 @@ local function advance(
     last: integer,
     dt: float
 ): nil
-    if positions.count ~= velocities.count then
+    if #positions ~= #velocities then
         error("length mismatch", 2)
     end
-    if first < 1 or last > positions.count or first > last + 1 then
+    if first < 1 or last > #positions or first > last + 1 then
         error("range out of bounds", 2)
     end
 
     for i = first, last do
-        local position = positions:getMut(i)
-        local velocity = velocities:get(i)
+        local position = positions[i]
+        local velocity = velocities[i]
         position.x = position.x + velocity.vx * dt
         position.y = position.y + velocity.vy * dt
     end
@@ -149,12 +149,12 @@ return {advance = advance, Position = Position, Velocity = Velocity,}
 -- not, which is what an ordinary edit can take away without any test noticing.
 local REFUSED = STREAMING
    :gsub("@aot\n", "@aot(lanes = true)\n")
-   :gsub("        local position = positions:getMut%(i%)",
+   :gsub("        local position = positions%[i%]",
       "        local scale = dt\n"
       .. "        for step = 1, 2 do\n"
       .. "            scale = scale\n"
       .. "        end\n"
-      .. "        local position = positions:getMut(i)")
+      .. "        local position = positions[i]")
 
 --- A target every host can compile for, at a tier that holds the wide gangs.
 ---
@@ -171,16 +171,16 @@ local function classify(
     exclusive flags: span.WriteSpan<uint8>,
     borrows bytes: span.Span<uint8>
 ): nil
-    if flags.count ~= bytes.count then error("length mismatch", 2) end
-    for i = 1, flags.count do
-        local byte = bytes:get(i)
+    if #flags ~= #bytes then error("length mismatch", 2) end
+    for i = 1, #flags do
+        local byte = bytes[i]
         local flag: uint32 = 0
         if byte == 34 then
             flag = 1
         elseif byte == 92 then
             flag = 2
         end
-        flags:set(i, flag)
+        flags[i] = flag
     end
 end
 
@@ -291,17 +291,17 @@ local function signed(
     exclusive output: span.WriteSpan<Signed>,
     borrows input: span.Span<Signed>
 ): nil
-    if output.count ~= input.count then
+    if #output ~= #input then
         error("length mismatch", 2)
     end
-    for i = 1, output.count do
-        local value = input:get(i).value
+    for i = 1, #output do
+        local value = input[i].value
         local result: int32 = switch value do
             case -2147483648 -> 1
             case 1, 2 -> 2
             else -> 0
         end
-        output:getMut(i).value = result
+        output[i].value = result
     end
 end
 
@@ -310,17 +310,17 @@ local function unsigned(
     exclusive output: span.WriteSpan<Unsigned>,
     borrows input: span.Span<Unsigned>
 ): nil
-    if output.count ~= input.count then
+    if #output ~= #input then
         error("length mismatch", 2)
     end
-    for i = 1, output.count do
-        local value = input:get(i).value
+    for i = 1, #output do
+        local value = input[i].value
         local result: uint32 = switch value do
             case 0 -> 1
             case 4294967295 -> 2
             else -> 0
         end
-        output:getMut(i).value = result
+        output[i].value = result
     end
 end
 
@@ -357,17 +357,17 @@ local function classify(
     borrows input: span.Span<Value>,
     selector: number
 ): nil
-    if output.count ~= input.count then
+    if #output ~= #input then
         error("length mismatch", 2)
     end
-    for i = 1, output.count do
-        local ignored = input:get(i).value
+    for i = 1, #output do
+        local ignored = input[i].value
         local result: int32 = switch selector do
             case 1 -> 1.0
             case 2 -> 2.0
             else -> 0.0
         end
-        output:getMut(i).value = result + ignored
+        output[i].value = result + ignored
     end
 end
 return {classify = classify, Value = Value}
@@ -433,16 +433,16 @@ local function scale(
     last: integer,
     factor: number
 ): nil
-    if samples.count ~= source.count then
+    if #samples ~= #source then
         error("length mismatch", 2)
     end
-    if first < 1 or last > samples.count or first > last + 1 then
+    if first < 1 or last > #samples or first > last + 1 then
         error("range out of bounds", 2)
     end
 
     for i = first, last do
-        local sample = samples:getMut(i)
-        local input = source:get(i)
+        local sample = samples[i]
+        local input = source[i]
         sample.value = input.value * factor + input.weight
         sample.weight = input.weight * factor
     end
@@ -456,16 +456,16 @@ local function brighten(
     last: integer,
     lift: float
 ): nil
-    if samples.count ~= source.count then
+    if #samples ~= #source then
         error("length mismatch", 2)
     end
-    if first < 1 or last > samples.count or first > last + 1 then
+    if first < 1 or last > #samples or first > last + 1 then
         error("range out of bounds", 2)
     end
 
     for i = first, last do
-        local sample = samples:getMut(i)
-        local input = source:get(i)
+        local sample = samples[i]
+        local input = source[i]
         local value = nupp.math.f32.narrow(input.value)
         local weight = nupp.math.f32.narrow(input.weight)
         sample.value = nupp.math.f32.add(value, lift)

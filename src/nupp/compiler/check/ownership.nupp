@@ -90,6 +90,9 @@ type ownership.Ops = {
     --- Related-location details for the first live borrow overlapping a region.
     conflictDetails: function(root: any, path: string?, exclusiveOnly: boolean?): any,
 
+    --- Requires one primitive indexed write receiver to be exclusively usable now.
+    checkExclusiveReceiver: function(receiver: any, at: any): nil,
+
     --- Records that an expression's owner has been handed over.
     moveExpression: function(
         expr: any,
@@ -505,6 +508,53 @@ function ownership.install(c: state.Checker): ownership.Ops
         return {help = "end the overlapping borrow before requesting this access"}
     end
 
+    function own.checkExclusiveReceiver(receiver, at)
+        local entry, nameNode = own.ownershipEntry(receiver)
+        entry = own.ownershipState(entry)
+        local entryFacts = entry and own.capabilityFacts(entry, nil, false) or nil
+        local regionRoot, regionPath = own.regionOf(receiver)
+        local roots = entry and {entry} or own.provenanceOwners(receiver)
+        if #roots == 0 then
+            c.diag("NUPP2602", at or receiver, "an indexed write requires a named or rooted exclusive view")
+            return
+        end
+        for _, root in ipairs(roots) do
+            local blocked = (root.activeBorrows or 0) > 0
+            if regionRoot and regionPath and regionPath ~= "" then
+                blocked = false
+                for activePath, count in pairs(regionRoot.activeRegions or {}) do
+                    local ownCount = entry
+                        and entryFacts
+                        and entryFacts.regionRoot == regionRoot
+                        and entryFacts.regionPath == regionPath
+                        and 1
+                        or 0
+                    if (
+                        activePath == regionPath and count > ownCount
+                    ) or (
+                        activePath ~= regionPath and c.regionsOverlap(
+                            activePath,
+                            regionPath
+                        ) and not c.regionContains(activePath, regionPath)
+                    ) then
+                        blocked = true
+                        break
+                    end
+                end
+            end
+            if blocked then
+                c.diag(
+                    "NUPP2607",
+                    nameNode or at or receiver,
+                    "an indexed write cannot overlap a live derived view",
+                    nil,
+                    own.conflictDetails(regionRoot or root, regionPath)
+                )
+                return
+            end
+        end
+    end
+
     function own.regionOf(expr)
         while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
             expr = expr.expr
@@ -528,7 +578,17 @@ function ownership.install(c: state.Checker): ownership.Ops
                 ), facts.regionPath or ""
             end
         elseif expr.kind == "dotIndex" or expr.kind == "safeIndex" then
-            if expr.soaField and expr.obj and expr.obj.soaRow and expr.obj.obj then
+            if expr.indexedField and expr.obj and expr.obj.indexedAccess and expr.obj.obj then
+                local root, path = own.regionOf(expr.obj.obj)
+                if root then
+                    path = T.regionField(path, expr.indexedField.name)
+                    local key = expr.obj.expr and c.infer(expr.obj.expr) or nil
+                    local exact = key and key.tag == "literal" and type(
+                        key.constant
+                    ) == "number" and key.constant % 1 == 0 and key.constant or nil
+                    return root, T.regionIndex(path, exact)
+                end
+            elseif expr.soaField and expr.obj and expr.obj.soaRow and expr.obj.obj then
                 local root, path = own.regionOf(expr.obj.obj)
                 if root then
                     path = T.regionField(path, expr.soaField.name)

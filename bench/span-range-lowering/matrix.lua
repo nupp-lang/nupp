@@ -109,7 +109,7 @@ local function timed(module, case)
    return elapsed
 end
 
-io.write("\nwidth/span-count matrix (large root spans)\n")
+io.write("\nwidth/view-count matrix (large root spans)\n")
 io.write("case                    checked ns/el  OPT-6 ns/el   ratio\n")
 for _, case in ipairs(cases) do
    local before = timed(checked, case)

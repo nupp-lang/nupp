@@ -166,7 +166,7 @@ function binding.range(rangeGuard: scalarIR.RangeGuard?): {string}
     local first, last = rangeGuard.first, rangeGuard.last
     local outOfBounds = {
         first .. " < 1",
-        last .. " > " .. rangeGuard.count .. ".count",
+        last .. " > #" .. rangeGuard.count,
         -- One past the end is how an empty range is spelled, so it is allowed.
         first .. " > " .. last .. " + 1",
     }

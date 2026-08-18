@@ -1459,18 +1459,19 @@ views. `WriteSpan.slice(first, last)` returns one affine child writer; its
 parent remains blocked until that child is committed or dropped. Empty slices
 use the inclusive `first, first - 1` convention.
 
-`span.range(first, last, ...)` validates one inclusive range against every
-supplied standard span and returns ordinary `first` and `last` integers. Its
+`indexed.range(first, last, ...)` validates one inclusive range against every
+supplied trusted Span or SoA view and returns ordinary `first` and `last` integers. Its
 typed borrowed vararg passes each original span unchanged and allocates no
 container. A const-bound range over const-bound spans also proves matching
-`get`, `getMut`, and `set` indices non-raising in the dominated numeric loop.
+indexed reads and writes non-raising in the dominated numeric loop.
 That semantic proof applies at every optimization level. With `-O1` and
-`frames` relaxed, the regular backend may additionally lower the exact access
+the regular backend may additionally lower the exact access
 to direct rooted FFI indexing after the one range check. Arbitrary indexes,
 held frames and accesses outside the same-function witness remain checked.
 ]=],
         example = [=[
 local span = require("nupp.span")
+local indexed = require("nupp.indexed")
 local m = {}
 
 local struct Value
@@ -1480,10 +1481,10 @@ end
 function m.total(): number
     const storage = carray(Value, 4)
     const values = span.fromCarray(storage, 4)
-    const rows = span.range(1, 4, values)
+    const rows = indexed.range(1, #values, values)
     local total = 0
     for index = rows.first, rows.last do
-        total = total + values:get(index).n
+        total = total + values[index].n
     end
     return total
 end

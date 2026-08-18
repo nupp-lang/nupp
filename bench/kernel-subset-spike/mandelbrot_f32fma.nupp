@@ -36,16 +36,16 @@ local function mandelbrot(
     last: integer,
     maxIterations: int32
 ): nil
-    if escapes.count ~= points.count then
+    if #escapes ~= #points then
         error("length mismatch", 2)
     end
-    if first < 1 or last > escapes.count or first > last + 1 then
+    if first < 1 or last > #escapes or first > last + 1 then
         error("range out of bounds", 2)
     end
 
     for i = first, last do
-        local escape = escapes:getMut(i)
-        local point = points:get(i)
+        local escape = escapes[i]
+        local point = points[i]
         -- A float field already holds a binary32 value, so narrowing the loaded
         -- number re-establishes the refinement without changing it.
         local cx = nupp.math.f32.narrow(point.re)

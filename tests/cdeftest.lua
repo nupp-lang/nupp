@@ -147,7 +147,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
       "local offsetFirst, offsetLast: int32, int32",
       "do",
       "   local transformed = spans.fromCarray(output, 6)",
-      "   offsetFirst, offsetLast = transformed:get(2), transformed:get(6)",
+      "   offsetFirst, offsetLast = transformed[2], transformed[6]",
       "end",
       "local transformCalls = counted_pointer_call_count()",
       "counted_pointer_reset()",
@@ -168,7 +168,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
       "local outputCount, inputCount, inputFirst: int32, int32, int32",
       "do",
       "   local independent = spans.fromCarray(output, 3)",
-      "   outputCount, inputCount, inputFirst = independent:get(1), independent:get(2), independent:get(3)",
+      "   outputCount, inputCount, inputFirst = independent[1], independent[2], independent[3]",
       "end",
       "local sharedStorage = ffi.new<int32[2]>()",
       "local sharedOutput = ffi.new<int32[2]>()",
@@ -185,7 +185,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
       "end",
       "local sharedRead = spans.fromCarray(sharedOutput, 2)",
       "return offsetFirst, offsetLast, transformCalls, zeroCalls,",
-      "   outputCount, inputCount, inputFirst, sharedRead:get(1), sharedRead:get(2)",
+      "   outputCount, inputCount, inputFirst, sharedRead[1], sharedRead[2]",
    }, "\n")
 
    local ok, a, b, calls, zeroCalls, outputCount,

@@ -133,7 +133,7 @@ local function read(values: span.Span<uint8>, bytes: Bytes, input: number): (uin
     bytes.unsigned = input
     bytes.value = input
     local signed: int32 = bytes.signed
-    local unsigned: uint32 = values:get(1)
+    local unsigned: uint32 = values[1]
     return unsigned, byte_identity(input)
 end
 return read

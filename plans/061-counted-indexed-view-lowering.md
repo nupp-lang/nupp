@@ -1,7 +1,7 @@
 # Counted indexed-view and place lowering
 
-Status: proposed — follows `plans/051-structure-of-arrays.md` and
-`plans/060-span-range-access-lowering.md`
+Status: implemented — follows `plans/051-structure-of-arrays.md` and
+supersedes `plans/060-span-range-access-lowering.md`
 
 ## Decision
 
@@ -446,8 +446,8 @@ Admit these standard operations first:
 - SoA shared and writable `slice`;
 - writable `.shared()` downgrades;
 - resolved SoA `.field(...)` projections; and
-- roots produced by `fromCarray`, `writeCarray`, and `fromString` when all uses stay
-  within the checked function.
+- roots produced by `fromCarray`, `writeCarray`, and `fromString` when a separate
+  benchmark proves that removing their explicit runtime anchor is worthwhile.
 
 Nested slices compose offsets and counts:
 
@@ -697,7 +697,8 @@ keep only the checked operator and common-proof portions that pass independently
 
 ### View virtualization
 
-- root, nested slice, shared downgrade, and projected-column candidates;
+- nested slice, shared downgrade, and projected-column candidates;
+- root constructors remaining materialized and explicitly anchored;
 - zero-length and one-past-empty slice representations;
 - materialization on return, capture, aggregate store, `any`, unknown call,
   reflection, identity observation, and unsupported ownership join;
@@ -778,8 +779,10 @@ and do not appear in the language reference.
 12. Migrate all remaining source, tests, benchmarks, explanations, and documentation;
     then remove the public methods, public count field, `span.range`, their
     name-specific compiler recognition, and superseded `OPT-6` compatibility path.
-13. Add narrow all-or-nothing virtualization for slices, shared downgrades, projected
-    columns, and admitted roots; materialize on every uncertain escape.
+13. Add narrow all-or-nothing virtualization for slices, shared downgrades, and
+    projected columns; materialize on every uncertain escape. Keep root constructors
+    materialized until a separate root-construction benchmark justifies replacing
+    their explicit runtime anchors.
 14. Measure explicit base/offset/count hoisting against LuaJIT's trace CSE and retain
     only the winning shape while keeping roots live.
 15. Add decline remarks, trace inspection, source-map, forced-GC, ownership, and

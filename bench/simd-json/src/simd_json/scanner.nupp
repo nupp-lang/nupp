@@ -25,12 +25,12 @@ const scanner.UTF8_INVALID = 160
 --- a JSON-specific intrinsic, and leaves room for a future packed-byte gang.
 @aot(lanes = true)
 local function classify(exclusive flags: span.WriteSpan<uint8>, borrows bytes: span.Span<uint8>): nil
-    if flags.count ~= bytes.count then
+    if #flags ~= #bytes then
         error("length mismatch", 2)
     end
 
-    for i = 1, flags.count do
-        local byte = bytes:get(i)
+    for i = 1, #flags do
+        local byte = bytes[i]
         local flag: uint32 = switch byte do
             case 34 -> 1
             case 92 -> 2
@@ -56,7 +56,7 @@ local function classify(exclusive flags: span.WriteSpan<uint8>, borrows bytes: s
                 flag = 160
             end
         end
-        flags:set(i, flag)
+        flags[i] = flag
     end
 end
 

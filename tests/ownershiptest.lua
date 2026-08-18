@@ -724,12 +724,12 @@ function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
       "local text = 'bytes'",
       "local whole = spans.fromString(text)",
       "local part = whole:slice(2, 4)",
-      "local byte: uint32 = part:get(1)",
+      "local byte: uint32 = part[1]",
       "print(byte)",
       "local storage: uint8[?] = ffi.new('uint8_t[4]') as any",
       "do",
       "   local writable = spans.writeCarray(storage, 4)",
-      "   writable:set(1, 65)",
+      "   writable[1] = 65",
       "   drop writable",
       "end",
    }, "\n"))
@@ -741,10 +741,10 @@ function M.spansPreserveTheCArrayElementType()
       "local storage = ffi.new<int32[4]>()",
       "do",
       "   local view = spans.fromCarray(storage, 4)",
-      "   local value: int32 = view:get(1)",
+      "   local value: int32 = view[1]",
       "end",
       "local writable = spans.writeCarray(storage, 4)",
-      "writable:set(2, 42 as int32)",
+      "writable[2] = 42 as int32",
       "drop writable",
    }, "\n"))
 end
@@ -753,7 +753,7 @@ function M.spansExportANameableGenericWithoutTheirRepresentation()
    assertClean(table.concat({
       "local spans = require('nupp.span')",
       "local function first(borrows view: spans.Span<int32>): int32",
-      "   return view:get(1)",
+      "   return view[1]",
       "end",
       "local storage = ffi.new<int32[4]>()",
       "local view = spans.fromCarray(storage, 4)",
@@ -779,22 +779,22 @@ function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
    assertClean(table.concat({
       "local spans = require('nupp.span')",
       "local function exact(borrows view: spans.FixedSpan<int32, 4>): integer",
-      "   return view.count as integer",
+      "   return #view as integer",
       "end",
       "local function dynamic(borrows view: spans.Span<int32>): integer",
-      "   return view.count",
+      "   return #view",
       "end",
       "local storage = ffi.new<int32[4]>()",
       "do",
       "   local view = spans.fromFixedCarray(storage, 4)",
-      "   print(exact(view), dynamic(view), view:get(1))",
+      "   print(exact(view), dynamic(view), view[1])",
       "end",
       "local writable = spans.writeFixedCarray(storage, 4)",
       "do",
       "   local shared = writable:shared()",
       "   print(exact(shared))",
       "end",
-      "writable:set(1, 42 as int32)",
+      "writable[1] = 42 as int32",
       "drop writable",
    }, "\n"))
 
@@ -802,7 +802,7 @@ function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
       "local spans = require('nupp.span')",
       "local storage = ffi.new<int32[4]>()",
       "local view = spans.fromFixedCarray(storage, 3)",
-      "print(view.count)",
+      "print(#view)",
    }, "\n")), "NUPP2006", "the literal count must match the fixed C array")
 
    assertEq(codes(table.concat({
@@ -832,7 +832,7 @@ function M.spanRefsExposeOnlyTheCapabilityTheirViewOwns()
       "      local pointer, count = writable:ref()",
       "      write_values(pointer, count)",
       "   end",
-      "   writable:set(1, 7 as int32)",
+      "   writable[1] = 7 as int32",
       "   drop writable",
       "end",
    }, "\n"))
@@ -862,8 +862,8 @@ function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
       "local storage = ffi.new<int32[4]>()",
       "local writable = spans.writeCarray(storage, 4)",
       "local shared = writable:shared()",
-      "writable:set(1, 1 as int32)",
-      "print(shared:get(1))",
+      "writable[1] = 1 as int32",
+      "print(shared[1])",
       "drop writable",
    }, "\n")), "NUPP2607 NUPP2602", "a shared downgrade blocks mutation and drop")
 end
@@ -875,18 +875,18 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
       "local writable = spans.writeCarray(storage, 6)",
       "do",
       "   local middle = writable:slice(2, 4)",
-      "   middle:set(1, 11 as int32)",
+      "   middle[1] = 11 as int32",
       "   do",
       "      local nested = middle:slice(2, 2)",
-      "      nested:set(1, 12 as int32)",
+      "      nested[1] = 12 as int32",
       "   end",
-      "   middle:set(3, 13 as int32)",
+      "   middle[3] = 13 as int32",
       "end",
       "do",
       "   local empty = writable:slice(4, 3)",
       "   drop empty",
       "end",
-      "writable:set(6, 14 as int32)",
+      "writable[6] = 14 as int32",
       "drop writable",
    }, "\n"))
 
@@ -895,8 +895,8 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
       "local storage = ffi.new<int32[4]>()",
       "local writable = spans.writeCarray(storage, 4)",
       "local child = writable:slice(2, 3)",
-      "writable:set(1, 1 as int32)",
-      "print(child.count)",
+      "writable[1] = 1 as int32",
+      "print(#child)",
    }, "\n")), "NUPP2607", "a live child blocks exclusive parent use")
 
    assertClean(table.concat({
@@ -904,7 +904,7 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
       "local storage = ffi.new<int32[4]>()",
       "local writable = spans.writeFixedCarray(storage, 4)",
       "local child: spans.Writable<int32> = writable:slice(2, 3)",
-      "child:set(1, 7 as int32)",
+      "child[1] = 7 as int32",
       "drop child",
       "drop writable",
    }, "\n"))
@@ -913,31 +913,33 @@ end
 function M.commonSpanRangesBorrowEveryInputWithoutBoxingOrConsumption()
    assertClean(table.concat({
       "local spans = require('nupp.span')",
+      "local indexed = require('nupp.indexed')",
       "local inputStorage = ffi.new<int32[4]>()",
       "local outputStorage = ffi.new<int32[4]>()",
-      "local input = spans.fromFixedCarray(inputStorage, 4)",
-      "local output = spans.writeFixedCarray(outputStorage, 4)",
-      "local indices = spans.range(1, 4, input, output)",
+      "const input = spans.fromFixedCarray(inputStorage, 4)",
+      "const output = spans.writeFixedCarray(outputStorage, 4)",
+      "local indices = indexed.range(1, 4, input, output)",
       "for index = indices.first, indices.last do",
-      "   output:set(index, input:get(index))",
+      "   output[index] = input[index]",
       "end",
       "drop output",
    }, "\n"))
 
    assertClean(table.concat({
       "local spans = require('nupp.span')",
+      "local indexed = require('nupp.indexed')",
       "local storage = ffi.new<int32[1]>()",
-      "local view = spans.fromCarray(storage, 1)",
-      "local empty = spans.range(1, 0, view)",
+      "const view = spans.fromCarray(storage, 1)",
+      "local empty = indexed.range(1, 0, view)",
       "print(empty.first, empty.last)",
    }, "\n"))
 
    assertEq(codes(table.concat({
-      "local spans = require('nupp.span')",
-      "local fake = {count = 4}",
-      "local indices = spans.range(1, 4, fake)",
+      "local indexed = require('nupp.indexed')",
+      "const fake = {count = 4}",
+      "local indices = indexed.range(1, 4, fake)",
       "print(indices.first)",
-   }, "\n")), "NUPP2006", "an arbitrary count-shaped table cannot forge the sealed contract")
+   }, "\n")), "NUPP2403", "an arbitrary count-shaped table cannot forge the sealed contract")
 end
 
 function M.heapArraysAreOwnedAndBecomeCheckedSpans()
@@ -947,13 +949,13 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
       "print(values.count)",
       "do",
       "   local writable = values:write()",
-      "   writable:set(1, 42 as int32)",
-      "   print(writable.count)",
+      "   writable[1] = 42 as int32",
+      "   print(#writable)",
       "   drop writable",
       "end",
       "local readable = values:read()",
-      "local value: int32 = readable:get(1)",
-      "print(value, readable.count)",
+      "local value: int32 = readable[1]",
+      "print(value, #readable)",
    }, "\n"))
 
    assertEq(codes(table.concat({
@@ -986,13 +988,13 @@ function M.heapArraysPreserveCountsAndCleanUpAtRuntime()
       "   local values = heap.allocate(ffi.typeof<int32>(), count)",
       "   if count > 0 then",
       "      local writable = values:write()",
-      "      writable:set(count, 73 as int32)",
+      "      writable[count] = 73 as int32",
       "      drop writable",
       "   end",
       "   local readable = values:read()",
       "   local value: int32 = 0",
-      "   if count > 0 then value = readable:get(count) end",
-      "   return readable.count, value",
+      "   if count > 0 then value = readable[count] end",
+      "   return #readable, value",
       "end",
       "local zero = exercise(0)",
       "local one, value = exercise(1)",
@@ -1007,7 +1009,7 @@ function M.heapArraysPreserveCountsAndCleanUpAtRuntime()
       "local unwound = pcall(function()",
       "   local values = heap.allocate(ffi.typeof<int32>(), 2)",
       "   local writable = values:write()",
-      "   writable:set(1, 1 as int32)",
+      "   writable[1] = 1 as int32",
       "   error('unwind')",
       "end)",
       "return zero, one, value, negative, overflow, unwound",
@@ -1031,8 +1033,8 @@ function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
    local prelude = table.concat({
       "local spans = require('nupp.span')",
       "local function pair(exclusive a: spans.WriteSpan<int32>, exclusive b: spans.WriteSpan<int32>): nil",
-      "   if a.count > 0 then a:set(1, 1 as int32) end",
-      "   if b.count > 0 then b:set(1, 2 as int32) end",
+      "   if #a > 0 then a[1] = 1 as int32 end",
+      "   if #b > 0 then b[1] = 2 as int32 end",
       "end",
       "local storage = ffi.new<int32[8]>()",
       "local writable = spans.writeCarray(storage, 8)",
@@ -1041,7 +1043,7 @@ function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
 
    assertClean(prelude .. "\npair(split.left, split.right)")
    assertEq(codes(prelude .. "\npair(split.left, split.left)"), "NUPP2607", "one child is not two regions")
-   assertEq(codes(prelude .. "\nwritable:set(1, 1 as int32)"), "NUPP2607", "a split blocks its parent")
+   assertEq(codes(prelude .. "\nwritable[1] = 1 as int32"), "NUPP2607", "a split blocks its parent")
    assertEq(codes(prelude .. table.concat({
       "",
       "local nested = split.left:splitAt(2)",
@@ -1063,9 +1065,9 @@ function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
       "local writable = spans.writeCarray(storage, 2)",
       "do",
       "   local split = writable:splitAt(1)",
-      "   split.left:set(1, 1 as int32)",
+      "   split.left[1] = 1 as int32",
       "end",
-      "writable:set(2, 2 as int32)",
+      "writable[2] = 2 as int32",
       "drop writable",
    }, "\n"))
 end
@@ -1080,25 +1082,25 @@ function M.exclusiveParametersCanBeForwardedWithoutAStoredBorrow()
    }, "\n")
    assertClean(prelude)
 
-   assertEq(codes(table.concat({
+   assertClean(table.concat({
       "local spans = require('nupp.span')",
       "local function inner(exclusive values: spans.WriteSpan<int32>): nil end",
       "local function outer(exclusive values: spans.WriteSpan<int32>): nil",
-      "   local element = values:getMut(1)",
+      "   local element = values[1]",
       "   inner(values)",
       "   print(element)",
       "end",
-   }, "\n")), "NUPP2607")
+   }, "\n"))
 
-   assertEq(codes(table.concat({
+   assertClean(table.concat({
       "local spans = require('nupp.span')",
       "local function inspect(borrows values: spans.WriteSpan<int32>): nil end",
       "local function outer(exclusive values: spans.WriteSpan<int32>): nil",
-      "   local element = values:getMut(1)",
+      "   local element = values[1]",
       "   inspect(values)",
       "   print(element)",
       "end",
-   }, "\n")), "NUPP2607")
+   }, "\n"))
 end
 
 function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
@@ -1112,25 +1114,25 @@ function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
       -- element no split ever writes, so without this they see whatever was there.
       "   do",
       "      local zeroing = values:write()",
-      "      for i = 1, zeroing.count do zeroing:set(i, 0 as int32) end",
+      "      for i = 1, #zeroing do zeroing[i] = 0 as int32 end",
       "      drop zeroing",
       "   end",
       "   do",
       "      local writable = values:write()",
       "      do",
       "         local split = writable:splitAt(mid)",
-      "         leftCount, rightCount = split.left.count, split.right.count",
-      "         if split.left.count > 0 then split.left:set(split.left.count, 11 as int32) end",
-      "         if split.right.count > 0 then split.right:set(1, 22 as int32) end",
-      "         if split.right.count > 1 then",
+      "         leftCount, rightCount = #split.left, #split.right",
+      "         if #split.left > 0 then split.left[#split.left] = 11 as int32 end",
+      "         if #split.right > 0 then split.right[1] = 22 as int32 end",
+      "         if #split.right > 1 then",
       "            local nested = split.right:splitAt(1)",
-      "            nested.right:set(1, 33 as int32)",
+      "            nested.right[1] = 33 as int32",
       "         end",
       "      end",
       "      drop writable",
       "   end",
       "   local readable = values:read()",
-      "   return leftCount, rightCount, readable:get(1), readable:get(4)",
+      "   return leftCount, rightCount, readable[1], readable[4]",
       "end",
       "local l0, r0 = exercise(0)",
       "local l1, r1 = exercise(1)",
@@ -1180,7 +1182,7 @@ function M.tecsShapedColumnsPartitionIntoCheckedNativeKernelInputs()
       "   drop writable",
       "end",
       "local readable = column:read()",
-      "print(readable.count)",
+      "print(#readable)",
    }, "\n"))
 end
 
@@ -1486,7 +1488,7 @@ function M.aDerivedBorrowCannotOutliveItsIntermediate()
       "   held = peek(inner)",
       "end",
       "drop(pool)",
-   }, "\n")), "NUPP2608 NUPP2602")
+   }, "\n")), "NUPP2608")
 end
 
 function M.aDerivedBorrowCannotBeStored()

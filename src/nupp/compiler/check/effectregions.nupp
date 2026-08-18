@@ -135,12 +135,6 @@ function effectregions.install(c: state.Checker): effectregions.Ops
         if call.scalarIntrinsic then
             return true
         end
-        if call.spanAccessorNoAllocate then
-            if effect == "allocates" or call.rangeProvenNoRaise then
-                return true
-            end
-            return false, "performs a checked span access without a dominating range proof", nil
-        end
         if call.constructorEntry and effect == "allocates" then
             return false, "constructs a new value", nil
         end
@@ -221,6 +215,8 @@ function effectregions.install(c: state.Checker): effectregions.Ops
                 return false
             elseif node.effectUnknownOperation then
                 return false
+            elseif node.indexedAccess and effect == "raises" and not node.rangeProvenNoRaise then
+                return false
             elseif kind == "call" or kind == "safeCall" or kind == "methodCall" then
                 if not callIsFree(node, effect, queries) then
                     return false
@@ -274,6 +270,17 @@ function effectregions.install(c: state.Checker): effectregions.Ops
             elseif node.effectUnknownOperation and not diagnosed[node] then
                 diagnosed[node] = true
                 report(effect, node, "may invoke code with unknown effects", nil, queries)
+            elseif node.indexedAccess and effect == "raises" and not node.rangeProvenNoRaise then
+                if not diagnosed[node] then
+                    diagnosed[node] = true
+                    report(
+                        effect,
+                        node,
+                        "performs a checked indexed access without a dominating range proof",
+                        nil,
+                        queries
+                    )
+                end
             elseif kind == "call" or kind == "safeCall" or kind == "methodCall" then
                 local free, why, info = callIsFree(node, effect, queries)
                 if not free and not diagnosed[node] then

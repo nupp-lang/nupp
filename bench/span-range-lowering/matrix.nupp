@@ -1,6 +1,7 @@
--- Width, span-count, and arithmetic-shape coverage for OPT-6. The five-way
+-- Width, view-count, and arithmetic-shape coverage for OPT-6. The five-way
 -- representative comparison remains in kernel.nupp/main.lua.
 local span = require("nupp.span")
+local indexed = require("nupp.indexed")
 
 local matrix = {}
 
@@ -11,10 +12,10 @@ end
 @relax("frames")
 function matrix.fillFloat(exclusive output: span.WriteSpan<float>, first: integer, last: integer, steps: integer): nil
     const out = output
-    const rows = span.range(first, last, out)
+    const rows = indexed.range(first, last, out)
     for _ = 1, steps do
         for index = rows.first, rows.last do
-            out:set(index, 1.25)
+            out[index] = 1.25
         end
     end
 end
@@ -29,10 +30,10 @@ function matrix.copyU8(
 ): nil
     const out = output
     const source = input
-    const rows = span.range(first, last, out, source)
+    const rows = indexed.range(first, last, out, source)
     for _ = 1, steps do
         for index = rows.first, rows.last do
-            out:set(index, source:get(index))
+            out[index] = source[index]
         end
     end
 end
@@ -47,10 +48,10 @@ function matrix.copyI32(
 ): nil
     const out = output
     const source = input
-    const rows = span.range(first, last, out, source)
+    const rows = indexed.range(first, last, out, source)
     for _ = 1, steps do
         for index = rows.first, rows.last do
-            out:set(index, source:get(index))
+            out[index] = source[index]
         end
     end
 end
@@ -65,10 +66,10 @@ function matrix.copyFloat(
 ): nil
     const out = output
     const source = input
-    const rows = span.range(first, last, out, source)
+    const rows = indexed.range(first, last, out, source)
     for _ = 1, steps do
         for index = rows.first, rows.last do
-            out:set(index, source:get(index))
+            out[index] = source[index]
         end
     end
 end
@@ -87,10 +88,10 @@ function matrix.fourFloat(
     const a = left
     const b = middle
     const c = right
-    const rows = span.range(first, last, out, a, b, c)
+    const rows = indexed.range(first, last, out, a, b, c)
     for _ = 1, steps do
         for index = rows.first, rows.last do
-            out:set(index, a:get(index) + b:get(index) * c:get(index))
+            out[index] = a[index] + b[index] * c[index]
         end
     end
 end
@@ -109,13 +110,13 @@ function matrix.heavyFloat(
     const a = left
     const b = middle
     const c = right
-    const rows = span.range(first, last, out, a, b, c)
+    const rows = indexed.range(first, last, out, a, b, c)
     for _ = 1, steps do
         for index = rows.first, rows.last do
-            const av = a:get(index)
-            const bv = b:get(index)
-            const cv = c:get(index)
-            out:set(index, ((av * bv + cv) * (cv - av) + bv) * 0.125)
+            const av = a[index]
+            const bv = b[index]
+            const cv = c[index]
+            out[index] = ((av * bv + cv) * (cv - av) + bv) * 0.125
         end
     end
 end
@@ -128,12 +129,40 @@ function matrix.increment(
     steps: integer
 ): nil
     const out = output
-    const rows = span.range(first, last, out)
+    const rows = indexed.range(first, last, out)
     for _ = 1, steps do
         for index = rows.first, rows.last do
-            local value = out:getMut(index)
-            value.value = value.value + 1
+            out[index].value += 1
         end
+    end
+end
+
+local function observe(exclusive value: span.WriteSpan<float>): nil
+    if #value < 0 then
+        error("unreachable", 2)
+    end
+end
+
+@relax("frames")
+function matrix.sliceVirtual(exclusive output: span.WriteSpan<float>, repeats: integer): nil
+    for _ = 1, repeats do
+        const window = output:slice(2, 9)
+        for index = 1, #window do
+            window[index] += 1
+        end
+        drop window
+    end
+end
+
+@relax("frames")
+function matrix.sliceMaterialized(exclusive output: span.WriteSpan<float>, repeats: integer): nil
+    for _ = 1, repeats do
+        const window = output:slice(2, 9)
+        observe(window)
+        for index = 1, #window do
+            window[index] += 1
+        end
+        drop window
     end
 end
 

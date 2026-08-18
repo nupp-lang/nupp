@@ -64,18 +64,16 @@ local function mandelbrot(
     last: integer,
     maxIterations: int32
 ): nil
-    if escapes.count ~= points.count then
+    if #escapes ~= #points then
         error("length mismatch", 2)
     end
-    if first < 1 or last > escapes.count or first > last + 1 then
+    if first < 1 or last > #escapes or first > last + 1 then
         error("range out of bounds", 2)
     end
 
     for i = first, last do
-        local escape = escapes:getMut(i)
-        local point = points:get(i)
-        local cx = point.re
-        local cy = point.im
+        local cx = points[i].re
+        local cy = points[i].im
         local zx = 0.0
         local zy = 0.0
         local zxSquared = 0.0
@@ -254,7 +252,7 @@ local function mandelbrot(
     last: integer,
     maxIterations: int32
 ): nil
-    if first < 1 or last > escapes.count or first > last + 1 then
+    if first < 1 or last > #escapes or first > last + 1 then
         error("native range out of bounds", 2)
     end
     local native_escapes, native_escapesCount = escapes:ref()
@@ -642,17 +640,17 @@ local function classify(
     exclusive output: span.WriteSpan<Code>,
     borrows input: span.Span<Code>
 ): nil
-    if output.count ~= input.count then
+    if #output ~= #input then
         error("length mismatch", 2)
     end
-    for i = 1, output.count do
-        local code = input:get(i).value
+    for i = 1, #output do
+        local code = input[i].value
         local result: int32 = switch code do
             case -2147483648 -> 10
             case 1, 2 -> 20
             else -> 30
         end
-        output:getMut(i).value = result
+        output[i].value = result
     end
 end
 ```
@@ -822,7 +820,7 @@ end
 cdef function ks_scale(exclusive samples: voidptr, borrows source: voidptr, ...) from"..."
 
 local function scale(exclusive samples: span.WriteSpan<Sample>, ...): nil
-    if first < 1 or last > samples.count or first > last + 1 then
+    if first < 1 or last > #samples or first > last + 1 then
         error("native range out of bounds", 2)
     end
     local native_samples, native_samplesCount = samples:ref()

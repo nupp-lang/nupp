@@ -1,0 +1,70 @@
+--[[
+The sealed standard indexed-view families, described once for checking, proofs and
+generation. Source metamethod names type the operators; this descriptor is the
+stronger compiler-owned fact connecting length, indexing and physical storage.
+]]
+
+local T = require("nupp.compiler.types")
+
+local indexed = {}
+
+local type Type = T.Type
+
+record indexed.Descriptor
+    adapter: 'span' | 'soa'
+    element: Type
+    writable: boolean
+    fixedCount: Type?
+    nominal: Type
+end
+
+local function describe(t: Type): indexed.Descriptor?
+    local raw = T.unwrapOwnership(t)
+    if raw.tag == "intersection" then
+        for _, member in ipairs(raw.members) do
+            local found = describe(member)
+            if found then
+                return found
+            end
+        end
+        return nil
+    end
+    if raw.tag ~= "nominal" then
+        return nil
+    end
+
+    local nominal = raw as T.Nominal
+    local origin = (nominal.origin or nominal) as T.Nominal
+    local moduleName = origin.moduleName or nominal.moduleName or origin.sealedModule
+    local name = origin.name
+    local args = nominal.typeArgs or {}
+    local element = args[1]
+    if not element then
+        return nil
+    end
+
+    if moduleName == "nupp.span" and (
+        name == "Span" or name == "FixedSpan" or name == "WriteSpan" or name == "FixedWriteSpan"
+    ) then
+        return new indexed.Descriptor(
+            adapter = "span",
+            element = element,
+            writable = name == "WriteSpan" or name == "FixedWriteSpan",
+            fixedCount = (name == "FixedSpan" or name == "FixedWriteSpan") and args[2] or nil,
+            nominal = nominal
+        )
+    elseif moduleName == "nupp.soa" and (name == "Span" or name == "WriteSpan") then
+        return new indexed.Descriptor(
+            adapter = "soa",
+            element = element,
+            writable = name == "WriteSpan",
+            nominal = nominal
+        )
+    end
+
+    return nil
+end
+
+indexed.describe = describe
+
+return indexed

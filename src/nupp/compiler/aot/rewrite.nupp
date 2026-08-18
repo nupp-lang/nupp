@@ -1415,7 +1415,7 @@ end
 
 --- The span element a name was bound to, if it was bound to one.
 ---
---- `span:get(i)` binds a reference that field accesses later go through. The
+--- `span[i]` binds a reference that field accesses later go through. The
 --- reference itself has no lane-parallel form -- four elements are four
 --- addresses -- but every use of it does, so the binding is resolved at each
 --- use rather than emitted.

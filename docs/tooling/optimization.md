@@ -38,7 +38,7 @@ than mixing artifacts compiled at different levels.
 | `OPT-3` | constant-fold | -O1 | Fold exact primitives, branches, dead loops, and immutable paths |
 | `OPT-4` | static-callable | -O1 | Bind repeated immutable dotted callees at first use |
 | `OPT-5` | concat-buffer | -O1 | Append to a string.buffer instead of rebuilding a string each pass |
-| `OPT-6` | span-range-access | -O1 | Use direct FFI access after one proved span range check |
+| `OPT-6` | indexed-range | -O1 | Select direct AoS or SoA access after one trusted range proof |
 
 Each `OPT-n` example below shows Nupp beside its `-O1` and `-O0` output.
 Generated temporary names are illustrative.
@@ -330,23 +330,23 @@ Straight-line concatenation is deliberately untouched. Lua performs a
 multi-operand concat in one operation, and creating a buffer costs about what
 two concatenations cost, so rewriting `a .. b .. c` would be slower.
 
-### `OPT-6`, proved span range access
+### `OPT-6`, trusted indexed range access
 
-`span.range` validates an inclusive range against each participating standard
-span. When the checker proves that an exact `get`, `getMut`, or statement
-`set` uses that range's bare induction variable, `OPT-6` can use the one range
-check instead of repeating each accessor's checks.
+`indexed.range` validates an inclusive range against each participating trusted
+Span or SoA view. A canonical `for index = 1, #view` loop proves the same fact
+for that exact view. `OPT-6` selects the view's physical adapter instead of
+repeating each indexed access's checks.
 
 ::: code-group
 ```nupp [Original Nupp]
-const rows = span.range(first, last, output, input)
+const rows = indexed.range(first, last, output, input)
 for index = rows.first, rows.last do
-    output:getMut(index).x = input:get(index).x + 1
+    output[index].x = input[index].x + 1
 end
 ```
 
 ```lua [Optimized Lua]
-local rows = span.range(first, last, output, input)
+local rows = indexed.range(first, last, output, input)
 for index = rows.first, rows.last do
     output.pointer[output.offset + index - 1].x =
         input.pointer[input.offset + index - 1].x + 1
@@ -354,34 +354,39 @@ end
 ```
 
 ```lua [Unoptimized Lua]
-local rows = span.range(first, last, output, input)
+local rows = indexed.range(first, last, output, input)
 for index = rows.first, rows.last do
-    output:getMut(index).x = input:get(index).x + 1
+    output:get(index).x = input:get(index).x + 1
 end
 ```
 :::
 
-This rewrite requires `@relax("frames")` on the containing function or
-`--relax=frames` for the compilation, because it removes the accessor call from
-observable stack frames. The range failure remains at `span.range`; its success
-already proves that the removed accessor error cannot occur. `noraise` consumes
-that proof independently of optimization.
+The range failure remains at `indexed.range`; its success already proves that
+the removed bounds error cannot occur. `noraise` consumes that proof
+independently of optimization.
 
 The witness, spans, and loop are matched by checked declaration identity within
 one function. Both loop bounds must be the same const range's bare `.first` and
 `.last`, the step must be implicit, and each span must have been const-bound when
 the range was formed. Arbitrary indexes, spans omitted from the range, nested
-functions, lookalike methods, and `set` in a value position keep the checked
-call. The generated expression reaches `pointer` and `offset` through the span,
-preserving roots and nonzero slice offsets; explicit pointer hoisting is not
-part of this pass.
+functions, lookalike methods, and writes through an unproved index keep the
+checked operation. The generated expression reaches `pointer` and `offset`
+through the span, preserving roots and nonzero slice offsets; explicit pointer
+hoisting is not part of this pass.
+
+The pass also scalar-replaces const derived views whose complete use set is
+proved. Span and SoA slices retain one checked finish scalar; shared downgrades
+retain their count; resolved SoA field projections select the column directly.
+Nested combinations compose their offsets without constructing wrapper tables.
+An escape or unsupported operation declines the rewrite and preserves the safe
+runtime view. Root view constructors remain materialized so the original C array,
+string, or SoA slab is explicitly rooted.
 
 One remark is aggregated per loop:
 
-    OPT-6 span-range-access: lowers 2 checked accesses after one range proof
+    OPT-6 indexed-range: lowers 2 span accesses
 
-A proved loop declined because stack frames remain observable reports
-`frames-held`. Disable the pass alone with `-Zno-opt=OPT-6`.
+Disable the pass alone with `-Zno-opt=OPT-6`.
 
 ## Benchmark details
 
@@ -402,6 +407,8 @@ generated-Lua shapes shown above, not checker time.
 | OPT-4, 20,000 dotted calls, load only | 0.0027s | 0.0011s | 2.54x faster |
 | OPT-4, 20,000 dotted calls, load and run | 0.0030s | 0.0012s | 2.53x faster |
 | OPT-6, 8 million struct element updates | 0.01075s | 0.00735s | 1.46x faster |
+| OPT-6, SoA projected update vs handwritten columns | 0.00296s | 0.00307s | 1.037x of direct |
+| OPT-6, 500,000 slice constructions | 0.12183s | 0.00425s | 28.7x faster |
 
 Primitive folding reduced its generated input by 32.1%; nested propagation by
 60.8%; static callable binding by 63.6%. Warmed results were 0.99x, 2.01x, and
@@ -433,8 +440,8 @@ sinking already removes an allocation that does not escape its trace, which is
 the same condition a pass would have had to prove. All three exit non-zero if
 their finding stops holding, so the ones that argue against a pass keep arguing.
 
-The `OPT-6` row compares `span.range` with the pass disabled and enabled on an
-arm64 Apple host after warmup. Adopting `span.range` separately was neutral
+The `OPT-6` row compares `indexed.range` with the pass disabled and enabled on an
+arm64 Apple host after warmup. Adopting `indexed.range` separately was neutral
 (0.998x checked/guard ratio). The optimized trace had the same counted IR shape
 and near-identical timing as handwritten direct FFI: comparisons fell from nine
 to three, and repeated hash/field loads also fell. Run
@@ -444,6 +451,12 @@ same-function witness; the benchmark is a semantics-preserving adaptation of
 the position/velocity kernel and records that reach limitation explicitly.
 Forced-scalar AOT ran the same element update at 0.554 ns/element, but is shown
 only as separate backend context, not as the pass's speedup.
+
+The same run measured generated SoA at 1.037x handwritten direct columns. Its
+proved row fields remained direct column loads and stores. The slice-heavy gate
+measured a forced materialized wrapper at 121.83 ms, the virtual view at 4.25 ms,
+and the handwritten scalar control at 7.79 ms. This is evidence for narrow
+derived-view scalar replacement, not general table escape analysis.
 
 ## Inspecting and controlling passes
 

@@ -26,9 +26,9 @@ end
 
 local function direct(positions, velocities, first, last, repeats, scale)
    assert(positions.count == velocities.count)
-   local rows = spans.range(first, last, positions, velocities)
+   assert(first >= 1 and last <= positions.count and first <= last + 1)
    for _ = 1, repeats do
-      for index = rows.first, rows.last do
+      for index = first, last do
          local position = positions.pointer[positions.offset + index - 1]
          local velocity = velocities.pointer[velocities.offset + index - 1]
          position.x = velocity.x * scale + velocity.y
@@ -84,9 +84,9 @@ local function inspect(name, operation, types)
 end
 
 local rows = {
-   {"span.range + checked", inspect("checked", disabled.ranged, disabled)},
-   {"span.range + OPT-6", inspect("OPT-6", enabled.ranged, enabled)},
-   {"span.range + direct", inspect("direct", direct, enabled)},
+   {"indexed.range + checked", inspect("checked", disabled.ranged, disabled)},
+   {"indexed.range + OPT-6", inspect("OPT-6", enabled.ranged, enabled)},
+   {"indexed.range + direct", inspect("direct", direct, enabled)},
 }
 
 io.write("trace shape (root loop IR)\n")

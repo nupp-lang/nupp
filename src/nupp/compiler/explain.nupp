@@ -134,7 +134,7 @@ local ENTRIES: {any} = {
         .. "canonical module that declares its record. Expose a public method when "
         .. "another module needs an operation without revealing that representation.",
         wrong = "local h = require('nupp.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a.pointer\n",
-        right = "local h = require('nupp.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a:read():get(1)\n",
+        right = "local h = require('nupp.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a:read()[1]\n",
         related = {"NUPP2004", "NUPP2202"},
         docs = "docs/type-system/records.md#private-fields",
     },
@@ -627,7 +627,7 @@ local ENTRIES: {any} = {
         .. "local record Forged is spans.Span<int32>\nend\n\nreturn Forged\n",
         right = "local spans = require(\"nupp.span\")\n\n"
         .. "local storage = ffi.new<int32[4]>()\n"
-        .. "local view = spans.fromFixedCarray(storage, 4)\n\nreturn view.count\n",
+        .. "local view = spans.fromFixedCarray(storage, 4)\n\nreturn #view\n",
         related = {"NUPP2001", "NUPP2117"},
         docs = "docs/type-system/interfaces.md#sealed-interfaces",
     },

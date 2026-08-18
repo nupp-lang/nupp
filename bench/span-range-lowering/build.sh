@@ -10,7 +10,8 @@ mkdir -p "$OUT/disabled" "$OUT/enabled" "$OUT/runtime/nupp" "$OUT/aot"
     bench/span-range-lowering/kernel.nupp bench/span-range-lowering/matrix.nupp
 ./bin/nupp build -O1 --relax=frames -o "$OUT/enabled" \
     bench/span-range-lowering/kernel.nupp bench/span-range-lowering/matrix.nupp
-./bin/nupp build -O1 --relax=frames -o "$OUT/runtime/nupp" src/nupp/span.nupp
+./bin/nupp build -O1 --relax=frames -o "$OUT/runtime/nupp" \
+    src/nupp/span.nupp src/nupp/indexed.nupp
 
 # AOT is context rather than the acceptance target. Reuse the checked subset
 # generator, force its scalar oracle, and call that oracle from the benchmark.

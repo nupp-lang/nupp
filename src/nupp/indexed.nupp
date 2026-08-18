@@ -1,0 +1,45 @@
+--[[
+One checked inclusive range shared by every compiler-owned indexed view. The public
+checker validates the variadic operands against their trusted descriptors; the
+runtime body deliberately stays representation-neutral and reads the private count
+slot carried by each bundled view implementation.
+]]
+
+local indexed = {}
+
+--- Inclusive integer bounds validated once against every supplied indexed view.
+--- @export
+record indexed.Range
+    readonly first: integer
+    readonly last: integer
+end
+
+--- @export
+--- @raises when no view is supplied or the bounds exceed a supplied view
+function indexed.range(first: integer, last: integer, borrows ...: any): indexed.Range
+    local count = select("#", ...)
+    if count < 1 or first < 1 or last < first - 1 then
+        error("indexed range out of bounds", 2)
+    end
+    for index = 1, count do
+        local candidate = select(index, ...) as any
+        if last > candidate.count then
+            error("indexed range out of bounds", 2)
+        end
+    end
+
+    return new indexed.Range(first = first, last = last)
+end
+
+--- Private allocation-free slice validation used by virtual standard views.
+--- @raises when the requested inclusive bounds exceed the supplied count
+function indexed._sliceFinish(count: integer, first: integer, last: integer?, message: string): integer
+    local finish = last or count
+    if first < 1 or finish < first - 1 or finish > count then
+        error(message, 2)
+    end
+
+    return finish
+end
+
+return indexed

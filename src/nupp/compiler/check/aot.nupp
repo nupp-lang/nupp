@@ -17,7 +17,7 @@ and some `any` is not. Reporting the structural half here keeps that later pass
 from having to re-explain constructs it never saw.
 
 A method call is deliberately not refused here, even though a dynamic one has no
-AOT IR opcode. `span:get(i)` and `span:getMut(i)` are the memory boundary the
+AOT IR opcode. `span[i]` is the memory boundary the
 whole feature is built on and are lowered directly rather than dispatched, so
 whether a call resolves is a question about its receiver's type and belongs to
 the pass that has one. Refusing the syntax would refuse the subset's own

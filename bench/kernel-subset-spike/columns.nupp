@@ -29,16 +29,16 @@ local function advance(
     last: integer,
     dt: float
 ): nil
-    if positions.count ~= velocities.count then
+    if #positions ~= #velocities then
         error("length mismatch", 2)
     end
-    if first < 1 or last > positions.count or first > last + 1 then
+    if first < 1 or last > #positions or first > last + 1 then
         error("range out of bounds", 2)
     end
 
     for i = first, last do
-        local position = positions:getMut(i)
-        local velocity = velocities:get(i)
+        local position = positions[i]
+        local velocity = velocities[i]
         position.x = position.x + velocity.vx * dt
         position.y = position.y + velocity.vy * dt
     end

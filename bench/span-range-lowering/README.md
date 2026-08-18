@@ -1,8 +1,8 @@
 # Span range lowering benchmark
 
-This benchmark is the evidence gate for `plans/060-span-range-access-lowering.md`.
+This benchmark is the evidence gate for `plans/061-counted-indexed-view-lowering.md`.
 It compares the existing handwritten-guard kernel shape, a semantics-preserving
-adoption of `span.range` with `OPT-6` disabled and enabled, handwritten direct
+adoption of `indexed.range` with `OPT-6` disabled and enabled, handwritten direct
 FFI access, and forced-scalar AOT context. The first three are checked Nupp; the
 handwritten form is confined to the Lua benchmark driver. AOT is reported
 separately and is not the pass's acceptance target.
@@ -34,8 +34,8 @@ produced these warmed medians:
 | Implementation | Time | Time per element | Throughput |
 | --- | ---: | ---: | ---: |
 | Handwritten guard + checked access | 10.762 ms | 1.345 ns | 743.4 Melem/s |
-| `span.range` + checked access | 10.800 ms | 1.350 ns | 740.7 Melem/s |
-| `span.range` + `OPT-6` | 7.258 ms | 0.907 ns | 1102.2 Melem/s |
+| `indexed.range` + checked access | 10.800 ms | 1.350 ns | 740.7 Melem/s |
+| `indexed.range` + `OPT-6` | 7.258 ms | 0.907 ns | 1102.2 Melem/s |
 | Handwritten direct FFI | 7.583 ms | 0.948 ns | 1055.0 Melem/s |
 | Forced-scalar AOT context | 4.433 ms | 0.554 ns | 1804.6 Melem/s |
 
@@ -43,6 +43,12 @@ The 1.004x checked/guard ratio prices adoption separately. The 0.672x
 optimized/checked ratio is the pass's result; AOT is a different backend and is
 not included in that speedup. The `OPT-6` and handwritten-direct traces matched
 in the named categories reported by `trace.sh`.
+
+The same harness includes a slice-heavy construction gate. One representative
+500,000-iteration run measured a forced materialized slice at 121.827 ms, the
+compiler-virtualized slice at 4.252 ms, and the handwritten scalar control at
+7.785 ms. The virtual form retains the slice bounds check but emits neither a
+wrapper allocation nor an automatic-cleanup region.
 
 `matrix.nupp` separately checks `uint8`, `int32`, `float`, a multi-field struct,
 one/two/four participating spans, shared reads, exclusive stores,
@@ -54,7 +60,7 @@ than timing claims. The same harness runs with `NUPP_SPAN_INTERPRETER=1`.
 ## Reach audit
 
 The repository had no production hot loop already carrying a same-function
-`span.range` witness when this benchmark was added. The relevant uses classify
+`indexed.range` witness when this benchmark was added. The relevant uses classify
 as follows:
 
 - `bench/kernel-subset-spike/*.nupp`: plain bounds from the caller plus local
@@ -63,10 +69,10 @@ as follows:
   backend beneficiaries in required-AOT builds.
 - `tests/fixtures/native_foundations.nupp`: an existing same-function witness,
   but only a small correctness fixture.
-- `src/nupp/soa.nupp` and SoA benchmarks: a different physical representation
-  whose canonical row lowering is already owned by the SoA generator.
-- Other `get`, `getMut`, and `set` spellings in the compiler and tests name
-  unrelated containers.
+- `src/nupp/soa.nupp` and SoA benchmarks: the same proof now selects the SoA
+  physical adapter and lowers projected fields directly to columns.
+- Other `get` and `set` spellings in the compiler and tests name unrelated
+  containers.
 
 `kernel.nupp` therefore adopts the witness in the position/velocity map from the
 kernel subset. Its rebindable span parameters are first captured in const locals,

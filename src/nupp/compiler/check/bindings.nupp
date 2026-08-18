@@ -14,6 +14,7 @@ local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.relations")
 local cst = require("nupp.compiler.cst")
 local fixedWidth = require("nupp.compiler.fixed_width")
+local indexedViews = require("nupp.compiler.indexed_views")
 local state = require("nupp.compiler.check.state")
 
 local isA = relations.isA
@@ -135,6 +136,21 @@ function bindings.install(c: state.Checker): state.StatHandlers
             end
             if ann and nameTok.text == c.moduleLocal then
                 c.moduleLocalAnnotated = true
+            end
+            local boundInitializer = initializers[j]
+            if boundInitializer and boundInitializer.kind == "methodCall" and boundInitializer.name then
+                local descriptor = indexedViews.describe(bound)
+                if descriptor and boundInitializer.name.text == "slice" then
+                    boundInitializer.indexedViewOperation = {kind = "slice", descriptor = descriptor,}
+                elseif descriptor and boundInitializer.name.text == "shared" then
+                    boundInitializer.indexedViewOperation = {kind = "shared", descriptor = descriptor,}
+                elseif descriptor and boundInitializer.soaFieldProjection then
+                    boundInitializer.indexedViewOperation = {
+                        kind = "field",
+                        descriptor = descriptor,
+                        ordinal = boundInitializer.soaFieldProjection.ordinal,
+                    }
+                end
             end
             c.bindVar(nameTok.text, bound, ann ~= nil, nameTok, nil, stat.isConst)
             local boundEntry = c.scope.vars[nameTok.text]
@@ -294,41 +310,25 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 end
             end
             -- A const binding may carry the exact range proof produced by the sealed
-            -- standard span module. Every participating span must itself be const:
-            -- otherwise rebinding it after validation would make the proof unsound.
+            -- standard indexed-view operation. Every participating view is already a
+            -- const name, as checked at the call.
             local rangeExport = initNode
                 and initNode.kind == "call"
                 and initNode.obj
                 and initNode.obj.exactCallExport
                 or nil
+            local indexedRangeCall = initNode and initNode.kind == "call" and (
+                initNode as cst.Call
+            ).indexedRangeCall or nil
             if boundEntry
                 and boundEntry.definition
                 and stat.isConst
                 and rangeExport
-                and rangeExport.module == "nupp.span"
+                and rangeExport.module == "nupp.indexed"
                 and rangeExport.member == "range"
+                and indexedRangeCall
             then
-                local rangeCall = initNode as cst.Call
-                local args = rangeCall.args and rangeCall.args.kind == "args" and (
-                    rangeCall.args as cst.Args
-                ).exprs or {}
-                local spanDefinitions, valid = {}, #args >= 3
-                for index = 3, #args do
-                    local argument = args[index]
-                    local definition = argument
-                        and argument.kind == "name"
-                        and argument.token
-                        and argument.token.definition
-                        or nil
-                    if not definition or not definition.constant then
-                        valid = false
-                        break
-                    end
-                    spanDefinitions[definition] = true
-                end
-                if valid then
-                    boundEntry.definition.spanRangeWitness = {spans = spanDefinitions,}
-                end
+                boundEntry.definition.indexedRangeWitness = {views = indexedRangeCall.views,}
             end
             local scalarIdentity = initNode
                 and initNode.scalarIntrinsic
@@ -685,7 +685,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 local tt = c.infer(target)
                 target.writeContext = nil
                 local contractWrite = false
-                if target.usesIndexContract and et then
+                if target.usesIndexContract and et and not target.indexedAccess then
                     local receiver = target.indexObjectType
                     local keyType = target.indexKeyType
                     local mm = receiver and metamethodOf(receiver, "__newindex") or nil

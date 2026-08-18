@@ -1,10 +1,11 @@
--- Representative regular-backend span kernel for plan 060.
+-- Representative regular-backend span kernel for plan 061.
 --
 -- `guarded` is the shape used by the AOT kernel subset today. `ranged` preserves
 -- its length error and replaces only the handwritten range guard with the standard
 -- witness. The benchmark driver supplies the handwritten direct form so this file
 -- remains ordinary checked Nupp.
 local span = require("nupp.span")
+local indexed = require("nupp.indexed")
 
 local kernel = {}
 
@@ -27,19 +28,17 @@ function kernel.guarded(
     steps: integer,
     dt: float
 ): nil
-    if positions.count ~= velocities.count then
+    if #positions ~= #velocities then
         error("length mismatch", 2)
     end
-    if first < 1 or last > positions.count or first > last + 1 then
+    if first < 1 or last > #positions or first > last + 1 then
         error("range out of bounds", 2)
     end
 
     for _ = 1, steps do
         for index = first, last do
-            local position = positions:getMut(index)
-            local velocity = velocities:get(index)
-            position.x = velocity.x * dt + velocity.y
-            position.y = velocity.y * dt - velocity.x
+            positions[index].x = velocities[index].x * dt + velocities[index].y
+            positions[index].y = velocities[index].y * dt - velocities[index].x
         end
     end
 end
@@ -53,19 +52,17 @@ function kernel.ranged(
     steps: integer,
     dt: float
 ): nil
-    if positions.count ~= velocities.count then
+    if #positions ~= #velocities then
         error("length mismatch", 2)
     end
     const output = positions
     const input = velocities
-    const rows = span.range(first, last, output, input)
+    const rows = indexed.range(first, last, output, input)
 
     for _ = 1, steps do
         for index = rows.first, rows.last do
-            local position = output:getMut(index)
-            local velocity = input:get(index)
-            position.x = velocity.x * dt + velocity.y
-            position.y = velocity.y * dt - velocity.x
+            output[index].x = input[index].x * dt + input[index].y
+            output[index].y = input[index].y * dt - input[index].x
         end
     end
 end
@@ -75,13 +72,13 @@ end
 @relax("frames")
 function kernel.stringChecksum(text: string): number
     const bytes = span.fromString(text)
-    const rows = span.range(1, bytes.count, bytes)
+    const rows = indexed.range(1, #bytes, bytes)
     local total = 0
     for index = rows.first, rows.last do
         if index % 257 == 0 then
             collectgarbage()
         end
-        total = total + bytes:get(index)
+        total = total + bytes[index]
     end
 
     return total
@@ -94,12 +91,12 @@ function kernel.gcCopy(
 ): nil
     const output = positions
     const input = velocities
-    const rows = span.range(1, output.count, output, input)
+    const rows = indexed.range(1, #output, output, input)
     for index = rows.first, rows.last do
         if index % 67 == 0 then
             collectgarbage()
         end
-        output:getMut(index).x = input:get(index).x
+        output[index].x = input[index].x
     end
 end
 

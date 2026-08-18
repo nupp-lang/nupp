@@ -186,6 +186,16 @@ interface cst.Hints
     soaField: any
     soaFieldProjection: any
 
+    --- Trusted standard indexed-view operations attached during checking.
+    indexedLength: any
+
+    indexedAccess: any
+    indexedField: any
+    indexedRangeCall: any
+    indexedRangeAccess: any
+    indexedViewOperation: any
+    virtualIndexedView: any
+
     --- The severity of a `nupp.log` call generation may lower, as the runtime numbers
     --- them. Present only on a call whose format is a literal and whose `nupp` is the
     --- ambient one; lowering additionally needs statement position.
@@ -389,20 +399,11 @@ interface cst.Hints
     --- Element type of a C array construction.
     carrayElem: any
 
-    --- A method on one of the sealed standard span contracts. Its implementation
-    --- mutates or reads existing storage and performs no managed allocation.
-    spanAccessorNoAllocate: boolean?
-
-    --- A preceding `span.range` witness proves this accessor's index is in bounds.
+    --- A preceding `indexed.range` witness proves this accessor's index is in bounds.
     rangeProvenNoRaise: boolean?
 
-    --- The exact checked loop, receiver, index and operation behind that proof.
-    --- Optimizers consume semantic identities from this descriptor rather than
-    --- reconstructing a range argument from source spelling.
-    spanRangeAccess: any
-
-    --- Generator-only direct access selected by OPT-6 after checking.
-    spanDirectAccess: any
+    --- Generator-only direct indexed access selected after checking.
+    indexedDirectAccess: boolean?
 
     --- Header declarations a cheader call brought in.
     cheaderCdef: any

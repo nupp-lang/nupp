@@ -71,6 +71,7 @@ local RESOURCES = {
    {source = "src/nupp/zone.nupp", output = "nupp/compiler/nupp/zone.nupp"},
    {source = "src/nupp/_trace.nupp", output = "nupp/compiler/nupp/_trace.nupp"},
    {source = "src/nupp/profile.nupp", output = "nupp/compiler/nupp/profile.nupp"},
+   {source = "src/nupp/indexed.nupp", output = "nupp/compiler/nupp/indexed.nupp"},
    {source = "src/nupp/span.nupp", output = "nupp/compiler/nupp/span.nupp"},
    {source = "src/nupp/heap.nupp", output = "nupp/compiler/nupp/heap.nupp"},
    {source = "src/nupp/soa.nupp", output = "nupp/compiler/nupp/soa.nupp"},
@@ -377,7 +378,7 @@ transform(writable, readable)
 drop writable
 
 local result = spans.fromCarray(output, 256)
-print(result:get(1))]],
+print(result[1])]],
                      },
                      {
                         title = "Ship only what the program uses",

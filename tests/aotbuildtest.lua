@@ -30,16 +30,16 @@ local function scale(
     last: integer,
     factor: number
 ): nil
-    if samples.count ~= source.count then
+    if #samples ~= #source then
         error("length mismatch", 2)
     end
-    if first < 1 or last > samples.count or first > last + 1 then
+    if first < 1 or last > #samples or first > last + 1 then
         error("range out of bounds", 2)
     end
 
     for i = first, last do
-        local sample = samples:getMut(i)
-        local input = source:get(i)
+        local sample = samples[i]
+        local input = source[i]
         sample.value = input.value * factor + input.weight
         sample.weight = input.weight * factor
     end
@@ -499,11 +499,11 @@ local function scaleBoth(
     exclusive out: span.WriteSpan<Point>, borrows src: span.Span<Point>,
     first: integer, last: integer, factor: number
 ): nil
-    if out.count ~= src.count then error("length mismatch", 2) end
-    if first < 1 or last > out.count or first > last + 1 then error("range out of bounds", 2) end
+    if #out ~= #src then error("length mismatch", 2) end
+    if first < 1 or last > #out or first > last + 1 then error("range out of bounds", 2) end
     for i = first, last do
-        local o = out:getMut(i)
-        local s = src:get(i)
+        local o = out[i]
+        local s = src[i]
         o.x = s.x * factor
         o.y = s.y * factor
     end
@@ -514,11 +514,11 @@ local function shiftBoth(
     exclusive out: span.WriteSpan<Point>, borrows src: span.Span<Point>,
     first: integer, last: integer, delta: number
 ): nil
-    if out.count ~= src.count then error("length mismatch", 2) end
-    if first < 1 or last > out.count or first > last + 1 then error("range out of bounds", 2) end
+    if #out ~= #src then error("length mismatch", 2) end
+    if first < 1 or last > #out or first > last + 1 then error("range out of bounds", 2) end
     for i = first, last do
-        local o = out:getMut(i)
-        local s = src:get(i)
+        local o = out[i]
+        local s = src[i]
         o.x = s.x + delta
         o.y = s.y + delta
     end
