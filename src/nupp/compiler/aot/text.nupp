@@ -223,9 +223,7 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
             local index = statement.cursor ~= nil and statement.cursor .. "+1" or statement.index
             lines[
                 #lines + 1
-            ] = prefix .. "store " .. statement.span .. "[" .. index .. "] = " .. text.expression(
-                statement.value
-            )
+            ] = prefix .. "store " .. statement.span .. "[" .. index .. "] = " .. text.expression(statement.value)
         elseif op == "assign" or op == "vassign" then
             local verb = op == "assign" and "set " or "vset "
             for _, assignment in ipairs(statement.values) do

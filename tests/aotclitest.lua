@@ -214,6 +214,23 @@ end
 return {delimiters = delimiters}
 ]]
 
+local MUTATED_WHILE_CURSOR = [[
+local span = require("nupp.span")
+
+@aot(lanes = false)
+local function afterIncrement(borrows source: span.Span<uint8>): uint32
+    local cursor: uint32 = 0
+    local byte: uint32 = 0
+    while cursor < source.count do
+        cursor = nupp.math.u32.add(cursor, 1)
+        byte = source:get((cursor + 1) as integer)
+    end
+    return byte
+end
+
+return {afterIncrement = afterIncrement}
+]]
+
 local SCOPED_SIMD = [[
 local span = require("nupp.span")
 local simd = require("nupp.simd")
@@ -350,6 +367,13 @@ function M.blockKernelsRejectAnUnguardedAppendCursor()
    )
    local dir = project{["unguarded.nupp"] = source}
    local out, code = run(dir, "unguarded.nupp")
+   test.equal(code, 1, out)
+   assert(out:find("cursor + 1 under cursor < span.count", 1, true), out)
+end
+
+function M.whileBoundsStopAuthorizingAChangedCursor()
+   local dir = project{["changed.nupp"] = MUTATED_WHILE_CURSOR}
+   local out, code = run(dir, "changed.nupp")
    test.equal(code, 1, out)
    assert(out:find("cursor + 1 under cursor < span.count", 1, true), out)
 end

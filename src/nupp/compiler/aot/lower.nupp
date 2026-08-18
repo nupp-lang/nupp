@@ -378,6 +378,7 @@ record lower.Kernel
 
     --- Checked top-level require bindings and aliases of compiler intrinsics.
     modules: {[string]: string}
+
     intrinsicAliases: {[string]: string}
 
     --- The kernel's exported symbol, which its helpers are named after.
@@ -389,6 +390,7 @@ record lower.Kernel
 
     --- The loop counter, which is the only index a span access may use.
     index: string
+
     indexCName: string
 
     --- Results the top-level AOT entry promises. Helpers keep their own result
@@ -489,8 +491,9 @@ local function spanRead(
         local token = index.rhs ~= nil and index.rhs.kind == "number" and (index.rhs as cst.NumberLit).token or nil
         local offset = token ~= nil and tonumber((token as lexer.Token).text) or nil
         local candidate = lower.nameOf(index.lhs)
-        if written == "+" and offset == 1 and candidate ~= nil
-            and kernel.cursorBounds[candidate as string] == spanName then
+        if written == "+" and offset == 1 and candidate ~= nil and kernel.cursorBounds[
+            candidate as string
+        ] == spanName then
             cursor = candidate
         end
     end
@@ -640,10 +643,9 @@ local function fixedCall(
             local literal = argument as scalarIR.Constant
             local number = tonumber(literal.value)
             if fixed.operand == "i32" or fixed.operand == "u32" then
-                local exact = number ~= nil
-                    and number % 1 == 0
-                    and number >= (fixed.operand == "u32" and 0 or lower.INT32_MIN)
-                    and number <= (fixed.operand == "u32" and lower.UINT32_MAX or lower.INT32_MAX)
+                local exact = number ~= nil and number % 1 == 0 and number >= (
+                    fixed.operand == "u32" and 0 or lower.INT32_MIN
+                ) and number <= (fixed.operand == "u32" and lower.UINT32_MAX or lower.INT32_MAX)
                 if not exact then
                     context.reject(source, path .. " needs an exact " .. fixed.operand .. " literal")
                 end
@@ -758,12 +760,7 @@ local function call(
         end
         kernel.usesSimd = true
 
-        return new scalarIR.Simd(
-            op = "simd_species_u8",
-            args = {},
-            type = "simd_species_u8",
-            source = lower.site(node)
-        )
+        return new scalarIR.Simd(op = "simd_species_u8", args = {}, type = "simd_species_u8", source = lower.site(node))
     end
     local fixed = path ~= nil and admit.fixed(path as string) or nil
     if fixed ~= nil then
@@ -831,12 +828,9 @@ local function simdMethod(
         if span == nil or span.kind ~= "read_span" or span.sourceType ~= "uint8" then
             kernel.context.reject(source, "SIMD byte loads require a borrowed Span<uint8>")
         end
-        args[2] = lower.convert(
-            lower.expression(raw[2], environment, activeIndex, kernel),
-            "u32",
-            source,
-            kernel.context
-        )
+        args[
+            2
+        ] = lower.convert(lower.expression(raw[2], environment, activeIndex, kernel), "u32", source, kernel.context)
 
         return new scalarIR.Simd(
             op = "simd_load_u8",
@@ -846,12 +840,9 @@ local function simdMethod(
             source = source
         )
     elseif receiverType == "simd_species_u8" and method == "tail" and #raw == 1 then
-        args[2] = lower.convert(
-            lower.expression(raw[1], environment, activeIndex, kernel),
-            "u32",
-            source,
-            kernel.context
-        )
+        args[
+            2
+        ] = lower.convert(lower.expression(raw[1], environment, activeIndex, kernel), "u32", source, kernel.context)
         return new scalarIR.Simd(op = "simd_tail_u8", args = args, type = "simd_mask_u8", source = source)
     elseif receiverType == "simd_vector_u8" and (method == "equal" or method == "inRange") then
         local expected = method == "equal" and 1 or 2
@@ -859,7 +850,9 @@ local function simdMethod(
             kernel.context.reject(source, "SIMD " .. method .. " has an unsupported argument count")
         end
         for _, argument in ipairs(raw) do
-            args[#args + 1] = lower.convert(
+            args[
+                #args + 1
+            ] = lower.convert(
                 lower.expression(argument, environment, activeIndex, kernel),
                 "u32",
                 source,
@@ -905,12 +898,7 @@ local function simdMethod(
         }
         local reduction = reductions[method]
         if reduction ~= nil then
-            return new scalarIR.Simd(
-                op = reduction.op as any,
-                args = args,
-                type = reduction.type,
-                source = source
-            )
+            return new scalarIR.Simd(op = reduction.op as any, args = args, type = reduction.type, source = source)
         end
     end
 
@@ -1638,6 +1626,12 @@ local function assignStmt(
         )
     end
     out[#out + 1] = new scalarIR.Assign(op = "assign", values = assignments, source = lower.site(stat))
+    for _, entry in ipairs(assignments) do
+        local target = entry.target
+        if target.kind == "local" and target.name ~= nil then
+            kernel.cursorBounds[target.name as string] = nil
+        end
+    end
 end
 
 --- One numeric `for` bound.
@@ -1683,12 +1677,19 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         end
         local comparison = condition as cst.Binop
         local written = comparison.op ~= nil and (comparison.op as lexer.Token).text or ""
+        if written == "and" then
+            local cursor, spanName = cursorBound(comparison.lhs)
+            if cursor ~= nil then
+                return cursor, spanName
+            end
+
+            return cursorBound(comparison.rhs)
+        end
         local cursor = lower.nameOf(comparison.lhs)
         local spanName = lower.dotCount(comparison.rhs)
         local binding = cursor ~= nil and environment[cursor as string] or nil
         local param = spanName ~= nil and kernel.params[spanName as string] or nil
-        if written == "<" and binding ~= nil and binding.type == "u32"
-            and param ~= nil and param.region ~= nil then
+        if written == "<" and binding ~= nil and binding.type == "u32" and param ~= nil and param.region ~= nil then
             return cursor, spanName
         end
 
@@ -1707,6 +1708,15 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         bounds[cursor as string] = spanName as string
         kernel.cursorBounds = bounds
         local lowered = nested(body)
+        local invalidated: {string} = {}
+        for name in pairs(previous) do
+            if bounds[name] == nil then
+                invalidated[#invalidated + 1] = name
+            end
+        end
+        for _, name in ipairs(invalidated) do
+            previous[name] = nil
+        end
         kernel.cursorBounds = previous
 
         return lowered
@@ -1792,10 +1802,9 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 from = from,
                 to = to,
                 body = loopBody,
-                boundSpan = from.op == "constant_i32"
-                    and (from as scalarIR.IntConstant).value == "1"
-                    and to.op == "span_count"
-                    and (to as scalarIR.SpanCount).span or nil,
+                boundSpan = from.op == "constant_i32" and (
+                    from as scalarIR.IntConstant
+                ).value == "1" and to.op == "span_count" and (to as scalarIR.SpanCount).span or nil,
                 source = lower.site(stat)
             )
         elseif kind == "whileStmt" then
@@ -1810,12 +1819,14 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             if condition.type ~= "bool" then
                 context.reject(lower.site(loop.cond), "native loop conditions must be boolean")
             end
+            local cursor, spanName = cursorBound(loop.cond)
             out[
                 #out + 1
             ] = new scalarIR.While(
                 op = "while",
                 condition = condition,
-                body = nested(loop.body),
+                body = nestedWithCursor(loop.body, cursor, spanName),
+                cursorBounds = cursor ~= nil and {[cursor as string] = spanName as string} or nil,
                 source = lower.site(stat)
             )
         elseif kind == "doStmt" then
@@ -2222,6 +2233,7 @@ record lower.Declarations
 
     --- Module values and exact compiler intrinsics visible to every function.
     modules: {[string]: string}
+
     intrinsicAliases: {[string]: string}
 end
 
@@ -2232,7 +2244,11 @@ end
 ---   annotation
 function lower.scan(chunk: cst.Chunk, checked: boolean): lower.Declarations
     local found = new lower.Declarations(
-        applications = {}, helpers = {}, structs = {}, modules = {}, intrinsicAliases = {}
+        applications = {},
+        helpers = {},
+        structs = {},
+        modules = {},
+        intrinsicAliases = {}
     )
     for _, block in ipairs(chunk.blocks or {}) do
         for _, stat in ipairs((block as cst.Block).stats or {}) do
@@ -2244,8 +2260,9 @@ function lower.scan(chunk: cst.Chunk, checked: boolean): lower.Declarations
                     local called = exprs[1] as cst.Call
                     if required == nil and lower.nameOf(called.obj) == "require" and called.args ~= nil then
                         local arguments = (called.args as cst.Args).exprs or {}
-                        local literal = #arguments == 1 and arguments[1].kind == "string"
-                            and (arguments[1] as cst.StringLit).token or nil
+                        local literal = #arguments == 1 and arguments[
+                            1
+                        ].kind == "string" and (arguments[1] as cst.StringLit).token or nil
                         local written = literal ~= nil and (literal as lexer.Token).text or ""
                         required = written:match('^"(.*)"$') or written:match("^'(.*)'$")
                     end
@@ -2442,12 +2459,9 @@ function lower.program(
     end
 
     local statements = body.body ~= nil and (body.body as cst.Block).stats or {}
-    local mapShape = #resultTypes == 0
-        and #signature.writes > 0
-        and #signature.reads > 0
-        and (#statements == 2 or #statements == 3)
-        and statements[1].kind == "ifStmt"
-        and statements[#statements].kind == "fornumStmt"
+    local mapShape = #resultTypes == 0 and #signature.writes > 0 and #signature.reads > 0 and (
+        #statements == 2 or #statements == 3
+    ) and statements[1].kind == "ifStmt" and statements[#statements].kind == "fornumStmt"
 
     if not mapShape then
         if contract.lanesRequired then

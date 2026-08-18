@@ -29,7 +29,7 @@ local scalarIR = require("nupp.compiler.aot.scalar")
 local binding = {}
 
 --- How a storage type is spelled in Nupp source.
-const binding.SOURCE_TYPE = {["f32"] = "float", ["i32"] = "int32", ["u32"] = "uint32"}
+const binding.SOURCE_TYPE = {["f64"] = "number", ["f32"] = "float", ["i32"] = "int32", ["u32"] = "uint32",}
 
 --- The source storage spelling carried by the IR, or its canonical spelling.
 local function sourceType(valueType: string, physicalType: string?): string
@@ -71,9 +71,7 @@ end
 function binding.resultStruct(program: scalarIR.Program): {string}
     local lines: {string} = {"cdef struct " .. resultName(program)}
     for position, resultType in ipairs(program.resultTypes or {}) do
-        lines[
-            #lines + 1
-        ] = "    v" .. tostring(position) .. ": " .. tostring(binding.ABI_TYPE[resultType] or "int32")
+        lines[#lines + 1] = "    v" .. tostring(position) .. ": " .. tostring(binding.ABI_TYPE[resultType] or "int32")
     end
     lines[#lines + 1] = "end"
 
@@ -169,8 +167,9 @@ function binding.foreign(program: scalarIR.Program, library: string): {string}
         lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
     end
     local resultTypes = program.resultTypes or {}
-    local result = #resultTypes == 0 and ""
-        or ": " .. (#resultTypes > 1 and resultName(program) or tostring(binding.ABI_TYPE[resultTypes[1]] or "int32"))
+    local result = #resultTypes == 0 and "" or ": " .. (
+        #resultTypes > 1 and resultName(program) or tostring(binding.ABI_TYPE[resultTypes[1]] or "int32")
+    )
     lines[#lines + 1] = ")" .. result .. " " .. from(library)
 
     return lines
@@ -218,10 +217,7 @@ end
 --- lengths would read past the end of the shorter. The first span's count is
 --- what is passed; the rest are compared against it and the call is refused if
 --- they disagree.
-function binding.spanArguments(
-    params: {scalarIR.Param},
-    independent: boolean?
-): ({string}, {string}, string?)
+function binding.spanArguments(params: {scalarIR.Param}, independent: boolean?): ({string}, {string}, string?)
     local lines: {string} = {}
     local arguments: {string} = {}
     local counts: {string} = {}
@@ -270,9 +266,9 @@ function binding.wrapper(program: scalarIR.Program): {string}
         lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
     end
     local resultSourceTypes = program.resultSourceTypes or {}
-    local result = #resultSourceTypes == 0 and "nil"
-        or #resultSourceTypes == 1 and resultSourceTypes[1]
-        or "(" .. table.concat(resultSourceTypes, ", ") .. ")"
+    local result = #resultSourceTypes == 0 and "nil" or #resultSourceTypes == 1 and resultSourceTypes[
+        1
+    ] or "(" .. table.concat(resultSourceTypes, ", ") .. ")"
     lines[#lines + 1] = "): " .. result
     for _, line in ipairs(binding.range(program.rangeGuard)) do
         lines[#lines + 1] = line
@@ -284,7 +280,9 @@ function binding.wrapper(program: scalarIR.Program): {string}
     end
     lines[#lines + 1] = "    unsafe do"
     if #resultSourceTypes > 1 then
-        lines[#lines + 1] = "        local nativeResult = " .. program.symbol .. "(" .. table.concat(arguments, ", ") .. ")"
+        lines[
+            #lines + 1
+        ] = "        local nativeResult = " .. program.symbol .. "(" .. table.concat(arguments, ", ") .. ")"
         local values: {string} = {}
         for position in ipairs(resultSourceTypes) do
             values[position] = "nativeResult.v" .. tostring(position)
@@ -293,10 +291,9 @@ function binding.wrapper(program: scalarIR.Program): {string}
     else
         lines[
             #lines + 1
-        ] = "        " .. (#resultSourceTypes == 0 and "" or "return ") .. program.symbol .. "(" .. table.concat(
-            arguments,
-            ", "
-        ) .. ")"
+        ] = "        " .. (
+            #resultSourceTypes == 0 and "" or "return "
+        ) .. program.symbol .. "(" .. table.concat(arguments, ", ") .. ")"
     end
     lines[#lines + 1] = "    end"
     lines[#lines + 1] = "end"

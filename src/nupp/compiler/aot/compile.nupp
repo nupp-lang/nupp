@@ -212,10 +212,12 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
         program.laneRefusals = {
             new compile.Diagnostic(
                 file = filename,
-                line = (program.loop as scalarIR.Loop).source ~= nil
-                    and ((program.loop as scalarIR.Loop).source as scalarIR.Source).line or 1,
-                column = (program.loop as scalarIR.Loop).source ~= nil
-                    and ((program.loop as scalarIR.Loop).source as scalarIR.Source).column or 1,
+                line = (
+                    program.loop as scalarIR.Loop
+                ).source ~= nil and ((program.loop as scalarIR.Loop).source as scalarIR.Source).line or 1,
+                column = (
+                    program.loop as scalarIR.Loop
+                ).source ~= nil and ((program.loop as scalarIR.Loop).source as scalarIR.Source).column or 1,
                 message = targets.noGangReason(selected)
             ),
         }
@@ -236,10 +238,12 @@ function compile.lanes(program: scalarIR.Program, filename: string, selected: ta
                 #refusals + 1
             ] = new compile.Diagnostic(
                 file = filename,
-                line = (program.loop as scalarIR.Loop).source ~= nil
-                    and ((program.loop as scalarIR.Loop).source as scalarIR.Source).line or 1,
-                column = (program.loop as scalarIR.Loop).source ~= nil
-                    and ((program.loop as scalarIR.Loop).source as scalarIR.Source).column or 1,
+                line = (
+                    program.loop as scalarIR.Loop
+                ).source ~= nil and ((program.loop as scalarIR.Loop).source as scalarIR.Source).line or 1,
+                column = (
+                    program.loop as scalarIR.Loop
+                ).source ~= nil and ((program.loop as scalarIR.Loop).source as scalarIR.Source).column or 1,
                 message = why
             )
         end

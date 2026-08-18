@@ -23,6 +23,7 @@ local admit = {}
 --- types: a physical load widens and a physical store narrows, and nothing in
 --- between changes a width.
 const admit.STORAGE = {
+    ["number"] = "f64",
     ["float"] = "f32",
     ["int8"] = "i32",
     ["int16"] = "i32",

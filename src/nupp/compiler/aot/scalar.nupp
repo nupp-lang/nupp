@@ -128,11 +128,13 @@ record scalarIR.Load
     --- The loop index. Consecutive access is the whole of the lane rewrite's
     --- licence to run several iterations at once, so nothing else is admitted.
     index: string
+
     indexCName: string?
 
     --- A zero-based append/read cursor authorized by a dominating
     --- `cursor < span.count` branch. The source access is `cursor + 1`.
     cursor: string?
+
     cursorCName: string?
 
     type: scalarIR.Type
@@ -452,6 +454,7 @@ record scalarIR.While
     op: 'while'
     condition: scalarIR.Expr
     body: {scalarIR.Statement}
+    cursorBounds: {[string]: string}?
     source: scalarIR.Source?
 end
 
@@ -466,6 +469,7 @@ record scalarIR.Fornum
     --- when `from` is one and `to` is that span's checked count; it is the proof
     --- that accesses through this induction variable are in bounds.
     boundSpan: string?
+
     source: scalarIR.Source?
 end
 
@@ -687,15 +691,18 @@ record scalarIR.Program
     aliasFacts: {scalarIR.AliasFact}
     guards: {scalarIR.Guard}
     helpers: {scalarIR.Helper}?
+
     --- The original map-shaped form, or a general structured scalar body.
     --- Exactly one is present. Keeping the map form preserves its established
     --- lane transform and private ABI while block kernels grow independently.
     loop: scalarIR.Loop?
+
     body: {scalarIR.Statement}?
 
     --- Top-level scalar results. Empty is the existing `nil` ABI; several use
     --- one compiler-owned native result aggregate at the private boundary.
     resultTypes: {scalarIR.Type}?
+
     resultSourceTypes: {string}?
     usesSimd: boolean?
     simdWidth: integer?

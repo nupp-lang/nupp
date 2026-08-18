@@ -22,6 +22,10 @@ local struct Sample
     weight: float
 end
 
+local struct Decimal
+    value: number
+end
+
 @aot(lanes = true)
 local function scale(
     exclusive samples: span.WriteSpan<Sample>,
@@ -60,7 +64,20 @@ local function sumBytes(
     return total, nupp.math.u32.wrap(first.count), nupp.math.u32.wrap(second.count)
 end
 
-return {scale = scale, sumBytes = sumBytes, Sample = Sample,}
+@aot(lanes = false)
+local function fillDecimals(exclusive values: span.WriteSpan<Decimal>, value: number): nil
+    for i = 1, values.count do
+        values:getMut(i).value = value
+    end
+end
+
+return {
+    scale = scale,
+    sumBytes = sumBytes,
+    fillDecimals = fillDecimals,
+    Sample = Sample,
+    Decimal = Decimal,
+}
 ]]
 
 local SIMD_KERNEL = [[
@@ -178,6 +195,8 @@ function M.emitCWritesTheCBesideTheBuild()
       "a block kernel keeps its scalar result pack in the native ABI")
    assert(c:find("size_t count_first, size_t count_second", 1, true),
       "a block kernel receives each span's independent length")
+   assert(c:find("double value;", 1, true),
+      "a native arena field retains physical binary64 storage")
    -- A module with no `@aot` in it produces nothing rather than an empty file.
    test.equal(read(dir .. "/build/native/aot/src/plain.c"), nil,
       "a module with no @aot function produces no artifact")

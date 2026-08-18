@@ -55,6 +55,7 @@ record verify.Scope
     --- bounds it. A legacy map loop sets `mapIndex`, because its wrapper proved
     --- every span has the primary output's count.
     index: string?
+
     boundSpan: string?
     mapIndex: boolean?
 
@@ -105,7 +106,7 @@ const verify.NUMERIC = {["f64"] = true, ["f32"] = true, ["i32"] = true, ["u32"] 
 
 --- The storage types a span field may have. Narrower widths load into one of
 --- these rather than appearing here themselves.
-const verify.FIELD_STORAGE = {["f32"] = true, ["i32"] = true, ["u32"] = true}
+const verify.FIELD_STORAGE = {["f64"] = true, ["f32"] = true, ["i32"] = true, ["u32"] = true}
 
 --- The value type established by each physical scalar storage type.
 ---
@@ -114,6 +115,7 @@ const verify.FIELD_STORAGE = {["f32"] = true, ["i32"] = true, ["u32"] = true}
 --- this relation explicit prevents a backend from confusing register width
 --- with the bytes an ABI pointer actually addresses.
 const verify.SOURCE_STORAGE = {
+    ["number"] = "f64",
     ["float"] = "f32",
     ["int8"] = "i32",
     ["int16"] = "i32",
@@ -124,7 +126,7 @@ const verify.SOURCE_STORAGE = {
 }
 
 --- The source spelling an old or hand-built IR node means when it omits one.
-const verify.CANONICAL_SOURCE = {["f32"] = "float", ["i32"] = "int32", ["u32"] = "uint32"}
+const verify.CANONICAL_SOURCE = {["f64"] = "number", ["f32"] = "float", ["i32"] = "int32", ["u32"] = "uint32",}
 
 local function storageSource(valueType: string, sourceType: string?): string
     return sourceType or tostring(verify.CANONICAL_SOURCE[valueType])
@@ -309,10 +311,9 @@ local function load(node: scalarIR.Load, values: {[string]: string}, scope: veri
     )
     if node.cursor ~= nil then
         holds(
-            node.index == ""
-            and values[node.cursor as string] == "u32"
-            and scope.cursorBounds[node.cursor as string] == node.span
-            and node.cursorCName ~= nil,
+            node.index == "" and values[
+                node.cursor as string
+            ] == "u32" and scope.cursorBounds[node.cursor as string] == node.span and node.cursorCName ~= nil,
             "unbounded cursor load"
         )
     else
@@ -338,12 +339,13 @@ local function elementRef(node: scalarIR.ElementRef, values: {[string]: string},
         span.type == "struct:" .. tostring(layoutName) and scope.layouts[tostring(layoutName)] ~= nil,
         "invalid struct element root"
     )
-    local bounded = node.cursor ~= nil and node.index == ""
-        and values[node.cursor as string] == "u32"
-        and scope.cursorBounds[node.cursor as string] == node.span
-        and node.cursorCName ~= nil
-        or node.cursor == nil and node.index == scope.index
-            and (scope.mapIndex == true or node.span == scope.boundSpan)
+    local bounded = node.cursor ~= nil and node.index == "" and values[
+        node.cursor as string
+    ] == "u32" and scope.cursorBounds[
+        node.cursor as string
+    ] == node.span and node.cursorCName ~= nil or node.cursor == nil and node.index == scope.index and (
+        scope.mapIndex == true or node.span == scope.boundSpan
+    )
     holds(node.mutable == (span.kind == "write_span") and bounded, "invalid struct element access")
 end
 
@@ -457,7 +459,10 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             simd_bits = {result = "u32", operands = {"simd_mask_u8"}},
         }
         local signature = signatures[tostring(op)]
-        holds(signature ~= nil and node.type == signature.result and #args == #signature.operands, "invalid SIMD operation")
+        holds(
+            signature ~= nil and node.type == signature.result and #args == #signature.operands,
+            "invalid SIMD operation"
+        )
         for position, argument in ipairs(args) do
             holds(argument.type == signature.operands[position], "invalid SIMD operand")
             scalarWalk(argument, values, scope)
@@ -465,8 +470,9 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         if op == "simd_load_u8" then
             local span = simd.span ~= nil and scope.spans[simd.span as string] or nil
             holds(
-                span ~= nil and (span as scalarIR.Param).kind == "read_span"
-                    and (span as scalarIR.Param).sourceType == "uint8",
+                span ~= nil and (
+                    span as scalarIR.Param
+                ).kind == "read_span" and (span as scalarIR.Param).sourceType == "uint8",
                 "invalid SIMD load root"
             )
         else
@@ -883,6 +889,25 @@ local function assignment(
     scalarWalk(entry.value, values, scope)
 end
 
+--- Whether a true condition itself proves one zero-based cursor is below one
+--- span count. Cursor metadata narrows the verifier's search; it does not get
+--- to manufacture a bounds fact independently of the checked expression.
+local function provesCursorBound(condition: scalarIR.Expr, cursor: string, spanName: string): boolean
+    if condition.op == "and" then
+        local binary = condition as scalarIR.Binary
+        return provesCursorBound(binary.left, cursor, spanName) or provesCursorBound(binary.right, cursor, spanName)
+    elseif condition.op == "lt" then
+        local comparison = condition as scalarIR.Binary
+        return comparison.left.op == "local" and (
+            comparison.left as scalarIR.Name
+        ).name == cursor and comparison.right.op == "span_count" and (
+            comparison.right as scalarIR.SpanCount
+        ).span == spanName
+    else
+        return false
+    end
+end
+
 --- Checks one block of scalar statements, and everything under it.
 ---
 --- `stored` accumulates which outputs were written, because a kernel whose
@@ -915,12 +940,17 @@ local function block(
                 values[bound.name] = bound.type
             end
         elseif statement.op == "store" then
-            local bounded = statement.cursor ~= nil and statement.index == ""
-                and values[statement.cursor as string] == "u32"
-                and scope.cursorBounds[statement.cursor as string] == statement.span
+            local bounded = statement.cursor ~= nil and statement.index == "" and values[
+                statement.cursor as string
+            ] == "u32" and scope.cursorBounds[
+                statement.cursor as string
+            ] == statement.span
                 and statement.cursorCName ~= nil
-                or statement.cursor == nil and statement.index == scope.index
-                    and (scope.mapIndex == true or statement.span == scope.boundSpan)
+                or statement.cursor == nil
+                and statement.index == scope.index
+                and (
+                scope.mapIndex == true or statement.span == scope.boundSpan
+            )
             holds(scope.writes[statement.span] == true and bounded, "invalid store root")
             scalarWalk(statement.value, values, scope)
             holds(statement.value.type == (scope.spans[statement.span] as scalarIR.Param).type, "store type mismatch")
@@ -929,7 +959,14 @@ local function block(
             for _, entry in ipairs(statement.values) do
                 assignment(entry, values, scope, stored)
             end
+            for _, entry in ipairs(statement.values) do
+                local target = entry.target
+                if target.kind == "local" and target.name ~= nil then
+                    scope.cursorBounds[target.name as string] = nil
+                end
+            end
         elseif statement.op == "if" then
+            local invalidated: {[string]: boolean} = {}
             for _, clause in ipairs(statement.clauses) do
                 holds(clause.condition.type == "bool", "non-boolean branch")
                 scalarWalk(clause.condition, values, scope)
@@ -938,7 +975,14 @@ local function block(
                     cursorBounds[name] = spanName
                 end
                 for name, spanName in pairs(clause.cursorBounds or {}) do
-                    holds(values[name] == "u32" and scope.spans[spanName] ~= nil, "invalid cursor bounds proof")
+                    holds(
+                        values[
+                            name
+                        ] == "u32" and scope.spans[
+                            spanName
+                        ] ~= nil and provesCursorBound(clause.condition, name, spanName),
+                        "invalid cursor bounds proof"
+                    )
                     cursorBounds[name] = spanName
                 end
                 local nestedScope = new verify.Scope(
@@ -953,9 +997,17 @@ local function block(
                     resultTypes = scope.resultTypes
                 )
                 block(clause.body, values, nestedScope, stored)
+                for name in pairs(scope.cursorBounds) do
+                    if nestedScope.cursorBounds[name] == nil then
+                        invalidated[name] = true
+                    end
+                end
             end
             if statement.elseBody ~= nil then
                 block(statement.elseBody or {}, values, scope, stored)
+            end
+            for name in pairs(invalidated) do
+                scope.cursorBounds[name] = nil
             end
         elseif statement.op == "fornum" then
             for _, bound in ipairs({statement.from, statement.to}) do
@@ -979,10 +1031,11 @@ local function block(
             )
             if statement.boundSpan ~= nil then
                 holds(
-                    statement.from.op == "constant_i32"
-                    and (statement.from as scalarIR.IntConstant).value == "1"
-                    and statement.to.op == "span_count"
-                    and (statement.to as scalarIR.SpanCount).span == statement.boundSpan,
+                    statement.from.op == "constant_i32" and (
+                        statement.from as scalarIR.IntConstant
+                    ).value == "1" and statement.to.op == "span_count" and (
+                        statement.to as scalarIR.SpanCount
+                    ).span == statement.boundSpan,
                     "invalid counted span loop proof"
                 )
             end
@@ -990,7 +1043,42 @@ local function block(
         elseif statement.op == "while" then
             holds(statement.condition.type == "bool", "non-boolean loop condition")
             scalarWalk(statement.condition, values, scope)
-            block(statement.body, values, scope, stored)
+            local cursorBounds: {[string]: string} = {}
+            for name, spanName in pairs(scope.cursorBounds) do
+                cursorBounds[name] = spanName
+            end
+            for name, spanName in pairs(statement.cursorBounds or {}) do
+                holds(
+                    values[
+                        name
+                    ] == "u32" and scope.spans[
+                        spanName
+                    ] ~= nil and provesCursorBound(statement.condition, name, spanName),
+                    "invalid loop cursor bounds proof"
+                )
+                cursorBounds[name] = spanName
+            end
+            local nestedScope = new verify.Scope(
+                spans = scope.spans,
+                layouts = scope.layouts,
+                helpers = scope.helpers,
+                writes = scope.writes,
+                index = scope.index,
+                boundSpan = scope.boundSpan,
+                mapIndex = scope.mapIndex,
+                cursorBounds = cursorBounds,
+                resultTypes = scope.resultTypes
+            )
+            block(statement.body, values, nestedScope, stored)
+            local invalidated: {string} = {}
+            for name in pairs(scope.cursorBounds) do
+                if nestedScope.cursorBounds[name] == nil then
+                    invalidated[#invalidated + 1] = name
+                end
+            end
+            for _, name in ipairs(invalidated) do
+                scope.cursorBounds[name] = nil
+            end
         elseif statement.op == "block" then
             block(statement.body, values, scope, stored)
         elseif statement.op == "return" then

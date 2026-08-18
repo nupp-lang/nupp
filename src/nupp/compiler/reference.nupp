@@ -1541,6 +1541,11 @@ cursor authorizes `output:set(cursor + 1, value)` only inside a dominating
 remain in checked AOT IR, so omitting the guard is a compile-time refusal rather
 than an unchecked native access.
 
+Reified span structs may store `number` fields as physical C `double` values,
+alongside the narrower integer and `float` storage types. Loads and stores retain
+binary64 rather than narrowing through binary32, which makes these structs
+suitable for pointer-free parser and codec arenas.
+
 An `@aot` body of one top-level numeric map loop may also be lowered
 lane-parallel, at a width taken from the lane types its own values need; nothing
 in the source names a lane, a mask, or a width. Whether that pays is decided from

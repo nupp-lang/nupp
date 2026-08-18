@@ -134,7 +134,9 @@ function scalar.fold(identity: string, args: {number}): scalar.Folded?
         return count
     elseif operation == "trailingZeros" then
         local value, count = u32(a), 0
-        if value == 0 then return 32 end
+        if value == 0 then
+            return 32
+        end
         while bit.band(value, 1) == 0 do
             value = bit.rshift(value, 1)
             count = count + 1
@@ -142,7 +144,9 @@ function scalar.fold(identity: string, args: {number}): scalar.Folded?
         return count
     elseif operation == "leadingZeros" then
         local value, count, mask = u32(a), 0, 2147483648
-        if value == 0 then return 32 end
+        if value == 0 then
+            return 32
+        end
         while bit.band(value, mask) == 0 do
             mask = bit.rshift(mask, 1)
             count = count + 1

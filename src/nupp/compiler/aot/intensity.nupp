@@ -82,6 +82,7 @@ const intensity.ARITHMETIC = {
 --- carrying it is. A `float` field is four bytes however many bits the gang
 --- widens it to, because the bytes are what crosses memory.
 const intensity.SOURCE_BYTES = {
+    ["number"] = 8,
     ["float"] = 4,
     ["int8"] = 1,
     ["uint8"] = 1,
@@ -91,7 +92,7 @@ const intensity.SOURCE_BYTES = {
     ["uint32"] = 4,
 }
 
-const intensity.CANONICAL_SOURCE = {["f32"] = "float", ["i32"] = "int32", ["u32"] = "uint32"}
+const intensity.CANONICAL_SOURCE = {["f64"] = "number", ["f32"] = "float", ["i32"] = "int32", ["u32"] = "uint32",}
 
 local function sourceBytes(valueType: string, sourceType: string?): integer
     return intensity.SOURCE_BYTES[sourceType or tostring(intensity.CANONICAL_SOURCE[valueType])] or 8

@@ -146,13 +146,16 @@ function aot.install(c: state.Checker): aot.Ops
                     exact = definition ~= nil and definition.exactCallExport or nil
                 end
                 local selected = c.env.config and c.env.config._target or nil
-                if selected ~= nil and selected.aot == "off"
-                    and exact ~= nil and exact.identity == "nupp.simd.preferredU8" then
+                if selected ~= nil
+                    and selected.aot == "off"
+                    and exact ~= nil
+                    and exact.identity == "nupp.simd.preferredU8"
+                then
                     c.diag(
                         "NUPP2903",
                         callee or current,
                         "simd.preferredU8 creates an AOT-only value and cannot run with aot=off; "
-                            .. "select aot=emit-c or aot=require"
+                        .. "select aot=emit-c or aot=require"
                     )
                 end
             end
