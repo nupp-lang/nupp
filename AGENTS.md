@@ -91,8 +91,17 @@ alone; it is the record of what was intended, not a description of the code.
 
 ## Verification
 
-- `./bin/nupp test` runs the test suite. `--json` reports a record per test —
-  name, status, duration, and the failure's message, file and line.
+- `./bin/nupp test [SUITE...]` runs the test suite, or only the named suites:
+  `./bin/nupp test doctest` finishes in seconds where the whole suite takes
+  about nine minutes. `--json` reports a record per test — name, status,
+  duration, and the failure's message, file and line.
+- Run the suites that cover what changed, not the whole suite. Documentation
+  generation is `doctest`, and the same holds elsewhere: match the suites to
+  the area. The full suite is for changes that reach broadly — the checker, the
+  compiler pipeline, the runtime — or when a focused run is not obviously
+  enough. Running it on a change it cannot reach spends ten minutes to learn
+  nothing, and its unrelated pre-existing failures then have to be sorted out
+  from the ones the change caused.
 - CSS or styling-only changes do not require the test suite. Verify the
   affected generated site or assets instead.
 - `./bin/nupp fixpoint` verifies that the compiler rebuilds byte-identically.
@@ -115,6 +124,5 @@ rather than leaving that to be inferred from how long it took, and
 
 The first full test run in a helper-created worktree also starts with the
 originating checkout's suite timings, so its parallel shards are balanced from
-the outset. Run focused suites while editing and the full suite before
-committing. Run `fixpoint` near completion when compiler sources changed; it is
+the outset. Run `fixpoint` near completion when compiler sources changed; it is
 a self-hosting verification, not part of the inner edit/check loop.
