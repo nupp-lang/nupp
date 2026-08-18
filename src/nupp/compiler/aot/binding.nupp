@@ -329,15 +329,18 @@ function binding.builderLoader(program: scalarIR.Program, library: string): {str
         "            local open, why = loadlib(path, \"" .. tostring(program.registrar) .. "\")",
         "            if not open then error(\"cannot register AOT builder: \" .. tostring(why), 0) end",
         "            registered = open()",
-        "            if type(registered) ~= \"table\" or type(registered[\"" .. program.name
-            .. "\"]) ~= \"function\" then error(\"malformed AOT builder registration\", 0) end",
+        "            if type(registered) ~= \"table\" or type(registered[\""
+        .. program.name
+        .. "\"]) ~= \"function\" then error(\"malformed AOT builder registration\", 0) end",
         "            modules[cacheKey] = registered",
         "            return registered[\"" .. program.name .. "\"]",
         "        end",
         "        directory = directory .. \"/..\"",
         "    end",
-        "    error(\"cannot find " .. relative .. " at or above \" .. started"
-            .. " .. \"; the compiled library has to travel with the module that calls it\", 0)",
+        "    error(\"cannot find "
+        .. relative
+        .. " at or above \" .. started"
+        .. " .. \"; the compiled library has to travel with the module that calls it\", 0)",
         "end",
         "local " .. prefix .. " = " .. prefix .. "Load()",
     }
@@ -360,10 +363,9 @@ function binding.builderWrapper(program: scalarIR.Program): {string}
     lines[#lines + 1] = "): " .. result
     lines[
         #lines + 1
-    ] = "    " .. (#results > 0 and "return " or "") .. program.symbol .. "_builder(" .. table.concat(
-        arguments,
-        ", "
-    ) .. ")"
+    ] = "    " .. (
+        #results > 0 and "return " or ""
+    ) .. program.symbol .. "_builder(" .. table.concat(arguments, ", ") .. ")"
     lines[#lines + 1] = "end"
 
     return lines
@@ -465,15 +467,15 @@ function binding.module(programs: {scalarIR.Program}, library: string): string
             lines[#lines + 1] = ""
             exports[#exports + 1] = program.name .. " = " .. program.name
         else
-        if #(program.resultTypes or {}) > 1 then
-            append(binding.resultStruct(program))
+            if #(program.resultTypes or {}) > 1 then
+                append(binding.resultStruct(program))
+                lines[#lines + 1] = ""
+            end
+            append(binding.foreign(program, library))
             lines[#lines + 1] = ""
-        end
-        append(binding.foreign(program, library))
-        lines[#lines + 1] = ""
-        append(binding.wrapper(program))
-        lines[#lines + 1] = ""
-        exports[#exports + 1] = program.name .. " = " .. program.name
+            append(binding.wrapper(program))
+            lines[#lines + 1] = ""
+            exports[#exports + 1] = program.name .. " = " .. program.name
         end
     end
 
