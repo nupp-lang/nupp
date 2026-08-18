@@ -27,6 +27,11 @@ the task worktree. Removing the completed worktree removes its `.rocks`
 symlink and local seeded caches, not the originating checkout's dependencies or
 the repository-wide native cache.
 
+Creating a worktree prints a note naming any other registered worktree whose
+branch already merged into `HEAD` and was never removed -- that is this same
+cleanup step, skipped on an earlier task. Remove the ones it names before
+starting the new one.
+
 ## Responding to prompts
 
 Answer directly and keep the bottom line up front. Do not label it explicitly

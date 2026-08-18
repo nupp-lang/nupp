@@ -28,6 +28,13 @@
   either way, since confirming a cache entry is still valid costs time too,
   just less of it.
 
+- Remind the next worktree about the last one. `scripts/worktree` now lists
+  any other registered worktree whose branch already merged into `HEAD`,
+  right after creating the one just asked for. AGENTS.md has always asked
+  that a finished worktree be removed, but nothing noticed when it was not;
+  two accumulated silently in this checkout before this was written. The
+  check is best effort and never fails the worktree it is only polishing.
+
 - Hold hot reload to the strict floor. `src/nupp/hotreload.g.nupp` and
   `src/nupp/compiler/hot_session.g.nupp` were the only two files under `src` that
   opted out of it, which put the machinery deciding whether an edit may reach a
