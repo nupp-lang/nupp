@@ -444,7 +444,7 @@ dense literal with a static bound, its binding must not be exposed elsewhere,
 and all the pass's other proof obligations must hold. Use `-O1 --remarks` or
 `-O2 --remarks` to see `OPT-2` explain why it rewrote or declined a loop.
 
-See [Optimization](tooling/optimization.md) for levels, remarks, pass controls,
+See [Performance](tooling/performance.md) for levels, remarks, pass controls,
 and the benchmark behind that restriction.
 
 ## Effects, stability, relaxation, and ownership
@@ -559,4 +559,4 @@ boundary: the checker cannot do that verification for you.
 ## Next
 
 - [ownership.md](ownership.md): the other contract a bodyless declaration carries.
-- [optimization.md](tooling/optimization.md): what a summary lets a pass prove.
+- [performance.md](tooling/performance.md): what a summary lets a pass prove.

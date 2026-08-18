@@ -298,7 +298,7 @@ changing either invalidates every artifact built with the old optimizer
 contract rather than leaving a project half compiled under each. Switching
 therefore costs a cold build, and cannot produce a mixture. `-O0` is the
 default and performs no rewrite; see the
-[optimization guide](optimization.md).
+[performance guide](performance.md).
 
 Warm builds reuse checked module records and generated Lua across processes.
 A source edit checks and generates that module; dependents are only invalidated

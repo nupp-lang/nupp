@@ -1029,7 +1029,7 @@ Named so you can tell what you are looking at:
 
 ## See also
 
-- [Optimization](optimization.md) — what the ordinary Lua backend does
+- [Performance](performance.md) — what the ordinary Lua backend does
 - [LuaJIT trace checking](jit-trace-checking.md) — the same category of
   performance property, for the JIT rather than the AOT path
 - [Effect contracts](../effects.md) — the purity `@aot` helpers rely on

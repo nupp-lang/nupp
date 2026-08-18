@@ -87,7 +87,7 @@ Remarks are off unless `--remarks` is passed, and they come from `nupp build`
 and `nupp run` rather than `nupp check`, which does not optimize. The code is
 stable across a pass being renamed, split, or merged, so it can be cited in a
 bug report or passed to `-Zno-opt`. See the
-[optimization guide](tooling/optimization.md).
+[performance guide](tooling/performance.md).
 
 The domain references describe `NUPP2xxx` diagnostics in context:
 

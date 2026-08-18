@@ -789,11 +789,6 @@ nupp lsp            # start the language server]],
                   title = "Performance",
                   source = "docs/tooling/performance.md",
                },
-               {
-                  path = "guides/optimization",
-                  title = "Optimization",
-                  source = "docs/tooling/optimization.md",
-               },
 
                {
                   path = "reference/cli",

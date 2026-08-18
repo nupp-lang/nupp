@@ -5,17 +5,34 @@ each rewrite.
 
 LuaJIT's trace compiler does the hot-path work, so everything here is either
 something the checker knows that LuaJIT cannot, or a shape chosen so a trace
-forms at all. Nothing is a promise about timing: thresholds are measured
-implementation details, and every rewrite preserves answers.
+forms at all. A pass lands only with a LuaJIT-enabled benchmark and a static
+proof that it preserves behavior. Nothing is a promise about timing: thresholds
+are measured implementation details, and every rewrite preserves answers. The
+design catalog is
+[`plans/014-optimizations.md`](../../plans/014-optimizations.md).
+
+```bash
+nupp build -O1
+nupp run -O1 --remarks app.nupp
+```
 
 Two groups follow. **Always-on lowerings** need no flag and are part of what the
-language means. **Passes** are the `-O1` catalog; see
-[Optimization](optimization.md) for the levels, the `OPT-n` codes, remarks, and
-how to turn one off.
+language means. **Passes** are the `-O1` catalog, each named by a stable
+`OPT-n` code.
 
 Every generated tab below is the compiler's real output with whitespace
 normalized and the module prelude elided. Temporary names are stable but not a
 promise.
+
+## Levels
+
+    nupp build -O1
+    nupp run -O1 app.nupp
+
+`-O0`, the default, rewrites nothing: its generated Lua is the language
+semantics with types erased. `-O1` enables every current pass; `-O2` means the
+same today and reserves room for a stronger tier later. The level is part of the
+build key, so changing it triggers a cold build.
 
 ## Always-on lowerings
 
@@ -312,15 +329,36 @@ a native C `switch`, leaving the C compiler to choose branches, a tree, bit
 tests, or a jump table; a binary64 selector retains equality branches because
 converting it would change semantics.
 
-There is no per-dispatch C helper, function table, BDD, MTBDD, perfect hash, or
-LuaJIT VM extension. Stock LuaJIT cannot jump from a computed case ordinal to an
-arbitrary lexical arm, so a lookup is used only when it is the end of the
-decision rather than the start of a second dispatch.
+There is no per-dispatch C helper, function table, BDD, MTBDD, or LuaJIT VM
+extension. Stock LuaJIT cannot jump from a computed case ordinal to an arbitrary
+lexical arm, so a lookup is used only when it is the end of the decision rather
+than the start of a second dispatch.
+
+Perfect hashing was implemented and measured rather than assumed, and ships in
+neither form. A string perfect hash lost outright to LuaJIT's own table, because
+verifying a hit needs the original string comparison back. A collision-free
+32-bit hash into a fixed-width array is a different case: at sixteen to
+sixty-four sparse integer cases it is the largest compiled win measured anywhere
+in this work — twelve to twenty-one times the ordered chain — and the largest
+interpreted regression, 1.7 to 2.7 times worse. Backing it with a Lua array
+instead of an FFI one halves the interpreted penalty and gives up most of the
+compiled margin without removing the cliff. Choosing correctly needs a hotness
+input the cost model does not have, so it is deferred rather than rejected;
+`bench/switch-dispatch.lua` keeps both `ph-ffi` and `ph-lua` baselines, and
+`plans/057-switch-dispatch-optimization.md` records the decision.
 
 ## Passes
 
-Each of the following needs `-O1`. [Optimization](optimization.md) has the
-levels, the pass table, `--remarks`, `-Zno-opt`, and the benchmark behind each.
+Each of the following needs `-O1`.
+
+| Code | Name | Level | Rewrite |
+| --- | --- | --- | --- |
+| `OPT-1` | `presize` | -O1 | Size an empty table for the writes about to follow |
+| `OPT-2` | numeric-ipairs | -O1 | Use a numeric loop for a proved stable dense array |
+| `OPT-3` | constant-fold | -O1 | Fold exact primitives, branches, dead loops, and immutable paths |
+| `OPT-4` | static-callable | -O1 | Bind repeated immutable dotted callees at first use |
+| `OPT-5` | concat-buffer | -O1 | Append to a string.buffer instead of rebuilding a string each pass |
+| `OPT-6` | indexed-range | -O1 | Select proved direct access and scalar-replace indexed views |
 
 ### `OPT-1`, presizing
 
@@ -913,21 +951,93 @@ emitted. `bench/scratch-reuse.lua` finds that hoisting a loop-local table or
 `ffi.new` out of its loop is slower than letting allocation sinking handle it.
 Both exit non-zero if their finding stops holding.
 
-## Measuring
+## Benchmark details
+
+Fresh local medians with LuaJIT enabled, measuring the generated-Lua shapes each
+pass produces rather than checker time.
+
+| Pass and scenario | Before | After | Change |
+| --- | --- | --- | --- |
+| OPT-1, 200,000 tables, four named fields | 0.0159s | 0.0053s | 3.02x faster |
+| OPT-1, 200,000 tables, eight hash fields | 0.0262s | 0.0106s | 2.47x faster |
+| OPT-1, 200,000 tables, four array slots | 0.0168s | 0.0024s | 7.06x faster |
+| OPT-2, eight million visits, 4-element arrays | 0.0126s | 0.0087s | 1.44x faster |
+| OPT-2, eight million visits, 32-element arrays | 0.0053s | 0.0050s | 1.06x faster |
+| OPT-2, eight million visits, 256-element arrays | 0.0051s | 0.0047s | 1.07x faster |
+| OPT-3, 20,000 primitive expressions, load and run | 0.0039s | 0.0024s | 1.64x faster |
+| OPT-3, 20,000 nested paths, load only | 0.0095s | 0.0025s | 3.82x faster |
+| OPT-3, 20,000 nested paths, load and run | 0.0099s | 0.0025s | 3.95x faster |
+| OPT-4, 20,000 dotted calls, load only | 0.0027s | 0.0011s | 2.54x faster |
+| OPT-4, 20,000 dotted calls, load and run | 0.0030s | 0.0012s | 2.53x faster |
+| OPT-6, 8 million struct element updates | 0.01075s | 0.00735s | 1.46x faster |
+| OPT-6, SoA projected update vs handwritten columns | 0.00296s | 0.00307s | 1.037x of direct |
+| OPT-6, 500,000 slice constructions | 0.12183s | 0.00425s | 28.7x faster |
+
+Primitive folding reduced its generated input by 32.1%, nested propagation by
+60.8%, static callable binding by 63.6%; warmed results were 0.99x, 2.01x, and
+1.06x. Hot results are workload- and trace-dependent, so the reliable constant
+and callable wins are smaller source and cold startup.
+
+    luajit bench/presize.lua
+    luajit bench/numeric-ipairs.lua
+    luajit bench/constant-folding.lua
+    luajit bench/constant-propagation.lua
+    luajit bench/static-callable.lua
+    bench/span-range-lowering/run.sh
+
+Three more decide whether a pass is worth writing at all:
+
+    luajit bench/ffi-hoisting.lua
+    luajit bench/concat.lua
+    luajit bench/scratch-reuse.lua
+
+`concat` argued for `OPT-5` and now guards it. The others argued against passes
+that are therefore not here: caching a ctype is the interpreter's win alone,
+though the clib symbol binding `ffi-hoisting` also measures is real and already
+emitted, and hoisting a loop-local table or `ffi.new` out of its loop is slower
+than letting allocation sinking handle it. All three exit non-zero if their
+finding stops holding.
+
+The `OPT-6` rows compare the pass disabled against enabled on an arm64 Apple
+host after warmup, where the optimized trace matched handwritten direct FFI in
+counted IR shape and timing. The benchmark adapts the position/velocity kernel,
+the repository having no production hot loop written with a same-function
+witness. The slice figures are evidence for narrow derived-view scalar
+replacement, not general table escape analysis. The committed
+[`span-range-lowering` results](../../bench/span-range-lowering/README.md) have
+the full Span, heap, SoA, dirty-acquisition, and trace matrix, and
+`bench/span-range-lowering/trace.sh` prints the opcode-category comparison.
+
+## Inspecting, controlling, and measuring
+
+    nupp build -O1 --remarks
+    nupp build -O1 -Zno-opt=OPT-2
+
+`--remarks` reports both successful rewrites and declined proofs, including the
+source location that stopped an analysis. Remarks never fail a build; they come
+from `build` and `run`, and `check` does not optimize. `-Zno-opt=CODE` disables
+one pass for miscompile bisection — the codes are stable, the `-Z` spelling is
+an unstable debugging interface — and `-O0` disables every rewrite.
 
 Measure before deciding any of this matters:
 
 - [Profiling](profiling.md) says where the time actually goes.
-- [LuaJIT trace checking](jit-trace-checking.md) and `nupp bc --check FILE`
-  find recorder blockers in the exact generated bytecode, without a quiet
-  machine and without executing anything.
-- `nupp build -O1 --remarks` reports what each pass rewrote, or looked at and
-  declined to rewrite, with the source location that stopped an analysis.
+- [LuaJIT trace checking](jit-trace-checking.md) and `nupp bc --check FILE` find
+  recorder blockers in the exact generated bytecode, without a quiet machine and
+  without executing anything.
 - `bench/` holds the LuaJIT-enabled benchmark behind every pass.
+
+## Observable behavior
+
+Passes preserve answers. One that trades a non-answer guarantee for speed must
+explicitly check a named `--relax` or `@relax` permission; `OPT-6` requires
+`frames`. The compiler fixpoint verifies that compiling the compiler at `-O1`
+produces output byte-identical to compiling it at `-O0` while its guarantees are
+held.
 
 ## Next
 
-- [Optimization](optimization.md): the `-O` levels, the `OPT-n` catalog,
-  per-pass controls, and the benchmark numbers.
+- [LuaJIT trace checking](jit-trace-checking.md): recorder blockers in source,
+  bytecode, or an observed run.
 - [Ahead-of-time compilation](aot.md): the native scalar subset and its
   boundaries.
