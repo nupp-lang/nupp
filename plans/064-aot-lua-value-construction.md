@@ -107,10 +107,14 @@ IR effect and one calling convention. It does not create another compiler or alt
 the meaning of pure kernels.
 
 Plan 038's current AOT IR explicitly contains no Lua object or GC operation, and its
-FFI functions report failures rather than unwinding through an FFI frame. Preserve
-both rules for the kernel ABI. The VM-aware ABI is invoked as a Lua C function, so its
-checked calls occur on a VM-owned C frame where Lua allocation and protected errors
-are valid.
+design requires modeled native failures to return status rather than unwind through
+an FFI frame. Preserve both rules for the kernel ABI. Do not mistake the second rule
+for reusable implementation: shipped kernels currently raise their admitted
+precondition and range failures in the Lua wrapper before FFI entry, and the native
+ABI does not yet exercise a general status result. V1a and V2 therefore establish and
+test the builder failure path as new work. The VM-aware ABI is invoked as a Lua C
+function, so its checked calls occur on a VM-owned C frame where Lua allocation and
+protected errors are valid.
 
 `062-aot-block-simd-parsing.md` explicitly deferred Lua C API materialization pending
 measurement and required a separately designed checked bridge if materialization
@@ -142,7 +146,15 @@ Today the generated Lua binding for an AOT function:
 2. loads a generated native library through LuaJIT FFI;
 3. calls an exported C function with scalars and pointers;
 4. receives scalars or a compiler-owned result struct; and
-5. translates a returned status into an ordinary Nupp result or error.
+5. raises currently admitted relationship, precondition, and range failures from the
+   Lua wrapper before native entry.
+
+Plan 038 reserves compact native status reporting for failures that cannot be hoisted,
+but the current ABI has no exercised general status field. The builder path cannot
+copy a battle-tested status mechanism from the kernel path. It must independently
+test wrapper rejection, a modeled failure raised from a registered C closure, Lua
+allocation failure, protected-call behavior, and source attribution before table
+construction lands.
 
 That C function has no `lua_State *`. Passing the address of input bytes through FFI
 does not grant authority to allocate a Lua table, create a GC string, or run a write
@@ -168,7 +180,7 @@ Do not require a second annotation spelling. `@aot` remains the source contract.
 the checker has admitted a body, lowering classifies it as one of:
 
 ```text
-kernel       native scalars, structs, spans, and status results
+kernel       native scalars, structs, spans, and native results
 lua-builder  constructs or returns ordinary Lua-managed values
 ```
 
@@ -480,13 +492,37 @@ Gate: the handwritten oracle and Lua implementation agree exactly, benchmark
 confidence intervals can distinguish the later thresholds, and every supported host
 can load an ordinary handwritten C module through the intended registration route.
 
-### V1 — Runtime registration and VM-aware entry ABI
+### V1a — Dynamic registrar and VM-aware entry spike
+
+This is the critical path and is expected to be the largest single implementation
+cost in the plan. Nupp currently has no compiler-backend use of `lua_State`, Lua C
+closures, or Lua C-module registration. Treat V1a and V1b as a new backend axis, not
+loader plumbing to compress beneath the V2 verifier work. Construction IR does not
+begin until both stages pass.
 
 - Emit and load a digest-named Lua C-module registrar beside existing FFI artifacts.
+- Generate a primitive-only C-function fixture with no table construction.
+- Define the builder failure convention independently of Plan 038's unexercised native
+  status design: wrapper precondition failures stay in Lua, while a modeled failure
+  reached inside the C closure pushes the compiler-owned source-attributed error and
+  raises through that VM-owned C frame.
+- Verify successful return, protected failure, stack restoration, and source frames on
+  the primary dynamic host before adding construction operations.
+
+Gate: one checked Lua call enters and returns from the native closure; `pcall` catches
+the native modeled failure with the expected Nupp message and source site; malformed
+registration and stack shapes fail deterministically; and no Lua or GC operation has
+entered the existing kernel IR or ABI.
+
+### V1b — Artifact and loading matrix
+
 - Add artifact fingerprints for runtime ABI, entry mode, target, and registration
   identity.
 - Preserve dynamic, static, embedded, worker, cache, and `emit-c` policies.
-- Add one primitive-only C-function fixture with no table construction.
+- Prove Windows import libraries, Unix symbol resolution, macOS dynamic lookup,
+  stripped executables, and static registration through explicit build fixtures.
+- Record cold build, link, registration, and cached-load cost separately so later
+  construction benchmarks cannot hide the backend's deployment cost.
 
 Gate: one checked Lua call enters and returns from the native closure on every
 supported platform; stale, mismatched, missing, or incorrectly linked artifacts fail
@@ -654,6 +690,32 @@ advisor from Plan 058 may recommend this path only after profile evidence attrib
 material time to a construction loop and inspection confirms that the body fits the
 supported subset.
 
+## Documentation
+
+Update documentation with each shipped stage rather than publishing the complete
+proposed surface when V1a first lands:
+
+- `docs/tooling/aot.md` documents `kernel` versus `lua-builder` inspection, the
+  admitted source subset, build-mode behavior, failure boundary, runtime dependency,
+  and unsupported operations.
+- `docs/tooling/optimization.md` explains capacity-aware `table.new` lowering and how
+  to confirm it through `nupp aot`; it does not imply that every table allocation is
+  an AOT candidate.
+- `docs/io.md` records that a strictly local `Buffer`/`ScalarWriter` chain may be
+  representation-lowered while preserving its ordinary behavior and affine drops.
+- `docs/embedding.md` and `docs/distribution.md` describe dynamic registration,
+  statically linked registrars, runtime ABI fingerprints, worker-state registration,
+  and artifact deployment once V1b supports those paths.
+- `src/nupp/compiler/reference.nupp` remains the language-reference source of truth.
+  Update it so both `./bin/nupp reference language` and
+  `./bin/nupp reference language --format skill` describe the shipped subset and its
+  diagnostics.
+- `bench/simd-json/README.md` records the retained representation, component timings,
+  memory cost, and whether V5 fused parsing with construction.
+
+Documentation examples run under `aot=off` and `aot=require`, and every named
+diagnostic has an `explain` entry and stable docs anchor before its stage is complete.
+
 ## Risks and controls
 
 **Turning AOT into a second Lua implementation.** Restrict the first surface to fresh
@@ -683,9 +745,11 @@ one-copy goal and keep zero-copy borrowed strings in a separate lazy-document de
 **JSON overfitting.** Land row/tree builders and string workloads before modifying
 JSON. Every retained compiler feature must have a non-JSON test and benchmark.
 
-**Artifact complexity.** A Lua C module has different link and load requirements from
-an FFI library, especially on Windows and static hosts. V1 proves every supported path
-before construction IR lands.
+**New backend and artifact axis.** A Lua C module has different code generation,
+failure, link, registration, and load requirements from an FFI library, especially on
+Windows and static hosts. V1a and V1b are the plan's largest expected cost and prove
+every supported path before construction IR lands. Do not schedule V2 concurrently
+on an assumed registrar ABI or waive a host mode to make the bridge appear complete.
 
 **Partial graphs on failure.** Keep all unpublished values rooted only on the current
 VM stack and exercise protected failure at every operation. Never place a partial
@@ -748,6 +812,9 @@ This plan is complete when:
   results on NEON and AVX2;
 - every retained compiler capability has a non-JSON fixture and remains coherent if
   `bench/simd-json` is deleted; and
+- AOT, optimization, IO, embedding, distribution, benchmark, generated language
+  reference, and reference-skill documentation describe exactly the stages that
+  shipped; and
 - the project explicitly decides whether to support the builder ABI and whether JSON
   remains only an acceptance benchmark.
 
