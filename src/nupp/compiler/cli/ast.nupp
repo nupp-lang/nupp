@@ -10,6 +10,7 @@ explains the failure.
 local spec = require("nupp.compiler.cli.spec")
 local lexer = require("nupp.compiler.lexer")
 local optionsMod = require("nupp.compiler.cli.options")
+local report = require("nupp.compiler.cli.report")
 
 local command = spec.command{
     name = "ast",
@@ -135,10 +136,7 @@ local function run(parsed: any): integer
                 help = err.help
             }
         end
-        local json = require("cjson").new()
-        json.encode_empty_table_as_object(false)
-        json.encode_invalid_numbers(false)
-        io.write(json.encode({file = path, root = syntaxTreeValue(cst, result.root), errors = errors}) .. "\n")
+        io.write(report.encode({file = path, root = syntaxTreeValue(cst, result.root), errors = errors}) .. "\n")
     end
 
     return require("nupp.compiler.diagnostics").report(result.errors) and 1 or 0

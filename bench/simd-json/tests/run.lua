@@ -27,8 +27,14 @@ local function check(condition, message)
    assert(condition, message)
 end
 
+local function markedEmpty(value, marker)
+   return type(value) == "table" and next(value) == nil
+      and getmetatable(value) == marker
+end
+
 local function same(left, right, simdjsonNumbers)
-   if left == simdjsonBench.empty_array or left == simdjsonBench.empty_object then
+   if markedEmpty(left, simdjsonBench.EMPTY_ARRAY)
+      or markedEmpty(left, simdjsonBench.EMPTY_OBJECT) then
       return type(right) == "table" and next(right) == nil
    end
    if left == json.null then
@@ -326,7 +332,7 @@ do
    local shape = {
       id = true,
       profile = {name = true},
-      items = simdjsonBench.array(true),
+      items = simdjsonBench.arrayOf(true),
       nullable = true,
       emptyArray = true,
       emptyObject = true,
@@ -339,9 +345,9 @@ do
    check(#pulled.items == 2 and pulled.items[1] == 1 and pulled.items[2] == 2,
       "pull did not drop and compact null array values")
    check(pulled.nullable == nil, "pull did not drop null by default")
-   check(pulled.emptyArray == simdjsonBench.empty_array,
+   check(markedEmpty(pulled.emptyArray, simdjsonBench.EMPTY_ARRAY),
       "pull lost the empty-array sentinel")
-   check(pulled.emptyObject == simdjsonBench.empty_object,
+   check(markedEmpty(pulled.emptyObject, simdjsonBench.EMPTY_OBJECT),
       "pull lost the empty-object sentinel")
 
    local preserved = simdjsonBench.pull(source, shape, nullValue)
@@ -355,25 +361,27 @@ do
    local eagerPreserved = simdjsonBench.decode(source, nullValue)
    check(eagerPreserved.nullable == nullValue and eagerPreserved.items[2] == nullValue,
       "eager decode did not preserve the caller's null sentinel")
-   check(simdjsonBench.decode("[null]") == simdjsonBench.empty_array,
+   check(markedEmpty(simdjsonBench.decode("[null]"), simdjsonBench.EMPTY_ARRAY),
       "an array emptied by null dropping lost its sentinel")
-   check(simdjsonBench.decode([[{"only":null}]]) == simdjsonBench.empty_object,
+   check(markedEmpty(simdjsonBench.decode([[{"only":null}]]), simdjsonBench.EMPTY_OBJECT),
       "an object emptied by null dropping lost its sentinel")
    check(not pcall(simdjsonBench.pull, [[{"ignored":1e309,"id":1}]], {id = true}),
       "pull did not validate an unselected overflowing number")
-   check(simdjsonBench.pull("[1,2,3]", simdjsonBench.array(false)) ==
-      simdjsonBench.empty_array, "false array shape did not drop every member")
+   check(markedEmpty(simdjsonBench.pull("[1,2,3]", simdjsonBench.arrayOf(false)),
+      simdjsonBench.EMPTY_ARRAY), "false array shape did not drop every member")
    check(not pcall(simdjsonBench.pull, "1", "all"),
       "pull accepted a truthy non-shape value")
 end
 
 do
    local nullValue = {}
-   check(simdjsonBench.encode(simdjsonBench.empty_array) == "[]",
+   check(simdjsonBench.encode(simdjsonBench.EMPTY_ARRAY) == "[]",
       "empty-array sentinel serialized incorrectly")
-   check(simdjsonBench.serialize(simdjsonBench.empty_object) == "{}",
+   check(simdjsonBench.serialize(simdjsonBench.EMPTY_OBJECT) == "{}",
       "empty-object sentinel serialized incorrectly")
-   check(not pcall(simdjsonBench.encode, {}), "ambiguous empty Lua table serialized")
+   check(simdjsonBench.encode({}) == "{}", "empty Lua table did not serialize as an object")
+   check(simdjsonBench.encode(simdjsonBench.asArray({})) == "[]",
+      "array-marked empty Lua table did not serialize as an array")
    check(not pcall(simdjsonBench.encode, {[2] = true}), "sparse array serialized as JSON")
    check(not pcall(simdjsonBench.encode, {[1] = true, key = false}),
       "mixed array and object serialized as JSON")
@@ -385,22 +393,22 @@ do
 
    local encoded = simdjsonBench.encode({
       array = {1, nullValue, 2},
-      emptyArray = simdjsonBench.empty_array,
-      emptyObject = simdjsonBench.empty_object,
+      emptyArray = simdjsonBench.EMPTY_ARRAY,
+      emptyObject = simdjsonBench.EMPTY_OBJECT,
       text = "quote-\"-κόσμος",
    }, nullValue)
    local decoded = simdjsonBench.decode(encoded, nullValue)
    check(decoded.array[2] == nullValue and decoded.array[3] == 2,
       "serialized null sentinel did not round trip")
-   check(decoded.emptyArray == simdjsonBench.empty_array
-      and decoded.emptyObject == simdjsonBench.empty_object,
+   check(markedEmpty(decoded.emptyArray, simdjsonBench.EMPTY_ARRAY)
+      and markedEmpty(decoded.emptyObject, simdjsonBench.EMPTY_OBJECT),
       "serialized empty-container sentinels did not round trip")
 
    local writer = simdjsonBench.writer(nullValue)
    writer:startObject():key("items"):startArray():write(1)
    local first = writer:flush()
-   writer:null():write(simdjsonBench.empty_object):close()
-      :key("empty"):write(simdjsonBench.empty_array):close()
+   writer:null():write(simdjsonBench.EMPTY_OBJECT):close()
+      :key("empty"):write(simdjsonBench.EMPTY_ARRAY):close()
    local last = writer:finish()
    check(first .. last == [[{"items":[1,null,{}],"empty":[]}]],
       "streaming writer emitted the wrong chunks")

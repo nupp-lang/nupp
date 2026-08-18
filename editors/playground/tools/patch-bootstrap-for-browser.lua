@@ -248,7 +248,7 @@ patched = applyEdits(patched, syntaxEdits)
 
 -- The file ends by running the full CLI
 -- (os.exit(require("nupp.compiler.cli").main(arg))), which eagerly requires every
--- subcommand — including ones (like nupp.compiler.cli.lsp) that need `cjson`, a C
+-- subcommand — including ones (like nupp.compiler.cli.lsp) that need `jsonNative`, a C
 -- extension unavailable in the browser. The playground drives the checker
 -- and compiler directly (see src/worker.js), so this call is dropped
 -- entirely rather than satisfying the whole CLI's dependency graph.

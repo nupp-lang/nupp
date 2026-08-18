@@ -632,7 +632,7 @@ function M.bundledModulesAreLoadedWhenSomethingAsksForThem()
    local ok, err = pcall(function()
       local env = envMod.new(dir, {cache = false})
       assertEq(checked["ffi"], nil, "building an environment does not check ffi")
-      assertEq(checked["cjson"], nil, "nor cjson")
+      assertEq(checked["jsonNative"], nil, "nor jsonNative")
       assertEq(checked["nupp.zone"], nil, "nor the standard library")
 
       -- Asking is what loads it, and asking twice does not check it twice.
@@ -640,7 +640,7 @@ function M.bundledModulesAreLoadedWhenSomethingAsksForThem()
       assertEq(checked["ffi"], 1, "asking for ffi checks it")
       assert(env.bundled["ffi"], "and it is still there the second time")
       assertEq(checked["ffi"], 1, "asking again does not check it again")
-      assertEq(checked["cjson"], nil, "and does not drag the others in")
+      assertEq(checked["jsonNative"], nil, "and does not drag the others in")
 
       -- A name nothing bundles is remembered as absent rather than looked for
       -- again, which is what every unresolved name in a project would

@@ -1427,7 +1427,7 @@ function derive.install(c: state.Checker): derive.Ops
                     canonicalBytes = item.canonicalBytes or 0,
                     renderedBytes = item.renderedBytes or 0,
                     effects = provider == item.providerLabels.JSON and {
-                        "native.cjson",
+                        "native.json",
                         "stdlib.derives"
                     } or {"stdlib.derives"},
                     cached = item.recipeCached and true or false,

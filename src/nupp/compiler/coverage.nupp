@@ -7,10 +7,11 @@ runner wrote, turns them into one aggregate model, then writes JSON, LCOV, and
 HTML from that model.
 ]]
 
-local cjson = require("cjson")
+local json = nupp.data.json
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.compiler.build.cache")
 local highlight = require("nupp.compiler.doc.highlight")
+local report = require("nupp.compiler.cli.report")
 
 local coverage = {}
 local readFile, writeFile, normalize = fs.readFile, fs.writeFile, fs.normalize
@@ -80,12 +81,10 @@ local function readShard(path)
     if not source then
         return nil, err
     end
-    local decoder = cjson.new()
-    decoder.decode_array_with_array_mt(true)
+    local decoder = json
     -- A hit count is a whole number of executions, so a shard offering `NaN` for one is
     -- damaged rather than unusual, and the guard below already names a damaged shard.
-    decoder.decode_invalid_numbers(false)
-    local ok, value = pcall(decoder.decode, source)
+    local ok, value = pcall(decoder.decode, source, decoder.NULL)
     if not ok or type(value) ~= "table" or type(value.hits) ~= "table" then
         return nil, "invalid coverage shard " .. path
     end
@@ -551,9 +550,6 @@ function coverage.write(model: coverage.Model, outDir: string): {[string]: any}
     highlight.configureScintillua(".", {})
     local summary = aggregate(model.files, "")
     model.summary = summary
-    local encoder = cjson.new()
-    encoder.encode_empty_table_as_object(false)
-    encoder.encode_invalid_numbers(false)
     -- Source text and generated Lua belong in their HTML pages, not in the machine
     -- report. Keeping the JSON to metrics/sites makes it practical for CI to read.
     local public = {
@@ -579,8 +575,8 @@ function coverage.write(model: coverage.Model, outDir: string): {[string]: any}
             sites = file.sites
         }
     end
-    assert(writeFile(outDir .. "/coverage.json", encoder.encode(public) .. "\n"))
-    assert(writeFile(outDir .. "/summary.json", encoder.encode(public.summary) .. "\n"))
+    assert(writeFile(outDir .. "/coverage.json", report.encode(public) .. "\n"))
+    assert(writeFile(outDir .. "/summary.json", report.encode(public.summary) .. "\n"))
     assert(writeFile(outDir .. "/lcov.info", lcov(model)))
     local dirSet, dirs = {}, {}
     for _, file in ipairs(model.files) do

@@ -151,7 +151,7 @@ window and own an event loop before step 6; Nupp's own does none of that.
 
 ## Host source acquisition
 
-The compiler-owned host builds its pinned LuaJIT, lua-cjson, LPeg and luautf8
+The compiler-owned host builds its pinned LuaJIT, simdjson, LPeg and luautf8
 sources rather than committing generated native artifacts or source archives.
 An ordinary cold build downloads the exact upstream archives and verifies their
 SHA-256 digests before extraction. An extracted source tree or archive already
@@ -171,7 +171,7 @@ usually clearer. It contains archives named after their extracted directories:
 
 ```text
 LuaJIT-1edc3e52b67eaf6ce5f809be8e17d6862594b8bc.tar.gz
-lua-cjson-2.1.0.14.tar.gz
+simdjson-4.6.4.tar.gz
 lpeg-1.1.0.tar.gz
 luautf8-0.2.1.tar.gz
 ```
@@ -210,12 +210,12 @@ notarizes the final stamped bytes.
 
 ## Third-party notices
 
-The compiler-owned stub links LuaJIT, and, where the features are on, LPeg,
-lua-cjson and luautf8. All four are MIT, and a stamped binary is a distribution
-of them, so their notices ship in [`host/NOTICE.md`](../host/NOTICE.md) and
-`host/notices/`, which carry the notice files as they arrive in the pinned
-sources, byte for byte. Hand them over with the binary the way a release archive
-carries a README.
+The compiler-owned stub links LuaJIT and, where the features are on, simdjson,
+LPeg, and luautf8. Simdjson is Apache-2.0, and the other three are MIT. A stamped
+binary is a distribution of them, so their notices ship in
+[`host/NOTICE.md`](../host/NOTICE.md) and `host/notices/`, which carry the notice
+files as they arrive in the pinned sources, byte for byte. Hand them over with
+the binary the way a release archive carries a README.
 
 The sources are fetched at build time rather than committed, so nothing else in
 the tree carries those notices. `host/build.rs` compares each committed copy
@@ -278,11 +278,11 @@ Two things it caught on the way, both of which would otherwise have been found
 by somebody else:
 
 - A bundle was carrying every `.lua` under the output directory, which is also
-  where native dependencies build. lua-cjson ships example scripts, one of them
-  opening with a hashbang, which is a syntax error the moment a preload wraps it
-  in a function. A bundle now carries what the build compiled and nothing else.
-- The stub could not find `cjson` at all until it was vendored and registered in
-  `package.preload`, because the compiler requires it before it does anything.
+  where native dependencies build. Dependency trees can contain example scripts
+  that are not valid preload modules. A bundle now carries what the build compiled
+  and nothing else.
+- The stub could not provide JSON until the native opener was linked and registered
+  in `package.preload`, because the compiler uses JSON before it does most work.
 
 ## Limits
 
@@ -297,8 +297,8 @@ Four things a distributed binary deliberately is not:
   into a stub built for the purpose.
 
   Nupp's compiler payload detects three native modules, and its compiler-owned
-  host links exactly those features: `lua-cjson`, which the compiler requires
-  before it does anything; LPeg, which backs direct LPeg patterns and every
+  host links exactly those features: simdjson, which backs the compiler's JSON
+  runtime; LPeg, which backs direct LPeg patterns and every
   general `nupp.peg` matcher; and `luautf8`, which Lunamark's entity table uses.
   The official `re.lua` module remains ordinary Lua in the payload. Another
   payload selects whatever its own code and bundled dependencies need; the

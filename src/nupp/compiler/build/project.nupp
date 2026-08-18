@@ -9,7 +9,6 @@ in the build cache, not by timestamps.
 
 local envMod = require("nupp.compiler.env")
 local hash = require("nupp.compiler.build.hash")
-local json = require("cjson").new()
 local process = require("nupp.compiler.build.process")
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.compiler.build.cache")
@@ -21,6 +20,7 @@ local packaging = require("nupp.compiler.build.package")
 local storeMod = require("nupp.compiler.build.store")
 local native = require("nupp.compiler.build.native")
 local nativeFeatures = require("nupp.compiler.native")
+local stdlib = require("nupp.compiler.stdlib")
 local materializeObserve = require("nupp.compiler.materialize.observe")
 local progressMod = require("nupp.compiler.build.progress")
 
@@ -151,11 +151,6 @@ project.loadManifest = manifest.load
 project.describeTasks = tasks.describe
 
 project.encodeJson = tasks.encodeJson
-
-json.decode_array_with_array_mt(true)
-json.decode_invalid_numbers(false)
-json.encode_empty_table_as_object(true)
-json.encode_invalid_numbers(false)
 
 local function buildOne(root: string?, opts: project.BuildOptions?): integer
     root, opts = root or ".", (opts or {}) as project.BuildOptions
@@ -1003,7 +998,9 @@ function project.updateBootstrap(root: string?): boolean?, string?
         root,
         config,
         target,
-        "-- Generated stage-0 compiler. " .. "Update with: nupp fixpoint --update-bootstrap\n",
+        "-- Generated stage-0 compiler. "
+        .. "Update with: nupp fixpoint --update-bootstrap\n"
+        .. stdlib.bootstrapJsonFallback(),
         state and state.modules or nil
     )
     if not text then

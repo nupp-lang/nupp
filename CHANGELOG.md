@@ -58,18 +58,13 @@
   what they are: generated code writes them, generated code reads them, and their
   shape is not this module's to claim.
 
-- Say what every JSON codec in the compiler does with an empty table and with a
-  NaN, instead of taking whichever cjson the interpreter loaded at its word.
-  cjson's defaults belong to the build rather than to the library, so a codec
-  that left the question open answered one way under a stamped host binary and
-  another under a distribution build, and the same command could read its own
-  cache file two ways. The default that actually bites is decoding: `NaN` and
-  `Infinity` are accepted on the way in where they are refused on the way out,
-  so a document could be read and then fail to be written back. Eight codecs
-  were inheriting it -- the build state file, the task list, cargo's artifact
-  messages, the comptime worker's request side, `bc`, `run --aborts-out`, `aot`,
-  and the coverage shard reader -- and now state their own policy. A test walks
-  the sources and fails naming any codec that leaves a setting to the default.
+- Replace lua-cjson with Nupp's simdjson-backed JSON runtime. The public
+  `nupp.data.json` surface now has eager `decode`, On-Demand `pull`, strict
+  `encode`/`serialize`, and an incremental writer. Null is dropped by default
+  or preserved with a caller-provided value; `NULL`, `EMPTY_ARRAY`, and
+  `EMPTY_OBJECT` cover the values plain Lua cannot distinguish, while
+  `asArray` and `asObject` make container intent explicit. The compiler,
+  sidecar builds, and self-contained host all use the same codec and policy.
 - Check every entry of a table constructor, not only the ones before its first
   computed key. A `[k] = v` entry settles what the constructor's type is -- a
   generic table -- and the checker answered with that type as soon as it saw

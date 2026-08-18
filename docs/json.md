@@ -1,53 +1,77 @@
 # JSON
 
-`nupp.data.json` holds the whole JSON surface. `encodeJSON` and `decodeJSON` use
-the mature cjson implementation without exposing its module name:
+`nupp.data.json` is Nupp's strict, simdjson-backed JSON runtime. It parses,
+selectively pulls, serializes, and streams JSON without exposing a third-party
+Lua module:
 
-```nupp:playground
-local encoded = nupp.data.json.encodeJSON({name = "Nupp", ready = true})
-local decoded = nupp.data.json.decodeJSON(encoded)
+```nupp
+local encoded = nupp.data.json.encode({name = "Nupp", ready = true})
+local decoded = nupp.data.json.decode(encoded)
 assert(decoded.name == "Nupp")
 ```
 
-`NULL`, `EMPTY_ARRAY`, `ARRAY_MT`, and `EMPTY_ARRAY_MT` preserve distinctions
-Lua tables cannot express by themselves. The configuration methods match cjson's
-established semantics, but live on `nupp.data.json`. `newJSON()` returns an
-independent `nupp.data.json.JSON` encoder/decoder with its own settings:
+The codec accepts one complete UTF-8 JSON document and rejects invalid numbers,
+sparse arrays, mixed-key containers, cycles, and excessive nesting. A plain empty
+Lua table encodes as `{}`. Use `asArray({})` or `EMPTY_ARRAY` when it must encode
+as `[]`; `EMPTY_OBJECT` is the corresponding explicit object value.
+
+JSON null is dropped during decoding by default, including from arrays. Pass a
+replacement value to preserve it. `NULL` is the standard round-trippable choice:
 
 ```nupp
-local compact = nupp.data.json.newJSON()
-compact.encodeKeepBuffer(false)
-local text = compact.encodeJSON({1, 2, 3})
+local json = nupp.data.json
+local value = json.decode([[{"items":[1,null,2]}]], json.NULL)
+assert(value.items[2] == json.NULL)
+assert(json.encode(value) == [[{"items":[1,null,2]}]])
 ```
-
-JSON selects the `cjson` native feature. No `require("cjson")` is needed or
-recommended.
 
 | Member | Result | Purpose |
 | --- | --- | --- |
-| `encodeJSON(value)` | string | Encode one Lua value. |
-| `decodeJSON(text)` | any | Decode one JSON document. |
-| `newJSON()` | nupp.data.json.JSON | Create a separately configured codec. |
-| `NULL`, `EMPTY_ARRAY` | sentinel values | JSON values plain Lua cannot express. |
-| `ARRAY_MT`, `EMPTY_ARRAY_MT` | metatables | Mark array-shaped tables explicitly. |
+| `encode(value, nullValue?)` | string | Serialize one Lua value. |
+| `serialize(value, nullValue?)` | string | Alias of `encode`. |
+| `decode(text, nullValue?)` | any | Materialize one complete document. |
+| `pull(text, shape, nullValue?)` | any | Materialize only selected fields. |
+| `arrayOf(shape?)` | table | Apply a pull shape to every array member. |
+| `asArray(table)` | table | Mark a table as an array, including while empty. |
+| `asObject(table)` | table | Mark a table as an object. |
+| `writer(nullValue?)` | Writer | Create an incremental streaming writer. |
+| `NULL` | value | Preserve and serialize JSON null. |
+| `EMPTY_ARRAY`, `EMPTY_OBJECT` | values | Explicit empty containers. |
 
-Both `nupp.data.json` and an object returned by `newJSON` provide the
-configuration methods `encodeEmptyTableAsObject`, `decodeArrayWithArrayMt`,
-`encodeSparseArray`, `encodeMaxDepth`, `decodeMaxDepth`,
-`encodeNumberPrecision`, `encodeKeepBuffer`, `encodeInvalidNumbers`,
-`decodeInvalidNumbers`, and `encodeEscapeForwardSlash`. Omitting a method's
-setting reads the current value where the provider supports that form; passing
-a setting changes only that codec.
+## Pulling selected values
 
-Part of the [`nupp.data`](data.md) namespace, which also holds UUIDs, hashes
+`pull` uses simdjson's On-Demand API. `true` selects a complete value, an object
+shape selects named fields, and `arrayOf(shape)` applies a shape to every member
+of an array. Missing and unselected fields are omitted:
+
+```nupp
+local json = nupp.data.json
+local users = json.pull(source, json.arrayOf({id = true, profile = {name = true}}))
+```
+
+This is the lower-level path for pull deserializers: it validates the complete
+input but constructs only the Lua values the shape asks for.
+
+## Streaming output
+
+The writer emits checked JSON without first building a Lua DOM. `flush()` returns
+the completed bytes since the previous flush; `finish()` closes the document and
+returns the final bytes.
+
+```nupp
+local writer = nupp.data.json.writer()
+writer:startObject():key("items"):startArray():write(1):write(2):close():close()
+local text = writer:finish()
+```
+
+Part of the [`nupp.data`](data.md) namespace, which also holds UUIDs, hashes,
 and checksums.
 
 ## Derived records
 
-For a record deriving `nupp.derive.JSON`, `encode(value)` discovers the record's
-type witness from the value. `encodeAs(Record, value)` and
-`decode(Record, text)` accept the visible record name directly. The derived
-schema, lazy codec allocation, and generated `toJSON`/`fromJSON` members are
-documented once in
+For a record deriving `nupp.derive.JSON`, `encodeRecord(value)` discovers the
+record's type witness from the value. `encodeAs(Record, value)` and
+`decodeAs(Record, text)` accept the visible record name directly. The derived
+schema and generated `toJSON`/`fromJSON` members are documented once in
 [Reflection](concepts/reflection.md#json-through-a-type-witness) and
 [Declaration derives](derives.md#json).

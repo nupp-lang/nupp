@@ -31,7 +31,7 @@ the implementations and the exact reasoning at each one, and
  both of the above     in code nupp.compiler.gen generates, re-loaded to check it   same two rewrites, at load time
  `unpack`              nupp.compiler.comptime's protected calls         Lua 5.3's `table.unpack`
  `string.buffer`       nupp.compiler.build.store (project-index cache)  a plain string-accumulator
- `cjson`               build cache, `--json`-shaped output     a small JSON codec
+ `jsonNative`          build cache, `--json`-shaped output     a small JSON codec
  `ffi`                 nupp.compiler.cdecl, nupp.compiler.check.ffi              stub, except `cast` — see below
  disk I/O              manifest/config lookup, project cache   `io.open`/`io.popen` return "not found"
 

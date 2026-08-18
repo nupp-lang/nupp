@@ -1,0 +1,32 @@
+--[[
+Private declarations for the simdjson-backed native module. Programs use
+`nupp.data.json`; this module name is the host boundary it loads.
+]]
+
+local interface JsonWriter
+    startArray: function(self: JsonWriter): JsonWriter
+    startObject: function(self: JsonWriter): JsonWriter
+    key: function(self: JsonWriter, name: string): JsonWriter
+    write: function(self: JsonWriter, value: any): JsonWriter
+    null: function(self: JsonWriter): JsonWriter
+    close: function(self: JsonWriter): JsonWriter
+    flush: function(self: JsonWriter): string
+    finish: function(self: JsonWriter): string
+end
+
+local record JsonNative
+    decode: function(text: string, nullValue: any?): any
+    pull: function(text: string, shape: any, nullValue: any?): any
+    arrayOf: function(shape: any?): table
+    asArray: function<T is table>(takes value: T): T preserves value
+    asObject: function<T is table>(takes value: T): T preserves value
+    encode: function(value: any, nullValue: any?): string
+    serialize: function(value: any, nullValue: any?): string
+    writer: function(nullValue: any?): JsonWriter
+    NULL: any
+    EMPTY_ARRAY: table
+    EMPTY_OBJECT: table
+end
+
+local json: JsonNative
+return json

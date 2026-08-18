@@ -665,7 +665,7 @@ function M.standardDataApiHasCompleteDocumentation()
       assert(item.name ~= "json", "nupp.data.json stayed an item of nupp.data")
    end
 
-   local codec
+   local writer
    for _, item in ipairs(json.items) do
       assert(item.doc.text ~= "", "nupp.data.json." .. item.name .. " has no documentation")
       for _, param in ipairs(item.params) do
@@ -676,11 +676,11 @@ function M.standardDataApiHasCompleteDocumentation()
          assert(result.text ~= "", "nupp.data.json." .. item.name .. " return "
             .. index .. " has no documentation")
       end
-      if item.name == "JSON" then codec = item end
+      if item.name == "Writer" then writer = item end
    end
-   assert(codec, "the prelude did not document nupp.data.json.JSON")
-   for _, member in ipairs(codec.members) do
-      local prefix = "nupp.data.json.JSON." .. member.name
+   assert(writer, "the prelude did not document nupp.data.json.Writer")
+   for _, member in ipairs(writer.members) do
+      local prefix = "nupp.data.json.Writer." .. member.name
       assert(member.text ~= "", prefix .. " has no documentation")
       for _, param in ipairs(member.params) do
          assert(param.text ~= "", prefix .. " parameter " .. param.name

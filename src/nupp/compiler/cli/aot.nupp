@@ -28,6 +28,7 @@ local aot = require("nupp.compiler.aot.compile")
 local targets = require("nupp.compiler.aot.target")
 local optionsMod = require("nupp.compiler.cli.options")
 local spec = require("nupp.compiler.cli.spec")
+local report = require("nupp.compiler.cli.report")
 
 --- What this command accepts beyond the shared `--format` trio.
 local function aotOptions(): {any}
@@ -241,11 +242,8 @@ local function run(parsed: any): integer
     if parsed.values.format == "json" then
         -- An absent list is an empty array rather than an empty object, so a
         -- consumer reading `refusals` never has to handle two shapes.
-        local json = require("cjson").new()
-        json.encode_empty_table_as_object(false)
         -- Lane counts and widths are integers the backend settled on, so a NaN here
         -- would be a fault rather than a measurement.
-        json.encode_invalid_numbers(false)
 
         local functions: {any} = {}
         for position, program in ipairs(artifacts.programs) do
@@ -276,7 +274,7 @@ local function run(parsed: any): integer
             }
         end
         io.write(
-            json.encode({
+            report.encode({
                 file = path,
                 target = {
                     triple = (selected as targets.Target).triple,

@@ -277,24 +277,31 @@ do
     -- The cache's on-disk wire format doesn't need to round-trip through
     -- anything but this same VM, so encode/decode is a small self-consistent
     -- scheme (below) rather than LuaJIT's real MessagePack-ish binary format.
-    function buflib.encode(value) return require("cjson").encode(value) end
-    function buflib.decode(str) return require("cjson").decode(str) end
+    function buflib.encode(value) return require("jsonNative").encode(value) end
+    function buflib.decode(str) return require("jsonNative").decode(str) end
     package.preload["string.buffer"] = function() return buflib end
 end
 
--- A tiny JSON codec, standing in for the "cjson" C extension that
+-- A tiny JSON codec, standing in for the `jsonNative` extension that
 -- nupp.compiler.build.store, nupp.compiler.cli.report, and nupp.compiler.cli.lsp use for cache blobs,
 -- `--json` output, and LSP framing.
 do
     local json = {}
-    json.new = function() return json end
-    local escapes = {['"'] = '\\"', ["\\"] = "\\\\", ["\n"] = "\\n",
+    json.NULL = {}
+    json.EMPTY_ARRAY = {}
+    json.EMPTY_OBJECT = {}
+    function json.asArray(value) return setmetatable(value, json.EMPTY_ARRAY) end
+    function json.asObject(value) return setmetatable(value, json.EMPTY_OBJECT) end
+    local ESCAPES = {['"'] = '\\"', ["\\"] = "\\\\", ["\n"] = "\\n",
         ["\r"] = "\\r", ["\t"] = "\\t"}
     local function encodeValue(v, out)
+        if v == json.NULL then out[#out + 1] = "null" return end
+        if v == json.EMPTY_ARRAY then out[#out + 1] = "[]" return end
+        if v == json.EMPTY_OBJECT then out[#out + 1] = "{}" return end
         local t = type(v)
         if t == "string" then
             out[#out + 1] = '"' .. v:gsub('[%c"\\]', function(c)
-                return escapes[c] or string.format("\\u%04x", c:byte())
+                return ESCAPES[c] or string.format("\\u%04x", c:byte())
             end) .. '"'
         elseif t == "number" then
             out[#out + 1] = (v ~= v or v == math.huge or v == -math.huge)
@@ -305,13 +312,9 @@ do
             out[#out + 1] = "null"
         elseif t == "table" then
             local n = #v
-            -- An empty table is ambiguous in Lua; every empty list this
-            -- playground encodes (diagnostics, notes, related) should read
-            -- back as [], so that's the default rather than {}.
-            local isArray = true
-            if n == 0 then
-                for _ in pairs(v) do isArray = false break end
-            end
+            local marker = getmetatable(v)
+            local isArray = marker == json.EMPTY_ARRAY or n > 0
+            if marker == json.EMPTY_OBJECT then isArray = false end
             if isArray then
                 out[#out + 1] = "["
                 for i = 1, n do
@@ -340,13 +343,14 @@ do
         encodeValue(value, out)
         return table.concat(out)
     end
+    json.serialize = json.encode
     -- Nothing in the playground actually decodes a stored cache blob back
     -- (see the note on the top of this file): every load path treats a
     -- missing filesystem as a cache miss before decode would run.
     function json.decode(_str)
-        error("cjson.decode is not implemented in the browser playground", 0)
+        error("jsonNative.decode is not implemented in the browser playground", 0)
     end
-    package.preload["cjson"] = function() return json end
+    package.preload["jsonNative"] = function() return json end
 end
 
 -- LuaJIT's "ffi": needs a real C compiler and a live process to back struct

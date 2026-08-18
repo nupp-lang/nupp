@@ -11,7 +11,7 @@ any of it changed.
 
 local hash = require("nupp.compiler.build.hash")
 local importc = require("nupp.compiler.importc")
-local json = require("cjson").new()
+local json = nupp.data.json
 local process = require("nupp.compiler.build.process")
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.compiler.build.cache")
@@ -31,8 +31,6 @@ local deps = {}
 -- fields read out are names and paths and nothing carries an array metatable; a line
 -- offering `NaN` where a number belongs is not a message cargo wrote, and a scan that
 -- skips it finds the real one further down.
-json.decode_array_with_array_mt(false)
-json.decode_invalid_numbers(false)
 
 -- Named by module path rather than required: the manifest's shape is all this needs
 -- from it, and a type costs nothing at run time where a require would have loaded the
@@ -250,7 +248,12 @@ local function buildC(root, outDir, name, dep, previous, childResults)
     local _, version = process.capture({compiler, "--version"})
     local pkgFlags = {}
     if dep.pkgConfig then
-        local packages = type(dep.pkgConfig) == "table" and dep.pkgConfig or {dep.pkgConfig}
+        local packages = type(dep.pkgConfig) == "table" and dep.pkgConfig or {}
+        if type(dep.pkgConfig) == "string" then
+            for packageName in dep.pkgConfig:gmatch("%S+") do
+                packages[#packages + 1] = packageName
+            end
+        end
         local command = {"pkg-config", "--cflags", "--libs"}
         for _, packageName in ipairs(packages) do
             command[#command + 1] = packageName
@@ -428,7 +431,7 @@ local function buildCargo(root, outDir, name, dep, previous)
         end
         if not dep.artifactPath then
             for line in cargoOutput:gmatch("[^\r\n]+") do
-                local parsed, message = pcall(json.decode, line)
+                local parsed, message = pcall(json.decode, line, json.NULL)
                 if parsed and type(
                     message
                 ) == "table" and message.reason == "compiler-artifact" and message.target and message.target.name:gsub(

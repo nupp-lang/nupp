@@ -21,6 +21,7 @@ a gate -- no quiet machine, no threshold, and the same answer every time.
 local spec = require("nupp.compiler.cli.spec")
 local optionsMod = require("nupp.compiler.cli.options")
 local traceBytecode = require("nupp.compiler.trace_bytecode")
+local report = require("nupp.compiler.cli.report")
 
 -- The shared `--format` trio, plus the two questions this command answers.
 local function bcOptions(): {any}
@@ -161,13 +162,10 @@ local function run(parsed: any): integer
     end
 
     if (parsed.values.format or "text") == "json" then
-        local json = require("cjson").new()
-        json.encode_empty_table_as_object(false)
         -- Every count below is an integer this pass produced, so a NaN reaching the
         -- encoder is a fault worth failing on rather than a token to write out.
-        json.encode_invalid_numbers(false)
         io.write(
-            json.encode({
+            report.encode({
                 file = path,
                 functions = functions,
                 unrecordable = unrecordable,

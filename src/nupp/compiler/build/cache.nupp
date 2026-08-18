@@ -18,7 +18,7 @@ the digest.
 ]]
 
 local hash = require("nupp.compiler.build.hash")
-local json = require("cjson").new()
+local json = nupp.data.json
 local fs = require("nupp.compiler.fs")
 
 local join = fs.join
@@ -29,17 +29,13 @@ local listFiles = fs.listFiles
 local cache = {}
 
 -- What this codec does with an empty table and with a NaN, said here rather than
--- inherited. cjson's defaults differ between builds -- a host that compiled it with
+-- inherited. Codec defaults can differ between builds -- a host that compiled one with
 -- invalid numbers disabled starts strict where a distribution build does not -- and a
 -- state file that reads back differently depending on which interpreter opened it is a
 -- state file that cannot be trusted to decide what to rebuild. Lists are marked with
 -- `jsonArray`, so an unmarked empty table is an object; a state file carrying `NaN` is
 -- damaged rather than unusual, and `loadState` answers a damaged one with an empty
 -- state and a full rebuild.
-json.decode_array_with_array_mt(false)
-json.decode_invalid_numbers(false)
-json.encode_empty_table_as_object(true)
-json.encode_invalid_numbers(false)
 
 --- What one module's last build left behind.
 ---
@@ -157,7 +153,7 @@ type cache.State = {
 }
 
 local function jsonArray<T>(takes items: {T}): {T} preserves items
-    return setmetatable(items, json.array_mt) as {T}
+    return json.asArray(items)
 end
 
 local function stable(value: unknown, seen: {[unknown]: boolean}?): string
@@ -523,7 +519,7 @@ local function loadState(path: string): cache.State
     if not text then
         return emptyState()
     end
-    local ok, state = pcall(json.decode, text)
+    local ok, state = pcall(json.decode, text, json.NULL)
     if not ok or type(state) ~= "table" or state.version ~= STATE_VERSION then
         return emptyState()
     end

@@ -43,15 +43,15 @@ end
 
 local payloads = {
    {name = "records", source = records(), short = false,
-      pullShape = simdjsonBench.array({id = true, name = true})},
+      pullShape = simdjsonBench.arrayOf({id = true, name = true})},
    {name = "ascii", source = strings("ordinary-ascii-value-", 5000), short = false,
-      pullShape = simdjsonBench.array(true)},
+      pullShape = simdjsonBench.arrayOf(true)},
    {name = "unicode", source = strings("κόσμος-日本語-🙂-", 3500), short = false,
-      pullShape = simdjsonBench.array(true)},
+      pullShape = simdjsonBench.arrayOf(true)},
    {name = "escaped", source = strings("quote-\"-slash-\\-line-\n-", 4000), short = false,
-      pullShape = simdjsonBench.array(true)},
+      pullShape = simdjsonBench.arrayOf(true)},
    {name = "numbers", source = numbers(), short = false,
-      pullShape = simdjsonBench.array(true)},
+      pullShape = simdjsonBench.arrayOf(true)},
    {name = "short", source = [[{"ok":true,"n":42,"s":"hello"}]], short = true,
       pullShape = {ok = true, n = true}},
 }

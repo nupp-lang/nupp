@@ -1,4 +1,4 @@
-#include "simdjson_bench.h"
+#include "json.h"
 
 #include <climits>
 #include <cmath>
@@ -24,7 +24,7 @@ extern "C" {
 #define NUPP_SIMDJSON_EXPORT __attribute__((visibility("default")))
 #endif
 
-struct nupp_simdjson_parser {
+struct nuppSimdjsonParser {
     simdjson::dom::parser dom;
     simdjson::ondemand::parser ondemand;
     std::vector<char> padded;
@@ -35,89 +35,100 @@ struct nupp_simdjson_parser {
 namespace {
 
 constexpr const char *WRITER_METATABLE = "nupp.simdjson.writer";
-constexpr const char *SENTINEL_METATABLE = "nupp.simdjson.sentinel";
 static char EMPTY_ARRAY_KEY;
 static char EMPTY_OBJECT_KEY;
+static char NULL_KEY;
 static char ARRAY_SHAPE_KEY;
 
-struct sentinel {
-    const char *name;
+enum class containerKind {
+    ARRAY,
+    OBJECT,
 };
 
-enum class container_kind {
-    array,
-    object,
-};
-
-struct writer_frame {
-    container_kind kind;
+struct writerFrame {
+    containerKind kind;
     bool first{true};
-    bool needs_value{false};
+    bool needsValue{false};
 };
 
-struct lua_writer {
+struct luaWriter {
     simdjson::builder::string_builder builder;
-    std::vector<writer_frame> frames;
-    bool root_written{false};
+    std::vector<writerFrame> frames;
+    bool rootWritten{false};
     bool finished{false};
 };
 
-enum class emit_result {
-    produced,
-    dropped,
-    failed,
+enum class emitResult {
+    PRODUCED,
+    DROPPED,
+    FAILED,
 };
 
-enum class table_kind {
-    array,
-    object,
-    invalid,
+enum class tableKind {
+    ARRAY,
+    OBJECT,
+    INVALID,
 };
 
-static int absolute_index(lua_State *L, int index) noexcept {
+static int absoluteIndex(lua_State *L, int index) noexcept {
     if (index > 0 || index <= LUA_REGISTRYINDEX) {
         return index;
     }
     return lua_gettop(L) + index + 1;
 }
 
-static int table_capacity(size_t size) noexcept {
+static int tableCapacity(size_t size) noexcept {
     return size > static_cast<size_t>(INT_MAX)
         ? INT_MAX
         : static_cast<int>(size);
 }
 
-static void push_registered(lua_State *L, void *key) {
+static void pushRegistered(lua_State *L, void *key) {
     lua_pushlightuserdata(L, key);
     lua_rawget(L, LUA_REGISTRYINDEX);
 }
 
-static bool is_registered(lua_State *L, int index, void *key) {
-    index = absolute_index(L, index);
-    push_registered(L, key);
+static bool isRegistered(lua_State *L, int index, void *key) {
+    index = absoluteIndex(L, index);
+    pushRegistered(L, key);
     const bool equal = lua_rawequal(L, index, -1) != 0;
     lua_pop(L, 1);
     return equal;
 }
 
-static void push_empty_array(lua_State *L) {
-    push_registered(L, &EMPTY_ARRAY_KEY);
+static void pushEmptyArray(lua_State *L) {
+    lua_createtable(L, 0, 0);
+    pushRegistered(L, &EMPTY_ARRAY_KEY);
+    lua_setmetatable(L, -2);
 }
 
-static void push_empty_object(lua_State *L) {
-    push_registered(L, &EMPTY_OBJECT_KEY);
+static void pushEmptyObject(lua_State *L) {
+    lua_createtable(L, 0, 0);
+    pushRegistered(L, &EMPTY_OBJECT_KEY);
+    lua_setmetatable(L, -2);
 }
 
-static bool has_null_sentinel(lua_State *L, int null_index) noexcept {
-    return null_index != 0 && !lua_isnil(L, null_index);
+static bool hasRegisteredMetatable(lua_State *L, int index, void *key) {
+    index = absoluteIndex(L, index);
+    if (!lua_getmetatable(L, index)) {
+        return false;
+    }
+    pushRegistered(L, key);
+    const bool equal = lua_rawequal(L, -1, -2) != 0;
+    lua_pop(L, 2);
+    return equal;
 }
 
-static bool is_null_sentinel(lua_State *L, int index, int null_index) noexcept {
-    return has_null_sentinel(L, null_index) && lua_rawequal(L, index, null_index) != 0;
+static bool hasNullSentinel(lua_State *L, int nullIndex) noexcept {
+    return nullIndex != 0 && !lua_isnil(L, nullIndex);
 }
 
-static bool table_is_empty(lua_State *L, int index) {
-    index = absolute_index(L, index);
+static bool isNullSentinel(lua_State *L, int index, int nullIndex) noexcept {
+    return hasNullSentinel(L, nullIndex) && lua_rawequal(L, index, nullIndex) != 0;
+}
+
+static bool tableIsEmpty(lua_State *L, int index) {
+    index = absoluteIndex(L, index);
     lua_pushnil(L);
     if (lua_next(L, index) == 0) {
         return true;
@@ -126,10 +137,10 @@ static bool table_is_empty(lua_State *L, int index) {
     return false;
 }
 
-static bool push_dom_element(
+static bool pushDomElement(
     lua_State *L,
     simdjson::dom::element value,
-    int null_index,
+    int nullIndex,
     const char **failure
 ) {
     if (!lua_checkstack(L, 6)) {
@@ -146,25 +157,25 @@ static bool push_dom_element(
                 return false;
             }
             if (array.size() == 0) {
-                push_empty_array(L);
+                pushEmptyArray(L);
                 return true;
             }
-            lua_createtable(L, table_capacity(array.size()), 0);
-            const int table_index = lua_gettop(L);
-            int output_index = 1;
+            lua_createtable(L, tableCapacity(array.size()), 0);
+            const int tableIndex = lua_gettop(L);
+            int outputIndex = 1;
             for (const auto child : array) {
                 if (child.type() == simdjson::dom::element_type::NULL_VALUE
-                    && !has_null_sentinel(L, null_index)) {
+                    && !hasNullSentinel(L, nullIndex)) {
                     continue;
                 }
-                if (!push_dom_element(L, child, null_index, failure)) {
+                if (!pushDomElement(L, child, nullIndex, failure)) {
                     return false;
                 }
-                lua_rawseti(L, table_index, output_index++);
+                lua_rawseti(L, tableIndex, outputIndex++);
             }
-            if (output_index == 1) {
+            if (outputIndex == 1) {
                 lua_pop(L, 1);
-                push_empty_array(L);
+                pushEmptyArray(L);
             }
             return true;
         }
@@ -176,25 +187,25 @@ static bool push_dom_element(
                 return false;
             }
             if (object.size() == 0) {
-                push_empty_object(L);
+                pushEmptyObject(L);
                 return true;
             }
-            lua_createtable(L, 0, table_capacity(object.size()));
-            const int table_index = lua_gettop(L);
+            lua_createtable(L, 0, tableCapacity(object.size()));
+            const int tableIndex = lua_gettop(L);
             for (const auto field : object) {
                 const std::string_view key = field.key;
                 lua_pushlstring(L, key.data(), key.size());
                 if (field.value.type() == simdjson::dom::element_type::NULL_VALUE
-                    && !has_null_sentinel(L, null_index)) {
+                    && !hasNullSentinel(L, nullIndex)) {
                     lua_pushnil(L);
-                } else if (!push_dom_element(L, field.value, null_index, failure)) {
+                } else if (!pushDomElement(L, field.value, nullIndex, failure)) {
                     return false;
                 }
-                lua_rawset(L, table_index);
+                lua_rawset(L, tableIndex);
             }
-            if (table_is_empty(L, table_index)) {
+            if (tableIsEmpty(L, tableIndex)) {
                 lua_pop(L, 1);
-                push_empty_object(L);
+                pushEmptyObject(L);
             }
             return true;
         }
@@ -248,8 +259,8 @@ static bool push_dom_element(
             return true;
         }
         case simdjson::dom::element_type::NULL_VALUE:
-            if (has_null_sentinel(L, null_index)) {
-                lua_pushvalue(L, null_index);
+            if (hasNullSentinel(L, nullIndex)) {
+                lua_pushvalue(L, nullIndex);
             } else {
                 lua_pushnil(L);
             }
@@ -261,20 +272,20 @@ static bool push_dom_element(
 }
 
 template<typename Value>
-static bool consume_ondemand(Value &value, const char **failure);
+static bool consumeOnDemand(Value &value, const char **failure);
 
 template<typename Value>
-static emit_result push_ondemand_value(
+static emitResult pushOnDemandValue(
     lua_State *L,
     Value &value,
-    int null_index,
+    int nullIndex,
     const char **failure
 ) {
     simdjson::ondemand::json_type type;
     auto error = value.type().get(type);
     if (error) {
         *failure = simdjson::error_message(error);
-        return emit_result::failed;
+        return emitResult::FAILED;
     }
 
     switch (type) {
@@ -283,124 +294,124 @@ static emit_result push_ondemand_value(
             error = value.get_array().get(array);
             if (error) {
                 *failure = simdjson::error_message(error);
-                return emit_result::failed;
+                return emitResult::FAILED;
             }
             lua_createtable(L, 0, 0);
-            const int table_index = lua_gettop(L);
-            int output_index = 1;
-            for (auto child_result : array) {
+            const int tableIndex = lua_gettop(L);
+            int outputIndex = 1;
+            for (auto childResult : array) {
                 simdjson::ondemand::value child;
-                error = child_result.get(child);
+                error = childResult.get(child);
                 if (error) {
                     *failure = simdjson::error_message(error);
-                    return emit_result::failed;
+                    return emitResult::FAILED;
                 }
-                const auto emitted = push_ondemand_value(L, child, null_index, failure);
-                if (emitted == emit_result::failed) {
+                const auto emitted = pushOnDemandValue(L, child, nullIndex, failure);
+                if (emitted == emitResult::FAILED) {
                     return emitted;
                 }
-                if (emitted == emit_result::produced) {
-                    lua_rawseti(L, table_index, output_index++);
+                if (emitted == emitResult::PRODUCED) {
+                    lua_rawseti(L, tableIndex, outputIndex++);
                 }
             }
-            if (output_index == 1) {
+            if (outputIndex == 1) {
                 lua_pop(L, 1);
-                push_empty_array(L);
+                pushEmptyArray(L);
             }
-            return emit_result::produced;
+            return emitResult::PRODUCED;
         }
         case simdjson::ondemand::json_type::object: {
             simdjson::ondemand::object object;
             error = value.get_object().get(object);
             if (error) {
                 *failure = simdjson::error_message(error);
-                return emit_result::failed;
+                return emitResult::FAILED;
             }
             lua_createtable(L, 0, 0);
-            const int table_index = lua_gettop(L);
-            for (auto field_result : object) {
+            const int tableIndex = lua_gettop(L);
+            for (auto fieldResult : object) {
                 simdjson::ondemand::field field;
-                error = std::move(field_result).get(field);
+                error = std::move(fieldResult).get(field);
                 if (error) {
                     *failure = simdjson::error_message(error);
-                    return emit_result::failed;
+                    return emitResult::FAILED;
                 }
                 std::string_view key;
                 error = field.unescaped_key().get(key);
                 if (error) {
                     *failure = simdjson::error_message(error);
-                    return emit_result::failed;
+                    return emitResult::FAILED;
                 }
                 lua_pushlstring(L, key.data(), key.size());
                 auto &child = field.value();
-                const auto emitted = push_ondemand_value(L, child, null_index, failure);
-                if (emitted == emit_result::failed) {
+                const auto emitted = pushOnDemandValue(L, child, nullIndex, failure);
+                if (emitted == emitResult::FAILED) {
                     return emitted;
                 }
-                if (emitted == emit_result::dropped) {
+                if (emitted == emitResult::DROPPED) {
                     lua_pushnil(L);
                 }
-                lua_rawset(L, table_index);
+                lua_rawset(L, tableIndex);
             }
-            if (table_is_empty(L, table_index)) {
+            if (tableIsEmpty(L, tableIndex)) {
                 lua_pop(L, 1);
-                push_empty_object(L);
+                pushEmptyObject(L);
             }
-            return emit_result::produced;
+            return emitResult::PRODUCED;
         }
         case simdjson::ondemand::json_type::string: {
             std::string_view string;
             error = value.get_string().get(string);
             if (error) {
                 *failure = simdjson::error_message(error);
-                return emit_result::failed;
+                return emitResult::FAILED;
             }
             lua_pushlstring(L, string.data(), string.size());
-            return emit_result::produced;
+            return emitResult::PRODUCED;
         }
         case simdjson::ondemand::json_type::number: {
             double number = 0;
             error = value.get_double().get(number);
             if (error) {
                 *failure = simdjson::error_message(error);
-                return emit_result::failed;
+                return emitResult::FAILED;
             }
             lua_pushnumber(L, number);
-            return emit_result::produced;
+            return emitResult::PRODUCED;
         }
         case simdjson::ondemand::json_type::boolean: {
             bool boolean = false;
             error = value.get_bool().get(boolean);
             if (error) {
                 *failure = simdjson::error_message(error);
-                return emit_result::failed;
+                return emitResult::FAILED;
             }
             lua_pushboolean(L, boolean ? 1 : 0);
-            return emit_result::produced;
+            return emitResult::PRODUCED;
         }
         case simdjson::ondemand::json_type::null: {
-            bool is_null = false;
-            error = value.is_null().get(is_null);
+            bool isNull = false;
+            error = value.is_null().get(isNull);
             if (error) {
                 *failure = simdjson::error_message(error);
-                return emit_result::failed;
+                return emitResult::FAILED;
             }
-            if (!has_null_sentinel(L, null_index)) {
-                return emit_result::dropped;
+            if (!hasNullSentinel(L, nullIndex)) {
+                return emitResult::DROPPED;
             }
-            lua_pushvalue(L, null_index);
-            return emit_result::produced;
+            lua_pushvalue(L, nullIndex);
+            return emitResult::PRODUCED;
         }
         case simdjson::ondemand::json_type::unknown:
             break;
     }
 
     *failure = "unknown simdjson On-Demand value type";
-    return emit_result::failed;
+    return emitResult::FAILED;
 }
 
 template<typename Value>
-static bool consume_ondemand(Value &value, const char **failure) {
+static bool consumeOnDemand(Value &value, const char **failure) {
     simdjson::ondemand::json_type type;
     auto error = value.type().get(type);
     if (error) {
@@ -416,10 +427,10 @@ static bool consume_ondemand(Value &value, const char **failure) {
                 *failure = simdjson::error_message(error);
                 return false;
             }
-            for (auto child_result : array) {
+            for (auto childResult : array) {
                 simdjson::ondemand::value child;
-                error = child_result.get(child);
-                if (error || !consume_ondemand(child, failure)) {
+                error = childResult.get(child);
+                if (error || !consumeOnDemand(child, failure)) {
                     if (error) {
                         *failure = simdjson::error_message(error);
                     }
@@ -435,9 +446,9 @@ static bool consume_ondemand(Value &value, const char **failure) {
                 *failure = simdjson::error_message(error);
                 return false;
             }
-            for (auto field_result : object) {
+            for (auto fieldResult : object) {
                 simdjson::ondemand::field field;
-                error = std::move(field_result).get(field);
+                error = std::move(fieldResult).get(field);
                 if (error) {
                     *failure = simdjson::error_message(error);
                     return false;
@@ -449,7 +460,7 @@ static bool consume_ondemand(Value &value, const char **failure) {
                     return false;
                 }
                 auto &child = field.value();
-                if (!consume_ondemand(child, failure)) {
+                if (!consumeOnDemand(child, failure)) {
                     return false;
                 }
             }
@@ -471,8 +482,8 @@ static bool consume_ondemand(Value &value, const char **failure) {
             break;
         }
         case simdjson::ondemand::json_type::null: {
-            bool is_null = false;
-            error = value.is_null().get(is_null);
+            bool isNull = false;
+            error = value.is_null().get(isNull);
             break;
         }
         case simdjson::ondemand::json_type::unknown:
@@ -486,13 +497,13 @@ static bool consume_ondemand(Value &value, const char **failure) {
     return true;
 }
 
-static bool push_array_shape(lua_State *L, int shape_index) {
-    shape_index = absolute_index(L, shape_index);
-    if (!lua_istable(L, shape_index)) {
+static bool pushArrayShape(lua_State *L, int shapeIndex) {
+    shapeIndex = absoluteIndex(L, shapeIndex);
+    if (!lua_istable(L, shapeIndex)) {
         return false;
     }
     lua_pushlightuserdata(L, &ARRAY_SHAPE_KEY);
-    lua_rawget(L, shape_index);
+    lua_rawget(L, shapeIndex);
     if (lua_isnil(L, -1)) {
         lua_pop(L, 1);
         return false;
@@ -501,225 +512,235 @@ static bool push_array_shape(lua_State *L, int shape_index) {
 }
 
 template<typename Value>
-static emit_result project_ondemand(
+static emitResult projectOnDemand(
     lua_State *L,
     Value &value,
-    int shape_index,
-    int null_index,
+    int shapeIndex,
+    int nullIndex,
     const char **failure
 ) {
-    shape_index = absolute_index(L, shape_index);
-    if (lua_isboolean(L, shape_index)) {
-        if (lua_toboolean(L, shape_index)) {
-            return push_ondemand_value(L, value, null_index, failure);
+    shapeIndex = absoluteIndex(L, shapeIndex);
+    if (lua_isboolean(L, shapeIndex)) {
+        if (lua_toboolean(L, shapeIndex)) {
+            return pushOnDemandValue(L, value, nullIndex, failure);
         }
-        if (!consume_ondemand(value, failure)) {
-            return emit_result::failed;
+        if (!consumeOnDemand(value, failure)) {
+            return emitResult::FAILED;
         }
-        return emit_result::dropped;
+        return emitResult::DROPPED;
     }
-    if (!lua_istable(L, shape_index)) {
+    if (!lua_istable(L, shapeIndex)) {
         *failure = "pull shape entries must be true, object shapes, or array shapes";
-        return emit_result::failed;
+        return emitResult::FAILED;
     }
 
     simdjson::ondemand::json_type type;
     auto error = value.type().get(type);
     if (error) {
         *failure = simdjson::error_message(error);
-        return emit_result::failed;
+        return emitResult::FAILED;
     }
 
-    if (push_array_shape(L, shape_index)) {
-        const int item_shape = lua_gettop(L);
+    if (pushArrayShape(L, shapeIndex)) {
+        const int itemShape = lua_gettop(L);
         if (type != simdjson::ondemand::json_type::array) {
             lua_pop(L, 1);
             *failure = "pull array shape matched a non-array value";
-            return emit_result::failed;
+            return emitResult::FAILED;
         }
         simdjson::ondemand::array array;
         error = value.get_array().get(array);
         if (error) {
             lua_pop(L, 1);
             *failure = simdjson::error_message(error);
-            return emit_result::failed;
+            return emitResult::FAILED;
         }
         lua_createtable(L, 0, 0);
-        const int table_index = lua_gettop(L);
-        int output_index = 1;
-        for (auto child_result : array) {
+        const int tableIndex = lua_gettop(L);
+        int outputIndex = 1;
+        for (auto childResult : array) {
             simdjson::ondemand::value child;
-            error = child_result.get(child);
+            error = childResult.get(child);
             if (error) {
                 *failure = simdjson::error_message(error);
-                return emit_result::failed;
+                return emitResult::FAILED;
             }
-            const auto emitted = project_ondemand(
-                L, child, item_shape, null_index, failure
+            const auto emitted = projectOnDemand(
+                L, child, itemShape, nullIndex, failure
             );
-            if (emitted == emit_result::failed) {
+            if (emitted == emitResult::FAILED) {
                 return emitted;
             }
-            if (emitted == emit_result::produced) {
-                lua_rawseti(L, table_index, output_index++);
+            if (emitted == emitResult::PRODUCED) {
+                lua_rawseti(L, tableIndex, outputIndex++);
             }
         }
-        lua_remove(L, item_shape);
-        if (output_index == 1) {
+        lua_remove(L, itemShape);
+        if (outputIndex == 1) {
             lua_pop(L, 1);
-            push_empty_array(L);
+            pushEmptyArray(L);
         }
-        return emit_result::produced;
+        return emitResult::PRODUCED;
     }
 
     if (type != simdjson::ondemand::json_type::object) {
         *failure = "pull object shape matched a non-object value";
-        return emit_result::failed;
+        return emitResult::FAILED;
     }
     simdjson::ondemand::object object;
     error = value.get_object().get(object);
     if (error) {
         *failure = simdjson::error_message(error);
-        return emit_result::failed;
+        return emitResult::FAILED;
     }
     lua_createtable(L, 0, 0);
-    const int table_index = lua_gettop(L);
-    for (auto field_result : object) {
+    const int tableIndex = lua_gettop(L);
+    for (auto fieldResult : object) {
         simdjson::ondemand::field field;
-        error = std::move(field_result).get(field);
+        error = std::move(fieldResult).get(field);
         if (error) {
             *failure = simdjson::error_message(error);
-            return emit_result::failed;
+            return emitResult::FAILED;
         }
         std::string_view key;
         error = field.unescaped_key().get(key);
         if (error) {
             *failure = simdjson::error_message(error);
-            return emit_result::failed;
+            return emitResult::FAILED;
         }
         lua_pushlstring(L, key.data(), key.size());
         lua_pushvalue(L, -1);
-        lua_rawget(L, shape_index);
-        const int child_shape = lua_gettop(L);
+        lua_rawget(L, shapeIndex);
+        const int childShape = lua_gettop(L);
         auto &child = field.value();
-        if (lua_isnil(L, child_shape) || !lua_toboolean(L, child_shape)) {
+        if (lua_isnil(L, childShape) || !lua_toboolean(L, childShape)) {
             lua_pop(L, 1);
             lua_pop(L, 1);
-            if (!consume_ondemand(child, failure)) {
-                return emit_result::failed;
+            if (!consumeOnDemand(child, failure)) {
+                return emitResult::FAILED;
             }
             continue;
         }
-        const auto emitted = project_ondemand(
-            L, child, child_shape, null_index, failure
+        const auto emitted = projectOnDemand(
+            L, child, childShape, nullIndex, failure
         );
-        if (emitted == emit_result::failed) {
+        if (emitted == emitResult::FAILED) {
             return emitted;
         }
-        lua_remove(L, child_shape);
-        if (emitted == emit_result::dropped) {
+        lua_remove(L, childShape);
+        if (emitted == emitResult::DROPPED) {
             lua_pushnil(L);
         }
-        lua_rawset(L, table_index);
+        lua_rawset(L, tableIndex);
     }
-    if (table_is_empty(L, table_index)) {
+    if (tableIsEmpty(L, tableIndex)) {
         lua_pop(L, 1);
-        push_empty_object(L);
+        pushEmptyObject(L);
     }
-    return emit_result::produced;
+    return emitResult::PRODUCED;
 }
 
-static table_kind classify_table(
+static tableKind classifyTable(
     lua_State *L,
     int index,
     size_t *length,
     const char **failure
 ) {
-    index = absolute_index(L, index);
+    index = absoluteIndex(L, index);
+    const bool forcedArray = hasRegisteredMetatable(L, index, &EMPTY_ARRAY_KEY);
+    const bool forcedObject = hasRegisteredMetatable(L, index, &EMPTY_OBJECT_KEY);
     size_t count = 0;
     size_t highest = 0;
-    bool string_keys = false;
-    bool number_keys = false;
+    bool stringKeys = false;
+    bool numberKeys = false;
     lua_pushnil(L);
     while (lua_next(L, index) != 0) {
         ++count;
         if (lua_type(L, -2) == LUA_TSTRING) {
-            string_keys = true;
+            stringKeys = true;
         } else if (lua_type(L, -2) == LUA_TNUMBER) {
             const lua_Number number = lua_tonumber(L, -2);
             if (number < 1 || number != std::floor(number)) {
                 lua_pop(L, 2);
                 *failure = "JSON array indexes must be positive integers";
-                return table_kind::invalid;
+                return tableKind::INVALID;
             }
             if (number > static_cast<lua_Number>(INT_MAX)) {
                 lua_pop(L, 2);
                 *failure = "JSON array index exceeds the Lua C API limit";
-                return table_kind::invalid;
+                return tableKind::INVALID;
             }
             const size_t key = static_cast<size_t>(number);
             if (static_cast<lua_Number>(key) != number) {
                 lua_pop(L, 2);
                 *failure = "JSON array index is out of range";
-                return table_kind::invalid;
+                return tableKind::INVALID;
             }
-            number_keys = true;
+            numberKeys = true;
             if (key > highest) {
                 highest = key;
             }
         } else {
             lua_pop(L, 2);
             *failure = "JSON object keys must be strings";
-            return table_kind::invalid;
+            return tableKind::INVALID;
         }
         lua_pop(L, 1);
     }
     if (count == 0) {
-        *failure = "empty Lua tables are ambiguous; use empty_array or empty_object";
-        return table_kind::invalid;
+        *length = 0;
+        return forcedArray ? tableKind::ARRAY : tableKind::OBJECT;
     }
-    if (string_keys && number_keys) {
+    if (stringKeys && numberKeys) {
         *failure = "a JSON container cannot mix array indexes and object keys";
-        return table_kind::invalid;
+        return tableKind::INVALID;
     }
-    if (number_keys) {
+    if (forcedArray && stringKeys) {
+        *failure = "an array-marked table cannot contain object keys";
+        return tableKind::INVALID;
+    }
+    if (forcedObject && numberKeys) {
+        *failure = "an object-marked table cannot contain array indexes";
+        return tableKind::INVALID;
+    }
+    if (numberKeys) {
         if (count != highest) {
             *failure = "JSON arrays cannot contain holes";
-            return table_kind::invalid;
+            return tableKind::INVALID;
         }
         *length = highest;
-        return table_kind::array;
+        return tableKind::ARRAY;
     }
     *length = count;
-    return table_kind::object;
+    return tableKind::OBJECT;
 }
 
-static bool append_lua_value(
+static bool appendLuaValue(
     lua_State *L,
     simdjson::builder::string_builder &builder,
     int index,
-    int null_index,
+    int nullIndex,
     std::unordered_set<const void *> &visiting,
     size_t depth,
     const char **failure
 ) {
-    index = absolute_index(L, index);
-    null_index = null_index == 0 ? 0 : absolute_index(L, null_index);
+    index = absoluteIndex(L, index);
+    nullIndex = nullIndex == 0 ? 0 : absoluteIndex(L, nullIndex);
     if (depth > simdjson::DEFAULT_MAX_DEPTH) {
         *failure = "JSON serialization nesting exceeds simdjson's limit";
         return false;
     }
-    if (is_registered(L, index, &EMPTY_ARRAY_KEY)) {
+    if (isRegistered(L, index, &EMPTY_ARRAY_KEY)) {
         builder.start_array();
         builder.end_array();
         return true;
     }
-    if (is_registered(L, index, &EMPTY_OBJECT_KEY)) {
+    if (isRegistered(L, index, &EMPTY_OBJECT_KEY)) {
         builder.start_object();
         builder.end_object();
         return true;
     }
-    if (is_null_sentinel(L, index, null_index)) {
+    if (isNullSentinel(L, index, nullIndex)) {
         builder.append_null();
         return true;
     }
@@ -761,29 +782,29 @@ static bool append_lua_value(
                 return false;
             }
             size_t length = 0;
-            const auto kind = classify_table(L, index, &length, failure);
-            bool ok = kind != table_kind::invalid;
-            if (kind == table_kind::array) {
+            const auto kind = classifyTable(L, index, &length, failure);
+            bool ok = kind != tableKind::INVALID;
+            if (kind == tableKind::ARRAY) {
                 builder.start_array();
                 for (size_t item = 1; ok && item <= length; ++item) {
                     if (item > 1) {
                         builder.append_comma();
                     }
                     lua_rawgeti(L, index, static_cast<int>(item));
-                    ok = append_lua_value(
-                        L, builder, -1, null_index, visiting, depth + 1, failure
+                    ok = appendLuaValue(
+                        L, builder, -1, nullIndex, visiting, depth + 1, failure
                     );
                     lua_pop(L, 1);
                 }
                 builder.end_array();
-            } else if (kind == table_kind::object) {
+            } else if (kind == tableKind::OBJECT) {
                 builder.start_object();
                 bool first = true;
                 lua_pushnil(L);
                 while (ok && lua_next(L, index) != 0) {
-                    size_t key_length = 0;
-                    const char *key = lua_tolstring(L, -2, &key_length);
-                    if (!simdjson::validate_utf8(key, key_length)) {
+                    size_t keyLength = 0;
+                    const char *key = lua_tolstring(L, -2, &keyLength);
+                    if (!simdjson::validate_utf8(key, keyLength)) {
                         *failure = "JSON object keys must contain valid UTF-8";
                         ok = false;
                     } else {
@@ -792,11 +813,11 @@ static bool append_lua_value(
                         }
                         first = false;
                         builder.escape_and_append_with_quotes(
-                            std::string_view(key, key_length)
+                            std::string_view(key, keyLength)
                         );
                         builder.append_colon();
-                        ok = append_lua_value(
-                            L, builder, -1, null_index, visiting, depth + 1, failure
+                        ok = appendLuaValue(
+                            L, builder, -1, nullIndex, visiting, depth + 1, failure
                         );
                     }
                     lua_pop(L, 1);
@@ -818,93 +839,93 @@ static bool append_lua_value(
     }
 }
 
-static lua_writer *checked_writer(lua_State *L, int index) {
-    return static_cast<lua_writer *>(luaL_checkudata(L, index, WRITER_METATABLE));
+static luaWriter *checkedWriter(lua_State *L, int index) {
+    return static_cast<luaWriter *>(luaL_checkudata(L, index, WRITER_METATABLE));
 }
 
-static bool prepare_writer_value(lua_writer *writer, const char **failure) {
+static bool prepareWriterValue(luaWriter *writer, const char **failure) {
     if (writer->finished) {
         *failure = "writer is already finished";
         return false;
     }
     if (writer->frames.empty()) {
-        if (writer->root_written) {
+        if (writer->rootWritten) {
             *failure = "writer already has a root value";
             return false;
         }
-        writer->root_written = true;
+        writer->rootWritten = true;
         return true;
     }
     auto &frame = writer->frames.back();
-    if (frame.kind == container_kind::array) {
+    if (frame.kind == containerKind::ARRAY) {
         if (!frame.first) {
             writer->builder.append_comma();
         }
         frame.first = false;
         return true;
     }
-    if (!frame.needs_value) {
+    if (!frame.needsValue) {
         *failure = "an object value must follow key()";
         return false;
     }
-    frame.needs_value = false;
+    frame.needsValue = false;
     return true;
 }
 
-static int writer_error(lua_State *L, const char *failure) {
+static int writerError(lua_State *L, const char *failure) {
     return luaL_error(L, "simdjson writer: %s", failure);
 }
 
-static int lua_writer_gc(lua_State *L) {
-    checked_writer(L, 1)->~lua_writer();
+static int luaWriterGc(lua_State *L) {
+    checkedWriter(L, 1)->~luaWriter();
     return 0;
 }
 
-static int lua_writer_start_array(lua_State *L) {
-    lua_writer *writer = checked_writer(L, 1);
+static int luaWriterStartArray(lua_State *L) {
+    luaWriter *writer = checkedWriter(L, 1);
     const char *failure = nullptr;
     try {
-        if (prepare_writer_value(writer, &failure)) {
+        if (prepareWriterValue(writer, &failure)) {
             writer->builder.start_array();
-            writer->frames.push_back({container_kind::array});
+            writer->frames.push_back({containerKind::ARRAY});
         }
     } catch (const std::bad_alloc &) {
         failure = "allocation failed";
     }
     if (failure) {
-        return writer_error(L, failure);
+        return writerError(L, failure);
     }
     lua_settop(L, 1);
     return 1;
 }
 
-static int lua_writer_start_object(lua_State *L) {
-    lua_writer *writer = checked_writer(L, 1);
+static int luaWriterStartObject(lua_State *L) {
+    luaWriter *writer = checkedWriter(L, 1);
     const char *failure = nullptr;
     try {
-        if (prepare_writer_value(writer, &failure)) {
+        if (prepareWriterValue(writer, &failure)) {
             writer->builder.start_object();
-            writer->frames.push_back({container_kind::object});
+            writer->frames.push_back({containerKind::OBJECT});
         }
     } catch (const std::bad_alloc &) {
         failure = "allocation failed";
     }
     if (failure) {
-        return writer_error(L, failure);
+        return writerError(L, failure);
     }
     lua_settop(L, 1);
     return 1;
 }
 
-static int lua_writer_key(lua_State *L) {
-    lua_writer *writer = checked_writer(L, 1);
+static int luaWriterKey(lua_State *L) {
+    luaWriter *writer = checkedWriter(L, 1);
     size_t length = 0;
     const char *key = luaL_checklstring(L, 2, &length);
     const char *failure = nullptr;
     if (writer->finished || writer->frames.empty()
-        || writer->frames.back().kind != container_kind::object) {
+        || writer->frames.back().kind != containerKind::OBJECT) {
         failure = "key() requires an open object";
-    } else if (writer->frames.back().needs_value) {
+    } else if (writer->frames.back().needsValue) {
         failure = "the previous object key has no value";
     } else if (!simdjson::validate_utf8(key, length)) {
         failure = "JSON object keys must contain valid UTF-8";
@@ -914,30 +935,30 @@ static int lua_writer_key(lua_State *L) {
             writer->builder.append_comma();
         }
         frame.first = false;
-        frame.needs_value = true;
+        frame.needsValue = true;
         writer->builder.escape_and_append_with_quotes(std::string_view(key, length));
         writer->builder.append_colon();
     }
     if (failure) {
-        return writer_error(L, failure);
+        return writerError(L, failure);
     }
     lua_settop(L, 1);
     return 1;
 }
 
-static int lua_writer_write(lua_State *L) {
-    lua_writer *writer = checked_writer(L, 1);
+static int luaWriterWrite(lua_State *L) {
+    luaWriter *writer = checkedWriter(L, 1);
     luaL_checkany(L, 2);
     lua_getfenv(L, 1);
     lua_getfield(L, -1, "null");
     lua_remove(L, -2);
-    const int null_index = lua_isnil(L, -1) ? 0 : lua_gettop(L);
+    const int nullIndex = lua_isnil(L, -1) ? 0 : lua_gettop(L);
     const char *failure = nullptr;
     try {
         std::unordered_set<const void *> visiting;
-        if (prepare_writer_value(writer, &failure)) {
-            append_lua_value(
-                L, writer->builder, 2, null_index, visiting, 0, &failure
+        if (prepareWriterValue(writer, &failure)) {
+            appendLuaValue(
+                L, writer->builder, 2, nullIndex, visiting, 0, &failure
             );
         }
     } catch (const std::bad_alloc &) {
@@ -945,37 +966,37 @@ static int lua_writer_write(lua_State *L) {
     }
     if (failure) {
         lua_settop(L, 2);
-        return writer_error(L, failure);
+        return writerError(L, failure);
     }
     lua_settop(L, 1);
     return 1;
 }
 
-static int lua_writer_null(lua_State *L) {
-    lua_writer *writer = checked_writer(L, 1);
+static int luaWriterNull(lua_State *L) {
+    luaWriter *writer = checkedWriter(L, 1);
     const char *failure = nullptr;
-    if (prepare_writer_value(writer, &failure)) {
+    if (prepareWriterValue(writer, &failure)) {
         writer->builder.append_null();
     }
     if (failure) {
-        return writer_error(L, failure);
+        return writerError(L, failure);
     }
     lua_settop(L, 1);
     return 1;
 }
 
-static int lua_writer_close(lua_State *L) {
-    lua_writer *writer = checked_writer(L, 1);
+static int luaWriterClose(lua_State *L) {
+    luaWriter *writer = checkedWriter(L, 1);
     const char *failure = nullptr;
     if (writer->finished || writer->frames.empty()) {
         failure = "close() requires an open array or object";
     } else {
         const auto frame = writer->frames.back();
-        if (frame.kind == container_kind::object && frame.needs_value) {
+        if (frame.kind == containerKind::OBJECT && frame.needsValue) {
             failure = "the final object key has no value";
         } else {
             writer->frames.pop_back();
-            if (frame.kind == container_kind::array) {
+            if (frame.kind == containerKind::ARRAY) {
                 writer->builder.end_array();
             } else {
                 writer->builder.end_object();
@@ -983,26 +1004,26 @@ static int lua_writer_close(lua_State *L) {
         }
     }
     if (failure) {
-        return writer_error(L, failure);
+        return writerError(L, failure);
     }
     lua_settop(L, 1);
     return 1;
 }
 
-static int push_writer_chunk(lua_State *L, lua_writer *writer, bool finish) {
+static int pushWriterChunk(lua_State *L, luaWriter *writer, bool finish) {
     const char *failure = nullptr;
     if (writer->finished) {
         failure = "writer is already finished";
-    } else if (finish && (!writer->root_written || !writer->frames.empty())) {
+    } else if (finish && (!writer->rootWritten || !writer->frames.empty())) {
         failure = "finish() requires one complete root value";
     }
     if (failure) {
-        return writer_error(L, failure);
+        return writerError(L, failure);
     }
     std::string_view output;
     const auto error = writer->builder.view().get(output);
     if (error) {
-        return writer_error(L, simdjson::error_message(error));
+        return writerError(L, simdjson::error_message(error));
     }
     lua_pushlstring(L, output.data(), output.size());
     writer->builder.clear();
@@ -1010,18 +1031,18 @@ static int push_writer_chunk(lua_State *L, lua_writer *writer, bool finish) {
     return 1;
 }
 
-static int lua_writer_flush(lua_State *L) {
-    return push_writer_chunk(L, checked_writer(L, 1), false);
+static int luaWriterFlush(lua_State *L) {
+    return pushWriterChunk(L, checkedWriter(L, 1), false);
 }
 
-static int lua_writer_finish(lua_State *L) {
-    return push_writer_chunk(L, checked_writer(L, 1), true);
+static int luaWriterFinish(lua_State *L) {
+    return pushWriterChunk(L, checkedWriter(L, 1), true);
 }
 
-static int lua_decode(lua_State *L) {
+static int luaDecode(lua_State *L) {
     size_t length = 0;
     const char *source = luaL_checklstring(L, 1, &length);
-    const int null_index = lua_gettop(L) >= 2 ? 2 : 0;
+    const int nullIndex = lua_gettop(L) >= 2 ? 2 : 0;
     const int base = lua_gettop(L);
     const char *failure = nullptr;
 
@@ -1032,7 +1053,7 @@ static int lua_decode(lua_State *L) {
         if (error) {
             failure = simdjson::error_message(error);
         } else {
-            push_dom_element(L, document, null_index, &failure);
+            pushDomElement(L, document, nullIndex, &failure);
         }
     } catch (const std::bad_alloc &) {
         failure = "allocation failed";
@@ -1045,14 +1066,14 @@ static int lua_decode(lua_State *L) {
     return 1;
 }
 
-static int lua_pull(lua_State *L) {
+static int luaPull(lua_State *L) {
     size_t length = 0;
     const char *source = luaL_checklstring(L, 1, &length);
     luaL_checkany(L, 2);
-    const int null_index = lua_gettop(L) >= 3 ? 3 : 0;
+    const int nullIndex = lua_gettop(L) >= 3 ? 3 : 0;
     const int base = lua_gettop(L);
     const char *failure = nullptr;
-    emit_result emitted = emit_result::failed;
+    emitResult emitted = emitResult::FAILED;
 
     try {
         std::vector<char> padded(length + simdjson::SIMDJSON_PADDING);
@@ -1066,28 +1087,28 @@ static int lua_pull(lua_State *L) {
         if (error) {
             failure = simdjson::error_message(error);
         } else {
-            emitted = project_ondemand(
-                L, document, 2, null_index, &failure
+            emitted = projectOnDemand(
+                L, document, 2, nullIndex, &failure
             );
         }
     } catch (const std::bad_alloc &) {
         failure = "allocation failed";
     }
 
-    if (failure || emitted == emit_result::failed) {
+    if (failure || emitted == emitResult::FAILED) {
         lua_settop(L, base);
         return luaL_error(
             L, "simdjson pull: %s",
             failure != nullptr ? failure : "unknown failure"
         );
     }
-    if (emitted == emit_result::dropped) {
+    if (emitted == emitResult::DROPPED) {
         lua_pushnil(L);
     }
     return 1;
 }
 
-static int lua_array_shape(lua_State *L) {
+static int luaArrayOf(lua_State *L) {
     lua_createtable(L, 0, 1);
     lua_pushlightuserdata(L, &ARRAY_SHAPE_KEY);
     if (lua_gettop(L) >= 2) {
@@ -1099,16 +1120,36 @@ static int lua_array_shape(lua_State *L) {
     return 1;
 }
 
-static int lua_encode(lua_State *L) {
+static int markTable(lua_State *L, void *key) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    pushRegistered(L, key);
+    lua_setmetatable(L, 1);
+    lua_settop(L, 1);
+    return 1;
+}
+
+static int luaAsArray(lua_State *L) {
+    return markTable(L, &EMPTY_ARRAY_KEY);
+}
+
+static int luaAsObject(lua_State *L) {
+    return markTable(L, &EMPTY_OBJECT_KEY);
+}
+
+static int luaEncode(lua_State *L) {
     luaL_checkany(L, 1);
-    const int null_index = lua_gettop(L) >= 2 ? 2 : 0;
+    int nullIndex = lua_gettop(L) >= 2 ? 2 : 0;
+    if (nullIndex == 0) {
+        pushRegistered(L, &NULL_KEY);
+        nullIndex = lua_gettop(L);
+    }
     const int base = lua_gettop(L);
     const char *failure = nullptr;
     try {
         simdjson::builder::string_builder builder;
         std::unordered_set<const void *> visiting;
-        if (append_lua_value(
-            L, builder, 1, null_index, visiting, 0, &failure
+        if (appendLuaValue(
+            L, builder, 1, nullIndex, visiting, 0, &failure
         )) {
             std::string_view output;
             const auto error = builder.view().get(output);
@@ -1128,69 +1169,59 @@ static int lua_encode(lua_State *L) {
     return 1;
 }
 
-static int lua_new_writer(lua_State *L) {
-    void *storage = lua_newuserdata(L, sizeof(lua_writer));
-    new (storage) lua_writer{};
+static int luaNewWriter(lua_State *L) {
+    void *storage = lua_newuserdata(L, sizeof(luaWriter));
+    new (storage) luaWriter{};
     luaL_getmetatable(L, WRITER_METATABLE);
     lua_setmetatable(L, -2);
     lua_createtable(L, 0, 1);
     if (lua_gettop(L) >= 3 && !lua_isnil(L, 1)) {
         lua_pushvalue(L, 1);
-        lua_setfield(L, -2, "null");
+    } else {
+        pushRegistered(L, &NULL_KEY);
     }
+    lua_setfield(L, -2, "null");
     lua_setfenv(L, -2);
     return 1;
 }
 
-static int lua_sentinel_tostring(lua_State *L) {
-    auto *value = static_cast<sentinel *>(
-        luaL_checkudata(L, 1, SENTINEL_METATABLE)
-    );
-    lua_pushstring(L, value->name);
-    return 1;
-}
-
-static void set_function(lua_State *L, const char *name, lua_CFunction function) {
+static void setFunction(lua_State *L, const char *name, lua_CFunction function) {
     lua_pushcfunction(L, function);
     lua_setfield(L, -2, name);
 }
 
-static void install_sentinel(
+static void installMarker(
     lua_State *L,
-    int module_index,
+    int moduleIndex,
     void *key,
-    const char *field,
-    const char *name
+    const char *field
 ) {
-    module_index = absolute_index(L, module_index);
-    push_registered(L, key);
+    moduleIndex = absoluteIndex(L, moduleIndex);
+    pushRegistered(L, key);
     if (!lua_isnil(L, -1)) {
-        lua_setfield(L, module_index, field);
+        lua_setfield(L, moduleIndex, field);
         return;
     }
     lua_pop(L, 1);
-    auto *value = static_cast<sentinel *>(lua_newuserdata(L, sizeof(sentinel)));
-    value->name = name;
-    luaL_getmetatable(L, SENTINEL_METATABLE);
-    lua_setmetatable(L, -2);
+    lua_createtable(L, 0, 0);
     lua_pushlightuserdata(L, key);
     lua_pushvalue(L, -2);
     lua_rawset(L, LUA_REGISTRYINDEX);
-    lua_setfield(L, module_index, field);
+    lua_setfield(L, moduleIndex, field);
 }
 
 } // namespace
 
-extern "C" nupp_simdjson_parser *nupp_simdjson_new(void) {
-    return new (std::nothrow) nupp_simdjson_parser();
+extern "C" nuppSimdjsonParser *nuppSimdjsonNew(void) {
+    return new (std::nothrow) nuppSimdjsonParser();
 }
 
-extern "C" void nupp_simdjson_free(nupp_simdjson_parser *parser) {
+extern "C" void nuppSimdjsonFree(nuppSimdjsonParser *parser) {
     delete parser;
 }
 
-extern "C" int nupp_simdjson_prepare(
-    nupp_simdjson_parser *parser,
+extern "C" int nuppSimdjsonPrepare(
+    nuppSimdjsonParser *parser,
     const char *source,
     size_t length
 ) {
@@ -1215,7 +1246,7 @@ extern "C" int nupp_simdjson_prepare(
     return 0;
 }
 
-extern "C" int nupp_simdjson_stage1(nupp_simdjson_parser *parser) {
+extern "C" int nuppSimdjsonStage1(nuppSimdjsonParser *parser) {
     if (parser == nullptr) {
         return -1;
     }
@@ -1232,7 +1263,7 @@ extern "C" int nupp_simdjson_stage1(nupp_simdjson_parser *parser) {
     return 0;
 }
 
-extern "C" int nupp_simdjson_dom(nupp_simdjson_parser *parser) {
+extern "C" int nuppSimdjsonDom(nuppSimdjsonParser *parser) {
     if (parser == nullptr) {
         return -1;
     }
@@ -1249,60 +1280,56 @@ extern "C" int nupp_simdjson_dom(nupp_simdjson_parser *parser) {
     return 0;
 }
 
-extern "C" const char *nupp_simdjson_error(int code) {
+extern "C" const char *nuppSimdjsonError(int code) {
     if (code == -1) {
         return "bridge allocation or argument failure";
     }
     return simdjson::error_message(static_cast<simdjson::error_code>(code));
 }
 
-extern "C" const char *nupp_simdjson_version(void) {
+extern "C" const char *nuppSimdjsonVersion(void) {
     return SIMDJSON_VERSION;
 }
 
-extern "C" const char *nupp_simdjson_implementation(void) {
+extern "C" const char *nuppSimdjsonImplementation(void) {
     static std::string implementation;
     implementation = simdjson::get_active_implementation()->name();
     return implementation.c_str();
 }
 
 extern "C" NUPP_SIMDJSON_EXPORT int luaopen_simdjson_bench_native(lua_State *L) {
-    luaL_newmetatable(L, SENTINEL_METATABLE);
-    set_function(L, "__tostring", lua_sentinel_tostring);
-    lua_pushliteral(L, "simdjson sentinel");
-    lua_setfield(L, -2, "__metatable");
-    lua_pop(L, 1);
-
     luaL_newmetatable(L, WRITER_METATABLE);
-    set_function(L, "__gc", lua_writer_gc);
-    set_function(L, "startArray", lua_writer_start_array);
-    set_function(L, "startObject", lua_writer_start_object);
-    set_function(L, "key", lua_writer_key);
-    set_function(L, "write", lua_writer_write);
-    set_function(L, "null", lua_writer_null);
-    set_function(L, "close", lua_writer_close);
-    set_function(L, "flush", lua_writer_flush);
-    set_function(L, "finish", lua_writer_finish);
+    setFunction(L, "__gc", luaWriterGc);
+    setFunction(L, "startArray", luaWriterStartArray);
+    setFunction(L, "startObject", luaWriterStartObject);
+    setFunction(L, "key", luaWriterKey);
+    setFunction(L, "write", luaWriterWrite);
+    setFunction(L, "null", luaWriterNull);
+    setFunction(L, "close", luaWriterClose);
+    setFunction(L, "flush", luaWriterFlush);
+    setFunction(L, "finish", luaWriterFinish);
     lua_pushvalue(L, -1);
     lua_setfield(L, -2, "__index");
     lua_pushliteral(L, "simdjson writer");
     lua_setfield(L, -2, "__metatable");
     lua_pop(L, 1);
 
-    lua_createtable(L, 0, 8);
-    const int module_index = lua_gettop(L);
-    set_function(L, "decode", lua_decode);
-    set_function(L, "pull", lua_pull);
-    set_function(L, "array", lua_array_shape);
-    set_function(L, "encode", lua_encode);
-    set_function(L, "writer", lua_new_writer);
-    install_sentinel(
-        L, module_index, &EMPTY_ARRAY_KEY,
-        "empty_array", "simdjson empty array"
-    );
-    install_sentinel(
-        L, module_index, &EMPTY_OBJECT_KEY,
-        "empty_object", "simdjson empty object"
-    );
+    lua_createtable(L, 0, 11);
+    const int moduleIndex = lua_gettop(L);
+    setFunction(L, "decode", luaDecode);
+    setFunction(L, "pull", luaPull);
+    setFunction(L, "arrayOf", luaArrayOf);
+    setFunction(L, "asArray", luaAsArray);
+    setFunction(L, "asObject", luaAsObject);
+    setFunction(L, "encode", luaEncode);
+    setFunction(L, "serialize", luaEncode);
+    setFunction(L, "writer", luaNewWriter);
+    installMarker(L, moduleIndex, &NULL_KEY, "NULL");
+    installMarker(L, moduleIndex, &EMPTY_ARRAY_KEY, "EMPTY_ARRAY");
+    installMarker(L, moduleIndex, &EMPTY_OBJECT_KEY, "EMPTY_OBJECT");
     return 1;
+}
+
+extern "C" NUPP_SIMDJSON_EXPORT int luaopen_jsonNative(lua_State *L) {
+    return luaopen_simdjson_bench_native(L);
 }

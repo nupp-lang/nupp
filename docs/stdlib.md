@@ -44,7 +44,7 @@ other lowering cannot leave a source-only facility in the generated first-line
 bootstrap. Native FFI declarations are split by that same set; selecting UUID,
 for example, does not declare the path, files, process, or SHA-256 ABI.
 
-The public surface does not expose `cjson`, `lua-utf8`, Rust handles, or FFI
+The public surface does not expose simdjson's native module, `lua-utf8`, Rust handles, or FFI
 pointers. Those are implementation details. Application code can therefore keep
 using the same Nupp API if a provider changes.
 

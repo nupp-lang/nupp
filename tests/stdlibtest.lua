@@ -144,10 +144,8 @@ function M.nativeFeaturesAreResolvedEffects()
    assert(native.expand(re)["native.lpeg"],
       "the re module brings native LPeg")
 
-   local cjson = effectsOf("local json = require('cjson')")
-   assert(cjson["native.cjson"], "require('cjson') records its native effect")
-   local safe = effectsOf("local json = require('cjson.safe')")
-   assert(safe["native.cjson"], "cjson.safe shares cjson's native effect")
+   local json = effectsOf("local json = require('jsonNative')")
+   assert(json["native.json"], "require('jsonNative') records its native effect")
 
    local process = effectsOf("local process = require('nupp.io.process')")
    assert(process["native.process"], "the public process module selects its provider")
@@ -194,8 +192,8 @@ function M.nativeFeaturesAreResolvedEffects()
       "a local require is not the native module loader")
 
    local expected = {
-      ["nupp.data.json.encodeJSON({answer = 42})"] = "native.cjson",
-      ["nupp.data.json.encodeKeepBuffer(false)"] = "native.cjson",
+      ["nupp.data.json.encode({answer = 42})"] = "native.json",
+      ["nupp.data.json.pull('{}', {answer = true})"] = "native.json",
       ["nupp.data.utf8.length('hello')"] = "native.lua_utf8",
       ["nupp.io.newBuffer('hello')"] = "stdlib.io",
       ["nupp.math.lerp(10, 20, 0.25)"] = "stdlib.math",
@@ -468,56 +466,30 @@ function M.hiddenDataDependenciesLoadLazily()
    local previous = rawget(_G, "nupp")
    _G.nupp = nil
    local bootstrap = stdlib.bootstrap({
-      ["native.cjson"] = true,
+      ["native.json"] = true,
       ["native.lua_utf8"] = true,
    })
    local chunk = assert(loadstring(bootstrap .. [=[
-      assert(package.loaded.cjson == nil)
+      assert(package.loaded.jsonNative == nil)
       assert(package.loaded["lua-utf8"] == nil)
-      assert(nupp.data.json.encodeJSON({answer = 42}):find('"answer":42', 1, true))
-      local codec = nupp.data.json.newJSON()
-      local cjson = require("cjson")
-      local cjsonCodec = cjson.new()
-      local renamed = {
-         {"NULL", "null"},
-         {"EMPTY_ARRAY", "empty_array"},
-         {"ARRAY_MT", "array_mt"},
-         {"EMPTY_ARRAY_MT", "empty_array_mt"},
-         {"encodeEmptyTableAsObject", "encode_empty_table_as_object"},
-         {"decodeArrayWithArrayMt", "decode_array_with_array_mt"},
-         {"encodeSparseArray", "encode_sparse_array"},
-         {"encodeMaxDepth", "encode_max_depth"},
-         {"decodeMaxDepth", "decode_max_depth"},
-         {"encodeNumberPrecision", "encode_number_precision"},
-         {"encodeKeepBuffer", "encode_keep_buffer"},
-         {"encodeInvalidNumbers", "encode_invalid_numbers"},
-         {"decodeInvalidNumbers", "decode_invalid_numbers"},
-         {"encodeEscapeForwardSlash", "encode_escape_forward_slash"},
-      }
-      for _, names in ipairs(renamed) do
-         assert(nupp.data.json[names[1]] == cjson[names[2]], names[1])
-         assert(nupp.data.json[names[2]] == nil, names[2])
-         assert((codec[names[1]] ~= nil) == (cjsonCodec[names[2]] ~= nil), names[1])
-         assert(codec[names[2]] == nil, names[2])
-      end
-      assert(nupp.data.json.decodeAllowComment == nil)
-      assert(nupp.data.json.encodeSkipUnsupportedValueTypes == nil)
-      assert(nupp.data.json.encodeIndent == nil)
-      assert(codec.decodeAllowComment == nil)
-      assert(codec.encodeSkipUnsupportedValueTypes == nil)
-      assert(codec.encodeIndent == nil)
+      assert(nupp.data.json.encode({answer = 42}):find('"answer":42', 1, true))
+      assert(nupp.data.json.encode(nupp.data.json.EMPTY_ARRAY) == "[]")
+      assert(nupp.data.json.encode(nupp.data.json.EMPTY_OBJECT) == "{}")
+      assert(nupp.data.json.encode(nupp.data.json.asArray({})) == "[]")
+      assert(nupp.data.json.decode("[1,null,2]")[2] == 2)
+      assert(nupp.data.json.decode("null", nupp.data.json.NULL) == nupp.data.json.NULL)
       assert(nupp.data.utf8.length("A€") == 2)
-      return package.loaded.cjson ~= nil, package.loaded["lua-utf8"] ~= nil
+      return package.loaded.jsonNative ~= nil, package.loaded["lua-utf8"] ~= nil
    ]=]))
    -- Both are cleared to prove the bootstrap loads them on first access, and
    -- both are put back however this ends. A failure part way through used to
-   -- leave `cjson` unloaded for every later test in the process, which broke
+   -- leave `jsonNative` unloaded for every later test in the process, which broke
    -- whatever next asked for it rather than reporting itself.
-   local loadedJson, loadedUtf8 = package.loaded.cjson, package.loaded["lua-utf8"]
-   package.loaded.cjson = nil
+   local loadedJson, loadedUtf8 = package.loaded.jsonNative, package.loaded["lua-utf8"]
+   package.loaded.jsonNative = nil
    package.loaded["lua-utf8"] = nil
    local ok, jsonLoaded, utf8Loaded = pcall(chunk)
-   package.loaded.cjson = package.loaded.cjson or loadedJson
+   package.loaded.jsonNative = package.loaded.jsonNative or loadedJson
    package.loaded["lua-utf8"] = package.loaded["lua-utf8"] or loadedUtf8
    _G.nupp = previous
    assert(ok, jsonLoaded)
@@ -653,10 +625,10 @@ return identifier:match("name9"), fields:match("1,22,333"),
 end
 
 function M.nativeFeatureOverridesAreTriState()
-   local automatic = { ["native.uri"] = true, ["native.cjson"] = true }
+   local automatic = { ["native.uri"] = true, ["native.json"] = true }
    local resolved = native.resolve(automatic, {uri = false, lua_utf8 = true})
    assert(not resolved["native.uri"], "false removes a detected feature")
-   assert(resolved["native.cjson"], "an absent override remains automatic")
+   assert(resolved["native.json"], "an absent override remains automatic")
    assert(resolved["native.lua_utf8"], "true adds an undetected feature")
 
    local external = native.sourceEffects(table.concat({
@@ -864,82 +836,58 @@ function M.profileSessionProtocolPreservesItsReportType()
    }, "\n"))), "NUPP2001:5")
 end
 
-function M.cjsonModule()
+function M.jsonNativeModule()
    assertClean(table.concat({
-      "local cjson = require('cjson')",
-      "local text: string = cjson.encode({1, 2, 3})",
-      "local value = cjson.decode(text)",
+      "local json = require('jsonNative')",
+      "local text: string = json.encode({1, 2, 3})",
+      "local value = json.decode(text)",
+      "local stream = json.writer()",
+      "local array: table = json.asArray({})",
    }, "\n"))
    -- decode yields any, so it flows anywhere
    assertClean(table.concat({
-      "local cjson = require('cjson')",
-      "local n: number = cjson.decode('1')",
+      "local json = require('jsonNative')",
+      "local n: number = json.decode('1')",
    }, "\n"))
    -- encode returns a string, not a number
    assertEq((diagsOf(table.concat({
-      "local cjson = require('cjson')",
-      "local n: number = cjson.encode({})",
+      "local json = require('jsonNative')",
+      "local n: number = json.encode({})",
    }, "\n"))), "NUPP2001:2")
    -- decode takes text
    assertEq((diagsOf(table.concat({
-      "local cjson = require('cjson')",
-      "cjson.decode(42)",
+      "local json = require('jsonNative')",
+      "json.decode(42)",
    }, "\n"))), "NUPP2006:2")
    -- misspelled members are caught against the declared surface
    assertEq((diagsOf(table.concat({
-      "local cjson = require('cjson')",
-      "cjson.encde({})",
+      "local json = require('jsonNative')",
+      "json.encde({})",
    }, "\n"))), "NUPP2004:2")
 end
 
-function M.cjsonSentinelsAndConfig()
+function M.jsonNativeConstantsAndWriter()
    assertClean(table.concat({
-      "local cjson = require('cjson')",
-      "local nul: userdata = cjson.null",
-      "local mt: table = cjson.array_mt",
-      "local depth: integer = cjson.encode_max_depth(20)",
-      "local keep: boolean = cjson.encode_keep_buffer()",
-      "local name: string = cjson._VERSION",
-   }, "\n"))
-   -- new() hands back the same interface, so it chains
-   assertClean(table.concat({
-      "local cjson = require('cjson')",
-      "local instance = cjson.new()",
-      "local text: string = instance.encode({})",
-   }, "\n"))
-   assertEq((diagsOf(table.concat({
-      "local cjson = require('cjson')",
-      "local s: string = cjson.null",
-   }, "\n"))), "NUPP2001:2")
-end
-
-function M.cjsonSafeModule()
-   -- the safe variant reports failure instead of raising: encode is optional
-   assertClean(table.concat({
-      "local cjson = require('cjson.safe')",
-      "local text: string? = cjson.encode({})",
-   }, "\n"))
-   assertEq((diagsOf(table.concat({
-      "local cjson = require('cjson.safe')",
-      "local text: string = cjson.encode({})",
-   }, "\n"))), "NUPP2001:2")
-   assertClean(table.concat({
-      "local cjson = require('cjson.safe')",
-      "local value = cjson.decode('{}')",
+      "local json = require('jsonNative')",
+      "local nul: any = json.NULL",
+      "local array: table = json.EMPTY_ARRAY",
+      "local object: table = json.EMPTY_OBJECT",
+      "local writer = json.writer(nul)",
+      "local text: string = writer:startArray():write(1):close():finish()",
    }, "\n"))
 end
 
 function M.projectFilesShadowBundledDeclarations()
-   -- a project shipping its own cjson description wins over the bundled one
+   -- a project shipping its own jsonNative description wins over the bundled one
    local dir = os.tmpname()
    os.remove(dir)
    os.execute("mkdir -p '" .. dir .. "'")
-   local f = assert(io.open(dir .. "/cjson.d.nupp", "wb"))
+   local f = assert(io.open(dir .. "/jsonNative.d.nupp", "wb"))
    f:write("local encode: function(v: any): integer\nreturn {encode = encode}\n")
    f:close()
    local env = envMod.new(dir)
    local result = parser.parse(
-      "local cjson = require('cjson')\nlocal n: integer = cjson.encode({})",
+      "local json = require('jsonNative')\nlocal n: integer = json.encode({})",
       "consumer")
    assertEq(#result.errors, 0, "consumer parses")
    local diags = check.check(result, "consumer.g.nupp", env)

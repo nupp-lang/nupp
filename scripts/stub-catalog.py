@@ -11,7 +11,7 @@ from pathlib import Path
 
 HOST_ABI = 1
 HOST_FEATURES = [
-    "cjson",
+    "jsonNative",
     "lpeg",
     "lua-utf8",
     "native-files",

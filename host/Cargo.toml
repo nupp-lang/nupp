@@ -25,7 +25,7 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 
 [features]
 default = []
-cjson = []
+json = []
 lpeg = []
 lua-utf8 = []
 workers = ["dep:libc"]
@@ -38,7 +38,7 @@ sha2 = { version = "0.10", default-features = false }
 libc = { version = "0.2", optional = true }
 
 [build-dependencies]
-# LuaJIT and lua-cjson are both fetched by revision and checked against a
+# LuaJIT and simdjson are both fetched by revision and checked against a
 # digest in build.rs. LuaJIT was a crate once; the crate's pin trails upstream,
 # and the interpreter this stub carries has to be new enough to parse what the
 # compiler emits, so the pin belongs where that requirement is written down.

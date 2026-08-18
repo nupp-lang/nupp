@@ -182,20 +182,20 @@ return loaded
    local target = {kind = "binary", outDir = "build", entries = {"main"}}
    local modules = {main = {output = dir .. "/build/main.lua"}}
    local text = assert(packaging.bundleText(
-      dir, {}, target, nil, modules, false, {}, {"cjson"}
+      dir, {}, target, nil, modules, false, {}, {"json"}
    ))
    local again = assert(packaging.bundleText(
-      dir, {}, target, nil, modules, false, {}, {"cjson"}
+      dir, {}, target, nil, modules, false, {}, {"json"}
    ))
    assert(text == again, "the payload depends on selected features, not ambient stub state")
 
    -- The names are kept as a list rather than recovered from the saved table,
    -- because a module that was not preloaded saves as nil and `pairs` does not
    -- visit it. Restoring by iteration therefore left this test's stub opener
-   -- installed for every later `require` of it -- and cjson is exactly that
-   -- case, so the whole process afterwards got the string "cjson" where it
+   -- installed for every later `require` of it -- and jsonNative is exactly that
+   -- case, so the whole process afterwards got the string "jsonNative" where it
    -- asked for the module.
-   local stubbed = {"cjson", "cjson.safe", "lpeg", "lua-utf8", "nupp.workers.native"}
+   local stubbed = {"jsonNative", "lpeg", "lua-utf8", "nupp.workers.native"}
    local savedPreloads, savedLoaded = {}, package.loaded.lpeg
    local savedPath, savedCpath = package.path, package.cpath
    for _, name in ipairs(stubbed) do
@@ -205,15 +205,14 @@ return loaded
    package.loaded.lpeg = nil
    package.path, package.cpath = "", ""
    _G.__nuppHost = {hostAbi = 1, hostFeatures = {
-      cjson = true,
+      json = true,
       lpeg = true,
       ["lua-utf8"] = true,
       workers = true,
    }}
    local loaded = assert(loadstring(text))()
    assert(not loaded, "a computed require cannot observe an unselected universal feature")
-   assert(package.preload.cjson and package.preload["cjson.safe"],
-      "selected cjson openers remain visible")
+   assert(package.preload.jsonNative, "selected JSON opener remains visible")
    assert(package.preload.lpeg == nil and package.preload["lua-utf8"] == nil
       and package.preload["nupp.workers.native"] == nil,
       "unselected universal openers are removed")
@@ -400,9 +399,9 @@ function M.resourcesThatCannotBeNamedAreReported()
 end
 
 -- The output directory is also where native dependencies build, and their trees
--- are full of .lua that is examples, tests and scripts. One of lua-cjson's opens
--- with a hashbang, which is a syntax error once a preload wraps it in a
--- function — so a bundle carries what the build compiled, not what it finds.
+-- are full of .lua that is examples, tests and scripts, some of which are not
+-- valid preload modules — so a bundle carries what the build compiled, not what
+-- it finds.
 function M.aBundleCarriesWhatTheBuildCompiledNotWhatIsLyingAround()
    local dir = tempProject({
       ["nupp.lua"] = MANIFEST,

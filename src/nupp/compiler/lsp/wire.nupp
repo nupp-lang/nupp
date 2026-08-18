@@ -1,19 +1,13 @@
 --[[
 The shapes the protocol expects on the wire.
 
-An empty Lua table is ambiguous: cjson has to be told whether it stands for an
-array or an object, and the protocol cares. Everything the server sends back as a
-list is marked here.
+An empty Lua table defaults to an object, while the protocol cares which containers
+are lists. Everything the server sends back as a list is marked here.
 ]]
 
-local json = require("cjson").new()
+local json = nupp.data.json
 
 local wire = {}
-
-json.decode_array_with_array_mt(true)
-json.decode_invalid_numbers(false)
-json.encode_empty_table_as_object(true)
-json.encode_invalid_numbers(false)
 
 --- The codec the server encodes and decodes with, configured so an empty object stays
 --- an object and a NaN never crosses the wire.
@@ -23,7 +17,7 @@ wire.json = json
 ---
 --- @param items the list to mark
 function wire.array<T is table>(takes items: T): T preserves items
-    return setmetatable(items, json.array_mt)
+    return json.asArray(items)
 end
 
 return wire

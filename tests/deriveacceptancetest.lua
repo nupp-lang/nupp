@@ -81,7 +81,7 @@ local corpora = {
         sourceHash = "source-b",
         interfaceHash = "interface-b",
         dependencies = {},
-        effects = {"native.cjson", "stdlib.derives"},
+        effects = {"native.json", "stdlib.derives"},
         external = true
     ),
 }
@@ -105,7 +105,7 @@ return {bytes = bytes, accepted = accepted, rejected = rejected, failure = failu
       .. '"effects":["stdlib.derives"],"external":false}',
       "derived manifest bytes differ from the pinned ordering")
    assert(result.bytes[2] == '{"sourceHash":"source-b","interfaceHash":"interface-b",'
-      .. '"dependencies":[],"effects":["native.cjson","stdlib.derives"],'
+      .. '"dependencies":[],"effects":["native.json","stdlib.derives"],'
       .. '"external":true}',
       "derived cache bytes differ from the pinned ordering")
    assert(result.rejected == nil and result.failure:find("unknown field", 1, true),

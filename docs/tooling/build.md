@@ -161,17 +161,17 @@ keeps the detected answer.
 
 ```lua
 nativeFeatures = {
-   cjson = true,
+   json = true,
    lpeg = true,
    lua_utf8 = false,
    sha256 = true,
 }
 ```
 
-The forceable binary feature names are `cjson`, `lpeg`, `lua_utf8`, `path`,
+The forceable binary feature names are `json`, `lpeg`, `lua_utf8`, `path`,
 `uri`, `uuid`, `files`, `process`, `workers`, `http`, and `sha256`. The
-registered module effects include `cjson` and `cjson.safe` (one shared `cjson`
-provider), native `lpeg`, the Lua `re` module that requires it, and `lua-utf8`.
+registered module effects include `jsonNative`, native `lpeg`, the Lua `re`
+module that requires it, and `lua-utf8`.
 Bundled LuaRock modules are checked too, so Lunamark contributes LPeg and
 lua-utf8 even when application source does not require either one directly.
 Forced removal is an expert escape hatch: if reachable code still requires

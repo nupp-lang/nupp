@@ -7,7 +7,7 @@ one request rather than the compiler or language server, and no host object can 
 the boundary materialization will later use.
 ]]
 
-local cjson = require("cjson").new()
+local json = nupp.data.json
 local process = require("nupp.compiler.build.process")
 
 type worker.Failure = {
@@ -24,16 +24,12 @@ local record worker
     evaluateDeriveProvider: function(any, any, any, string?, string, any?): (any, worker.Failure?)
 end
 
--- Both directions, said here rather than inherited from whichever cjson the
+-- Both directions, said here rather than inherited from whichever JSON runtime the
 -- interpreter happened to load. This protocol crosses a process boundary, so the two
 -- ends have to agree about an empty table and about a NaN even when the parent runs
 -- under a stamped host binary and the child under a plain interpreter. A comptime
 -- result carrying `NaN` or `Infinity` is one the evaluator should not have produced,
 -- and a request carrying one is not a request this worker wrote.
-cjson.decode_array_with_array_mt(false)
-cjson.decode_invalid_numbers(false)
-cjson.encode_empty_table_as_object(false)
-cjson.encode_invalid_numbers(false)
 
 local MAX_PROTOCOL_BYTES = 2 * 1024 * 1024
 -- The deadline covers starting and loading an isolated compiler as well as evaluating
@@ -43,6 +39,58 @@ local WORKER_TIMEOUT_MS: integer = 10000
 
 local function timeoutMessage(): string
     return ("comptime evaluation exceeded the %d ms worker timeout"):format(WORKER_TIMEOUT_MS)
+end
+
+local function protocolValue(value: any, seen: {[any]: any}?): any
+    if value == json.NULL or value == json.EMPTY_ARRAY or value == json.EMPTY_OBJECT or type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local copied = {}
+    seen[value] = copied
+    local numberKeys, otherKeys, maximum = false, false, 0
+    for key, item in pairs(value) do
+        if type(key) == "number" and key >= 1 and key % 1 == 0 then
+            numberKeys = true
+            maximum = math.max(maximum, key)
+        else
+            otherKeys = true
+        end
+        copied[key] = protocolValue(item, seen)
+    end
+    if not otherKeys then
+        for index = 1, maximum do
+            if copied[index] == nil then
+                copied[index] = json.NULL
+            end
+        end
+        return json.asArray(copied)
+    end
+    if numberKeys then
+        return copied
+    end
+
+    return copied
+end
+
+local function encodeProtocol(value: any): string
+    return json.encode(protocolValue(value))
+end
+
+local function encodeResponse(response: any): string
+    local ok, encoded = pcall(encodeProtocol, response)
+    if ok then
+        return encoded
+    end
+
+    return encodeProtocol({
+        ok = false,
+        code = "NUPP2412",
+        message = "comptime worker could not encode its response: " .. tostring(encoded),
+    })
 end
 
 local function read(path)
@@ -241,17 +289,17 @@ end
 function worker.main(argv: {string}): integer
     local requestPath = argv[1]
     if not requestPath then
-        io.write(cjson.encode({ok = false, code = "NUPP2412", message = "missing worker request"}), "\n")
+        io.write(encodeProtocol({ok = false, code = "NUPP2412", message = "missing worker request"}), "\n")
         return 0
     end
     local requestText, readErr = read(requestPath)
     if not requestText then
-        io.write(cjson.encode({ok = false, code = "NUPP2412", message = tostring(readErr)}), "\n")
+        io.write(encodeProtocol({ok = false, code = "NUPP2412", message = tostring(readErr)}), "\n")
         return 0
     end
     if #requestText > MAX_PROTOCOL_BYTES then
         io.write(
-            cjson.encode({
+            encodeProtocol({
                 ok = false,
                 code = "NUPP2416",
                 message = "comptime worker request exceeds 2097152 bytes"
@@ -260,12 +308,12 @@ function worker.main(argv: {string}): integer
         )
         return 0
     end
-    local decoded, request = pcall(cjson.decode, requestText)
+    local decoded, request = pcall(json.decode, requestText, json.NULL)
     if not decoded or type(request) ~= "table" then
-        io.write(cjson.encode({ok = false, code = "NUPP2412", message = "invalid worker request"}), "\n")
+        io.write(encodeProtocol({ok = false, code = "NUPP2412", message = "invalid worker request"}), "\n")
         return 0
     end
-    io.write(cjson.encode(handleRequest(request)), "\n")
+    io.write(encodeResponse(handleRequest(request)), "\n")
 
     return 0
 end
@@ -278,14 +326,14 @@ function worker.serviceMain(): integer
         if #requestText > MAX_PROTOCOL_BYTES then
             response = {ok = false, code = "NUPP2416", message = "comptime worker request exceeds 2097152 bytes"}
         else
-            local decoded, request = pcall(cjson.decode, requestText)
+            local decoded, request = pcall(json.decode, requestText, json.NULL)
             response = decoded and handleRequest(
                 request
             ) or {ok = false, code = "NUPP2412", message = "invalid worker request"}
         end
-        local encoded = cjson.encode(response)
+        local encoded = encodeResponse(response)
         if #encoded > MAX_PROTOCOL_BYTES then
-            encoded = cjson.encode({
+            encoded = encodeResponse({
                 ok = false,
                 code = "NUPP2416",
                 message = "comptime worker response exceeds 2097152 bytes"
@@ -313,7 +361,7 @@ function worker.evaluate(
     for name, supplied in pairs(helpers or {}) do
         serializedHelpers[name] = serializedHelper(supplied)
     end
-    local requestText = cjson.encode({
+    local requestText = encodeProtocol({
         source = source,
         reflections = reflections or {},
         layouts = layouts or {},
@@ -351,7 +399,7 @@ function worker.evaluate(
     if #output > MAX_PROTOCOL_BYTES then
         return nil, {code = "NUPP2416", message = "comptime worker response exceeds 2097152 bytes",}
     end
-    local decoded, response = pcall(cjson.decode, output)
+    local decoded, response = pcall(json.decode, output, json.NULL)
     if not decoded or type(response) ~= "table" then
         return nil, {
             code = "NUPP2412",
@@ -415,7 +463,7 @@ local function startService(executable: string): any, worker.Failure?
 end
 
 local function requestService(request: any, executable: string, host: any?): any, worker.Failure?
-    local encoded = cjson.encode(request)
+    local encoded = encodeProtocol(request)
     if #encoded > MAX_PROTOCOL_BYTES then
         return nil, {code = "NUPP2416", message = "comptime worker request exceeds 2097152 bytes"}
     end
@@ -441,7 +489,7 @@ local function requestService(request: any, executable: string, host: any?): any
                 stopService(true)
                 return nil, {code = "NUPP2416", message = "comptime worker response exceeds 2097152 bytes"}
             end
-            local decoded, response = pcall(cjson.decode, line)
+            local decoded, response = pcall(json.decode, line, json.NULL)
             if not decoded or type(response) ~= "table" then
                 stopService(true)
                 return nil, {code = "NUPP2412", message = "comptime worker service returned an invalid response"}

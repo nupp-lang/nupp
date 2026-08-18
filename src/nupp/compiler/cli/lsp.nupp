@@ -13,7 +13,7 @@ unknown to the operations that do not take it, rather than known everywhere and
 rejected afterwards.
 ]]
 
-local json = require("cjson").new()
+local json = nupp.data.json
 local lsp = require("nupp.compiler.lsp")
 local spec = require("nupp.compiler.cli.spec")
 
@@ -22,13 +22,8 @@ local type CodeActionContext = {
     only: {string}?
 }
 
-json.decode_array_with_array_mt(true)
-json.decode_invalid_numbers(false)
-json.encode_empty_table_as_object(true)
-json.encode_invalid_numbers(false)
-
 local function jsonArray<T>(takes items: T): T preserves items
-    return setmetatable(items, json.array_mt)
+    return json.asArray(items)
 end
 
 local function readFile(path)
@@ -476,7 +471,7 @@ local function rangeValue(client, path, range)
 end
 
 local function locationValue(client, location)
-    if not location or location == json.null then
+    if not location or location == json.NULL then
         return nil
     end
     local path = uriToPath(location.uri)
@@ -633,7 +628,7 @@ local function runInspect(client, opts)
     if requestErr then
         return nil, requestErr
     end
-    if result == json.null then
+    if result == json.NULL then
         result = nil
     end
     local value = result and {
@@ -647,7 +642,7 @@ local function runInspect(client, opts)
         range = result.range and rangeValue(client, path, result.range) or nil,
     } or nil
     if opts.format == "json" then
-        jsonOutput({symbol = value or json.null})
+        jsonOutput({symbol = value or json.NULL})
     elseif value then
         io.write(value.name .. " (" .. value.kind .. ")\n")
         if value.type then
@@ -700,7 +695,7 @@ local function runDefinition(client, opts)
         if #values > 1 then
             jsonOutput({definition = values[1], definitions = jsonArray(values)})
         else
-            jsonOutput({definition = values[1] or json.null})
+            jsonOutput({definition = values[1] or json.NULL})
         end
     else
         for _, located in ipairs(values) do
@@ -1042,7 +1037,7 @@ local function runTraceCheck(client, opts)
         return nil, requestErr
     end
     local value = {findings = jsonArray({})}
-    if result and result ~= json.null then
+    if result and result ~= json.NULL then
         value.functionName = result.name
         value.contract = result.contract
         value.range = result.range and rangeValue(client, path, result.range) or nil

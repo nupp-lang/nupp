@@ -29,14 +29,8 @@ local FEATURES: {[string]: native.Feature} = {
     ["native.lpeg"] = {name = "lpeg", module = "lpeg", host = "lpeg", binary = true,},
     ["stdlib.lpeg.re"] = {name = "lpeg_re", module = "re", requires = {"native.lpeg"},},
     [
-        "native.cjson"
-    ] = {
-        name = "cjson",
-        globals = {"nupp.data.json"},
-        modules = {"cjson", "cjson.safe"},
-        host = "cjson",
-        binary = true,
-    },
+        "native.json"
+    ] = {name = "json", globals = {"nupp.data.json"}, module = "jsonNative", host = "json", binary = true,},
     [
         "native.lua_utf8"
     ] = {name = "lua_utf8", globals = {"nupp.data.utf8"}, module = "lua-utf8", host = "lua-utf8", binary = true,},
@@ -193,7 +187,7 @@ function native.forGlobal(path: string): string?
 end
 
 --- Marks the prelude's exact member types with their runtime effects. The identity
---- follows aliases, so `local data = nupp.data; data.json.encodeJSON(...)` remains as
+--- follows aliases, so `local data = nupp.data; data.json.encode(...)` remains as
 --- precise as spelling the ambient path directly.
 function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: string}}
     local effects = {}

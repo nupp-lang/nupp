@@ -5,8 +5,9 @@ return {
       simdjson_bench = {
          kind = "c",
          cc = "c++",
-         sources = { "native/simdjson_bench.cpp" },
-         headers = { "native/simdjson_bench.h" },
+         path = "../..",
+         sources = { "runtime/json/json.cpp" },
+         headers = { "runtime/json/json.h" },
          cflags = {
             "-std=c++17", "-O3", "-DNDEBUG", "-Wall", "-Wextra", "-Werror",
          },

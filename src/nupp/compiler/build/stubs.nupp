@@ -41,10 +41,8 @@ local function decodeCatalog(path: string): any?, string?
     if not text then
         return nil, "cannot read stub catalog " .. path .. ": " .. tostring(readErr)
     end
-    local json = require("cjson").new()
-    json.decode_array_with_array_mt(false)
-    json.decode_invalid_numbers(false)
-    local ok, value = pcall(json.decode, text)
+    local json = nupp.data.json
+    local ok, value = pcall(json.decode, text, json.NULL)
     if not ok then
         return nil, "cannot decode stub catalog " .. path .. ": " .. tostring(value)
     end

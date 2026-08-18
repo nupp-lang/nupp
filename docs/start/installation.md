@@ -1,7 +1,8 @@
 # Installation
 
 Nupp is written in Nupp. A checkout carries a stage-0 compiler already lowered
-to Lua, so building the real one takes a LuaJIT, an LPeg, and nothing else.
+to Lua, so building the real one takes LuaJIT, LPeg, simdjson, and a C++17
+compiler.
 
 ## Requirements
 
@@ -20,11 +21,14 @@ build rather than by a later command:
 luarocks install lpeg
 ```
 
+**simdjson 4.6.4 or newer.** The compiler's JSON runtime links the installed
+library through pkg-config. For example, `brew install simdjson` or your system
+package manager's simdjson development package.
+
 Everything else is optional and buys one feature each:
 
 | Component | Needed for | Installed by |
 | --- | --- | --- |
-| lua-cjson | --json output and the LSP server | luarocks install |
 | `lunamark` | nupp doc | nupp doc |
 | `Scintillua` | highlighting in generated sites | nupp doc |
 | Rust toolchai | building the binary host stub | rustup |
@@ -97,14 +101,6 @@ own.
 load it. Scintillua degrades instead: a fence in a language it cannot load
 renders as escaped text without highlighting.
 
-`lua-cjson` comes from wherever your LuaJIT already looks:
-
-```bash
-luarocks install lua-cjson
-```
-
-Every command's `--json` output and the language server read it.
-
 ## Putting `nupp` on PATH
 
 Inside a checkout, run `./bin/nupp`. Everywhere else, either put the checkout's
@@ -123,7 +119,7 @@ alongside:
 | Carried | How | For |
 | --- | --- | --- |
 | `LuaJIT` | linked into the stub | running anything |
-| lua-cjson | detected and linked | --json and the LSP |
+| simdjson | detected and linked | JSON, --json, and the LSP |
 | LPeg 1.1 | detected and linked | general PEG and direct LPeg patterns |
 | LPeg `re.lua` | in the payload | runtime textual grammars |
 | Nupp PEG matcher shell | emitted in the payload | typed matching, search, and replacement |

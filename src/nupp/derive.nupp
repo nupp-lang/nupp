@@ -373,7 +373,7 @@ comptime function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.d
             },
         },
         data = {json = {fields = fields, unknown = option(info.annotations, "json", "unknown") or "reject"}},
-        effects = {"native.cjson"},
+        effects = {"native.json"},
     }
 end
 

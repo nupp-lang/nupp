@@ -95,9 +95,9 @@ local record User
     id: integer
 end
 local user = new User(id = 7)
-local text = nupp.data.json.encode(user)
+local text = nupp.data.json.encodeRecord(user)
 local explicit = nupp.data.json.encodeAs(User, user)
-local restored, problem = nupp.data.json.decode(User, text)
+local restored, problem = nupp.data.json.decodeAs(User, text)
 return {text = text, explicit = explicit, id = restored and restored.id, problem = problem}
 ]])
    assertEq(result.text, '{"id":7}', "inferred JSON encode")

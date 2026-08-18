@@ -1,16 +1,16 @@
 local ffi = require("ffi")
 
 ffi.cdef([[
-typedef struct nupp_simdjson_parser nupp_simdjson_parser;
-nupp_simdjson_parser *nupp_simdjson_new(void);
-void nupp_simdjson_free(nupp_simdjson_parser *parser);
-int nupp_simdjson_prepare(nupp_simdjson_parser *parser,
+typedef struct nuppSimdjsonParser nuppSimdjsonParser;
+nuppSimdjsonParser *nuppSimdjsonNew(void);
+void nuppSimdjsonFree(nuppSimdjsonParser *parser);
+int nuppSimdjsonPrepare(nuppSimdjsonParser *parser,
    const char *source, size_t length);
-int nupp_simdjson_stage1(nupp_simdjson_parser *parser);
-int nupp_simdjson_dom(nupp_simdjson_parser *parser);
-const char *nupp_simdjson_error(int code);
-const char *nupp_simdjson_version(void);
-const char *nupp_simdjson_implementation(void);
+int nuppSimdjsonStage1(nuppSimdjsonParser *parser);
+int nuppSimdjsonDom(nuppSimdjsonParser *parser);
+const char *nuppSimdjsonError(int code);
+const char *nuppSimdjsonVersion(void);
+const char *nuppSimdjsonImplementation(void);
 ]])
 
 local suffix = ffi.os == "Windows" and ".dll"
@@ -29,38 +29,38 @@ Parser.__index = Parser
 
 local function checked(code)
    if code ~= 0 then
-      error(ffi.string(native.nupp_simdjson_error(code)), 3)
+      error(ffi.string(native.nuppSimdjsonError(code)), 3)
    end
 end
 
 function M.new(source)
-   local pointer = native.nupp_simdjson_new()
+   local pointer = native.nuppSimdjsonNew()
    if pointer == nil then
       error("could not allocate simdjson parser", 2)
    end
-   pointer = ffi.gc(pointer, native.nupp_simdjson_free)
-   checked(native.nupp_simdjson_prepare(pointer, source, #source))
+   pointer = ffi.gc(pointer, native.nuppSimdjsonFree)
+   checked(native.nuppSimdjsonPrepare(pointer, source, #source))
    return setmetatable({pointer = pointer}, Parser)
 end
 
 function Parser:stage1()
-   return native.nupp_simdjson_stage1(self.pointer)
+   return native.nuppSimdjsonStage1(self.pointer)
 end
 
 function Parser:dom()
-   return native.nupp_simdjson_dom(self.pointer)
+   return native.nuppSimdjsonDom(self.pointer)
 end
 
 function M.version()
-   return ffi.string(native.nupp_simdjson_version())
+   return ffi.string(native.nuppSimdjsonVersion())
 end
 
 function M.implementation()
-   return ffi.string(native.nupp_simdjson_implementation())
+   return ffi.string(native.nuppSimdjsonImplementation())
 end
 
 function M.error(code)
-   return ffi.string(native.nupp_simdjson_error(code))
+   return ffi.string(native.nuppSimdjsonError(code))
 end
 
 --- Parses and constructs an ordinary Lua DOM in one native call.
@@ -77,11 +77,15 @@ function M.pull(source, shape, nullValue)
 end
 
 --- Constructs the shape used to pull every item from a JSON array.
-function M.array(shape)
-   return luaNative.array(shape == nil and true or shape)
+function M.arrayOf(shape)
+   return luaNative.arrayOf(shape == nil and true or shape)
 end
 
---- Serializes one Lua value. Empty containers require the exported sentinels.
+M.asArray = luaNative.asArray
+M.asObject = luaNative.asObject
+
+--- Serializes one Lua value. A plain empty table is an object; use `asArray`
+--- or `EMPTY_ARRAY` for an empty array.
 function M.encode(value, nullValue)
    return luaNative.encode(value, nullValue)
 end
@@ -93,7 +97,8 @@ function M.writer(nullValue)
    return luaNative.writer(nullValue)
 end
 
-M.empty_array = luaNative.empty_array
-M.empty_object = luaNative.empty_object
+M.NULL = luaNative.NULL
+M.EMPTY_ARRAY = luaNative.EMPTY_ARRAY
+M.EMPTY_OBJECT = luaNative.EMPTY_OBJECT
 
 return M

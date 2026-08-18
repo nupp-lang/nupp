@@ -20,8 +20,8 @@ const SOURCE_DIR_ENV: &str = "NUPP_HOST_SOURCE_DIR";
 const SOURCE_BASE_URL_ENV: &str = "NUPP_HOST_SOURCE_BASE_URL";
 const OFFLINE_ENV: &str = "NUPP_HOST_OFFLINE";
 
-const CJSON_VERSION: &str = "2.1.0.14";
-const CJSON_SHA256: &str = "14cac5c7a4520b33449a1fc961344556b8b6a2a2c6b739b0e46e3002e6e605bc";
+const SIMDJSON_VERSION: &str = "4.6.4";
+const SIMDJSON_SHA256: &str = "b091107844fe928158c5c2265c20360fff312889ddf7ebc4528a0f0f8f2ff9cd";
 
 const LPEG_VERSION: &str = "1.1.0";
 const LPEG_SHA256: &str = "4b155d67d2246c1ffa7ad7bc466c1ea899bbc40fef0257cc9c03cecbaed4352a";
@@ -53,22 +53,20 @@ fn main() {
         include.join("jit/vmdef.lua").display()
     );
 
-    // ENABLE_CJSON_GLOBAL is off: the compiler reaches cjson through require,
-    // and a global installed by the host would be present in a stamped binary
-    // and absent under a plain interpreter, so the same program would see two
-    // different worlds depending on how it was started.
-    if enabled("CJSON") {
-        let cjson = fetch_cjson(&out);
-        verify_notice(&cjson.join("LICENSE"), "lua-cjson-LICENSE.txt");
+    if enabled("JSON") {
+        let simdjson = fetch_simdjson(&out);
+        verify_notice(&simdjson.join("LICENSE"), "simdjson-LICENSE.txt");
         cc::Build::new()
+            .cpp(true)
             .include(&include)
-            .include(&cjson)
-            .file(cjson.join("lua_cjson.c"))
-            .file(cjson.join("strbuf.c"))
-            .file(cjson.join("fpconv.c"))
+            .include(simdjson.join("singleheader"))
+            .include("../runtime/json")
+            .file(simdjson.join("singleheader/simdjson.cpp"))
+            .file("../runtime/json/json.cpp")
+            .flag_if_supported("-std=c++17")
             .define("NDEBUG", None)
-            .warnings(false)
-            .compile("lua_cjson");
+            .warnings(true)
+            .compile("nupp_json");
     }
 
     if enabled("LPEG") {
@@ -319,16 +317,16 @@ fn link_libraries() -> &'static [&'static str] {
     }
 }
 
-/// The extracted lua-cjson source, fetched once per output directory.
-fn fetch_cjson(out: &Path) -> PathBuf {
+/// The extracted simdjson source, fetched once per output directory.
+fn fetch_simdjson(out: &Path) -> PathBuf {
     fetch_archive(
         out,
-        &format!("lua-cjson-{CJSON_VERSION}"),
+        &format!("simdjson-{SIMDJSON_VERSION}"),
         &format!(
-            "https://github.com/openresty/lua-cjson/archive/refs/tags/{CJSON_VERSION}.tar.gz"
+            "https://github.com/simdjson/simdjson/archive/refs/tags/v{SIMDJSON_VERSION}.tar.gz"
         ),
-        CJSON_SHA256,
-        "lua_cjson.c",
+        SIMDJSON_SHA256,
+        "singleheader/simdjson.cpp",
     )
 }
 

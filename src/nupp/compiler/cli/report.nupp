@@ -62,15 +62,32 @@ local function rangeAt(source: string?, offset: number?, length: number?): any
     }
 end
 
---- Encodes a value the way every `--json` command encodes one. An empty table becomes
---- an empty array rather than an empty object, because every field here that can be
---- empty is a list, and a reader handed `{}` where it was promised `[]` has to
---- special-case what was only ever an encoding accident.
+local function withArrayEmpties(value: unknown, seen: {[unknown]: any}?): unknown
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local copied: {[any]: any} = {}
+    seen[value] = copied
+    for key, item in pairs(value as table) do
+        copied[key] = withArrayEmpties(item, seen)
+    end
+    if next(copied) == nil then
+        return nupp.data.json.asArray(copied)
+    end
+
+    return copied
+end
+
+--- Encodes a value the way every `--json` command encodes one. Every empty field in
+--- this reporting model is a list, so the copy marks those lists explicitly without
+--- mutating the compiler data it was handed.
 function report.encode(value: unknown): string
-    local encoder = require("cjson").new()
-    encoder.encode_empty_table_as_object(false)
-    encoder.encode_invalid_numbers(false)
-    return encoder.encode(value)
+    local encoder = nupp.data.json
+    return encoder.encode(withArrayEmpties(value))
 end
 
 --- Writes one line of JSON to stdout. Never coloured: the reader is a program, and an

@@ -72,10 +72,8 @@ pub enum Value {
 // The selected vendored C libraries. Each is reached through require like any
 // other module; Cargo features decide which openers exist in this host.
 extern "C" {
-    #[cfg(feature = "cjson")]
-    fn luaopen_cjson(state: *mut lua_State) -> c_int;
-    #[cfg(feature = "cjson")]
-    fn luaopen_cjson_safe(state: *mut lua_State) -> c_int;
+    #[cfg(feature = "json")]
+    fn luaopen_jsonNative(state: *mut lua_State) -> c_int;
     #[cfg(feature = "lpeg")]
     fn luaopen_lpeg(state: *mut lua_State) -> c_int;
     #[cfg(feature = "lua-utf8")]
@@ -114,11 +112,8 @@ impl Lua {
     pub fn open_libraries(&self) {
         unsafe { luaL_openlibs(self.state) };
         let _ = self.preload_lua("jit.vmdef", LUAJIT_VMDEF);
-        #[cfg(feature = "cjson")]
-        {
-            let _ = self.preload("cjson", luaopen_cjson);
-            let _ = self.preload("cjson.safe", luaopen_cjson_safe);
-        }
+        #[cfg(feature = "json")]
+        let _ = self.preload("jsonNative", luaopen_jsonNative);
         #[cfg(feature = "lpeg")]
         let _ = self.preload("lpeg", luaopen_lpeg);
         // Under the name luautf8 installs it as, since that is the name
@@ -144,8 +139,8 @@ impl Lua {
             lua_pushinteger(self.state, 1);
             lua_setfield(self.state, -2, c"hostAbi".as_ptr());
             lua_createtable(self.state, 0, 6);
-            #[cfg(feature = "cjson")]
-            Self::set_boolean_field(self.state, c"cjson");
+            #[cfg(feature = "json")]
+            Self::set_boolean_field(self.state, c"json");
             #[cfg(feature = "lpeg")]
             Self::set_boolean_field(self.state, c"lpeg");
             #[cfg(feature = "lua-utf8")]
@@ -164,7 +159,7 @@ impl Lua {
     }
 
     #[cfg(any(
-        feature = "cjson",
+        feature = "json",
         feature = "lpeg",
         feature = "lua-utf8",
         feature = "native-files",
@@ -507,8 +502,8 @@ mod tests {
              assert(__nuppHost.hostAbi == 1)\n\
              assert(type(__nuppHost.hostFeatures) == 'table')\n",
         );
-        #[cfg(feature = "cjson")]
-        script.push_str("assert(__nuppHost.hostFeatures.cjson)\n");
+        #[cfg(feature = "json")]
+        script.push_str("assert(__nuppHost.hostFeatures.json)\n");
         #[cfg(feature = "lpeg")]
         script.push_str("assert(__nuppHost.hostFeatures.lpeg)\n");
         #[cfg(feature = "lua-utf8")]

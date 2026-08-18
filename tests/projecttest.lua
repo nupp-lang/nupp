@@ -390,7 +390,7 @@ return {dependencies = {native = {kind = "c", pkgConfig = {"simdjson", ""}}},
 ]]})
    config, err = project.loadManifest(invalid)
    assertEq(config, nil, "an empty package name rejects the manifest")
-   assert(err:find("pkgConfig[2] must be a non%-empty string"), err)
+   assert(err:find("pkgConfig%[2%] must be a non%-empty string"), err)
    remove(invalid)
 end
 
@@ -722,19 +722,19 @@ return {include = {"src"}, build = {targets = {app = {
       return config, err, task
    end
 
-   local config, err, task = load("{cjson = true, lua_utf8 = false, path = true, sha256 = false}")
+   local config, err, task = load("{json = true, lua_utf8 = false, path = true, sha256 = false}")
    assert(config, "boolean native feature overrides are accepted: " .. tostring(err))
-   assertEq(task.nativeFeatures.cjson, true, "task reports forced inclusion")
+   assertEq(task.nativeFeatures.json, true, "task reports forced inclusion")
    assertEq(task.nativeFeatures.lua_utf8, false, "task reports forced removal")
    assertEq(task.nativeFeatures.path, true, "new native providers can be forced in")
    assertEq(task.nativeFeatures.sha256, false, "new native providers can be forced out")
 
-   local _, unknown = load("{cjsoon = true}")
-   assert(unknown and unknown:find("nativeFeatures names no feature cjsoon", 1, true),
+   local _, unknown = load("{jsoon = true}")
+   assert(unknown and unknown:find("nativeFeatures names no feature jsoon", 1, true),
       tostring(unknown))
-   local _, wrongType = load("{cjson = 'yes'}")
+   local _, wrongType = load("{json = 'yes'}")
    assert(wrongType and wrongType:find(
-      "nativeFeatures.cjson must be true or false", 1, true), tostring(wrongType))
+      "nativeFeatures.json must be true or false", 1, true), tostring(wrongType))
 end
 
 function M.sharedNativeFacilitiesBuildOneFeatureGatedProvider()

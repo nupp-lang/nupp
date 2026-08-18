@@ -1,22 +1,20 @@
-# SIMD AOT JSON experiment
+# SIMD JSON benchmark
 
-This is a deliberately detachable experiment. Delete `bench/simd-json` to
-remove the JSON implementation; the AOT support it exercises remains useful to
-byte codecs, image kernels, checksums, and other narrow-buffer workloads.
+This benchmark retains the Nupp AOT experiment, differential decoders, and
+performance history behind the production JSON runtime in `runtime/json`.
 
-The benchmark also carries a deliberately narrow C++ binding to the system
+The benchmark uses Nupp's deliberately narrow C++ binding to the system
 `simdjson` package. It requires `pkg-config`, simdjson development files, and
-LuaJIT development files (`brew install simdjson luajit` on macOS). The binding
-is calibration and experimental API code, not a Nupp runtime dependency. It
-retains the reusable On-Demand stage-one and simdjson DOM calibration calls and
-also exposes parsing and serialization APIs:
+LuaJIT development files (`brew install simdjson luajit` on macOS). The same
+source backs `nupp.data.json`; the benchmark wrapper retains stage-one and DOM
+calibration calls alongside the public parsing and serialization operations:
 
 - `simdjson_bench.decode(source, nullValue)` eagerly constructs ordinary Lua
   values through simdjson's DOM parser.
 - `simdjson_bench.pull(source, shape, nullValue)` uses On-Demand without first
   constructing a simdjson DOM. `true` selects a complete value, an object-shaped
-  Lua table selects named fields, and `simdjson_bench.array(itemShape)` applies
-  one shape to every array member. `false` drops a value, so `array(false)`
+  Lua table selects named fields, and `simdjson_bench.arrayOf(itemShape)` applies
+  one shape to every array member. `false` drops a value, so `arrayOf(false)`
   validates an array without retaining its members. Unselected values are still
   consumed and validated, but allocate no Lua values.
 - `simdjson_bench.encode(value, nullValue)` (also named `serialize`) converts a
@@ -28,23 +26,24 @@ also exposes parsing and serialization APIs:
 
 JSON null is dropped by default: object members disappear and array members are
 compacted. Passing any non-nil `nullValue` preserves null with that identity.
-`empty_array` and `empty_object` are stable exported sentinels used by both
-parsing paths and accepted by both serializers. An ordinary empty Lua table is
-rejected during serialization because it does not say which JSON container it
-means. Non-empty Lua tables must be either contiguous one-based arrays or
-string-keyed objects.
+`EMPTY_ARRAY` and `EMPTY_OBJECT` are stable exported marker sentinels used by
+both parsing paths and accepted by both serializers. Decoded empty containers
+are ordinary fresh Lua tables carrying the corresponding marker as their
+metatable. An unmarked empty Lua table encodes as an object; `asArray({})` marks
+an empty array explicitly. Non-empty Lua tables must be either contiguous
+one-based arrays or string-keyed objects.
 
 ```lua
 local projected = simdjson_bench.pull(source, {
    id = true,
    profile = {name = true},
-   tags = simdjson_bench.array(true),
+   tags = simdjson_bench.arrayOf(true),
 })
 
 local writer = simdjson_bench.writer(myNull)
 writer:startObject():key("id"):write(projected.id)
 local prefix = writer:flush()
-writer:key("items"):write(simdjson_bench.empty_array):close()
+writer:key("items"):write(simdjson_bench.EMPTY_ARRAY):close()
 local json = prefix .. writer:finish()
 ```
 
@@ -54,8 +53,7 @@ forward-only inside one native call, while only selected application values
 cross into Lua. This also prevents an On-Demand cursor or nested value from
 escaping the parser and input-buffer lifetime that makes it valid.
 
-These APIs inherit simdjson DOM number behavior rather than promising exact
-`nupp.json` compatibility. In particular, negative zero is normalized and an
+These APIs inherit simdjson DOM number behavior. In particular, negative zero is normalized and an
 out-of-range token such as `1e309` is rejected instead of producing infinity.
 
 The production route has three stages inside one native entry:
@@ -91,10 +89,6 @@ the normal large-document path.
 
 `simd_json.scanner` and `json.decodeLegacy` remain as the frozen J0 oracle and
 benchmark baseline; they are no longer the large-document decode path.
-
-The experiment intentionally does not replace or modify a public `nupp.json`
-module. Its manifest, source, tests, native artifact, and benchmark all live in
-this directory.
 
 Run the differential tests against `lua-cjson`:
 

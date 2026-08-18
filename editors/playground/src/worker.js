@@ -40,7 +40,7 @@ async function boot() {
   postMessage({ type: "status", message: "warming up the checker…" });
   runOrThrow(
     `
-    local json = require("cjson")
+    local json = require("jsonNative")
     local parser = require("nupp.compiler.parser")
     local check = require("nupp.compiler.check")
     local tree = require("nupp.compiler.lsp.tree")
@@ -72,12 +72,12 @@ async function boot() {
     -- Every entry point below returns one JSON string: {diagnostics=...}
     -- for a check, {code=..., reason=..., diagnostics=...} for a compile.
     -- Crossing the JS boundary as one encoded string, rather than a raw Lua
-    -- table walked field-by-field from JS, is what host-runtime.lua's cjson
+    -- table walked field-by-field from JS, is what host-runtime.lua's JSON
     -- shim exists for.
 
     -- The third argument is what the Options panel set, as name=0/1 pairs:
     -- "strict=1,optimize=0". Not JSON, though everything else here crosses as
-    -- JSON, because host-runtime.lua's cjson shim implements encode and not
+    -- JSON, because host-runtime.lua's JSON shim implements encode and not
     -- decode -- nothing in the playground had needed to read JSON back until
     -- now, and two booleans do not justify a parser. One argument still, so a
     -- third setting is a field on each side and nothing in between.

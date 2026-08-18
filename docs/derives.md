@@ -349,18 +349,13 @@ deriving JSON are all supported. `int64` and `uint64` are rejected, because a
 JSON number cannot round-trip their full range, and the erased `integer` type is
 checked against the safe interval at run time.
 
-Strings must be valid UTF-8, and a cycle or nesting beyond 128 containers fails
-with the JSON path that reached it. Encoding neither reads nor mutates cjson
-settings.
+Strings must be valid UTF-8, and a cycle or excessive nesting fails with the JSON
+path that reached it. Decoding uses Nupp's strict simdjson-backed codec and
+preserves null with `nupp.data.json.NULL` while it validates the raw value.
 
-Decoding uses a private `nupp.data.json.newJSON()` with array metatables
-disabled, depth 128, and invalid numbers disabled. Generated validation checks
-the raw value before the record is returned, so mutating `nupp.data.json` or
-another JSON instance cannot alter a derived codec.
-
-The JSON decoder and field codec are allocated lazily as a runtime reflection
-extension. Use `nupp.data.json.encode`, `encodeAs(User, value)`, and
-`decode(User, text)` when a type-witness API fits better than generated members;
+The JSON field codec is allocated lazily as a runtime reflection extension. Use
+`nupp.data.json.encodeRecord`, `encodeAs(User, value)`, and
+`decodeAs(User, text)` when a type-witness API fits better than generated members;
 the witness and allocation model are documented in
 [Reflection](concepts/reflection.md#runtime-reflection).
 

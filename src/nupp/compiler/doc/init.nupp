@@ -21,7 +21,7 @@ local apiMod = require("nupp.compiler.doc.api")
 local pageMod = require("nupp.compiler.doc.page")
 local diagnosticsMod = require("nupp.compiler.doc.diagnostics")
 local stdlibMod = require("nupp.compiler.doc.stdlib")
-local json = require("cjson").new()
+local json = nupp.data.json
 
 local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
 local escapeJs = stringsMod.escapeJs
@@ -44,11 +44,6 @@ local nestedModules = apiMod.nestedModules
 local renderPage, homeHero, homeFeatures = pageMod.render, pageMod.homeHero, pageMod.homeFeatures
 
 local doc = {}
-
-json.decode_array_with_array_mt(true)
-json.decode_invalid_numbers(false)
-json.encode_empty_table_as_object(true)
-json.encode_invalid_numbers(false)
 
 --- One page a manifest configured. `path` is the route it is written to; `source` is
 --- the markdown read into it. A hero key is accepted in either spelling, because a
@@ -164,7 +159,7 @@ end
 --- than silently misreading it.
 function doc.json(modules: {extractMod.Module}): string
     local function array(items, convert)
-        local out = setmetatable({}, json.array_mt)
+        local out = json.asArray({})
         for _, item in ipairs(items or {}) do
             out[#out + 1] = convert and convert(item) or item
         end
@@ -970,7 +965,7 @@ local function reconcileSiteFiles(output: string, written: {string}): boolean?, 
     local previous = {}
     local encoded = readFile(statePath)
     if encoded then
-        local ok, decoded = pcall(json.decode, encoded)
+        local ok, decoded = pcall(json.decode, encoded, json.NULL)
         if ok and type(decoded) == "table" then
             previous = decoded
         end

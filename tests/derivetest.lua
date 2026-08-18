@@ -125,7 +125,7 @@ return {
    assertEq(result.distinct, true)
 end
 
-function M.appliesJSONPoliciesAndKeepsDecoderConfigurationPrivate()
+function M.appliesJSONPolicies()
    local result = run([[
 @derive(nupp.derive.JSON)
 @json(unknown = "ignore")
@@ -139,11 +139,7 @@ local record Payload
     active: boolean = false
 end
 
--- A process-visible setting must not alter the private derived decoder.
-local previousDepth = nupp.data.json.decodeMaxDepth()
-nupp.data.json.decodeMaxDepth(1)
 local decoded, err = Payload.fromJSON('{"labels":[],"extra":{"nested":true}}')
-nupp.data.json.decodeMaxDepth(previousDepth)
 local codec = Payload.fieldCodec()
 local checked, checkedErr = codec:decode({name = "ok", labels = {"a"}})
 local payload = new Payload(name = "x", secret = "hidden", labels = {})
@@ -172,7 +168,7 @@ return {
    assertEq(result.error, nil)
    assertEq(result.checked, "ok")
    assertEq(result.checkedError, nil)
-   assert(result.fingerprint:find("maxdepth=128", 1, true), result.fingerprint)
+   assert(result.fingerprint:find("decode=simdjson", 1, true), result.fingerprint)
    assertEq(result.keyedName, "x")
    assertEq(result.keyedSecret, nil)
    assertEq(result.keyedLabels, nil)
@@ -591,7 +587,7 @@ local record Encoded value: integer end
 ]])
    assertEq(#jsonDiagnostics, 0, "JSON derive feature diagnostics")
    local jsonEffects = firstDeclaration(json).compilerFeatureEffects
-   assertEq(table.concat(jsonEffects, ","), "stdlib.derives,native.cjson",
+   assertEq(table.concat(jsonEffects, ","), "stdlib.derives,native.json",
       "JSON derive feature manifest")
 end
 

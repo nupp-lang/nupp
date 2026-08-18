@@ -50,13 +50,19 @@ case "$(uname -s 2>/dev/null)" in
     Darwin*)
         NATIVE_BUILT_FILENAME=libnupp_native.dylib
         NATIVE_FILENAME=libnupp_native_dev.dylib
+        JSON_FILENAME=libjsonNative.dylib
         ;;
     *)
         NATIVE_BUILT_FILENAME=libnupp_native.so
         NATIVE_FILENAME=libnupp_native_dev.so
+        JSON_FILENAME=libjsonNative.so
         ;;
 esac
 export NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/$NATIVE_FILENAME"
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*) JSON_FILENAME=jsonNative.dll ;;
+esac
+export NUPP_JSON_LIBRARY="$LUA_ROOT/build/lib/$JSON_FILENAME"
 
 # Which makes Cargo a prerequisite for building Nupp at all, rather than only for
 # a target that asked for a native facility. Stage 0 reaches the provider while

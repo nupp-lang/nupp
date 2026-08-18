@@ -102,6 +102,19 @@ return {
    -- and `tests/run` put that tree on the search path, and a build puts it
    -- there for itself, so nothing here is installed globally.
    dependencies = {
+      jsonNative = {
+         kind = "c",
+         cc = "c++",
+         sources = { "runtime/json/json.cpp" },
+         headers = { "runtime/json/json.h" },
+         cflags = {
+            "-std=c++17", "-O3", "-DNDEBUG", "-Wall", "-Wextra", "-Werror",
+         },
+         -- One shell-compatible string keeps the stage-zero compiler able to build
+         -- this dependency; the self-hosted builder splits it into the same two
+         -- package names before invoking pkg-config without a shell.
+         pkgConfig = "simdjson luajit",
+      },
       -- Renders the markdown. Pulls in lpeg, cosmo, alt-getopt and luautf8,
       -- which LuaRocks resolves rather than this file listing them.
       --
@@ -137,6 +150,7 @@ return {
             kind = "modules",
             description = "Build the self-hosted compiler",
             entries = { "nupp.compiler.main" },
+            dependencies = { "jsonNative" },
             resources = RESOURCES,
          },
          -- Nupp stamped into a feature-matched host as one self-contained
@@ -157,7 +171,7 @@ return {
          },
          docs = {
             kind = "docs",
-            dependencies = { "lunamark", "scintillua" },
+            dependencies = { "lunamark", "scintillua", "jsonNative" },
             sources = { "src" },
             format = "both",
             outDir = "build/docs",

@@ -147,7 +147,7 @@ local function bundleText(
         end
         if not component then
             local preloads = {
-                {feature = "cjson", modules = {"cjson", "cjson.safe"}},
+                {feature = "json", modules = {"jsonNative"}},
                 {feature = "lpeg", modules = {"lpeg"}},
                 {feature = "lua-utf8", modules = {"lua-utf8"}},
                 {feature = "workers", modules = {"nupp.workers.native"}},
@@ -172,7 +172,7 @@ local function bundleText(
     --
     -- Not every `.lua` under the output directory, which was the first attempt and is
     -- wrong twice over. That directory is also where native dependencies build, and
-    -- their trees are full of `.lua` that is examples and scripts — one of lua-cjson's
+    -- their trees are full of `.lua` that is examples and scripts — some libraries'
     -- opens with a hashbang, a syntax error the moment a preload wraps it in a
     -- function. And a resource that happens to end in `.lua` is not a module: a table
     -- of lexers opened by path, never required, once added sixteen thousand lines to

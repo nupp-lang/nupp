@@ -15,6 +15,7 @@ before it did.
 
 local spec = require("nupp.compiler.cli.spec")
 local optionsMod = require("nupp.compiler.cli.options")
+local report = require("nupp.compiler.cli.report")
 
 local command = spec.command{
     name = "run",
@@ -391,13 +392,10 @@ local function run(parsed: any): integer
                 reasonCatalog = {id = summary.reasonCatalogId, version = summary.reasonCatalogVersion,},
                 sites = sites,
             }
-            local codec = require("cjson").new()
-            codec.encode_empty_table_as_object(false)
             -- `NaN` and `Infinity` are not JSON, so a document carrying one is one a
             -- strict reader rejects whole. Refusing to write it says which run produced
             -- the bad duration instead of leaving that to whatever reads the file.
-            codec.encode_invalid_numbers(false)
-            local wrote, writeErr = require("nupp.compiler.fs").writeFile(abortsOut, codec.encode(document) .. "\n")
+            local wrote, writeErr = require("nupp.compiler.fs").writeFile(abortsOut, report.encode(document) .. "\n")
             if not wrote then
                 io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
                 return 1

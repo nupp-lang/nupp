@@ -185,7 +185,7 @@ function navigate.install(s: navigate.Session): navigate.Api
     local function definitionLocation(def)
         local source, tokens, index = resolveDefinition(def)
         if not source then
-            return json.null
+            return json.NULL
         end
         local tok = tokens[index]
 
@@ -329,7 +329,7 @@ function navigate.install(s: navigate.Session): navigate.Api
         end
         if includeDeclaration then
             local location = definitionLocation(def)
-            if location ~= json.null then
+            if location ~= json.NULL then
                 local key = location.uri .. ":" .. tostring(def.token.offset)
                 if not seen[key] then
                     locations[#locations + 1] = location
@@ -397,11 +397,11 @@ function navigate.install(s: navigate.Session): navigate.Api
     local function memberLocation(member)
         local path, tok = memberDeclaration(member.moduleName, member.name)
         if not path then
-            return json.null
+            return json.NULL
         end
         local source = sourceForPath(path)
         if not source then
-            return json.null
+            return json.NULL
         end
 
         return {

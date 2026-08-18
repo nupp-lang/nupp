@@ -101,7 +101,7 @@ assert(restored and restored.id == 7)
 `decode` take its `Type<T>` witness explicitly, which is useful at an API
 boundary or before a value exists. The JSON options, wire format, and validation
 rules are documented in [Declaration derives](../derives.md#json); the generic
-cjson-compatible API is documented in [JSON](../json.md).
+JSON API is documented in [JSON](../json.md).
 
 ## Comptime reflection
 
