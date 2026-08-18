@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Give `nupp explain` a worked example for every diagnostic code the compiler
+  can actually emit that one is reachable for. 60 of the 149 codes used to
+  fall back to their family's generic paragraph -- summary, rule and all --
+  which reads as an answer without being one; `NUPP2105`, an unknown-variable
+  typo, was one of them. Each new entry's `wrong` example is compiled for
+  real and asserted to report the code it is filed under, the same as every
+  existing entry; two lint codes and two codegen codes are demonstrated too,
+  by triggering the underlying checker/generator gap rather than inventing a
+  program that only looks like it should. A handful of codes -- a reserved
+  annotation nothing currently reserves, a formatter safety net with no known
+  input that trips it, hot reload's own restart notice, and two whole-project
+  name collisions no single file can exhibit -- keep the family's rule text
+  under their own summary but carry no example, since a wrong example that
+  cannot be verified is worse than the fallback it would replace.
+
 - Hold hot reload to the strict floor. `src/nupp/hotreload.g.nupp` and
   `src/nupp/compiler/hot_session.g.nupp` were the only two files under `src` that
   opted out of it, which put the machinery deciding whether an edit may reach a
