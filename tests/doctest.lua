@@ -2016,6 +2016,16 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(guide:find('<details open><summary>Guide</summary>', 1, true), guide)
    assert(guide:find('<details><summary>Reference</summary>', 1, true), guide)
    assert(guide:find('<details><summary>API reference</summary>', 1, true), guide)
+   -- inside it, a top-level branch is a library and stands open on every page,
+   -- while the nesting below one stays shut until the reader is in it
+   assert(guide:match(
+      '<details open><summary class="nuppdoc%-module%-branch%-link">'
+      .. '<a href="[^"]*" aria%-label="engine">'),
+      "a top-level module branch must stand open")
+   assert(guide:match(
+      '<details><summary class="nuppdoc%-module%-branch%-link">'
+      .. '<a href="[^"]*" aria%-label="engine%.gpu">'),
+      "a nested module branch away from the page must stay shut")
    assert(guide:find('class="nuppdoc-page-nav"', 1, true), guide)
    assert(guide:find("Previous", 1, true), guide)
    assert(guide:find("Next", 1, true), guide)
@@ -2074,13 +2084,20 @@ function M.siteMatchesTheNuppdocPageModel()
 
    local module = readFile(dir .. "/site/modules/math/index.html")
    assert(module:find("Module contents", 1, true), module)
-   -- a module page opens the API reference instead, and only along the branch
+   -- a module page opens the API reference instead, with its top-level branches
+   -- open as everywhere else and the nesting open only along the branch
    -- reaching the module itself
    assert(module:find('<details open><summary>API reference</summary>', 1, true),
       module)
    assert(module:find('<details><summary>Guide</summary>', 1, true), module)
-   assert(module:find('<details><summary class="nuppdoc-module-branch-link">',
-      1, true), "an unrelated module branch was left open")
+   assert(module:match(
+      '<details open><summary class="nuppdoc%-module%-branch%-link">'
+      .. '<a href="[^"]*" aria%-label="engine">'),
+      "a top-level module branch must stand open")
+   assert(module:match(
+      '<details><summary class="nuppdoc%-module%-branch%-link">'
+      .. '<a href="[^"]*" aria%-label="engine%.gpu">'),
+      "an unrelated nested module branch was left open")
    -- Tealdoc-style category headings group the detailed declarations, and each
    -- declaration is one heading level beneath its group. The fragment still names the
    -- whole entry, so a link lands on the declaration heading.

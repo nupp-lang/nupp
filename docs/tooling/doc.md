@@ -290,6 +290,12 @@ except the one holding the page being read, and the API reference is open only
 on a module page, where the branches leading to that module are the ones
 expanded.
 
+Inside the API reference, every top-level branch stands open on every page. A
+top-level branch is a library, and there are few enough of them that naming
+them costs no room; it is the nesting below one that a reader has to be looking
+for. Those deeper branches stay shut except along the path to the module being
+read.
+
 ## Moved pages
 
 `redirects` lists the routes a page used to answer at. A stub is written at

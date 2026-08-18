@@ -147,7 +147,11 @@ local function moduleTreeHtml(node, current, prefix, path)
                 module.name
             ) .. '" aria-label="' .. htmlEscape(module.name) .. '"><code>' .. htmlEscape(name) .. "</code></a></li>"
         else
-            local open = moduleBranchContains(child, current) and " open" or ""
+            -- A top-level branch stands open wherever the reader is, so the API
+            -- reference reads as its libraries rather than as a row of shut
+            -- names nothing has said anything about yet. Deeper branches open
+            -- only along the one reaching the module being read.
+            local open = (path == "" or moduleBranchContains(child, current)) and " open" or ""
             local label = "<code>" .. htmlEscape(name) .. "</code>"
             local item, summary = '<li class="nuppdoc-module-branch">', "<summary>" .. label .. "</summary>"
             -- A branch that is itself a module leads to that module's own page, so the
