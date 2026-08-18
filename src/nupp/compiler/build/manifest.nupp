@@ -892,6 +892,26 @@ local function validateManifest(config: manifest.Config): boolean?, string?
                 return nil, "dependencies." .. name .. ".dependencies references unknown dependency " .. child
             end
         end
+        if dep.pkgConfig ~= nil then
+            if type(dep.pkgConfig) == "string" then
+                if dep.pkgConfig == "" then
+                    return nil, "dependencies." .. name .. ".pkgConfig must not be empty"
+                end
+            elseif type(dep.pkgConfig) == "table" then
+                local label = "dependencies." .. name .. ".pkgConfig"
+                valid, err = validateArray(dep.pkgConfig, label, "string", true)
+                if not valid then
+                    return nil, err
+                end
+                for index, packageName in ipairs(dep.pkgConfig) do
+                    if packageName == "" then
+                        return nil, ("dependencies.%s.pkgConfig[%d] must be a non-empty string"):format(name, index)
+                    end
+                end
+            else
+                return nil, "dependencies." .. name .. ".pkgConfig must be a string or array of strings"
+            end
+        end
     end
 
     local visiting, visited = {}, {}

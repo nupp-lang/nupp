@@ -17,7 +17,11 @@ local suffix = ffi.os == "Windows" and ".dll"
    or ffi.os == "OSX" and ".dylib"
    or ".so"
 local prefix = ffi.os == "Windows" and "" or "lib"
-local native = ffi.load("build/lib/" .. prefix .. "simdjson_bench" .. suffix)
+local libraryPath = "build/lib/" .. prefix .. "simdjson_bench" .. suffix
+local native = ffi.load(libraryPath)
+local openNative, loadError = package.loadlib(libraryPath, "luaopen_simdjson_bench_native")
+assert(openNative, loadError)
+local luaNative = openNative()
 
 local M = {}
 local Parser = {}
@@ -57,6 +61,26 @@ end
 
 function M.error(code)
    return ffi.string(native.nupp_simdjson_error(code))
+end
+
+--- Parses and constructs an ordinary Lua DOM in one native call.
+function M.decode(source, nullValue)
+   return luaNative.decode(source, nullValue)
+end
+
+--- Parses into a read-only simdjson-backed DOM that defers Lua allocation.
+function M.lazy(source, nullValue)
+   return luaNative.lazy(source, nullValue)
+end
+
+--- Converts a lazy root or nested container into ordinary Lua values.
+function M.materialize(value)
+   return luaNative.materialize(value)
+end
+
+--- Returns the JSON type of a lazy root or nested container.
+function M.type(value)
+   return luaNative.type(value)
 end
 
 return M

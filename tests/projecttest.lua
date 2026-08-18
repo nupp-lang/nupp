@@ -374,6 +374,26 @@ return {
    remove(cyclic)
 end
 
+function M.manifestAcceptsSeveralPkgConfigPackages()
+   local valid = tempProject({["nupp.lua"] = [[
+return {dependencies = {native = {kind = "c",
+   pkgConfig = {"simdjson", "luajit"}}}, build = {entries = {"main"}}}
+]]})
+   local config, err = project.loadManifest(valid)
+   assert(config, err)
+   assertEq(table.concat(config.dependencies.native.pkgConfig, ","), "simdjson,luajit")
+   remove(valid)
+
+   local invalid = tempProject({["nupp.lua"] = [[
+return {dependencies = {native = {kind = "c", pkgConfig = {"simdjson", ""}}},
+   build = {entries = {"main"}}}
+]]})
+   config, err = project.loadManifest(invalid)
+   assertEq(config, nil, "an empty package name rejects the manifest")
+   assert(err:find("pkgConfig[2] must be a non%-empty string"), err)
+   remove(invalid)
+end
+
 function M.manifestValidatesTheCompileTimeLayoutTarget()
    local valid = tempProject({["nupp.lua"] = [[
 return {build = {entries = {"main"},

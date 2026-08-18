@@ -27,7 +27,7 @@ local function check(condition, message)
    assert(condition, message)
 end
 
-local function same(left, right)
+local function same(left, right, simdjsonNumbers)
    if left == json.null then
       return right == cjson.null
    end
@@ -39,6 +39,9 @@ local function same(left, right)
    end
    if type(left) ~= "table" then
       if type(left) == "number" then
+         if simdjsonNumbers then
+            return left == right
+         end
          local leftBits = numberBits()
          local rightBits = numberBits()
          leftBits.number = left
@@ -48,7 +51,7 @@ local function same(left, right)
       return left == right
    end
    for key, value in pairs(left) do
-      if not same(value, right[key]) then
+      if not same(value, right[key], simdjsonNumbers) then
          return false
       end
    end
@@ -168,6 +171,13 @@ for _, source in ipairs(corpus) do
    check(same(arenaActual, expected), "arena differential mismatch for " .. source)
    check(same(builderActual, expected), "builder differential mismatch for " .. source)
    check(same(fusedActual, expected), "fused differential mismatch for " .. source)
+   if source ~= "1e309" then
+      local simdjsonActual = simdjsonBench.decode(source, json.null)
+      local lazyActual = simdjsonBench.lazy(source, json.null)
+      check(same(simdjsonActual, expected, true), "simdjson Lua DOM mismatch for " .. source)
+      check(same(simdjsonBench.materialize(lazyActual), expected, true),
+         "simdjson lazy DOM mismatch for " .. source)
+   end
    local valid, why = json.validate(source)
    check(valid and why == nil, "valid input rejected: " .. tostring(why))
    local expectedTape = referenceTape(source)
@@ -300,6 +310,23 @@ for _, source in ipairs(invalid) do
    check(not arenaValid, "invalid input accepted by arena parser: " .. source)
    local fusedValid = pcall(arena.decodeFused, source, json.null)
    check(not fusedValid, "invalid input accepted by fused parser: " .. source)
+   local simdjsonValid = pcall(simdjsonBench.decode, source, json.null)
+   check(not simdjsonValid, "invalid input accepted by simdjson Lua DOM: " .. source)
+   local simdjsonLazyValid = pcall(simdjsonBench.lazy, source, json.null)
+   check(not simdjsonLazyValid, "invalid input accepted by simdjson lazy DOM: " .. source)
+end
+
+do
+   local nullValue = {}
+   local source = [[{"items":[{"name":"first"},null,3],"items":[{"name":"last"}],"empty":{},"nullable":null}]]
+   local lazy = simdjsonBench.lazy(source, nullValue)
+   check(simdjsonBench.type(lazy) == "object", "lazy root type is not exposed")
+   check(simdjsonBench.type(lazy.items) == "array", "lazy child type is not exposed")
+   check(#lazy.items == 1 and lazy.items[1].name == "last", "lazy indexing differs from a Lua DOM")
+   check(lazy.nullable == nullValue, "lazy null did not preserve the caller's sentinel")
+   check(lazy.missing == nil and lazy.items[2] == nil, "lazy missing values do not return nil")
+   check(#lazy.empty == 0, "lazy empty object has the wrong size")
+   check(not pcall(function() lazy.items[1] = false end), "lazy DOM accepted a write")
 end
 
 do
@@ -323,11 +350,17 @@ do
          "generated builder differential mismatch at case " .. case)
       check(same(arena.decodeFused(source, json.null), cjson.decode(source)),
          "generated fused differential mismatch at case " .. case)
+      check(same(simdjsonBench.decode(source, json.null), cjson.decode(source), true),
+         "generated simdjson Lua DOM mismatch at case " .. case)
+      check(same(simdjsonBench.materialize(simdjsonBench.lazy(source, json.null)), cjson.decode(source), true),
+         "generated simdjson lazy DOM mismatch at case " .. case)
       local truncated = source:sub(1, -2)
       check(not pcall(arena.decode, truncated, json.null),
          "truncated generated document accepted at case " .. case)
       check(not pcall(arena.decodeFused, truncated, json.null),
          "truncated generated document accepted by fused parser at case " .. case)
+      check(not pcall(simdjsonBench.decode, truncated, json.null),
+         "truncated generated document accepted by simdjson Lua DOM at case " .. case)
    end
 end
 

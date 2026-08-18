@@ -94,8 +94,9 @@ local report = {
 }
 
 local names = indexOnly and {"classify", "index"} or {
-   "classify", "index", "simdjsonStage1", "simdjsonDom", "parse", "materialize", "build",
-   "legacy", "arena", "builder", "fused", "nupp", "cjson",
+   "classify", "index", "simdjsonStage1", "simdjsonDom", "simdjsonLua", "simdjsonLazy",
+   "simdjsonLazyMaterialize", "parse", "materialize", "build", "legacy", "arena", "builder",
+   "fused", "nupp", "cjson",
 }
 
 local function sorted(values)
@@ -205,6 +206,27 @@ for payloadIndex, payload in ipairs(payloads) do
          end
          return os.clock() - started
       end,
+      simdjsonLua = function()
+         local started = os.clock()
+         for _ = 1, iterations do
+            simdjsonBench.decode(source, json.null)
+         end
+         return os.clock() - started
+      end,
+      simdjsonLazy = function()
+         local started = os.clock()
+         for _ = 1, iterations do
+            simdjsonBench.lazy(source, json.null)
+         end
+         return os.clock() - started
+      end,
+      simdjsonLazyMaterialize = function()
+         local started = os.clock()
+         for _ = 1, iterations do
+            simdjsonBench.materialize(simdjsonBench.lazy(source, json.null))
+         end
+         return os.clock() - started
+      end,
       parse = function()
          local started = os.clock()
          for _ = 1, iterations do
@@ -278,6 +300,7 @@ for payloadIndex, payload in ipairs(payloads) do
 
    local raw = {
       classify = {}, index = {}, simdjsonStage1 = {}, simdjsonDom = {},
+      simdjsonLua = {}, simdjsonLazy = {}, simdjsonLazyMaterialize = {},
       parse = {}, materialize = {}, build = {},
       legacy = {}, arena = {}, builder = {}, nupp = {}, cjson = {},
       fused = {},
@@ -299,6 +322,10 @@ for payloadIndex, payload in ipairs(payloads) do
       summary.nuppMBps = #source * iterations / median(raw.nupp) / 1000000
       summary.simdjsonStage1MBps = #source * iterations / median(raw.simdjsonStage1) / 1000000
       summary.simdjsonDomMBps = #source * iterations / median(raw.simdjsonDom) / 1000000
+      summary.simdjsonLuaMBps = #source * iterations / median(raw.simdjsonLua) / 1000000
+      summary.simdjsonLazyMBps = #source * iterations / median(raw.simdjsonLazy) / 1000000
+      summary.simdjsonLazyMaterializeMBps =
+         #source * iterations / median(raw.simdjsonLazyMaterialize) / 1000000
       summary.legacyMBps = #source * iterations / median(raw.legacy) / 1000000
       summary.parseMBps = #source * iterations / median(raw.parse) / 1000000
       summary.materializeMBps = #source * iterations / median(raw.materialize) / 1000000

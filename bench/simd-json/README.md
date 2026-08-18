@@ -5,10 +5,30 @@ remove the JSON implementation; the AOT support it exercises remains useful to
 byte codecs, image kernels, checksums, and other narrow-buffer workloads.
 
 The benchmark also carries a deliberately narrow C++ binding to the system
-`simdjson` package. It requires `pkg-config` and simdjson development files
-(`brew install simdjson` on macOS). The binding is calibration code, not a Nupp
-runtime dependency: it exposes only reusable On-Demand stage-one and eager DOM
-parse calls over one pre-padded input.
+`simdjson` package. It requires `pkg-config`, simdjson development files, and
+LuaJIT development files (`brew install simdjson luajit` on macOS). The binding
+is calibration and experimental API code, not a Nupp runtime dependency. It
+retains the reusable On-Demand stage-one and simdjson DOM calibration calls and
+also exposes two end-to-end Lua APIs:
+
+- `simdjson_bench.decode(source, nullValue)` parses directly into ordinary Lua
+  tables, strings, numbers, booleans, and the supplied null sentinel.
+- `simdjson_bench.lazy(source, nullValue)` returns a read-only, random-access
+  view that owns a simdjson DOM and defers Lua value allocation until fields are
+  read. `simdjson_bench.type(view)` reports its JSON type, and
+  `simdjson_bench.materialize(view)` converts any container view to ordinary Lua
+  values.
+
+The lazy view is backed by simdjson's repeatable DOM API. It is not an On-Demand
+cursor: On-Demand is forward-only and would need a distinct iterator-shaped
+contract. Array views use one-based indexes, object access uses string keys,
+missing members return `nil`, and duplicate object keys resolve to the last
+value so that lazy access agrees with eager Lua table construction. The view
+does not currently expose object or array iteration.
+
+These APIs inherit simdjson DOM number behavior rather than promising exact
+`nupp.json` compatibility. In particular, negative zero is normalized and an
+out-of-range token such as `1e309` is rejected instead of producing infinity.
 
 The production route has three stages inside one native entry:
 
@@ -54,10 +74,11 @@ Run the differential tests against `lua-cjson`:
 ./run.sh
 ```
 
-After building, measure classification, structural indexing, simdjson stage one
-and eager DOM construction, native arena parsing, the old Lua materializer,
-tree-builder consumption, the legacy/arena/tree-builder/fused decoders, and
-`lua-cjson`:
+After building, measure classification, structural indexing, simdjson stage
+one and internal DOM construction, eager Lua DOM construction, lazy-root
+creation, lazy full materialization, native arena parsing, the old Lua
+materializer, tree-builder consumption, the legacy/arena/tree-builder/fused
+decoders, and `lua-cjson`:
 
 ```sh
 LUA_PATH='build/?.lua;../../build/?.lua;../../.rocks/share/lua/5.1/?.lua;../../.rocks/share/lua/5.1/?/init.lua;;' \
@@ -105,6 +126,20 @@ DOM rates are 0.989, 3.891, 2.939, 1.804, and 0.803 GB/s.
 Those DOM numbers construct simdjson's compact internal representation, not
 Lua tables and strings, so they are a ceiling rather than an end-to-end API
 comparison.
+
+The end-to-end Lua binding result is committed at
+`results/arm64-macos-neon-simdjson-lua.json`. It is a nine-sample, 2 MB-per-
+sample run. Eager ordinary-Lua-DOM throughput is 276 MB/s on records, 995 MB/s
+on ASCII strings, 1,119 MB/s on Unicode, 876 MB/s on escaped strings, and
+478 MB/s on numbers. That is respectively 1.65x, 2.63x, 2.61x, 1.93x, and
+1.85x the colocated `lua-cjson` result.
+
+Creating only the lazy root reaches 804, 2,575, 2,139, 1,564, and 765 MB/s on
+those payloads. Creating a lazy root and then materializing the whole document
+reaches 197, 867, 965, 795, and 428 MB/s, so callers that need the full tree
+should use the direct eager API. Per-document ownership is deliberately simple
+in this experiment: on the 30-byte payload it makes lazy-root creation only
+25 MB/s, while the reusable eager parser reaches 140 MB/s.
 
 The lookup4/padded-load result is committed at
 `results/arm64-macos-neon-stage1-lookup.json`. It is a nine-sample, 2 MB-per-

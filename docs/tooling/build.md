@@ -385,6 +385,10 @@ zstd = {
 }
 ```
 
+`pkgConfig` may be one package name or an array when a native library uses
+several installed APIs, such as `{ "simdjson", "luajit" }`. The packages are
+resolved together so their compiler and linker flags reach the same build.
+
 Fetched Git trees live under `.nupp/deps` and require an explicit revision.
 C builds emit a `.so`, `.dylib`, or `.dll` under `outDir/lib`. A configured
 header is passed through `import-c`, and the resulting NUPP module is placed

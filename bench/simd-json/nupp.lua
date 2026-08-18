@@ -10,7 +10,7 @@ return {
          cflags = {
             "-std=c++17", "-O3", "-DNDEBUG", "-Wall", "-Wextra", "-Werror",
          },
-         pkgConfig = "simdjson",
+         pkgConfig = { "simdjson", "luajit" },
       },
    },
 

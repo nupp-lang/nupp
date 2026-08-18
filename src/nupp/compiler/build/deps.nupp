@@ -250,13 +250,19 @@ local function buildC(root, outDir, name, dep, previous, childResults)
     local _, version = process.capture({compiler, "--version"})
     local pkgFlags = {}
     if dep.pkgConfig then
-        local code, flags = process.capture({"pkg-config", "--cflags", "--libs", dep.pkgConfig})
+        local packages = type(dep.pkgConfig) == "table" and dep.pkgConfig or {dep.pkgConfig}
+        local command = {"pkg-config", "--cflags", "--libs"}
+        for _, packageName in ipairs(packages) do
+            command[#command + 1] = packageName
+        end
+        local label = table.concat(packages, ", ")
+        local code, flags = process.capture(command)
         if code ~= 0 then
-            return nil, "pkg-config failed for " .. dep.pkgConfig .. ": " .. flags
+            return nil, "pkg-config failed for " .. label .. ": " .. flags
         end
         local parsed = syntax.shellWords:match(flags)
         if not parsed then
-            return nil, "pkg-config returned invalid flags for " .. dep.pkgConfig
+            return nil, "pkg-config returned invalid flags for " .. label
         end
         pkgFlags = parsed
     end
@@ -279,7 +285,9 @@ local function buildC(root, outDir, name, dep, previous, childResults)
     -- that what the record reports is what the binding wrote. A target that
     -- carries the binding somewhere has to carry the library it names.
     local reference = configuredBinding and (
-        configuredBinding.library or dep.load or (output and libraryReference(root, outDir, output)) or dep.pkgConfig
+        configuredBinding.library or dep.load or (
+            output and libraryReference(root, outDir, output)
+        ) or type(dep.pkgConfig) == "string" and dep.pkgConfig
     ) or nil
     local binding, bindingErr, bridge = generateBinding(root, outDir, name, dep, base, reference, cppflags)
     if bindingErr then
