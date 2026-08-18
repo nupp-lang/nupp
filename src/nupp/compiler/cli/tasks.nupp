@@ -156,7 +156,7 @@ local function run(parsed: any): integer
         return 1
     end
     if parsed.values.format == "json" then
-        io.write(project.encodeJson(info) .. "\n")
+        io.write(project.encode(info) .. "\n")
         return 0
     end
     local style = ansi.style(io.stdout)

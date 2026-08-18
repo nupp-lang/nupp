@@ -1,12 +1,8 @@
 -- Integration test: drives bin/nupp lsp over stdio with framed JSON-RPC
 -- and asserts diagnostics come back.
-local json = require("cjson").new()
+local json = require("testjson")
 local test = require("assert")
 
-json.decode_array_with_array_mt(true)
-json.decode_invalid_numbers(false)
-json.encode_empty_table_as_object(true)
-json.encode_invalid_numbers(false)
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."
@@ -653,10 +649,10 @@ function M.jsonRoundtrip()
       local re = json.decode(json.encode(v))
       assert(deepEq(v, re), "unstable roundtrip: " .. src)
    end
-   assert(json.decode("null") == json.null, "null sentinel")
-   assert(json.encode(json.null) == "null", "encoded null sentinel")
+   assert(json.decode("null") == json.NULL, "null sentinel")
+   assert(json.encode(json.NULL) == "null", "encoded null sentinel")
    assert(json.encode(json.decode("[]")) == "[]", "decoded empty array")
-   assert(json.encode(json.empty_array) == "[]", "empty-array sentinel")
+   assert(json.encode(json.EMPTY_ARRAY) == "[]", "empty-array sentinel")
    assert(json.encode({}) == "{}", "empty object")
    assert(json.decode('"\\u00e9"') == "\195\169", "utf-8 escape")
    assert(not pcall(json.decode, "NaN"), "invalid decoded number rejected")
@@ -1285,7 +1281,7 @@ function M.builtinAnnotationHoverLinksToDocsWithNoFabricatedDefinition()
       "builtin annotation hover links to nupp-lang.org")
 
    local definition = responseWithId(out, 11).result
-   assert(definition == nil or definition == json.null,
+   assert(definition == nil or definition == json.NULL,
       "builtin annotation reports no fabricated definition location")
 end
 
@@ -1324,7 +1320,7 @@ function M.builtinAnnotationMemberHoverLinksToDocsWithNoFabricatedDefinition()
       "member hover links to nupp-lang.org")
 
    local definition = responseWithId(out, 11).result
-   assert(definition == nil or definition == json.null,
+   assert(definition == nil or definition == json.NULL,
       "builtin annotation member reports no fabricated definition location")
 end
 
@@ -1734,7 +1730,7 @@ function M.refusesToRenameASymbolTheProjectDoesNotDeclare()
 
    assert(responseWithId(out, 10).error, "the rename is refused")
    assert(responseWithId(out, 11).result == nil
-      or responseWithId(out, 11).result == json.null,
+      or responseWithId(out, 11).result == json.NULL,
       "and the editor is told before it asks for a new name")
 end
 
@@ -2297,7 +2293,7 @@ function M.initializeAdoptsTheClientsWorkspaceFolders()
    local last = published[#published]
    assert(last and #last == 0,
       "a module in the second folder resolves: "
-      .. json.encode(last or json.null))
+      .. json.encode(last or json.NULL))
    local location = responseWithId(out, 10).result
    assert(location and location.uri:match("shared%.g%.nupp$"),
       "and its declaration is navigable: " .. json.encode(location))
@@ -2350,10 +2346,10 @@ function M.workspaceFolderChangesAreAppliedToTheOpenSession()
    assert(#published[2] == 0, "found once it is")
    assert(#published[#published] > 0, "and missing again once it is dropped")
 
-   assert(responseWithId(out, 10).result ~= json.null
+   assert(responseWithId(out, 10).result ~= json.NULL
       and responseWithId(out, 10).result,
       "definition reaches the added folder")
-   assert(responseWithId(out, 11).result == json.null
+   assert(responseWithId(out, 11).result == json.NULL
       or responseWithId(out, 11).result == nil,
       "and stops reaching it once the folder is gone")
 end
@@ -3154,7 +3150,7 @@ return restored, why, codec, shown
    assertContains(responseWithId(out, 19).error.message,
       "change or remove @derive(nupp.derive.JSON)", "generated rename refusal")
    assert(responseWithId(out, 20).result == nil
-      or responseWithId(out, 20).result == json.null,
+      or responseWithId(out, 20).result == json.NULL,
       "prepareRename refuses a generated member")
 end
 
@@ -3430,7 +3426,7 @@ end
 --- hash, so the encoders cannot be compared and the values have to be.
 local function canonical(value)
    if type(value) ~= "table" then
-      if value == json.null then return "null" end
+      if value == json.NULL then return "null" end
       return type(value) == "string" and ("%q"):format(value) or tostring(value)
    end
    local parts, keys = {}, {}

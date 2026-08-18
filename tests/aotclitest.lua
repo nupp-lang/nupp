@@ -589,7 +589,7 @@ function M.jsonCarriesTheOutcomeAndTheEstimate()
    local dir = project{["compute.nupp"] = COMPUTE}
    local out, code = run(dir, PINNED .. "--json compute.nupp")
    test.equal(code, 0, out)
-   local decoded = require("cjson").decode(out)
+   local decoded = require("testjson").decode(out)
    test.equal(decoded.file, "compute.nupp")
    -- One entry per `@aot` function in the file, in source order.
    test.equal(#decoded.functions, 1)
@@ -609,7 +609,7 @@ function M.jsonNamesWhatRefusedTheLoop()
    local dir = project{["refused.nupp"] = REFUSED}
    local out, code = run(dir, "--json --check refused.nupp")
    test.equal(code, 1, out)
-   local decoded = require("cjson").decode(out:match("^(%b{})"))
+   local decoded = require("testjson").decode(out:match("^(%b{})"))
    local only = decoded.functions[1]
    test.equal(only.outcome, "refused")
    test.equal(only.lanes, nil, "there is no gang to report")
@@ -686,7 +686,7 @@ function M.everyAotFunctionInAFileIsCompiled()
    local dir = project{["two.nupp"] = TWO}
    local out, code = run(dir, PINNED .. "--json two.nupp")
    test.equal(code, 0, out)
-   local decoded = require("cjson").decode(out)
+   local decoded = require("testjson").decode(out)
    test.equal(#decoded.functions, 2, "both functions are reported")
    test.equal(decoded.functions[1].name, "scale", "in source order")
    test.equal(decoded.functions[2].name, "brighten")
@@ -720,7 +720,7 @@ function M.theBaselineX86TierGetsTheNarrowGang()
    local dir = project{["compute.nupp"] = COMPUTE}
    local out, code = run(dir, "--json --target x86_64-unknown-linux-gnu compute.nupp")
    test.equal(code, 0, "plain x86-64 vectorises rather than refusing\n" .. out)
-   local decoded = require("cjson").decode(out)
+   local decoded = require("testjson").decode(out)
    test.equal(decoded.target.tier, "baseline", "and did not quietly promise instructions nobody asked for")
    test.equal(decoded.functions[1].lanes.shape, "mixed2")
    test.equal(decoded.functions[1].lanes.lanes, 2,
@@ -734,7 +734,7 @@ function M.aWiderTierGetsTheWiderGang()
    local dir = project{["compute.nupp"] = COMPUTE}
    local out, code = run(dir, "--json --target x86_64-unknown-linux-gnu --features avx2 compute.nupp")
    test.equal(code, 0, out)
-   local decoded = require("cjson").decode(out)
+   local decoded = require("testjson").decode(out)
    test.equal(decoded.target.triple, "x86_64-unknown-linux-gnu")
    test.equal(decoded.target.tier, "avx2", "the tier is reported, because it changed the answer")
    test.equal(decoded.functions[1].lanes.shape, "mixed4")
@@ -747,7 +747,7 @@ function M.theWidestGangThatFitsWins()
    -- would have picked four narrow lanes over four wide ones here.
    local dir = project{["compute.nupp"] = COMPUTE}
    local out = select(1, run(dir, "--json --target x86_64-unknown-linux-gnu --features avx2 compute.nupp"))
-   local decoded = require("cjson").decode(out)
+   local decoded = require("testjson").decode(out)
    test.equal(decoded.functions[1].lanes.shape, "mixed4",
       "not mixed2, which also fits and holds half as much")
 end
@@ -756,7 +756,7 @@ function M.armHasOneTierAndNeedsNoSelection()
    local dir = project{["compute.nupp"] = COMPUTE}
    local out, code = run(dir, "--json --target aarch64-apple-darwin compute.nupp")
    test.equal(code, 0, out)
-   local decoded = require("cjson").decode(out)
+   local decoded = require("testjson").decode(out)
    test.equal(decoded.target.tier, "neon", "its 16-byte registers are mandatory, so there is nothing to opt into")
    test.equal(decoded.functions[1].lanes.shape, "mixed4")
 end
@@ -786,7 +786,7 @@ return {object = object}
 ]]}
    local out, code = run(dir, "--json builder.nupp")
    test.equal(code, 0, out)
-   local decoded = require("cjson").decode(out)
+   local decoded = require("testjson").decode(out)
    local only = decoded.functions[1]
    test.equal(only.entryMode, "lua-builder")
    test.equal(only.runtimeAbi, "lua-5.1")
@@ -819,7 +819,7 @@ return {materialize = materialize}
    }
    local out, code = run(dir, "--json tree.nupp")
    test.equal(code, 0, out)
-   local decoded = require("cjson").decode(out)
+   local decoded = require("testjson").decode(out)
    local only = decoded.functions[1]
    test.equal(only.entryMode, "lua-builder")
    assert(decoded.ir:find("lua.tree(", 1, true), decoded.ir)
@@ -908,7 +908,7 @@ return {decode = decode}
    }
    local out, code = run(dir, "--json stream.g.nupp")
    test.equal(code, 0, out)
-   local decoded = require("cjson").decode(out)
+   local decoded = require("testjson").decode(out)
    assert(decoded.ir:find("lua_builder_open_object", 1, true), decoded.ir)
    assert(decoded.ir:find("lua_string_byte", 1, true), decoded.ir)
    assert(decoded.ir:find("lua.builder_finish", 1, true), decoded.ir)

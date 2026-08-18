@@ -1,7 +1,8 @@
--- Compare full JSON decoding through Nupp PEG, native LPeg 1.1 `re`, and cjson.
+-- Compare full JSON decoding through Nupp PEG, native LPeg 1.1 `re`, and the
+-- production Nupp JSON runtime.
 -- Run with: ./bin/nupp run -O2 bench/json-lpeg.nupp
 
-local cjson: any = require("cjson").new()
+local runtime = nupp.data.json
 local jit: any = require("jit")
 
 local lpeg: any = require("lpeg")
@@ -197,7 +198,7 @@ started = os.clock()
 local LPegRecognizer = re.compile(RECOGNIZER_GRAMMAR)
 local lpegRecognizerCompile = os.clock() - started
 
-local tiny = cjson.encode({ok = true, count = 42, name = "Nupp \"PEG\"", missing = cjson.null, values = {1, 2, 3, 4},})
+local tiny = runtime.encode({ok = true, count = 42, name = "Nupp \"PEG\"", missing = runtime.NULL, values = {1, 2, 3, 4},})
 
 local function records(count: integer): string
     local values = {}
@@ -215,7 +216,7 @@ local function records(count: integer): string
         }
     end
 
-    return cjson.encode({version = 1, records = values})
+    return runtime.encode({version = 1, records = values})
 end
 
 local fixtures = {
@@ -244,8 +245,8 @@ local function lpegRecognize(text: string): any
     return lpeg.match(LPegRecognizer, text)
 end
 
-local function cjsonDecode(text: string): any
-    return cjson.decode(text)
+local function runtimeDecode(text: string): any
+    return runtime.decode(text, runtime.NULL)
 end
 
 local edgeText = [[ {"empty":[],"object":{},"unicode":"\u0041\uD834\uDD1E","exponent":-1.25e+2} ]]
@@ -321,7 +322,7 @@ print(
 )
 print("")
 print("full decoding")
-print("fixture       bytes   Nupp iterations    Nupp PEG MB/s    LPeg MB/s   cjson MB/s")
+print("fixture       bytes   Nupp iterations    Nupp PEG MB/s    LPeg MB/s   runtime MB/s")
 print("----------  -------  ----------------  ---------------  -----------  -----------")
 for _, fixture in ipairs(fixtures) do
     jit.flush()
@@ -329,7 +330,7 @@ for _, fixture in ipairs(fixtures) do
     jit.flush()
     local lpegRate = measure(lpegDecode, fixture.text, FAST_BYTES)
     jit.flush()
-    local cjsonRate = measure(cjsonDecode, fixture.text, FAST_BYTES)
+    local runtimeRate = measure(runtimeDecode, fixture.text, FAST_BYTES)
     print(
         string.format(
             "%-10s  %7d  %16d  %15.2f  %11.2f  %11.2f",
@@ -338,7 +339,7 @@ for _, fixture in ipairs(fixtures) do
             iterations,
             nuppRate,
             lpegRate,
-            cjsonRate
+            runtimeRate
         )
     )
 end

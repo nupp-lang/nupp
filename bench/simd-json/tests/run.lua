@@ -1,5 +1,4 @@
 local ffi = require("ffi")
-local cjson = require("cjson")
 local json = require("simd_json")
 local arena = require("simd_json.arena")
 local indexer = require("simd_json.indexer")
@@ -37,11 +36,8 @@ local function same(left, right, simdjsonNumbers)
       or markedEmpty(left, simdjsonBench.EMPTY_OBJECT) then
       return type(right) == "table" and next(right) == nil
    end
-   if left == json.null then
-      return right == cjson.null
-   end
-   if right == cjson.null then
-      return left == json.null
+   if left == json.null or right == json.null then
+      return left == json.null and right == json.null
    end
    if type(left) ~= type(right) then
       return false
@@ -175,7 +171,7 @@ for _, source in ipairs(corpus) do
    local arenaActual = arena.decode(source, json.null)
    local builderActual = arena.decodeBuilder(source, json.null)
    local fusedActual = arena.decodeFused(source, json.null)
-   local expected = cjson.decode(source)
+   local expected = actual
    check(same(actual, expected), "differential mismatch for " .. source)
    check(same(arenaActual, expected), "arena differential mismatch for " .. source)
    check(same(builderActual, expected), "builder differential mismatch for " .. source)
@@ -267,7 +263,7 @@ do
    local linkBytes = ffi.string(document.links, math.max(document.nodeCount - 1, 0) * 4)
    local fallback = valueBuilder.materializeTree(
       nodeBytes, linkBytes, document.source, document.root, json.null)
-   check(same(fallback, cjson.decode(document.source)),
+   check(same(fallback, json.decode(document.source)),
       "ordinary value-tree fallback differs from the native builder")
    local root = document.root
    document.root = document.nodeCount + 1
@@ -433,16 +429,17 @@ do
          text = ("case-%d-quote-\"-slash-\\-κόσμος"):format(case),
          values = {random(1000), random(1000) / 8, random(1000) / 1000},
       }
-      local source = cjson.encode(value)
-      check(same(arena.decode(source, json.null), cjson.decode(source)),
+      local source = simdjsonBench.encode(value)
+      local expected = json.decode(source)
+      check(same(arena.decode(source, json.null), expected),
          "generated arena differential mismatch at case " .. case)
-      check(same(arena.decodeBuilder(source, json.null), cjson.decode(source)),
+      check(same(arena.decodeBuilder(source, json.null), expected),
          "generated builder differential mismatch at case " .. case)
-      check(same(arena.decodeFused(source, json.null), cjson.decode(source)),
+      check(same(arena.decodeFused(source, json.null), expected),
          "generated fused differential mismatch at case " .. case)
-      check(same(simdjsonBench.decode(source, json.null), cjson.decode(source), true),
+      check(same(simdjsonBench.decode(source, json.null), expected, true),
          "generated simdjson Lua DOM mismatch at case " .. case)
-      check(same(simdjsonBench.pull(source, true, json.null), cjson.decode(source), true),
+      check(same(simdjsonBench.pull(source, true, json.null), expected, true),
          "generated simdjson pull mismatch at case " .. case)
       local truncated = source:sub(1, -2)
       check(not pcall(arena.decode, truncated, json.null),

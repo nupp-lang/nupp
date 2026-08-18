@@ -1,4 +1,3 @@
-local cjson = require("cjson")
 local ffi = require("ffi")
 local json = require("simd_json")
 local arena = require("simd_json.arena")
@@ -30,7 +29,7 @@ local function strings(prefix, count)
    for index = 1, count do
       values[index] = prefix .. tostring(index)
    end
-   return cjson.encode(values)
+   return simdjsonBench.encode(simdjsonBench.asArray(values))
 end
 
 local function numbers()
@@ -38,7 +37,7 @@ local function numbers()
    for index = 1, 20000 do
       values[index] = index % 3 == 0 and index * 0.125 or index * -1.5e-3
    end
-   return cjson.encode(values)
+   return simdjsonBench.encode(simdjsonBench.asArray(values))
 end
 
 local payloads = {
@@ -101,8 +100,8 @@ local report = {
 
 local names = indexOnly and {"classify", "index"} or {
    "classify", "index", "simdjsonStage1", "simdjsonDom", "simdjsonLua", "simdjsonPull",
-   "simdjsonPullSelected", "simdjsonEncode", "cjsonEncode", "parse", "materialize", "build",
-   "legacy", "arena", "builder", "fused", "nupp", "cjson",
+   "simdjsonPullSelected", "simdjsonEncode", "parse", "materialize", "build",
+   "legacy", "arena", "builder", "fused", "nupp",
 }
 
 local function sorted(values)
@@ -241,13 +240,6 @@ for payloadIndex, payload in ipairs(payloads) do
          end
          return os.clock() - started
       end,
-      cjsonEncode = function()
-         local started = os.clock()
-         for _ = 1, iterations do
-            cjson.encode(simdjsonValue)
-         end
-         return os.clock() - started
-      end,
       parse = function()
          local started = os.clock()
          for _ = 1, iterations do
@@ -304,13 +296,6 @@ for payloadIndex, payload in ipairs(payloads) do
          end
          return os.clock() - started
       end,
-      cjson = function()
-         local started = os.clock()
-         for _ = 1, iterations do
-            cjson.decode(source)
-         end
-         return os.clock() - started
-      end,
    }
 
    for warmup = 1, warmups do
@@ -322,9 +307,9 @@ for payloadIndex, payload in ipairs(payloads) do
    local raw = {
       classify = {}, index = {}, simdjsonStage1 = {}, simdjsonDom = {},
       simdjsonLua = {}, simdjsonPull = {}, simdjsonPullSelected = {},
-      simdjsonEncode = {}, cjsonEncode = {},
+      simdjsonEncode = {},
       parse = {}, materialize = {}, build = {},
-      legacy = {}, arena = {}, builder = {}, nupp = {}, cjson = {},
+      legacy = {}, arena = {}, builder = {}, nupp = {},
       fused = {},
    }
    for sample = 1, samples do
@@ -349,7 +334,6 @@ for payloadIndex, payload in ipairs(payloads) do
       summary.simdjsonPullSelectedMBps =
          #source * iterations / median(raw.simdjsonPullSelected) / 1000000
       summary.simdjsonEncodeMBps = #source * iterations / median(raw.simdjsonEncode) / 1000000
-      summary.cjsonEncodeMBps = #source * iterations / median(raw.cjsonEncode) / 1000000
       summary.legacyMBps = #source * iterations / median(raw.legacy) / 1000000
       summary.parseMBps = #source * iterations / median(raw.parse) / 1000000
       summary.materializeMBps = #source * iterations / median(raw.materialize) / 1000000
@@ -357,13 +341,10 @@ for payloadIndex, payload in ipairs(payloads) do
       summary.arenaMBps = #source * iterations / median(raw.arena) / 1000000
       summary.builderMBps = #source * iterations / median(raw.builder) / 1000000
       summary.fusedMBps = #source * iterations / median(raw.fused) / 1000000
-      summary.cjsonMBps = #source * iterations / median(raw.cjson) / 1000000
       summary.nuppToLegacyThroughput = ratioSummary(raw.legacy, raw.nupp)
       summary.nuppToArenaThroughput = ratioSummary(raw.arena, raw.nupp)
       summary.nuppToBuilderThroughput = ratioSummary(raw.builder, raw.nupp)
-      summary.nuppToCjsonThroughput = ratioSummary(raw.cjson, raw.nupp)
       summary.nuppToSimdjsonDomThroughput = ratioSummary(raw.simdjsonDom, raw.nupp)
-      summary.cjsonToSimdjsonDomThroughput = ratioSummary(raw.simdjsonDom, raw.cjson)
       summary.classifierShare = ratioSummary(raw.classify, raw.nupp)
    end
    local measured = {
@@ -443,7 +424,7 @@ if not indexOnly then
 end
 
 if jsonOutput then
-   local encoded = cjson.encode(report)
+   local encoded = simdjsonBench.encode(report)
    local outputPath = os.getenv("NUPP_JSON_BENCH_OUTPUT")
    if outputPath then
       local outputFile = assert(io.open(outputPath, "wb"))
@@ -506,21 +487,15 @@ for _, payload in ipairs(report.payloads) do
       ))
    end
    if not indexOnly then
-      print(("  nupp/cjson throughput %.3fx [%.3f, %.3f], classifier share %.1f%% [%.1f, %.1f]"):format(
-         payload.summary.nuppToCjsonThroughput.median,
-         payload.summary.nuppToCjsonThroughput.low95,
-         payload.summary.nuppToCjsonThroughput.high95,
+      print(("  classifier share %.1f%% [%.1f, %.1f]"):format(
          payload.summary.classifierShare.median * 100,
          payload.summary.classifierShare.low95 * 100,
          payload.summary.classifierShare.high95 * 100
       ))
-      print(("  nupp/simdjson DOM %.3fx [%.3f, %.3f], cjson/simdjson DOM %.3fx [%.3f, %.3f]"):format(
+      print(("  nupp/simdjson DOM %.3fx [%.3f, %.3f]"):format(
          payload.summary.nuppToSimdjsonDomThroughput.median,
          payload.summary.nuppToSimdjsonDomThroughput.low95,
-         payload.summary.nuppToSimdjsonDomThroughput.high95,
-         payload.summary.cjsonToSimdjsonDomThroughput.median,
-         payload.summary.cjsonToSimdjsonDomThroughput.low95,
-         payload.summary.cjsonToSimdjsonDomThroughput.high95
+         payload.summary.nuppToSimdjsonDomThroughput.high95
       ))
       print(("  fused/legacy throughput %.3fx [%.3f, %.3f]"):format(
          payload.summary.nuppToLegacyThroughput.median,

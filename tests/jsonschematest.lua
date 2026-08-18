@@ -4,8 +4,7 @@
 -- is the arrangement that always drifts. So every command that declares one is
 -- run for real and its output validated against it. A field that goes away, or
 -- changes type, or stops being written, fails here.
-local json = require("cjson").new()
-json.decode_array_with_array_mt(true)
+local json = require("testjson")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -34,9 +33,9 @@ local function validate(value, schema, root, path)
    if wanted then
       local actual
       if type(value) == "table" then
-         -- cjson marks decoded arrays, which is the only way to tell an empty
-         -- array from an empty object once it is a Lua table.
-         actual = (getmetatable(value) == json.array_mt or #value > 0)
+         -- Decoded arrays carry the public marker, which is the only way to
+         -- tell an empty array from an empty object once it is a Lua table.
+         actual = (getmetatable(value) == json.EMPTY_ARRAY or #value > 0)
             and "array" or "object"
       elseif type(value) == "number" then
          actual = (value % 1 == 0) and "integer" or "number"

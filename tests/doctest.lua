@@ -1516,7 +1516,7 @@ function M.hoistsQualifiedTypesOutOfHiddenDeclarationModules()
       ["src/nupp/compiler/prelude.d.nupp"] = table.concat({
          "--- One JSON codec.",
          "interface nupp.JSON",
-         "   encodeJSON: function(value: any): string",
+         "   encode: function(value: any): string",
          "end",
       }, "\n") .. "\n",
    })
@@ -1772,7 +1772,7 @@ function M.docsBuildTargetWritesSiteAndMarkdown()
 end
 
 function M.jsonDocumentationExposesTheParseOnlyModel()
-   local json = require("cjson").new()
+   local json = require("testjson")
    local dir = tempProject({["src/math.nupp"] = SOURCE})
    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}},
       {format = "json", output = "api.json"}) == 0)

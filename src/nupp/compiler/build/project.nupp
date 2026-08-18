@@ -150,7 +150,7 @@ project.loadManifest = manifest.load
 --- The tasks a manifest defines. See nupp.compiler.build.tasks.
 project.describeTasks = tasks.describe
 
-project.encodeJson = tasks.encodeJson
+project.encode = tasks.encode
 
 local function buildOne(root: string?, opts: project.BuildOptions?): integer
     root, opts = root or ".", (opts or {}) as project.BuildOptions

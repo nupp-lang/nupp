@@ -1,5 +1,5 @@
 -- Command-line semantic operations, driven through the real launcher.
-local json = require("cjson").new()
+local json = require("testjson")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then

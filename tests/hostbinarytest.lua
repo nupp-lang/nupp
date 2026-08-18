@@ -16,13 +16,9 @@
 -- Stamping needs cargo, and the first one needs the network the pinned host
 -- sources are fetched over. Without either there is no artifact to mistreat, so
 -- the file skips with the reason rather than failing over a missing toolchain.
-local json = require("cjson").new()
+local json = require("testjson")
 local test = require("assert")
 
-json.decode_array_with_array_mt(true)
-json.decode_invalid_numbers(false)
-json.encode_empty_table_as_object(true)
-json.encode_invalid_numbers(false)
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -377,7 +373,7 @@ end
 --- have to be.
 local function canonical(value)
    if type(value) ~= "table" then
-      if value == json.null then return "null" end
+      if value == json.NULL then return "null" end
       return type(value) == "string" and ("%q"):format(value) or tostring(value)
    end
    local parts, keys = {}, {}

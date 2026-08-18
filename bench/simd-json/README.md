@@ -90,7 +90,7 @@ the normal large-document path.
 `simd_json.scanner` and `json.decodeLegacy` remain as the frozen J0 oracle and
 benchmark baseline; they are no longer the large-document decode path.
 
-Run the differential tests against `lua-cjson`:
+Run the differential and public-runtime tests:
 
 ```sh
 ./run.sh
@@ -99,8 +99,7 @@ Run the differential tests against `lua-cjson`:
 After building, measure classification, structural indexing, simdjson stage
 one and internal DOM construction, eager Lua DOM construction, On-Demand pull
 construction, serialization, native arena parsing, the old Lua materializer,
-tree-builder consumption, the legacy/arena/tree-builder/fused decoders, and
-`lua-cjson`:
+tree-builder consumption, and the legacy/arena/tree-builder/fused decoders:
 
 ```sh
 LUA_PATH='build/?.lua;../../build/?.lua;../../.rocks/share/lua/5.1/?.lua;../../.rocks/share/lua/5.1/?/init.lua;;' \
@@ -124,15 +123,16 @@ redirection. The prior copied-tape Apple arm64/NEON result remains at
 and corpus hashes, so the two routes remain directly comparable. Across the five
 large payloads the new route is 1.517x the tree builder (95% bootstrap CI
 1.511–1.530x), 2.726x the old arena decoder (2.695–2.757x), and 5.797x the legacy
-decoder (5.773–5.877x). It reaches 0.789x `lua-cjson` on records, 1.141x on ASCII,
-0.850x on Unicode, 0.608x on escaped strings, and 0.625x on numbers.
+decoder (5.773–5.877x). The immutable result file retains every measurement
+recorded by that version of the harness.
 
 The dynamic-frame, reusable-byte-scratch, capacity, and integer-token result is
 committed at `results/arm64-macos-neon-expansions.json`. On the same fifteen
 sample/5 MB protocol it is 1.607x the tree builder (95% bootstrap CI
 1.582–1.614x), 2.775x the arena decoder (2.739–2.816x), and 6.049x the legacy
-decoder (6.024–6.076x). It reaches 0.934x `lua-cjson` on records, 1.086x on
-ASCII, 0.822x on Unicode, 0.702x on escaped strings, and 0.611x on numbers.
+decoder (6.024–6.076x). The immutable result file retains every per-payload
+measurement from that run.
+
 The gains concentrate where presized objects or transformed strings amortize
 their metadata; the retained per-payload figures make the small regressions on
 plain string and decimal-heavy arrays explicit.
@@ -154,7 +154,7 @@ The end-to-end Lua binding result is committed at
 sample run. Eager ordinary-Lua-DOM throughput is 276 MB/s on records, 995 MB/s
 on ASCII strings, 1,119 MB/s on Unicode, 876 MB/s on escaped strings, and
 478 MB/s on numbers. That is respectively 1.65x, 2.63x, 2.61x, 1.93x, and
-1.85x the colocated `lua-cjson` result.
+1.85x the reference implementation recorded by that historical harness.
 
 That historical result also records the now-removed lazy-DOM prototype. Its
 numbers remain in the immutable result record, but the current harness replaces
@@ -170,9 +170,8 @@ advantage is selective allocation, not a promise that On-Demand is faster when
 the requested shape is the whole document.
 
 Serialization reaches 73, 308, 365, 293, and 66 MB/s on those five payloads.
-The colocated `lua-cjson` encoder reaches 78, 388, 405, 407, and 38 MB/s. The
-simdjson builder wins on the number-heavy payload but the Lua table walk and
-per-string UTF-8 validation leave the current binding behind on the others.
+The Lua table walk and per-string UTF-8 validation remain the main binding
+costs; the immutable result file contains the complete historical comparison.
 
 The lookup4/padded-load result is committed at
 `results/arm64-macos-neon-stage1-lookup.json`. It is a nine-sample, 2 MB-per-
@@ -180,7 +179,7 @@ sample run and records the fused decoder separately from its public dispatch
 alias. The fused path reaches 150 MB/s on records, 517 MB/s on ASCII strings,
 586 MB/s on Unicode, 319 MB/s on escaped strings, and 170 MB/s on numbers.
 Relative to the older fused result after normalizing each run to its colocated
-`lua-cjson` measurement, the ratios improve on records, ASCII, Unicode, and
+reference measurement, the ratios improve on records, ASCII, Unicode, and
 escaped strings; numbers are about eight percent lower. The large Unicode gain
 is the intended removal of the comparison-heavy continuation path. Stage one
 still trails simdjson because the fused parser processes one preferred vector

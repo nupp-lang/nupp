@@ -14,8 +14,6 @@
 -- run means one misbehaving suite turns the whole shard's report into "the shard
 -- wrote no report", which loses every other suite's result and reads like an
 -- infrastructure failure rather than the one test that broke.
-local newJson = require("cjson").new
-
 local runnerPath = arg[0]
 if package.config:sub(1, 1) == "\\" then
    runnerPath = runnerPath:gsub("^/([A-Za-z])(/)", function(drive, slash)
@@ -26,6 +24,41 @@ local dir = runnerPath:match("^(.*)[/\\]") or "."
 local buildDir = os.getenv("NUPP_COVERAGE_BUILD") or "build"
 package.path = dir .. "/../" .. buildDir .. "/?.lua;" .. dir .. "/?.lua;"
    .. package.path
+
+package.preload.testjson = package.preload.testjson or function()
+   local loaded, native = pcall(require, "jsonNative")
+   if not loaded then
+      local path = assert(os.getenv("NUPP_JSON_LIBRARY"),
+         "NUPP_JSON_LIBRARY must name the test JSON runtime")
+      local open = assert(package.loadlib(path, "luaopen_jsonNative"))
+      native = open()
+      package.loaded.jsonNative = native
+   end
+
+   local json = {
+      NULL = native.NULL,
+      EMPTY_ARRAY = native.EMPTY_ARRAY,
+      EMPTY_OBJECT = native.EMPTY_OBJECT,
+      arrayOf = native.arrayOf,
+      asArray = native.asArray,
+      asObject = native.asObject,
+      encode = native.encode,
+      serialize = native.serialize,
+      writer = native.writer,
+   }
+
+   function json.decode(text)
+      return native.decode(text, native.NULL)
+   end
+
+   function json.pull(text, shape)
+      return native.pull(text, shape, native.NULL)
+   end
+
+   return json
+end
+
+local testJson = require("testjson")
 
 -- The suites predate Windows support and deliberately exercise shell-facing
 -- CLI behaviour with POSIX commands. On Windows the VM's `system` and `popen`
@@ -505,7 +538,7 @@ local function recordedTimings()
    local text = file:read("*a")
    file:close()
    local ok, decoded = pcall(function()
-      return newJson().decode(text)
+      return testJson.decode(text)
    end)
 
    return ok and type(decoded) == "table" and type(decoded.suites) == "table"
@@ -518,8 +551,7 @@ local function rememberTimings(records)
       local suite = tostring(record.suite)
       per[suite] = (per[suite] or 0) + (tonumber(record.durationMs) or 0)
    end
-   local json = newJson()
-   json.encode_invalid_numbers(false)
+   local json = testJson
    local encoded, text = pcall(json.encode, {suites = per})
    if not encoded then
       return
@@ -607,7 +639,7 @@ local sharded = nil
 if #shard == 0 and not only and #suites > 1 and jobs ~= 1
    and not os.getenv("NUPP_COVERAGE_FILE") then
    do
-      local json = newJson()
+      local json = testJson
       local count = math.min(jobs or defaultJobs(), #suites)
       local groups = planShards(suites, count, recordedTimings())
 
@@ -790,9 +822,7 @@ end
 local coverageFile = os.getenv("NUPP_COVERAGE_FILE")
 local coverage = coverageFile and rawget(_G, "__nuppCoverage") or nil
 if coverageFile and coverage then
-   local json = newJson()
-   json.encode_empty_table_as_object(false)
-   json.encode_invalid_numbers(false)
+   local json = testJson
    local merged = {}
    local previous = io.open(coverageFile, "rb")
    if previous then
@@ -822,12 +852,10 @@ end
 if progressWidth ~= 0 then progressWrite("\n") end
 
 if asJson then
-   local json = newJson()
-   json.encode_empty_table_as_object(false)
-   json.encode_invalid_numbers(false)
+   local json = testJson
    io.write(json.encode({ok = failed == 0, total = total, passed = passed,
       skipped = skipped, failed = failed, durationMs = duration,
-      tests = results}) .. "\n")
+      tests = json.asArray(results)}) .. "\n")
 else
    if failed > 0 then
       io.write("\nFailures:\n")

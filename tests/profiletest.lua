@@ -467,7 +467,7 @@ function M.cliJitAbortsWritesNormalizedJson()
    local out, ok = run(dir,
       "run --jit-aborts=aborts.json --json work.nupp 2")
    assert(ok, "the program ran: " .. out)
-   local report = require("cjson").decode(readFile(dir .. "/aborts.json"))
+   local report = require("testjson").decode(readFile(dir .. "/aborts.json"))
    assert(report.traceProfile.id, "the VM profile is explicit")
    assertEq(report.reasonCatalog.id, "nupp-trace-reasons-v1",
       "the stable registry is explicit")

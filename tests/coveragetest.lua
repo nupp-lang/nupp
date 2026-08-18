@@ -1,7 +1,7 @@
 -- The report is deliberately static: exercise it as a user does, through the public
 -- command, and inspect the artifacts rather than reaching into its implementation.
 local test = require("assert")
-local cjson = require("cjson")
+local json = require("testjson")
 local highlight = require("nupp.compiler.doc.highlight")
 local M = {}
 
@@ -29,7 +29,7 @@ function M.coverageReportRunsAndWritesBrowsableArtifacts()
     local closed, reason, status = pipe:close()
     assert(closed or (reason == "exit" and status == 0), output)
     test.matches(output, "coverage: lines")
-    local report = cjson.decode(read(out .. "/coverage.json"))
+    local report = json.decode(read(out .. "/coverage.json"))
     test.equal(report.version, 1)
     assert(#report.files > 0, "coverage report has source files")
     assert(report.summary.lines.total > 0, "coverage report has executable lines")
@@ -59,7 +59,7 @@ function M.coverageReportRunsAndWritesBrowsableArtifacts()
     local queried = query:read("*a")
     local queryClosed, queryReason, queryStatus = query:close()
     assert(queryClosed or (queryReason == "exit" and queryStatus == 0), queried)
-    local queriedReport = cjson.decode(queried)
+    local queriedReport = json.decode(queried)
     test.equal(queriedReport.version, 1)
     assert(#queriedReport.files > 0, "report JSON query has every file")
     assert(index:find(".tree a:hover", 1, true), "coverage tree has a hover state")

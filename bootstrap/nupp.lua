@@ -8290,6 +8290,16 @@ lower.Bound = {} lower.Bound.__index = lower.Bound
 
 
 
+
+
+
+
+lower.GuardForm = {} lower.GuardForm.__index = lower.GuardForm
+
+
+
+
+
 lower.Kernel = {} lower.Kernel.__index = lower.Kernel
 
 
@@ -8750,11 +8760,11 @@ args ,  type =
 "simd_padded_string_u8" ,  source =
 lower . site ( node ) }, scalarIR.Simd)
 
-elseif identity == "nupp.value_builder.materializeTree" then
+elseif identity == "nupp.valuebuilder.materializeTree" then
 if # args ~= 5 then
 context . reject (
 lower . site ( node ) ,
-"value_builder.materializeTree takes nodes, links, source, root, and null value"
+"valuebuilder.materializeTree takes nodes, links, source, root, and null value"
 )
 end
 if args [
@@ -8764,13 +8774,13 @@ if args [
 ] . type ~= "lua_string" or args [
 3
 ] . type ~= "lua_string" or args [ 1 ] . op ~= "local" or args [ 2 ] . op ~= "local" or args [ 3 ] . op ~= "local" then
-context . reject ( lower . site ( node ) , "value_builder tree buffers must be rooted string parameters" )
+context . reject ( lower . site ( node ) , "valuebuilder tree buffers must be rooted string parameters" )
 end
 if args [ 4 ] . type ~= "f64" and args [ 4 ] . type ~= "i32" and args [ 4 ] . type ~= "u32" then
-context . reject ( lower . site ( node ) , "value_builder tree root must be numeric" )
+context . reject ( lower . site ( node ) , "valuebuilder tree root must be numeric" )
 end
 if args [ 5 ] . type ~= "lua_value" or args [ 5 ] . op ~= "local" then
-context . reject ( lower . site ( node ) , "value_builder null replacement must be a rooted Lua value" )
+context . reject ( lower . site ( node ) , "valuebuilder null replacement must be a rooted Lua value" )
 end
 kernel . usesLua = true
 
@@ -8784,8 +8794,8 @@ args [ 5 ] ,  type =
 "lua_value" ,  source =
 lower . site ( node ) }, scalarIR.LuaTree)
 
-elseif identity == "nupp.value_builder.new" or identity == "nupp.value_builder.newSized" then
-local sized = identity == "nupp.value_builder.newSized"
+elseif identity == "nupp.valuebuilder.new" or identity == "nupp.valuebuilder.newSized" then
+local sized = identity == "nupp.valuebuilder.newSized"
 if # args ~= (
 sized and 3 or 1
 ) or args [
@@ -8796,8 +8806,8 @@ sized and 3 or 1
 context . reject (
 lower . site ( node ) ,
 sized
-and "value_builder.newSized takes a rooted null replacement, uint32 depth, and uint32 string capacity"
-or "value_builder.new takes one rooted null replacement"
+and "valuebuilder.newSized takes a rooted null replacement, uint32 depth, and uint32 string capacity"
+or "valuebuilder.new takes one rooted null replacement"
 )
 end
 kernel . usesLua = true
@@ -8809,9 +8819,9 @@ sized and args [ 3 ] or nil ,  type =
 "lua_builder" ,  source =
 lower . site ( node ) }, scalarIR.LuaBuilder)
 
-elseif identity == "nupp.value_builder.newWordScratch" then
+elseif identity == "nupp.valuebuilder.newWordScratch" then
 if # args ~= 1 or args [ 1 ] . type ~= "u32" then
-context . reject ( lower . site ( node ) , "value_builder.newWordScratch takes one uint32 capacity" )
+context . reject ( lower . site ( node ) , "valuebuilder.newWordScratch takes one uint32 capacity" )
 end
 kernel . usesLua = true
 return setmetatable({ op =
@@ -8820,9 +8830,9 @@ args [ 1 ] ,  type =
 "lua_scratch_u32" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU32)
 
-elseif identity == "nupp.value_builder.scratchWord" then
+elseif identity == "nupp.valuebuilder.scratchWord" then
 if # args ~= 2 or args [ 1 ] . type ~= "lua_scratch_u32" or args [ 1 ] . op ~= "local" or args [ 2 ] . type ~= "u32" then
-context . reject ( lower . site ( node ) , "value_builder.scratchWord takes a local scratch buffer and uint32 index" )
+context . reject ( lower . site ( node ) , "valuebuilder.scratchWord takes a local scratch buffer and uint32 index" )
 end
 kernel . usesLua = true
 return setmetatable({ op =
@@ -8832,13 +8842,13 @@ args [ 2 ] ,  type =
 "u32" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU32Get)
 
-elseif identity == "nupp.value_builder.setScratchWord" then
+elseif identity == "nupp.valuebuilder.setScratchWord" then
 if # args ~= 3 or args [
 1
 ] . type ~= "lua_scratch_u32" or args [ 1 ] . op ~= "local" or args [ 2 ] . type ~= "u32" or args [ 3 ] . type ~= "u32" then
 context . reject (
 lower . site ( node ) ,
-"value_builder.setScratchWord takes a local scratch buffer, uint32 index, and uint32 value"
+"valuebuilder.setScratchWord takes a local scratch buffer, uint32 index, and uint32 value"
 )
 end
 kernel . usesLua = true
@@ -8850,7 +8860,7 @@ args [ 3 ] ,  type =
 "lua_effect" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU32Set)
 
-elseif identity == "nupp.value_builder.appendSetBits" then
+elseif identity == "nupp.valuebuilder.appendSetBits" then
 if # args ~= 4 or args [
 1
 ] . type ~= "lua_scratch_u32" or args [
@@ -8858,7 +8868,7 @@ if # args ~= 4 or args [
 ] . op ~= "local" or args [ 2 ] . type ~= "u32" or args [ 3 ] . type ~= "u32" or args [ 4 ] . type ~= "simd_mask_bits64" then
 context . reject (
 lower . site ( node ) ,
-"value_builder.appendSetBits takes a local word scratch, uint32 index and base, and MaskBits64"
+"valuebuilder.appendSetBits takes a local word scratch, uint32 index and base, and MaskBits64"
 )
 end
 kernel . usesLua = true
@@ -8871,9 +8881,9 @@ args [ 4 ] ,  type =
 "u32" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU32AppendBits)
 
-elseif identity == "nupp.value_builder.newByteScratch" then
+elseif identity == "nupp.valuebuilder.newByteScratch" then
 if # args ~= 1 or args [ 1 ] . type ~= "u32" then
-context . reject ( lower . site ( node ) , "value_builder.newByteScratch takes one uint32 capacity" )
+context . reject ( lower . site ( node ) , "valuebuilder.newByteScratch takes one uint32 capacity" )
 end
 kernel . usesLua = true
 return setmetatable({ op =
@@ -8882,9 +8892,9 @@ args [ 1 ] ,  type =
 "lua_scratch_u8" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU8)
 
-elseif identity == "nupp.value_builder.scratchByte" then
+elseif identity == "nupp.valuebuilder.scratchByte" then
 if # args ~= 2 or args [ 1 ] . type ~= "lua_scratch_u8" or args [ 1 ] . op ~= "local" or args [ 2 ] . type ~= "u32" then
-context . reject ( lower . site ( node ) , "value_builder.scratchByte takes a local byte scratch and uint32 index" )
+context . reject ( lower . site ( node ) , "valuebuilder.scratchByte takes a local byte scratch and uint32 index" )
 end
 kernel . usesLua = true
 return setmetatable({ op =
@@ -8894,11 +8904,11 @@ args [ 2 ] ,  type =
 "u32" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU8Get)
 
-elseif identity == "nupp.value_builder.setScratchByte" then
+elseif identity == "nupp.valuebuilder.setScratchByte" then
 if # args ~= 3 or args [
 1
 ] . type ~= "lua_scratch_u8" or args [ 1 ] . op ~= "local" or args [ 2 ] . type ~= "u32" or args [ 3 ] . type ~= "u32" then
-context . reject ( lower . site ( node ) , "value_builder.setScratchByte takes a local byte scratch, index, and byte" )
+context . reject ( lower . site ( node ) , "valuebuilder.setScratchByte takes a local byte scratch, index, and byte" )
 end
 kernel . usesLua = true
 return setmetatable({ op =
@@ -8909,9 +8919,9 @@ args [ 3 ] ,  type =
 "lua_effect" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU8Set)
 
-elseif identity == "nupp.value_builder.resetByteScratch" then
+elseif identity == "nupp.valuebuilder.resetByteScratch" then
 if # args ~= 1 or args [ 1 ] . type ~= "lua_scratch_u8" or args [ 1 ] . op ~= "local" then
-context . reject ( lower . site ( node ) , "value_builder.resetByteScratch takes one local byte scratch" )
+context . reject ( lower . site ( node ) , "valuebuilder.resetByteScratch takes one local byte scratch" )
 end
 kernel . usesLua = true
 return setmetatable({ op =
@@ -8920,21 +8930,21 @@ args [ 1 ] ,  type =
 "lua_effect" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU8Set)
 
-elseif identity == "nupp.value_builder.byte"
-or identity == "nupp.value_builder.word"
-or identity == "nupp.value_builder.length"
+elseif identity == "nupp.valuebuilder.byte"
+or identity == "nupp.valuebuilder.word"
+or identity == "nupp.valuebuilder.length"
 then
-local takesIndex = identity ~= "nupp.value_builder.length"
+local takesIndex = identity ~= "nupp.valuebuilder.length"
 if # args ~= (
 takesIndex and 2 or 1
 ) or args [ 1 ] . type ~= "lua_string" or args [ 1 ] . op ~= "local" or takesIndex and args [ 2 ] . type ~= "u32" then
-context . reject ( lower . site ( node ) , "value_builder rooted byte access has an invalid argument" )
+context . reject ( lower . site ( node ) , "valuebuilder rooted byte access has an invalid argument" )
 end
 kernel . usesLua = true
 return setmetatable({ op =
-identity == "nupp.value_builder.byte"
+identity == "nupp.valuebuilder.byte"
 and "lua_string_byte"
-or identity == "nupp.value_builder.word"
+or identity == "nupp.valuebuilder.word"
 and "lua_string_u32"
 or "lua_string_length" ,  bytes =
 args [ 1 ] ,  index =
@@ -8942,9 +8952,9 @@ takesIndex and args [ 2 ] or nil ,  type =
 "u32" ,  source =
 lower . site ( node ) }, scalarIR.LuaBytes)
 
-elseif identity == "nupp.value_builder.finish" then
+elseif identity == "nupp.valuebuilder.finish" then
 if # args ~= 1 or args [ 1 ] . type ~= "lua_builder" or args [ 1 ] . op ~= "local" then
-context . reject ( lower . site ( node ) , "value_builder.finish takes one local builder" )
+context . reject ( lower . site ( node ) , "valuebuilder.finish takes one local builder" )
 end
 kernel . usesLua = true
 return setmetatable({ op =
@@ -8953,26 +8963,26 @@ args [ 1 ] ,  type =
 "lua_value" ,  source =
 lower . site ( node ) }, scalarIR.LuaBuilderFinish)
 
-elseif identity == "nupp.value_builder.depth"
-or identity == "nupp.value_builder.kind"
-or identity == "nupp.value_builder.count"
+elseif identity == "nupp.valuebuilder.depth"
+or identity == "nupp.valuebuilder.kind"
+or identity == "nupp.valuebuilder.count"
 then
 if # args ~= 1 or args [ 1 ] . type ~= "lua_builder" or args [ 1 ] . op ~= "local" then
-context . reject ( lower . site ( node ) , "value_builder stream query takes one local builder" )
+context . reject ( lower . site ( node ) , "valuebuilder stream query takes one local builder" )
 end
 kernel . usesLua = true
 return setmetatable({ op =
-identity == "nupp.value_builder.depth"
+identity == "nupp.valuebuilder.depth"
 and "lua_builder_depth"
-or identity == "nupp.value_builder.kind"
+or identity == "nupp.valuebuilder.kind"
 and "lua_builder_kind"
 or "lua_builder_count" ,  builder =
 args [ 1 ] ,  type =
 "u32" ,  source =
 lower . site ( node ) }, scalarIR.LuaBuilderQuery)
 
-elseif identity ~= nil and identity : match ( "^nupp%.value_builder%." ) ~= nil then
-local action = tostring ( identity ) : match ( "^nupp%.value_builder%.(.+)$" )
+elseif identity ~= nil and identity : match ( "^nupp%.valuebuilder%." ) ~= nil then
+local action = tostring ( identity ) : match ( "^nupp%.valuebuilder%.(.+)$" )
 local operations
 
 = {
@@ -8992,7 +9002,7 @@ stringScratch = "lua_builder_string_scratch" ,
 local operation = operations [ tostring ( action ) ]
 if operation ~= nil then
 if # args < 1 or args [ 1 ] . type ~= "lua_builder" or args [ 1 ] . op ~= "local" then
-context . reject ( lower . site ( node ) , "value_builder event needs one local builder" )
+context . reject ( lower . site ( node ) , "valuebuilder event needs one local builder" )
 end
 local event = setmetatable({ op =
 operation ,  builder =
@@ -9002,7 +9012,7 @@ lower . site ( node ) }, scalarIR.LuaBuild)
 
 if action == "openArray" or action == "openObject" then
 if # args ~= 2 or args [ 2 ] . type ~= "u32" then
-context . reject ( lower . site ( node ) , "value_builder container opening needs a uint32 capacity" )
+context . reject ( lower . site ( node ) , "valuebuilder container opening needs a uint32 capacity" )
 end
 event . capacity = args [ 2 ]
 elseif action == "key" or action == "string" then
@@ -9011,7 +9021,7 @@ if # args ~= 5 or args [
 ] . type ~= "lua_string" or args [
 2
 ] . op ~= "local" or args [ 3 ] . type ~= "u32" or args [ 4 ] . type ~= "u32" or args [ 5 ] . type ~= "bool" then
-context . reject ( lower . site ( node ) , "value_builder string event has invalid arguments" )
+context . reject ( lower . site ( node ) , "valuebuilder string event has invalid arguments" )
 end
 event . sourceBytes , event . start , event . length , event . escaped = args [ 2 ] , args [ 3 ] , args [ 4 ] , args [ 5 ]
 elseif action == "keyScratch" or action == "stringScratch" then
@@ -9020,28 +9030,28 @@ if # args ~= 4 or args [
 ] . type ~= "lua_scratch_u8" or args [
 2
 ] . op ~= "local" or args [ 3 ] . type ~= "u32" or args [ 4 ] . type ~= "u32" then
-context . reject ( lower . site ( node ) , "value_builder scratch string event has invalid arguments" )
+context . reject ( lower . site ( node ) , "valuebuilder scratch string event has invalid arguments" )
 end
 event . scratch , event . start , event . length = args [ 2 ] , args [ 3 ] , args [ 4 ]
 elseif action == "numberSlice" or action == "integerSlice" then
 if # args ~= 4 or args [
 2
 ] . type ~= "lua_string" or args [ 2 ] . op ~= "local" or args [ 3 ] . type ~= "u32" or args [ 4 ] . type ~= "u32" then
-context . reject ( lower . site ( node ) , "value_builder number slice has invalid arguments" )
+context . reject ( lower . site ( node ) , "valuebuilder number slice has invalid arguments" )
 end
 event . sourceBytes , event . start , event . length = args [ 2 ] , args [ 3 ] , args [ 4 ]
 elseif action == "number" then
 if # args ~= 2 or args [ 2 ] . type ~= "f64" then
-context . reject ( lower . site ( node ) , "value_builder.number takes one number" )
+context . reject ( lower . site ( node ) , "valuebuilder.number takes one number" )
 end
 event . value = args [ 2 ]
 elseif action == "boolean" then
 if # args ~= 2 or args [ 2 ] . type ~= "bool" then
-context . reject ( lower . site ( node ) , "value_builder.boolean takes one boolean" )
+context . reject ( lower . site ( node ) , "valuebuilder.boolean takes one boolean" )
 end
 event . value = args [ 2 ]
 elseif # args ~= 1 then
-context . reject ( lower . site ( node ) , "value_builder event takes only its builder" )
+context . reject ( lower . site ( node ) , "valuebuilder event takes only its builder" )
 end
 kernel . usesLua = true
 return event
@@ -10681,7 +10691,31 @@ end
 
 
 
+function lower . isGuardStatement ( stat )
+if stat == nil then
+return false
+end
+if stat . kind == "ifStmt" then
+return true
+end
+local called = stat . kind == "callStmt" and ( stat ) . expr or nil
+
+return called ~= nil and called . kind == "call" and lower . nameOf ( ( called ) . obj ) == "assert"
+end
+
+
 function lower . guardClause ( stat , shapeWhy , bodyWhy , context )
+local asserted = stat ~= nil and stat . kind == "callStmt" and ( stat ) . expr or nil
+if asserted ~= nil and asserted . kind == "call" and lower . nameOf ( ( asserted ) . obj ) == "assert" then
+local args = ( asserted ) . args
+local exprs = args ~= nil and args . kind == "args" and ( ( args ) . exprs or { } ) or { }
+if # exprs < 1 or # exprs > 2 then
+context . reject ( lower . site ( stat ) , "an assert guard takes its condition and an optional message" )
+end
+
+return setmetatable({ cond =  exprs [ 1 ] ,  asserted =  true }, lower.GuardForm)
+end
+
 local branch = stat
 if stat == nil or stat . kind ~= "ifStmt" or # ( branch . clauses or { } ) ~= 1 or branch . elseClause ~= nil then
 context . reject ( lower . site ( stat ) , shapeWhy )
@@ -10695,7 +10729,7 @@ if # body ~= 1 or call == nil or call . kind ~= "call" or lower . nameOf ( ( cal
 context . reject ( lower . site ( stat ) , bodyWhy )
 end
 
-return clause
+return setmetatable({ cond =  clause . cond ,  asserted =  false }, lower.GuardForm)
 end
 
 
@@ -10704,26 +10738,30 @@ end
 
 function lower . lengthGuards (
 stat ,
-clause ,
+form ,
 signature ,
 context
 )
 local primary = signature . writes [ 1 ]
 local guarded = { }
+local joiner = form . asserted and "and" or "or"
+local comparison = form . asserted and "==" or "~="
 
 
 local function collect ( expr )
 local operator = expr
 if expr ~= nil and expr . kind == "binop" and operator . op ~= nil and (
 operator . op
-) . text == "or" then
+) . text == joiner then
 collect ( operator . lhs )
 collect ( operator . rhs )
 
 return
 end
-if expr == nil or expr . kind ~= "binop" or operator . op == nil or ( operator . op ) . text ~= "~=" then
-context . reject ( lower . site ( expr or stat ) , "the guard may only compare span counts with ~=" )
+if expr == nil or expr . kind ~= "binop" or operator . op == nil or (
+operator . op
+) . text ~= comparison then
+context . reject ( lower . site ( expr or stat ) , "the guard may only compare span counts with " .. comparison )
 end
 
 local left , right = lower . dotCount ( operator . lhs ) , lower . dotCount ( operator . rhs )
@@ -10744,7 +10782,7 @@ end
 guarded [ other ] = lower . site ( expr )
 end
 
-collect ( clause . cond )
+collect ( form . cond )
 
 local guards = { }
 for _ , span in ipairs ( signature . spans ) do
@@ -10774,23 +10812,39 @@ end
 
 function lower . rangeGuard (
 stat ,
-clause ,
+form ,
 signature ,
 context
 )
 local primary = signature . writes [ 1 ]
-local written = lower . compactType ( clause . cond )
-local firstName , lastName = written : match ( "^([%a_][%w_]*)<1or([%a_][%w_]*)>#([%a_][%w_]*)or" )
-local countName = select ( 3 , written : match ( "^([%a_][%w_]*)<1or([%a_][%w_]*)>#([%a_][%w_]*)or" ) )
-local expected = firstName ~= nil and (
-tostring (
+local written = lower . compactType ( form . cond )
+local pattern = form . asserted
+and "^([%a_][%w_]*)>=1and([%a_][%w_]*)<=#([%a_][%w_]*)and"
+or "^([%a_][%w_]*)<1or([%a_][%w_]*)>#([%a_][%w_]*)or"
+local firstName , lastName , countName = written : match ( pattern )
+local expected = ""
+if firstName ~= nil then
+if form . asserted then
+expected = tostring (
+firstName
+) .. ">=1and" .. tostring (
+lastName
+) .. "<=#" .. primary . name .. "and" .. tostring ( firstName ) .. "<=" .. tostring ( lastName ) .. "+1"
+else
+expected = tostring (
 firstName
 ) .. "<1or" .. tostring (
 lastName
 ) .. ">#" .. primary . name .. "or" .. tostring ( firstName ) .. ">" .. tostring ( lastName ) .. "+1"
-) or ""
+end
+end
 if written ~= expected or countName ~= primary . name then
-context . reject ( lower . site ( clause . cond ) , "range guard must be `first < 1 or last > #output or first > last + 1`" )
+context . reject (
+lower . site ( form . cond ) ,
+form . asserted
+and "range guard must be `first >= 1 and last <= #output and first <= last + 1`"
+or "range guard must be `first < 1 or last > #output or first > last + 1`"
+)
 end
 
 local first = signature . byName [ tostring ( firstName ) ]
@@ -10802,7 +10856,7 @@ or last . kind ~= "uniform"
 or first . sourceType ~= "integer"
 or last . sourceType ~= "integer"
 then
-context . reject ( lower . site ( clause . cond ) , "range bounds must be uniform integer parameters" )
+context . reject ( lower . site ( form . cond ) , "range bounds must be uniform integer parameters" )
 end
 
 return setmetatable({ first =
@@ -11120,7 +11174,7 @@ end
 local statements = body . body ~= nil and ( body . body ) . stats or { }
 local mapShape = # resultTypes == 0 and # signature . writes > 0 and # signature . reads > 0 and (
 # statements == 2 or # statements == 3
-) and statements [ 1 ] . kind == "ifStmt" and statements [ # statements ] . kind == "fornumStmt"
+) and lower . isGuardStatement ( statements [ 1 ] ) and statements [ # statements ] . kind == "fornumStmt"
 
 if not mapShape then
 if contract . lanesRequired then
@@ -11205,7 +11259,7 @@ statements [ 1 ] ,
 lower . guardClause (
 statements [ 1 ] ,
 "the first statement must be a single length-mismatch guard" ,
-"a length guard must call error directly" ,
+"a length guard must call error or assert directly" ,
 context
 ) ,
 signature ,
@@ -11219,7 +11273,7 @@ statements [ 2 ] ,
 lower . guardClause (
 statements [ 2 ] ,
 "the optional second statement must be a range guard" ,
-"a range guard must call error directly" ,
+"a range guard must call error or assert directly" ,
 context
 ) ,
 signature ,
@@ -23868,7 +23922,7 @@ project . loadManifest = manifest . load
 
 project . describeTasks = tasks . describe
 
-project . encodeJson = tasks . encodeJson
+project . encode = tasks . encode
 
 local function buildOne ( root , opts )
 root , opts = root or "." , ( opts or { } )
@@ -25724,7 +25778,7 @@ end
 return { default = defaultName , tasks = jsonArray ( tasks ) }
 end
 
-function tasks . encodeJson ( value )
+function tasks . encode ( value )
 return json . encode ( value )
 end
 
@@ -54389,6 +54443,13 @@ optionsMod . format ( )
 schema = {
 type = "object" ,
 properties = {
+ok = {
+type = "boolean" ,
+description = "Whether the check ran and found nothing wrong. False "
+.. "both for a project that reported an error and for a run that never "
+.. "got as far as checking, such as one whose manifest could not be "
+.. "used -- an empty `diagnostics` cannot tell those apart on its own." ,
+} ,
 diagnostics = require ( "nupp.compiler.cli.report" ) . DIAGNOSTICS ,
 platform = { type = "string" } ,
 platforms = { type = "array" , items = { type = "object" } } ,
@@ -54432,7 +54493,7 @@ required = { "module" , "durationMs" } ,
 required = { "totalMs" , "compiledModules" , "reusedModules" , "phases" , "slowest" } ,
 } ,
 } ,
-required = { "diagnostics" } ,
+required = { "ok" , "diagnostics" } ,
 } ,
 detail = "With no files, checks the default target from nupp.lua. Also reports a `timing` object naming how many modules were reused from the cache versus rechecked, and which modules cost the most of the wall-clock time either way -- see docs/diagnostics.md." ,
 }
@@ -54459,6 +54520,7 @@ produced = asJson and produced or nil
 } )
 if asJson then
 reportMod . write ( {
+ok = code == 0 ,
 diagnostics = reportMod . diagnosticValues ( diagnostics ) ,
 platform = produced . platform ,
 platforms = produced . platforms ,
@@ -54557,7 +54619,7 @@ end
 end
 if # remaining == 0 then
 if asJson then
-reportMod . json ( diagnostics )
+reportMod . json ( diagnostics , not failed )
 end
 
 return failed and 1 or 0
@@ -54594,7 +54656,7 @@ end
 
 require ( "nupp.compiler.env" ) . persist ( env )
 if asJson then
-reportMod . json ( diagnostics )
+reportMod . json ( diagnostics , not failed )
 end
 
 return failed and 1 or 0
@@ -58715,8 +58777,13 @@ end
 
 
 
-function report . json ( diagnostics )
-report . write ( { diagnostics = report . diagnosticValues ( diagnostics ) } )
+
+
+
+
+
+function report . json ( diagnostics , ok )
+report . write ( { ok = ok , diagnostics = report . diagnosticValues ( diagnostics ) } )
 end
 
 
@@ -59027,7 +59094,7 @@ C in a C function, G collecting, J compiling.
 
 --jit-aborts answers the question a sampler cannot: whether the hot code was
 compiled at all. It writes CSV, one row per place the compiler gave up, with a
-blacklisted trace — permanently demoted to the interpreter — ranked first.
+blacklisted trace, permanently demoted to the interpreter, ranked first.
 
 Both cover the program only: the session opens once the file has compiled and
 closes when it returns, so the compiler's own work stays out of the report. A
@@ -59653,14 +59720,14 @@ value = "WHEN" ,
 form = "optional" ,
 constant = "always" ,
 choices = { "always" , "never" , "auto" } ,
-help = "When to colour output: always, never, or auto (default)"
+help = "When to color output: always, never, or auto (default)"
 } ,
 {
 name = "--no-color" ,
 key = "color" ,
 constant = "never" ,
-duplicate = "colour was both asked for and refused" ,
-help = "Never colour output; the same as --color=never"
+duplicate = "color was both asked for and refused" ,
+help = "Never color output; the same as --color=never"
 } ,
 { names = { "-h" , "--help" } , help = "Show this help" } ,
 }
@@ -60156,7 +60223,7 @@ io . stderr : write ( tostring ( err ) .. "\n" )
 return 1
 end
 if parsed . values . format == "json" then
-io . write ( project . encodeJson ( info ) .. "\n" )
+io . write ( project . encode ( info ) .. "\n" )
 return 0
 end
 local style = ansi . style ( io . stdout )
@@ -68435,7 +68502,7 @@ local THEME = [[
  * otherwise add up to twice the gap where both are honored. */
 .nuppdoc-api-item,.nuppdoc-api-member,.nuppdoc-content :is(h1,h2,h3,h4,h5,h6)[id]{scroll-margin-top:calc(var(--nuppdoc-header-height) + 1.4rem)}body{margin:0;color:var(--nuppdoc-text);background:var(--nuppdoc-background);font-family:var(--nuppdoc-font);line-height:1.6}a{color:var(--nuppdoc-accent);text-decoration-color:currentColor}a:hover{color:var(--nuppdoc-accent-hover)}button,input{font:inherit}.nuppdoc-header{position:sticky;z-index:30;top:0;height:var(--nuppdoc-header-height);border-bottom:1px solid var(--nuppdoc-border);background:color-mix(in srgb,var(--nuppdoc-background) 92%,transparent);backdrop-filter:blur(12px)}.nuppdoc-nav{display:flex;width:100%;max-width:var(--nuppdoc-layout-max-width);height:100%;align-items:center;gap:1rem;margin:auto;padding:0 1rem}.nuppdoc-brand{display:flex;align-items:center;gap:.55rem;color:var(--nuppdoc-text);font-weight:700;text-decoration:none}.nuppdoc-mark{display:grid;width:29px;height:29px;place-items:center;color:#fff;border-radius:7px;background:var(--nuppdoc-accent);font-family:var(--nuppdoc-font-mono);font-size:.7rem}.nuppdoc-top-nav{display:flex;flex:1;gap:.2rem}.nuppdoc-top-nav a{padding:.45rem .65rem;color:var(--nuppdoc-text-muted);border-radius:7px;font-size:.76rem;text-decoration:none}.nuppdoc-top-nav a:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-top-nav a[aria-current="page"]{color:var(--nuppdoc-accent)}.nuppdoc-actions{display:flex;align-items:center;gap:.25rem}.nuppdoc-search{width:min(190px,18vw);height:32px;padding:.25rem .6rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:6px;background:var(--nuppdoc-background-alt);font-size:.75rem}.nuppdoc-theme{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer}.nuppdoc-theme:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}
 .nuppdoc-shell{display:grid;width:100%;max-width:var(--nuppdoc-layout-max-width);min-height:calc(100vh - var(--nuppdoc-header-height));grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr) var(--nuppdoc-outline-width);margin:auto}.nuppdoc-sidebar,.nuppdoc-outline{position:sticky;top:var(--nuppdoc-header-height);overflow:auto;max-height:calc(100vh - var(--nuppdoc-header-height));padding:1.25rem 1rem 2rem}.nuppdoc-sidebar{border-right:1px solid var(--nuppdoc-border);background:var(--nuppdoc-background-alt);box-shadow:-100vw 0 0 100vw var(--nuppdoc-background-alt)}.nuppdoc-sidebar h2,.nuppdoc-outline h2{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em}.nuppdoc-sidebar ul,.nuppdoc-outline ol{margin:0;padding:0;list-style:none}.nuppdoc-sidebar a,.nuppdoc-outline a{display:block;overflow:hidden;padding:.24rem .55rem;color:var(--nuppdoc-text-muted);border-radius:6px;font-size:.7rem;font-weight:500;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.nuppdoc-sidebar a:hover{color:var(--nuppdoc-text);background:color-mix(in srgb,var(--nuppdoc-accent-soft) 55%,transparent)}.nuppdoc-sidebar a[aria-current="page"],.nuppdoc-outline a:hover{color:var(--nuppdoc-accent);font-weight:650}.nuppdoc-outline{padding-left:1.25rem}.nuppdoc-outline ol{padding-left:1rem;border-left:1px solid var(--nuppdoc-border)}.nuppdoc-outline a{padding:.16rem 0;font-size:.66rem}
-.nuppdoc-content{width:min(100% - 10rem,var(--nuppdoc-content-width));margin:0 auto;padding:1.25rem 0 6rem;font-size:.88rem}.nuppdoc-content h1,.nuppdoc-content h2,.nuppdoc-content h3{font-weight:700;line-height:1.25;letter-spacing:-.02em}.nuppdoc-content h1{margin-top:0;font-size:1.8rem}.nuppdoc-content h2{margin-top:2.5rem;padding-top:2.5rem;border-top:1px solid var(--nuppdoc-border);font-size:1.575rem}.nuppdoc-content h3{margin-top:2.25rem;font-size:1.35rem}.nuppdoc-content h4{margin-top:1.5rem;font-size:1rem}.nuppdoc-breadcrumbs{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.75rem}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-muted)}.nuppdoc-kind-badge{display:inline-flex;margin-left:.45rem;padding:.12rem .42rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:999px;background:var(--nuppdoc-background-alt);font-size:.62rem;font-weight:650;letter-spacing:.035em;text-transform:uppercase;vertical-align:middle}.nuppdoc-kind-function,.nuppdoc-kind-method{color:var(--nuppdoc-accent);border-color:color-mix(in srgb,var(--nuppdoc-accent) 35%,var(--nuppdoc-border));background:var(--nuppdoc-accent-soft)}.nuppdoc-header-anchor{margin-left:.4rem;opacity:0;text-decoration:none}.nuppdoc-content h2:hover .nuppdoc-header-anchor,.nuppdoc-content h3:hover .nuppdoc-header-anchor{opacity:1}.nuppdoc-code-block{position:relative}.nuppdoc-code-block[data-lang]::before{position:absolute;z-index:1;top:8px;right:10px;color:var(--nuppdoc-text-muted);content:attr(data-lang);font-family:var(--nuppdoc-font-mono);font-size:.66rem}.nuppdoc-content pre{overflow:auto;padding:.8rem .9rem;border:1px solid var(--nuppdoc-border);border-radius:8px;background:var(--nuppdoc-code-background);line-height:1.55}.nuppdoc-content pre code{padding:0;background:transparent;font-family:var(--nuppdoc-font-mono);font-size:14px}.nuppdoc-content :not(pre)>code{padding:.1em .35em;border-radius:4px;background:var(--nuppdoc-code-background);font-family:var(--nuppdoc-font-mono);font-size:.91em}.nuppdoc-content table{width:100%;margin:1rem 0;border-collapse:collapse;font-size:.76rem}.nuppdoc-content th,.nuppdoc-content td{padding:.55rem .65rem;border-bottom:1px solid var(--nuppdoc-border);text-align:left;vertical-align:top}.nuppdoc-content th{color:var(--nuppdoc-text-muted);font-size:.68rem;text-transform:uppercase}.nuppdoc-empty{padding:2rem;color:var(--nuppdoc-text-muted);border:1px dashed var(--nuppdoc-border);border-radius:8px;text-align:center}.nuppdoc-module-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-top:1.5rem}.nuppdoc-module-card{display:block;padding:1rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-border);border-radius:10px;background:var(--nuppdoc-background-alt);text-decoration:none}.nuppdoc-module-card:hover{color:var(--nuppdoc-text);border-color:var(--nuppdoc-accent);transform:translateY(-1px)}.nuppdoc-module-card code{display:block;margin-bottom:.35rem;color:var(--nuppdoc-accent);font-size:.85rem}.nuppdoc-module-card span{color:var(--nuppdoc-text-muted);font-size:.72rem}.nuppdoc-footer{padding:1.25rem;color:var(--nuppdoc-text-muted);border-top:1px solid var(--nuppdoc-border);font-size:.68rem;text-align:center}
+.nuppdoc-content{width:min(100% - 10rem,var(--nuppdoc-content-width));margin:0 auto;padding:1.25rem 0 6rem;font-size:.88rem}.nuppdoc-content h1,.nuppdoc-content h2,.nuppdoc-content h3{font-weight:700;line-height:1.25;letter-spacing:-.02em}.nuppdoc-content h1{margin-top:0;font-size:1.8rem}.nuppdoc-content h2{margin-top:2.5rem;padding-top:2.5rem;border-top:1px solid var(--nuppdoc-border);font-size:1.575rem}.nuppdoc-content h3{margin-top:2.25rem;font-size:1.35rem}.nuppdoc-content h4{margin-top:1.5rem;font-size:1rem}.nuppdoc-content h5{margin-top:1.25rem;color:var(--nuppdoc-text-muted);font-size:.88rem;font-weight:650}.nuppdoc-breadcrumbs{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.75rem}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-muted)}.nuppdoc-kind-badge{display:inline-flex;margin-left:.45rem;padding:.12rem .42rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:999px;background:var(--nuppdoc-background-alt);font-size:.62rem;font-weight:650;letter-spacing:.035em;text-transform:uppercase;vertical-align:middle}.nuppdoc-kind-function,.nuppdoc-kind-method{color:var(--nuppdoc-accent);border-color:color-mix(in srgb,var(--nuppdoc-accent) 35%,var(--nuppdoc-border));background:var(--nuppdoc-accent-soft)}.nuppdoc-header-anchor{margin-left:.4rem;opacity:0;text-decoration:none}.nuppdoc-content h2:hover .nuppdoc-header-anchor,.nuppdoc-content h3:hover .nuppdoc-header-anchor{opacity:1}.nuppdoc-code-block{position:relative}.nuppdoc-code-block[data-lang]::before{position:absolute;z-index:1;top:8px;right:10px;color:var(--nuppdoc-text-muted);content:attr(data-lang);font-family:var(--nuppdoc-font-mono);font-size:.66rem}.nuppdoc-content pre{overflow:auto;padding:.8rem .9rem;border:1px solid var(--nuppdoc-border);border-radius:8px;background:var(--nuppdoc-code-background);line-height:1.55}.nuppdoc-content pre code{padding:0;background:transparent;font-family:var(--nuppdoc-font-mono);font-size:14px}.nuppdoc-content :not(pre)>code{padding:.1em .35em;border-radius:4px;background:var(--nuppdoc-code-background);font-family:var(--nuppdoc-font-mono);font-size:.91em}.nuppdoc-content table{width:100%;margin:1rem 0;border-collapse:collapse;font-size:.76rem}.nuppdoc-content th,.nuppdoc-content td{padding:.55rem .65rem;border-bottom:1px solid var(--nuppdoc-border);text-align:left;vertical-align:top}.nuppdoc-content th{color:var(--nuppdoc-text-muted);font-size:.68rem;text-transform:uppercase}.nuppdoc-empty{padding:2rem;color:var(--nuppdoc-text-muted);border:1px dashed var(--nuppdoc-border);border-radius:8px;text-align:center}.nuppdoc-module-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-top:1.5rem}.nuppdoc-module-card{display:block;padding:1rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-border);border-radius:10px;background:var(--nuppdoc-background-alt);text-decoration:none}.nuppdoc-module-card:hover{color:var(--nuppdoc-text);border-color:var(--nuppdoc-accent);transform:translateY(-1px)}.nuppdoc-module-card code{display:block;margin-bottom:.35rem;color:var(--nuppdoc-accent);font-size:.85rem}.nuppdoc-module-card span{color:var(--nuppdoc-text-muted);font-size:.72rem}.nuppdoc-footer{padding:1.25rem;color:var(--nuppdoc-text-muted);border-top:1px solid var(--nuppdoc-border);font-size:.68rem;text-align:center}
 .nuppdoc-token-comment{color:var(--nuppdoc-syntax-comment);font-style:italic}.nuppdoc-token-boolean{color:var(--nuppdoc-syntax-boolean)}.nuppdoc-token-keyword{color:var(--nuppdoc-syntax-keyword)}.nuppdoc-token-meta{color:var(--nuppdoc-syntax-meta)}.nuppdoc-token-number{color:var(--nuppdoc-syntax-number)}.nuppdoc-token-function{color:var(--nuppdoc-syntax-function)}.nuppdoc-token-operator{color:var(--nuppdoc-syntax-operator)}.nuppdoc-token-property{color:var(--nuppdoc-syntax-property)}.nuppdoc-token-punctuation{color:var(--nuppdoc-syntax-punctuation)}.nuppdoc-token-string{color:var(--nuppdoc-syntax-string)}.nuppdoc-token-type{color:var(--nuppdoc-syntax-type)}.nuppdoc-token-variable{color:var(--nuppdoc-syntax-variable)}.nuppdoc-code-link,.nuppdoc-code-link:visited,.nuppdoc-code-link:hover{border-bottom:1px dotted currentColor;text-decoration:none}.nuppdoc-code-link:hover{border-bottom-style:solid}.nuppdoc-code-link-type{color:var(--nuppdoc-syntax-type)}.nuppdoc-code-link-function{color:var(--nuppdoc-syntax-function)}.nuppdoc-code-link-property{color:var(--nuppdoc-syntax-property)}.nuppdoc-code-link-variable{color:var(--nuppdoc-syntax-variable)}
 @media(max-width:1100px){.nuppdoc-shell{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr)}.nuppdoc-outline{display:none}.nuppdoc-content{width:min(100% - 5rem,var(--nuppdoc-content-width))}}@media(max-width:760px){.nuppdoc-top-nav{display:none}.nuppdoc-search{width:140px}.nuppdoc-shell{display:block}.nuppdoc-sidebar{position:static;max-height:none;padding:.7rem 1rem;border-right:0;border-bottom:1px solid var(--nuppdoc-border);box-shadow:none}.nuppdoc-sidebar h2{display:none}.nuppdoc-sidebar ul{display:flex;overflow:auto;gap:.25rem}.nuppdoc-content{width:auto;padding:1.5rem 1.25rem 4rem}}@media(max-width:480px){.nuppdoc-search{display:none}.nuppdoc-brand span:last-child{display:none}.nuppdoc-content table{display:block;overflow:auto}}
 /* The custom properties a site is meant to override. They are named and grouped
@@ -71974,7 +72041,7 @@ end
 return false
 end
 
-local function moduleTreeHtml ( node , current , prefix , path , depth )
+local function moduleTreeHtml ( node , current , prefix , path )
 local parts = { }
 for _ , name in ipairs ( node . order ) do
 local child = node . children [ name ]
@@ -71990,7 +72057,11 @@ module . name : lower ( )
 module . name
 ) .. '" aria-label="' .. htmlEscape ( module . name ) .. '"><code>' .. htmlEscape ( name ) .. "</code></a></li>"
 else
-local open = ( depth == 0 or moduleBranchContains ( child , current ) ) and " open" or ""
+
+
+
+
+local open = ( path == "" or moduleBranchContains ( child , current ) ) and " open" or ""
 local label = "<code>" .. htmlEscape ( name ) .. "</code>"
 local item , summary = '<li class="nuppdoc-module-branch">' , "<summary>" .. label .. "</summary>"
 
@@ -72008,7 +72079,7 @@ module . name
 ) .. '" aria-label="' .. htmlEscape ( module . name ) .. '">' .. label .. "</a></summary>"
 end
 parts [ # parts + 1 ] = item .. "<details" .. open .. ">" .. summary .. '<ul class="nuppdoc-module-tree">'
-parts [ # parts + 1 ] = moduleTreeHtml ( child , current , prefix , childPath , depth + 1 )
+parts [ # parts + 1 ] = moduleTreeHtml ( child , current , prefix , childPath )
 parts [ # parts + 1 ] = "</ul></details></li>"
 end
 end
@@ -72025,18 +72096,26 @@ if candidate . path ~= "" and not candidate . module then
 
 local key = candidate . path : match ( "^([^/]+)" ) or "Pages"
 if not byGroup [ key ] then
-byGroup [ key ] = { key = key , pages = { } }
+byGroup [ key ] = { key = key , pages = { } , open = false }
 groups [ # groups + 1 ] = byGroup [ key ]
 end
 byGroup [ key ] . pages [ # byGroup [ key ] . pages + 1 ] = candidate
+
+
+if candidate . path == currentPath then
+byGroup [ key ] . open = true
+end
 end
 end
 for _ , group in ipairs ( groups ) do
 local label = group . key : gsub ( "[-_]" , " " )
 label = label : sub ( 1 , 1 ) : upper ( ) .. label : sub ( 2 )
+local open = group . open and " open" or ""
 out [
 # out + 1
-] = '<li class="nuppdoc-sidebar-section"><details open><summary>' .. htmlEscape ( label ) .. '</summary><ul>'
+] = '<li class="nuppdoc-sidebar-section"><details' .. open .. '><summary>' .. htmlEscape (
+label
+) .. '</summary><ul>'
 for _ , candidate in ipairs ( group . pages ) do
 local active = candidate . path == currentPath and ' aria-current="page"' or ""
 out [
@@ -72048,16 +72127,12 @@ candidate . path
 end
 out [ # out + 1 ] = "</ul></details></li>"
 end
+local apiOpen = current and current ~= "" and " open" or ""
 out [
 # out + 1
-] = '<li class="nuppdoc-sidebar-section"><details open><summary>API reference</summary><ul class="nuppdoc-module-tree">'
-.. moduleTreeHtml (
-moduleTree ( modules ) ,
-current ,
-prefix ,
-"" ,
-0
-)
+] = '<li class="nuppdoc-sidebar-section"><details' .. apiOpen .. '><summary>API reference</summary>'
+.. '<ul class="nuppdoc-module-tree">'
+.. moduleTreeHtml ( moduleTree ( modules ) , current , prefix , "" )
 out [ # out + 1 ] = "</ul></details></li></ul></aside>"
 
 return table . concat ( out )
@@ -74808,7 +74883,7 @@ local BUNDLED_SOURCE = {
 [ "nupp.io.processtypes" ] = "/nupp/io/processtypes.nupp" ,
 [ "nupp.workers" ] = "/nupp/workers.nupp" ,
 [ "nupp.io.http" ] = "/nupp/io/http.nupp" ,
-[ "nupp.value_builder" ] = "/nupp/value_builder.g.nupp" ,
+[ "nupp.valuebuilder" ] = "/nupp/valuebuilder.g.nupp" ,
 }
 
 
@@ -113090,7 +113165,7 @@ body runs; with `require`, one native call returns the completed ordinary Lua
 value.
 
 A pointer-free parser may call resolved
-`nupp.value_builder.materializeTree(nodes, links, source, root, nullValue)` in a
+`nupp.valuebuilder.materializeTree(nodes, links, source, root, nullValue)` in a
 builder. Its native-endian node and uint32 link blobs are bounds-checked before
 one C traversal constructs the graph. Raw source slices and validated
 backslash/Unicode string recipes become ordinary Lua-owned strings. The
@@ -113098,7 +113173,7 @@ ordinary module implementation supplies the same behavior with `aot = "off"`.
 The operation is a construction boundary, not access to `lua_State` or raw VM
 stack positions.
 
-An iterative parser may instead use the resolved `nupp.value_builder` stream.
+An iterative parser may instead use the resolved `nupp.valuebuilder` stream.
 `new` roots the null replacement; `openArray`, `openObject`, primitive and
 source-slice value operations, `key`, and `close` build one graph; `finish`
 publishes it. `byte`, native-endian `word`, and `length` read rooted string
@@ -131039,10 +131114,67 @@ end
 return suspension
 
 end
-package.preload["nupp.value_builder"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();const __nuppNew = require("table.new"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end __nuppLazy(__nuppData,"utf8",function()local native=require("lua-utf8");local u={};local function bytes(value)if type(value)=="string"then return value end;return value:getString()end;local function offset(value,at,allowEnd)if type(at)~="number"or at~=math.floor(at)then error("nupp: UTF-8 byte offset must be an integer",3)end;local limit=#value+(allowEnd and 1 or 0);if at<1 or at>limit then error("nupp: UTF-8 byte offset is out of range",3)end;return at end;local function decode(s,at)local first=s:byte(at);if not first then return nil,at end;if first<128 then return first,at+1 end;local need,code,min;if first>=194 and first<=223 then need,code,min=1,first-192,128 elseif first>=224 and first<=239 then need,code,min=2,first-224,2048 elseif first>=240 and first<=244 then need,code,min=3,first-240,65536 else return 65533,at+1 end;for i=1,need do local b=s:byte(at+i);if not b or b<128 or b>191 then return 65533,at+1 end;code=code*64+b-128 end;if code<min or code>1114111 or(code>=55296 and code<=57343)then return 65533,at+1 end;return code,at+need+1 end function u.length(value)local s=bytes(value);local n,at=0,1;while at<=#s do local _,nextAt=decode(s,at);at=nextAt;n=n+1 end;return n end;function u.decodeAt(value,at)local s=bytes(value);at=offset(s,at,true);return decode(s,at)end;function u.decodeBefore(value,at)local s=bytes(value);at=offset(s,at,true);if at==1 then return nil,1 end;local start=at-1;while start>1 and s:byte(start)>=128 and s:byte(start)<=191 do start=start-1 end;local cp,nextAt=decode(s,start);if nextAt~=at then return 65533,at-1 end;return cp,start end;function u.encode(codepoint)return native.char(codepoint)end;function u.isValid(value)return native.isvalid(bytes(value))end;function u.validPrefixLength(value,maxBytes)local s=bytes(value);maxBytes=math.max(0,math.min(#s,maxBytes));while maxBytes>0 and not native.isvalid(s:sub(1,maxBytes))do maxBytes=maxBytes-1 end;return maxBytes end;function u.truncate(text,maxBytes)return text:sub(1,u.validPrefixLength(text,maxBytes))end;return u end) local m=__nuppMath;local pi,tau=math.pi,2*math.pi function m.lerp(from,to,t)if t==0 then return from elseif t==1 then return to end;return from+(to-from)*t end function m.wrapAngle(radians)return(radians+pi)%tau-pi end function m.deltaAngle(from,to)return m.wrapAngle(to-from)end local b=bit;local function ui32(x)x=b.tobit(x);return x<0 and x+4294967296 or x end local function mul32(a,c)local al,cl=a%65536,c%65536;local ah,ch=math.floor(a/65536),math.floor(c/65536);return b.tobit(al*cl+((ah*cl+al*ch)%65536)*65536)end local i32,u32={},{};m.i32=i32;m.u32=u32 function i32.wrap(a)return b.tobit(a)end;function u32.wrap(a)return ui32(a)end function i32.add(a,c)return b.tobit(a+c)end;function i32.sub(a,c)return b.tobit(a-c)end;function i32.mul(a,c)return mul32(ui32(a),ui32(c))end function i32.andBits(a,c)return b.band(a,c)end;function i32.orBits(a,c)return b.bor(a,c)end;function i32.xorBits(a,c)return b.bxor(a,c)end;function i32.notBits(a)return b.bnot(a)end function i32.shiftLeft(a,c)return b.lshift(a,b.band(c,31))end;function i32.shiftRightArithmetic(a,c)return b.arshift(a,b.band(c,31))end function i32.rotateLeft(a,c)return b.rol(a,b.band(c,31))end;function i32.rotateRight(a,c)return b.ror(a,b.band(c,31))end function i32.lessThan(a,c)return b.tobit(a)<b.tobit(c)end;function i32.lessOrEqual(a,c)return b.tobit(a)<=b.tobit(c)end function i32.fromU32(a)return b.tobit(a)end;function i32.toU32(a)return ui32(a)end function u32.add(a,c)return ui32(a+c)end;function u32.sub(a,c)return ui32(a-c)end;function u32.mul(a,c)return ui32(mul32(ui32(a),ui32(c)))end function u32.andBits(a,c)return ui32(b.band(a,c))end;function u32.orBits(a,c)return ui32(b.bor(a,c))end;function u32.xorBits(a,c)return ui32(b.bxor(a,c))end;function u32.notBits(a)return ui32(b.bnot(a))end function u32.shiftLeft(a,c)return ui32(b.lshift(a,b.band(c,31)))end;function u32.shiftRightLogical(a,c)return ui32(b.rshift(a,b.band(c,31)))end function u32.rotateLeft(a,c)return ui32(b.rol(a,b.band(c,31)))end;function u32.rotateRight(a,c)return ui32(b.ror(a,b.band(c,31)))end function u32.lessThan(a,c)return ui32(a)<ui32(c)end;function u32.lessOrEqual(a,c)return ui32(a)<=ui32(c)end function u32.fromI32(a)return ui32(a)end;function u32.toI32(a)return b.tobit(a)end function u32.popcount(a)local n=0;a=ui32(a);while a~=0 do a=ui32(b.band(a,a-1));n=n+1 end;return n end function u32.trailingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;while b.band(a,1)==0 do a=b.rshift(a,1);n=n+1 end;return n end function u32.leadingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;local bit=2147483648;while b.band(a,bit)==0 do bit=b.rshift(bit,1);n=n+1 end;return n end local ffi=require("ffi");local fh=ffi.new("union {float f;uint32_t u;}[1]");local f32={};m.f32=f32 local CANON=2143289344;local PINF=2139095040;local NINF=4286578688;local MAX=2139095039;local NMAX=4286578687 local function nanbits(bits)return b.band(bits,2139095040)==2139095040 and b.band(bits,8388607)~=0 end local function putbits(bits)if nanbits(bits)then bits=CANON end;fh[0].u=bits;return tonumber(fh[0].f)end local function bits32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then bits=CANON;fh[0].u=bits end;return bits end local function round32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then fh[0].u=CANON end;return tonumber(fh[0].f)end local function narrow32(value)fh[0].f=value;return tonumber(fh[0].f)end local function comparedd(hi,lo,value)local d=hi-value;if d>-lo then return 1 elseif d<-lo then return-1 end;return 0 end local function nextup(value,bits)if bits==PINF then return value,bits end;if bits==NINF then return putbits(NMAX),NMAX end;if b.band(bits,2147483648)~=0 then if bits==2147483648 then return putbits(1),1 end;bits=bits-1 else bits=bits+1 end;return putbits(bits),bits end local function nextdown(value,bits)if bits==NINF then return value,bits end;if bits==PINF then return putbits(MAX),MAX end;if b.band(bits,2147483648)~=0 then bits=bits+1 else if bits==0 then return putbits(2147483649),2147483649 end;bits=bits-1 end;return putbits(bits),bits end local function rounddd(hi,lo)local value=round32(hi);local bits=bits32(value);if nanbits(bits)then return putbits(CANON)end;if bits==PINF then local threshold=3.4028235677973366e38;if comparedd(hi,lo,threshold)<0 then return putbits(MAX)end;return value elseif bits==NINF then local threshold=-3.4028235677973366e38;if comparedd(hi,lo,threshold)>0 then return putbits(NMAX)end;return value end;local side=comparedd(hi,lo,value);if side==0 then return value end;local other,otherbits;if side>0 then other,otherbits=nextup(value,bits)else other,otherbits=nextdown(value,bits)end;local midpoint=(value+other)*0.5;local toward=comparedd(hi,lo,midpoint);if side<0 then toward=-toward end;if toward>0 or toward==0 and b.band(bits,1)~=0 then return putbits(otherbits)end;return value end function f32.narrow(a)return narrow32(a)end;function f32.round(a)return round32(a)end;function f32.add(a,c)return round32(round32(a)+round32(c))end;function f32.sub(a,c)return round32(round32(a)-round32(c))end;function f32.mul(a,c)return round32(round32(a)*round32(c))end;function f32.div(a,c)return round32(round32(a)/round32(c))end;function f32.sqrt(a)return round32(math.sqrt(round32(a)))end function f32.min(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and(b.band(ab,2147483648)~=0 or b.band(cb,2147483648)~=0)then return putbits(2147483648)end;return a end;return a<c and a or c end function f32.max(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and b.band(ab,2147483648)~=0 and b.band(cb,2147483648)~=0 then return putbits(2147483648)elseif a==0 then return putbits(0)end;return a end;return a>c and a or c end function f32.fma(a,c,d)a,c,d=round32(a),round32(c),round32(d);local product=a*c;if product~=product or product==math.huge or product==-math.huge then return round32(product+d)end;local sum=product+d;local carry=sum-product;local error=(product-(sum-carry))+(d-carry);return rounddd(sum,error)end function f32.fromBits(bits)return putbits(ui32(bits))end;function f32.toBits(value)return bits32(round32(value))end local v={};m.vec2=v function v.add(ax,ay,bx,by)return ax+bx,ay+by end function v.subtract(ax,ay,bx,by)return ax-bx,ay-by end function v.scale(x,y,f)return x*f,y*f end function v.dot(ax,ay,bx,by)return ax*bx+ay*by end function v.cross(ax,ay,bx,by)return ax*by-ay*bx end function v.lengthSquared(x,y)return x*x+y*y end function v.length(x,y)return math.sqrt(x*x+y*y)end function v.distanceSquared(ax,ay,bx,by)local x,y=bx-ax,by-ay;return x*x+y*y end function v.distance(ax,ay,bx,by)return math.sqrt(v.distanceSquared(ax,ay,bx,by))end function v.normalize(x,y)local length=v.length(x,y);if length==0 then return 0,0 end;return x/length,y/length end function v.lerp(ax,ay,bx,by,t)if t==0 then return ax,ay elseif t==1 then return bx,by end;return ax+(bx-ax)*t,ay+(by-ay)*t end function v.moveTowards(ax,ay,bx,by,d)if d<=0 then return ax,ay end;local x,y=bx-ax,by-ay;local squared=x*x+y*y;if squared==0 or squared<=d*d then return bx,by end;local f=d/math.sqrt(squared);return ax+x*f,ay+y*f end function v.rotate(x,y,r)local c,s=math.cos(r),math.sin(r);return x*c-y*s,x*s+y*c end function v.angle(x,y)if x==0 and y==0 then return 0 end;return math.atan2(y,x)end function v.angleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;return math.atan2(math.abs(v.cross(ax,ay,bx,by)),v.dot(ax,ay,bx,by))end function v.signedAngleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;local a=math.atan2(v.cross(ax,ay,bx,by),v.dot(ax,ay,bx,by));return a==pi and-pi or a end function v.project(x,y,ox,oy)local d=ox*ox+oy*oy;if d==0 then return 0,0 end;local f=(x*ox+y*oy)/d;return ox*f,oy*f end function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;local f=2*(x*nx+y*ny)/d;return x-nx*f,y-ny*f end;local ffi = require ( "ffi" )
+package.preload["nupp.valuebuilder"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();const __nuppNew = require("table.new"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end __nuppLazy(__nuppData,"utf8",function()local native=require("lua-utf8");local u={};local function bytes(value)if type(value)=="string"then return value end;return value:getString()end;local function offset(value,at,allowEnd)if type(at)~="number"or at~=math.floor(at)then error("nupp: UTF-8 byte offset must be an integer",3)end;local limit=#value+(allowEnd and 1 or 0);if at<1 or at>limit then error("nupp: UTF-8 byte offset is out of range",3)end;return at end;local function decode(s,at)local first=s:byte(at);if not first then return nil,at end;if first<128 then return first,at+1 end;local need,code,min;if first>=194 and first<=223 then need,code,min=1,first-192,128 elseif first>=224 and first<=239 then need,code,min=2,first-224,2048 elseif first>=240 and first<=244 then need,code,min=3,first-240,65536 else return 65533,at+1 end;for i=1,need do local b=s:byte(at+i);if not b or b<128 or b>191 then return 65533,at+1 end;code=code*64+b-128 end;if code<min or code>1114111 or(code>=55296 and code<=57343)then return 65533,at+1 end;return code,at+need+1 end function u.length(value)local s=bytes(value);local n,at=0,1;while at<=#s do local _,nextAt=decode(s,at);at=nextAt;n=n+1 end;return n end;function u.decodeAt(value,at)local s=bytes(value);at=offset(s,at,true);return decode(s,at)end;function u.decodeBefore(value,at)local s=bytes(value);at=offset(s,at,true);if at==1 then return nil,1 end;local start=at-1;while start>1 and s:byte(start)>=128 and s:byte(start)<=191 do start=start-1 end;local cp,nextAt=decode(s,start);if nextAt~=at then return 65533,at-1 end;return cp,start end;function u.encode(codepoint)return native.char(codepoint)end;function u.isValid(value)return native.isvalid(bytes(value))end;function u.validPrefixLength(value,maxBytes)local s=bytes(value);maxBytes=math.max(0,math.min(#s,maxBytes));while maxBytes>0 and not native.isvalid(s:sub(1,maxBytes))do maxBytes=maxBytes-1 end;return maxBytes end;function u.truncate(text,maxBytes)return text:sub(1,u.validPrefixLength(text,maxBytes))end;return u end) local m=__nuppMath;local pi,tau=math.pi,2*math.pi function m.lerp(from,to,t)if t==0 then return from elseif t==1 then return to end;return from+(to-from)*t end function m.wrapAngle(radians)return(radians+pi)%tau-pi end function m.deltaAngle(from,to)return m.wrapAngle(to-from)end local b=bit;local function ui32(x)x=b.tobit(x);return x<0 and x+4294967296 or x end local function mul32(a,c)local al,cl=a%65536,c%65536;local ah,ch=math.floor(a/65536),math.floor(c/65536);return b.tobit(al*cl+((ah*cl+al*ch)%65536)*65536)end local i32,u32={},{};m.i32=i32;m.u32=u32 function i32.wrap(a)return b.tobit(a)end;function u32.wrap(a)return ui32(a)end function i32.add(a,c)return b.tobit(a+c)end;function i32.sub(a,c)return b.tobit(a-c)end;function i32.mul(a,c)return mul32(ui32(a),ui32(c))end function i32.andBits(a,c)return b.band(a,c)end;function i32.orBits(a,c)return b.bor(a,c)end;function i32.xorBits(a,c)return b.bxor(a,c)end;function i32.notBits(a)return b.bnot(a)end function i32.shiftLeft(a,c)return b.lshift(a,b.band(c,31))end;function i32.shiftRightArithmetic(a,c)return b.arshift(a,b.band(c,31))end function i32.rotateLeft(a,c)return b.rol(a,b.band(c,31))end;function i32.rotateRight(a,c)return b.ror(a,b.band(c,31))end function i32.lessThan(a,c)return b.tobit(a)<b.tobit(c)end;function i32.lessOrEqual(a,c)return b.tobit(a)<=b.tobit(c)end function i32.fromU32(a)return b.tobit(a)end;function i32.toU32(a)return ui32(a)end function u32.add(a,c)return ui32(a+c)end;function u32.sub(a,c)return ui32(a-c)end;function u32.mul(a,c)return ui32(mul32(ui32(a),ui32(c)))end function u32.andBits(a,c)return ui32(b.band(a,c))end;function u32.orBits(a,c)return ui32(b.bor(a,c))end;function u32.xorBits(a,c)return ui32(b.bxor(a,c))end;function u32.notBits(a)return ui32(b.bnot(a))end function u32.shiftLeft(a,c)return ui32(b.lshift(a,b.band(c,31)))end;function u32.shiftRightLogical(a,c)return ui32(b.rshift(a,b.band(c,31)))end function u32.rotateLeft(a,c)return ui32(b.rol(a,b.band(c,31)))end;function u32.rotateRight(a,c)return ui32(b.ror(a,b.band(c,31)))end function u32.lessThan(a,c)return ui32(a)<ui32(c)end;function u32.lessOrEqual(a,c)return ui32(a)<=ui32(c)end function u32.fromI32(a)return ui32(a)end;function u32.toI32(a)return b.tobit(a)end function u32.popcount(a)local n=0;a=ui32(a);while a~=0 do a=ui32(b.band(a,a-1));n=n+1 end;return n end function u32.trailingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;while b.band(a,1)==0 do a=b.rshift(a,1);n=n+1 end;return n end function u32.leadingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;local bit=2147483648;while b.band(a,bit)==0 do bit=b.rshift(bit,1);n=n+1 end;return n end local ffi=require("ffi");local fh=ffi.new("union {float f;uint32_t u;}[1]");local f32={};m.f32=f32 local CANON=2143289344;local PINF=2139095040;local NINF=4286578688;local MAX=2139095039;local NMAX=4286578687 local function nanbits(bits)return b.band(bits,2139095040)==2139095040 and b.band(bits,8388607)~=0 end local function putbits(bits)if nanbits(bits)then bits=CANON end;fh[0].u=bits;return tonumber(fh[0].f)end local function bits32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then bits=CANON;fh[0].u=bits end;return bits end local function round32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then fh[0].u=CANON end;return tonumber(fh[0].f)end local function narrow32(value)fh[0].f=value;return tonumber(fh[0].f)end local function comparedd(hi,lo,value)local d=hi-value;if d>-lo then return 1 elseif d<-lo then return-1 end;return 0 end local function nextup(value,bits)if bits==PINF then return value,bits end;if bits==NINF then return putbits(NMAX),NMAX end;if b.band(bits,2147483648)~=0 then if bits==2147483648 then return putbits(1),1 end;bits=bits-1 else bits=bits+1 end;return putbits(bits),bits end local function nextdown(value,bits)if bits==NINF then return value,bits end;if bits==PINF then return putbits(MAX),MAX end;if b.band(bits,2147483648)~=0 then bits=bits+1 else if bits==0 then return putbits(2147483649),2147483649 end;bits=bits-1 end;return putbits(bits),bits end local function rounddd(hi,lo)local value=round32(hi);local bits=bits32(value);if nanbits(bits)then return putbits(CANON)end;if bits==PINF then local threshold=3.4028235677973366e38;if comparedd(hi,lo,threshold)<0 then return putbits(MAX)end;return value elseif bits==NINF then local threshold=-3.4028235677973366e38;if comparedd(hi,lo,threshold)>0 then return putbits(NMAX)end;return value end;local side=comparedd(hi,lo,value);if side==0 then return value end;local other,otherbits;if side>0 then other,otherbits=nextup(value,bits)else other,otherbits=nextdown(value,bits)end;local midpoint=(value+other)*0.5;local toward=comparedd(hi,lo,midpoint);if side<0 then toward=-toward end;if toward>0 or toward==0 and b.band(bits,1)~=0 then return putbits(otherbits)end;return value end function f32.narrow(a)return narrow32(a)end;function f32.round(a)return round32(a)end;function f32.add(a,c)return round32(round32(a)+round32(c))end;function f32.sub(a,c)return round32(round32(a)-round32(c))end;function f32.mul(a,c)return round32(round32(a)*round32(c))end;function f32.div(a,c)return round32(round32(a)/round32(c))end;function f32.sqrt(a)return round32(math.sqrt(round32(a)))end function f32.min(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and(b.band(ab,2147483648)~=0 or b.band(cb,2147483648)~=0)then return putbits(2147483648)end;return a end;return a<c and a or c end function f32.max(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and b.band(ab,2147483648)~=0 and b.band(cb,2147483648)~=0 then return putbits(2147483648)elseif a==0 then return putbits(0)end;return a end;return a>c and a or c end function f32.fma(a,c,d)a,c,d=round32(a),round32(c),round32(d);local product=a*c;if product~=product or product==math.huge or product==-math.huge then return round32(product+d)end;local sum=product+d;local carry=sum-product;local error=(product-(sum-carry))+(d-carry);return rounddd(sum,error)end function f32.fromBits(bits)return putbits(ui32(bits))end;function f32.toBits(value)return bits32(round32(value))end local v={};m.vec2=v function v.add(ax,ay,bx,by)return ax+bx,ay+by end function v.subtract(ax,ay,bx,by)return ax-bx,ay-by end function v.scale(x,y,f)return x*f,y*f end function v.dot(ax,ay,bx,by)return ax*bx+ay*by end function v.cross(ax,ay,bx,by)return ax*by-ay*bx end function v.lengthSquared(x,y)return x*x+y*y end function v.length(x,y)return math.sqrt(x*x+y*y)end function v.distanceSquared(ax,ay,bx,by)local x,y=bx-ax,by-ay;return x*x+y*y end function v.distance(ax,ay,bx,by)return math.sqrt(v.distanceSquared(ax,ay,bx,by))end function v.normalize(x,y)local length=v.length(x,y);if length==0 then return 0,0 end;return x/length,y/length end function v.lerp(ax,ay,bx,by,t)if t==0 then return ax,ay elseif t==1 then return bx,by end;return ax+(bx-ax)*t,ay+(by-ay)*t end function v.moveTowards(ax,ay,bx,by,d)if d<=0 then return ax,ay end;local x,y=bx-ax,by-ay;local squared=x*x+y*y;if squared==0 or squared<=d*d then return bx,by end;local f=d/math.sqrt(squared);return ax+x*f,ay+y*f end function v.rotate(x,y,r)local c,s=math.cos(r),math.sin(r);return x*c-y*s,x*s+y*c end function v.angle(x,y)if x==0 and y==0 then return 0 end;return math.atan2(y,x)end function v.angleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;return math.atan2(math.abs(v.cross(ax,ay,bx,by)),v.dot(ax,ay,bx,by))end function v.signedAngleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;local a=math.atan2(v.cross(ax,ay,bx,by),v.dot(ax,ay,bx,by));return a==pi and-pi or a end function v.project(x,y,ox,oy)local d=ox*ox+oy*oy;if d==0 then return 0,0 end;local f=(x*ox+y*oy)/d;return ox*f,oy*f end function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;local f=2*(x*nx+y*ny)/d;return x-nx*f,y-ny*f end;
 
-local valueBuilder = { }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local ffi = require ( "ffi" )
+
+local valuebuilder = { }
 
 pcall (
 ffi . cdef ,
@@ -131063,6 +131195,20 @@ typedef struct {
 local NodePointer = ffi . typeof ( "const NuppValueTreeNode *" )
 local LinkPointer = ffi . typeof ( "const uint32_t *" )
 local nodeSize = ffi . sizeof ( "NuppValueTreeNode" )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 local function decodeString ( source , first , length , escaped )
 local bytes = source : sub ( first + 1 , first + length )
@@ -131131,7 +131277,48 @@ end
 
 
 
-function valueBuilder . materializeTree (
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . materializeTree (
 nodeBytes ,
 linkBytes ,
 source ,
@@ -131226,14 +131413,61 @@ end
 
 
 
-function valueBuilder . new ( nullValue )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . new ( nullValue )
 return { nullValue = nullValue , stack = { } , result = nil , hasResult = false }
 end
 
 
 
 
-function valueBuilder . newSized ( nullValue , maxDepth , stringCapacity )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . newSized ( nullValue , maxDepth , stringCapacity )
 return {
 nullValue = nullValue ,
 stack = { } ,
@@ -131243,6 +131477,11 @@ maxDepth = maxDepth ,
 stringCapacity = stringCapacity
 }
 end
+
+
+
+
+
 
 local function put ( builder , value )
 local stack = builder . stack
@@ -131267,13 +131506,27 @@ end
 end
 
 
-function valueBuilder . length ( bytes )
+
+
+
+
+
+
+
+function valuebuilder . length ( bytes )
 return nupp . math . u32 . wrap ( # bytes )
 end
 
 
 
-function valueBuilder . byte ( bytes , offset )
+
+
+
+
+
+
+
+function valuebuilder . byte ( bytes , offset )
 local value = bytes : byte ( offset + 1 )
 if value == nil then
 error ( "value stream byte is out of bounds" , 2 )
@@ -131284,7 +131537,14 @@ end
 
 
 
-function valueBuilder . word ( bytes , index )
+
+
+
+
+
+
+
+function valuebuilder . word ( bytes , index )
 local offset = index * 4
 if offset > # bytes - 4 then
 error ( "value stream word is out of bounds" , 2 )
@@ -131302,13 +131562,26 @@ end
 
 
 
-function valueBuilder . newWordScratch ( capacity )
+
+
+
+
+
+
+
+function valuebuilder . newWordScratch ( capacity )
 return { capacity = capacity , length = 0 , words = ffi . new ( "uint32_t[?]" , capacity ) }
 end
 
 
 
-function valueBuilder . scratchWord ( scratch , index )
+
+
+
+
+
+
+function valuebuilder . scratchWord ( scratch , index )
 if index >= scratch . length then
 error ( "value stream scratch read is out of bounds" , 2 )
 end
@@ -131322,7 +131595,15 @@ end
 
 
 
-function valueBuilder . setScratchWord ( scratch , index , value )
+
+
+
+
+
+
+
+
+function valuebuilder . setScratchWord ( scratch , index , value )
 if index > scratch . length or index >= scratch . capacity then
 error ( "value stream scratch write is out of bounds" , 2 )
 end
@@ -131336,18 +131617,48 @@ end
 
 
 
-function valueBuilder . appendSetBits ( scratch , index , base , bits )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . appendSetBits ( scratch , index , base , bits )
 error ( "appendSetBits exists only inside an @aot function" , 2 )
 end
 
 
-function valueBuilder . newByteScratch ( capacity )
+
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . newByteScratch ( capacity )
 return { capacity = capacity , length = 0 , bytes = ffi . new ( "uint8_t[?]" , capacity ) }
 end
 
 
 
-function valueBuilder . scratchByte ( scratch , index )
+
+
+
+function valuebuilder . scratchByte ( scratch , index )
 if index >= scratch . length then
 error ( "value stream byte scratch read is out of bounds" , 2 )
 end
@@ -131356,7 +131667,13 @@ end
 
 
 
-function valueBuilder . setScratchByte ( scratch , index , value )
+
+
+
+
+
+
+function valuebuilder . setScratchByte ( scratch , index , value )
 if index > scratch . length or index >= scratch . capacity or value > 255 then
 error ( "value stream byte scratch write is out of bounds" , 2 )
 end
@@ -131367,13 +131684,29 @@ scratch . bytes [ index ] = value
 end
 
 
-function valueBuilder . resetByteScratch ( scratch )
+
+
+
+
+
+
+function valuebuilder . resetByteScratch ( scratch )
 scratch . length = 0
 end
 
 
 
-function valueBuilder . stringScratch ( builder , scratch , start , length )
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . stringScratch ( builder , scratch , start , length )
 if start > scratch . length or length > scratch . length - start then
 error ( "value stream byte scratch range is out of bounds" , 2 )
 end
@@ -131382,7 +131715,15 @@ end
 
 
 
-function valueBuilder . keyScratch ( builder , scratch , start , length )
+
+
+
+
+
+
+
+
+function valuebuilder . keyScratch ( builder , scratch , start , length )
 local frame = builder . stack [ # builder . stack ]
 if frame == nil or frame . kind ~= 6 or frame . key ~= nil then
 error ( "value stream key is outside an object" , 2 )
@@ -131393,23 +131734,48 @@ end
 frame . key = ffi . string ( scratch . bytes + start , length )
 end
 
-function valueBuilder . openArray ( builder , capacity )
+
+
+
+
+
+
+
+function valuebuilder . openArray ( builder , capacity )
 local stack = builder . stack
 stack [ # stack + 1 ] = { kind = 5 , value = __nuppNew ( capacity , 0 ) , next = 1 }
 end
 
-function valueBuilder . openObject ( builder , capacity )
+
+
+
+
+
+
+
+
+function valuebuilder . openObject ( builder , capacity )
 local stack = builder . stack
 stack [ # stack + 1 ] = { kind = 6 , value = __nuppNew ( 0 , capacity ) , count = 0 }
 end
 
-function valueBuilder . depth ( builder )
+
+
+
+
+
+
+
+function valuebuilder . depth ( builder )
 return nupp . math . u32 . wrap ( # builder . stack )
 end
 
 
 
-function valueBuilder . kind ( builder )
+
+
+
+function valuebuilder . kind ( builder )
 local frame = builder . stack [ # builder . stack ]
 if frame == nil then
 error ( "value stream has no current container" , 2 )
@@ -131420,7 +131786,12 @@ end
 
 
 
-function valueBuilder . count ( builder )
+
+
+
+
+
+function valuebuilder . count ( builder )
 local frame = builder . stack [ # builder . stack ]
 if frame == nil then
 error ( "value stream has no current container" , 2 )
@@ -131430,7 +131801,20 @@ local count = frame . kind == 5 and frame . next - 1 or frame . count
 return nupp . math . u32 . wrap ( count )
 end
 
-function valueBuilder . key ( builder , source , start , length , escaped )
+
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . key ( builder , source , start , length , escaped )
 local frame = builder . stack [ # builder . stack ]
 if frame == nil or frame . kind ~= 6 or frame . key ~= nil then
 error ( "value stream key is outside an object" , 2 )
@@ -131438,15 +131822,45 @@ end
 frame . key = decodeString ( source , start , length , escaped )
 end
 
-function valueBuilder . string ( builder , source , start , length , escaped )
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . string ( builder , source , start , length , escaped )
 put ( builder , decodeString ( source , start , length , escaped ) )
 end
 
-function valueBuilder . number ( builder , value )
+
+
+
+
+
+
+
+
+function valuebuilder . number ( builder , value )
 put ( builder , value )
 end
 
-function valueBuilder . numberSlice ( builder , source , start , length )
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . numberSlice ( builder , source , start , length )
 local value = tonumber ( source : sub ( start + 1 , start + length ) )
 if value == nil then
 error ( "value stream number is invalid" , 2 )
@@ -131457,7 +131871,16 @@ end
 
 
 
-function valueBuilder . integerSlice ( builder , source , start , length )
+
+
+
+
+
+
+
+
+
+function valuebuilder . integerSlice ( builder , source , start , length )
 local value = tonumber ( source : sub ( start + 1 , start + length ) )
 if value == nil then
 error ( "value stream integer is invalid" , 2 )
@@ -131465,15 +131888,31 @@ end
 put ( builder , value )
 end
 
-function valueBuilder . boolean ( builder , value )
+
+
+
+
+function valuebuilder . boolean ( builder , value )
 put ( builder , value )
 end
 
-function valueBuilder . null ( builder )
+
+
+
+
+function valuebuilder . null ( builder )
 put ( builder , builder . nullValue )
 end
 
-function valueBuilder . close ( builder )
+
+
+
+
+
+
+
+
+function valuebuilder . close ( builder )
 local stack = builder . stack
 local frame = stack [ # stack ]
 if frame == nil then
@@ -131486,7 +131925,19 @@ stack [ # stack ] = nil
 put ( builder , frame . value )
 end
 
-function valueBuilder . finish ( builder )
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . finish ( builder )
 if # builder . stack ~= 0 then
 error ( "value stream has an unclosed container" , 2 )
 end
@@ -131497,7 +131948,7 @@ end
 return builder . result
 end
 
-return valueBuilder
+return valuebuilder
 
 end
 package.preload["nupp.workers"] = function(...)
@@ -144577,10 +145028,67 @@ end
 
 return suspension
 ]=],
-["/nupp/value_builder.g.nupp"] = [=[
+["/nupp/valuebuilder.g.nupp"] = [=[
+--[[
+Ordinary Lua values, built straight out of parsed bytes.
+
+A parser written against this module never assembles Lua tables itself. It
+reports the shape it found -- open an array, take this source range as a key,
+this one as a number -- and the module assembles the value behind it. The
+ordinary implementation here does that with plain Lua state and is the
+`aot = "off"` behavioral oracle. Under `require`, the same calls inside an
+`@aot` function lower to one native construction pass: tables are presized from
+the capacities the parser authored, every unfinished container stays rooted in a
+Lua stack slot across allocations, writes go through the raw-set API so barriers
+stay correct, and each string is copied exactly once into Lua-owned storage.
+
+That lowering is the whole reason the module exists. It is the one construction
+boundary an AOT builder may cross, and it stays a narrow one: no `lua_State`, no
+stack index, no collector object appears in any signature here. Outside `@aot`
+the module still works and still answers the same, but it buys nothing over
+writing the tables directly. See [the AOT guide](../../docs/tooling/aot.md) for
+what the generated code is allowed to do.
+
+Two shapes are offered, and a parser picks one.
+
+[](nupp.valuebuilder.materializeTree) is the batch shape. A parser that has
+already written a complete pointer-free preorder tree into two blobs hands them
+over once and gets the finished value back from a single checked traversal.
+
+[](nupp.valuebuilder.new) is the streaming shape, for a parser that would rather
+not build the tree at all. Values are reported as they are reached and the
+intermediate representation never exists:
+
+```nupp
+local valuebuilder = require("nupp.valuebuilder")
+
+--- Decodes the fixed document `{"id": 41}`.
+--- @raises when the stream is left incomplete
+@aot
+local function decode(source: string, nullValue: any): any
+    local builder = valuebuilder.new(nullValue)
+    valuebuilder.openObject(builder, 1)
+    valuebuilder.key(builder, source, 2, 2, false)
+    valuebuilder.numberSlice(builder, source, 7, 2)
+    valuebuilder.close(builder)
+
+    return valuebuilder.finish(builder)
+end
+```
+
+Every offset, length, and index this module takes is zero-based, because they
+address the parser's own bytes rather than a Lua string. Node ids and the `root`
+argument of [](nupp.valuebuilder.materializeTree) are the exception: those are
+one-based, so that 0 can mean no node.
+
+Under AOT a stream handle and a scratch buffer are local construction state.
+Neither can be returned, reassigned, stored in a table, or passed to an ordinary
+call; only the operations in this module admit them.
+]]
+
 local ffi = require("ffi")
 
-local valueBuilder = {}
+local valuebuilder = {}
 
 pcall(
     ffi.cdef,
@@ -144602,6 +145110,20 @@ local NodePointer = ffi.typeof("const NuppValueTreeNode *")
 local LinkPointer = ffi.typeof("const uint32_t *")
 local nodeSize = ffi.sizeof("NuppValueTreeNode")
 
+--- Resolves one string recipe into a Lua string.
+---
+--- A recipe is a source range plus whether that range may hold backslash
+--- escapes. Both forms exist because most strings in a document hold no escape
+--- at all, and for that majority the answer is one copy of a source range
+--- rather than a scan. `\u` escapes are decoded, including a surrogate pair,
+--- and encoded as UTF-8.
+--- @param source the rooted string the range indexes
+--- @param first the range's zero-based first byte
+--- @param length the range's length in bytes
+--- @param escaped whether the range may hold backslash escapes
+--- @return the decoded string
+--- @raises when an escape is unknown, a `\u` code is not hexadecimal, or a
+---     surrogate is unpaired or out of range
 local function decodeString(source: string, first: integer, length: integer, escaped: boolean): string
     local bytes = source:sub(first + 1, first + length)
     if not escaped then
@@ -144665,11 +145187,52 @@ end
 
 --- Materializes a pointer-free preorder tree into ordinary Lua values.
 ---
---- The blobs use native-endian `NuppValueTreeNode` and uint32 link entries.
---- This ordinary implementation is the `aot=off` oracle; a VM-aware AOT body
---- lowers the resolved call to one checked C API construction pass.
+--- This is the batch shape. A parser fills two blobs, calls this once, and is
+--- done; use [](nupp.valuebuilder.new) instead when the parser can report values
+--- as it reaches them and would rather the tree never existed.
+---
+--- `nodeBytes` holds every node, packed as native-endian `NuppValueTreeNode` and
+--- addressed by one-based id. `linkBytes` holds every parent-to-child edge as a
+--- native-endian uint32 node id; a container names its children as the run
+--- `linkStart` through `linkStart + linkCount - 1` of that array, and an
+--- object's run alternates key node and value node. A node's `tag` says what it
+--- is, and `flags` picks between the two recipes a tag may carry:
+---
+--- ```
+---  tag  node     value
+---  ───  ───────  ────────────────────────────────────────────────
+---  0    null     nullValue
+---  1    true     true
+---  2    false    false
+---  3    number   flags 1: node.number; flags 0: parse the source range
+---  4    string   flags 0: the source range; flags 1: an escape recipe
+---  5    array    the link run, in order
+---  6    object   the link run, alternating key and value
+--- ```
+---
+--- Every size, id, range, and tag is checked before it is used, so a truncated
+--- or hostile blob raises rather than reading out of bounds. Recursion depth is
+--- bounded too, so a tree whose links form a cycle raises rather than hanging.
+---
+--- ```nupp
+--- local valuebuilder = require("nupp.valuebuilder")
+---
+--- --- @raises when the blobs do not describe a well-formed tree
+--- @aot
+--- local function decode(nodes: string, links: string, source: string, null: any): any
+---     return valuebuilder.materializeTree(nodes, links, source, 1, null)
+--- end
+--- ```
+---
+--- @param nodeBytes every node, packed as native-endian `NuppValueTreeNode`
+--- @param linkBytes every child edge, packed as native-endian uint32 node ids
+--- @param source the rooted string that string and number ranges index
+--- @param root the one-based id of the node to materialize, usually 1
+--- @param nullValue what a null node becomes, so that a caller who needs to tell
+---     an absent key from a null one can pass a sentinel instead of nil
+--- @return the materialized value
 --- @raises when a blob, node, link, string recipe, or numeric recipe is invalid
-function valueBuilder.materializeTree(
+function valuebuilder.materializeTree(
     nodeBytes: string,
     linkBytes: string,
     source: string,
@@ -144761,17 +145324,64 @@ function valueBuilder.materializeTree(
     return materialize(root, 1)
 end
 
---- Starts a direct stream of values. The ordinary implementation is the
---- `aot=off` oracle; VM-aware AOT keeps the same state in a bounded C stack
---- object and roots every unfinished container on the Lua stack.
-function valueBuilder.new(nullValue: any): any
+--- Starts a direct stream of values.
+---
+--- This is the streaming shape. Open a container with
+--- [](nupp.valuebuilder.openArray) or [](nupp.valuebuilder.openObject), add
+--- values to it, [](nupp.valuebuilder.close) it, and take the single root back
+--- from [](nupp.valuebuilder.finish). A stream must publish exactly one root:
+--- adding a second value at the top level raises, and so does finishing with
+--- none.
+---
+--- The ordinary implementation keeps growable Lua state and is the `aot = "off"`
+--- oracle. VM-aware AOT keeps the same state in a bounded C stack object and
+--- roots every unfinished container on the Lua stack; it admits at most 1,024
+--- open containers. Use [](nupp.valuebuilder.newSized) to choose that bound, and
+--- to reserve scratch for transformed strings, when the parser knows better.
+---
+--- ```nupp
+--- local valuebuilder = require("nupp.valuebuilder")
+---
+--- --- Builds `[true, null]` without a source document.
+--- --- @raises when the stream is left incomplete
+--- @aot
+--- local function pair(nullValue: any): any
+---     local builder = valuebuilder.new(nullValue)
+---     valuebuilder.openArray(builder, 2)
+---     valuebuilder.boolean(builder, true)
+---     valuebuilder.null(builder)
+---     valuebuilder.close(builder)
+---
+---     return valuebuilder.finish(builder)
+--- end
+--- ```
+---
+--- @param nullValue what [](nupp.valuebuilder.null) adds
+--- @return the stream handle, which under AOT is local construction state and
+---     cannot be returned, reassigned, stored, or passed to an ordinary call
+function valuebuilder.new(nullValue: any): any
     return {nullValue = nullValue, stack = {}, result = nil, hasResult = false}
 end
 
 --- Starts a stream with authored bounds for native frame and transformed-byte
---- scratch storage. The ordinary implementation keeps normal growable Lua
---- state; AOT uses the bounds to allocate two rooted userdata regions once.
-function valueBuilder.newSized(nullValue: any, maxDepth: uint32, stringCapacity: uint32): any
+--- scratch storage.
+---
+--- Same contract as [](nupp.valuebuilder.new); only the storage differs. The
+--- ordinary implementation keeps normal growable Lua state and ignores both
+--- bounds, because plain Lua has nothing to preallocate. AOT uses them to
+--- allocate two rooted regions once: the first 16 frames stay inline and deeper
+--- streams lazily spill to Lua-rooted storage, and the byte region is allocated
+--- on the first escaped string and then reused. Publication still copies exactly
+--- once into a normal Lua string.
+---
+--- Reach for this over [](nupp.valuebuilder.new) when the document may nest
+--- deeper than 1,024 containers, or when the parser already knows the longest
+--- string it can produce and would rather not grow into it.
+--- @param nullValue what [](nupp.valuebuilder.null) adds
+--- @param maxDepth the most containers that may be open at once
+--- @param stringCapacity the most bytes one transformed string may need
+--- @return the stream handle, on the same terms as [](nupp.valuebuilder.new)
+function valuebuilder.newSized(nullValue: any, maxDepth: uint32, stringCapacity: uint32): any
     return {
         nullValue = nullValue,
         stack = {},
@@ -144782,6 +145392,11 @@ function valueBuilder.newSized(nullValue: any, maxDepth: uint32, stringCapacity:
     }
 end
 
+--- Places one finished value wherever the stream currently is: into the open
+--- array, under the object key waiting for it, or as the single root.
+--- @param builder the stream
+--- @param value the finished value to place
+--- @raises when a second root arrives, or an object value arrives with no key
 local function put(builder: any, value: any): nil
     local stack = builder.stack
     local frame = stack[#stack]
@@ -144805,13 +145420,27 @@ local function put(builder: any, value: any): nil
 end
 
 --- Returns the rooted string's byte length without making a substring.
-function valueBuilder.length(bytes: string): uint32
+---
+--- This, [](nupp.valuebuilder.byte), and [](nupp.valuebuilder.word) are the
+--- three readers that let an AOT parser read its input where it already lies.
+--- `#bytes` answers the same in ordinary Lua; going through here is what keeps
+--- the read admissible inside `@aot`.
+--- @param bytes the rooted string to measure
+--- @return its length in bytes
+function valuebuilder.length(bytes: string): uint32
     return nupp.math.u32.wrap(#bytes)
 end
 
 --- Reads one byte at a zero-based offset.
+---
+--- The scanning counterpart of [](nupp.valuebuilder.length); read whole words
+--- with [](nupp.valuebuilder.word) when the bytes are a packed side table rather
+--- than the document.
+--- @param bytes the rooted string to read
+--- @param offset the zero-based byte offset
+--- @return the byte, 0 through 255
 --- @raises when offset is outside bytes
-function valueBuilder.byte(bytes: string, offset: uint32): uint32
+function valuebuilder.byte(bytes: string, offset: uint32): uint32
     local value = bytes:byte(offset + 1)
     if value == nil then
         error("value stream byte is out of bounds", 2)
@@ -144821,8 +145450,15 @@ function valueBuilder.byte(bytes: string, offset: uint32): uint32
 end
 
 --- Reads one native-endian uint32 at a zero-based word index.
+---
+--- This is how a parser reads a packed side table -- a structural index, a tape
+--- -- back out of a rooted string instead of a Lua array of numbers. The word at
+--- `index` begins at byte offset `index * 4`.
+--- @param bytes the rooted string to read
+--- @param index the zero-based word index
+--- @return the word's value
 --- @raises when the complete word is outside bytes
-function valueBuilder.word(bytes: string, index: uint32): uint32
+function valuebuilder.word(bytes: string, index: uint32): uint32
     local offset = index * 4
     if offset > #bytes - 4 then
         error("value stream word is out of bounds", 2)
@@ -144837,16 +145473,29 @@ function valueBuilder.word(bytes: string, index: uint32): uint32
 end
 
 --- Allocates a bounded uint32 work buffer local to one decode.
+---
 --- AOT lowers this to Lua-owned userdata, so its address remains stable across
 --- value allocations without crossing the public API as a pointer. Words are
---- initialized by contiguous writes before they can be read.
-function valueBuilder.newWordScratch(capacity: uint32): any
+--- initialized by contiguous writes before they can be read: append or overwrite
+--- with [](nupp.valuebuilder.setScratchWord), drain a SIMD mask into it with
+--- [](nupp.valuebuilder.appendSetBits), and read it back with
+--- [](nupp.valuebuilder.scratchWord). For transformed bytes rather than indexes,
+--- use [](nupp.valuebuilder.newByteScratch).
+--- @param capacity the most words this buffer will ever hold
+--- @return the scratch handle, local to the call that allocated it
+function valuebuilder.newWordScratch(capacity: uint32): any
     return {capacity = capacity, length = 0, words = ffi.new("uint32_t[?]", capacity)}
 end
 
 --- Reads one word from a local work buffer.
+---
+--- Only initialized words can be read, so an index at or past the buffer's
+--- current length raises rather than answering whatever was there.
+--- @param scratch a buffer from [](nupp.valuebuilder.newWordScratch)
+--- @param index the zero-based word index
+--- @return the word's value
 --- @raises when the indexed word has not been initialized
-function valueBuilder.scratchWord(scratch: any, index: uint32): uint32
+function valuebuilder.scratchWord(scratch: any, index: uint32): uint32
     if index >= scratch.length then
         error("value stream scratch read is out of bounds", 2)
     end
@@ -144859,8 +145508,16 @@ function valueBuilder.scratchWord(scratch: any, index: uint32): uint32
 end
 
 --- Writes an existing word or appends the next contiguous word.
+---
+--- Writing at the buffer's current length appends and grows it by one; writing
+--- below that overwrites. There is no way to write past the end, which is what
+--- makes "initialized" mean the same thing as "below the length" for
+--- [](nupp.valuebuilder.scratchWord).
+--- @param scratch a buffer from [](nupp.valuebuilder.newWordScratch)
+--- @param index the zero-based word index, at most the current length
+--- @param value the word to store
 --- @raises when the index leaves a gap or exceeds the capacity
-function valueBuilder.setScratchWord(scratch: any, index: uint32, value: uint32): nil
+function valuebuilder.setScratchWord(scratch: any, index: uint32, value: uint32): nil
     if index > scratch.length or index >= scratch.capacity then
         error("value stream scratch write is out of bounds", 2)
     end
@@ -144870,22 +145527,52 @@ function valueBuilder.setScratchWord(scratch: any, index: uint32, value: uint32)
     scratch.words[index] = value
 end
 
---- Appends `base + bit_index` for every set bit in one 64-bit mask and
---- returns the next unwritten index. AOT performs one capacity check before
---- draining the complete mask.
+--- Appends `base + bit_index` for every set bit in one 64-bit mask, low bit
+--- first, and returns the next unwritten index.
+---
+--- This is the structural-indexing step of a SIMD parser. A 64-byte block's
+--- interesting positions arrive as a [](nupp.simd.maskBits64), and this drains
+--- the whole mask into the buffer behind one capacity check rather than one
+--- check per bit. Feeding the result back as the next call's `index` walks the
+--- document a block at a time.
+---
+--- It has no ordinary implementation and raises if it is reached, because there
+--- is no ordinary way to hold the mask it takes. Call it only from an `@aot`
+--- function.
+--- @param scratch a buffer from [](nupp.valuebuilder.newWordScratch)
+--- @param index the next unwritten index, 0 or a previous call's result
+--- @param base the block offset added to each set bit's position
+--- @param bits the `MaskBits64` to drain
+--- @return the next unwritten index
 --- @raises when called without AOT lowering or when the append exceeds scratch
-function valueBuilder.appendSetBits(scratch: any, index: uint32, base: uint32, bits: any): uint32
+function valuebuilder.appendSetBits(scratch: any, index: uint32, base: uint32, bits: any): uint32
     error("appendSetBits exists only inside an @aot function", 2)
 end
 
 --- Allocates a bounded byte work buffer local to one decode.
-function valueBuilder.newByteScratch(capacity: uint32): any
+---
+--- This is where a codec assembles bytes that are not a range of the source --
+--- an unescaped string, a decoded field -- before publishing them. Write with
+--- [](nupp.valuebuilder.setScratchByte), read with
+--- [](nupp.valuebuilder.scratchByte), empty it between values with
+--- [](nupp.valuebuilder.resetByteScratch), and publish a finished range with
+--- [](nupp.valuebuilder.stringScratch) or [](nupp.valuebuilder.keyScratch).
+---
+--- When the bytes are already a contiguous range of the source, skip all of this
+--- and use [](nupp.valuebuilder.string) or [](nupp.valuebuilder.key), which read
+--- the source in place.
+--- @param capacity the most bytes this buffer will ever hold
+--- @return the scratch handle, local to the call that allocated it
+function valuebuilder.newByteScratch(capacity: uint32): any
     return {capacity = capacity, length = 0, bytes = ffi.new("uint8_t[?]", capacity)}
 end
 
 --- Reads one initialized byte from a local work buffer.
+--- @param scratch a buffer from [](nupp.valuebuilder.newByteScratch)
+--- @param index the zero-based byte index
+--- @return the byte, 0 through 255
 --- @raises when the indexed byte has not been initialized
-function valueBuilder.scratchByte(scratch: any, index: uint32): uint32
+function valuebuilder.scratchByte(scratch: any, index: uint32): uint32
     if index >= scratch.length then
         error("value stream byte scratch read is out of bounds", 2)
     end
@@ -144893,8 +145580,14 @@ function valueBuilder.scratchByte(scratch: any, index: uint32): uint32
 end
 
 --- Writes an existing byte or appends the next contiguous byte.
+---
+--- Appends and grows by one when `index` is the current length, overwrites below
+--- it, on the same terms as [](nupp.valuebuilder.setScratchWord).
+--- @param scratch a buffer from [](nupp.valuebuilder.newByteScratch)
+--- @param index the zero-based byte index, at most the current length
+--- @param value the byte to store, 0 through 255
 --- @raises when the write leaves a gap, exceeds capacity, or is not a byte
-function valueBuilder.setScratchByte(scratch: any, index: uint32, value: uint32): nil
+function valuebuilder.setScratchByte(scratch: any, index: uint32, value: uint32): nil
     if index > scratch.length or index >= scratch.capacity or value > 255 then
         error("value stream byte scratch write is out of bounds", 2)
     end
@@ -144905,13 +145598,29 @@ function valueBuilder.setScratchByte(scratch: any, index: uint32, value: uint32)
 end
 
 --- Makes a byte scratch buffer empty without reallocating it.
-function valueBuilder.resetByteScratch(scratch: any): nil
+---
+--- Call this between values so that one bounded allocation serves a whole
+--- decode. Bytes below the old length remain in memory but are no longer
+--- readable, since [](nupp.valuebuilder.scratchByte) admits only initialized
+--- indexes.
+--- @param scratch a buffer from [](nupp.valuebuilder.newByteScratch)
+function valuebuilder.resetByteScratch(scratch: any): nil
     scratch.length = 0
 end
 
 --- Publishes initialized scratch bytes as a normal Lua string value.
+---
+--- The copy into Lua-owned storage happens here, exactly once. Use
+--- [](nupp.valuebuilder.keyScratch) for the object-key position instead, and
+--- [](nupp.valuebuilder.string) when the bytes are already a range of the
+--- source and need no assembling.
+--- @param builder the stream
+--- @param scratch a buffer from [](nupp.valuebuilder.newByteScratch)
+--- @param start the range's zero-based first byte
+--- @param length the range's length in bytes
 --- @raises when the range is not initialized
-function valueBuilder.stringScratch(builder: any, scratch: any, start: uint32, length: uint32): nil
+--- @raises when the value would be a second root, or an object value with no key
+function valuebuilder.stringScratch(builder: any, scratch: any, start: uint32, length: uint32): nil
     if start > scratch.length or length > scratch.length - start then
         error("value stream byte scratch range is out of bounds", 2)
     end
@@ -144919,8 +145628,16 @@ function valueBuilder.stringScratch(builder: any, scratch: any, start: uint32, l
 end
 
 --- Publishes initialized scratch bytes as the next object key.
---- @raises when outside an object or when the range is not initialized
-function valueBuilder.keyScratch(builder: any, scratch: any, start: uint32, length: uint32): nil
+---
+--- The key-position counterpart of [](nupp.valuebuilder.stringScratch). The very
+--- next value added becomes this key's value.
+--- @param builder the stream
+--- @param scratch a buffer from [](nupp.valuebuilder.newByteScratch)
+--- @param start the range's zero-based first byte
+--- @param length the range's length in bytes
+--- @raises when outside an object, when a key is already pending, or when the
+---     range is not initialized
+function valuebuilder.keyScratch(builder: any, scratch: any, start: uint32, length: uint32): nil
     local frame = builder.stack[#builder.stack]
     if frame == nil or frame.kind ~= 6 or frame.key ~= nil then
         error("value stream key is outside an object", 2)
@@ -144931,23 +145648,48 @@ function valueBuilder.keyScratch(builder: any, scratch: any, start: uint32, leng
     frame.key = ffi.string(scratch.bytes + start, length)
 end
 
-function valueBuilder.openArray(builder: any, capacity: uint32): nil
+--- Opens an array. Every value added after it belongs to it until the matching
+--- [](nupp.valuebuilder.close).
+---
+--- `capacity` is a presizing hint taken from what the parser already counted, not
+--- a limit: a wrong guess costs a rehash, never an error.
+--- @param builder the stream
+--- @param capacity how many elements to presize the array part for
+function valuebuilder.openArray(builder: any, capacity: uint32): nil
     local stack = builder.stack
     stack[#stack + 1] = {kind = 5, value = table.new(capacity, 0), next = 1}
 end
 
-function valueBuilder.openObject(builder: any, capacity: uint32): nil
+--- Opens an object. Each value inside it must be preceded by a key from
+--- [](nupp.valuebuilder.key) or [](nupp.valuebuilder.keyScratch), until the
+--- matching [](nupp.valuebuilder.close).
+---
+--- `capacity` presizes the hash part and is a hint, as in
+--- [](nupp.valuebuilder.openArray).
+--- @param builder the stream
+--- @param capacity how many entries to presize the hash part for
+function valuebuilder.openObject(builder: any, capacity: uint32): nil
     local stack = builder.stack
     stack[#stack + 1] = {kind = 6, value = table.new(0, capacity), count = 0}
 end
 
-function valueBuilder.depth(builder: any): uint32
+--- Returns how many containers are currently open.
+---
+--- This, [](nupp.valuebuilder.kind), and [](nupp.valuebuilder.count) are all an
+--- iterative parser can see of the construction state; there is deliberately no
+--- way to read a value back out of a container it has already been added to.
+--- @param builder the stream
+--- @return the number of open containers, 0 at the top level
+function valuebuilder.depth(builder: any): uint32
     return nupp.math.u32.wrap(#builder.stack)
 end
 
---- Returns the current container tag.
---- @raises when the stream has no open container
-function valueBuilder.kind(builder: any): uint32
+--- Returns the current container's tag: 5 for an array and 6 for an object, the
+--- same numbering [](nupp.valuebuilder.materializeTree) uses.
+--- @param builder the stream
+--- @return the innermost open container's tag
+--- @raises when the stream has no current container
+function valuebuilder.kind(builder: any): uint32
     local frame = builder.stack[#builder.stack]
     if frame == nil then
         error("value stream has no current container", 2)
@@ -144957,8 +145699,13 @@ function valueBuilder.kind(builder: any): uint32
 end
 
 --- Returns the number of complete values in the current container.
---- @raises when the stream has no open container
-function valueBuilder.count(builder: any): uint32
+---
+--- Complete means a value has arrived, so an object with a key pending and no
+--- value yet still answers with the count before it.
+--- @param builder the stream
+--- @return how many values the innermost open container holds
+--- @raises when the stream has no current container
+function valuebuilder.count(builder: any): uint32
     local frame = builder.stack[#builder.stack]
     if frame == nil then
         error("value stream has no current container", 2)
@@ -144968,7 +145715,20 @@ function valueBuilder.count(builder: any): uint32
     return nupp.math.u32.wrap(count as integer)
 end
 
-function valueBuilder.key(builder: any, source: string, start: uint32, length: uint32, escaped: boolean): nil
+--- Sets the next object key from a range of the rooted source.
+---
+--- The range is read in place, so a key that holds no escape costs one copy and
+--- no substring. Pass `escaped` as true only when the range may hold backslash
+--- escapes; false takes the bytes exactly as they lie. Assemble a key that is
+--- not a contiguous source range with [](nupp.valuebuilder.keyScratch) instead.
+--- @param builder the stream
+--- @param source the rooted string the range indexes
+--- @param start the range's zero-based first byte
+--- @param length the range's length in bytes
+--- @param escaped whether the range may hold backslash escapes
+--- @raises when outside an object, or when a key is already pending
+--- @raises when an escape in the range is malformed
+function valuebuilder.key(builder: any, source: string, start: uint32, length: uint32, escaped: boolean): nil
     local frame = builder.stack[#builder.stack]
     if frame == nil or frame.kind ~= 6 or frame.key ~= nil then
         error("value stream key is outside an object", 2)
@@ -144976,15 +145736,45 @@ function valueBuilder.key(builder: any, source: string, start: uint32, length: u
     frame.key = decodeString(source, start, length, escaped)
 end
 
-function valueBuilder.string(builder: any, source: string, start: uint32, length: uint32, escaped: boolean): nil
+--- Adds a string value from a range of the rooted source.
+---
+--- The value counterpart of [](nupp.valuebuilder.key), on the same terms: the
+--- range is read in place, and `escaped` says whether it needs decoding first.
+--- @param builder the stream
+--- @param source the rooted string the range indexes
+--- @param start the range's zero-based first byte
+--- @param length the range's length in bytes
+--- @param escaped whether the range may hold backslash escapes
+--- @raises when an escape in the range is malformed
+--- @raises when the value would be a second root, or an object value with no key
+function valuebuilder.string(builder: any, source: string, start: uint32, length: uint32, escaped: boolean): nil
     put(builder, decodeString(source, start, length, escaped))
 end
 
-function valueBuilder.number(builder: any, value: number): nil
+--- Adds a number the parser has already converted.
+---
+--- Use [](nupp.valuebuilder.numberSlice) or
+--- [](nupp.valuebuilder.integerSlice) instead when the number is still a range
+--- of the source, so that the conversion happens without a substring.
+--- @param builder the stream
+--- @param value the number to add
+--- @raises when the value would be a second root, or an object value with no key
+function valuebuilder.number(builder: any, value: number): nil
     put(builder, value)
 end
 
-function valueBuilder.numberSlice(builder: any, source: string, start: uint32, length: uint32): nil
+--- Adds a number token from a range of the rooted source, converting it in
+--- place.
+---
+--- This accepts any numeric token. When the token is known to be an integer,
+--- [](nupp.valuebuilder.integerSlice) says so and is cheaper.
+--- @param builder the stream
+--- @param source the rooted string the range indexes
+--- @param start the range's zero-based first byte
+--- @param length the range's length in bytes
+--- @raises when the source range is not a number token
+--- @raises when the value would be a second root, or an object value with no key
+function valuebuilder.numberSlice(builder: any, source: string, start: uint32, length: uint32): nil
     local value = tonumber(source:sub(start + 1, start + length))
     if value == nil then
         error("value stream number is invalid", 2)
@@ -144992,10 +145782,19 @@ function valueBuilder.numberSlice(builder: any, source: string, start: uint32, l
     put(builder, value)
 end
 
---- Adds an integer token. AOT parses short integers without entering `strtod`;
---- the ordinary path retains `tonumber` as the behavioral oracle.
+--- Adds an integer token from a range of the rooted source.
+---
+--- The integer counterpart of [](nupp.valuebuilder.numberSlice). AOT accumulates
+--- short integers directly without entering `strtod`, and falls back to the same
+--- checked binary64 conversion for longer tokens; the ordinary path retains
+--- `tonumber` as the behavioral oracle either way.
+--- @param builder the stream
+--- @param source the rooted string the range indexes
+--- @param start the range's zero-based first byte
+--- @param length the range's length in bytes
 --- @raises when the source range is not an integer token
-function valueBuilder.integerSlice(builder: any, source: string, start: uint32, length: uint32): nil
+--- @raises when the value would be a second root, or an object value with no key
+function valuebuilder.integerSlice(builder: any, source: string, start: uint32, length: uint32): nil
     local value = tonumber(source:sub(start + 1, start + length))
     if value == nil then
         error("value stream integer is invalid", 2)
@@ -145003,15 +145802,31 @@ function valueBuilder.integerSlice(builder: any, source: string, start: uint32, 
     put(builder, value)
 end
 
-function valueBuilder.boolean(builder: any, value: boolean): nil
+--- Adds a boolean value.
+--- @param builder the stream
+--- @param value the boolean to add
+--- @raises when the value would be a second root, or an object value with no key
+function valuebuilder.boolean(builder: any, value: boolean): nil
     put(builder, value)
 end
 
-function valueBuilder.null(builder: any): nil
+--- Adds the null replacement the stream was started with by
+--- [](nupp.valuebuilder.new) or [](nupp.valuebuilder.newSized).
+--- @param builder the stream
+--- @raises when the value would be a second root, or an object value with no key
+function valuebuilder.null(builder: any): nil
     put(builder, builder.nullValue)
 end
 
-function valueBuilder.close(builder: any): nil
+--- Closes the innermost open container and adds it to whatever encloses it.
+---
+--- Every [](nupp.valuebuilder.openArray) and [](nupp.valuebuilder.openObject)
+--- needs exactly one of these. Closing the outermost container publishes the
+--- root, which [](nupp.valuebuilder.finish) then returns.
+--- @param builder the stream
+--- @raises when no container is open, or when an object key has no value
+--- @raises when the closed container would be a second root
+function valuebuilder.close(builder: any): nil
     local stack = builder.stack
     local frame = stack[#stack]
     if frame == nil then
@@ -145024,7 +145839,19 @@ function valueBuilder.close(builder: any): nil
     put(builder, frame.value)
 end
 
-function valueBuilder.finish(builder: any): any
+--- Ends the stream and returns its single root value.
+---
+--- ```nupp
+--- valuebuilder.openArray(builder, 1)
+--- valuebuilder.number(builder, 41)
+--- valuebuilder.close(builder)
+--- local result = valuebuilder.finish(builder)  -- {41}
+--- ```
+---
+--- @param builder the stream
+--- @return the one value the stream published
+--- @raises when a container is still open, or when no root was published
+function valuebuilder.finish(builder: any): any
     if #builder.stack ~= 0 then
         error("value stream has an unclosed container", 2)
     end
@@ -145035,7 +145862,7 @@ function valueBuilder.finish(builder: any): any
     return builder.result
 end
 
-return valueBuilder
+return valuebuilder
 ]=],
 ["/nupp/workers.nupp"] = [=[
 --[[

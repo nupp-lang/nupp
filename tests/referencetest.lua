@@ -9,7 +9,7 @@ local reference = require("nupp.compiler.reference")
 local explain = require("nupp.compiler.explain")
 local lints = require("nupp.compiler.lints")
 local trace = require("nupp._trace")
-local json = require("cjson").new()
+local json = require("testjson")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then

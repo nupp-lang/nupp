@@ -282,7 +282,7 @@ function tasks.describe(root: string?, requested: string?, opts: {buildOnly: boo
     return {default = defaultName, tasks = jsonArray(tasks)}
 end
 
-function tasks.encodeJson(value: unknown): string
+function tasks.encode(value: unknown): string
     return json.encode(value)
 end
 

@@ -7,7 +7,7 @@ local spec = require("nupp.compiler.cli.spec")
 local sharedOptions = require("nupp.compiler.cli.options")
 local ansi = require("nupp.compiler.ansi")
 local cli = require("nupp.compiler.cli")
-local json = require("cjson").new()
+local json = require("testjson")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then

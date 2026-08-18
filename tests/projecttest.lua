@@ -6,7 +6,7 @@ local store = require("nupp.compiler.build.store")
 local nativeStage = require("nupp.compiler.build.native")
 local fs = require("nupp.compiler.fs")
 local compilerEnv = require("nupp.compiler.env")
-local json = require("cjson").new()
+local json = require("testjson")
 local buildSyntax = require("nupp.compiler.build.syntax")
 
 local function assertEq(got, want, label)

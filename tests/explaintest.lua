@@ -4,7 +4,7 @@
 -- example, because it is read as authoritative. So every `wrong` is compiled and
 -- has to report its code, and every `right` is compiled and has to not.
 local explain = require("nupp.compiler.explain")
-local json = require("cjson").new()
+local json = require("testjson")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then

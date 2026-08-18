@@ -276,7 +276,7 @@ function M.astCommandDumpsTextAndJsonSyntaxTrees()
 
    local encoded = capture(("cd '%s' && '%s' ast sample.nupp --json")
       :format(dir, NUPP))
-   local decoded = require("cjson").decode(encoded)
+   local decoded = require("testjson").decode(encoded)
    assertEq(decoded.file, "sample.nupp", "JSON identifies the input")
    assertEq(decoded.root.tag, "node", "JSON distinguishes nodes")
    assertEq(decoded.root.kind, "chunk", "JSON includes the root production")
@@ -390,13 +390,13 @@ return {
       "text detail includes entries: " .. detail)
 
    local encoded = capture(("cd '%s' && '%s' tasks app --json"):format(dir, NUPP))
-   local decoded = require("cjson").decode(encoded)
+   local decoded = require("testjson").decode(encoded)
    assertEq(decoded.name, "app", "JSON detail identifies the task")
    assertEq(decoded.outDir, "out", "JSON detail includes effective defaults")
    assertEq(decoded.entries[1], "app.main", "JSON detail includes entries")
 
    encoded = capture(("cd '%s' && '%s' tasks test --json"):format(dir, NUPP))
-   decoded = require("cjson").decode(encoded)
+   decoded = require("testjson").decode(encoded)
    assertEq(decoded.kind, "test", "JSON identifies the configured action kind")
    assertEq(decoded.buildTarget, "app", "JSON includes the prerequisite target")
    assertEq(decoded.argv[2], "tests/run.lua", "JSON includes the configured argv")
@@ -503,7 +503,7 @@ end
 return new Model()
 ]],
    })
-   local first = require("cjson").decode(capture(
+   local first = require("testjson").decode(capture(
       ("cd '%s' && '%s' build model.g.nupp --json"):format(dir, NUPP)
    ))
    assert(first.ok and #first.derives == 2, "cold build reports all derives")
@@ -519,7 +519,7 @@ return new Model()
       "build observations expose bounded generation facts")
    local coldBytes = read(dir .. "/model.lua")
 
-   local second = require("cjson").decode(capture(
+   local second = require("testjson").decode(capture(
       ("cd '%s' && '%s' build model.g.nupp --json"):format(dir, NUPP)
    ))
    assert(second.ok and #second.derives == 2,

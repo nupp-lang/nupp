@@ -1,7 +1,7 @@
 local T = require("nupp.compiler.types")
 local generics = require("nupp.compiler.generics")
 local reflection = require("nupp.compiler.reflection")
-local json = require("cjson").new()
+local json = require("testjson")
 
 local function assertEq(got, want, label)
    if got ~= want then

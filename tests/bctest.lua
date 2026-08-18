@@ -214,7 +214,7 @@ function M.jsonCarriesTheFindingAndItsCount()
    local dir = project{["bad.g.nupp"] = CAPTURING}
    local out, code = run(dir, "--format json bad.g.nupp")
    test.equal(code, 0, "json output alone does not fail; --check does\n" .. out)
-   local decoded = require("cjson").decode(out)
+   local decoded = require("testjson").decode(out)
    test.equal(decoded.file, "bad.g.nupp")
    assert(decoded.unrecordable >= 1, "the count is reported: " .. tostring(decoded.unrecordable))
    assert(decoded.blockers >= decoded.unrecordable, "all blocker paths are counted")
