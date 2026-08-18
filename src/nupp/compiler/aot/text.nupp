@@ -170,12 +170,23 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
             ", "
         ) .. ")"
     elseif op == "lua_builder" then
-        return "lua.builder(" .. text.expression((node as scalarIR.LuaBuilder).nullValue) .. ")"
+        local builder = node as scalarIR.LuaBuilder
+        local values = {text.expression(builder.nullValue)}
+        if builder.maxDepth ~= nil then
+            values[#values + 1] = text.expression(builder.maxDepth as scalarIR.Expr)
+            values[#values + 1] = text.expression(builder.stringCapacity as scalarIR.Expr)
+        end
+        return "lua.builder(" .. table.concat(values, ", ") .. ")"
     elseif op == "lua_scratch_u32" then
         return "lua.scratch_u32(" .. text.expression((node as scalarIR.LuaScratchU32).capacity) .. ")"
     elseif op == "lua_scratch_u32_get" then
         local loaded = node as scalarIR.LuaScratchU32Get
         return "lua.scratch_u32_get(" .. text.expression(loaded.scratch) .. ", " .. text.expression(loaded.index) .. ")"
+    elseif op == "lua_scratch_u8" then
+        return "lua.scratch_u8(" .. text.expression((node as scalarIR.LuaScratchU8).capacity) .. ")"
+    elseif op == "lua_scratch_u8_get" then
+        local loaded = node as scalarIR.LuaScratchU8Get
+        return "lua.scratch_u8_get(" .. text.expression(loaded.scratch) .. ", " .. text.expression(loaded.index) .. ")"
     elseif op == "lua_string_length" then
         return "lua.length(" .. text.expression((node as scalarIR.LuaBytes).bytes) .. ")"
     elseif op == "lua_string_byte" or op == "lua_string_u32" then
@@ -283,6 +294,19 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
             ] = prefix .. "lua.scratch_u32_set " .. text.expression(
                 write.scratch
             ) .. "[" .. text.expression(write.index) .. "] = " .. text.expression(write.value)
+        elseif op == "lua_scratch_u8_set" then
+            local write = statement as scalarIR.LuaScratchU8Set
+            lines[
+                #lines + 1
+            ] = prefix .. "lua.scratch_u8_set " .. text.expression(
+                write.scratch
+            ) .. "[" .. text.expression(
+                write.index as scalarIR.Expr
+            ) .. "] = " .. text.expression(write.value as scalarIR.Expr)
+        elseif op == "lua_scratch_u8_reset" then
+            lines[
+                #lines + 1
+            ] = prefix .. "lua.scratch_u8_reset " .. text.expression((statement as scalarIR.LuaScratchU8Set).scratch)
         elseif tostring(op):match("^lua_builder_") ~= nil then
             local event = statement as scalarIR.LuaBuild
             local values: {string} = {text.expression(event.builder)}
@@ -292,7 +316,8 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
                 event.start,
                 event.length,
                 event.escaped,
-                event.value
+                event.value,
+                event.scratch,
             }) do
                 if value ~= nil then
                     values[#values + 1] = text.expression(value as scalarIR.Expr)

@@ -323,7 +323,19 @@ or converts directly into the final Lua value without an intermediate substring.
 and `count` expose only the current construction-frame metadata needed by an
 iterative parser. The ordinary implementation is the `aot = "off"` oracle.
 
-The stream is bounded to 1,024 open containers. Its handle cannot be returned,
+`newSized(nullValue, maxDepth, stringCapacity)` replaces the default 1,024-frame
+bound with authored frame storage and reserves a bound for transformed strings.
+The first 16 frames stay inline; deeper streams lazily spill to dynamically
+allocated, Lua-rooted storage. The byte storage is allocated lazily on the first
+escaped string and reused; publication still performs exactly one copy into a
+normal Lua string. `newByteScratch`, `scratchByte`, `setScratchByte`, and
+`resetByteScratch` provide the same bounded storage to other codecs, while
+`stringScratch` and `keyScratch` publish a checked initialized range directly.
+`integerSlice` is the integer-token counterpart of `numberSlice`: short integers
+are accumulated directly in native code, while longer tokens retain the checked
+binary64 conversion fallback.
+
+The stream handle cannot be returned,
 reassigned, stored, or passed to ordinary calls; only the resolved builder
 operations admit it. Generated code keeps unfinished tables and object keys on
 the VM stack, checks stack growth at every opening, performs barriers through
@@ -336,6 +348,13 @@ barriers, strings, stack checks, and errors; it does not address LuaJIT collecto
 objects. Dynamic capacities and array indexes are checked for integral,
 nonnegative/positive C-API range before use. Strings are ordinary Lua-owned
 strings, not shared-memory views.
+
+Explicit SIMD also includes `MaskBits64`, constructed from two uint32 words by
+`simd.maskBits64`. It supplies cross-word shifts, prefix XOR, bitwise combines,
+population count, first-set and clear-first operations without introducing a
+general boxed `uint64` into ordinary Nupp. SIMD vectors, masks, and these
+64-bit mask aggregates may pass through statically resolved pure AOT helpers;
+multiple helper results use a private native C result struct.
 
 All builders in one generated C file share one digest-named registrar. The
 generated module loads it with `package.loadlib`, validates the returned closure

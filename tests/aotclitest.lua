@@ -776,11 +776,16 @@ function M.valueStreamsFuseRootedByteReadsAndLuaConstruction()
       ["nupp/value_builder.g.nupp"] = [[
 local builder = {}
 function builder.new(nullValue: any): any return {} end
+function builder.newSized(nullValue: any, depth: uint32, bytes: uint32): any return {} end
 function builder.byte(bytes: string, offset: uint32): uint32 return offset end
 function builder.word(bytes: string, index: uint32): uint32 return index end
 function builder.newWordScratch(capacity: uint32): any return {} end
 function builder.scratchWord(scratch: any, index: uint32): uint32 return index end
 function builder.setScratchWord(scratch: any, index: uint32, value: uint32): nil end
+function builder.newByteScratch(capacity: uint32): any return {} end
+function builder.scratchByte(scratch: any, index: uint32): uint32 return index end
+function builder.setScratchByte(scratch: any, index: uint32, value: uint32): nil end
+function builder.resetByteScratch(scratch: any): nil end
 function builder.length(bytes: string): uint32 return nupp.math.u32.wrap(#bytes) end
 function builder.depth(state: any): uint32 return nupp.math.u32.wrap(0) end
 function builder.kind(state: any): uint32 return nupp.math.u32.wrap(0) end
@@ -789,8 +794,11 @@ function builder.openArray(state: any, capacity: uint32): nil end
 function builder.openObject(state: any, capacity: uint32): nil end
 function builder.key(state: any, source: string, start: uint32, length: uint32, escaped: boolean): nil end
 function builder.string(state: any, source: string, start: uint32, length: uint32, escaped: boolean): nil end
+function builder.stringScratch(state: any, scratch: any, start: uint32, length: uint32): nil end
+function builder.keyScratch(state: any, scratch: any, start: uint32, length: uint32): nil end
 function builder.number(state: any, value: number): nil end
 function builder.numberSlice(state: any, source: string, start: uint32, length: uint32): nil end
+function builder.integerSlice(state: any, source: string, start: uint32, length: uint32): nil end
 function builder.boolean(state: any, value: boolean): nil end
 function builder.null(state: any): nil end
 function builder.close(state: any): nil end
@@ -800,26 +808,36 @@ return builder
       ["stream.g.nupp"] = [[
 local builder = require("nupp.value_builder")
 local simd = require("nupp.simd")
+local function drain(bits: simd.MaskBits64): (uint32, uint32)
+    return bits:firstSet(), bits:clearFirst():count()
+end
 @aot(lanes = false)
 local function decode(source: string, tape: string, nullValue: any): (any, uint32, uint32)
-    local state = builder.new(nullValue)
     local count = builder.length(source)
+    local state = builder.newSized(nullValue, count, count)
     local scratch = builder.newWordScratch(count)
+    local byteScratch = builder.newByteScratch(count)
     local species = simd.preferredU8()
     local bytes = species:loadString(source, nupp.math.u32.wrap(0))
     local quotes = bytes:equal(34):count()
     local shifted = nupp.math.u32.shiftLeft(nupp.math.u32.wrap(1), nupp.math.u32.wrap(3))
+    local rawWide = simd.maskBits64(shifted, nupp.math.u32.wrap(1))
+    local wide = rawWide:prefixXor(false)
+    local first, left = drain(wide)
     builder.setScratchWord(scratch, nupp.math.u32.wrap(0), nupp.math.u32.notBits(shifted))
+    builder.setScratchByte(byteScratch, nupp.math.u32.wrap(0), nupp.math.u32.wrap(65))
     builder.openObject(state, nupp.math.u32.wrap(1))
     builder.key(state, source, nupp.math.u32.wrap(0), count, false)
     builder.openArray(state, nupp.math.u32.wrap(2))
+    builder.stringScratch(state, byteScratch, nupp.math.u32.wrap(0), nupp.math.u32.wrap(1))
     builder.number(state, 1)
     builder.numberSlice(state, source, nupp.math.u32.wrap(0), count)
+    builder.integerSlice(state, source, nupp.math.u32.wrap(0), count)
     builder.close(state)
     builder.close(state)
     return builder.finish(state), builder.byte(source, nupp.math.u32.wrap(0)), nupp.math.u32.add(
         builder.scratchWord(scratch, nupp.math.u32.wrap(0)),
-        quotes
+        nupp.math.u32.add(quotes, nupp.math.u32.add(first, left))
     )
 end
 return {decode = decode}
@@ -836,6 +854,9 @@ return {decode = decode}
    assert(decoded.ir:find("u32_shl", 1, true) and decoded.ir:find("u32_not", 1, true), decoded.ir)
    assert(decoded.c:find("KsLuaBuilder", 1, true), decoded.c)
    assert(decoded.c:find("KsLuaScratchU32", 1, true), decoded.c)
+   assert(decoded.c:find("KsLuaScratchU8", 1, true), decoded.c)
+   assert(decoded.c:find("KsMaskBits64", 1, true), decoded.c)
+   assert(decoded.c:find("_helper_drain_result", 1, true), decoded.c)
    assert(decoded.c:find("ks_bytes_1", 1, true), decoded.c)
    assert(decoded.c:find("ks_lua_builder_number_slice", 1, true), decoded.c)
    assert(decoded.binding:find("nupp.math.u32.wrap", 1, true), decoded.binding)

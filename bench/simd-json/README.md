@@ -12,10 +12,18 @@ The production route has three stages inside one native entry:
 2. Structural words are appended to bounded Lua-rooted native scratch storage.
    Closing quotes carry one escape bit, so ordinary strings and object keys do
    not need a second scan merely to discover whether they require unescaping.
+   Documents with an object marker in the first SIMD block run a compact
+   post-index pass that supplies exact array and object capacities and maximum
+   nesting. Other documents skip that optional metadata allocation and retain
+   the default nesting bound; this heuristic changes allocation hints, never
+   parsing semantics.
 3. The same VM-aware AOT entry consumes that scratch tape while streaming
    arrays, objects, strings, numbers, booleans, and null into final Lua values.
    There is no FFI array, rooted tape copy, node/link/frame arena, or second
    native crossing.
+   Builder frames are dynamically sized to the measured nesting, and escaped
+   strings reuse one lazily allocated byte region before their final Lua-owned
+   string copy.
 
 Documents below 128 bytes retain the original JIT-friendly recursive decoder,
 avoiding native setup where it cannot amortize.
@@ -67,6 +75,16 @@ large payloads the new route is 1.517x the tree builder (95% bootstrap CI
 1.511–1.530x), 2.726x the old arena decoder (2.695–2.757x), and 5.797x the legacy
 decoder (5.773–5.877x). It reaches 0.789x `lua-cjson` on records, 1.141x on ASCII,
 0.850x on Unicode, 0.608x on escaped strings, and 0.625x on numbers.
+
+The dynamic-frame, reusable-byte-scratch, capacity, and integer-token result is
+committed at `results/arm64-macos-neon-expansions.json`. On the same fifteen
+sample/5 MB protocol it is 1.607x the tree builder (95% bootstrap CI
+1.582–1.614x), 2.775x the arena decoder (2.739–2.816x), and 6.049x the legacy
+decoder (6.024–6.076x). It reaches 0.934x `lua-cjson` on records, 1.086x on
+ASCII, 0.822x on Unicode, 0.702x on escaped strings, and 0.611x on numbers.
+The gains concentrate where presized objects or transformed strings amortize
+their metadata; the retained per-payload figures make the small regressions on
+plain string and decimal-heavy arrays explicit.
 
 The prior tree result remains at `results/arm64-macos-neon-builder.json` as the
 V4 baseline.

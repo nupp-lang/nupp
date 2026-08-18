@@ -85,6 +85,18 @@ local span = require("nupp.span")
 local simd = require("nupp.simd")
 local preferredBytes = simd.preferredU8
 
+local function drain(bits: simd.MaskBits64): (uint32, uint32)
+    return bits:firstSet(), bits:clearFirst():count()
+end
+
+@aot(lanes = false)
+local function maskOps(low: uint32, high: uint32): (uint32, uint32, uint32, uint32)
+    local raw = simd.maskBits64(low, high)
+    local prefixed = raw:prefixXor(false)
+    local first, left = drain(prefixed)
+    return prefixed:lowBits(), prefixed:highBits(), first, left
+end
+
 @aot(lanes = false)
 local function countQuotes(borrows source: span.Span<uint8>): uint32
     local species = preferredBytes()
@@ -101,7 +113,7 @@ local function countQuotes(borrows source: span.Span<uint8>): uint32
     return found
 end
 
-return {countQuotes = countQuotes}
+return {countQuotes = countQuotes, maskOps = maskOps}
 ]]
 
 local PLAIN = [[
@@ -675,6 +687,8 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
    ffi.cdef[[
       uint32_t ks_count_quotes(const uint8_t *source, size_t count_source);
       uint32_t ks_count_quotes_forced_scalar(const uint8_t *source, size_t count_source);
+      typedef struct { uint32_t v1, v2, v3, v4; } KsMaskOpsResult;
+      KsMaskOpsResult ks_mask_ops(uint32_t low, uint32_t high);
    ]]
    local lib = ffi.load(libraryPath(dir))
    for count = 0, 40 do
@@ -692,6 +706,11 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
          "packed implementation agrees with its forced-scalar oracle at length " .. count
       )
    end
+   local mask = lib.ks_mask_ops(5, 1)
+   test.equal(tonumber(mask.v1), 3, "prefix XOR crosses the low mask word")
+   test.equal(tonumber(mask.v2), 0xFFFFFFFF, "prefix XOR carries into the high mask word")
+   test.equal(tonumber(mask.v3), 0, "firstSet finds the first logical bit")
+   test.equal(tonumber(mask.v4), 33, "clearFirst drains one bit from a 64-bit mask")
 end
 
 function M.explicitSimdNamesWhyAotOffCannotRunIt()

@@ -31,6 +31,8 @@ local function decode(source: string, nullValue: any): (any, uint32, uint32)
     local stringEscaped = false
     local expectedUtf8: uint32 = 0
     local utf8Constraint: uint32 = 0
+    local maxDepth: uint32 = 0
+    local hasObject = false
 
     while scanCursor < sourceCount do
         local bytes = species:loadString(source, scanCursor)
@@ -119,14 +121,17 @@ local function decode(source: string, nullValue: any): (any, uint32, uint32)
             stringBits = nupp.math.u32.xorBits(stringBits, activeBits)
         end
 
-        local syntaxBits = bytes:equal(123)
-            :orBits(bytes:equal(125))
+        local objectOpenMask = bytes:equal(123)
+        local syntaxBits = objectOpenMask:orBits(bytes:equal(125))
             :orBits(bytes:equal(91))
             :orBits(bytes:equal(93))
             :orBits(bytes:equal(58))
             :orBits(bytes:equal(44))
             :andBits(tail)
             :bits()
+        if scanCursor == 0 and objectOpenMask:andBits(tail):any() then
+            hasObject = true
+        end
         local outsideBits = nupp.math.u32.andBits(activeBits, nupp.math.u32.notBits(stringBits))
         local whitespaceBits = bytes:equal(9):orBits(bytes:equal(10)):orBits(bytes:equal(13)):bits()
         local controlBits = bytes:inRange(0, 31):andBits(tail):bits()
@@ -305,7 +310,67 @@ local function decode(source: string, nullValue: any): (any, uint32, uint32)
         return nullValue, 2, nupp.math.u32.add(sourceCount, 1)
     end
 
-    local values = _valueBuilder.new(nullValue)
+    local capacityCount: uint32 = 0
+    if hasObject then
+        capacityCount = tapeCount
+    end
+    local capacities = _valueBuilder.newWordScratch(capacityCount)
+    local openEvents = _valueBuilder.newWordScratch(capacityCount)
+    local capacityCursor: uint32 = 0
+    local openDepth: uint32 = 0
+    while hasObject and capacityCursor < tapeCount do
+        local eventWord = _valueBuilder.scratchWord(tape, capacityCursor)
+        local eventPosition = nupp.math.u32.andBits(eventWord, 0x7FFFFFFF)
+        local eventByte = _valueBuilder.byte(source, eventPosition)
+        local capacityFlags: uint32 = 0
+        if eventByte == 123 then
+            capacityFlags = 0x80000000
+        end
+        _valueBuilder.setScratchWord(capacities, capacityCursor, capacityFlags)
+        if eventByte == 91 or eventByte == 123 then
+            _valueBuilder.setScratchWord(openEvents, openDepth, capacityCursor)
+            openDepth = nupp.math.u32.add(openDepth, 1)
+            if openDepth > maxDepth then
+                maxDepth = openDepth
+            end
+        elseif openDepth > 0 and (eventByte == 58 or eventByte == 44) then
+            local openEvent = _valueBuilder.scratchWord(openEvents, nupp.math.u32.sub(openDepth, 1))
+            local capacity = _valueBuilder.scratchWord(capacities, openEvent)
+            local object = nupp.math.u32.andBits(capacity, 0x80000000) ~= 0
+            if eventByte == 58 and object or eventByte == 44 and not object then
+                _valueBuilder.setScratchWord(capacities, openEvent, nupp.math.u32.add(capacity, 1))
+            end
+        elseif openDepth > 0 and (eventByte == 93 or eventByte == 125) then
+            local openEvent = _valueBuilder.scratchWord(openEvents, nupp.math.u32.sub(openDepth, 1))
+            local openingPosition = _valueBuilder.scratchWord(tape, openEvent)
+            local capacity = _valueBuilder.scratchWord(capacities, openEvent)
+            local object = nupp.math.u32.andBits(capacity, 0x80000000) ~= 0
+            if not object then
+                local content = nupp.math.u32.add(openingPosition, 1)
+                local looking = true
+                while looking and content < eventPosition do
+                    local contentByte = _valueBuilder.byte(source, content)
+                    if contentByte == 32 or contentByte == 9 or contentByte == 10 or contentByte == 13 then
+                        content = nupp.math.u32.add(content, 1)
+                    else
+                        looking = false
+                    end
+                end
+                if content < eventPosition then
+                    capacity = nupp.math.u32.add(capacity, 1)
+                end
+                _valueBuilder.setScratchWord(capacities, openEvent, capacity)
+            end
+            openDepth = nupp.math.u32.sub(openDepth, 1)
+        end
+        capacityCursor = nupp.math.u32.add(capacityCursor, 1)
+    end
+
+    local builderDepth: uint32 = 1024
+    if hasObject then
+        builderDepth = maxDepth
+    end
+    local values = _valueBuilder.newSized(nullValue, builderDepth, sourceCount)
     local cursor: uint32 = 0
     local tapeCursor: uint32 = 0
     local needValue = true
@@ -335,6 +400,8 @@ local function decode(source: string, nullValue: any): (any, uint32, uint32)
             local length: uint32 = 0
             local numberValue: number = 0
             local flags: uint32 = 0
+            local containerCapacity: uint32 = 0
+            local integerToken = false
             local byte: uint32 = 0
             if cursor < sourceCount then
                 byte = _valueBuilder.byte(source, cursor)
@@ -491,6 +558,12 @@ local function decode(source: string, nullValue: any): (any, uint32, uint32)
                 end
                 cursor = nupp.math.u32.add(cursor, 1)
                 if tapeCursor < tapeCount then
+                    if hasObject then
+                        containerCapacity = nupp.math.u32.andBits(
+                            _valueBuilder.scratchWord(capacities, tapeCursor),
+                            0x7FFFFFFF
+                        )
+                    end
                     tapeCursor = nupp.math.u32.add(tapeCursor, 1)
                 else
                     return nullValue, 5, cursor
@@ -566,6 +639,7 @@ local function decode(source: string, nullValue: any): (any, uint32, uint32)
                 cursor = nupp.math.u32.add(cursor, 4)
             elseif byte == 45 or byte >= 48 and byte <= 57 then
                 tag = 3
+                integerToken = true
                 if byte == 45 then
                     cursor = nupp.math.u32.add(cursor, 1)
                     if cursor >= sourceCount then
@@ -599,6 +673,7 @@ local function decode(source: string, nullValue: any): (any, uint32, uint32)
                 if cursor < sourceCount then
                     local point = _valueBuilder.byte(source, cursor)
                     if point == 46 then
+                        integerToken = false
                         cursor = nupp.math.u32.add(cursor, 1)
                         if cursor >= sourceCount then
                             return nullValue, 1, nupp.math.u32.add(cursor, 1)
@@ -622,6 +697,7 @@ local function decode(source: string, nullValue: any): (any, uint32, uint32)
                 if cursor < sourceCount then
                     local exponent = _valueBuilder.byte(source, cursor)
                     if exponent == 69 or exponent == 101 then
+                        integerToken = false
                         cursor = nupp.math.u32.add(cursor, 1)
                         if cursor < sourceCount then
                             local sign = _valueBuilder.byte(source, cursor)
@@ -659,15 +735,17 @@ local function decode(source: string, nullValue: any): (any, uint32, uint32)
             elseif tag == 3 then
                 if flags == 1 then
                     _valueBuilder.number(values, numberValue)
+                elseif integerToken then
+                    _valueBuilder.integerSlice(values, source, start, length)
                 else
                     _valueBuilder.numberSlice(values, source, start, length)
                 end
             elseif tag == 4 then
                 _valueBuilder.string(values, source, start, length, flags == 1)
             elseif tag == 5 then
-                _valueBuilder.openArray(values, nupp.math.u32.wrap(0))
+                _valueBuilder.openArray(values, containerCapacity)
             else
-                _valueBuilder.openObject(values, nupp.math.u32.wrap(0))
+                _valueBuilder.openObject(values, containerCapacity)
             end
             needValue = false
         elseif _valueBuilder.depth(values) == 0 then

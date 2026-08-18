@@ -462,6 +462,20 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             simd_all = {result = "bool", operands = {"simd_mask_u8"}},
             simd_count = {result = "u32", operands = {"simd_mask_u8"}},
             simd_bits = {result = "u32", operands = {"simd_mask_u8"}},
+            simd_mask64 = {result = "simd_mask_bits64", operands = {"u32", "u32"}},
+            simd_mask64_and = {result = "simd_mask_bits64", operands = {"simd_mask_bits64", "simd_mask_bits64"}},
+            simd_mask64_or = {result = "simd_mask_bits64", operands = {"simd_mask_bits64", "simd_mask_bits64"}},
+            simd_mask64_xor = {result = "simd_mask_bits64", operands = {"simd_mask_bits64", "simd_mask_bits64"}},
+            simd_mask64_not = {result = "simd_mask_bits64", operands = {"simd_mask_bits64"}},
+            simd_mask64_shl = {result = "simd_mask_bits64", operands = {"simd_mask_bits64", "u32"}},
+            simd_mask64_shr = {result = "simd_mask_bits64", operands = {"simd_mask_bits64", "u32"}},
+            simd_mask64_prefix_xor = {result = "simd_mask_bits64", operands = {"simd_mask_bits64", "bool"}},
+            simd_mask64_low = {result = "u32", operands = {"simd_mask_bits64"}},
+            simd_mask64_high = {result = "u32", operands = {"simd_mask_bits64"}},
+            simd_mask64_any = {result = "bool", operands = {"simd_mask_bits64"}},
+            simd_mask64_count = {result = "u32", operands = {"simd_mask_bits64"}},
+            simd_mask64_first = {result = "u32", operands = {"simd_mask_bits64"}},
+            simd_mask64_clear_first = {result = "simd_mask_bits64", operands = {"simd_mask_bits64"}},
         }
         local signature = signatures[tostring(op)]
         holds(
@@ -580,6 +594,18 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             "value stream null is not rooted"
         )
         scalarWalk(builder.nullValue, values, scope)
+        if builder.maxDepth ~= nil or builder.stringCapacity ~= nil then
+            holds(
+                builder.maxDepth ~= nil and (
+                    builder.maxDepth as scalarIR.Expr
+                ).type == "u32" and builder.stringCapacity ~= nil and (
+                    builder.stringCapacity as scalarIR.Expr
+                ).type == "u32",
+                "sized value stream has invalid bounds"
+            )
+            scalarWalk(builder.maxDepth as scalarIR.Expr, values, scope)
+            scalarWalk(builder.stringCapacity as scalarIR.Expr, values, scope)
+        end
     elseif op == "lua_scratch_u32" then
         local scratch = node as scalarIR.LuaScratchU32
         holds(scope.entryMode == "lua-builder" and node.type == "lua_scratch_u32", "scratch outside a builder")
@@ -593,6 +619,21 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             "scratch read has no local buffer"
         )
         holds(loaded.index.type == "u32", "scratch read index is not uint32")
+        scalarWalk(loaded.scratch, values, scope)
+        scalarWalk(loaded.index, values, scope)
+    elseif op == "lua_scratch_u8" then
+        local scratch = node as scalarIR.LuaScratchU8
+        holds(scope.entryMode == "lua-builder" and node.type == "lua_scratch_u8", "byte scratch outside a builder")
+        holds(scratch.capacity.type == "u32", "byte scratch capacity is not uint32")
+        scalarWalk(scratch.capacity, values, scope)
+    elseif op == "lua_scratch_u8_get" then
+        local loaded = node as scalarIR.LuaScratchU8Get
+        holds(scope.entryMode == "lua-builder" and node.type == "u32", "byte scratch read outside a builder")
+        holds(
+            loaded.scratch.type == "lua_scratch_u8" and loaded.scratch.op == "local",
+            "byte scratch read has no local buffer"
+        )
+        holds(loaded.index.type == "u32", "byte scratch read index is not uint32")
         scalarWalk(loaded.scratch, values, scope)
         scalarWalk(loaded.index, values, scope)
     elseif op == "lua_string_byte" or op == "lua_string_u32" or op == "lua_string_length" then
@@ -1104,6 +1145,29 @@ local function block(
             scalarWalk(write.scratch, values, scope)
             scalarWalk(write.index, values, scope)
             scalarWalk(write.value, values, scope)
+        elseif statement.op == "lua_scratch_u8_set" or statement.op == "lua_scratch_u8_reset" then
+            local write = statement as scalarIR.LuaScratchU8Set
+            holds(
+                scope.entryMode == "lua-builder" and write.type == "lua_effect",
+                "byte scratch write outside a builder"
+            )
+            holds(
+                write.scratch.type == "lua_scratch_u8" and write.scratch.op == "local",
+                "byte scratch write has no local buffer"
+            )
+            scalarWalk(write.scratch, values, scope)
+            if statement.op == "lua_scratch_u8_set" then
+                holds(
+                    write.index ~= nil and (
+                        write.index as scalarIR.Expr
+                    ).type == "u32" and write.value ~= nil and (write.value as scalarIR.Expr).type == "u32",
+                    "invalid byte scratch write"
+                )
+                scalarWalk(write.index as scalarIR.Expr, values, scope)
+                scalarWalk(write.value as scalarIR.Expr, values, scope)
+            else
+                holds(write.index == nil and write.value == nil, "byte scratch reset carried operands")
+            end
         elseif tostring(statement.op):match("^lua_builder_") ~= nil then
             local event = statement as scalarIR.LuaBuild
             holds(
@@ -1135,7 +1199,7 @@ local function block(
                 for _, value in ipairs({event.sourceBytes, event.start, event.length, event.escaped}) do
                     scalarWalk(value as scalarIR.Expr, values, scope)
                 end
-            elseif event.op == "lua_builder_number_slice" then
+            elseif event.op == "lua_builder_number_slice" or event.op == "lua_builder_integer_slice" then
                 holds(
                     event.sourceBytes ~= nil and (
                         event.sourceBytes as scalarIR.Expr
@@ -1147,6 +1211,18 @@ local function block(
                 for _, value in ipairs({event.sourceBytes, event.start, event.length}) do
                     scalarWalk(value as scalarIR.Expr, values, scope)
                 end
+            elseif event.op == "lua_builder_key_scratch" or event.op == "lua_builder_string_scratch" then
+                holds(
+                    event.scratch ~= nil and (
+                        event.scratch as scalarIR.Expr
+                    ).type == "lua_scratch_u8" and event.start ~= nil and (
+                        event.start as scalarIR.Expr
+                    ).type == "u32" and event.length ~= nil and (event.length as scalarIR.Expr).type == "u32",
+                    "invalid value stream scratch string event"
+                )
+                scalarWalk(event.scratch as scalarIR.Expr, values, scope)
+                scalarWalk(event.start as scalarIR.Expr, values, scope)
+                scalarWalk(event.length as scalarIR.Expr, values, scope)
             elseif event.op == "lua_builder_number" then
                 holds(event.value ~= nil and (event.value as scalarIR.Expr).type == "f64", "invalid streamed number")
                 scalarWalk(event.value as scalarIR.Expr, values, scope)
@@ -1652,14 +1728,23 @@ local function constructionStack(statements: {scalarIR.Statement}, inLoop: boole
                 not (inLoop and statement.type == "lua_scratch_u32"),
                 "scratch allocation inside a loop is not stack bounded"
             )
+            holds(
+                not (inLoop and statement.type == "lua_scratch_u8"),
+                "byte scratch allocation inside a loop is not stack bounded"
+            )
             depth = math.max(depth, nested)
             if statement.type == "lua_table"
                 or statement.type == "lua_string"
                 or statement.type == "lua_nil"
                 or statement.type == "lua_value"
                 or statement.type == "lua_scratch_u32"
+                or statement.type == "lua_scratch_u8"
             then
                 roots = roots + 1
+            elseif statement.type == "lua_builder" then
+                -- Frames are rooted immediately. Transformed-byte scratch is
+                -- allocated lazily and inserted beside it on first use.
+                roots = roots + 2
             end
         elseif statement.op == "lua_set_index" or statement.op == "lua_set_key" then
             local write = statement as scalarIR.LuaSet

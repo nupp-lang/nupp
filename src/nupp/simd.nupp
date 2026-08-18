@@ -32,6 +32,29 @@ sealed interface simd.MaskU8
     bits: function(borrows self: MaskU8): uint32
 end
 
+--- A target-independent 64-bit predicate bitmap.
+---
+--- This is deliberately not a general `uint64`: ordinary Nupp numbers retain
+--- their LuaJIT representation and exactness rules. The two uint32 halves let
+--- scanners combine register masks, carry prefix state across them, and drain
+--- events without boxing cdata.
+--- @export
+sealed interface simd.MaskBits64
+    andBits: function(borrows self: MaskBits64, other: MaskBits64): simd.MaskBits64
+    orBits: function(borrows self: MaskBits64, other: MaskBits64): simd.MaskBits64
+    xorBits: function(borrows self: MaskBits64, other: MaskBits64): simd.MaskBits64
+    notBits: function(borrows self: MaskBits64): simd.MaskBits64
+    shiftLeft: function(borrows self: MaskBits64, count: uint32): simd.MaskBits64
+    shiftRight: function(borrows self: MaskBits64, count: uint32): simd.MaskBits64
+    prefixXor: function(borrows self: MaskBits64, carry: boolean): simd.MaskBits64
+    lowBits: function(borrows self: MaskBits64): uint32
+    highBits: function(borrows self: MaskBits64): uint32
+    any: function(borrows self: MaskBits64): boolean
+    count: function(borrows self: MaskBits64): uint32
+    firstSet: function(borrows self: MaskBits64): uint32
+    clearFirst: function(borrows self: MaskBits64): simd.MaskBits64
+end
+
 --- The preferred register-sized operation set for one element type.
 --- @export
 sealed interface simd.SpeciesU8
@@ -54,6 +77,13 @@ end
 --- @raises when called without AOT intrinsic lowering
 --- @export
 function simd.preferredU8(): simd.SpeciesU8
+    error("nupp.simd values exist only inside an @aot function", 2)
+end
+
+--- Combines low and high uint32 words into an AOT-only 64-bit mask.
+--- @raises when called without AOT intrinsic lowering
+--- @export
+function simd.maskBits64(low: uint32, high: uint32): simd.MaskBits64
     error("nupp.simd values exist only inside an @aot function", 2)
 end
 

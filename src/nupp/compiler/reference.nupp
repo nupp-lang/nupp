@@ -1567,7 +1567,15 @@ publishes it. `byte`, native-endian `word`, and `length` read rooted string
 storage without a substring, while `depth`, `kind`, and `count` expose the
 current bounded construction frame. Ranges and word indexes are zero-based.
 The handle is local construction state: it cannot be reassigned, stored,
-returned, or passed to ordinary calls. At most 1,024 containers may be open.
+returned, or passed to ordinary calls. `new` permits at most 1,024 open
+containers. `newSized` accepts a dynamic nesting bound and a transformed-string
+scratch bound; its first 16 frames stay inline and deeper streams lazily spill
+to Lua-rooted storage. Transformed bytes are also allocated lazily and reused.
+Bounded byte scratch may be written with
+`newByteScratch`, `setScratchByte`, and `resetByteScratch`, read with
+`scratchByte`, then published by `stringScratch` or `keyScratch` as a normal Lua
+string. `integerSlice` parses short integer tokens directly and preserves the
+same checked binary64 fallback for longer tokens.
 
 An AOT block kernel may use independently sized spans, structured scalar
 control flow, and up to four numeric or boolean results. A loop from one through
@@ -1597,7 +1605,11 @@ kernel. Loads are span-checked, inactive tail lanes are zero, and `bits()` maps
 the first logical lane to bit zero. Because those values have no boxed Lua
 representation, using `preferredU8` with `aot = "off"` is a named checking
 error; importing the module without constructing a species remains ordinary
-Lua. Scalar-source map loops continue to use automatic lane lowering.
+Lua. `maskBits64(low, high)` provides an AOT-only two-word mask with cross-word
+shifts, prefix XOR, population count, first-set and clear-first operations; it
+does not add a general `uint64` number type. SIMD values may cross statically
+resolved pure AOT helper calls, including helpers with private aggregate
+results. Scalar-source map loops continue to use automatic lane lowering.
 ]=],
         example = [=[
 local m = {}

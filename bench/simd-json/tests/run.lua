@@ -204,6 +204,26 @@ do
       "ordinary word scratch lost a value")
    check(not pcall(valueBuilder.scratchWord, scratch, nupp.math.u32.wrap(2)),
       "ordinary word scratch accepted an out-of-bounds read")
+
+   local byteScratch = valueBuilder.newByteScratch(nupp.math.u32.wrap(2))
+   valueBuilder.setScratchByte(byteScratch, nupp.math.u32.wrap(0), nupp.math.u32.wrap(65))
+   valueBuilder.setScratchByte(byteScratch, nupp.math.u32.wrap(1), nupp.math.u32.wrap(66))
+   check(valueBuilder.scratchByte(byteScratch, nupp.math.u32.wrap(1)) == 66,
+      "ordinary byte scratch lost a value")
+   local byteStream = valueBuilder.new(json.null)
+   valueBuilder.openArray(byteStream, nupp.math.u32.wrap(1))
+   valueBuilder.stringScratch(
+      byteStream,
+      byteScratch,
+      nupp.math.u32.wrap(0),
+      nupp.math.u32.wrap(2)
+   )
+   valueBuilder.close(byteStream)
+   check(valueBuilder.finish(byteStream)[1] == "AB", "byte scratch did not publish a normal string")
+   valueBuilder.resetByteScratch(byteScratch)
+   valueBuilder.setScratchByte(byteScratch, nupp.math.u32.wrap(0), nupp.math.u32.wrap(67))
+   check(valueBuilder.scratchByte(byteScratch, nupp.math.u32.wrap(0)) == 67,
+      "ordinary byte scratch did not reset")
 end
 
 do

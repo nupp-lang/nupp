@@ -26,7 +26,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 9
+const scalarIR.VERSION = 10
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -160,6 +160,8 @@ end
 record scalarIR.LuaBuilder
     op: 'lua_builder'
     nullValue: scalarIR.Expr
+    maxDepth: scalarIR.Expr?
+    stringCapacity: scalarIR.Expr?
     type: 'lua_builder'
     source: scalarIR.Source?
 end
@@ -179,6 +181,21 @@ end
 --- Reads one word from a local native scratch buffer.
 record scalarIR.LuaScratchU32Get
     op: 'lua_scratch_u32_get'
+    scratch: scalarIR.Expr
+    index: scalarIR.Expr
+    type: 'u32'
+    source: scalarIR.Source?
+end
+
+record scalarIR.LuaScratchU8
+    op: 'lua_scratch_u8'
+    capacity: scalarIR.Expr
+    type: 'lua_scratch_u8'
+    source: scalarIR.Source?
+end
+
+record scalarIR.LuaScratchU8Get
+    op: 'lua_scratch_u8_get'
     scratch: scalarIR.Expr
     index: scalarIR.Expr
     type: 'u32'
@@ -436,6 +453,20 @@ record scalarIR.Simd
         | 'simd_all'
         | 'simd_count'
         | 'simd_bits'
+        | 'simd_mask64'
+        | 'simd_mask64_and'
+        | 'simd_mask64_or'
+        | 'simd_mask64_xor'
+        | 'simd_mask64_not'
+        | 'simd_mask64_shl'
+        | 'simd_mask64_shr'
+        | 'simd_mask64_prefix_xor'
+        | 'simd_mask64_low'
+        | 'simd_mask64_high'
+        | 'simd_mask64_any'
+        | 'simd_mask64_count'
+        | 'simd_mask64_first'
+        | 'simd_mask64_clear_first'
     args: {scalarIR.Expr}
     span: string?
     type: scalarIR.Type
@@ -453,11 +484,14 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.LuaBuilder
     | scalarIR.LuaScratchU32
     | scalarIR.LuaScratchU32Get
+    | scalarIR.LuaScratchU8
+    | scalarIR.LuaScratchU8Get
     | scalarIR.LuaBytes
     | scalarIR.LuaBuilderFinish
     | scalarIR.LuaBuilderQuery
     | scalarIR.LuaBuild
     | scalarIR.LuaScratchU32Set
+    | scalarIR.LuaScratchU8Set
     | scalarIR.Name
     | scalarIR.SpanCount
     | scalarIR.Load
@@ -572,9 +606,12 @@ record scalarIR.LuaBuild
         | 'lua_builder_string'
         | 'lua_builder_number'
         | 'lua_builder_number_slice'
+        | 'lua_builder_integer_slice'
         | 'lua_builder_boolean'
         | 'lua_builder_null'
         | 'lua_builder_close'
+        | 'lua_builder_key_scratch'
+        | 'lua_builder_string_scratch'
     builder: scalarIR.Expr
     sourceBytes: scalarIR.Expr?
     start: scalarIR.Expr?
@@ -582,6 +619,7 @@ record scalarIR.LuaBuild
     escaped: scalarIR.Expr?
     value: scalarIR.Expr?
     capacity: scalarIR.Expr?
+    scratch: scalarIR.Expr?
     type: 'lua_effect'
     source: scalarIR.Source?
 end
@@ -592,6 +630,15 @@ record scalarIR.LuaScratchU32Set
     scratch: scalarIR.Expr
     index: scalarIR.Expr
     value: scalarIR.Expr
+    type: 'lua_effect'
+    source: scalarIR.Source?
+end
+
+record scalarIR.LuaScratchU8Set
+    op: 'lua_scratch_u8_set' | 'lua_scratch_u8_reset'
+    scratch: scalarIR.Expr
+    index: scalarIR.Expr?
+    value: scalarIR.Expr?
     type: 'lua_effect'
     source: scalarIR.Source?
 end
@@ -688,6 +735,7 @@ type scalarIR.Statement = scalarIR.Let
     | scalarIR.LuaSet
     | scalarIR.LuaBuild
     | scalarIR.LuaScratchU32Set
+    | scalarIR.LuaScratchU8Set
     | scalarIR.If
     | scalarIR.While
     | scalarIR.Fornum

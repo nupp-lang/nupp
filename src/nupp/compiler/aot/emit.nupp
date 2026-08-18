@@ -109,6 +109,8 @@ function emit.cType(typeName: string): string
             error("explicit SIMD width was not selected", 0)
         end
         return (explicitScalar and "ks_scalar_u8x" or "ks_u8x") .. tostring(explicitWidth)
+    elseif typeName == "simd_mask_bits64" then
+        return "KsMaskBits64"
     end
     local layout = typeName:match("^ref:(.+)$")
     if layout ~= nil then
@@ -211,6 +213,11 @@ function emit.scalar(node: scalarIR.Expr): string
         return "ks_lua_scratch_u32_get(L, &" .. tostring(
             (loaded.scratch as scalarIR.Name).cName
         ) .. ", " .. emit.scalar(loaded.index) .. ")"
+    elseif operation == "lua_scratch_u8_get" then
+        local loaded = node as scalarIR.LuaScratchU8Get
+        return "ks_lua_scratch_u8_get(L, &" .. tostring(
+            (loaded.scratch as scalarIR.Name).cName
+        ) .. ", " .. emit.scalar(loaded.index) .. ")"
     elseif operation == "local" or operation == "helper_param" then
         return (node as scalarIR.Name).cName or ""
     elseif operation == "load" then
@@ -304,6 +311,50 @@ function emit.scalar(node: scalarIR.Expr): string
             return "((uint32_t)__builtin_popcount(" .. helper .. "bits_" .. suffix .. "(" .. emit.scalar(
                 args[1]
             ) .. ")))"
+        elseif operation == "simd_mask64" then
+            return "ks_mask64(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
+        elseif operation == "simd_mask64_and" or operation == "simd_mask64_or" or operation == "simd_mask64_xor" then
+            local verb = operation == "simd_mask64_and" and "and" or operation == "simd_mask64_or" and "or" or "xor"
+            return "ks_mask64_" .. verb .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
+        elseif operation == "simd_mask64_not" then
+            return "ks_mask64_not(" .. emit.scalar(args[1]) .. ")"
+        elseif operation == "simd_mask64_shl" or operation == "simd_mask64_shr" then
+            local verb = operation == "simd_mask64_shl" and "shl" or "shr"
+            return "ks_mask64_" .. verb .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
+        elseif operation == "simd_mask64_prefix_xor" then
+            return "ks_mask64_prefix_xor(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
+        elseif operation == "simd_mask64_low" then
+            return "(" .. emit.scalar(args[1]) .. ").low"
+        elseif operation == "simd_mask64_high" then
+            return "(" .. emit.scalar(args[1]) .. ").high"
+        elseif operation == "simd_mask64_any" then
+            return "((" .. emit.scalar(args[1]) .. ").low != 0u || (" .. emit.scalar(args[1]) .. ").high != 0u)"
+        elseif operation == "simd_mask64_count" then
+            return "((uint32_t)(__builtin_popcount((" .. emit.scalar(
+                args[1]
+            ) .. ").low) + __builtin_popcount((" .. emit.scalar(args[1]) .. ").high)))"
+        elseif operation == "simd_mask64_first" then
+            return "((" .. emit.scalar(
+                args[1]
+            ) .. ").low != 0u ? (uint32_t)__builtin_ctz((" .. emit.scalar(
+                args[1]
+            ) .. ").low) : ((" .. emit.scalar(
+                args[1]
+            ) .. ").high != 0u ? UINT32_C(32) + (uint32_t)__builtin_ctz((" .. emit.scalar(
+                args[1]
+            ) .. ").high) : UINT32_C(64)))"
+        elseif operation == "simd_mask64_clear_first" then
+            return "((" .. emit.scalar(
+                args[1]
+            ) .. ").low != 0u ? ks_mask64((" .. emit.scalar(
+                args[1]
+            ) .. ").low & ((" .. emit.scalar(
+                args[1]
+            ) .. ").low - 1u), (" .. emit.scalar(
+                args[1]
+            ) .. ").high) : ks_mask64(0u, (" .. emit.scalar(
+                args[1]
+            ) .. ").high & ((" .. emit.scalar(args[1]) .. ").high - 1u)))"
         end
         error("no C form for SIMD operation " .. tostring(operation), 0)
     elseif operation == "field_load" then
@@ -910,6 +961,15 @@ function emit.includes(): {string}
         "#ifndef M_PI",
         "#define M_PI 3.14159265358979323846264338327950288",
         "#endif",
+        "typedef struct { uint32_t low, high; } KsMaskBits64;",
+        "static KS_UNUSED KsMaskBits64 ks_mask64(uint32_t low, uint32_t high) { KsMaskBits64 out = {low, high}; return out; }",
+        "static KS_UNUSED KsMaskBits64 ks_mask64_and(KsMaskBits64 a, KsMaskBits64 b) { return ks_mask64(a.low & b.low, a.high & b.high); }",
+        "static KS_UNUSED KsMaskBits64 ks_mask64_or(KsMaskBits64 a, KsMaskBits64 b) { return ks_mask64(a.low | b.low, a.high | b.high); }",
+        "static KS_UNUSED KsMaskBits64 ks_mask64_xor(KsMaskBits64 a, KsMaskBits64 b) { return ks_mask64(a.low ^ b.low, a.high ^ b.high); }",
+        "static KS_UNUSED KsMaskBits64 ks_mask64_not(KsMaskBits64 a) { return ks_mask64(~a.low, ~a.high); }",
+        "static KS_UNUSED KsMaskBits64 ks_mask64_shl(KsMaskBits64 a, uint32_t n) { if (n >= 64u) return ks_mask64(0u, 0u); if (n == 0u) return a; if (n >= 32u) return ks_mask64(0u, a.low << (n - 32u)); return ks_mask64(a.low << n, (a.high << n) | (a.low >> (32u - n))); }",
+        "static KS_UNUSED KsMaskBits64 ks_mask64_shr(KsMaskBits64 a, uint32_t n) { if (n >= 64u) return ks_mask64(0u, 0u); if (n == 0u) return a; if (n >= 32u) return ks_mask64(a.high >> (n - 32u), 0u); return ks_mask64((a.low >> n) | (a.high << (32u - n)), a.high >> n); }",
+        "static KS_UNUSED KsMaskBits64 ks_mask64_prefix_xor(KsMaskBits64 a, bool carry) { uint32_t lo = a.low, hi = a.high; lo ^= lo << 1; lo ^= lo << 2; lo ^= lo << 4; lo ^= lo << 8; lo ^= lo << 16; hi ^= hi << 1; hi ^= hi << 2; hi ^= hi << 4; hi ^= hi << 8; hi ^= hi << 16; if ((lo & UINT32_C(0x80000000)) != 0u) hi = ~hi; if (carry) { lo = ~lo; hi = ~hi; } return ks_mask64(lo, hi); }",
         "",
     }
 end
@@ -952,6 +1012,22 @@ function emit.luaPrelude(): {string}
         "    if (!(value >= 1.0) || value > (double)INT_MAX || floor(value) != value)",
         "        return luaL_error(L, \"AOT builder array index at %s must be a positive integer in C API range\", site);",
         "    return (int)value;",
+        "}",
+        "static KS_UNUSED double ks_lua_number_slice(lua_State *L, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, const char *what) {",
+        "    size_t first = (size_t)start, count = (size_t)length;",
+        "    if (first > source_length || count > source_length - first) { luaL_error(L, \"AOT %s number range is out of bounds\", what); return 0.0; }",
+        "    char *end = NULL; double value = strtod((const char *)(source + first), &end);",
+        "    if (end != (char *)(source + first + count)) { luaL_error(L, \"AOT %s number is invalid\", what); return 0.0; }",
+        "    return value;",
+        "}",
+        "static KS_UNUSED double ks_lua_integer_slice(lua_State *L, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length) {",
+        "    size_t first = (size_t)start, count = (size_t)length;",
+        "    if (first > source_length || count > source_length - first) { luaL_error(L, \"AOT value stream integer range is out of bounds\"); return 0.0; }",
+        "    size_t at = 0u; int negative = 0; uint64_t integer = 0u;",
+        "    if (at < count && source[first + at] == '-') { negative = 1; at += 1u; }",
+        "    size_t digits = at; while (at < count && source[first + at] >= '0' && source[first + at] <= '9' && at - digits < 15u) { integer = integer * 10u + (uint64_t)(source[first + at] - '0'); at += 1u; }",
+        "    if (at == count && at > digits) { double value = (double)integer; return negative ? -value : value; }",
+        "    return ks_lua_number_slice(L, source, source_length, start, length, \"value stream integer\");",
         "}",
         "typedef struct {",
         "    double number;",
@@ -1043,10 +1119,7 @@ function emit.luaPrelude(): {string}
         "    if (node.tag == 3u) {",
         "        if (node.flags == 1u) lua_pushnumber(L, node.number);",
         "        else {",
-        "            size_t start = (size_t)node.start, length = (size_t)node.length; char *end = NULL;",
-        "            if (start > tree->source_length || length > tree->source_length - start) return luaL_error(L, \"AOT value tree number range is out of bounds\");",
-        "            double value = strtod((const char *)(tree->source + start), &end);",
-        "            if (end != (char *)(tree->source + start + length)) return luaL_error(L, \"AOT value tree number recipe is invalid\");",
+        "            double value = ks_lua_number_slice(L, tree->source, tree->source_length, node.start, node.length, \"value tree\");",
         "            lua_pushnumber(L, value);",
         "        }",
         "        return 1;",
@@ -1087,8 +1160,9 @@ function emit.luaPrelude(): {string}
         "    return ks_tree_push_node(L, &tree, (uint32_t)root, 1u);",
         "}",
         "typedef struct { int table_index; uint32_t kind, next, count; int expects_key; } KsLuaBuildFrame;",
-        "typedef struct { int null_index, root_index; uint32_t depth; KsLuaBuildFrame frames[1024]; } KsLuaBuilder;",
+        "typedef struct { int null_index, root_index, frame_root_index, byte_root_index; uint32_t depth, frame_capacity; KsLuaBuildFrame *frames; KsLuaBuildFrame inline_frames[16]; unsigned char *bytes; uint32_t byte_capacity; } KsLuaBuilder;",
         "typedef struct { uint32_t *words; uint32_t capacity, length; int root_index; } KsLuaScratchU32;",
+        "typedef struct { unsigned char *bytes; uint32_t capacity, length; int root_index; } KsLuaScratchU8;",
         "static KS_UNUSED uint32_t ks_lua_string_length(lua_State *L, size_t length) {",
         "    if (length > (size_t)UINT32_MAX) { luaL_error(L, \"AOT builder string exceeds uint32 range\"); return 0u; }",
         "    return (uint32_t)length;",
@@ -1117,12 +1191,51 @@ function emit.luaPrelude(): {string}
         "    if (index > scratch->length || index >= scratch->capacity) { luaL_error(L, \"AOT scratch write is out of bounds\"); return; }",
         "    if (index == scratch->length) scratch->length += 1u; scratch->words[index] = value;",
         "}",
+        "static KS_UNUSED KsLuaScratchU8 ks_lua_scratch_u8(lua_State *L, uint32_t capacity) {",
+        "    unsigned char *bytes = (unsigned char *)lua_newuserdata(L, capacity == 0u ? 1u : (size_t)capacity);",
+        "    KsLuaScratchU8 scratch = {bytes, capacity, 0u, lua_gettop(L)}; return scratch;",
+        "}",
+        "static KS_UNUSED uint32_t ks_lua_scratch_u8_get(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index) {",
+        "    if (index >= scratch->length) { luaL_error(L, \"AOT byte scratch read is out of bounds\"); return 0u; } return (uint32_t)scratch->bytes[index];",
+        "}",
+        "static KS_UNUSED void ks_lua_scratch_u8_set(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index, uint32_t value) {",
+        "    if (index > scratch->length || index >= scratch->capacity || value > 255u) { luaL_error(L, \"AOT byte scratch write is out of bounds\"); return; }",
+        "    if (index == scratch->length) scratch->length += 1u; scratch->bytes[index] = (unsigned char)value;",
+        "}",
+        "static KS_UNUSED int ks_lua_scratch_u8_push(lua_State *L, KsLuaScratchU8 *scratch, uint32_t start, uint32_t length) {",
+        "    if (start > scratch->length || length > scratch->length - start) return luaL_error(L, \"AOT byte scratch string range is out of bounds\");",
+        "    lua_pushlstring(L, (const char *)(scratch->bytes + start), (size_t)length); return 1;",
+        "}",
+        "static KS_UNUSED KsLuaBuilder ks_lua_builder_new(lua_State *L, int null_index, uint32_t max_depth, uint32_t byte_capacity) {",
+        "    if ((size_t)max_depth > SIZE_MAX / sizeof(KsLuaBuildFrame)) { luaL_error(L, \"AOT value stream depth capacity overflows\"); max_depth = 0u; }",
+        "    KsLuaBuilder builder = {null_index, 0, lua_gettop(L), 0, 0u, max_depth, NULL, {{0}}, NULL, byte_capacity}; return builder;",
+        "}",
+        "static KS_UNUSED KsLuaBuildFrame *ks_lua_builder_frame(KsLuaBuilder *builder, uint32_t index) {",
+        "    return builder->frames != NULL ? &builder->frames[index] : &builder->inline_frames[index];",
+        "}",
+        "static KS_UNUSED void ks_lua_builder_ensure_frames(lua_State *L, KsLuaBuilder *builder) {",
+        "    if (builder->frames != NULL || builder->frame_capacity <= 16u) return;",
+        "    size_t bytes = (size_t)builder->frame_capacity * sizeof(KsLuaBuildFrame);",
+        "    builder->frames = (KsLuaBuildFrame *)lua_newuserdata(L, bytes); memcpy(builder->frames, builder->inline_frames, sizeof(builder->inline_frames));",
+        "    int destination = builder->frame_root_index + 1; lua_insert(L, destination); builder->frame_root_index = destination;",
+        "    if (builder->byte_root_index >= destination) builder->byte_root_index += 1;",
+        "    for (uint32_t at = 0u; at < builder->depth; ++at) builder->frames[at].table_index += 1;",
+        "    if (builder->root_index >= destination) builder->root_index += 1;",
+        "}",
+        "static KS_UNUSED unsigned char *ks_lua_builder_bytes(lua_State *L, KsLuaBuilder *builder) {",
+        "    if (builder->bytes != NULL) return builder->bytes;",
+        "    builder->bytes = (unsigned char *)lua_newuserdata(L, builder->byte_capacity == 0u ? 1u : (size_t)builder->byte_capacity);",
+        "    int destination = builder->frame_root_index + 1; lua_insert(L, destination); builder->byte_root_index = destination;",
+        "    for (uint32_t at = 0u; at < builder->depth; ++at) ks_lua_builder_frame(builder, at)->table_index += 1;",
+        "    if (builder->root_index >= destination) builder->root_index += 1;",
+        "    return builder->bytes;",
+        "}",
         "static KS_UNUSED int ks_lua_builder_put(lua_State *L, KsLuaBuilder *builder) {",
         "    if (builder->depth == 0u) {",
         "        if (builder->root_index != 0) return luaL_error(L, \"AOT value stream has more than one root\");",
         "        builder->root_index = lua_gettop(L); return 1;",
         "    }",
-        "    KsLuaBuildFrame *frame = &builder->frames[builder->depth - 1u];",
+        "    KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth - 1u);",
         "    if (frame->kind == 5u) {",
         "        if (lua_gettop(L) != frame->table_index + 1) return luaL_error(L, \"AOT value stream value is not above its array\");",
         "        if (frame->next > (uint32_t)INT_MAX) return luaL_error(L, \"AOT value stream array exceeds C API range\");",
@@ -1134,44 +1247,67 @@ function emit.luaPrelude(): {string}
         "    lua_rawset(L, frame->table_index); frame->expects_key = 1; frame->count += 1u; return 1;",
         "}",
         "static KS_UNUSED int ks_lua_builder_open(lua_State *L, KsLuaBuilder *builder, uint32_t kind, uint32_t capacity) {",
-        "    if (builder->depth >= 1024u) return luaL_error(L, \"AOT value stream nesting is excessive\");",
+        "    if (builder->depth >= builder->frame_capacity) return luaL_error(L, \"AOT value stream nesting exceeds its authored capacity\");",
+        "    if (builder->depth == 16u && builder->frames == NULL) ks_lua_builder_ensure_frames(L, builder);",
         "    if (builder->depth == 0u && builder->root_index != 0) return luaL_error(L, \"AOT value stream has more than one root\");",
         "    if (capacity > (uint32_t)INT_MAX) return luaL_error(L, \"AOT value stream capacity exceeds C API range\");",
         "    if (!lua_checkstack(L, 4)) return luaL_error(L, \"AOT builder Lua stack exhausted\");",
         "    lua_createtable(L, kind == 5u ? (int)capacity : 0, kind == 6u ? (int)capacity : 0);",
-        "    KsLuaBuildFrame *frame = &builder->frames[builder->depth++];",
+        "    KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth++);",
         "    frame->table_index = lua_gettop(L); frame->kind = kind; frame->next = 1u; frame->count = 0u; frame->expects_key = kind == 6u;",
         "    return 1;",
         "}",
         "static KS_UNUSED uint32_t ks_lua_builder_query(lua_State *L, KsLuaBuilder *builder, uint32_t query) {",
         "    if (query == 0u) return builder->depth;",
         "    if (builder->depth == 0u) { luaL_error(L, \"AOT value stream has no current container\"); return 0u; }",
-        "    KsLuaBuildFrame *frame = &builder->frames[builder->depth - 1u];",
+        "    KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth - 1u);",
         "    if (query == 1u) return frame->kind;",
         "    return frame->kind == 5u ? frame->next - 1u : frame->count;",
         "}",
         "static KS_UNUSED int ks_lua_builder_key(lua_State *L, KsLuaBuilder *builder) {",
         "    if (builder->depth == 0u) return luaL_error(L, \"AOT value stream key is outside an object\");",
-        "    KsLuaBuildFrame *frame = &builder->frames[builder->depth - 1u];",
+        "    KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth - 1u);",
         "    if (frame->kind != 6u || !frame->expects_key) return luaL_error(L, \"AOT value stream object is not expecting a key\");",
         "    if (lua_gettop(L) != frame->table_index + 1) return luaL_error(L, \"AOT value stream key is not above its object\");",
         "    frame->expects_key = 0; return 1;",
         "}",
         "static KS_UNUSED int ks_lua_builder_string(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int escaped, int key) {",
-        "    KsLuaTree tree = {NULL, NULL, source, 0u, 0u, source_length, builder->null_index};",
-        "    KsLuaTreeNode node = {0.0, 4u, start, length, 0u, 0u, 0u, escaped ? 1u : 0u};",
-        "    ks_tree_string(L, &tree, &node); return key ? ks_lua_builder_key(L, builder) : ks_lua_builder_put(L, builder);",
+        "    size_t first = (size_t)start, count = (size_t)length;",
+        "    if (first > source_length || count > source_length - first) return luaL_error(L, \"AOT value stream string range is out of bounds\");",
+        "    if (!escaped) lua_pushlstring(L, (const char *)(source + first), count);",
+        "    else if (count <= (size_t)builder->byte_capacity) {",
+        "        const unsigned char *input = source + first; unsigned char *out = ks_lua_builder_bytes(L, builder); size_t at = 0u, written = 0u;",
+        "        while (at < count) {",
+        "            unsigned char byte = input[at++]; if (byte != '\\\\') { out[written++] = byte; continue; }",
+        "            if (at >= count) return luaL_error(L, \"AOT value stream has an incomplete escape\");",
+        "            unsigned char escaped_byte = input[at++];",
+        "            if (escaped_byte == '\"' || escaped_byte == '\\\\' || escaped_byte == '/') out[written++] = escaped_byte;",
+        "            else if (escaped_byte == 'b') out[written++] = '\\b'; else if (escaped_byte == 'f') out[written++] = '\\f';",
+        "            else if (escaped_byte == 'n') out[written++] = '\\n'; else if (escaped_byte == 'r') out[written++] = '\\r'; else if (escaped_byte == 't') out[written++] = '\\t';",
+        "            else if (escaped_byte == 'u') {",
+        "                uint32_t codepoint = 0u; if (!ks_tree_hex4(input, count, &at, &codepoint)) return luaL_error(L, \"AOT value stream has an invalid Unicode escape\");",
+        "                if (codepoint >= 0xd800u && codepoint <= 0xdbffu) { uint32_t low = 0u; if (at > count || count - at < 2u || input[at] != '\\\\' || input[at + 1u] != 'u') return luaL_error(L, \"AOT value stream has an unmatched high surrogate\"); at += 2u; if (!ks_tree_hex4(input, count, &at, &low) || low < 0xdc00u || low > 0xdfffu) return luaL_error(L, \"AOT value stream has an invalid low surrogate\"); codepoint = 0x10000u + (codepoint - 0xd800u) * 0x400u + low - 0xdc00u; }",
+        "                else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) return luaL_error(L, \"AOT value stream has an unmatched low surrogate\");",
+        "                written += ks_tree_utf8(out + written, codepoint);",
+        "            } else return luaL_error(L, \"AOT value stream has an unknown escape\");",
+        "        }",
+        "        lua_pushlstring(L, (const char *)out, written);",
+        "    } else {",
+        "        KsLuaTree tree = {NULL, NULL, source, 0u, 0u, source_length, builder->null_index}; KsLuaTreeNode node = {0.0, 4u, start, length, 0u, 0u, 0u, 1u}; ks_tree_string(L, &tree, &node);",
+        "    }",
+        "    return key ? ks_lua_builder_key(L, builder) : ks_lua_builder_put(L, builder);",
         "}",
         "static KS_UNUSED int ks_lua_builder_number_slice(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length) {",
-        "    size_t first = (size_t)start, count = (size_t)length; char *end = NULL;",
-        "    if (first > source_length || count > source_length - first) return luaL_error(L, \"AOT value stream number is out of bounds\");",
-        "    double value = strtod((const char *)(source + first), &end);",
-        "    if (end != (char *)(source + first + count)) return luaL_error(L, \"AOT value stream number is invalid\");",
+        "    double value = ks_lua_number_slice(L, source, source_length, start, length, \"value stream\");",
+        "    lua_pushnumber(L, value); return ks_lua_builder_put(L, builder);",
+        "}",
+        "static KS_UNUSED int ks_lua_builder_integer_slice(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length) {",
+        "    double value = ks_lua_integer_slice(L, source, source_length, start, length);",
         "    lua_pushnumber(L, value); return ks_lua_builder_put(L, builder);",
         "}",
         "static KS_UNUSED int ks_lua_builder_close(lua_State *L, KsLuaBuilder *builder) {",
         "    if (builder->depth == 0u) return luaL_error(L, \"AOT value stream close has no container\");",
-        "    KsLuaBuildFrame *frame = &builder->frames[builder->depth - 1u];",
+        "    KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth - 1u);",
         "    if (frame->kind == 6u && !frame->expects_key) return luaL_error(L, \"AOT value stream object has an unmatched key\");",
         "    if (lua_gettop(L) != frame->table_index) return luaL_error(L, \"AOT value stream container is not on top\");",
         "    builder->depth -= 1u; return ks_lua_builder_put(L, builder);",
@@ -1848,16 +1984,29 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
     for _, statement in ipairs(statements) do
         if statement.op == "let" and statement.type == "lua_builder" then
             local started = statement.value as scalarIR.LuaBuilder
+            local maxDepth = started.maxDepth ~= nil and emit.scalar(
+                started.maxDepth as scalarIR.Expr
+            ) or "UINT32_C(1024)"
+            local stringCapacity = started.stringCapacity ~= nil and emit.scalar(
+                started.stringCapacity as scalarIR.Expr
+            ) or "UINT32_C(0)"
             lines[
                 #lines + 1
-            ] = prefix .. "KsLuaBuilder " .. statement.cName .. " = {" .. tostring(
+            ] = prefix .. "KsLuaBuilder " .. statement.cName .. " = ks_lua_builder_new(L, " .. tostring(
                 (started.nullValue as scalarIR.Name).cName
-            ) .. ", 0, 0u, {{0}}};"
+            ) .. ", " .. maxDepth .. ", " .. stringCapacity .. ");"
         elseif statement.op == "let" and statement.type == "lua_scratch_u32" then
             local started = statement.value as scalarIR.LuaScratchU32
             lines[
                 #lines + 1
             ] = prefix .. "KsLuaScratchU32 " .. statement.cName .. " = ks_lua_scratch_u32(L, " .. emit.scalar(
+                started.capacity
+            ) .. ");"
+        elseif statement.op == "let" and statement.type == "lua_scratch_u8" then
+            local started = statement.value as scalarIR.LuaScratchU8
+            lines[
+                #lines + 1
+            ] = prefix .. "KsLuaScratchU8 " .. statement.cName .. " = ks_lua_scratch_u8(L, " .. emit.scalar(
                 started.capacity
             ) .. ");"
         elseif statement.op == "let" and (
@@ -1897,6 +2046,18 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
             ] = prefix .. "ks_lua_scratch_u32_set(L, &" .. tostring(
                 (write.scratch as scalarIR.Name).cName
             ) .. ", " .. emit.scalar(write.index) .. ", " .. emit.scalar(write.value) .. ");"
+        elseif statement.op == "lua_scratch_u8_set" then
+            local write = statement as scalarIR.LuaScratchU8Set
+            lines[
+                #lines + 1
+            ] = prefix .. "ks_lua_scratch_u8_set(L, &" .. tostring(
+                (write.scratch as scalarIR.Name).cName
+            ) .. ", " .. emit.scalar(
+                write.index as scalarIR.Expr
+            ) .. ", " .. emit.scalar(write.value as scalarIR.Expr) .. ");"
+        elseif statement.op == "lua_scratch_u8_reset" then
+            local write = statement as scalarIR.LuaScratchU8Set
+            lines[#lines + 1] = prefix .. tostring((write.scratch as scalarIR.Name).cName) .. ".length = 0u;"
         elseif tostring(statement.op):match("^lua_builder_") ~= nil then
             local event = statement as scalarIR.LuaBuild
             local builder = "&" .. tostring((event.builder as scalarIR.Name).cName)
@@ -1922,17 +2083,39 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
                 ) .. ", " .. emit.scalar(
                     event.escaped as scalarIR.Expr
                 ) .. ", " .. (event.op == "lua_builder_key" and "1" or "0") .. ");"
-            elseif event.op == "lua_builder_number_slice" then
+            elseif event.op == "lua_builder_number_slice" or event.op == "lua_builder_integer_slice" then
                 local bytes = event.sourceBytes as scalarIR.Name
                 lines[
                     #lines + 1
-                ] = prefix .. "ks_lua_builder_number_slice(L, " .. builder .. ", ks_bytes_" .. tostring(
+                ] = prefix .. (
+                    event.op == "lua_builder_integer_slice"
+                    and "ks_lua_builder_integer_slice(L, "
+                    or "ks_lua_builder_number_slice(L, "
+                ) .. builder .. ", ks_bytes_" .. tostring(
                     bytes.cName
                 ) .. ", ks_length_" .. tostring(
                     bytes.cName
                 ) .. ", " .. emit.scalar(
                     event.start as scalarIR.Expr
                 ) .. ", " .. emit.scalar(event.length as scalarIR.Expr) .. ");"
+            elseif event.op == "lua_builder_key_scratch" or event.op == "lua_builder_string_scratch" then
+                lines[
+                    #lines + 1
+                ] = prefix .. "ks_lua_scratch_u8_push(L, &" .. tostring(
+                    (event.scratch as scalarIR.Name).cName
+                ) .. ", " .. emit.scalar(
+                    event.start as scalarIR.Expr
+                ) .. ", " .. emit.scalar(
+                    event.length as scalarIR.Expr
+                ) .. "); " .. (
+                    event.op == "lua_builder_key_scratch"
+                    and "ks_lua_builder_key(L, "
+                    .. builder
+                    .. ");"
+                    or "ks_lua_builder_put(L, "
+                    .. builder
+                    .. ");"
+                )
             elseif event.op == "lua_builder_number" then
                 lines[
                     #lines + 1

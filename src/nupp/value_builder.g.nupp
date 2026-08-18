@@ -188,6 +188,20 @@ function valueBuilder.new(nullValue: any): any
     return {nullValue = nullValue, stack = {}, result = nil, hasResult = false}
 end
 
+--- Starts a stream with authored bounds for native frame and transformed-byte
+--- scratch storage. The ordinary implementation keeps normal growable Lua
+--- state; AOT uses the bounds to allocate two rooted userdata regions once.
+function valueBuilder.newSized(nullValue: any, maxDepth: uint32, stringCapacity: uint32): any
+    return {
+        nullValue = nullValue,
+        stack = {},
+        result = nil,
+        hasResult = false,
+        maxDepth = maxDepth,
+        stringCapacity = stringCapacity
+    }
+end
+
 local function put(builder: any, value: any): nil
     local stack = builder.stack
     local frame = stack[#stack]
@@ -276,6 +290,59 @@ function valueBuilder.setScratchWord(scratch: any, index: uint32, value: uint32)
     scratch.words[index] = value
 end
 
+--- Allocates a bounded byte work buffer local to one decode.
+function valueBuilder.newByteScratch(capacity: uint32): any
+    return {capacity = capacity, length = 0, bytes = ffi.new("uint8_t[?]", capacity)}
+end
+
+--- Reads one initialized byte from a local work buffer.
+--- @raises when the indexed byte has not been initialized
+function valueBuilder.scratchByte(scratch: any, index: uint32): uint32
+    if index >= scratch.length then
+        error("value stream byte scratch read is out of bounds", 2)
+    end
+    return nupp.math.u32.wrap(tonumber(scratch.bytes[index]) as integer)
+end
+
+--- Writes an existing byte or appends the next contiguous byte.
+--- @raises when the write leaves a gap, exceeds capacity, or is not a byte
+function valueBuilder.setScratchByte(scratch: any, index: uint32, value: uint32): nil
+    if index > scratch.length or index >= scratch.capacity or value > 255 then
+        error("value stream byte scratch write is out of bounds", 2)
+    end
+    if index == scratch.length then
+        scratch.length = scratch.length + 1
+    end
+    scratch.bytes[index] = value
+end
+
+--- Makes a byte scratch buffer empty without reallocating it.
+function valueBuilder.resetByteScratch(scratch: any): nil
+    scratch.length = 0
+end
+
+--- Publishes initialized scratch bytes as a normal Lua string value.
+--- @raises when the range is not initialized
+function valueBuilder.stringScratch(builder: any, scratch: any, start: uint32, length: uint32): nil
+    if start > scratch.length or length > scratch.length - start then
+        error("value stream byte scratch range is out of bounds", 2)
+    end
+    put(builder, ffi.string(scratch.bytes + start, length))
+end
+
+--- Publishes initialized scratch bytes as the next object key.
+--- @raises when outside an object or when the range is not initialized
+function valueBuilder.keyScratch(builder: any, scratch: any, start: uint32, length: uint32): nil
+    local frame = builder.stack[#builder.stack]
+    if frame == nil or frame.kind ~= 6 or frame.key ~= nil then
+        error("value stream key is outside an object", 2)
+    end
+    if start > scratch.length or length > scratch.length - start then
+        error("value stream byte scratch range is out of bounds", 2)
+    end
+    frame.key = ffi.string(scratch.bytes + start, length)
+end
+
 function valueBuilder.openArray(builder: any, capacity: uint32): nil
     local stack = builder.stack
     stack[#stack + 1] = {kind = 5, value = table.new(capacity, 0), next = 1}
@@ -333,6 +400,17 @@ function valueBuilder.numberSlice(builder: any, source: string, start: uint32, l
     local value = tonumber(source:sub(start + 1, start + length))
     if value == nil then
         error("value stream number is invalid", 2)
+    end
+    put(builder, value)
+end
+
+--- Adds an integer token. AOT parses short integers without entering `strtod`;
+--- the ordinary path retains `tonumber` as the behavioral oracle.
+--- @raises when the source range is not an integer token
+function valueBuilder.integerSlice(builder: any, source: string, start: uint32, length: uint32): nil
+    local value = tonumber(source:sub(start + 1, start + length))
+    if value == nil then
+        error("value stream integer is invalid", 2)
     end
     put(builder, value)
 end

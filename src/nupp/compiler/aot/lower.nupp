@@ -784,6 +784,12 @@ local function call(
         kernel.usesSimd = true
 
         return new scalarIR.Simd(op = "simd_species_u8", args = {}, type = "simd_species_u8", source = lower.site(node))
+    elseif identity == "nupp.simd.maskBits64" then
+        if #args ~= 2 or args[1].type ~= "u32" or args[2].type ~= "u32" then
+            context.reject(lower.site(node), "simd.maskBits64 takes low and high uint32 words")
+        end
+        kernel.usesSimd = true
+        return new scalarIR.Simd(op = "simd_mask64", args = args, type = "simd_mask_bits64", source = lower.site(node))
     elseif identity == "nupp.value_builder.materializeTree" then
         if #args ~= 5 then
             context.reject(
@@ -818,14 +824,28 @@ local function call(
             type = "lua_value",
             source = lower.site(node)
         )
-    elseif identity == "nupp.value_builder.new" then
-        if #args ~= 1 or args[1].type ~= "lua_value" or args[1].op ~= "local" then
-            context.reject(lower.site(node), "value_builder.new takes one rooted null replacement")
+    elseif identity == "nupp.value_builder.new" or identity == "nupp.value_builder.newSized" then
+        local sized = identity == "nupp.value_builder.newSized"
+        if #args ~= (
+            sized and 3 or 1
+        ) or args[
+            1
+        ].type ~= "lua_value" or args[
+            1
+        ].op ~= "local" or sized and (args[2].type ~= "u32" or args[3].type ~= "u32") then
+            context.reject(
+                lower.site(node),
+                sized
+                and "value_builder.newSized takes a rooted null replacement, uint32 depth, and uint32 string capacity"
+                or "value_builder.new takes one rooted null replacement"
+            )
         end
         kernel.usesLua = true
         return new scalarIR.LuaBuilder(
             op = "lua_builder",
             nullValue = args[1],
+            maxDepth = sized and args[2] or nil,
+            stringCapacity = sized and args[3] or nil,
             type = "lua_builder",
             source = lower.site(node)
         )
@@ -867,6 +887,55 @@ local function call(
             scratch = args[1],
             index = args[2],
             value = args[3],
+            type = "lua_effect",
+            source = lower.site(node)
+        )
+    elseif identity == "nupp.value_builder.newByteScratch" then
+        if #args ~= 1 or args[1].type ~= "u32" then
+            context.reject(lower.site(node), "value_builder.newByteScratch takes one uint32 capacity")
+        end
+        kernel.usesLua = true
+        return new scalarIR.LuaScratchU8(
+            op = "lua_scratch_u8",
+            capacity = args[1],
+            type = "lua_scratch_u8",
+            source = lower.site(node)
+        )
+    elseif identity == "nupp.value_builder.scratchByte" then
+        if #args ~= 2 or args[1].type ~= "lua_scratch_u8" or args[1].op ~= "local" or args[2].type ~= "u32" then
+            context.reject(lower.site(node), "value_builder.scratchByte takes a local byte scratch and uint32 index")
+        end
+        kernel.usesLua = true
+        return new scalarIR.LuaScratchU8Get(
+            op = "lua_scratch_u8_get",
+            scratch = args[1],
+            index = args[2],
+            type = "u32",
+            source = lower.site(node)
+        )
+    elseif identity == "nupp.value_builder.setScratchByte" then
+        if #args ~= 3 or args[
+            1
+        ].type ~= "lua_scratch_u8" or args[1].op ~= "local" or args[2].type ~= "u32" or args[3].type ~= "u32" then
+            context.reject(lower.site(node), "value_builder.setScratchByte takes a local byte scratch, index, and byte")
+        end
+        kernel.usesLua = true
+        return new scalarIR.LuaScratchU8Set(
+            op = "lua_scratch_u8_set",
+            scratch = args[1],
+            index = args[2],
+            value = args[3],
+            type = "lua_effect",
+            source = lower.site(node)
+        )
+    elseif identity == "nupp.value_builder.resetByteScratch" then
+        if #args ~= 1 or args[1].type ~= "lua_scratch_u8" or args[1].op ~= "local" then
+            context.reject(lower.site(node), "value_builder.resetByteScratch takes one local byte scratch")
+        end
+        kernel.usesLua = true
+        return new scalarIR.LuaScratchU8Set(
+            op = "lua_scratch_u8_reset",
+            scratch = args[1],
             type = "lua_effect",
             source = lower.site(node)
         )
@@ -932,9 +1001,12 @@ local function call(
             string = "lua_builder_string",
             number = "lua_builder_number",
             numberSlice = "lua_builder_number_slice",
+            integerSlice = "lua_builder_integer_slice",
             boolean = "lua_builder_boolean",
             null = "lua_builder_null",
             close = "lua_builder_close",
+            keyScratch = "lua_builder_key_scratch",
+            stringScratch = "lua_builder_string_scratch",
         }
         local operation = operations[tostring(action)]
         if operation ~= nil then
@@ -961,7 +1033,16 @@ local function call(
                     context.reject(lower.site(node), "value_builder string event has invalid arguments")
                 end
                 event.sourceBytes, event.start, event.length, event.escaped = args[2], args[3], args[4], args[5]
-            elseif action == "numberSlice" then
+            elseif action == "keyScratch" or action == "stringScratch" then
+                if #args ~= 4 or args[
+                    2
+                ].type ~= "lua_scratch_u8" or args[
+                    2
+                ].op ~= "local" or args[3].type ~= "u32" or args[4].type ~= "u32" then
+                    context.reject(lower.site(node), "value_builder scratch string event has invalid arguments")
+                end
+                event.scratch, event.start, event.length = args[2], args[3], args[4]
+            elseif action == "numberSlice" or action == "integerSlice" then
                 if #args ~= 4 or args[
                     2
                 ].type ~= "lua_string" or args[2].op ~= "local" or args[3].type ~= "u32" or args[4].type ~= "u32" then
@@ -1068,7 +1149,56 @@ local function simdMethod(
     local source = lower.site(node)
     kernel.usesSimd = true
 
-    if receiverType == "simd_species_u8" and method == "load" then
+    if receiverType == "simd_mask_bits64" then
+        local binary64 = {andBits = "simd_mask64_and", orBits = "simd_mask64_or", xorBits = "simd_mask64_xor"}
+        local binaryOp = binary64[method]
+        if binaryOp ~= nil and #raw == 1 then
+            local other = lower.expression(raw[1], environment, activeIndex, kernel)
+            if other.type ~= "simd_mask_bits64" then
+                kernel.context.reject(source, "64-bit mask operands need the same type")
+            end
+            args[2] = other
+            return new scalarIR.Simd(op = binaryOp as any, args = args, type = "simd_mask_bits64", source = source)
+        elseif method == "notBits" and #raw == 0 then
+            return new scalarIR.Simd(op = "simd_mask64_not", args = args, type = "simd_mask_bits64", source = source)
+        elseif (method == "shiftLeft" or method == "shiftRight") and #raw == 1 then
+            args[
+                2
+            ] = lower.convert(lower.expression(raw[1], environment, activeIndex, kernel), "u32", source, kernel.context)
+            return new scalarIR.Simd(
+                op = method == "shiftLeft" and "simd_mask64_shl" or "simd_mask64_shr",
+                args = args,
+                type = "simd_mask_bits64",
+                source = source
+            )
+        elseif method == "prefixXor" and #raw == 1 then
+            local carry = lower.expression(raw[1], environment, activeIndex, kernel)
+            if carry.type ~= "bool" then
+                kernel.context.reject(source, "64-bit mask prefixXor takes one boolean carry")
+            end
+            args[2] = carry
+            return new scalarIR.Simd(
+                op = "simd_mask64_prefix_xor",
+                args = args,
+                type = "simd_mask_bits64",
+                source = source
+            )
+        elseif #raw == 0 then
+            local reductions = {
+                lowBits = {op = "simd_mask64_low", type = "u32"},
+                highBits = {op = "simd_mask64_high", type = "u32"},
+                any = {op = "simd_mask64_any", type = "bool"},
+                count = {op = "simd_mask64_count", type = "u32"},
+                firstSet = {op = "simd_mask64_first", type = "u32"},
+                clearFirst = {op = "simd_mask64_clear_first", type = "simd_mask_bits64"},
+            }
+            local reduction = reductions[method]
+            if reduction ~= nil then
+                return new scalarIR.Simd(op = reduction.op as any, args = args, type = reduction.type, source = source)
+            end
+        end
+        kernel.context.reject(source, "SIMD operation " .. method .. " is not admitted for " .. receiverType)
+    elseif receiverType == "simd_species_u8" and method == "load" then
         if #raw ~= 2 then
             kernel.context.reject(source, "SIMD byte loads take a source and offset")
         end
@@ -1399,6 +1529,14 @@ function lower.helperValueType(spelling: string): scalarIR.Type?
         return "u32"
     elseif spelling == "int32" then
         return "i32"
+    elseif spelling:match("%.VectorU8$") ~= nil then
+        return "simd_vector_u8"
+    elseif spelling:match("%.MaskU8$") ~= nil then
+        return "simd_mask_u8"
+    elseif spelling:match("%.MaskBits64$") ~= nil then
+        return "simd_mask_bits64"
+    elseif spelling:match("%.SpeciesU8$") ~= nil then
+        return "simd_species_u8"
     end
 
     return nil
@@ -1440,7 +1578,7 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
     for _, result in ipairs(body.rets or {}) do
         local resultType = lower.helperValueType(lower.compactType(result))
         if resultType == nil then
-            context.reject(lower.site(result), "native helper results are numeric or boolean values")
+            context.reject(lower.site(result), "native helper results are scalar or SIMD values")
         end
         resultTypes[#resultTypes + 1] = resultType as scalarIR.Type
     end
@@ -1454,7 +1592,7 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
         local paramName = raw.name ~= nil and (raw.name as lexer.Token).text or nil
         local paramType = lower.helperValueType(lower.compactType(raw.type))
         if paramName == nil or paramType == nil or raw.modeTok ~= nil then
-            context.reject(lower.site(raw), "native helper parameters are unowned numeric or boolean values")
+            context.reject(lower.site(raw), "native helper parameters are unowned scalar or SIMD values")
         end
         if environment[paramName as string] ~= nil then
             context.reject(lower.site(raw), "duplicate helper parameter " .. (paramName as string))
@@ -2157,7 +2295,9 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             local effect = lower.expression(statement.expr as cst.Node, environment, kernel.index, kernel)
             if effect.type ~= "lua_effect"
                 or tostring(effect.op):match("^lua_builder_") == nil
-                and effect.op ~= "lua_scratch_u32_set" then
+                and effect.op ~= "lua_scratch_u32_set"
+                and effect.op ~= "lua_scratch_u8_set"
+                and effect.op ~= "lua_scratch_u8_reset" then
                 context.reject(lower.site(stat), "native element stores use output[index] = value")
             end
             out[#out + 1] = effect as scalarIR.Statement
