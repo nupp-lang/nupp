@@ -1,16 +1,310 @@
 local _valueBuilder = require("nupp.value_builder")
+local _simd = require("nupp.simd")
+local _preferredU8 = _simd.preferredU8
 
 local fused = {}
 
 const fused.OK = 0
 const fused.SYNTAX = 1
+const fused.INVALID_UTF8 = 2
+const fused.INVALID_CONTROL = 3
+const fused.INVALID_BACKSLASH = 4
 const fused.TAPE = 5
 
 --- Parses a structurally indexed document directly into ordinary Lua values.
 --- @raises when the native builder cannot be loaded or value allocation fails
 @aot(lanes = false)
-local function decode(source: string, tape: string, tapeCount: uint32, nullValue: any): (any, uint32, uint32)
+local function decode(source: string, nullValue: any): (any, uint32, uint32)
     local sourceCount = _valueBuilder.length(source)
+    if sourceCount > 0x7FFFFFFF then
+        return nullValue, 5, 1
+    end
+
+    local tape = _valueBuilder.newWordScratch(sourceCount)
+    local species = _preferredU8()
+    local lanes: uint32 = species.lanes
+    local scanCursor: uint32 = 0
+    local tapeCount: uint32 = 0
+    local scanInString = false
+    local slashOdd = false
+    local slashCarry = false
+    local stringEscaped = false
+    local expectedUtf8: uint32 = 0
+    local utf8Constraint: uint32 = 0
+
+    while scanCursor < sourceCount do
+        local bytes = species:loadString(source, scanCursor)
+        local tail = species:tail(nupp.math.u32.sub(sourceCount, scanCursor))
+        local active = tail:count()
+        local activeBits = tail:bits()
+        local quoteBits = bytes:equal(34):andBits(tail):bits()
+        local slashBits = bytes:equal(92):andBits(tail):bits()
+
+        -- Addition propagates each run start to the first non-backslash bit.
+        -- Selecting the opposite bit parity leaves exactly the bytes escaped
+        -- by odd runs. Boundary-spanning runs retain the small scalar fallback.
+        local escapedBits: uint32 = 0
+        local remainingRuns = slashBits
+        local incomingSlashCarry = slashCarry
+        slashCarry = false
+        if incomingSlashCarry and nupp.math.u32.andBits(slashBits, 1) == 0 then
+            if slashOdd then
+                escapedBits = 1
+            end
+            slashOdd = false
+            incomingSlashCarry = false
+        end
+        if remainingRuns ~= 0 then
+            local slashLastBit = nupp.math.u32.shiftLeft(1, nupp.math.u32.sub(active, 1))
+            local joinsPriorRun = incomingSlashCarry and nupp.math.u32.andBits(slashBits, 1) ~= 0
+            local reachesNextBlock = nupp.math.u32.andBits(slashBits, slashLastBit) ~= 0
+            if not joinsPriorRun and not reachesNextBlock then
+                local starts = nupp.math.u32.andBits(
+                    remainingRuns,
+                    nupp.math.u32.notBits(nupp.math.u32.shiftLeft(remainingRuns, 1))
+                )
+                local evenEnds = nupp.math.u32.andBits(
+                    nupp.math.u32.add(remainingRuns, nupp.math.u32.andBits(starts, 0x55555555)),
+                    nupp.math.u32.notBits(remainingRuns)
+                )
+                local oddEnds = nupp.math.u32.andBits(
+                    nupp.math.u32.add(remainingRuns, nupp.math.u32.andBits(starts, 0xAAAAAAAA)),
+                    nupp.math.u32.notBits(remainingRuns)
+                )
+                escapedBits = nupp.math.u32.orBits(
+                    escapedBits,
+                    nupp.math.u32.orBits(
+                        nupp.math.u32.andBits(evenEnds, 0xAAAAAAAA),
+                        nupp.math.u32.andBits(oddEnds, 0x55555555)
+                    )
+                )
+                remainingRuns = 0
+            end
+        end
+        while remainingRuns ~= 0 do
+            local runStart = nupp.math.u32.trailingZeros(remainingRuns)
+            local first = nupp.math.u32.shiftLeft(1, runStart)
+            local after = nupp.math.u32.andBits(
+                nupp.math.u32.add(remainingRuns, first),
+                nupp.math.u32.notBits(remainingRuns)
+            )
+            local runEnd = active
+            if after ~= 0 then
+                runEnd = nupp.math.u32.trailingZeros(after)
+            end
+            local odd = nupp.math.u32.andBits(nupp.math.u32.sub(runEnd, runStart), 1) ~= 0
+            if runStart == 0 and incomingSlashCarry then
+                odd = odd ~= slashOdd
+            end
+            if runEnd == active then
+                slashCarry = true
+                slashOdd = odd
+            elseif odd then
+                escapedBits = nupp.math.u32.orBits(escapedBits, after)
+            end
+            remainingRuns = nupp.math.u32.andBits(remainingRuns, nupp.math.u32.add(remainingRuns, first))
+        end
+
+        local unescapedQuotes = nupp.math.u32.andBits(quoteBits, nupp.math.u32.notBits(escapedBits))
+        local stringBits = unescapedQuotes
+        stringBits = nupp.math.u32.xorBits(stringBits, nupp.math.u32.shiftLeft(stringBits, 1))
+        stringBits = nupp.math.u32.xorBits(stringBits, nupp.math.u32.shiftLeft(stringBits, 2))
+        stringBits = nupp.math.u32.xorBits(stringBits, nupp.math.u32.shiftLeft(stringBits, 4))
+        stringBits = nupp.math.u32.xorBits(stringBits, nupp.math.u32.shiftLeft(stringBits, 8))
+        if lanes == 32 then
+            stringBits = nupp.math.u32.xorBits(stringBits, nupp.math.u32.shiftLeft(stringBits, 16))
+        end
+        stringBits = nupp.math.u32.andBits(stringBits, activeBits)
+        if scanInString then
+            stringBits = nupp.math.u32.xorBits(stringBits, activeBits)
+        end
+
+        local syntaxBits = bytes:equal(123)
+            :orBits(bytes:equal(125))
+            :orBits(bytes:equal(91))
+            :orBits(bytes:equal(93))
+            :orBits(bytes:equal(58))
+            :orBits(bytes:equal(44))
+            :andBits(tail)
+            :bits()
+        local outsideBits = nupp.math.u32.andBits(activeBits, nupp.math.u32.notBits(stringBits))
+        local whitespaceBits = bytes:equal(9):orBits(bytes:equal(10)):orBits(bytes:equal(13)):bits()
+        local controlBits = bytes:inRange(0, 31):andBits(tail):bits()
+        local badControls = nupp.math.u32.andBits(
+            controlBits,
+            nupp.math.u32.orBits(stringBits, nupp.math.u32.notBits(whitespaceBits))
+        )
+        if badControls ~= 0 then
+            return nullValue, 3, nupp.math.u32.add(
+                nupp.math.u32.add(scanCursor, nupp.math.u32.trailingZeros(badControls)),
+                1
+            )
+        end
+        local outsideSlashes = nupp.math.u32.andBits(slashBits, outsideBits)
+        if outsideSlashes ~= 0 then
+            return nullValue, 4, nupp.math.u32.add(
+                nupp.math.u32.add(scanCursor, nupp.math.u32.trailingZeros(outsideSlashes)),
+                1
+            )
+        end
+
+        -- UTF-8 validation is a mask equality: the continuation mask must
+        -- exactly match the positions demanded by two-, three-, and four-byte
+        -- leads, plus at most three carried positions from the prior vector.
+        local nonAsciiBits = bytes:inRange(128, 255):andBits(tail):bits()
+        if nonAsciiBits ~= 0 or expectedUtf8 ~= 0 then
+            local continuationBits = bytes:inRange(128, 191):andBits(tail):bits()
+            local lead2Bits = bytes:inRange(194, 223):andBits(tail):bits()
+            local lead3Bits = bytes:inRange(224, 239):andBits(tail):bits()
+            local lead4Bits = bytes:inRange(240, 244):andBits(tail):bits()
+            local recognizedUtf8 = nupp.math.u32.orBits(
+                continuationBits,
+                nupp.math.u32.orBits(lead2Bits, nupp.math.u32.orBits(lead3Bits, lead4Bits))
+            )
+            local invalidLeadBits = nupp.math.u32.andBits(nonAsciiBits, nupp.math.u32.notBits(recognizedUtf8))
+            local incomingExpected = expectedUtf8
+            local incomingRequired: uint32 = 0
+            if incomingExpected ~= 0 then
+                incomingRequired = nupp.math.u32.sub(nupp.math.u32.shiftLeft(1, incomingExpected), 1)
+            end
+            local requiredBits = nupp.math.u32.orBits(
+                incomingRequired,
+                nupp.math.u32.orBits(
+                    nupp.math.u32.shiftLeft(
+                        nupp.math.u32.orBits(lead2Bits, nupp.math.u32.orBits(lead3Bits, lead4Bits)),
+                        1
+                    ),
+                    nupp.math.u32.orBits(
+                        nupp.math.u32.shiftLeft(nupp.math.u32.orBits(lead3Bits, lead4Bits), 2),
+                        nupp.math.u32.shiftLeft(lead4Bits, 3)
+                    )
+                )
+            )
+            local badUtf8 = nupp.math.u32.orBits(
+                invalidLeadBits,
+                nupp.math.u32.xorBits(continuationBits, nupp.math.u32.andBits(requiredBits, activeBits))
+            )
+            local lowContinuationBits = bytes:inRange(128, 159):andBits(tail):bits()
+            local highContinuationBits = bytes:inRange(160, 191):andBits(tail):bits()
+            local belowNinetyBits = bytes:inRange(128, 143):andBits(tail):bits()
+            local atLeastNinetyBits = bytes:inRange(144, 191):andBits(tail):bits()
+            badUtf8 = nupp.math.u32.orBits(
+                badUtf8,
+                nupp.math.u32.andBits(nupp.math.u32.shiftLeft(bytes:equal(224):bits(), 1), lowContinuationBits)
+            )
+            badUtf8 = nupp.math.u32.orBits(
+                badUtf8,
+                nupp.math.u32.andBits(nupp.math.u32.shiftLeft(bytes:equal(237):bits(), 1), highContinuationBits)
+            )
+            badUtf8 = nupp.math.u32.orBits(
+                badUtf8,
+                nupp.math.u32.andBits(nupp.math.u32.shiftLeft(bytes:equal(240):bits(), 1), belowNinetyBits)
+            )
+            badUtf8 = nupp.math.u32.orBits(
+                badUtf8,
+                nupp.math.u32.andBits(nupp.math.u32.shiftLeft(bytes:equal(244):bits(), 1), atLeastNinetyBits)
+            )
+            if utf8Constraint ~= 0 then
+                local firstByte = _valueBuilder.byte(source, scanCursor)
+                local violates = utf8Constraint == 1
+                    and firstByte < 160
+                    or utf8Constraint == 2
+                    and firstByte > 159
+                    or utf8Constraint == 3
+                    and firstByte < 144
+                    or utf8Constraint == 4
+                    and firstByte > 143
+                if violates then
+                    badUtf8 = nupp.math.u32.orBits(badUtf8, 1)
+                end
+            end
+            if badUtf8 ~= 0 then
+                return nullValue, 2, nupp.math.u32.add(
+                    nupp.math.u32.add(scanCursor, nupp.math.u32.trailingZeros(badUtf8)),
+                    1
+                )
+            end
+
+            expectedUtf8 = 0
+            utf8Constraint = 0
+            local lastLaneBit = nupp.math.u32.shiftLeft(1, nupp.math.u32.sub(active, 1))
+            if nupp.math.u32.andBits(lead4Bits, lastLaneBit) ~= 0 then
+                expectedUtf8 = 3
+            elseif nupp.math.u32.andBits(lead3Bits, lastLaneBit) ~= 0 then
+                expectedUtf8 = 2
+            elseif nupp.math.u32.andBits(lead2Bits, lastLaneBit) ~= 0 then
+                expectedUtf8 = 1
+            end
+            if nupp.math.u32.andBits(bytes:equal(224):bits(), lastLaneBit) ~= 0 then
+                utf8Constraint = 1
+            elseif nupp.math.u32.andBits(bytes:equal(237):bits(), lastLaneBit) ~= 0 then
+                utf8Constraint = 2
+            elseif nupp.math.u32.andBits(bytes:equal(240):bits(), lastLaneBit) ~= 0 then
+                utf8Constraint = 3
+            elseif nupp.math.u32.andBits(bytes:equal(244):bits(), lastLaneBit) ~= 0 then
+                utf8Constraint = 4
+            end
+            if active > 1 then
+                local penultimateBit = nupp.math.u32.shiftLeft(1, nupp.math.u32.sub(active, 2))
+                if nupp.math.u32.andBits(lead4Bits, penultimateBit) ~= 0 then
+                    if expectedUtf8 < 2 then
+                        expectedUtf8 = 2
+                    end
+                elseif nupp.math.u32.andBits(lead3Bits, penultimateBit) ~= 0 and expectedUtf8 < 1 then
+                    expectedUtf8 = 1
+                end
+            end
+            if active > 2 then
+                local antepenultimateBit = nupp.math.u32.shiftLeft(1, nupp.math.u32.sub(active, 3))
+                if nupp.math.u32.andBits(lead4Bits, antepenultimateBit) ~= 0 and expectedUtf8 < 1 then
+                    expectedUtf8 = 1
+                end
+            end
+            if incomingExpected > active then
+                expectedUtf8 = nupp.math.u32.sub(incomingExpected, active)
+            end
+        end
+
+        -- Quotes and syntax are the only emitted events. Slash metadata is
+        -- accumulated with bit ranges between quotes, so ordinary strings are
+        -- never rescanned merely to discover whether they need unescaping.
+        local events = nupp.math.u32.orBits(unescapedQuotes, nupp.math.u32.andBits(syntaxBits, outsideBits))
+        local remainingSlashes = slashBits
+
+        while events ~= 0 do
+            local lane = nupp.math.u32.trailingZeros(events)
+            local position = nupp.math.u32.add(scanCursor, lane)
+            local eventBit = nupp.math.u32.shiftLeft(1, lane)
+            local before = nupp.math.u32.sub(eventBit, 1)
+            if scanInString and nupp.math.u32.andBits(remainingSlashes, before) ~= 0 then
+                stringEscaped = true
+            end
+            remainingSlashes = nupp.math.u32.andBits(remainingSlashes, nupp.math.u32.notBits(before))
+            if nupp.math.u32.andBits(unescapedQuotes, eventBit) ~= 0 then
+                local closing = scanInString
+                local word = position
+                if closing and stringEscaped then
+                    word = nupp.math.u32.orBits(word, 0x80000000)
+                end
+                _valueBuilder.setScratchWord(tape, tapeCount, word)
+                tapeCount = nupp.math.u32.add(tapeCount, 1)
+                scanInString = not scanInString
+                stringEscaped = false
+            else
+                _valueBuilder.setScratchWord(tape, tapeCount, position)
+                tapeCount = nupp.math.u32.add(tapeCount, 1)
+            end
+            events = nupp.math.u32.andBits(events, nupp.math.u32.sub(events, 1))
+        end
+        if scanInString and remainingSlashes ~= 0 then
+            stringEscaped = true
+        end
+        scanCursor = nupp.math.u32.add(scanCursor, lanes)
+    end
+    if expectedUtf8 ~= 0 then
+        return nullValue, 2, nupp.math.u32.add(sourceCount, 1)
+    end
+
     local values = _valueBuilder.new(nullValue)
     local cursor: uint32 = 0
     local tapeCursor: uint32 = 0
@@ -49,7 +343,7 @@ local function decode(source: string, tape: string, tapeCount: uint32, nullValue
             if byte == 34 then
                 tag = 4
                 if tapeCursor < tapeCount then
-                    local opening = _valueBuilder.word(tape, tapeCursor)
+                    local opening = _valueBuilder.scratchWord(tape, tapeCursor)
                     if opening ~= cursor then
                         return nullValue, 5, nupp.math.u32.add(cursor, 1)
                     end
@@ -58,14 +352,17 @@ local function decode(source: string, tape: string, tapeCount: uint32, nullValue
                     return nullValue, 5, nupp.math.u32.add(cursor, 1)
                 end
                 if tapeCursor < tapeCount then
-                    local closing = _valueBuilder.word(tape, tapeCursor)
+                    local closingWord = _valueBuilder.scratchWord(tape, tapeCursor)
+                    local closing = nupp.math.u32.andBits(closingWord, 0x7FFFFFFF)
+                    if nupp.math.u32.andBits(closingWord, 0x80000000) ~= 0 then
+                        flags = 1
+                    end
                     start = nupp.math.u32.add(cursor, 1)
                     length = nupp.math.u32.sub(closing, start)
                     local stringCursor: uint32 = start
-                    while stringCursor < closing and stringCursor < sourceCount do
+                    while flags == 1 and stringCursor < closing and stringCursor < sourceCount do
                         local stringByte = _valueBuilder.byte(source, stringCursor)
                         if stringByte == 92 then
-                            flags = 1
                             stringCursor = nupp.math.u32.add(stringCursor, 1)
                             if stringCursor >= closing or stringCursor >= sourceCount then
                                 return nullValue, 1, nupp.math.u32.add(stringCursor, 1)
@@ -387,7 +684,7 @@ local function decode(source: string, tape: string, tapeCount: uint32, nullValue
             local count = _valueBuilder.count(values)
             local closing = kind == 5 and byte == 93 or kind == 6 and byte == 125
             if closing then
-                if tapeCursor >= tapeCount or _valueBuilder.word(tape, tapeCursor) ~= cursor then
+                if tapeCursor >= tapeCount or _valueBuilder.scratchWord(tape, tapeCursor) ~= cursor then
                     return nullValue, 5, nupp.math.u32.add(cursor, 1)
                 end
                 tapeCursor = nupp.math.u32.add(tapeCursor, 1)
@@ -430,25 +727,19 @@ local function decode(source: string, tape: string, tapeCount: uint32, nullValue
                     return nullValue, 1, nupp.math.u32.add(cursor, 1)
                 end
                 local opening = cursor
-                if tapeCursor >= tapeCount or _valueBuilder.word(tape, tapeCursor) ~= opening then
+                if tapeCursor >= tapeCount or _valueBuilder.scratchWord(tape, tapeCursor) ~= opening then
                     return nullValue, 5, nupp.math.u32.add(cursor, 1)
                 end
                 tapeCursor = nupp.math.u32.add(tapeCursor, 1)
                 if tapeCursor >= tapeCount then
                     return nullValue, 1, nupp.math.u32.add(cursor, 1)
                 end
-                local closingQuote = _valueBuilder.word(tape, tapeCursor)
+                local closingWord = _valueBuilder.scratchWord(tape, tapeCursor)
+                local closingQuote = nupp.math.u32.andBits(closingWord, 0x7FFFFFFF)
+                local keyEscaped = nupp.math.u32.andBits(closingWord, 0x80000000) ~= 0
                 tapeCursor = nupp.math.u32.add(tapeCursor, 1)
                 local keyStart = nupp.math.u32.add(opening, 1)
                 local keyLength = nupp.math.u32.sub(closingQuote, keyStart)
-                local keyCursor = keyStart
-                local keyEscaped = false
-                while keyCursor < closingQuote and keyCursor < sourceCount do
-                    if _valueBuilder.byte(source, keyCursor) == 92 then
-                        keyEscaped = true
-                    end
-                    keyCursor = nupp.math.u32.add(keyCursor, 1)
-                end
                 _valueBuilder.key(values, source, keyStart, keyLength, keyEscaped)
                 cursor = nupp.math.u32.add(closingQuote, 1)
                 local colonSkipping = true
@@ -463,7 +754,7 @@ local function decode(source: string, tape: string, tapeCount: uint32, nullValue
                 if cursor >= sourceCount or _valueBuilder.byte(source, cursor) ~= 58 then
                     return nullValue, 1, nupp.math.u32.add(cursor, 1)
                 end
-                if tapeCursor >= tapeCount or _valueBuilder.word(tape, tapeCursor) ~= cursor then
+                if tapeCursor >= tapeCount or _valueBuilder.scratchWord(tape, tapeCursor) ~= cursor then
                     return nullValue, 5, nupp.math.u32.add(cursor, 1)
                 end
                 cursor = nupp.math.u32.add(cursor, 1)
@@ -476,6 +767,6 @@ local function decode(source: string, tape: string, tapeCount: uint32, nullValue
     return _valueBuilder.finish(values), 0, 0
 end
 
-fused.decode = decode as function(string, string, uint32, any): (any, uint32, uint32)
+fused.decode = decode as function(string, any): (any, uint32, uint32)
 
 return fused

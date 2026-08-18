@@ -41,6 +41,11 @@ sealed interface simd.SpeciesU8
     --- excluded by `tail`; the implementation never reads beyond the span.
     load: function(borrows self: SpeciesU8, borrows source: nupp.span.Span<uint8>, offset: integer): simd.VectorU8
 
+    --- Loads directly from a string rooted by a Lua-builder AOT entry. This is
+    --- the VM-aware counterpart of `load`: storage remains owned and pinned by
+    --- Lua for the duration of the native call.
+    loadString: function(borrows self: SpeciesU8, source: string, offset: integer): simd.VectorU8
+
     --- A mask with the first `active` lanes set, clamped to this species.
     tail: function(borrows self: SpeciesU8, active: integer): simd.MaskU8
 end

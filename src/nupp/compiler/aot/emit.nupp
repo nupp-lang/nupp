@@ -206,6 +206,11 @@ function emit.scalar(node: scalarIR.Expr): string
         local query = node as scalarIR.LuaBuilderQuery
         local which = operation == "lua_builder_depth" and "0u" or operation == "lua_builder_kind" and "1u" or "2u"
         return "ks_lua_builder_query(L, &" .. tostring((query.builder as scalarIR.Name).cName) .. ", " .. which .. ")"
+    elseif operation == "lua_scratch_u32_get" then
+        local loaded = node as scalarIR.LuaScratchU32Get
+        return "ks_lua_scratch_u32_get(L, &" .. tostring(
+            (loaded.scratch as scalarIR.Name).cName
+        ) .. ", " .. emit.scalar(loaded.index) .. ")"
     elseif operation == "local" or operation == "helper_param" then
         return (node as scalarIR.Name).cName or ""
     elseif operation == "load" then
@@ -231,6 +236,11 @@ function emit.scalar(node: scalarIR.Expr): string
             return helper .. "load_" .. suffix .. "(p_" .. tostring(
                 simd.span
             ) .. ", count_" .. tostring(simd.span) .. ", " .. emit.scalar(args[2]) .. ")"
+        elseif operation == "simd_load_string_u8" then
+            local bytes = args[2] as scalarIR.Name
+            return helper .. "load_" .. suffix .. "(ks_bytes_" .. tostring(
+                bytes.cName
+            ) .. ", ks_length_" .. tostring(bytes.cName) .. ", " .. emit.scalar(args[3]) .. ")"
         elseif operation == "simd_tail_u8" then
             return helper .. "tail_" .. suffix .. "(" .. emit.scalar(args[2]) .. ")"
         elseif operation == "simd_eq_u8" then
@@ -372,8 +382,18 @@ function emit.scalarCall(node: scalarIR.Expr): string
         ) .. " " .. (operator as string) .. " " .. emit.scalar(binary.right) .. "))"
     end
 
+    if operation == "u32_shl" or operation == "u32_shr" then
+        local binary = node as scalarIR.Binary
+        local shift = "(" .. emit.scalar(binary.right) .. " & UINT32_C(31))"
+        return "((uint32_t)(" .. emit.scalar(
+            binary.left
+        ) .. (operation == "u32_shl" and " << " or " >> ") .. shift .. "))"
+    end
+
     if operation == "f32_sqrt" then
         return "sqrtf(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
+    elseif operation == "u32_not" then
+        return "((uint32_t)(~" .. emit.scalar((node as scalarIR.FixedUnary).value) .. "))"
     elseif operation == "u32_popcount" then
         return "((uint32_t)__builtin_popcount(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. "))"
     elseif operation == "u32_ctz" then
@@ -1068,6 +1088,7 @@ function emit.luaPrelude(): {string}
         "}",
         "typedef struct { int table_index; uint32_t kind, next, count; int expects_key; } KsLuaBuildFrame;",
         "typedef struct { int null_index, root_index; uint32_t depth; KsLuaBuildFrame frames[1024]; } KsLuaBuilder;",
+        "typedef struct { uint32_t *words; uint32_t capacity, length; int root_index; } KsLuaScratchU32;",
         "static KS_UNUSED uint32_t ks_lua_string_length(lua_State *L, size_t length) {",
         "    if (length > (size_t)UINT32_MAX) { luaL_error(L, \"AOT builder string exceeds uint32 range\"); return 0u; }",
         "    return (uint32_t)length;",
@@ -1081,6 +1102,20 @@ function emit.luaPrelude(): {string}
         "    size_t offset = (size_t)index * sizeof(uint32_t); uint32_t value = 0u;",
         "    if (offset > length || sizeof(uint32_t) > length - offset) { luaL_error(L, \"AOT builder word is out of bounds\"); return 0u; }",
         "    memcpy(&value, bytes + offset, sizeof(value)); return value;",
+        "}",
+        "static KS_UNUSED KsLuaScratchU32 ks_lua_scratch_u32(lua_State *L, uint32_t capacity) {",
+        "    if ((size_t)capacity > SIZE_MAX / sizeof(uint32_t)) { luaL_error(L, \"AOT scratch capacity overflows\"); capacity = 0u; }",
+        "    size_t bytes = (size_t)capacity * sizeof(uint32_t);",
+        "    uint32_t *words = (uint32_t *)lua_newuserdata(L, bytes == 0u ? 1u : bytes);",
+        "    KsLuaScratchU32 scratch = {words, capacity, 0u, lua_gettop(L)}; return scratch;",
+        "}",
+        "static KS_UNUSED uint32_t ks_lua_scratch_u32_get(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index) {",
+        "    if (index >= scratch->length) { luaL_error(L, \"AOT scratch read is out of bounds\"); return 0u; }",
+        "    return scratch->words[index];",
+        "}",
+        "static KS_UNUSED void ks_lua_scratch_u32_set(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t value) {",
+        "    if (index > scratch->length || index >= scratch->capacity) { luaL_error(L, \"AOT scratch write is out of bounds\"); return; }",
+        "    if (index == scratch->length) scratch->length += 1u; scratch->words[index] = value;",
         "}",
         "static KS_UNUSED int ks_lua_builder_put(lua_State *L, KsLuaBuilder *builder) {",
         "    if (builder->depth == 0u) {",
@@ -1818,6 +1853,13 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
             ] = prefix .. "KsLuaBuilder " .. statement.cName .. " = {" .. tostring(
                 (started.nullValue as scalarIR.Name).cName
             ) .. ", 0, 0u, {{0}}};"
+        elseif statement.op == "let" and statement.type == "lua_scratch_u32" then
+            local started = statement.value as scalarIR.LuaScratchU32
+            lines[
+                #lines + 1
+            ] = prefix .. "KsLuaScratchU32 " .. statement.cName .. " = ks_lua_scratch_u32(L, " .. emit.scalar(
+                started.capacity
+            ) .. ");"
         elseif statement.op == "let" and (
             statement.type == "lua_table"
             or statement.type == "lua_string"
@@ -1832,6 +1874,9 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
             ] = prefix .. emit.cType(
                 statement.type
             ) .. " " .. statement.cName .. " = " .. emit.scalar(statement.value) .. ";"
+            if statement.type == "simd_species_u8" then
+                lines[#lines + 1] = prefix .. "(void)" .. statement.cName .. ";"
+            end
         elseif statement.op == "lua_set_index" then
             local write = statement as scalarIR.LuaSet
             append(luaPush(write.value, prefix))
@@ -1845,6 +1890,13 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
             append(luaPush(write.key, prefix))
             append(luaPush(write.value, prefix))
             lines[#lines + 1] = prefix .. "lua_rawset(L, " .. tostring((write.table as scalarIR.Name).cName) .. ");"
+        elseif statement.op == "lua_scratch_u32_set" then
+            local write = statement as scalarIR.LuaScratchU32Set
+            lines[
+                #lines + 1
+            ] = prefix .. "ks_lua_scratch_u32_set(L, &" .. tostring(
+                (write.scratch as scalarIR.Name).cName
+            ) .. ", " .. emit.scalar(write.index) .. ", " .. emit.scalar(write.value) .. ");"
         elseif tostring(statement.op):match("^lua_builder_") ~= nil then
             local event = statement as scalarIR.LuaBuild
             local builder = "&" .. tostring((event.builder as scalarIR.Name).cName)

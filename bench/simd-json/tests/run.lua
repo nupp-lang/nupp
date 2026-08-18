@@ -198,6 +198,15 @@ for _, source in ipairs(corpus) do
 end
 
 do
+   local scratch = valueBuilder.newWordScratch(nupp.math.u32.wrap(2))
+   valueBuilder.setScratchWord(scratch, nupp.math.u32.wrap(0), nupp.math.u32.wrap(0xDEADBEEF))
+   check(valueBuilder.scratchWord(scratch, nupp.math.u32.wrap(0)) == 0xDEADBEEF,
+      "ordinary word scratch lost a value")
+   check(not pcall(valueBuilder.scratchWord, scratch, nupp.math.u32.wrap(2)),
+      "ordinary word scratch accepted an out-of-bounds read")
+end
+
+do
    local stream = valueBuilder.new(json.null)
    valueBuilder.openObject(stream, nupp.math.u32.wrap(2))
    valueBuilder.key(stream, "alpha", nupp.math.u32.wrap(0), nupp.math.u32.wrap(5), false)
@@ -343,10 +352,12 @@ for prefix = 0, 40 do
    local validSource = '"' .. padding .. string.char(0xf0, 0x9f, 0x99, 0x82) .. '\\"tail"'
    local valid, why = json.validate(validSource)
    check(valid and why == nil, "boundary-spanning UTF-8 or escape rejected at " .. prefix)
+   check(pcall(arena.decodeFused, validSource, json.null), "fused boundary input rejected at " .. prefix)
 
    local invalidSource = '"' .. padding .. string.char(0xf0, 0x9f, 0x99) .. '"'
    valid, why = json.validate(invalidSource)
    check(not valid and type(why) == "string", "truncated boundary UTF-8 accepted at " .. prefix)
+   check(not pcall(arena.decodeFused, invalidSource, json.null), "fused boundary UTF-8 accepted at " .. prefix)
 end
 
 do

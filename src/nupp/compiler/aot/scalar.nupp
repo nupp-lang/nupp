@@ -26,7 +26,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 8
+const scalarIR.VERSION = 9
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -161,6 +161,27 @@ record scalarIR.LuaBuilder
     op: 'lua_builder'
     nullValue: scalarIR.Expr
     type: 'lua_builder'
+    source: scalarIR.Source?
+end
+
+--- One bounded, stack-rooted native uint32 work buffer.
+---
+--- The handle is local construction state. Its storage is Lua-owned userdata,
+--- so a builder entry may use it across allocations without exposing a raw
+--- pointer to Nupp source.
+record scalarIR.LuaScratchU32
+    op: 'lua_scratch_u32'
+    capacity: scalarIR.Expr
+    type: 'lua_scratch_u32'
+    source: scalarIR.Source?
+end
+
+--- Reads one word from a local native scratch buffer.
+record scalarIR.LuaScratchU32Get
+    op: 'lua_scratch_u32_get'
+    scratch: scalarIR.Expr
+    index: scalarIR.Expr
+    type: 'u32'
     source: scalarIR.Source?
 end
 
@@ -334,6 +355,8 @@ record scalarIR.Fixed
         | 'u32_and'
         | 'u32_or'
         | 'u32_xor'
+        | 'u32_shl'
+        | 'u32_shr'
     left: scalarIR.Expr
     right: scalarIR.Expr
     type: scalarIR.Type
@@ -342,7 +365,7 @@ end
 
 --- `nupp.math.f32.sqrt`, which takes one operand.
 record scalarIR.FixedUnary
-    op: 'f32_sqrt' | 'u32_popcount' | 'u32_ctz' | 'u32_clz'
+    op: 'f32_sqrt' | 'u32_not' | 'u32_popcount' | 'u32_ctz' | 'u32_clz'
     value: scalarIR.Expr
     type: scalarIR.Type
     source: scalarIR.Source?
@@ -396,6 +419,7 @@ record scalarIR.Simd
     op: 'simd_species_u8'
         | 'simd_lanes'
         | 'simd_load_u8'
+        | 'simd_load_string_u8'
         | 'simd_tail_u8'
         | 'simd_eq_u8'
         | 'simd_range_u8'
@@ -427,10 +451,13 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.LuaNewTable
     | scalarIR.LuaTree
     | scalarIR.LuaBuilder
+    | scalarIR.LuaScratchU32
+    | scalarIR.LuaScratchU32Get
     | scalarIR.LuaBytes
     | scalarIR.LuaBuilderFinish
     | scalarIR.LuaBuilderQuery
     | scalarIR.LuaBuild
+    | scalarIR.LuaScratchU32Set
     | scalarIR.Name
     | scalarIR.SpanCount
     | scalarIR.Load
@@ -559,6 +586,16 @@ record scalarIR.LuaBuild
     source: scalarIR.Source?
 end
 
+--- Writes one word in a local native scratch buffer.
+record scalarIR.LuaScratchU32Set
+    op: 'lua_scratch_u32_set'
+    scratch: scalarIR.Expr
+    index: scalarIR.Expr
+    value: scalarIR.Expr
+    type: 'lua_effect'
+    source: scalarIR.Source?
+end
+
 --- One arm of a conditional.
 record scalarIR.Clause
     condition: scalarIR.Expr
@@ -650,6 +687,7 @@ type scalarIR.Statement = scalarIR.Let
     | scalarIR.Store
     | scalarIR.LuaSet
     | scalarIR.LuaBuild
+    | scalarIR.LuaScratchU32Set
     | scalarIR.If
     | scalarIR.While
     | scalarIR.Fornum

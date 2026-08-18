@@ -406,6 +406,24 @@ function M.scopedSimdSelectsOnePackedRegisterForTheTargetTier()
    assert(neon:find("simd_load_u8", 1, true) and neon:find("simd_count", 1, true), neon)
 end
 
+function M.rootedStringSimdLoadsRequireAnEntryParameter()
+   local dir = project{["local-string.g.nupp"] = [[
+local simd = require("nupp.simd")
+
+@aot(lanes = false)
+local function quotes(source: string): uint32
+    local rooted = "not the parameter"
+    local species = simd.preferredU8()
+    return species:loadString(rooted, nupp.math.u32.wrap(0)):equal(34):count()
+end
+
+return {quotes = quotes}
+]]}
+   local out, code = run(dir, "local-string.g.nupp")
+   test.equal(code, 1, out)
+   assert(out:find("rooted string parameter", 1, true), out)
+end
+
 function M.fixedWidthSwitchesEmitNativeCDispatch()
    local source = [[
 local span = require("nupp.span")
@@ -760,6 +778,9 @@ local builder = {}
 function builder.new(nullValue: any): any return {} end
 function builder.byte(bytes: string, offset: uint32): uint32 return offset end
 function builder.word(bytes: string, index: uint32): uint32 return index end
+function builder.newWordScratch(capacity: uint32): any return {} end
+function builder.scratchWord(scratch: any, index: uint32): uint32 return index end
+function builder.setScratchWord(scratch: any, index: uint32, value: uint32): nil end
 function builder.length(bytes: string): uint32 return nupp.math.u32.wrap(#bytes) end
 function builder.depth(state: any): uint32 return nupp.math.u32.wrap(0) end
 function builder.kind(state: any): uint32 return nupp.math.u32.wrap(0) end
@@ -778,10 +799,17 @@ return builder
 ]],
       ["stream.g.nupp"] = [[
 local builder = require("nupp.value_builder")
+local simd = require("nupp.simd")
 @aot(lanes = false)
 local function decode(source: string, tape: string, nullValue: any): (any, uint32, uint32)
     local state = builder.new(nullValue)
     local count = builder.length(source)
+    local scratch = builder.newWordScratch(count)
+    local species = simd.preferredU8()
+    local bytes = species:loadString(source, nupp.math.u32.wrap(0))
+    local quotes = bytes:equal(34):count()
+    local shifted = nupp.math.u32.shiftLeft(nupp.math.u32.wrap(1), nupp.math.u32.wrap(3))
+    builder.setScratchWord(scratch, nupp.math.u32.wrap(0), nupp.math.u32.notBits(shifted))
     builder.openObject(state, nupp.math.u32.wrap(1))
     builder.key(state, source, nupp.math.u32.wrap(0), count, false)
     builder.openArray(state, nupp.math.u32.wrap(2))
@@ -789,7 +817,10 @@ local function decode(source: string, tape: string, nullValue: any): (any, uint3
     builder.numberSlice(state, source, nupp.math.u32.wrap(0), count)
     builder.close(state)
     builder.close(state)
-    return builder.finish(state), builder.byte(source, nupp.math.u32.wrap(0)), builder.word(tape, nupp.math.u32.wrap(0))
+    return builder.finish(state), builder.byte(source, nupp.math.u32.wrap(0)), nupp.math.u32.add(
+        builder.scratchWord(scratch, nupp.math.u32.wrap(0)),
+        quotes
+    )
 end
 return {decode = decode}
 ]],
@@ -800,7 +831,12 @@ return {decode = decode}
    assert(decoded.ir:find("lua_builder_open_object", 1, true), decoded.ir)
    assert(decoded.ir:find("lua_string_byte", 1, true), decoded.ir)
    assert(decoded.ir:find("lua.builder_finish", 1, true), decoded.ir)
+   assert(decoded.ir:find("lua.scratch_u32", 1, true), decoded.ir)
+   assert(decoded.ir:find("simd_load_string_u8", 1, true), decoded.ir)
+   assert(decoded.ir:find("u32_shl", 1, true) and decoded.ir:find("u32_not", 1, true), decoded.ir)
    assert(decoded.c:find("KsLuaBuilder", 1, true), decoded.c)
+   assert(decoded.c:find("KsLuaScratchU32", 1, true), decoded.c)
+   assert(decoded.c:find("ks_bytes_1", 1, true), decoded.c)
    assert(decoded.c:find("ks_lua_builder_number_slice", 1, true), decoded.c)
    assert(decoded.binding:find("nupp.math.u32.wrap", 1, true), decoded.binding)
 end

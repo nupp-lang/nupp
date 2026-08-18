@@ -4,19 +4,25 @@ This is a deliberately detachable experiment. Delete `bench/simd-json` to
 remove the JSON implementation; the AOT support it exercises remains useful to
 byte codecs, image kernels, checksums, and other narrow-buffer workloads.
 
-The production route has three stages:
+The production route has three stages inside one native entry:
 
-1. `simd_json.indexer` uses target-width packed bytes to produce a compact
-   structural tape while validating UTF-8, quote/backslash carry, and safe tails.
-2. `simd_json.fused` is one VM-aware scalar AOT state machine. It validates the
-   complete grammar while streaming arrays, objects, strings, numbers, booleans,
-   and null directly into final Lua values. Only the rooted structural-tape copy
-   remains; there are no node, link, or frame arenas and no second traversal.
-3. Documents below 128 bytes retain the original JIT-friendly recursive decoder,
-   avoiding native arena setup where it cannot amortize.
+1. `simd_json.fused` reads the Lua-rooted input with target-width packed bytes.
+   Prefix-XOR quote masks, bit-run escape detection, and continuation masks
+   classify structure and validate UTF-8 without scanning each non-ASCII byte.
+2. Structural words are appended to bounded Lua-rooted native scratch storage.
+   Closing quotes carry one escape bit, so ordinary strings and object keys do
+   not need a second scan merely to discover whether they require unescaping.
+3. The same VM-aware AOT entry consumes that scratch tape while streaming
+   arrays, objects, strings, numbers, booleans, and null into final Lua values.
+   There is no FFI array, rooted tape copy, node/link/frame arena, or second
+   native crossing.
 
-`simd_json.parser`, the former recursive Lua arena materializer, and the checked
-tree-recipe builder remain as explicit differential and benchmark controls.
+Documents below 128 bytes retain the original JIT-friendly recursive decoder,
+avoiding native setup where it cannot amortize.
+
+`simd_json.indexer`, `simd_json.parser`, the former recursive Lua arena
+materializer, and the checked tree-recipe builder remain as explicit
+differential and benchmark controls.
 `arena.decode`, `arena.decodeBuilder`, and `arena.materializeBuilder` are not on
 the normal large-document path.
 
@@ -53,14 +59,14 @@ luajit benchmark.lua --json 15
 ```
 
 Set `NUPP_JSON_BENCH_OUTPUT` to write that JSON report without shell
-redirection. The completed Apple arm64/NEON fused result is committed at
-`results/arm64-macos-neon-fused.json`. Across the five large payloads its paired
-geometric-mean throughput is 1.468x the tree builder (95% bootstrap CI
-1.459–1.479x), 2.592x the old arena decoder (2.551–2.659x), and 5.627x the legacy
-decoder (5.548–5.696x). Every large family improves over the tree builder:
-records 1.150x, ASCII 1.422x, Unicode 1.150x, escaped strings 1.305x, and numbers
-2.830x. It reaches 0.810x `lua-cjson` on records, 1.087x on ASCII, 0.664x on
-Unicode, 0.636x on escaped strings, and 0.661x on numbers.
+redirection. The prior copied-tape Apple arm64/NEON result remains at
+`results/arm64-macos-neon-fused.json`. The rooted-scratch result is committed at
+`results/arm64-macos-neon-scratch.json`; it uses the same fifteen paired samples
+and corpus hashes, so the two routes remain directly comparable. Across the five
+large payloads the new route is 1.517x the tree builder (95% bootstrap CI
+1.511–1.530x), 2.726x the old arena decoder (2.695–2.757x), and 5.797x the legacy
+decoder (5.773–5.877x). It reaches 0.789x `lua-cjson` on records, 1.141x on ASCII,
+0.850x on Unicode, 0.608x on escaped strings, and 0.625x on numbers.
 
 The prior tree result remains at `results/arm64-macos-neon-builder.json` as the
 V4 baseline.

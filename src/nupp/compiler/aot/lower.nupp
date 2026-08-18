@@ -829,6 +829,47 @@ local function call(
             type = "lua_builder",
             source = lower.site(node)
         )
+    elseif identity == "nupp.value_builder.newWordScratch" then
+        if #args ~= 1 or args[1].type ~= "u32" then
+            context.reject(lower.site(node), "value_builder.newWordScratch takes one uint32 capacity")
+        end
+        kernel.usesLua = true
+        return new scalarIR.LuaScratchU32(
+            op = "lua_scratch_u32",
+            capacity = args[1],
+            type = "lua_scratch_u32",
+            source = lower.site(node)
+        )
+    elseif identity == "nupp.value_builder.scratchWord" then
+        if #args ~= 2 or args[1].type ~= "lua_scratch_u32" or args[1].op ~= "local" or args[2].type ~= "u32" then
+            context.reject(lower.site(node), "value_builder.scratchWord takes a local scratch buffer and uint32 index")
+        end
+        kernel.usesLua = true
+        return new scalarIR.LuaScratchU32Get(
+            op = "lua_scratch_u32_get",
+            scratch = args[1],
+            index = args[2],
+            type = "u32",
+            source = lower.site(node)
+        )
+    elseif identity == "nupp.value_builder.setScratchWord" then
+        if #args ~= 3 or args[
+            1
+        ].type ~= "lua_scratch_u32" or args[1].op ~= "local" or args[2].type ~= "u32" or args[3].type ~= "u32" then
+            context.reject(
+                lower.site(node),
+                "value_builder.setScratchWord takes a local scratch buffer, uint32 index, and uint32 value"
+            )
+        end
+        kernel.usesLua = true
+        return new scalarIR.LuaScratchU32Set(
+            op = "lua_scratch_u32_set",
+            scratch = args[1],
+            index = args[2],
+            value = args[3],
+            type = "lua_effect",
+            source = lower.site(node)
+        )
     elseif identity == "nupp.value_builder.byte"
         or identity == "nupp.value_builder.word"
         or identity == "nupp.value_builder.length"
@@ -1028,6 +1069,9 @@ local function simdMethod(
     kernel.usesSimd = true
 
     if receiverType == "simd_species_u8" and method == "load" then
+        if #raw ~= 2 then
+            kernel.context.reject(source, "SIMD byte loads take a source and offset")
+        end
         local spanName = #raw == 2 and lower.nameOf(raw[1]) or nil
         local span = spanName ~= nil and kernel.params[spanName as string] or nil
         if span == nil or span.kind ~= "read_span" or span.sourceType ~= "uint8" then
@@ -1044,6 +1088,29 @@ local function simdMethod(
             type = "simd_vector_u8",
             source = source
         )
+    elseif receiverType == "simd_species_u8" and method == "loadString" then
+        if #raw ~= 2 then
+            kernel.context.reject(source, "SIMD rooted-string loads take a source and offset")
+        end
+        local bytes = lower.expression(raw[1], environment, activeIndex, kernel)
+        local rooted = bytes.op == "local" and bytes as scalarIR.Name or nil
+        local param = rooted ~= nil and kernel.params[(rooted as scalarIR.Name).name] or nil
+        if bytes.type ~= "lua_string"
+            or rooted == nil
+            or param == nil
+            or param.kind ~= "scalar"
+            or param.type ~= "lua_string"
+            or (
+            rooted as scalarIR.Name
+        ).cName ~= param.cName then
+            kernel.context.reject(source, "SIMD rooted-string loads require a rooted string parameter")
+        end
+        args[2] = bytes
+        args[
+            3
+        ] = lower.convert(lower.expression(raw[2], environment, activeIndex, kernel), "u32", source, kernel.context)
+        kernel.usesLua = true
+        return new scalarIR.Simd(op = "simd_load_string_u8", args = args, type = "simd_vector_u8", source = source)
     elseif receiverType == "simd_species_u8" and method == "tail" and #raw == 1 then
         args[
             2
@@ -2088,10 +2155,12 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         elseif kind == "callStmt" then
             local statement = stat as cst.CallStmt
             local effect = lower.expression(statement.expr as cst.Node, environment, kernel.index, kernel)
-            if effect.type ~= "lua_effect" or tostring(effect.op):match("^lua_builder_") == nil then
+            if effect.type ~= "lua_effect"
+                or tostring(effect.op):match("^lua_builder_") == nil
+                and effect.op ~= "lua_scratch_u32_set" then
                 context.reject(lower.site(stat), "native element stores use output[index] = value")
             end
-            out[#out + 1] = effect as scalarIR.LuaBuild
+            out[#out + 1] = effect as scalarIR.Statement
         elseif kind == "assignStmt" then
             assignStmt(stat as cst.AssignStmt, out, environment, kernel)
         elseif kind == "ifStmt" then

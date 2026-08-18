@@ -242,6 +242,40 @@ function valueBuilder.word(bytes: string, index: uint32): uint32
     return nupp.math.u32.wrap(value as integer)
 end
 
+--- Allocates a bounded uint32 work buffer local to one decode.
+--- AOT lowers this to Lua-owned userdata, so its address remains stable across
+--- value allocations without crossing the public API as a pointer. Words are
+--- initialized by contiguous writes before they can be read.
+function valueBuilder.newWordScratch(capacity: uint32): any
+    return {capacity = capacity, length = 0, words = ffi.new("uint32_t[?]", capacity)}
+end
+
+--- Reads one word from a local work buffer.
+--- @raises when the indexed word has not been initialized
+function valueBuilder.scratchWord(scratch: any, index: uint32): uint32
+    if index >= scratch.length then
+        error("value stream scratch read is out of bounds", 2)
+    end
+    local value = tonumber(scratch.words[index])
+    if value == nil then
+        error("value stream scratch word is invalid", 2)
+    end
+
+    return nupp.math.u32.wrap(value as integer)
+end
+
+--- Writes an existing word or appends the next contiguous word.
+--- @raises when the index leaves a gap or exceeds the capacity
+function valueBuilder.setScratchWord(scratch: any, index: uint32, value: uint32): nil
+    if index > scratch.length or index >= scratch.capacity then
+        error("value stream scratch write is out of bounds", 2)
+    end
+    if index == scratch.length then
+        scratch.length = scratch.length + 1
+    end
+    scratch.words[index] = value
+end
+
 function valueBuilder.openArray(builder: any, capacity: uint32): nil
     local stack = builder.stack
     stack[#stack + 1] = {kind = 5, value = table.new(capacity, 0), next = 1}

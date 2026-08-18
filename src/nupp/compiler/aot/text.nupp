@@ -75,6 +75,7 @@ const text.ONE_OPERAND = {
     ["not"] = true,
     ["bnot"] = true,
     ["f32_sqrt"] = true,
+    ["u32_not"] = true,
     ["u32_popcount"] = true,
     ["u32_ctz"] = true,
     ["u32_clz"] = true,
@@ -170,6 +171,11 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
         ) .. ")"
     elseif op == "lua_builder" then
         return "lua.builder(" .. text.expression((node as scalarIR.LuaBuilder).nullValue) .. ")"
+    elseif op == "lua_scratch_u32" then
+        return "lua.scratch_u32(" .. text.expression((node as scalarIR.LuaScratchU32).capacity) .. ")"
+    elseif op == "lua_scratch_u32_get" then
+        local loaded = node as scalarIR.LuaScratchU32Get
+        return "lua.scratch_u32_get(" .. text.expression(loaded.scratch) .. ", " .. text.expression(loaded.index) .. ")"
     elseif op == "lua_string_length" then
         return "lua.length(" .. text.expression((node as scalarIR.LuaBytes).bytes) .. ")"
     elseif op == "lua_string_byte" or op == "lua_string_u32" then
@@ -270,6 +276,13 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
             ] = prefix .. op .. " " .. text.expression(
                 statement.table
             ) .. "[" .. text.expression(statement.key) .. "] = " .. text.expression(statement.value)
+        elseif op == "lua_scratch_u32_set" then
+            local write = statement as scalarIR.LuaScratchU32Set
+            lines[
+                #lines + 1
+            ] = prefix .. "lua.scratch_u32_set " .. text.expression(
+                write.scratch
+            ) .. "[" .. text.expression(write.index) .. "] = " .. text.expression(write.value)
         elseif tostring(op):match("^lua_builder_") ~= nil then
             local event = statement as scalarIR.LuaBuild
             local values: {string} = {text.expression(event.builder)}

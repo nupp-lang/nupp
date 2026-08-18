@@ -159,6 +159,8 @@ const verify.FIXED_BINARY = {
     ["u32_and"] = "u32",
     ["u32_or"] = "u32",
     ["u32_xor"] = "u32",
+    ["u32_shl"] = "u32",
+    ["u32_shr"] = "u32",
 }
 
 --- The opcodes that convert between representations, which is where -- and
@@ -440,6 +442,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             simd_species_u8 = {result = "simd_species_u8", operands = {}},
             simd_lanes = {result = "u32", operands = {"simd_species_u8"}},
             simd_load_u8 = {result = "simd_vector_u8", operands = {"simd_species_u8", "u32"}},
+            simd_load_string_u8 = {result = "simd_vector_u8", operands = {"simd_species_u8", "lua_string", "u32"},},
             simd_tail_u8 = {result = "simd_mask_u8", operands = {"simd_species_u8", "u32"}},
             simd_eq_u8 = {result = "simd_mask_u8", operands = {"simd_vector_u8", "u32"}},
             simd_range_u8 = {result = "simd_mask_u8", operands = {"simd_vector_u8", "u32", "u32"}},
@@ -477,6 +480,20 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 ).kind == "read_span" and (span as scalarIR.Param).sourceType == "uint8",
                 "invalid SIMD load root"
             )
+        elseif op == "simd_load_string_u8" then
+            local rooted = args[2] as scalarIR.Name
+            local param = scope.spans[rooted.name]
+            holds(
+                scope.entryMode == "lua-builder" and args[
+                    2
+                ].op == "local" and rooted.cName ~= nil and param ~= nil and (
+                    param as scalarIR.Param
+                ).kind == "scalar" and (
+                    param as scalarIR.Param
+                ).type == "lua_string" and rooted.cName == (param as scalarIR.Param).cName,
+                "invalid SIMD rooted-string load"
+            )
+            holds(simd.span == nil, "unexpected SIMD rooted-string span")
         else
             holds(simd.span == nil, "unexpected SIMD span root")
         end
@@ -492,7 +509,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
     elseif op == "f32_sqrt" then
         holds(node.type == "f32" and node.value.type == "f32", "invalid binary32 square root")
         scalarWalk(node.value, values, scope)
-    elseif op == "u32_popcount" or op == "u32_ctz" or op == "u32_clz" then
+    elseif op == "u32_not" or op == "u32_popcount" or op == "u32_ctz" or op == "u32_clz" then
         local counted = node as scalarIR.FixedUnary
         holds(node.type == "u32" and counted.value.type == "u32", "invalid uint32 bit count")
         scalarWalk(counted.value, values, scope)
@@ -563,6 +580,21 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             "value stream null is not rooted"
         )
         scalarWalk(builder.nullValue, values, scope)
+    elseif op == "lua_scratch_u32" then
+        local scratch = node as scalarIR.LuaScratchU32
+        holds(scope.entryMode == "lua-builder" and node.type == "lua_scratch_u32", "scratch outside a builder")
+        holds(scratch.capacity.type == "u32", "scratch capacity is not uint32")
+        scalarWalk(scratch.capacity, values, scope)
+    elseif op == "lua_scratch_u32_get" then
+        local loaded = node as scalarIR.LuaScratchU32Get
+        holds(scope.entryMode == "lua-builder" and node.type == "u32", "scratch read outside a builder")
+        holds(
+            loaded.scratch.type == "lua_scratch_u32" and loaded.scratch.op == "local",
+            "scratch read has no local buffer"
+        )
+        holds(loaded.index.type == "u32", "scratch read index is not uint32")
+        scalarWalk(loaded.scratch, values, scope)
+        scalarWalk(loaded.index, values, scope)
     elseif op == "lua_string_byte" or op == "lua_string_u32" or op == "lua_string_length" then
         local bytes = node as scalarIR.LuaBytes
         holds(scope.entryMode == "lua-builder" and node.type == "u32", "rooted byte read outside a builder")
@@ -1061,6 +1093,17 @@ local function block(
                 or write.value.type == "lua_nil",
                 "unsupported Lua table value"
             )
+        elseif statement.op == "lua_scratch_u32_set" then
+            local write = statement as scalarIR.LuaScratchU32Set
+            holds(scope.entryMode == "lua-builder" and write.type == "lua_effect", "scratch write outside a builder")
+            holds(
+                write.scratch.type == "lua_scratch_u32" and write.scratch.op == "local",
+                "scratch write has no local buffer"
+            )
+            holds(write.index.type == "u32" and write.value.type == "u32", "invalid scratch write")
+            scalarWalk(write.scratch, values, scope)
+            scalarWalk(write.index, values, scope)
+            scalarWalk(write.value, values, scope)
         elseif tostring(statement.op):match("^lua_builder_") ~= nil then
             local event = statement as scalarIR.LuaBuild
             holds(
@@ -1605,11 +1648,16 @@ local function constructionStack(statements: {scalarIR.Statement}, inLoop: boole
                 not (inLoop and statement.type == "lua_builder"),
                 "value stream creation inside a loop is not stack bounded"
             )
+            holds(
+                not (inLoop and statement.type == "lua_scratch_u32"),
+                "scratch allocation inside a loop is not stack bounded"
+            )
             depth = math.max(depth, nested)
             if statement.type == "lua_table"
                 or statement.type == "lua_string"
                 or statement.type == "lua_nil"
                 or statement.type == "lua_value"
+                or statement.type == "lua_scratch_u32"
             then
                 roots = roots + 1
             end
