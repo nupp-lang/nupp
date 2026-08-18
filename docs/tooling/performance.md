@@ -309,7 +309,7 @@ emits a native C `switch` for an exact-width selector; see
 [scalar switch initializers](aot.md#scalar-switch-initializers).
 :::
 
-#### What keeps ordered branches
+#### Conditions that keep ordered branches
 
 Ordered branches come back for coverage builds, which need one instrumentable
 condition per authored case, and for small maps, block arms, destructuring,
@@ -323,7 +323,7 @@ guard and may share that read across a leading run of record cases. An optional,
 gradual, primitive, refined, or otherwise open selector keeps the guarded or
 authored-order predicate.
 
-#### What is not built
+#### Rejected and deferred plans
 
 There is no per-dispatch C helper, function table, BDD, MTBDD, or LuaJIT VM
 extension. Stock LuaJIT cannot jump from a computed case ordinal to an arbitrary
@@ -911,7 +911,7 @@ end
     OPT-6: indexed-range: lowers 4 soa accesses
     OPT-6: view-scalar-replacement: virtualizes one alias
 
-#### Admitted roots and what they keep
+#### Admitted roots
 
 An arbitrary index keeps its runtime bounds check. Admitted roots come from
 `span.fromString`, the shared and writable C-array constructors,

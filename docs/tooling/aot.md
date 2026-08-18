@@ -17,11 +17,10 @@ is an error rather than a surprise later, and a check never needs a C compiler.
 Everything below is real output on the kernels committed under
 `bench/kernel-subset-spike/`, and every claim it makes is executed on Linux,
 macOS and Windows rather than argued from one of them — see
-[How it is checked](#how-it-is-checked). What the backend does not do is in
-[What is not here yet](#what-is-not-here-yet); those are edges, not unkept
-promises.
+[Verification](#verification). The edges the backend has not reached are in
+[Not built yet](#not-built-yet); those are edges, not unkept promises.
 
-## What the annotation buys
+## Annotation guarantees
 
 Three things, in order of how much they matter.
 
@@ -39,7 +38,7 @@ And a body that is one map loop over spans may be lowered lane-parallel. That
 is the largest single win where it applies, and the compiler decides whether it
 applies.
 
-## A worked example
+## Worked example
 
 This is `bench/kernel-subset-spike/mandelbrot.nupp`, trimmed to its shape. It
 is ordinary Nupp — spans, structs, a `while` loop with a `break`:
@@ -95,16 +94,26 @@ local function mandelbrot(
 end
 ```
 
-Two guards, then one numeric `for` loop. That shape is not decoration: the
-length guard is what proves the two spans can share one index, and the range
-guard is what lets the generated loop read its bounds without re-checking them
-every element.
+Two guards, then one numeric `for` loop.
 
-The backend does not compile those guards. It matches them, reads the facts out
-of them, and spends the facts on the loop, so each is written in one admitted
-form rather than any equivalent condition. Stating what must hold is the shorter
-spelling; stating what must not happen works the same way and reaches the same
-kernel:
+### Guards
+
+That shape is not decoration: the length guard is what proves the two spans can
+share one index, and the range guard is what lets the generated loop read its
+bounds without re-checking them every element.
+
+The backend does not compile either one. It matches them, reads the facts out of
+them, and spends the facts on the loop, so each is written in one admitted form
+rather than any equivalent condition. Within a spelling the wording is fixed:
+comparisons join with `and` and compare counts with `==`, and the range guard is
+matched against the exact form quoted in its diagnostic. Reordering the
+comparisons or writing an equivalent inequality is refused, because a guard the
+backend only approximately understood would not be a check.
+
+### Asserting and refusing
+
+A guard may state what must hold, as above, or state what must not happen. Both
+reach the same kernel and emit the same C:
 
 ```nupp
 if #escapes ~= #points then
@@ -115,14 +124,12 @@ if first < 1 or last > #escapes or first > last + 1 then
 end
 ```
 
-Use it when the caller should be blamed for the bad argument, which is what
-`error(message, 2)` does and `assert` cannot. The message is optional either way.
+Refusing is worth the extra lines when the caller should be blamed for the bad
+argument: `error(message, 2)` reports at the call site, and `assert` reports at
+the guard. Its comparisons join with `or` and compare counts with `~=`, the
+inverse of the asserted spelling. The message is optional either way.
 
-Within a spelling the wording is fixed: comparisons join with `and` and compare
-counts with `==` when asserting, `or` and `~=` when refusing, and the range
-guard is matched against the exact form quoted in its diagnostic. Reordering the
-comparisons or writing an equivalent inequality is refused, because a guard the
-backend only approximately understood would not be a check.
+### Backend report
 
 Ask what the backend made of it:
 
@@ -141,8 +148,11 @@ function brings its own bodies, and each gang's prelude appears once.
 `nupp aot` names each function's `kernel` or `lua-builder` entry mode. JSON
 inspection additionally reports the runtime ABI and digest-named registrar.
 
-`--emit ir`, `--emit c` and `--emit binding` print the three artifacts. To
-compile and actually run it — which needs a C compiler and the spike's harness:
+`--emit ir`, `--emit c` and `--emit binding` print the three artifacts.
+
+### Running the kernel
+
+Compiling and running it needs a C compiler and the spike's harness:
 
 ```bash
 bench/kernel-subset-spike/mandelbrot.sh mandelbrot
@@ -153,7 +163,7 @@ MANDELBROT_WIDTH=1024 MANDELBROT_HEIGHT=768 MANDELBROT_ITERATIONS=256 \
     luajit bench/kernel-subset-spike/mandelbrot_main.lua
 ```
 
-## The generated C
+## Generated C
 
 ### Layouts, stated and checked
 
@@ -175,7 +185,7 @@ Those exist so the generated wrapper can compare them against `layoutof` at
 load, before anything is callable. Reifying a struct is a claim about memory,
 and this is where the claim is tested rather than assumed.
 
-### The scalar body
+### Scalar body
 
 The tail loop — and the whole body when lane lowering declines — is a direct
 transcription:
@@ -195,7 +205,7 @@ the pointer types. And `(double)(v2_point->re)` is a physical load widening: a
 `float` field is storage, so reading one gives an ordinary Nupp number. That is
 the only place a width changes without the source asking.
 
-### The lane-parallel body
+### Lane-parallel body
 
 The same loop, four iterations at a time. Vector types are C vector extensions,
 so an elementwise operation is written as though it were scalar:
@@ -264,7 +274,7 @@ carrying a pragma that refuses vectorisation. The second is the oracle the first
 is diffed against, and it must not share its lowering — including whatever the C
 compiler would have done on its own.
 
-### The wrapper
+### Wrapper
 
 The generated Nupp module is what a caller sees. Ownership survives; the
 pointers do not escape:
@@ -453,7 +463,7 @@ and the width you get is not the speedup you get.
 
 ## Automatic vectorisation
 
-### What the compiler decides
+### Vectorisation decisions
 
 Lane lowering is attempted for every `@aot` body whose shape admits it. Two
 decisions follow, both made from the loop itself.
@@ -492,7 +502,7 @@ nupp aot bench/kernel-subset-spike/mandelbrot.nupp
 The last two are below the threshold and lowered anyway, because their source
 says so.
 
-### What the loop must look like
+### Admitted loop shape
 
 Lane lowering needs a whole-function shape it can reason about: one top-level
 numeric `for` loop over spans, indexed by the loop counter exactly. Inside the
@@ -577,7 +587,7 @@ nupp: mandelbrot ran one iteration at a time
   select avx2 to run several iterations at once
 ```
 
-### Influencing it
+### Influencing vectorisation
 
 Three levers, and no more than three. None of them lets you name a lane.
 
@@ -629,7 +639,7 @@ happen to be small. That is a change to the program's meaning — different
 roundings, different results — which is exactly why the compiler will not do it
 for you.
 
-### What you cannot do
+### Vectorisation limits
 
 There is no vector type, no mask value, no shuffle, and no way to name a width.
 That is deliberate and it is written down in
@@ -674,7 +684,7 @@ A width changes only at a conversion the IR writes down. An operator never
 changes one, which is what keeps `float` a storage fact rather than an
 arithmetic type.
 
-## How it is checked
+## Verification
 
 Generated C is a backend representation and not the safety boundary. Every span
 access, region relationship, conversion and lane operation is verified in the IR
@@ -918,7 +928,7 @@ brought in needs no W^X policy, no `MAP_JIT`, no executable-memory budget and no
 code retirement — all of which exist only because code is mapped at run time.
 They return if and when direct machine-code emission does.
 
-### How dispatch happens
+### Library dispatch
 
 The wrapper is ordinary Nupp. `nupp aot --emit binding` prints it, and what the
 build splices in is the same text minus the parts the source already has:
@@ -961,7 +971,7 @@ so a rebuild never reuses an artifact built from a different body.
 `nupp check` does none of this: it answers a question about the source as
 written, and never needs a C compiler.
 
-### Shipping it
+### Shipping an artifact
 
 The wrapper names the library with a leading `@`, which means *beside the module
 that loads me* rather than *at this path*:
@@ -998,7 +1008,7 @@ Copy the output tree, move it, hand it to someone: it runs. Copy it without the
 `lib/` directory and the load fails by name, saying what it looked for and where
 — not with a missing symbol later on.
 
-### What an artifact is keyed on
+### Artifact cache key
 
 Each artifact is recorded under a key covering everything that can change its
 bytes: the verified IR, the version of the IR vocabulary, the numeric-contract
@@ -1027,7 +1037,7 @@ whoever compiles it.
 The library is validated the same way and is just as disposable. Deleting it
 costs one relink.
 
-## What is not here yet
+## Not built yet
 
 Named so you can tell what you are looking at:
 
