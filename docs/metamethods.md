@@ -364,5 +364,7 @@ The principal diagnostics are:
 
 ## Next
 
-- [interfaces.md](type-system/interfaces.md): the contracts a metamethod is declared through.
-- [records.md](type-system/records.md): the declarations a metatable is attached to.
+- [interfaces.md](type-system/interfaces.md): the contracts a metamethod is
+  declared through.
+- [records.md](type-system/records.md): the declarations a metatable is attached
+  to.

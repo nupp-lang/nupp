@@ -55,9 +55,10 @@ are equivalent.
 
 ## URIs
 
-`nupp.io.URI.new` parses and normalizes one absolute URI. It returns `nil,
-reason` for malformed input. `nupp.io.URI.validate` checks without retaining an
-object; `nupp.io.URI.isURI` distinguishes URI objects from strings and records.
+`nupp.io.URI.new` parses and normalizes one absolute URI. It returns
+`nil, reason` for malformed input. `nupp.io.URI.validate` checks without
+retaining an object; `nupp.io.URI.isURI` distinguishes URI objects from strings
+and records.
 
 ```nupp
 local endpoint, reason = nupp.io.URI.new("https://user:pass@example.com:8443/api?q=1#top")

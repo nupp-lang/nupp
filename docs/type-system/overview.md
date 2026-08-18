@@ -176,4 +176,5 @@ For where a declaration lives and how modules see it, read
 ## Next
 
 - [primitives.md](primitives.md): the builtin names, and where to start.
-- [strictness.md](../concepts/strictness.md): which files are held to the strict floor.
+- [strictness.md](../concepts/strictness.md): which files are held to the strict
+  floor.

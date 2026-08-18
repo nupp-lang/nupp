@@ -62,8 +62,8 @@ rather than showing them against text it no longer has.
 
 ## Workspace folders
 
-A folder is a project. Each one a client opens is read under its own `nupp.lua`
-— its own lint levels, strictness, language mode and target — so a file is
+A folder is a project. Each one a client opens is read under its own `nupp.lua`,
+with its own lint levels, strictness, language mode and target, so a file is
 checked the same way whichever window opened it and whichever folder the server
 was launched against. A folder still searches its neighbours for modules, so a
 `require` that crosses folders resolves as it always did.

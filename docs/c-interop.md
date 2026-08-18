@@ -196,8 +196,8 @@ Nupp writes nested C array declarators from the element outward, so C
 the field. A C array parameter is adjusted to a pointer by C itself, which is
 why `callbacks[4]` becomes a pointer while the pointer-to-array result retains
 its `[4]` bound. Function pointers and ordinary pointers are nullable: the
-current importer does not infer a nonnull contract from a header. A `const char
-*` is the nullable string-taking form `cstring?`.
+current importer does not infer a nonnull contract from a header. A
+`const char *` is the nullable string-taking form `cstring?`.
 
 The anonymous struct is public as `context`, its typedef identity. The same
 rule applies to typedef-named anonymous unions. Anonymous members which promote
@@ -505,12 +505,12 @@ local STATUS_OK: int32 = 0
 local STATUS_BUSY: int32 = 1
 ```
 
-They arrive whether or not the enum itself is named, since `typedef enum { ... }
-Mode;` names the type and the members are the point either way. The type is an
-integer wherever it appears, which is all a C enum ever is, and C checks nothing
-about which integer, so a member passes to the function it belongs to without a
-cast, and any other integer passes too. A name declared twice keeps its first
-meaning.
+They arrive whether or not the enum itself is named, since
+`typedef enum { ... } Mode;` names the type and the members are the point either
+way. The type is an integer wherever it appears, which is all a C enum ever is,
+and C checks nothing about which integer, so a member passes to the function it
+belongs to without a cast, and any other integer passes too. A name declared
+twice keeps its first meaning.
 
 ## Type the header in place
 
@@ -776,6 +776,9 @@ onto the pointer and count the function already accepts.
 
 ## Next
 
-- [ownership.md](ownership.md): the contracts a C pointer crosses the boundary with.
-- [records.md](type-system/records.md): the struct declarations a header imports as.
-- [embedding.md](embedding.md): host checked Nupp components from a C application.
+- [ownership.md](ownership.md): the contracts a C pointer crosses the boundary
+  with.
+- [records.md](type-system/records.md): the struct declarations a header imports
+  as.
+- [embedding.md](embedding.md): host checked Nupp components from a C
+  application.

@@ -24,19 +24,20 @@ and costing about sixteen kilobytes on a 1.6 MB binary.
 `nupp tasks` lists the manifest's build targets, configured test action,
 self-host/fixpoint action, and any named `tasks` entries, and marks the default
 build target. `nupp tasks <name>` prints the effective target configuration,
-including manifest-level defaults such as `outDir`. Both forms accept `--format
-json` (or `--json`) for build-tool integration; text is the default. Run `nupp
-help tasks` for the complete interface. A named task also runs with `nupp task
-<name>`. See [Tasks](../tooling/tasks.md) for the manifest shape.
+including manifest-level defaults such as `outDir`. Both forms accept
+`--format json` (or `--json`) for build-tool integration; text is the default.
+Run `nupp help tasks` for the complete interface. A named task also runs with
+`nupp task <name>`. See [Tasks](../tooling/tasks.md) for the manifest shape.
 
 `nupp clean` removes the output paths of every configured target;
 `nupp clean --target <name>` limits removal to one target. `--dry-run` prints
 the paths without changing them. Clean rejects absolute paths, parent
 traversal, and the project root before removing anything.
 
-A multi-platform binary also accepts `nupp clean --target <name> --platform
-<triple>`; `--platform all` and an omitted platform remove all platform outputs
-owned by that target. A platform option without a target is refused.
+A multi-platform binary also accepts
+`nupp clean --target <name> --platform <triple>`; `--platform all` and an
+omitted platform remove all platform outputs owned by that target. A platform
+option without a target is refused.
 
 The manifest is validated before builds, checks, tests, and task queries.
 Validation covers dense string arrays, required target inputs, supported
@@ -51,13 +52,13 @@ it is refused by name, with the nearest spelling when there is one:
 nupp: build.targets.site has no key "custmCss"; did you mean "customCss"?
 ```
 
-A key nothing reads would otherwise take effect silently, which is the one way
-a configuration file can lie to the person who wrote it: `custmCss` rendered a
+A key nothing reads would otherwise take effect silently, which is the one way a
+configuration file can lie to the person who wrote it: `custmCss` rendered a
 site with the default theme and exited cleanly. The sets cover the top level,
 the build section, every target, a docs target's pages and their `heroActions`
-and `features` entries, `test`, `tasks`, `selfHost`, `fmt`, and each dependency
-— a dependency against the keys its own kind reads, since what a C build takes
-and what a rock takes have almost nothing in common.
+and `features` entries, `test`, `tasks`, `selfHost`, `fmt`, and each dependency.
+A dependency is checked against the keys its own kind reads, since what a C
+build takes and what a rock takes have almost nothing in common.
 
 Keys beginning with `_` are the build's own, folded in from a command's
 options; a manifest has no reason to write one.
@@ -258,31 +259,31 @@ the theme's responsive accent glow. Anything under a module named `internal`,
 source files beginning with `_`, files marked `@!internal` (including
 descendants of a marked `init.nupp`), and members beginning with `_` other than
 metamethods are private by default; set `includePrivate = true` to include them.
-A private member leaves the rendered declaration too, not only the member table. A module's page lists the modules
-nested under it and groups what it declares into constructors, types, functions,
-and values. `constructorPattern` is the Lua pattern a function's last name
-segment has to match to count as a constructor, defaulting to `^new`; `""`
-leaves every function in Functions. A Markdown link whose target names a module,
-a declaration, or a member, such as `[](nupp.zone)`, is resolved to whatever
-documents it, in handwritten pages and doc comments alike. A page whose `path`
-is a module's route, meaning `modules/` followed by the module name with its
-dots as slashes, is that module's overview, rendered above the generated API
-rather than as a second page beside it. Handwritten pages and generated module
-pages share the navigation, breadcrumb, outline, and collapsible side columns.
-Each page emits and links `llms.txt`; the output root adds `llms-full.txt` and
-an LLM-oriented page index. The header search opens with Ctrl-K or Command-K and
-searches handwritten page titles and headings together with modules,
-declarations, and members. Handwritten pages also accept JavaScript-free code
-tabs: start with a `::: code-group` line, add fenced blocks whose language is
-followed by a label such as `[Nupp]` or `[Generated Lua]`, then close the group
-with `:::`. Use `nupp` for Nupp source so contextual keywords and reference
-links receive the native Nupp highlighting; reserve `lua` for manifests and
-generated or handwritten Lua. The getting-started guide contains a complete
-example. Add `:line-numbers` after the language to number a block's lines, and
-`:line-numbers=41` when the excerpt starts partway into a file. A label and
-`:line-numbers` may appear in either order, inside a code group or on a lone
-fence. The numbers sit in their own gutter, so selecting the block copies the
-code without them.
+A private member leaves the rendered declaration too, not only the member table.
+A module's page lists the modules nested under it and groups what it declares
+into constructors, types, functions, and values. `constructorPattern` is the Lua
+pattern a function's last name segment has to match to count as a constructor,
+defaulting to `^new`; `""` leaves every function in Functions. A Markdown link
+whose target names a module, a declaration, or a member, such as
+`[](nupp.zone)`, is resolved to whatever documents it, in handwritten pages and
+doc comments alike. A page whose `path` is a module's route, meaning `modules/`
+followed by the module name with its dots as slashes, is that module's overview,
+rendered above the generated API rather than as a second page beside it.
+Handwritten pages and generated module pages share the navigation, breadcrumb,
+outline, and collapsible side columns. Each page emits and links `llms.txt`; the
+output root adds `llms-full.txt` and an LLM-oriented page index. The header
+search opens with Ctrl-K or Command-K and searches handwritten page titles and
+headings together with modules, declarations, and members. Handwritten pages
+also accept JavaScript-free code tabs: start with a `::: code-group` line, add
+fenced blocks whose language is followed by a label such as `[Nupp]` or
+`[Generated Lua]`, then close the group with `:::`. Use `nupp` for Nupp source
+so contextual keywords and reference links receive the native Nupp highlighting;
+reserve `lua` for manifests and generated or handwritten Lua. The
+getting-started guide contains a complete example. Add `:line-numbers` after the
+language to number a block's lines, and `:line-numbers=41` when the excerpt
+starts partway into a file. A label and `:line-numbers` may appear in either
+order, inside a code group or on a lone fence. The numbers sit in their own
+gutter, so selecting the block copies the code without them.
 
 ## Cache and failure behavior
 
@@ -309,22 +310,22 @@ an emitted artifact safely falls back to the required cold work.
 
 "Changing the compiler" means changing the part of it that computes the answer
 being reused, not changing any part of it. Module artifacts are keyed on what
-compiling a module reaches; parsed headers on the parser; formatting verdicts
-on the formatter; comptime type blueprints on the checker. Each is the digest
-of that module and everything it requires, read off the compiler's own tree, so
-a new command, a language-server change, or an edit to a diagnostic's prose
-leaves all four reusable. Anything that cannot be read that way — a compiler
-that is one bundled file, a `require` naming a computed module — falls back to
+compiling a module reaches; parsed headers on the parser; formatting verdicts on
+the formatter; comptime type blueprints on the checker. Each is the digest of
+that module and everything it requires, read off the compiler's own tree, so a
+new command, a language-server change, or an edit to a diagnostic's prose leaves
+all four reusable. Anything that cannot be read that way, such as a compiler
+that is one bundled file or a `require` naming a computed module, falls back to
 the digest of the whole compiler, which invalidates more than it has to and
 never less.
 
 Two of these stores hold answers about content rather than about a project: a
 file's header and its formatting verdict are the same answers wherever the file
 is. `NUPP_CACHE_DIR` names one directory for them, which is what a run making
-many small projects wants — the test suite makes one per case — so the second
-project starts from what the first worked out. The build state is not moved by
-it: its records are keyed by module name, so two projects sharing them would
-read each other's modules.
+many small projects wants, the test suite being one that makes a project per
+case, so the second project starts from what the first worked out. The build
+state is not moved by it: its records are keyed by module name, so two projects
+sharing them would read each other's modules.
 
 The checker and generator finish before module outputs are changed. Each file
 is written through a sibling temporary file, state is saved after the
@@ -332,7 +333,7 @@ artifacts, and `.nupp-complete` is written last. `bin/nupp` only selects a
 compiler build carrying that marker; otherwise it falls back to the tracked
 bootstrap compiler.
 
-## What a build says about itself
+## Build progress and timing
 
 A build run from a terminal names the module it is working on, on one line it
 rewrites in place, and finishes with how long it took, where that time went,
@@ -357,15 +358,15 @@ guarantees of the modules it depends on, and answering that is a check.
 
 Per-module numbers are exclusive. A module's check reaches its imports through
 the query graph, so the time those take is charged to them rather than to
-whichever module reached them first — otherwise the slowest module would be
+whichever module reached them first. Otherwise the slowest module would be
 whichever one the build happened to start with.
 
 Nothing is written unless standard error is a terminal, so a build driven by a
 script is as quiet as it has always been. `--progress=always` reports anyway,
-`-q` reports nothing, and `NUPP_PROGRESS` — `always`, `never` or `auto` — says
-the same thing for the builds nothing passes a flag to, including the rebuild
-`bin/nupp` runs before every other command. `nupp build --json` carries the
-same numbers in a `timing` object rather than writing a report.
+`-q` reports nothing, and `NUPP_PROGRESS` says the same thing with `always`,
+`never` or `auto` for the builds nothing passes a flag to, including the rebuild
+`bin/nupp` runs before every other command. `nupp build --json` carries the same
+numbers in a `timing` object rather than writing a report.
 
 ## C dependencies
 
@@ -399,9 +400,9 @@ quotes and backslash escapes, but is never expanded or executed by a shell.
 
 ### Header-only C dependencies
 
-An API made entirely from `static inline` functions and function-like macros
-has no native symbol for LuaJIT to load. Opt its binding into a generated bridge;
-no empty `.c` source is required:
+An API made entirely from `static inline` functions and function-like macros has
+no native symbol for LuaJIT to load. Opt its binding into a generated bridge; no
+empty `.c` source is required:
 
 ```lua
 return {
@@ -481,14 +482,14 @@ copied or moved output tree still finds it. A `kind = "bundle"`, `"binary"` or
 `"component"` target is one file someone carries somewhere, so the build puts a
 copy of the library beside the artifact, the way it already does for compiled
 `@aot` code. A `bindings.library` override, a `load` naming a library already
-installed, and a `pkgConfig` package are written through unchanged, since none of
-them are part of what the build ships.
+installed, and a `pkgConfig` package are written through unchanged, since none
+of them are part of what the build ships.
 
 The generated translation unit includes the original header and exports only
-deterministic private wrapper symbols. It is compiled with the dependency's `cc`,
-`includeDirs`, `cflags`, `cppflags`, package flags, and linker inputs, then
-installed into the same shared library as any ordinary `sources`. A dependency
-containing only bridge wrappers still produces the library.
+deterministic private wrapper symbols. It is compiled with the dependency's
+`cc`, `includeDirs`, `cflags`, `cppflags`, package flags, and linker inputs,
+then installed into the same shared library as any ordinary `sources`. A
+dependency containing only bridge wrappers still produces the library.
 
 The dependency cache includes the header, source and bridge bytes, macro
 recipes, compiler identity, flags, package flags, child dependencies, and
@@ -587,11 +588,12 @@ warm build reaches for nothing. A rock built from `path` is remade whenever its
 sources change, which is what the fingerprint is for.
 
 The tree is added to the search path of the build that installed it, so a
-target's own dependencies are loadable the moment they are installed, so `nupp
-doc` installs its renderer and renders with it in one command. `nupp test` puts
-the tested target's trees on `LUA_PATH` and `LUA_CPATH` for the test command,
-ahead of what is already there and without replacing it. Anything else that runs
-outside the build reads the tree the way LuaRocks trees are always read.
+target's own dependencies are loadable the moment they are installed, so
+`nupp doc` installs its renderer and renders with it in one command. `nupp test`
+puts the tested target's trees on `LUA_PATH` and `LUA_CPATH` for the test
+command, ahead of what is already there and without replacing it. Anything else
+that runs outside the build reads the tree the way LuaRocks trees are always
+read.
 
 Documentation targets take dependencies as well, and the renderer's are the
 usual case:

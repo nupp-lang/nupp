@@ -113,15 +113,15 @@ print(file:read())
 
 With no result annotation, `new File(...)` has the ordinary `File` type. An
 explicit result states a policy introduced by successful construction. It must
-be one value that erases to `File`; `affine(File, File.destroy)` is valid because
-it changes the obligation, not the runtime representation. A different record,
-a borrowed view, a pinned view, or a result pack is rejected.
+be one value that erases to `File`; `affine(File, File.destroy)` is valid
+because it changes the obligation, not the runtime representation. A different
+record, a borrowed view, a pinned view, or a result pack is rejected.
 
 The cleanup may be an instance method on the same record. Inline signatures are
 hoisted before constructor results resolve, and `File.destroy` is the ordinary
 function identity stored on the record table. The affine view remains a `File`
-at runtime and exposes `File`'s methods directly—there is no `NativeFile`
-wrapper or shared interface.
+at runtime and exposes `File`'s methods directly, with no `NativeFile` wrapper
+or shared interface.
 
 Constructor overload selection includes the complete result policy. Overloads
 still differ by parameter pack, never by result alone; after argument selection,
@@ -142,8 +142,8 @@ end
 local settings = new Settings(port = 9000)
 ```
 
-Omitted fields use their declarations; written arguments still win. Defaults
-are explicit—types do not acquire universal zero values. A default is a closed
+Omitted fields use their declarations; written arguments still win. Defaults are
+explicit, and types do not acquire universal zero values. A default is a closed
 scalar or table literal that fits the field type, so it is stable across module
 and comptime boundaries. Each construction evaluates it freshly; mutable table
 defaults are never shared.
@@ -415,5 +415,7 @@ complete result rule.
 
 ## Next
 
-- [interfaces.md](interfaces.md): the structural contract a record can declare it satisfies.
-- [c-interop.md](../c-interop.md): what a struct's layout means at the C boundary.
+- [interfaces.md](interfaces.md): the structural contract a record can declare
+  it satisfies.
+- [c-interop.md](../c-interop.md): what a struct's layout means at the C
+  boundary.

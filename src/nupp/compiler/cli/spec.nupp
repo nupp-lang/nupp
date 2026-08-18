@@ -306,14 +306,14 @@ local UNIVERSAL: {
         form = "optional",
         constant = "always",
         choices = {"always", "never", "auto"},
-        help = "When to colour output: always, never, or auto (default)"
+        help = "When to color output: always, never, or auto (default)"
     },
     {
         name = "--no-color",
         key = "color",
         constant = "never",
-        duplicate = "colour was both asked for and refused",
-        help = "Never colour output; the same as --color=never"
+        duplicate = "color was both asked for and refused",
+        help = "Never color output; the same as --color=never"
     },
     {names = {"-h", "--help"}, help = "Show this help"},
 }

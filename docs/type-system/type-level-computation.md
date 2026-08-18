@@ -1,10 +1,10 @@
 # Comptime types
 
 Nupp has one general compile-time programming language: ordinary Nupp inside
-`comptime function` declarations. A comptime function may accept compiler-only `type` and
-`typepack` handles and return a structural type or value pack. Calling such a
-function in type position executes it while the program is checked and emits no
-runtime function or data.
+`comptime function` declarations. A comptime function may accept compiler-only
+`type` and `typepack` handles and return a structural type or value pack.
+Calling such a function in type position executes it while the program is
+checked and emits no runtime function or data.
 
 ```nupp:playground
 local comptime function Optional(T: type): type
@@ -152,9 +152,9 @@ reported as `have different const argument 1`.
 
 ## `string.format`
 
-The prelude types `string.format` with a PEG-backed comptime parser. Literal formats get
-exact argument arity and conversion checks; a broad runtime `string` retains a
-gradual `...any` tail.
+The prelude types `string.format` with a PEG-backed comptime parser. Literal
+formats get exact argument arity and conversion checks; a broad runtime `string`
+retains a gradual `...any` tail.
 
 ```nupp
 local count = string.format("%s has %d messages", "Ada", 3)
@@ -215,12 +215,12 @@ direct `string.format`, literal `:format`, and logging calls.
 ## Lua string patterns
 
 Literal Lua patterns are parsed by a PEG-backed comptime type function.
-`string.match`, `find`, and
-`gmatch` receive the pattern's capture pack: ordinary captures are `string`, and
-empty `()` captures are `integer`. `match` keeps its first result optional because
-the pattern may not match; `find` retains optional endpoints. `gsub` validates a
-literal pattern even though its return stays `(string, integer)`. A dynamic pattern
-keeps the ordinary gradual result contract.
+`string.match`, `find`, and `gmatch` receive the pattern's capture pack:
+ordinary captures are `string`, and empty `()` captures are `integer`. `match`
+keeps its first result optional because the pattern may not match; `find`
+retains optional endpoints. `gsub` validates a literal pattern even though its
+return stays `(string, integer)`. A dynamic pattern keeps the ordinary gradual
+result contract.
 
 ```nupp
 local word: string?, at: integer? = string.match("ready", "([a-z]+)()")
@@ -269,6 +269,11 @@ boundaries. [Records and structs](records.md) receive identity from those
 declarations. [Associated types](associated-types.md) provide computed answers
 owned by a declaration without granting comptime code control over names,
 visibility, declaration order, runtime tables, metatables, or ABI layouts.
+
+## Diagnostics
+
+- **NUPP2001**: two applications of one generic differ in a const argument.
+
 
 ## Next
 

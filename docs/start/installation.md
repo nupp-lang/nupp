@@ -54,15 +54,16 @@ from the checkout root. `scripts/worktree BRANCH PATH [START_POINT]` also seeds
 the new worktree with content-validated compiler caches and the test runner's
 last suite timings. Generated outputs remain local to each worktree.
 
-The crates a build stages for a project — the native providers behind
-`nupp.io.files` and its siblings, and the executable a binary target is stamped
-into — are the compiler's, not the project's, so cargo keeps their target
+The crates a build stages for a project are the compiler's rather than the
+project's, both the native providers behind `nupp.io.files` and its siblings and
+the executable a binary target is stamped into, so cargo keeps their target
 directories in that same repository cache rather than under each project's
 output directory. One directory per crate and feature set, because cargo names
 what it uplifts after the crate: two feature sets sharing a directory overwrite
-each other's library. `NUPP_NATIVE_CACHE_DIR` names the root. Without this, every
-project that reached a native facility compiled that facility's dependencies from
-nothing, which for the http provider means `reqwest`, `rustls` and `tokio`.
+each other's library. `NUPP_NATIVE_CACHE_DIR` names the root. Without this,
+every project that reached a native facility compiled that facility's
+dependencies from nothing, which for the http provider means `reqwest`, `rustls`
+and `tokio`.
 
 Only one build runs in a tree at a time. A build removes the completion stamp
 before it writes anything, so a second command starting in that window used to

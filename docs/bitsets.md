@@ -2,9 +2,9 @@
 
 `nupp.data.bitset` holds sets of bit positions across as many 32-bit words as
 they need. LuaJIT's `bit` library operates on one word at a time and has no
-population count or trailing-zero operation, so the multi-word part — the word
-loop, range masks that span word boundaries, counting across words, and walking
-set positions — lives here.
+population count or trailing-zero operation, so the multi-word part lives here:
+the word loop, range masks that span word boundaries, counting across words, and
+walking set positions.
 
 Positions count from 0. Reading, clearing and testing a position past the end
 are defined and cheap; setting one grows.
@@ -63,26 +63,26 @@ end
 
 This is pure generated Lua with no native provider, so it stays available in a
 one-file `bundle` target. It is an ordinary checked Nupp module that the
-namespace loads on first reach, which costs about half a millisecond and 128KB of
-static tables: LuaJIT exposes neither a population count nor a trailing-zero
-operation, so both are half-word lookups, and paying for the tables once is worth
-1.58 times the counting speed and 1.20 times the walking speed of the byte-sized
-ones. A program that never reaches a bitset pays neither.
+namespace loads on first reach, which costs about half a millisecond and 128KB
+of static tables: LuaJIT exposes neither a population count nor a trailing-zero
+operation, so both are half-word lookups, and paying for the tables once is
+worth 1.58 times the counting speed and 1.20 times the walking speed of the
+byte-sized ones. A program that never reaches a bitset pays neither.
 
 | Member | Result | Purpose |
 | --- | --- | --- |
 | `create(capacityBits?)` | `nupp.data.bitset.Bitset` | An empty set. |
 | `WORD_BITS` | integer | Bits per stored word. |
-| `set(index)`, `clear(index)`, `get(index)` | — / boolean | One position. |
-| `setRange(low, high)` | — | An inclusive range, by word masks. |
-| `setOnly(index)`, `clearAll()` | — | Replace the contents. |
+| `set(index)`, `clear(index)`, `get(index)` | none / boolean | One position. |
+| `setRange(low, high)` | none | An inclusive range, by word masks. |
+| `setOnly(index)`, `clearAll()` | none | Replace the contents. |
 | `count()`, `isEmpty()` | integer / boolean | How much is set. |
 | `containsAll(other)`, `overlaps(other)`, `disjoint(other)` | boolean | Compare two sets. |
-| `orWith`, `andWith`, `andNotWith`, `xorWith`, `copyFrom` | — | Set algebra in place. |
+| `orWith`, `andWith`, `andNotWith`, `xorWith`, `copyFrom` | none | Set algebra in place. |
 | `nextSetBit(from)` | integer, or -1 | Walk set positions. |
 | `positionsInto(target, capacity, from)` | written, resume | Extract every set position in one call. |
 | `wordCount()`, `wordAt(index)` | integer | Walk stored words. |
-| `reserve(bits)` | — | Grow ahead of use. |
+| `reserve(bits)` | none | Grow ahead of use. |
 
 Part of the [`nupp.data`](data.md) namespace, which also holds UUIDs, hashes
 and checksums.

@@ -62,12 +62,12 @@ local record Credentials
 end
 ```
 
-Applying the provider also claims `M.Inspect`. An equal written `is
-inspect.Inspect` is redundant and coalesced. Interface defaults are inherited
-normally and associated requirements are checked normally. A provider can fill
-a bodyless callable requirement or declare a new function member with a closed
-comptime-built signature. Generic, variadic, overloaded, and effectful provider
-declarations are not part of the first recipe version.
+Applying the provider also claims `M.Inspect`. An equal written
+`is inspect.Inspect` is redundant and coalesced. Interface defaults are
+inherited normally and associated requirements are checked normally. A provider
+can fill a bodyless callable requirement or declare a new function member with a
+closed comptime-built signature. Generic, variadic, overloaded, and effectful
+provider declarations are not part of the first recipe version.
 
 Every provider on an owner receives the same immutable pre-merge `Info` view.
 It contains the owner and interface type handles, ordered stored fields with
@@ -247,9 +247,9 @@ Credentials { user = "ada", password = <redacted> }
 ## JSON
 
 `JSON` generates `toJSON`, a static `fromJSON`, a `fieldCodec`, and
-`nupp.data.json.JSONEncodable` conformance. Encoding is deterministic: record and
-shape fields follow declaration order and string map keys sort by byte order, so
-the same value always produces the same bytes.
+`nupp.data.json.JSONEncodable` conformance. Encoding is deterministic: record
+and shape fields follow declaration order and string map keys sort by byte
+order, so the same value always produces the same bytes.
 
 ```nupp
 @derive(nupp.derive.JSON, nupp.derive.Debug)
@@ -371,6 +371,12 @@ Derives run as part of declaration checking and may attach only validated
 member recipes. The bundled Debug and JSON providers use that
 same public mechanism; neither derives nor comptime become arbitrary source
 generation.
+
+## Diagnostics
+
+- **NUPP2810**: a derive provider failed or returned an invalid blueprint,
+  and named no code of its own.
+
 
 ## Next
 

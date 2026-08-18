@@ -385,6 +385,8 @@ remains the authority for the implemented ABI.
 
 ## Next
 
-- [c-interop.md](c-interop.md): let checked Nupp source call host and native C APIs.
-- [build.md](tooling/build.md): package modules, resources, and native dependencies.
+- [c-interop.md](c-interop.md): let checked Nupp source call host and native C
+  APIs.
+- [build.md](tooling/build.md): package modules, resources, and native
+  dependencies.
 - [ownership.md](ownership.md): describe pointers retained across native calls.

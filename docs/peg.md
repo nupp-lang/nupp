@@ -519,10 +519,10 @@ is limited to 256 levels.
 `CompileOptions.backend` accepts `"auto"` or `"lpeg"`.
 
 `auto` is the default. Every static grammar becomes a validated canonical PEG
-graph. Nupp recognizes a few common shapes—fixed-width matches, repeated bytes,
-and packed whole-input scans—and emits straight-line Lua for them. All other
-graphs lower directly to native LPeg patterns. There is no Nupp PEG bytecode or
-general-purpose interpreter.
+graph. Nupp recognizes a few common shapes, namely fixed-width matches, repeated
+bytes and packed whole-input scans, and emits straight-line Lua for them. All
+other graphs lower directly to native LPeg patterns. There is no Nupp PEG
+bytecode or general-purpose interpreter.
 
 ```nupp
 local Fast = nupp.peg.compile("[a-z]+ !.")
@@ -535,9 +535,10 @@ to native LPeg. It is useful for backend comparisons:
 local General = nupp.peg.compile("[a-z]+ !.", {backend = "lpeg"})
 ```
 
-Runtime textual grammars are compiled by LPeg's `re` module and cached by source.
-They do not invoke `loadstring`. The `auto` backend invokes `loadstring` only
-when a static graph selects a Nupp specialization; LPeg owns every general match.
+Runtime textual grammars are compiled by LPeg's `re` module and cached by
+source. They do not invoke `loadstring`. The `auto` backend invokes `loadstring`
+only when a static graph selects a Nupp specialization; LPeg owns every general
+match.
 
 This split is possible because Nupp owns the static representation. LPeg pattern
 userdata does not expose a public, traversable AST from which the compiler could

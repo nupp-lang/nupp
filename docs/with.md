@@ -60,7 +60,7 @@ end
 name and `=` or `:` follow it, so `local with = function(...) ... end` remains
 ordinary Lua-compatible code.
 
-## The visible name is a borrow
+## Visible names are borrows
 
 The acquisition must produce a non-optional `affine(T, terminal)` value. The
 compiler moves that owner into an inaccessible slot and binds the authored name

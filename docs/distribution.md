@@ -211,11 +211,11 @@ notarizes the final stamped bytes.
 ## Third-party notices
 
 The compiler-owned stub links LuaJIT, and, where the features are on, LPeg,
-lua-cjson and luautf8. All four are MIT, and a stamped binary is a
-distribution of them, so their notices ship in
-[`host/NOTICE.md`](../host/NOTICE.md) and `host/notices/` — the notice files as
-they arrive in the pinned sources, byte for byte. Hand them over with the
-binary the way a release archive carries a README.
+lua-cjson and luautf8. All four are MIT, and a stamped binary is a distribution
+of them, so their notices ship in [`host/NOTICE.md`](../host/NOTICE.md) and
+`host/notices/`, which carry the notice files as they arrive in the pinned
+sources, byte for byte. Hand them over with the binary the way a release archive
+carries a README.
 
 The sources are fetched at build time rather than committed, so nothing else in
 the tree carries those notices. `host/build.rs` compares each committed copy

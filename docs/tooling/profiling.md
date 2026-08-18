@@ -120,9 +120,9 @@ module checks one boolean and returns. While a session is running, the cost is
 the call itself, and a call on the hottest path can stop a trace forming.
 
 So `push`, and a `pop` whose result is discarded, are lowered rather than
-called. Written in statement position on a receiver that is a bare `local zone
-= require("nupp.zone")`, they are generated inline against the module's own
-state, leaving nothing on the hot path to pay for.
+called. Written in statement position on a receiver that is a bare
+`local zone = require("nupp.zone")`, they are generated inline against the
+module's own state, leaving nothing on the hot path to pay for.
 
 | Spelling | Lowered | Reason |
 | --- | --- | --- |

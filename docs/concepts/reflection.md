@@ -8,15 +8,16 @@ carry metadata. It has two deliberately separate forms:
 | Comptime | `nupp.reflect(T)` | an immutable semantic graph used to generate or validate code |
 | Runtime | `Record.reflect()` | one cached immutable descriptor for that record |
 
-Both describe declarations, not object layout. Use `nupp.sizeof`, `nupp.alignof`,
-`nupp.offsetof`, and `layoutof` for the target-specific layout of a `struct`.
+Both describe declarations, not object layout. Use `nupp.sizeof`,
+`nupp.alignof`, `nupp.offsetof`, and `layoutof` for the target-specific layout
+of a `struct`.
 
 ## Type witnesses
 
 Every record has a visible nominal type value. Its declaration name is a
 `Type<Record>`, distinct from an instance (`Record`). It is still the record's
 ordinary runtime table, so constructors, static members, and method dispatch
-keep their Lua behaviour.
+keep their Lua behavior.
 
 ```nupp
 local record User

@@ -13,7 +13,7 @@ This site is built by it.
 code generator, so a documentation build costs parsing and rendering alone.
 Unchanged output files are left untouched.
 
-```
+```text
 nupp doc [site|markdown|json|both] [-o PATH] [--target NAME] [--title TITLE] [--all] [path...]
 ```
 
@@ -132,8 +132,8 @@ anything marked `@export`. Private by default:
 - a file beginning with `@!internal`;
 - every module below an `init.nupp` beginning with `@!internal`;
 - a member of a record, interface, or struct whose name starts with `_`,
-  whatever it is — field, method, property, or nested type — and anything
-  tagged `@internal`.
+  whatever it is, field, method, property or nested type, and anything tagged
+  `@internal`.
 
 A hidden member leaves the rendered declaration too, not only the member
 table: the signature block a page shows for a record is the record's public
@@ -173,7 +173,7 @@ one literally.
 
 **A caption**, which also becomes a tab label:
 
-````
+````markdown
 ```lua [Generated Lua]
 local x = 1
 ```
@@ -181,7 +181,7 @@ local x = 1
 
 **Line numbers**, optionally starting partway into a file:
 
-````
+````markdown
 ```nupp:line-numbers=41
 local offset = true
 ```
@@ -192,7 +192,7 @@ without them.
 
 **Code groups**, which need no JavaScript:
 
-````
+````markdown
 ::: code-group
 ```nupp [Nupp]
 local record Point
@@ -208,7 +208,7 @@ const Point = {} Point.__index = Point
 
 **Admonitions**, whose bodies remain ordinary Lunamark Markdown:
 
-````
+````markdown
 ::: note Optional title
 Use **normal Markdown** here, including links, lists, and fenced code.
 :::
@@ -221,7 +221,7 @@ block containing `:::` does not close its admonition.
 **A playground**, which is also the editor rather than a picture of one. A Nupp
 fence asks for one with `:playground`:
 
-````
+````markdown
 ```nupp:playground
 local type Priority = "low" | "high"
 local p: Priority = "urgent"
@@ -242,25 +242,25 @@ one, the example a reader would try first. ` ```playground ` remains the
 explicit spelling, and an empty block of it opens on the playground's own
 example menu instead of a program:
 
-````
+````markdown
 ```playground
 ```
 ````
 
 The block is an inline `<nupp-playground>` custom element, not an iframe. A site
-using it serves the playground's `dist/` at `/playground/`, the way `nupp task
-docs-serve` does, so the page can load `doc-app.js`, its shared compiler worker,
-and the browser-safe compiler. Editors size from their content; long programs
-scroll after 28rem. Because the editor lives in the page, CodeMirror popups are
-not clipped at an iframe boundary. A fence with authored source also carries it
-as ordinary fallback markup, and an upgraded example menu keeps the same markup
-in sync with its current program. Reader Mode therefore sees source rather than
-the editor's line-number gutter; a browser without scripting sees authored
-source as a static code block.
+using it serves the playground's `dist/` at `/playground/`, the way
+`nupp task docs-serve` does, so the page can load `doc-app.js`, its shared
+compiler worker, and the browser-safe compiler. Editors size from their content;
+long programs scroll after 28rem. Because the editor lives in the page,
+CodeMirror popups are not clipped at an iframe boundary. A fence with authored
+source also carries it as ordinary fallback markup, and an upgraded example menu
+keeps the same markup in sync with its current program. Reader Mode therefore
+sees source rather than the editor's line-number gutter; a browser without
+scripting sees authored source as a static code block.
 
 **File embeds**, which read a file at build time:
 
-```
+```markdown
 <<< @docs/grammar.abnf
 ```
 
@@ -371,12 +371,12 @@ check, and the declaration files behind `require("ffi")`,
 `require("string.buffer")` and the `jit` submodules. A signature on the page is
 the signature the checker enforces, because the two read the same file.
 
-The ambient globals come first, then one section per library table — `string`,
-`table`, `math` and the rest — then the modules `require` loads, then the types
-those signatures name, and last the `Layout` graph a reified `struct` is measured
-by. The semantic descriptor graph a `comptime` block walks is documented with
-the callable `nupp.reflect` namespace instead of leaking ambient types onto this
-page.
+The ambient globals come first, then one section per library table, `string`,
+`table`, `math` and the rest, then the modules `require` loads, then the types
+those signatures name, and last the `Layout` graph a reified `struct` is
+measured by. The semantic descriptor graph a `comptime` block walks is
+documented with the callable `nupp.reflect` namespace instead of leaking ambient
+types onto this page.
 
 A name on the page is the name a program writes. `print` is a global and
 `string.format` is a member, so that is what each one's heading, anchor and
@@ -392,8 +392,8 @@ What `nupp` itself provides is not on the page. Those are modules with pages of
 their own, and the prelude declares them only so that checked code can see them.
 
 The page needs no `sources` entry, and a project's own manifest cannot point it
-at other files: the declarations belong to the compiler rendering the site, which
-is what makes the page true of the toolchain a reader is holding.
+at other files: the declarations belong to the compiler rendering the site,
+which is what makes the page true of the toolchain a reader is holding.
 
 ## Cross-references
 
@@ -401,7 +401,7 @@ A Markdown link whose target names something the documentation knows resolves
 to whatever documents it. The name may be a module, a declaration, or a member,
 and it works the same in a handwritten page, a module blurb, and a `---` run:
 
-```
+```markdown
 [the zone module](nupp.zone)
 [](nupp.zone.Zone)
 [the guard's field](nupp.zone.Zone.active)

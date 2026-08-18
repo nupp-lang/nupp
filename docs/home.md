@@ -30,10 +30,10 @@ For looking something up rather than learning it:
   suspension effects, cancellation, and structured concurrency.
 - [Tooling](start/tooling.md): the checker, build system, formatter, language
   server, documentation generator, and profiler.
-- [Performance](tooling/performance.md): what Nupp does for speed — switch
-  dispatch, indexed views, SoA hot loops, and where each pass is specified.
-- [LuaJIT trace checking](tooling/jit-trace-checking.md): deterministic blockers,
-  `@jit` contracts, editor inspection, and observed abort reasons.
+- [Performance](tooling/performance.md): switch dispatch, indexed views, SoA hot
+  loops, and where each pass is specified.
+- [LuaJIT trace checking](tooling/jit-trace-checking.md): deterministic
+  blockers, `@jit` contracts, editor inspection, and observed abort reasons.
 - [The `nupp` standard library](stdlib.md): JSON, UTF-8, buffers, readers,
   writers, paths, URIs, identifiers, hashes, checksums, math and vectors.
 - [Checked spans](spans.md): rooted, bounds-checked shared and writable views

@@ -126,10 +126,10 @@ Type syntax:
 ## Keywords are contextual
 
 None of the level-1 introducers is reserved. `type`, `record`, `interface`,
-`struct`, `const`, `cdef`, `from`, `unsafe`, `continue`,
-`global`, `with`, `as`, `is`, `metamethod`, `takes`, `borrows`, `exclusive`, `retains`,
-`releases`, `out`, `switch`, `case`, and `yield` all keep their Lua meaning wherever a declaration cannot
-start:
+`struct`, `const`, `cdef`, `from`, `unsafe`, `continue`, `global`, `with`, `as`,
+`is`, `metamethod`, `takes`, `borrows`, `exclusive`, `retains`, `releases`,
+`out`, `switch`, `case`, and `yield` all keep their Lua meaning wherever a
+declaration cannot start:
 
 ```nupp
 local record = 5 -- a variable named record

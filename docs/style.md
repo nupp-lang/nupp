@@ -28,7 +28,7 @@ Every page opens the same way.
    it and layer the rest.
 4. **Everything else**, in layers.
 
-```markdown
+````markdown
 # Owned resources
 
 A file, a socket, a C allocation, or any other value produced by a function
@@ -42,7 +42,7 @@ local function slurp(path: string): string
     return file:read("*a")
 end
 ```
-```
+````
 
 A page owns one concept. If it needs two H1-sized ideas, it is two pages with a
 link between them.
@@ -53,7 +53,7 @@ Titles are short, and they are one of two kinds.
 
 **Descriptive** is a noun phrase for the thing the section is about:
 
-```
+```text
  Inlining
  Records
  Type mapping
@@ -64,7 +64,7 @@ Titles are short, and they are one of two kinds.
 **Declarative or imperative** is a sentence that states the fact the section
 proves, when the fact is the point:
 
-```
+```text
  Intrinsics live under `nupp`
  Literal unions are enums
  Shared borrowing allows mutation
@@ -206,8 +206,8 @@ the prose around it:
   :::
   ````
 
-- Prefer a caption over a sentence introducing the block: ` ```lua [Generated
-  Lua] `.
+- Prefer a caption over a sentence introducing the block, as in
+  ` ```lua [Generated Lua] `.
 - Examples do not carry commentary in comments. Explain in prose above; use a
   comment only for something the prose cannot point at, like
   `-- file borrows its source here`.
@@ -219,7 +219,7 @@ the prose around it:
 - One playground per page is the usual number: the example a reader would try
   first, near the top, before the page starts building on itself. A fragment, a
   step in a sequence, the same program shown again, an example inside a code
-  group or admonition — none of those earns an editor, and a line-numbered fence
+  group or admonition: none of those earns an editor, and a line-numbered fence
   stays text whatever else it asks for.
 - Use ` ```playground ` explicitly for an empty playground that should open on
   the example menu rather than a particular program.
@@ -235,8 +235,9 @@ Link generously. A page is a node, not a document.
 - One page owns each concept; the rest link to it and state only what they
   need. `start/ownership.md` states the annotations a caller writes and links
   `ownership.md` for the model.
-- Say what is on the other end, as in `See [ownership.md](ownership.md) for
-  the complete contract reference`. Never a bare "see here" or a naked URL.
+- Say what is on the other end, as in
+  `See [ownership.md](ownership.md) for the complete contract reference`. Never
+  a bare "see here" or a naked URL.
 - Diagnostic codes link to the reference anchor the compiler already emits, so
   a code in prose and a code in terminal output land in the same place.
 - Doc comments in `src/` link the same way. A `---` block that names a concept
@@ -378,8 +379,8 @@ local function openSession(id: uint64): affine(Session, closeSession)
 - A blank `---` line, then any detail worth having at the call site. Keep it to
   what a reader needs with the signature in front of them; the concept belongs
   on a page, linked.
-- Tag descriptions are lowercase fragments with no period: `@param id the
-  stable account identifier`.
+- Tag descriptions are lowercase fragments with no period:
+  `@param id the stable account identifier`.
 - `@raises` says what makes it raise, one line per condition.
 - Module blurbs, the `--[[ ]]` block at the top of a file, open with what the
   module is for, in one sentence, and link the page that owns the concept.
@@ -395,13 +396,9 @@ The rest is formatting, and none of it is negotiable per page:
   semicolon or colon in the same spot, and do not leave a fragment standing
   where the dash was.
 
-  ```
-   Not                                       Write
-   ────────────────────────────────────────  ─────────────────────────────
-   Two facts. `Drop` supplies cleanup,        `Drop` supplies cleanup;
-   and `affine(T, cleanup)` carries the                 `affine(T, cleanup)` carries the
-   obligation.                               obligation.
-  ```
+  | Not | Write |
+  | --- | --- |
+  | `Drop` supplies cleanup — `affine(T, cleanup)` carries the obligation. | Two facts, so two sentences. `Drop` supplies cleanup. `affine(T, cleanup)` carries the obligation. |
 - Ordinary quotes, not curly, everywhere except inside prose already using
   them.
 - Lists are parallel: all fragments or all sentences, all starting with the
@@ -422,7 +419,7 @@ Before a page lands:
 - Every concept with a page of its own is linked on first mention, by heading
   where a heading answers it.
 - Rules the checker enforces are listed under `## Diagnostics`.
-- Tables are space-aligned fences; two-column key → value is a list.
+- Tables are Markdown pipe tables; two-column key → value is a list.
 - No "we", no filler, no marketing adjective, no hedge that hides a condition.
 - Prose wraps at 80 columns and untouched paragraphs are unreflowed.
 
@@ -431,8 +428,11 @@ Before a page lands:
 These predate the guide and are the standing fix list. Correct them when the
 page is next edited, rather than in one sweep.
 
-- Em dashes are still live in doc comments under `src/` and in CLI help text.
-  The handwritten pages under `docs/` no longer carry any.
+- Em dashes are still live in doc comments under `src/`. The handwritten pages
+  under `docs/` and the CLI help text no longer carry any.
+- Several pages open on prose that runs past the first subheading before any
+  example. The fix is one example per page, written where the page's first
+  claim is made.
 
 ## Next
 

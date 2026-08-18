@@ -29,8 +29,7 @@ assert(points[1].x == 0)
 
 Indexes start at one. `view[index]` raises when the index is outside `1` through
 `#view`. `slice(first, last)` includes both endpoints and borrows the parent;
-omitting `last` extends through the end. An empty slice uses `first,
-first - 1`.
+omitting `last` extends through the end. An empty slice uses `first, first - 1`.
 
 The operator surface replaces the former element methods and public count field:
 
@@ -53,8 +52,8 @@ last access. An escape or opaque call materializes the same checked span.
 :::
 
 `fromFixedCarray(source, count)` returns `FixedSpan<T, N>` when the array and
-literal count carry the same static `N`. It satisfies `Span<T>`, while preserving
-the exact count for checks and generated code.
+literal count carry the same static `N`. It satisfies `Span<T>`, while
+preserving the exact count for checks and generated code.
 
 ## Writable spans
 
@@ -143,9 +142,9 @@ range check proves matching indexed reads and writes non-raising inside
 the dominated numeric loop. This proof is part of checking at every optimization
 level: it is what permits those calls inside `noraise` code.
 
-How that proof is spent at `-O1` — direct FFI element access, and virtual
-slices that allocate no wrapper — is in
-[Performance](tooling/performance.md#opt-6-indexed-views).
+[Performance](tooling/performance.md#opt-6-indexed-views) says how that proof is
+spent at `-O1`, as direct FFI element access and virtual slices that allocate no
+wrapper.
 
 ## Passing a span to C
 

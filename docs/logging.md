@@ -16,7 +16,7 @@ written, by the same machinery that checks `string.format`, so a missing
 argument or a `%d` handed a string is a compile error rather than a line that
 fails at run time.
 
-```
+```text
 nupp.log.error("id %d")
   error: NUPP2006: omitted argument 2 supplies nil, not number
 ```
@@ -47,9 +47,9 @@ Three things follow, and they are the reason this is a compiler intrinsic rather
 than a library.
 
 **A filtered call evaluates nothing.** The level test stands at the call site,
-so the arguments of a suppressed line are never computed. `nupp.log.debug("%s",
-render(state))` does not call `render` when debug is off. No library can decline
-to evaluate its own arguments.
+so the arguments of a suppressed line are never computed.
+`nupp.log.debug("%s", render(state))` does not call `render` when debug is off.
+No library can decline to evaluate its own arguments.
 
 **The module name and line are constants.** The compiler is generating the file,
 so it writes both in directly: the module once in the prologue, the line at each
@@ -83,8 +83,8 @@ nupp.log.level() -- read
 ```
 
 The parameter is the literal union, so a string from outside the program has to
-be narrowed to one of the five before it can be passed. `os.getenv("LOG_LEVEL")
-or "warn"` is `string`, and `string` is not one of them:
+be narrowed to one of the five before it can be passed.
+`os.getenv("LOG_LEVEL") or "warn"` is `string`, and `string` is not one of them:
 
 ```nupp
 local wanted = os.getenv("LOG_LEVEL")

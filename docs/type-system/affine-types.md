@@ -115,8 +115,8 @@ function parameter so declaration identity remains static and unforgeable.
 ## Generic capability preservation
 
 A generic need not know whether a value is affine. `takes` permits the checker
-to move a capability when one is present, and `preserves` relates that capability
-to the result:
+to move a capability when one is present, and `preserves` relates that
+capability to the result:
 
 ```nupp
 local function forward<T>(takes value: T): T preserves value
@@ -140,17 +140,17 @@ end
 ```
 
 The checker substitutes the complete capability into the unique `T` component of
-`Box<T>`. It recursively handles records, tuples, optionals, unions, intersections,
-identity-mapped and projected types, callable records, closures, and result packs.
-Cleanup obligations, pins, and retentions move once; root and region provenance
-remains available to derived views. Callable assignment preserves this relation
-exactly. A result with two possible `T` components is ambiguous and reports
-`NUPP2606` instead of guessing.
+`Box<T>`. It recursively handles records, tuples, optionals, unions,
+intersections, identity-mapped and projected types, callable records, closures,
+and result packs. Cleanup obligations, pins, and retentions move once; root and
+region provenance remains available to derived views. Callable assignment
+preserves this relation exactly. A result with two possible `T` components is
+ambiguous and reports `NUPP2606` instead of guessing.
 
-This does not require higher-kinded generics. `Box<T>` is an ordinary first-order
-application, while `preserves` supplies the separate conservation proof. HKT would
-only be relevant to an API abstracting over `Box` itself as a constructor and would
-not replace that proof.
+This does not require higher-kinded generics. `Box<T>` is an ordinary
+first-order application, while `preserves` supplies the separate conservation
+proof. HKT would only be relevant to an API abstracting over `Box` itself as a
+constructor and would not replace that proof.
 
 ## FAQ
 
@@ -206,6 +206,12 @@ keeps the [layout declared at the boundary](../c-interop.md#type-mapping).
 Imported functions can state their [lifetime
 behavior](../c-interop.md#describe-lifetime-behavior) directly, and the checker
 enforces the contract around the same LuaJIT FFI call.
+
+## Diagnostics
+
+- **NUPP2606**: a result has two possible `T` components, so conservation is
+  ambiguous.
+
 
 ## Next
 

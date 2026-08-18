@@ -283,4 +283,5 @@ The rule is which side chooses. When the caller chooses, write a parameter.
 ## Next
 
 - [interfaces.md](interfaces.md): the contracts that declare a requirement.
-- [type-level-computation.md](type-level-computation.md): computing a type rather than answering with one.
+- [type-level-computation.md](type-level-computation.md): computing a type
+  rather than answering with one.

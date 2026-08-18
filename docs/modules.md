@@ -76,7 +76,7 @@ An unknown name is `any`, as it is anywhere else, so the first line would
 otherwise say nothing at all until it ran. Because a project file is named
 after it, the checker knows better, and says so once per name:
 
-```
+```text
 error: NUPP2120: "mathutil" names a project module; require("mathutil") to use it
 ```
 
@@ -185,9 +185,9 @@ separate qualified method only when adapting a type outside its declaration.
 A qualified method defines a body; it does not add a member. Callers see
 `shapes.Path.trim` only if the record body declares `trim` as a field, and a
 call through a name the record never declared is an untyped call rather than an
-error, so the symptom is a diagnostic somewhere else — an argument that lost its
-ownership mode, a result inferred `any`. Declare the member and let the
-qualified function fill it in:
+error, so the symptom is a diagnostic somewhere else, such as an argument that
+lost its ownership mode or a result inferred `any`. Declare the member and let
+the qualified function fill it in:
 
 ```nupp
 record shapes.Path
@@ -201,9 +201,10 @@ function shapes.Path.trim(self, count: integer): shapes.Path
 end
 ```
 
-Direct function declarations on the table a file returns publish their signatures
-before any function body in that block is checked. Module functions may therefore call
-one another in either source order without predeclaring the module table's shape:
+Direct function declarations on the table a file returns publish their
+signatures before any function body in that block is checked. Module functions
+may therefore call one another in either source order without predeclaring the
+module table's shape:
 
 ```nupp
 local strings = {}
@@ -220,10 +221,10 @@ return strings
 ```
 
 This is declaration behavior, not assignment behavior. A later
-`strings.second = function ... end` becomes visible only after that assignment, and a
-`local function` follows the same lexical flow as Lua. The runtime writes also remain in
-source order, so module initialization must not call `strings.first` before
-`strings.second` has been assigned.
+`strings.second = function ... end` becomes visible only after that assignment,
+and a `local function` follows the same lexical flow as Lua. The runtime writes
+also remain in source order, so module initialization must not call
+`strings.first` before `strings.second` has been assigned.
 
 
 ## Conventions
@@ -263,9 +264,9 @@ Case does not survive that round trip: a case-insensitive filesystem resolves
 `nupp.io.processTypes` to `processtypes.nupp` and a case-sensitive one does not,
 so a mixed-case module name is a `require` that works on the machine it was
 written on and fails on the next one. An underscore does survive, but it
-competes with the dot — in a name like `nupp.resource_set` two separators divide
+competes with the dot. In a name like `nupp.resource_set` two separators divide
 one name at two strengths, and nothing says which of them is the namespace. Lua
-settled this before we arrived: `string`, `table`, `coroutine`, `os`.
+settled this long before Nupp: `string`, `table`, `coroutine`, `os`.
 
 Where a name wants two words, run them together while they still read as one
 thing (`processtypes`), or make the second word a submodule when it really is

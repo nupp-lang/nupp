@@ -179,7 +179,7 @@ local function describe(c: Color): string
 end
 ```
 
-```
+```text
 warning: NUPP2107 exhaustiveness: every branch returns, so this handles
 "blue" | "green" | "red" and leaves "blue" unhandled
 help: add branches for "blue" or add an else clause

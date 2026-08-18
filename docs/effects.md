@@ -368,7 +368,7 @@ end
 ```
 
 The example is rejected: `external = true` is an ordinary declared effect, not
-a way to say “accept arbitrary unknown behavior.” The checker cannot prove
+a way to say "accept arbitrary unknown behavior." The checker cannot prove
 what `callback` does, so the visible implementation cannot claim a complete
 finite contract.
 
@@ -454,7 +454,8 @@ These mechanisms answer different questions:
 - `@effects`: what may happen while this value is called?.
 - `const`: will this bodyless binding keep the same value?.
 - `@relax` / `--relax`: which observable guarantee may an optimization change?.
-- affine and borrowed types: who must release a resource, and what it may outlive.
+- affine and borrowed types: who must release a resource, and what it may
+  outlive.
 
 An effect summary does not imply stability, purity does not imply ownership,
 and ownership does not imply a call cannot raise or yield. State each boundary
@@ -542,7 +543,7 @@ When an effect contract reports `NUPP2112`:
 3. If yes, add the exact path or boolean to the public contract.
 4. If no, change the implementation or call a directly summarized helper.
 5. Do not use `external = true` to suppress an unknown visible call; it does
-   not mean “unchecked.”
+   not mean "unchecked."
 6. Re-run `nupp check` before looking at optimizer remarks.
 
 For bodyless declarations, review the implementation on the other side of the
@@ -558,5 +559,6 @@ boundary: the checker cannot do that verification for you.
 
 ## Next
 
-- [ownership.md](ownership.md): the other contract a bodyless declaration carries.
+- [ownership.md](ownership.md): the other contract a bodyless declaration
+  carries.
 - [performance.md](tooling/performance.md): what a summary lets a pass prove.

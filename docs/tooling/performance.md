@@ -68,7 +68,7 @@ end
 
 `entity.body` is read once and shared by both operands. A plucked name is read
 as that field of the operand, so the operand must actually have a field of that
-name — `(dx, dy)` requires a `dx` and a `dy`.
+name, so `(dx, dy)` requires a `dx` and a `dy`.
 
 Only reusable path nodes receive locals; one-use leaves stay in the call. Safe
 calls keep the same flat signature, using staged nil guards in statement
@@ -166,8 +166,8 @@ shares the binding. A shadowed `string` is ordinary table access.
 ### Switch dispatch
 
 A [switch expression](../switch-expressions.md) lowers to lexical
-selector/result locals and an ordered `if`/`elseif` chain. It is never wrapped in
-an immediately invoked function, so one in a hot loop adds no
+selector/result locals and an ordered `if`/`elseif` chain. It is never wrapped
+in an immediately invoked function, so one in a hot loop adds no
 function-construction bytecode that would abort and blacklist a trace. Type-case
 bindings reuse the one selector local, so a computed selector is never repeated.
 
@@ -195,10 +195,10 @@ local text = __nuppT6
 
 #### Static result maps
 
-When every case and result — including `else` — is a compiler-known inert
-scalar, and there are enough of them, the decision finishes in one table read
-instead. Integer cases packed into a narrow span become a dense array indexed
-through an offset:
+When every case and result, `else` included, is a compiler-known inert scalar,
+and there are enough of them, the decision finishes in one table read instead.
+Integer cases packed into a narrow span become a dense array indexed through an
+offset:
 
 ::: code-group
 ```nupp [Nupp]
@@ -267,8 +267,9 @@ local again = __nuppT2
 
 A missing key is already `nil`, so neither integer form needs a range guard and
 holes need no placeholder. String cases use the same shape. An arm which itself
-produces `nil` is the exceptional case: a private sentinel distinguishes that hit
-from a miss, and the sentinel is omitted from every map without a nil result.
+produces `nil` is the exceptional case: a private sentinel distinguishes that
+hit from a miss, and the sentinel is omitted from every map without a nil
+result.
 
 ::: code-group
 ```nupp [Nupp]
@@ -336,7 +337,7 @@ neither form. A string perfect hash lost outright to LuaJIT's own table, because
 verifying a hit needs the original string comparison back. A collision-free
 32-bit hash into a fixed-width array is a different case: at sixteen to
 sixty-four sparse integer cases it is the largest compiled win measured anywhere
-in this work — twelve to twenty-one times the ordered chain — and the largest
+in this work, twelve to twenty-one times the ordered chain, and the largest
 interpreted regression, 1.7 to 2.7 times worse. Backing it with a Lua array
 instead of an FFI one halves the interpreted penalty and gives up most of the
 compiled margin without removing the cliff. Choosing correctly needs a hotness
@@ -453,7 +454,7 @@ end
 
 An array type alone is insufficient. A shape-changing write through any alias,
 an unknown call, yield, metatable effect, or shadowed `ipairs` keeps the generic
-loop — including an ordinary call to a function parameter, whose effects cannot
+loop, including an ordinary call to a function parameter, whose effects cannot
 be resolved. See [effect summaries](../effects.md). The static bound is
 intentional; a dynamic raw length was flat or slower after tracing.
 
@@ -593,8 +594,8 @@ end
 ```
 :::
 
-A step of zero is left alone: `for i = 1, 10, 0` does not terminate, and removing
-it would remove the hang rather than the cost of it.
+A step of zero is left alone: `for i = 1, 10, 0` does not terminate, and
+removing it would remove the hang rather than the cost of it.
 
 #### Constant branches
 
@@ -736,7 +737,7 @@ end
 ```
 :::
 
-The root and every field must be `const` — which is why `service.nupp` above
+The root and every field must be `const`, which is why `service.nupp` above
 declares the callee with `const...` rather than an ordinary `function S.x.y()`,
 whose `y` slot would stay mutable and decline the rewrite. One call is left
 alone. First-use binding preserves lookup order and the error line, and reuse
@@ -784,31 +785,31 @@ end
 ```
 :::
 
-`out = out .. piece` is O(n²) — every pass allocates and interns a string holding
-everything so far — so this is the one win here the trace compiler could not have
-folded itself. `bench/concat.lua` measures 1.8x over eight pieces rising to 3.6x
-over sixty-four, still climbing.
+`out = out .. piece` is O(n²), because every pass allocates and interns a string
+holding everything so far, so this is the one win here the trace compiler could
+not have folded itself. `bench/concat.lua` measures 1.8x over eight pieces
+rising to 3.6x over sixty-four, still climbing.
 
-The accumulator keeps its declaration and is assigned back where the loop closes,
-so everything after it reads an ordinary string. The rewrite requires the
-initializer to be `""`, every mention inside the loop to be the one
+The accumulator keeps its declaration and is assigned back where the loop
+closes, so everything after it reads an ordinary string. The rewrite requires
+the initializer to be `""`, every mention inside the loop to be the one
 `out = out .. ...`, and nothing to touch the binding between declaration and
 loop. A read of the half-built string, a capture by a function written in the
 loop, a prepend (`out = item .. out`), or a second accumulation keeps the
 concatenation, as does a `..` the checker did not prove primitive: an `any`
 operand may carry a `__concat`, which `put` would not run.
 
-Straight-line concatenation is untouched — Lua concatenates multiple operands in
+Straight-line concatenation is untouched. Lua concatenates multiple operands in
 one operation, and a buffer costs about what two concatenations cost.
 
 ### `OPT-6`, indexed views
 
 [`indexed.range`](../spans.md#one-range-for-several-spans) checks one inclusive
 range against every participating trusted Span or SoA view. The successful check
-proves matching indexed reads and writes non-raising inside the dominated numeric
-loop, and that proof is part of checking at every level — it is what permits
-those calls inside `noraise` code. At `-O1` the backend also spends the proof,
-replacing each checked access with direct FFI element access:
+proves matching indexed reads and writes non-raising inside the dominated
+numeric loop, and that proof is part of checking at every level, which is what
+permits those calls inside `noraise` code. At `-O1` the backend also spends the
+proof, replacing each checked access with direct FFI element access:
 
 ::: code-group
 ```nupp [Nupp]
@@ -854,16 +855,17 @@ end
 :::
 
 Every view handed to `indexed.range` must be a `const` name, which is why the
-parameters are rebound above. The range call still validates every span once, and
-the generated access still includes the span's physical offset. `-O0`, held
+parameters are rebound above. The range call still validates every span once,
+and the generated access still includes the span's physical offset. `-O0`, held
 frames, a computed index, a different span, or an access outside the witnessed
 loop retains one checked helper operation. The proof is local to the function
 containing `indexed.range`; passing its bounds or result elsewhere does not
 transport it.
 
 The same pass scalar-replaces the view itself. Above, `left` and `right` become
-bare counts rather than span objects — the checked finish, root, offset, count,
-and access capability are kept as compiler facts instead of allocating a wrapper.
+bare counts rather than span objects. The checked finish, root, offset, count,
+and access capability are kept as compiler facts instead of allocating a
+wrapper.
 
 #### SoA columns
 
@@ -920,21 +922,21 @@ An arbitrary index keeps its runtime bounds check. Admitted roots come from
 one checked finish scalar, shared downgrades their count, resolved SoA field
 projections select the column directly, and nested combinations compose offsets
 without wrapper tables. Dynamic base, offset, count, and column expressions are
-captured once in source order, and constructor validation, exclusive acquisition,
-dirty marking, and other producer effects still execute once. Access stays rooted
-through the source owner, so scalar replacement cannot detach a pointer or column
-from its anchor.
+captured once in source order, and constructor validation, exclusive
+acquisition, dirty marking, and other producer effects still execute once.
+Access stays rooted through the source owner, so scalar replacement cannot
+detach a pointer or column from its anchor.
 
-Directly called, nonrecursive local functions in the same module may transport an
-admitted view through parameters or one return value as flattened runtime state.
-Recursive, exported, dynamic, foreign, cross-module, `any`, and otherwise opaque
-boundaries retain the materialized ABI, as does returning, capturing, or storing
-the view.
+Directly called, nonrecursive local functions in the same module may transport
+an admitted view through parameters or one return value as flattened runtime
+state. Recursive, exported, dynamic, foreign, cross-module, `any`, and otherwise
+opaque boundaries retain the materialized ABI, as does returning, capturing, or
+storing the view.
 
 ::: tip See also
-An `@aot` function retains the same resolved field identities and single-map-loop
-fact, and its backend keeps unit strides in IR for direct scalar or lane
-lowering; see [automatic vectorisation](aot.md#automatic-vectorisation).
+An `@aot` function retains the same resolved field identities and
+single-map-loop fact, and its backend keeps unit strides in IR for direct scalar
+or lane lowering; see [automatic vectorization](aot.md#automatic-vectorization).
 :::
 
 ### Rewrites deliberately not made
@@ -1027,8 +1029,8 @@ the full Span, heap, SoA, dirty-acquisition, and trace matrix, and
 `--remarks` reports both successful rewrites and declined proofs, including the
 source location that stopped an analysis. Remarks never fail a build; they come
 from `build` and `run`, and `check` does not optimize. `-Zno-opt=CODE` disables
-one pass for miscompile bisection — the codes are stable, the `-Z` spelling is
-an unstable debugging interface — and `-O0` disables every rewrite.
+one pass for miscompile bisection, where the codes are stable and the `-Z`
+spelling is an unstable debugging interface, and `-O0` disables every rewrite.
 
 Measure before deciding any of this matters:
 

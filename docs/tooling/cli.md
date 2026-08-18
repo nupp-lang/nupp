@@ -84,7 +84,7 @@ A usage error prints `nupp: <message>` on stderr and points at
 Every example below runs in this project, except where a section says it runs
 in Nupp's own repository because it needs a test suite or a compiler to build:
 
-```
+```text
  greeter/
  ├── nupp.lua
  └── src/
@@ -147,8 +147,8 @@ Options:
   --json           Shorthand for --format json
   --text           Shorthand for --format text
   --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to colour output: always, never, or auto (default)
-  --no-color       Never colour output; the same as --color=never
+  --color[=WHEN]   When to color output: always, never, or auto (default)
+  --no-color       Never color output; the same as --color=never
   -h, --help       Show this help
 
 The parser produces a lossless concrete syntax tree. Text output is an indented
@@ -223,8 +223,8 @@ Options:
   --library PATH   Where the compiled object will be found, for the generated
                    binding
   --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to colour output: always, never, or auto (default)
-  --no-color       Never colour output; the same as --color=never
+  --color[=WHEN]   When to color output: always, never, or auto (default)
+  --no-color       Never color output; the same as --color=never
   -h, --help       Show this help
 ```
 
@@ -243,10 +243,10 @@ the Nupp module that stands in front of it.
 `--check` is for the same category `nupp bc --check` covers: a performance
 property no answer depends on, which an ordinary edit can quietly take away. It
 distinguishes three outcomes and fails on one. A loop that lowered is fine. A
-loop that declined — because the arithmetic per byte says lanes will not pay, or
-because the source wrote `@aot(lanes = false)` — is fine. A loop that wanted
-lanes and ran one iteration at a time exits 1, naming the construct that
-stopped it.
+loop that declined is fine too, whether because the arithmetic per byte says
+lanes will not pay or because the source wrote `@aot(lanes = false)`. A loop
+that wanted lanes and ran one iteration at a time exits 1, naming the construct
+that stopped it.
 
 ```text [nupp aot --check src/particles.nupp]
 nupp: advance ran one iteration at a time
@@ -270,8 +270,8 @@ Options:
   --prologue       Include the generated runtime preamble, folded away by
                    default
   --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to colour output: always, never, or auto (default)
-  --no-color       Never colour output; the same as --color=never
+  --color[=WHEN]   When to color output: always, never, or auto (default)
+  --no-color       Never color output; the same as --color=never
   -h, --help       Show this help
 
 Source lines are shown against the instructions they produced. The generated
@@ -318,9 +318,9 @@ else reports that, because the program's answers do not change.
 It reads further than the two source lints, which see what was written rather
 than what was generated: [`loop-invariant-closure`](../lints.md) reports a
 function that could be lifted out of its loop unchanged, and
-[`jit-loop-closure`](../lints.md) — off until a project asks for it — reports
-one that reads the iteration and so cannot be. Neither says anything about a
-closure the compiler's own lowerings put in a loop, which is what this reads.
+[`jit-loop-closure`](../lints.md), off until a project asks for it, reports one
+that reads the iteration and so cannot be. Neither says anything about a closure
+the compiler's own lowerings put in a loop, which is what this reads.
 
 ### `init`
 
@@ -344,8 +344,8 @@ Options:
   --json           Shorthand for --format json
   --text           Shorthand for --format text
   --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to colour output: always, never, or auto (default)
-  --no-color       Never colour output; the same as --color=never
+  --color[=WHEN]   When to color output: always, never, or auto (default)
+  --no-color       Never color output; the same as --color=never
   -h, --help       Show this help
 
 With no TEMPLATE, the built-in `app`. A name with no slash is a built-in,
@@ -400,7 +400,7 @@ template is for.
 A `TEMPLATE` argument is read lexically, never by looking at the filesystem: the
 same spelling means the same thing in every directory.
 
-```
+```text
  Spelling                     Resolves to
  ───────────────────────────  ──────────────────────────────────────────
  app                          a built-in template of that name
@@ -419,8 +419,9 @@ refused by name rather than guessed at as a repository.
 
 A template is a directory tree with one `template.lua` at its root, which is not
 copied. Every other file is carried, `.git` at any depth is not, and `${name}`
-is replaced in both file contents and path components — so `src/${moduleName}.nupp`
-becomes a file named for the project. Write `$${` for a literal `${`.
+is replaced in both file contents and path components, so
+`src/${moduleName}.nupp` becomes a file named for the project. Write `$${` for a
+literal `${`.
 
 ```lua [template.lua]
 return {
@@ -434,7 +435,7 @@ return {
 }
 ```
 
-`name`, `moduleName` — the name with hyphens turned to underscores — and
+`name`, `moduleName` (the name with hyphens turned to underscores) and
 `directory` are always defined. A template may declare `name` to constrain it,
 but its value comes from `--name` or the directory. Anything else is declared
 here or it cannot be used, and is supplied with `--set KEY=VALUE`.
@@ -442,7 +443,7 @@ here or it cannot be used, and is supplied with `--set KEY=VALUE`.
 `raw` names globs copied byte for byte, for assets that are not text. `after`
 names post-init steps from a closed set: `git`, `check`, `build` and `test`.
 
-#### What a fetched template may do
+#### Fetched template limits
 
 A repository template is cloned with git, reported by the commit it resolved to,
 and confirmed before anything is written. A run with nothing at the terminal to
@@ -472,8 +473,8 @@ Options:
   --json           Shorthand for --format json
   --text           Shorthand for --format text
   --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to colour output: always, never, or auto (default)
-  --no-color       Never colour output; the same as --color=never
+  --color[=WHEN]   When to color output: always, never, or auto (default)
+  --no-color       Never color output; the same as --color=never
   -h, --help       Show this help
 
 With no files, checks the default target from nupp.lua. Also reports a `timing` object naming how many modules were reused from the cache versus rechecked, and which modules cost the most of the wall-clock time either way -- see docs/diagnostics.md.
@@ -485,8 +486,8 @@ every file to the strict floor whatever it is called: unknown-variable errors,
 and annotations required on module exports. `--target` cannot be combined with
 explicit files.
 
-A clean project writes nothing and exits 0. With `local shout: number =
-greet("world")` added to `src/greet.nupp`:
+A clean project writes nothing and exits 0. With
+`local shout: number = greet("world")` added to `src/greet.nupp`:
 
 ```text [nupp check]
 src/greet.nupp:6:23: error: NUPP2001: cannot initialize shout: string is not a number
@@ -580,8 +581,8 @@ Options:
   --json              Shorthand for --format json
   --text              Shorthand for --format text
   --schema            Print the JSON Schema of --json output and exit
-  --color[=WHEN]      When to colour output: always, never, or auto (default)
-  --no-color          Never colour output; the same as --color=never
+  --color[=WHEN]      When to color output: always, never, or auto (default)
+  --no-color          Never color output; the same as --color=never
   -h, --help          Show this help
 
 --json always reports the list, whichever form was asked for, and separates a
@@ -662,8 +663,8 @@ Options:
   --json             Shorthand for --format json
   --text             Shorthand for --format text
   --schema           Print the JSON Schema of --json output and exit
-  --color[=WHEN]     When to colour output: always, never, or auto (default)
-  --no-color         Never colour output; the same as --color=never
+  --color[=WHEN]     When to color output: always, never, or auto (default)
+  --no-color         Never color output; the same as --color=never
   -h, --help         Show this help
 
 Manifest target options cannot be combined with explicit source files.
@@ -714,10 +715,10 @@ whole rather than overlapping. A module is charged for its own checking and
 generation and not for the dependencies its check pulled in, so the list names
 where the time went rather than whichever module happened to be reached first.
 
-To anything that is not a terminal a successful build still writes nothing, so
-a script reading its output sees what it always saw. `--progress=always` asks
-for the report anyway, `-q` refuses it, and `NUPP_PROGRESS` says the same thing
-for the builds nothing passes a flag to — including the rebuild `bin/nupp` runs
+To anything that is not a terminal a successful build still writes nothing, so a
+script reading its output sees what it always saw. `--progress=always` asks for
+the report anyway, `-q` refuses it, and `NUPP_PROGRESS` says the same thing for
+the builds nothing passes a flag to, including the rebuild `bin/nupp` runs
 before every other command.
 
 `--json` says both what failed and what landed, and carries the same timing as
@@ -758,8 +759,8 @@ Options:
   --json           Shorthand for --format json
   --text           Shorthand for --format text
   --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to colour output: always, never, or auto (default)
-  --no-color       Never colour output; the same as --color=never
+  --color[=WHEN]   When to color output: always, never, or auto (default)
+  --no-color       Never color output; the same as --color=never
   -h, --help       Show this help
 
 With no target, cleans every configured target output. Paths outside the
@@ -788,8 +789,8 @@ Options:
   --json           Shorthand for --format json
   --text           Shorthand for --format text
   --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to colour output: always, never, or auto (default)
-  --no-color       Never colour output; the same as --color=never
+  --color[=WHEN]   When to color output: always, never, or auto (default)
+  --no-color       Never color output; the same as --color=never
   -h, --help       Show this help
 
 With no name, lists build targets plus configured test and self-host actions.
@@ -845,8 +846,8 @@ Options:
   --json           Shorthand for --format json
   --text           Shorthand for --format text
   --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to colour output: always, never, or auto (default)
-  --no-color       Never colour output; the same as --color=never
+  --color[=WHEN]   When to color output: always, never, or auto (default)
+  --no-color       Never color output; the same as --color=never
   -h, --help       Show this help
 ```
 
@@ -889,8 +890,8 @@ Options:
   --json           Shorthand for --format json
   --text           Shorthand for --format text
   --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to colour output: always, never, or auto (default)
-  --no-color       Never colour output; the same as --color=never
+  --color[=WHEN]   When to color output: always, never, or auto (default)
+  --no-color       Never color output; the same as --color=never
   -h, --help       Show this help
 
 With no files, scans Nupp sources under src. The report enumerates trusted C contracts and explicit unsafe regions; it does not verify foreign implementations.
@@ -954,8 +955,8 @@ Options:
   --json           Shorthand for --format json
   --text           Shorthand for --format text
   --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to colour output: always, never, or auto (default)
-  --no-color       Never colour output; the same as --color=never
+  --color[=WHEN]   When to color output: always, never, or auto (default)
+  --no-color       Never color output; the same as --color=never
   -h, --help       Show this help
 
 Every diagnostic written by --json carries the same `docs` anchor this
@@ -1018,8 +1019,8 @@ Options:
   --json             Shorthand for --format json
   -o, --output PATH  Write to this file rather than to standard output
   --schema           Print the JSON Schema of --json output and exit
-  --color[=WHEN]     When to colour output: always, never, or auto (default)
-  --no-color         Never colour output; the same as --color=never
+  --color[=WHEN]     When to color output: always, never, or auto (default)
+  --no-color         Never color output; the same as --color=never
   -h, --help         Show this help
 
 The skill's description is what a harness keeps in context permanently;
@@ -1052,8 +1053,8 @@ Usage:
   nupp completions <bash|zsh|fish>
 
 Options:
-  --color[=WHEN]  When to colour output: always, never, or auto (default)
-  --no-color      Never colour output; the same as --color=never
+  --color[=WHEN]  When to color output: always, never, or auto (default)
+  --no-color      Never color output; the same as --color=never
   -h, --help      Show this help
 ```
 
@@ -1155,8 +1156,8 @@ Options:
   --json          Write the aggregate summary as JSON
   --report-json   Print an existing full JSON report; do not run tests
   --schema        Print the JSON Schema of --json output and exit
-  --color[=WHEN]  When to colour output: always, never, or auto (default)
-  --no-color      Never colour output; the same as --color=never
+  --color[=WHEN]  When to color output: always, never, or auto (default)
+  --no-color      Never color output; the same as --color=never
   -h, --help      Show this help
 
 Coverage uses a separate build/coverage artifact, so normal generated
@@ -1219,8 +1220,8 @@ Options:
   --json             Shorthand for --format json
   --text             Shorthand for --format text
   --schema           Print the JSON Schema of --json output and exit
-  --color[=WHEN]     When to colour output: always, never, or auto (default)
-  --no-color         Never colour output; the same as --color=never
+  --color[=WHEN]     When to color output: always, never, or auto (default)
+  --no-color         Never color output; the same as --color=never
   -h, --help         Show this help
 
 The first argument may name the format: site, markdown (or md), json, or both.
@@ -1265,8 +1266,8 @@ Options:
   --json              Shorthand for --format json
   --text              Shorthand for --format text
   --schema            Print the JSON Schema of --json output and exit
-  --color[=WHEN]      When to colour output: always, never, or auto (default)
-  --no-color          Never colour output; the same as --color=never
+  --color[=WHEN]      When to color output: always, never, or auto (default)
+  --no-color          Never color output; the same as --color=never
   -h, --help          Show this help
 ```
 
@@ -1305,8 +1306,8 @@ Options:
   --jit-aborts[=PATH]  Record where the JIT gave up (default jit-aborts.csv)
   --json               Write --jit-aborts as structured JSON instead of CSV
   --schema             Print the JSON Schema of --json output and exit
-  --color[=WHEN]       When to colour output: always, never, or auto (default)
-  --no-color           Never colour output; the same as --color=never
+  --color[=WHEN]       When to color output: always, never, or auto (default)
+  --no-color           Never color output; the same as --color=never
   -h, --help           Show this help
 
 Program arguments are passed to the loaded chunk. Use '--' before a file name
@@ -1321,7 +1322,7 @@ C in a C function, G collecting, J compiling.
 
 --jit-aborts answers the question a sampler cannot: whether the hot code was
 compiled at all. It writes CSV, one row per place the compiler gave up, with a
-blacklisted trace — permanently demoted to the interpreter — ranked first.
+blacklisted trace, permanently demoted to the interpreter, ranked first.
 
 Both cover the program only: the session opens once the file has compiled and
 closes when it returns, so the compiler's own work stays out of the report. A
@@ -1367,8 +1368,8 @@ Options:
   --json             Shorthand for --format json
   --text             Shorthand for --format text
   --schema           Print the JSON Schema of --json output and exit
-  --color[=WHEN]     When to colour output: always, never, or auto (default)
-  --no-color         Never colour output; the same as --color=never
+  --color[=WHEN]     When to color output: always, never, or auto (default)
+  --no-color         Never color output; the same as --color=never
   -h, --help         Show this help
 ```
 
@@ -1486,8 +1487,8 @@ Options:
   --json             Shorthand for --format json
   --text             Shorthand for --format text
   --schema           Print the JSON Schema of --json output and exit
-  --color[=WHEN]     When to colour output: always, never, or auto (default)
-  --no-color         Never colour output; the same as --color=never
+  --color[=WHEN]     When to color output: always, never, or auto (default)
+  --no-color         Never color output; the same as --color=never
   -h, --help         Show this help
 
 The selected build target supplies layoutTarget. When it has none, the
@@ -1656,8 +1657,8 @@ Usage:
   nupp help [command]
 
 Options:
-  --color[=WHEN]  When to colour output: always, never, or auto (default)
-  --no-color      Never colour output; the same as --color=never
+  --color[=WHEN]  When to color output: always, never, or auto (default)
+  --no-color      Never color output; the same as --color=never
   -h, --help      Show this help
 
 With no command, prints the command list.

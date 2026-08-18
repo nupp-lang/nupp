@@ -130,10 +130,11 @@ nupp run --jit-aborts app.nupp   # what the JIT refused  -> jit-aborts.csv
 ```
 
 The second answers a question a sampling profiler structurally cannot: whether
-the hot code was compiled at all. [Trace checking](../tooling/jit-trace-checking.md)
-shows every static and runtime reason with repairs, [profiling](../tooling/profiling.md)
-explains both measurement channels, and [performance](../tooling/performance.md)
-covers `-O` levels and remarks.
+the hot code was compiled at all. [Trace
+checking](../tooling/jit-trace-checking.md) shows every static and runtime
+reason with repairs, [profiling](../tooling/profiling.md) explains both
+measurement channels, and [performance](../tooling/performance.md) covers `-O`
+levels and remarks.
 
 ## Hot reload
 
@@ -144,7 +145,8 @@ nupp run --watch app.nupp
 At a safe loop boundary, call `nupp.hotreload.poll()`. Compatible named-function
 body edits commit without recreating application state; broken or structural
 edits leave the last good generation running. Watch is an `-O0` development
-target, not a release-performance build. See [hot reload](../tooling/hot-reload.md).
+target, not a release-performance build. See [hot
+reload](../tooling/hot-reload.md).
 
 ## Documentation
 

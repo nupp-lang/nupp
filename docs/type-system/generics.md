@@ -108,7 +108,7 @@ its bound, with `self` specialized back to the parameter.
 Bounds are checked where a generic is instantiated, not inside the subtyping
 relation. Violating one is NUPP2116:
 
-```
+```text
 NUPP2116: type argument string for T: string is not a number
 ```
 
@@ -157,13 +157,13 @@ uninhabited.
 A subject that is not a plain name is evaluated once and handed to the test,
 since a refinement may read it more than once. Reaching through a field guards
 the step before it with `?.`, because the test runs against values that are not
-of the type yet, so `matches self.a.b.c == "x" end` compiles to `s.a?.b?.c ==
-"x"`.
+of the type yet, so `matches self.a.b.c == "x" end` compiles to
+`s.a?.b?.c == "x"`.
 
-A declaration is held to the refinements of the interfaces it declares. `record
-C is Shape` is a claim the checker proves, and Shape's refinement is what `is
-Shape` runs, so fields that provably fail it are **NUPP2122**. The alternative
-is a value the checker calls a `Shape` and `is` calls otherwise.
+A declaration is held to the refinements of the interfaces it declares.
+`record C is Shape` is a claim the checker proves, and Shape's refinement is
+what `is Shape` runs, so fields that provably fail it are **NUPP2122**. The
+alternative is a value the checker calls a `Shape` and `is` calls otherwise.
 
 ## Inference at a call site
 
@@ -203,8 +203,9 @@ local n = id < number > (1)
 -- NUPP2003: cannot compare boolean and 1 with '>'
 ```
 
-Type arguments appear in *type* position, as in `Box<number>` and `a.b.Map<K,
-V>`, and at the six FFI intrinsics, which are special-cased in the grammar:
+Type arguments appear in *type* position, as in `Box<number>` and
+`a.b.Map<K, V>`, and at the six FFI intrinsics, which are special-cased in the
+grammar:
 
 ```nupp
 local p = ffi.new<Point>()
@@ -285,4 +286,5 @@ store[nameKey] = "saved"
 ## Next
 
 - [packs.md](packs.md): variadic parameters and correlated results.
-- [type-level-computation.md](type-level-computation.md): computing a type from a type parameter.
+- [type-level-computation.md](type-level-computation.md): computing a type from
+  a type parameter.

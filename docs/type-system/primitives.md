@@ -367,5 +367,6 @@ narrowing for the code that follows.
 
 ## Next
 
-- [records.md](records.md): nominal tables and the structs that lower to C memory.
+- [records.md](records.md): nominal tables and the structs that lower to C
+  memory.
 - [unions.md](unions.md): closed sets of literals, and tagged unions of records.

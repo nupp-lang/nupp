@@ -8,7 +8,7 @@ ABI. Where a kernel is one numeric map loop, the compiler may also rewrite that
 loop to run several iterations at once. Nothing in the source names an ABI, a
 lane, a mask, or a vector width.
 
-A build selects what to do with it — see [Build policy](#build-policy): `off` by
+[Build policy](#build-policy) selects what a build does with it: `off` by
 default, `emit-c` to write the C beside the build, `require` to compile it into
 the project's own shared library and call it. `nupp check` validates the target
 and the structural subset, so `@aot` on something the backend could not compile
@@ -16,9 +16,9 @@ is an error rather than a surprise later, and a check never needs a C compiler.
 
 Everything below is real output on the kernels committed under
 `bench/kernel-subset-spike/`, and every claim it makes is executed on Linux,
-macOS and Windows rather than argued from one of them — see
-[Verification](#verification). The edges the backend has not reached are in
-[Not built yet](#not-built-yet); those are edges, not unkept promises.
+macOS and Windows rather than argued from one of them, as
+[Verification](#verification) records. The edges the backend has not reached are
+in [Not built yet](#not-built-yet); those are edges, not unkept promises.
 
 ## Annotation guarantees
 
@@ -41,7 +41,7 @@ applies.
 ## Worked example
 
 This is `bench/kernel-subset-spike/mandelbrot.nupp`, trimmed to its shape. It
-is ordinary Nupp — spans, structs, a `while` loop with a `break`:
+is ordinary Nupp: spans, structs, a `while` loop with a `break`.
 
 ```nupp
 local span = require("nupp.span")
@@ -187,8 +187,8 @@ and this is where the claim is tested rather than assumed.
 
 ### Scalar body
 
-The tail loop — and the whole body when lane lowering declines — is a direct
-transcription:
+The tail loop is a direct transcription, and so is the whole body when lane
+lowering declines:
 
 ```c
     for (; i < end; ++i) {
@@ -199,7 +199,7 @@ transcription:
 ```
 
 Two things worth reading closely. `p_escapes` is `KsEscape *restrict` and
-`p_points` is `const KsPoint *` — that is the alias matrix ownership already
+`p_points` is `const KsPoint *`. That is the alias matrix ownership already
 proved, restated where the C compiler can use it, not something recovered from
 the pointer types. And `(double)(v2_point->re)` is a physical load widening: a
 `float` field is storage, so reading one gives an ordinary Nupp number. That is
@@ -243,7 +243,7 @@ static inline ks_f64x4 ks_sel_f64x4(ks_m64x4 m, ks_f64x4 a, ks_f64x4 b) {
 ```
 
 Read what happened to the source's control flow. The `if` became a mask. The
-`break` became `lm4_live &= ~mask` — the lane retires from the loop instead of
+`break` became `lm4_live &= ~mask`, so the lane retires from the loop instead of
 branching out of it, and the loop ends when `ks_any` says nothing is live. The
 assignment to `iteration` became a select, so a lane that already escaped keeps
 what it had.
@@ -270,8 +270,8 @@ final group. A masked load still reads the addresses it masked off, and the last
 element of a span may be the last byte of a page.
 
 Two whole functions come out: `ks_mandelbrot`, and `ks_mandelbrot_forced_scalar`
-carrying a pragma that refuses vectorisation. The second is the oracle the first
-is diffed against, and it must not share its lowering — including whatever the C
+carrying a pragma that refuses vectorization. The second is the oracle the first
+is diffed against, and it must not share its lowering, including whatever the C
 compiler would have done on its own.
 
 ### Wrapper
@@ -346,12 +346,13 @@ Streaming parsers can avoid that representation entirely. The resolved
 `nupp.valuebuilder` stream API starts with `new(nullValue)`, opens arrays or
 objects with an estimated capacity, adds keys and primitive values, closes each
 container, and publishes exactly one root with `finish`. `string`, `key`, and
-`numberSlice` take zero-based ranges of a rooted string, so generated code copies
-or converts directly into the final Lua value without an intermediate substring.
-`byte`, `word`, and `length` let the same AOT entry parse rooted byte strings;
-`word` reads a native-endian uint32 at a zero-based word index. `depth`, `kind`,
-and `count` expose only the current construction-frame metadata needed by an
-iterative parser. The ordinary implementation is the `aot = "off"` oracle.
+`numberSlice` take zero-based ranges of a rooted string, so generated code
+copies or converts directly into the final Lua value without an intermediate
+substring. `byte`, `word`, and `length` let the same AOT entry parse rooted byte
+strings; `word` reads a native-endian uint32 at a zero-based word index.
+`depth`, `kind`, and `count` expose only the current construction-frame metadata
+needed by an iterative parser. The ordinary implementation is the `aot = "off"`
+oracle.
 
 `newSized(nullValue, maxDepth, stringCapacity)` replaces the default 1,024-frame
 bound with authored frame storage and reserves a bound for transformed strings.
@@ -374,10 +375,10 @@ allocation failure.
 
 Every live constructed object stays in an absolute Lua stack slot across
 allocating calls. Generated code uses the public Lua 5.1 API for allocation,
-barriers, strings, stack checks, and errors; it does not address LuaJIT collector
-objects. Dynamic capacities and array indexes are checked for integral,
-nonnegative/positive C-API range before use. Strings are ordinary Lua-owned
-strings, not shared-memory views.
+barriers, strings, stack checks, and errors; it does not address LuaJIT
+collector objects. Dynamic capacities and array indexes are checked for
+integral, nonnegative/positive C-API range before use. Strings are ordinary
+Lua-owned strings, not shared-memory views.
 
 Explicit SIMD also includes `MaskBits64`, constructed from two uint32 words by
 `simd.maskBits64`. It supplies cross-word shifts, prefix XOR, bitwise combines,
@@ -394,10 +395,10 @@ existing FFI path and have no Lua pointer or GC authority.
 ## Benchmarks
 
 Apple arm64, 1024×768 grid, 256 iterations, `clang -O3`. All three rows run the
-same function on the same inputs and are checked to agree on every pixel — this
-measures how the body was compiled and nothing else.
+same function on the same inputs and are checked to agree on every pixel, so
+this measures how the body was compiled and nothing else.
 
-```
+```text
  Body                     ns/frame      MPix/s   Relative
  ───────────────────────  ───────────  ────────  ────────
  AOT, lane-parallel        10,465,198     75.15      30.4x
@@ -421,19 +422,20 @@ Every lane runs until the last one escapes, so a group costs its slowest member.
 same recurrence in plain Lua with local variables instead of spans gives about
 4.6 MPix/s, so roughly half the gap is the span and struct-field plumbing that
 the AOT body compiles away and the interpreter cannot. The rest is codegen on a
-loop with a data-dependent exit. The loop is traceable — `nupp bc --check` on
-this kernel is clean — so this is LuaJIT compiling it and still losing, not
-LuaJIT giving up.
+loop with a data-dependent exit. The loop is traceable, and `nupp bc --check` on
+this kernel is clean, so this is LuaJIT compiling it and still losing rather
+than LuaJIT giving up.
 
-**Lane-parallel over scalar C is 2.0×** on four lanes — worth checking against
-what the algorithm allows rather than against the lane count. `divergence.lua`
-in the spike measures that: at this cap the four-lane ceiling is 1.22× the ideal
-work, so 2.0× against scalar is close to what four lanes can be.
+**Lane-parallel over scalar C is 2.0×** on four lanes, which is worth checking
+against what the algorithm allows rather than against the lane count.
+`divergence.lua` in the spike measures that: at this cap the four-lane ceiling
+is 1.22× the ideal work, so 2.0× against scalar is close to what four lanes can
+be.
 
 The same program written in explicit binary32 gets eight lanes for the same
 registers:
 
-```
+```text
  Body                     MPix/s   Notes
  ───────────────────────  ───────  ─────────────────────────────
  AOT f32x8                 123.28  eight lanes, 32-byte gang
@@ -443,14 +445,14 @@ registers:
 
 That is a different program with different escape counts, and it is the source
 that says so. The LuaJIT row collapses because explicit binary32 in ordinary
-Nupp performs each rounding point through an FFI store and load — which is the
-price of the source, not an artifact of measuring it.
+Nupp performs each rounding point through an FFI store and load, which is the
+price of the source rather than an artifact of measuring it.
 
 Eight lanes over four is 1.64×, not 2×, and that is the algorithm rather than
 the lowering. A gang runs until its slowest lane retires, so widening it takes
 that maximum over more pixels. Measured on this view the eight-lane ceiling is
 1.68× at 256 iterations, falling to 1.58× at 4096 as escape counts spread
-further apart — against measured ratios of 1.60× and 1.42×. The lowering runs at
+further apart, against measured ratios of 1.60× and 1.42×. The lowering runs at
 90 to 95 percent of what the algorithm allows; the remainder is the per-pixel
 gather and scatter, which costs the same however many lanes share it.
 
@@ -461,9 +463,9 @@ MANDELBROT_ITERATIONS=256 luajit bench/kernel-subset-spike/divergence.lua
 The lesson generalises: a divergent loop is the case lane lowering is worst at,
 and the width you get is not the speedup you get.
 
-## Automatic vectorisation
+## Automatic vectorization
 
-### Vectorisation decisions
+### Vectorization decisions
 
 Lane lowering is attempted for every `@aot` body whose shape admits it. Two
 decisions follow, both made from the loop itself.
@@ -475,12 +477,13 @@ layout nor element width moves that. What separates them is how much arithmetic
 there is to amortize assembling and taking apart the vectors, so the estimate is
 arithmetic operations per byte the body touches, with a threshold of 1.0.
 
-**How wide.** Gangs come in two widths, and within a width a group costs the same registers
-either way and only the lane count differs. Ordinary Nupp arithmetic is
-binary64, so a loop written with operators gets four lanes. A loop whose varying
-values are all 32-bit — because the source asked for binary32 or wrapping int32
-through the released `nupp.math` namespaces — gets eight. The widest gang is
-tried first and refuses the moment any varying value turns out to be binary64.
+**How wide.** Gangs come in two widths, and within a width a group costs the
+same registers either way and only the lane count differs. Ordinary Nupp
+arithmetic is binary64, so a loop written with operators gets four lanes. A loop
+whose varying values are all 32-bit gets eight, which happens when the source
+asked for binary32 or wrapping int32 through the released `nupp.math`
+namespaces. The widest gang is tried first and refuses the moment any varying
+value turns out to be binary64.
 
 You can see both answers per kernel:
 
@@ -488,7 +491,7 @@ You can see both answers per kernel:
 nupp aot bench/kernel-subset-spike/mandelbrot.nupp
 ```
 
-```
+```text
  Kernel              Ops/byte   Outcome
  ──────────────────  ─────────  ──────────────────────────
  mandelbrot.nupp          5.19  lowered to 4 lanes
@@ -506,7 +509,7 @@ says so.
 
 Lane lowering needs a whole-function shape it can reason about: one top-level
 numeric `for` loop over spans, indexed by the loop counter exactly. Inside the
-body it handles rather more than that — nested conditionals as mask stacks,
+body it handles rather more than that: nested conditionals as mask stacks,
 short-circuit `and`/`or` where both sides are pure and total, a data-dependent
 inner `while`, and per-lane `break` and `continue`.
 
@@ -524,19 +527,18 @@ nupp: advance ran one iteration at a time
   src/particles.nupp:39:5: aot: a nested numeric loop is not lane-controlled yet
 ```
 
-A loop that declined is not a failure — that is the point of being able to
-decline — so `@aot(lanes = false)` and a body below the intensity threshold both
-pass.
+A loop that declined is not a failure, since being able to decline is the point,
+so `@aot(lanes = false)` and a body below the intensity threshold both pass.
 
 ### Targets and feature tiers
 
 A gang is 16 or 32 bytes. 32 is one AVX register on x86-64 and two NEON
 registers on aarch64; 16 is one SSE2 register, which every x86-64 has. A target
-takes the widest shapes that fit its register class and no wider — a 32-byte
+takes the widest shapes that fit its register class and no wider. A 32-byte
 vector on x86-64 without AVX compiles only by being split and has no stable ABI
 at a function boundary.
 
-```
+```text
  Tier      Widest vector   Gangs             Default for
  ────────  ─────────────   ───────────────   ───────────
  baseline  16 bytes        mixed2, f32x4     x86-64, i686
@@ -544,8 +546,8 @@ at a function boundary.
  neon      32 bytes        all four          aarch64
 ```
 
-A `mixed` gang carries each value at its own element width — binary64 in 64-bit
-lanes, binary32 in 32-bit ones — so an explicit binary32 operation is a native
+A `mixed` gang carries each value at its own element width, binary64 in 64-bit
+lanes and binary32 in 32-bit ones, so an explicit binary32 operation is a native
 single-precision instruction rather than a wide one rounded back. `f32x8` and
 `f32x4` carry everything 32-bit and hold twice the iterations, which is why they
 are tried first and why a loop with any binary64 value cannot have them.
@@ -554,8 +556,8 @@ x86-64 defaults to `baseline`, so a loop written with ordinary operators gets
 two lanes there and four at `avx2`. The conservative default is deliberate: a
 binary built for AVX2 does not run on a machine without it, and a default that
 assumed otherwise would produce artifacts that fail on hardware the triple says
-they support. The tier is selected, never measured — a build that probed the
-machine in front of it would produce an artifact that only runs there.
+they support. The tier is selected, never measured, because a build that probed
+the machine in front of it would produce an artifact that only runs there.
 
 Ask for a wider one per target in `nupp.lua`:
 
@@ -587,7 +589,7 @@ nupp: mandelbrot ran one iteration at a time
   select avx2 to run several iterations at once
 ```
 
-### Influencing vectorisation
+### Influencing vectorization
 
 Three levers, and no more than three. None of them lets you name a lane.
 
@@ -596,7 +598,7 @@ says. Use it when you have measured the loop and the estimate disagrees with the
 measurement. It does not require the lowering to succeed.
 
 **`@aot(lanes = false)`** declines lane lowering for a body that would otherwise
-be lowered. Use it for a loop that is deliberately scalar, so a vectorisation
+be lowered. Use it for a loop that is deliberately scalar, so a vectorization
 check does not report it.
 
 **`@relax("fp-contract")`** permits a multiply and an add to fuse into one
@@ -612,9 +614,9 @@ never the answer. Removing `@relax` changes the answer.
 ### Mixing widths
 
 A loop whose values are all binary32 gets eight lanes; one whose values are all
-binary64 gets four. A loop that mixes them — everything binary32 except one
-running total that needs binary64, which is the usual reason — gets four, and
-the binary64 gang performs each explicit binary32 operation in its own lanes and
+binary64 gets four. A loop that mixes them gets four, the usual mixture being
+everything binary32 except one running total that needs binary64, and the
+binary64 gang performs each explicit binary32 operation in its own lanes and
 rounds the result once. That is bit-identical to the native single-precision
 instruction, by the same argument the whole binary32 surface rests on.
 
@@ -635,11 +637,11 @@ Whether it can is a question about your algorithm, not about the backend.
 **The fourth lever is the source itself**, and it is the strongest one. Writing
 the arithmetic through `nupp.math.f32` doubles the lane count, because it tells
 the backend the values are genuinely 32-bit rather than binary64 values that
-happen to be small. That is a change to the program's meaning — different
-roundings, different results — which is exactly why the compiler will not do it
-for you.
+happen to be small. That changes the program's meaning, giving different
+roundings and different results, which is exactly why the compiler will not do
+it for you.
 
-### Vectorisation limits
+### Vectorization limits
 
 There is no vector type, no mask value, no shuffle, and no way to name a width.
 That is deliberate and it is written down in
@@ -651,10 +653,10 @@ freedom to change gang shape later. An explicit vector type would mostly restate
 a map loop while adding decisions about preferred versus fixed width, boxing
 outside `@aot`, escape rules, and cross-target ABI.
 
-The case for revisiting that is cross-lane meaning a scalar loop cannot express
-— shuffles, transposes, prefix scans, fixed-tree reductions, gathers, compress
-and expand — in several real kernels. A kernel that merely vectorizes imperfectly
-is not the case.
+The case for revisiting that is cross-lane meaning a scalar loop cannot express,
+such as shuffles, transposes, prefix scans, fixed-tree reductions, gathers,
+compress and expand, in several real kernels. A kernel that merely vectorizes
+imperfectly is not the case.
 
 ## Numeric guarantees
 
@@ -664,7 +666,7 @@ is not the case.
 | a `float` field read | binary64 | the physical load widens |
 | a `float` field write | binary32 | the physical store narrows |
 | `nupp.math.f32.add(a, b)` | binary32, one rounding | exact, see below |
-| `nupp.math.f32.min`/`max`/`fma` | binary32, corrected | a helper repairs NaN behaviour |
+| `nupp.math.f32.min`/`max`/`fma` | binary32, corrected | a helper repairs NaN behavior |
 | `nupp.math.i32.add(a, b)` | wrapping int32 | wraps in unsigned, comes back |
 
 The binary32 operations lower to native single-precision instructions and this
@@ -692,16 +694,16 @@ before anything is emitted, so a rewrite that produced something invalid is a
 compiler bug caught before it becomes a miscompilation.
 
 Two rules do most of the work. Every load, store and element reference indexes
-the loop counter and nothing else — that is both the argument that an access is
-in bounds and the licence to run several iterations at once. And the alias
+the loop counter and nothing else, which is both the argument that an access is
+in bounds and the license to run several iterations at once. And the alias
 matrix is required complete rather than merely consistent: every pair of span
 regions carries a fact, because a pair with no fact would be a `restrict` nobody
 justified.
 
 Above that sit the differentials, which is where correctness is actually
 established. Ordinary Nupp, forced-scalar C and lane-parallel C are all built
-from one source and must agree exactly — not within a tolerance, because the
-arithmetic is specified to be the same work in the same order:
+from one source and must agree exactly rather than within a tolerance, because
+the arithmetic is specified to be the same work in the same order:
 
 ```bash
 bench/kernel-subset-spike/simd.sh                     # lane rewrite vs scalar
@@ -717,8 +719,8 @@ an eight-lane tail are both covered.
 `bench/kernel-subset-spike/crosscheck.sh` runs the same agreement in C with no
 LuaJIT in the process, over every committed kernel, at both gang widths and at
 whatever feature tier is asked for. CI runs it on Linux and macOS at three tiers
-and through both Clang and GCC, and on Windows — the platform is checked rather
-than reasoned about from the other two.
+and through both Clang and GCC, and on Windows, so the platform is checked
+rather than reasoned about from the other two.
 
 The build's own end of it is exercised the same way, by doing the thing rather
 than asserting it: a project is built under `require` and its answers compared
@@ -796,7 +798,7 @@ default:
 
 | Code | Meaning |
 | --- | --- |
-| NUPP2901 | `@aot` stacked with `@jit` — one body promised to two compilers |
+| NUPP2901 | `@aot` stacked with `@jit`, promising one body to two compilers |
 | NUPP2902 | `@aot` on something that is not a whole function |
 | NUPP2903 | A construct in an `@aot` body with no AOT IR form |
 
@@ -809,7 +811,7 @@ the value-level AOT lowering with a source position.
 
 A build selects one policy, and an artifact records the one it was built under.
 There is deliberately no mode that quietly mixes compiled functions with
-ordinary fallbacks — disabling compilation is meant to change performance and
+ordinary fallbacks. Disabling compilation is meant to change performance and
 packaging, never an answer.
 
 ```lua
@@ -818,7 +820,7 @@ targets = {
 }
 ```
 
-```
+```text
  Policy    What it does
  ────────  ────────────────────────────────────────────────────────
  off       Nothing. The default, so a project that has not asked
@@ -832,7 +834,7 @@ targets = {
 `emit-c` adds an artifact; it does not replace one. The ordinary Lua body is
 still emitted and is still what runs. A module with no `@aot` function produces
 no artifact at all, and a project with no `@aot` function anywhere builds
-successfully under `require` with no library — the policy says what to do with
+successfully under `require` with no library. The policy says what to do with
 compiled code, not that there must be some.
 
 Under `require`, calls reach the compiled code. The build replaces each `@aot`
@@ -851,8 +853,8 @@ The build looks for `NUPP_NATIVE_CC` first, then `clang`, `cc` and `gcc` in that
 order. Clang leads because the emitter's contraction pragma is Clang's; GCC
 compiles the same C correctly and declines to contract, which is slower and
 never wrong. Naming a compiler that cannot build this C is an error rather than
-a reason to look elsewhere — a build that quietly used a different compiler than
-it was told to would produce an artifact nobody could account for.
+a reason to look elsewhere, because a build that quietly used a different
+compiler than it was told to would produce an artifact nobody could account for.
 
 The generated C needs `__attribute__((vector_size))` and
 `__builtin_convertvector`: GCC 9 and later, and every Clang. **MSVC has
@@ -860,7 +862,7 @@ neither.**
 
 That is a statement about a compiler, not about a platform. Windows is an
 ordinary target: Clang and MinGW GCC both run there, both have the two
-extensions, and a Windows project with either needs nothing further — the same
+extensions, and a Windows project with either needs nothing further. The same
 `aot = "require"` builds a `.dll` beside the artifact and the same wrapper loads
 it. CI runs the lane-versus-scalar differential on Windows for exactly this
 reason, rather than reasoning about it from the other two platforms.
@@ -886,8 +888,8 @@ targets = {
 ```
 
 The triple decides the gang widths, how a shared library is produced and what it
-is called — a Windows target gets a `.dll` and no `-lm` whether or not the build
-is running on Windows. The feature tier is checked against that target's
+is called, so a Windows target gets a `.dll` and no `-lm` whether or not the
+build is running on Windows. The feature tier is checked against that target's
 architecture rather than against the set of all tiers, so asking aarch64 for
 `avx2` is refused where it is written.
 
@@ -907,16 +909,16 @@ the compiler's own message about a missing `math.h`.
 
 The flags are fixed:
 
-```
+```text
 -std=c11 -O3 -ffp-contract=off -fno-fast-math -Wall -Wextra -Werror
 ```
 
 `-Werror` is deliberate. This is compiler-generated C, so a warning in it is a
-defect in the backend rather than a style opinion about someone's source — and
-the warning that matters most is `-Wpsabi`, which is how a vector with no
-register class announces itself. Silencing it would make the target model
-pointless. `-ffp-contract=off` is the numeric contract's floor; a body that asked
-for contraction carries its own pragma.
+defect in the backend rather than a style opinion about someone's source. The
+warning that matters most is `-Wpsabi`, which is how a vector with no register
+class announces itself. Silencing it would make the target model pointless.
+`-ffp-contract=off` is the numeric contract's floor; a body that asked for
+contraction carries its own pragma.
 
 That pragma is Clang's. Under GCC, `@relax("fp-contract")` compiles correctly
 and does not contract, so the body is as accurate as the unrelaxed one and
@@ -925,7 +927,7 @@ difference worth knowing about before benchmarking across compilers.
 
 Code is linked, never mapped at run time. A shared library the loader already
 brought in needs no W^X policy, no `MAP_JIT`, no executable-memory budget and no
-code retirement — all of which exist only because code is mapped at run time.
+code retirement, all of which exist only because code is mapped at run time.
 They return if and when direct machine-code emission does.
 
 ### Library dispatch
@@ -986,7 +988,7 @@ registrar symbol to `package.loadlib`.
 At load, that is resolved against the chunk the wrapper was compiled into,
 walking up until it finds the directory. Whatever path the loader used to open
 the module is a path that works from wherever the program was started, so a
-sibling of it does too — which makes the output tree relocatable. A path decided
+sibling of it does too, which makes the output tree relocatable. A path decided
 at build time could not be: absolute pins the program to one machine, relative
 pins it to one directory.
 
@@ -994,19 +996,19 @@ The walk is why one spelling serves every layout. A module named `a.b.kernel`
 sits two directories down and the same module inlined at the root of a bundle
 sits at the top; the library is in one place either way.
 
-A single-artifact target — `bundle`, `binary`, `component` — gets a copy of the
-library beside whatever it wrote, because that artifact is what someone carries
-somewhere and the build directory is not going with it:
+A single-artifact target, meaning `bundle`, `binary` or `component`, gets a copy
+of the library beside whatever it wrote, because that artifact is what someone
+carries somewhere and the build directory is not going with it:
 
-```
+```text
  dist/
    app.lua
    lib/libgame_aot.dylib
 ```
 
 Copy the output tree, move it, hand it to someone: it runs. Copy it without the
-`lib/` directory and the load fails by name, saying what it looked for and where
-— not with a missing symbol later on.
+`lib/` directory and the load fails by name, saying what it looked for and
+where, rather than with a missing symbol later on.
 
 ### Artifact cache key
 
@@ -1029,9 +1031,9 @@ the record costs one rebuild and changes no answer.
 
 The linked library gets its own key, over the artifact keys it was built from
 plus the compiler that ran, the flags it ran with, and the linkage that was
-asked for — not the IR and target again, which the artifact keys already carry.
-Changing compilers relinks; rebuilding an unchanged project does not. The C
-itself is deliberately not keyed on the toolchain, because the C is the same C
+asked for, rather than the IR and target again, which the artifact keys already
+carry. Changing compilers relinks; rebuilding an unchanged project does not. The
+C itself is deliberately not keyed on the toolchain, because the C is the same C
 whoever compiles it.
 
 The library is validated the same way and is just as disposable. Deleting it
@@ -1057,8 +1059,8 @@ Named so you can tell what you are looking at:
 
 ## See also
 
-- [Performance](performance.md) — what the ordinary Lua backend does
-- [LuaJIT trace checking](jit-trace-checking.md) — the same category of
+- [Performance](performance.md): what the ordinary Lua backend does
+- [LuaJIT trace checking](jit-trace-checking.md): the same category of
   performance property, for the JIT rather than the AOT path
-- [Effect contracts](../effects.md) — the purity `@aot` helpers rely on
-- [Ownership](../ownership.md) — where the alias facts come from
+- [Effect contracts](../effects.md): the purity `@aot` helpers rely on
+- [Ownership](../ownership.md): where the alias facts come from

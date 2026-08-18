@@ -101,7 +101,7 @@ C in a C function, G collecting, J compiling.
 
 --jit-aborts answers the question a sampler cannot: whether the hot code was
 compiled at all. It writes CSV, one row per place the compiler gave up, with a
-blacklisted trace — permanently demoted to the interpreter — ranked first.
+blacklisted trace, permanently demoted to the interpreter, ranked first.
 
 Both cover the program only: the session opens once the file has compiled and
 closes when it returns, so the compiler's own work stays out of the report. A

@@ -32,8 +32,8 @@ The selector is bound once, the result once, and the arms become an ordered
 switch finishes in one table read instead.
 
 The `do` after the selector is required. It gives the parser an unambiguous end
-to any selector—including a call, table, string, parenthesized expression, or
-multiline expression—without reserving `switch` as a keyword:
+to any selector, including a call, table, string, parenthesized expression or
+multiline expression, without reserving `switch` as a keyword:
 
 ::: code-group
 ```nupp [Nupp]
@@ -170,8 +170,8 @@ selector is never evaluated twice. The `?.` guard appears because this selector
 admits `nil`; a selector proved to be entirely records drops it.
 
 All pattern bindings are const and scoped to their arm. `field as alias` changes
-only the local binding name. Destructuring is direct—there are no nested object
-patterns—and a missing field or duplicate binding is `NUPP2137`.
+only the local binding name. Destructuring is direct, with no nested object
+patterns, and a missing field or duplicate binding is `NUPP2137`.
 
 Runtime identity follows `is`:
 
@@ -336,9 +336,10 @@ local area = __nuppT4
 ```
 :::
 
-Open selectors such as `string`, `integer`, or `any` generally require `else`.
-A missing alternative is `NUPP2140`. A value outside the selector type, a case
-after the remaining type is empty, or an unnecessary `else` is `NUPP2139`.
+An open selector such as `string`, `integer`, or `any` requires `else` unless
+the arms already cover its type. A missing alternative is `NUPP2140`. A value
+outside the selector type, a case after the remaining type is empty, or an
+unnecessary `else` is `NUPP2139`.
 
 ## Evaluation and placement
 

@@ -63,8 +63,8 @@ to the chain itself. A single method call is not a chain: its arguments break.
 
 An argument list that no longer fits on one line is still a list, so it is
 written as one: every argument under the opener, one per line, with the closing
-parenthesis on its own. That holds however the list stopped fitting — the width,
-a comment inside it, or an argument whose own body is a block.
+parenthesis on its own. That holds however the list stopped fitting, whether on
+the width, a comment inside it, or an argument whose own body is a block.
 
 The exception is the argument that runs down the page on purpose. A trailing
 function or table hugs the call that takes it, because the line that opens the

@@ -1,13 +1,15 @@
 # LuaJIT trace checking
 
-LuaJIT normally discovers an unsupported hot path only after the path becomes hot.
-Nupp can find a smaller, deterministic set before the program runs: operations the
-selected recorder unconditionally refuses whenever recording reaches them. It can also
-show conditional risks and normalize aborts observed in one profiled execution.
+LuaJIT normally discovers an unsupported hot path only after the path becomes
+hot. Nupp can find a smaller, deterministic set before the program runs:
+operations the selected recorder unconditionally refuses whenever recording
+reaches them. It can also show conditional risks and normalize aborts observed
+in one profiled execution.
 
-Trace checking does **not** promise that a function will run, become hot, compile, or
-remain compiled for every input. A clean static result means there is no catalogued
-unconditional blocker in the checked scope for that trace profile.
+Trace checking does **not** promise that a function will run, become hot,
+compile, or remain compiled for every input. A clean static result means there
+is no catalogued unconditional blocker in the checked scope for that trace
+profile.
 
 ## Result kinds
 
@@ -20,8 +22,8 @@ unconditional blocker in the checked scope for that trace profile.
 | observed abort | The LuaJIT hook reported this event in one run | never changes whether source checks |
 
 The operation-level answer and reachability answer are deterministic. Runtime
-observation is evidence from one input and one execution, so it is not deterministic
-and is never used as the static oracle.
+observation is evidence from one input and one execution, so it is not
+deterministic and is never used as the static oracle.
 
 ## Checking surfaces
 
@@ -34,9 +36,9 @@ and is never used as the static oracle.
 | `nupp lsp trace-check --json FILE LINE COLUMN` | when requested | the same one-function query for scripts and agents | none |
 | `nupp run --jit-aborts FILE` | when requested | recorder events observed while that program runs | the trace callback costs something only during this session |
 
-For continuous enforcement, put `@jit` on a function. For investigation, use the VS
-Code command or lightbulb without changing source. A successful one-shot check offers
-**Add `@jit` contract** if the declaration can carry it.
+For continuous enforcement, put `@jit` on a function. For investigation, use the
+VS Code command or lightbulb without changing source. A successful one-shot
+check offers **Add `@jit` contract** if the declaration can carry it.
 
 Give an agent the complete static-first performance workflow as a focused skill:
 
@@ -45,9 +47,10 @@ nupp reference performance --skill \
   -o .claude/skills/nupp-performance/SKILL.md
 ```
 
-The generated skill belongs to the compiler being run. Its trigger covers slow code,
-hot loops, JIT behaviour, profiler output, and performance regressions; its body leads
-with trace checking before it asks the agent to measure a process.
+The generated skill belongs to the compiler being run. Its trigger covers slow
+code, hot loops, JIT behavior, profiler output, and performance regressions;
+its body leads with trace checking before it asks the agent to measure a
+process.
 
 For CI, use both static scopes that matter to the project:
 
@@ -57,10 +60,11 @@ nupp bc --check src/physics.nupp
 nupp bc --check --json src/physics.nupp > build/physics-bytecode.json
 ```
 
-`nupp check` enforces every `@jit` contract. `bc --check` catches blockers in exact
-generated loop bytecode even where no source annotation was written. Its JSON includes
-the generated-artifact fingerprint, trace profile, catalog version, prototype, PC,
-opcode, source line, reason ID, class, reachability, explanation, and repair.
+`nupp check` enforces every `@jit` contract. `bc --check` catches blockers in
+exact generated loop bytecode even where no source annotation was written. Its
+JSON includes the generated-artifact fingerprint, trace profile, catalog
+version, prototype, PC, opcode, source line, reason ID, class, reachability,
+explanation, and repair.
 
 ## Function construction in a loop
 
@@ -106,14 +110,16 @@ local function sum(values: {integer}): integer
 end
 ```
 
-There is no rewrite that can safely lift every capturing closure. Replacing the capture
-with shared mutable state would change which value each returned function observes.
+There is no rewrite that can safely lift every capturing closure. Replacing the
+capture with shared mutable state would change which value each returned
+function observes.
 
 ### Configurable source lint
 
-Without `@jit`, a capturing loop closure is `jit-loop-closure` (`NUPP2515`). It is off
-by default because the code is correct and some programs intentionally accept the
-interpreted loop. Enable it in `nupp.lua` when this is a project policy:
+Without `@jit`, a capturing loop closure is `jit-loop-closure` (`NUPP2515`). It
+is off by default because the code is correct and some programs intentionally
+accept the interpreted loop. Enable it in `nupp.lua` when this is a project
+policy:
 
 ```lua
 return {
@@ -148,8 +154,9 @@ help: declare it once above the loop and pass the name
 
 ## Blockers reached through checked calls
 
-The contract follows resolved Nupp calls, including recursive call graphs and exact
-exported callees. The error belongs to the annotated caller and shows a bounded path:
+The contract follows resolved Nupp calls, including recursive call graphs and
+exact exported callees. The error belongs to the annotated caller and shows a
+bounded path:
 
 ```nupp
 local function helper(values: {integer}): integer
@@ -176,14 +183,14 @@ note: trace classification: blocker (jit/loop-function-construction)
 help: declare one function outside the loop and pass what varies to it
 ```
 
-Recursive strongly connected components reach a fixed point over the reason set; the
-path does not expand forever.
+Recursive strongly connected components reach a fixed point over the reason set;
+the path does not expand forever.
 
 ## Explicit `jit.off` boundaries
 
-Calling a function deliberately disabled with `jit.off` is valid ordinary code. It is
-an error from an `@jit` body because that body promised not to deliberately leave
-compiled code:
+Calling a function deliberately disabled with `jit.off` is valid ordinary code.
+It is an error from an `@jit` body because that body promised not to
+deliberately leave compiled code:
 
 ```nupp
 local function logValue(value: integer): nil
@@ -207,15 +214,15 @@ help: remove @jit from the caller or keep the disabled call outside its checked 
 ```
 
 Move the logging call outside the annotated operation, or remove `@jit` when the
-interpreter transition is intentional. Applying `jit.off` to the enclosing function
-also makes a local trace lint irrelevant: a function taken off the JIT has no trace to
-lose.
+interpreter transition is intentional. Applying `jit.off` to the enclosing
+function also makes a local trace lint irrelevant: a function taken off the JIT
+has no trace to lose.
 
 ## Variadic FFI
 
 A variadic C signature depends on the exact argument types and target ABI. Nupp
-therefore classifies it as a conservative risk rather than pretending every form is a
-universal opcode blocker:
+therefore classifies it as a conservative risk rather than pretending every form
+is a universal opcode blocker:
 
 ```nupp
 cdef function printf(format: cstring, ...): int32
@@ -233,8 +240,8 @@ note: trace classification: risk (jit/ffi-vararg-policy)
 help: move the call behind an explicit jit.off boundary when it is not a hot operation
 ```
 
-Under `@jit`, the same site is a non-suppressible `NUPP2707` contract error. A clear
-boundary makes the choice explicit:
+Under `@jit`, the same site is a non-suppressible `NUPP2707` contract error. A
+clear boundary makes the choice explicit:
 
 ```nupp
 cdef function printf(format: cstring, ...): int32
@@ -246,14 +253,14 @@ end
 jit.off(reportCold)
 ```
 
-Do not call `reportCold` from an `@jit` function; that would correctly become the
-`jit/disabled-callee` error shown above.
+Do not call `reportCold` from an `@jit` function; that would correctly become
+the `jit/disabled-callee` error shown above.
 
 ## Lua callbacks passed through C
 
-C cannot safely re-enter an ordinary Lua callback from a compiled trace. The checker
-uses the resolved FFI signature and callback identity rather than guessing from a
-generated spelling:
+C cannot safely re-enter an ordinary Lua callback from a compiled trace. The
+checker uses the resolved FFI signature and callback identity rather than
+guessing from a generated spelling:
 
 ```nupp
 cdef function each(fn: function(int32), n: int32)
@@ -290,12 +297,13 @@ jit.off(visit)
 jit.off(runCold)
 ```
 
-Inside `@jit`, allowing the lint does not waive the contract. It remains `NUPP2707`.
+Inside `@jit`, allowing the lint does not waive the contract. It remains
+`NUPP2707`.
 
 ## Dynamic call targets
 
-An unresolved call is not fabricated into a blocker. The one-shot inspection reports
-what is actually known:
+An unresolved call is not fabricated into a blocker. The one-shot inspection
+reports what is actually known:
 
 ```nupp
 local function dispatch(callback: any): nil
@@ -327,8 +335,8 @@ resolved checked identity when continuous transport is required.
 ## `FNEW` and `UCLO` in generated bytecode
 
 `bc --check` compiles but does not execute the exact artifact at the requested
-optimization level. A capturing closure commonly produces both function construction
-(`FNEW`) and upvalue closing (`UCLO`) in the repeatable region:
+optimization level. A capturing closure commonly produces both function
+construction (`FNEW`) and upvalue closing (`UCLO`) in the repeatable region:
 
 ```text
 $ nupp bc --check src/sum.g.nupp
@@ -362,15 +370,16 @@ end
 0011  FORL  3 => 0007
 ```
 
-That finding is visible, but `bc --check` exits 0 because it cannot truthfully claim
-the whole loop always fails to complete a root trace. `@jit` is stronger and rejects a
-statically reachable may-reach blocker because its contract covers every checked path.
+That finding is visible, but `bc --check` exits 0 because it cannot truthfully
+claim the whole loop always fails to complete a root trace. `@jit` is stronger
+and rejects a statically reachable may-reach blocker because its contract covers
+every checked path.
 
 ## Manual checking in VS Code
 
-Place the cursor anywhere in a method or function and run **Nupp: Check Function for
-JIT Trace Blockers** from the Command Palette, editor context menu, or lightbulb. The
-request:
+Place the cursor anywhere in a method or function and run **Nupp: Check Function
+for JIT Trace Blockers** from the Command Palette, editor context menu, or
+lightbulb. The request:
 
 - selects the smallest enclosing function;
 - reads the current unsaved editor buffer;
@@ -378,20 +387,20 @@ request:
 - puts findings in the temporary **Nupp JIT Check** diagnostic collection; and
 - clears those diagnostics on edit or on the next manual check.
 
-It does not add an annotation, run another process, execute the program, or attach a
-trace hook. A clean answer says:
+It does not add an annotation, run another process, execute the program, or
+attach a trace hook. A clean answer says:
 
 ```text
 update: no catalogued unconditional trace blockers or conditional risks.
 ```
 
-That is deliberately not "this function will compile." Choose **Add `@jit` contract**
-afterwards when the function should be checked continuously.
+That is deliberately not "this function will compile." Choose **Add `@jit`
+contract** afterwards when the function should be checked continuously.
 
 ## Observing real aborts
 
-Static checking cannot know whether a loop runs or becomes hot. Observe one workload
-when that is the question:
+Static checking cannot know whether a loop runs or becomes hot. Observe one
+workload when that is the question:
 
 ```bash
 nupp run --jit-aborts app.nupp
@@ -425,15 +434,17 @@ JSON retains the raw VM detail and adds the stable identity:
 }
 ```
 
-The callback runs on recorder events, not on every loop iteration or table access, but
-it still has nonzero profiling cost. Stop the session after the interesting window.
-With no trace session, no callback is attached and no aggregation state is allocated.
+The callback runs on recorder events, not on every loop iteration or table
+access, but it still has nonzero profiling cost. Stop the session after the
+interesting window. With no trace session, no callback is attached and no
+aggregation state is allocated.
 
 ## Complete catalog version 1
 
-Static and runtime surfaces use these same identities. Raw LuaJIT strings remain report
-detail, not public identifiers. `nupp explain REASON` prints the current explanation
-and a repair only where Nupp has a specific semantics-preserving one.
+Static and runtime surfaces use these same identities. Raw LuaJIT strings remain
+report detail, not public identifiers. `nupp explain REASON` prints the current
+explanation and a repair only where Nupp has a specific semantics-preserving
+one.
 
 ### Statically attributable reasons
 
@@ -448,8 +459,8 @@ and a repair only where Nupp has a specific semantics-preserving one.
 
 ### Expected stops
 
-These are class `stop`, severity `info`, and omitted unless benign events are requested.
-They are not warnings to fix.
+These are class `stop`, severity `info`, and omitted unless benign events are
+requested. They are not warnings to fix.
 
 | Stable reason | Typical raw VM detail | Meaning |
 | --- | --- | --- |
@@ -462,8 +473,8 @@ They are not warnings to fix.
 
 ### Runtime risks and blockers
 
-These are observations from the active run. Counts and timing can change with inputs;
-the normalized identity does not.
+These are observations from the active run. Counts and timing can change with
+inputs; the normalized identity does not.
 
 | Stable reason | Class | Typical raw VM detail | What the report means |
 | --- | --- | --- | --- |
@@ -486,33 +497,51 @@ blocker rather than receiving a second runtime-only identity.
 
 ## Profiles, versions, and reproducibility
 
-Every answer names its `TraceProfile`: LuaJIT revision, architecture, operating system,
-enabled recorder features, bytecode schema, and reason-catalog version. Reports from
-different profiles are not silently merged. The bytecode fingerprint prevents a
-static result for an old artifact from being presented as though it described new
-code.
+Every answer names its `TraceProfile`: LuaJIT revision, architecture, operating
+system, enabled recorder features, bytecode schema, and reason-catalog version.
+Reports from different profiles are not silently merged. The bytecode
+fingerprint prevents a static result for an old artifact from being presented as
+though it described new code.
 
-Adding a newly proved unconditional blocker creates a new catalog identity/version and
-can make an existing `@jit` contract fail after a compiler upgrade. Such additions need
-a deterministic VM fixture, a neighbouring accepted fixture, source attribution, and
-a specific working alternative before they become static rules. One application abort
-is evidence to investigate, not enough to generalize.
+Adding a newly proved unconditional blocker creates a new catalog
+identity/version and can make an existing `@jit` contract fail after a compiler
+upgrade. Such additions need a deterministic VM fixture, a neighbouring accepted
+fixture, source attribution, and a specific working alternative before they
+become static rules. One application abort is evidence to investigate, not
+enough to generalize.
 
 ## Large-application workflow
 
-Use static checking to prevent known cliffs from spreading through checked call graphs,
-then profile to prioritize what remains:
+Use static checking to prevent known cliffs from spreading through checked call
+graphs, then profile to prioritize what remains:
 
 1. Put `@jit` on important subsystem boundaries, not every tiny helper.
-2. Run `bc --check` on release entry modules at their release optimization level.
-3. Use the VS Code one-shot check while investigating a method before committing to a
-   contract.
-4. Sample first to find interpreted hot frames, then collect aborts over a short,
-   representative window.
-5. Fix must-reach blockers first, then observed blacklists, then risks that overlap
-   measured interpreted time.
+2. Run `bc --check` on release entry modules at their release optimization
+   level.
+3. Use the VS Code one-shot check while investigating a method before committing
+   to a contract.
+4. Sample first to find interpreted hot frames, then collect aborts over a
+   short, representative window.
+5. Fix must-reach blockers first, then observed blacklists, then risks that
+   overlap measured interpreted time.
 6. Keep benchmarks: removing an abort does not prove the replacement is faster.
 
-This heavily reduces troubleshooting for catalogued, attributable causes. It cannot
-replace profiling for cold code, input-dependent types and shapes, side exits, recorder
-limits, or deciding whether a reported site matters to the workload.
+This heavily reduces troubleshooting for catalogued, attributable causes. It
+cannot replace profiling for cold code, input-dependent types and shapes, side
+exits, recorder limits, or deciding whether a reported site matters to the
+workload.
+
+## Diagnostics
+
+- **NUPP2707**: an `@jit` body, or a checked callee it reaches, holds a
+  catalogued unconditional recorder blocker.
+- **NUPP2515** / **NUPP2505**: a loop builds a function, capturing the
+  iteration or not.
+- **NUPP2514**: a variadic FFI call cannot run on a compiled trace.
+- **NUPP2502**: a Lua function passed to C becomes an FFI callback.
+
+## Next
+
+- [Profiling](profiling.md): the abort channel these reasons come back through,
+  and the sampler that says whether a site is hot.
+- [Performance](performance.md): the lowerings chosen so a trace forms at all.

@@ -105,8 +105,8 @@ NUPP2009: SoA shared rows are read-only
 When the complete use of `read()` or `write()` is static and nonescaping, Nupp
 keeps the slab anchor, columns, offset, count, and capability as compiler-owned
 values instead of allocating a row-view wrapper. Acquisition effects still run
-once, the slab remains rooted, and an escape or opaque call materializes the same
-checked view.
+once, the slab remains rooted, and an escape or opaque call materializes the
+same checked view.
 :::
 
 ## Field spans
@@ -232,8 +232,8 @@ matter on the selected target.
 
 The canonical loop `for index = 1, #rows` proves every indexed row access is in
 bounds, and an arbitrary index keeps its runtime bounds check. How that proof
-lowers to direct typed-column loads and stores, and what an [`@aot`](tooling/aot.md)
-kernel retains, is in
+lowers to direct typed-column loads and stores, and what an
+[`@aot`](tooling/aot.md) kernel retains, is in
 [Performance](tooling/performance.md#opt-6-indexed-views).
 
 ## Snapshots and ECS storage

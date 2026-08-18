@@ -273,9 +273,9 @@ compiled again. The cost is not a closure per iteration; it is the whole
 enclosing loop running interpreted, however hot it gets and whatever else is in
 it.
 
-That is why this reads a function *built* in a loop rather than one that outlives
-it, and why it is worth heeding where the allocation alone would look too small
-to bother with.
+That is why this reads a function *built* in a loop rather than one that
+outlives it, and why it is worth heeding where the allocation alone would look
+too small to bother with.
 
 It reports only what it can prove pointless: a function reading nothing from the
 iteration, which therefore lifts out with no change in meaning. One that does
@@ -286,8 +286,8 @@ read the iteration costs the same trace and cannot be lifted, so it is
 
 The other half of the pair, for a function that reads the iteration. There is
 nothing to lift and no mechanical edit to suggest, so this is off until a
-project asks for it — but the loop does not compile, which is worth being able
-to ask about.
+project asks for it. The loop does not compile either way, which is worth being
+able to ask about.
 
 ::: code-group
 ```nupp [src/jit-loop-closure.nupp]
@@ -314,10 +314,10 @@ interpreted, and the choice belongs to whoever wrote it.
 
 Two things report it without being asked. Inside an `@jit` function it is the
 non-suppressible `NUPP2707`, because that annotation promised the absence of
-catalogued recorder blockers; `jit.off` on the enclosing function silences it, since a function
-taken off the JIT has no trace to lose. And `nupp bc --check` reads the
-bytecode of any file and reports the same loops, together with the ones the
-compiler's own lowerings could introduce.
+catalogued recorder blockers; `jit.off` on the enclosing function silences it,
+since a function taken off the JIT has no trace to lose. And `nupp bc --check`
+reads the bytecode of any file and reports the same loops, together with the
+ones the compiler's own lowerings could introduce.
 
 ### `undocumented-raise`
 
@@ -539,8 +539,9 @@ configures when it wants to move a group of them at once:
   a class. What is being paid for is real; whether it is worth changing depends
   on how hot the code is, which the source does not state, so reported
   unprompted these would fire on code that is not hot and teach their reader to
-  silence the category before meeting the case they were written for. `nupp
-  lints` lists them whatever their level, which is where they are discovered.
+  silence the category before meeting the case they were written for.
+  `nupp lints` lists them whatever their level, which is where they are
+  discovered.
 
 A category is a grouping, not a level: the default comes from each lint's own
 registry entry, and a category setting in `nupp.lua` moves every member at
@@ -645,11 +646,12 @@ changes.
 
 ### Lint tests
 
-`tests/allowtest.lua` has the harness for level resolution. `checkOf(src, {lints
-= ...})` returns the diagnostics with a project configuration applied, which is
-how the level, the category override and `@allow` are covered. A lint that spans
-files wants `tests/projectlinktest.lua`'s `withProject`, and one whose editor
-severity differs wants an LSP session in `tests/lsptest.lua`.
+`tests/allowtest.lua` has the harness for level resolution.
+`checkOf(src, {lints = ...})` returns the diagnostics with a project
+configuration applied, which is how the level, the category override and
+`@allow` are covered. A lint that spans files wants
+`tests/projectlinktest.lua`'s `withProject`, and one whose editor severity
+differs wants an LSP session in `tests/lsptest.lua`.
 
 Assert the `severity` as well as the code. A lint that reports at the wrong
 level is a lint that fails the wrong builds.

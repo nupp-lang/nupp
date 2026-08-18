@@ -111,7 +111,7 @@ There is no `enum` declaration; a string literal is a type, so a union of them
 is a closed set. A member is a `string` subtype, so a bare literal lands in it.
 Drop the `else` and the checker says which members you left out:
 
-```
+```text
 warning: NUPP2107 exhaustiveness: every branch returns, so this
 handles "green" | "red" and leaves "green" unhandled
 ```
@@ -205,8 +205,8 @@ end
 print(firstOr({1, 2, 3}, 0))
 ```
 
-Type arguments are inferred from the call. Constraints use `is`: `<T is
-Callable>`. There is no explicit type-argument syntax at a call site.
+Type arguments are inferred from the call. Constraints use `is`:
+`<T is Callable>`. There is no explicit type-argument syntax at a call site.
 `f<number>(x)` parses as two comparisons, the way it does in Lua.
 
 ## Ownership

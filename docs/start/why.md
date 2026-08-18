@@ -91,8 +91,8 @@ print(file:read("*a"))
 ```
 
 Drop early, transfer it to a `takes` parameter, or return it from a function
-whose result is `affine(T, cleanup)` when automatic lexical destruction is not the
-desired end:
+whose result is `affine(T, cleanup)` when automatic lexical destruction is not
+the desired end:
 
 ```nupp
 local file = resources.openFile("in.txt", "r")
@@ -117,7 +117,7 @@ suspension-aware operation blocks and drives its readiness sources. Under a
 scheduler, it parks the current coroutine and lets other work run. If the
 answer is already ready, it returns without either path.
 
-The compiler tracks suspension separately from value types. Most code simply
+The compiler tracks suspension separately from value types. Most code
 uses inference; a `nosuspend` region or function type asks for proof when a
 callback, C boundary, cleanup, or critical operation must not park. The runtime
 protocol requires every real park to provide cancellation, so abandoning a
@@ -145,11 +145,11 @@ One binary, built from one parse of your source:
 | nupp explain | Describe a diagnostic code, with worked examples |
 | nupp import- | Turn a C header into typed declarations |
 
-The profiler is the part people are most surprised to find in a compiler. `nupp
-run --profile` writes collapsed-stack text that speedscope reads, and `nupp run
---jit-aborts` reports every place LuaJIT declined to compile something. The
-second is the question a sampling profiler structurally cannot answer, and on
-LuaJIT it is usually the one that matters.
+The profiler is the part people are most surprised to find in a compiler.
+`nupp run --profile` writes collapsed-stack text that speedscope reads, and
+`nupp run --jit-aborts` reports every place LuaJIT declined to compile
+something. The second is the question a sampling profiler structurally cannot
+answer, and on LuaJIT it is usually the one that matters.
 
 ## Limits
 

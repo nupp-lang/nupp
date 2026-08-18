@@ -229,9 +229,9 @@ neither requires the lowering to succeed.
 The [Ahead-of-time compilation guide](tooling/aot.md) works through a full
 kernel, the build policy, and what the backend does not do yet.
 
-The [LuaJIT trace-checking guide](tooling/jit-trace-checking.md) shows every current
-blocker, risk, expected stop, warning, call-path error, bytecode verdict, editor query,
-and runtime reason.
+The [LuaJIT trace-checking guide](tooling/jit-trace-checking.md) shows every
+current blocker, risk, expected stop, warning, call-path error, bytecode
+verdict, editor query, and runtime reason.
 
 `@syntax("name")` is editor metadata for a local or const binding. It accepts
 any literal syntax name and does not change the binding's type. The bundled VS
@@ -285,15 +285,15 @@ instead of overriding, and the interface that later adds a default which would
 otherwise silently shadow an implementor's method. See [overloads and
 overrides](type-system/overloads.md#default-implementations-and-override) for
 per-entry replacement, and
-[interfaces](type-system/interfaces.md#default-implementations) for interface
-default behavior generally.
+[interfaces](type-system/interfaces.md#default-implementations) for how
+interface defaults behave.
 
 `@partition(left, right)` is an audited ownership assertion on a method of a
 sealed interface. It states that the two named fields of the method's first
 result carry sibling-disjoint regions, preserving a private implementation's
 `nupp.partition` proof through the public interface signature. It may not be
-attached to an unsealed or externally implementable contract, and `nupp
-ownership-audit` lists every use.
+attached to an unsealed or externally implementable contract, and
+`nupp ownership-audit` lists every use.
 
 ## Effect contracts
 
@@ -317,7 +317,7 @@ The list members are `reads`, `writes`, `shapes`, `metatables`, `escapes`,
 `calls`, and `returns`. The boolean members are `allocates`, `yields`,
 `raises`, and `external`. Every member defaults to empty or false, so
 `@effects()` means the function has no observable effects; it does not mean
-“infer these later.”
+"infer these later."
 
 See [Effect contracts](effects.md) for the path vocabulary, every member's
 meaning, inference and fixed-point propagation, return aliases, unknown-call
@@ -365,7 +365,7 @@ That says two things about `dispatch`: a traceback through it need not show the
 frames it would have shown, and an error raised inside it need not report the
 position it would have reported. Nothing else about it changes.
 
-### The six guarantees
+### Six guarantees
 
 Each name is one property, and giving it up permits a specific class of
 rewrite.

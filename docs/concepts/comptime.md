@@ -71,9 +71,9 @@ inside a generic signature is deferred until inference supplies concrete type
 and const arguments. A `type<Bound>` result exposes only `Bound` while the call
 is open and checks every generated result against that promise.
 
-Use the direct finite operators—`keyof`, indexed members, mapped shapes,
-template construction, const parameters, associated projections, and
-`unpackof`—when they state a local operation clearly. Type functions are for
+Use the direct finite operators when they state a local operation clearly:
+`keyof`, indexed members, mapped shapes, template construction, const
+parameters, associated projections, and `unpackof`. Type functions are for
 algorithms needing ordinary loops, branches, string processing, or recursion.
 
 ## Accumulating loops are the reason

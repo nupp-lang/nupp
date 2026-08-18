@@ -9,8 +9,8 @@ local decoded = nupp.data.json.decodeJSON(encoded)
 assert(decoded.name == "Nupp")
 ```
 
-`NULL`, `EMPTY_ARRAY`, `ARRAY_MT`, and `EMPTY_ARRAY_MT` preserve distinctions Lua
-tables cannot express by themselves. The configuration methods match cjson's
+`NULL`, `EMPTY_ARRAY`, `ARRAY_MT`, and `EMPTY_ARRAY_MT` preserve distinctions
+Lua tables cannot express by themselves. The configuration methods match cjson's
 established semantics, but live on `nupp.data.json`. `newJSON()` returns an
 independent `nupp.data.json.JSON` encoder/decoder with its own settings:
 
@@ -48,5 +48,6 @@ For a record deriving `nupp.derive.JSON`, `encode(value)` discovers the record's
 type witness from the value. `encodeAs(Record, value)` and
 `decode(Record, text)` accept the visible record name directly. The derived
 schema, lazy codec allocation, and generated `toJSON`/`fromJSON` members are
-documented once in [Reflection](concepts/reflection.md#json-through-a-type-witness)
-and [Declaration derives](derives.md#json).
+documented once in
+[Reflection](concepts/reflection.md#json-through-a-type-witness) and
+[Declaration derives](derives.md#json).

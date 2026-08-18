@@ -154,7 +154,7 @@ would be a second answer chosen by whether the fields happened to be literals.
 With neither, and against an alias, there is nothing to test and that is
 NUPP3001 at code generation.
 
-Note that `x is integer` compiles to `type(x) == "number"`. Integrality is not
+`x is integer` compiles to `type(x) == "number"`. Integrality is not
 checked at runtime.
 
 ## Default implementations
@@ -280,5 +280,7 @@ fulfillment, `metatable<T>`, and the full set of exclusions.
 
 ## Next
 
-- [refinements.md](refinements.md): the runtime test an interface carries so `is` can answer.
-- [overloads.md](overloads.md): what happens when an interface member is an overload set.
+- [refinements.md](refinements.md): the runtime test an interface carries so
+  `is` can answer.
+- [overloads.md](overloads.md): what happens when an interface member is an
+  overload set.

@@ -140,4 +140,5 @@ success arm.
 ## Next
 
 - [generics.md](generics.md): the type parameters a pack is declared with.
-- [type-level-computation.md](type-level-computation.md): deriving a pack from an earlier argument.
+- [type-level-computation.md](type-level-computation.md): deriving a pack from
+  an earlier argument.
