@@ -12,3 +12,4 @@ tests/build/
 /src/**/*.lua
 _stage2/
 _stage1/
+/evals/results/
