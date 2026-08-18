@@ -101,6 +101,14 @@ shared[1].x = 4
 NUPP2009: SoA shared rows are read-only
 ```
 
+::: tip Nonescaping row views are allocation-free at -O1
+When the complete use of `read()` or `write()` is static and nonescaping, Nupp
+keeps the slab anchor, columns, offset, count, and capability as compiler-owned
+values instead of allocating a row-view wrapper. Acquisition effects still run
+once, the slab remains rooted, and an escape or opaque call materializes the same
+checked view.
+:::
+
 ## Field spans
 
 `field("name")` projects one resolved field as a normal typed
@@ -153,6 +161,9 @@ be scalar-replaced: generated code retains the checked bounds and composed
 column offset but creates no row-view wrapper. The same lowering can erase a
 nonescaping writable-to-shared downgrade and a statically resolved `field`
 projection. Any unsupported or escaping use materializes the safe view normally.
+Directly called, nonrecursive local functions in the same module can transport
+the virtual row view; exported, recursive, dynamic, foreign, and cross-module
+boundaries retain the materialized ABI.
 
 ## Field-wise row copies
 

@@ -44,6 +44,14 @@ The operator surface replaces the former element methods and public count field:
 
 The former spellings are migration errors, not deprecated alternate APIs.
 
+::: tip Nonescaping spans are allocation-free at -O1
+When the complete use of an exact standard Span constructor is static and
+nonescaping, Nupp keeps its anchor, pointer, offset, count, and capability as
+compiler-owned values instead of allocating a wrapper. Constructor validation
+and bounds checks still run, and the source remains strongly rooted through the
+last access. An escape or opaque call materializes the same checked span.
+:::
+
 `fromFixedCarray(source, count)` returns `FixedSpan<T, N>` when the array and
 literal count carry the same static `N`. It satisfies `Span<T>`, while preserving
 the exact count for checks and generated code.
@@ -149,6 +157,12 @@ capability as compiler facts instead of allocating the slice wrapper. Nested
 slices compose offsets, while the bounds check still executes once at each
 authored `slice` expression. Returning, capturing, storing, or passing the slice
 to an unsupported call keeps the ordinary rooted runtime object.
+
+The same scalar representation starts at `fromString`, the shared and writable
+C-array constructors, and `heap.Array:read()` or `heap.Array:write()`. Directly
+called, nonrecursive local functions in the same module can receive and return a
+virtual view without allocating a wrapper. Exported, recursive, dynamic, foreign,
+cross-module, and otherwise opaque boundaries use the materialized ABI.
 
 ## Passing a span to C
 

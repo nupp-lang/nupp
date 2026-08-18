@@ -388,6 +388,11 @@ type span.ByteSpan = span.Span<uint8>
 type span.ByteWriteSpan = span.WriteSpan<uint8>
 
 --- Creates a byte span over a Lua string and keeps that string rooted.
+---
+--- ::: tip Nonescaping views at -O1
+--- A nonescaping result can remain virtual, so the compiler allocates no wrapper.
+--- An escape or opaque call materializes the same checked span.
+--- :::
 --- @export
 function span.fromString(borrows source: string): span.ByteSpan borrows (source)
     local pointer = ffi.cast<const uint8[?]>(source)
@@ -395,6 +400,11 @@ function span.fromString(borrows source: string): span.ByteSpan borrows (source)
 end
 
 --- Creates a checked shared span over a C array and an explicit logical count.
+---
+--- ::: tip Nonescaping views at -O1
+--- A nonescaping result can remain virtual, so the compiler allocates no wrapper.
+--- An escape or opaque call materializes the same checked span.
+--- :::
 --- @export
 --- @raises when count is negative
 function span.fromCarray<T>(borrows source: T[?], count: integer): span.Span<T> borrows (source)
@@ -406,6 +416,11 @@ end
 
 --- Creates a fixed shared span without a runtime length check. The literal count is
 --- both the stored count and the proof that the source has exactly `N` elements.
+---
+--- ::: tip Nonescaping views at -O1
+--- A nonescaping result can remain virtual, so the compiler allocates no wrapper.
+--- An escape or opaque call materializes the same checked span.
+--- :::
 --- @export
 function span.fromFixedCarray<T, const N: integer>(
     borrows source: T[N],
@@ -419,6 +434,11 @@ end
 --- Creates an affine write span. The source is exclusive during construction and the
 --- returned dependent owner prevents invalidating operations until it is explicitly
 --- committed.
+---
+--- ::: tip Nonescaping views at -O1
+--- A nonescaping result can remain virtual, so the compiler allocates no wrapper.
+--- An escape or opaque call materializes the same checked span.
+--- :::
 --- @export
 --- @raises when count is negative
 function span.writeCarray<T>(exclusive source: T[?], count: integer): span.Writable<T> borrows (source)
@@ -430,6 +450,11 @@ end
 
 --- Creates a fixed affine write span without a runtime length check. The source array
 --- type and literal count must name the same `N`.
+---
+--- ::: tip Nonescaping views at -O1
+--- A nonescaping result can remain virtual, so the compiler allocates no wrapper.
+--- An escape or opaque call materializes the same checked span.
+--- :::
 --- @export
 function span.writeFixedCarray<T, const N: integer>(
     exclusive source: T[N],

@@ -38,7 +38,7 @@ than mixing artifacts compiled at different levels.
 | `OPT-3` | constant-fold | -O1 | Fold exact primitives, branches, dead loops, and immutable paths |
 | `OPT-4` | static-callable | -O1 | Bind repeated immutable dotted callees at first use |
 | `OPT-5` | concat-buffer | -O1 | Append to a string.buffer instead of rebuilding a string each pass |
-| `OPT-6` | indexed-range | -O1 | Select direct AoS or SoA access after one trusted range proof |
+| `OPT-6` | indexed-range | -O1 | Select proved direct access and scalar-replace indexed views |
 
 Each `OPT-n` example below shows Nupp beside its `-O1` and `-O0` output.
 Generated temporary names are illustrative.
@@ -381,13 +381,25 @@ checked operation. The generated expression reaches `pointer` and `offset`
 through the span, preserving roots and nonzero slice offsets; explicit pointer
 hoisting is not part of this pass.
 
-The pass also scalar-replaces const derived views whose complete use set is
-proved. Span and SoA slices retain one checked finish scalar; shared downgrades
-retain their count; resolved SoA field projections select the column directly.
-Nested combinations compose their offsets without constructing wrapper tables.
-An escape or unsupported operation declines the rewrite and preserves the safe
-runtime view. Root view constructors remain materialized so the original C array,
-string, or SoA slab is explicitly rooted.
+The pass also scalar-replaces exact standard roots and const derived views whose
+complete use set is proved. Admitted roots come from `span.fromString`, the
+shared and writable C-array constructors, `heap.Array:read()` and `write()`, and
+`soa.Array:read()` and `write()`. Span and SoA slices retain one checked finish
+scalar; shared downgrades retain their count; resolved SoA field projections
+select the column directly. Nested combinations compose their offsets without
+constructing wrapper tables.
+
+Dynamic base, offset, count, and column expressions are captured once in source
+order. Constructor validation, exclusive acquisition, dirty marking, and other
+producer effects still execute once. Generated access remains rooted through the
+source owner, so scalar replacement cannot detach a pointer or column from its
+anchor. `-O0`, an escape, or an unsupported operation preserves the ordinary
+checked runtime object.
+
+Directly called, nonrecursive local functions in the same checked module may
+transport an admitted view through parameters or one return value as flattened
+runtime state. Recursive, exported, dynamic, foreign, cross-module, `any`, and
+otherwise opaque boundaries retain the materialized ABI.
 
 One remark is aggregated per loop:
 
@@ -464,6 +476,15 @@ proved row fields remained direct column loads and stores. The slice-heavy gate
 measured a forced materialized wrapper at 121.83 ms, the virtual view at 4.25 ms,
 and the handwritten scalar control at 7.79 ms. This is evidence for narrow
 derived-view scalar replacement, not general table escape analysis.
+
+The root-acquisition gate repeatedly creates and consumes the view inside the
+measured workload. Shared C-array roots took 0.198x the materialized time; SoA
+writable roots took 0.048x. Static local parameter and return transport took
+0.175x and 0.215x respectively. A forced dynamic return remained materialized at
+1.019x. Forced collection tests keep the root live through the final virtual
+access. See the committed
+[`span-range-lowering` results](../../bench/span-range-lowering/README.md) for
+the full Span, heap, SoA, dirty-acquisition, and trace matrix.
 
 ## Inspecting and controlling passes
 

@@ -362,10 +362,24 @@ record soa.Array<T> is soa.ArrayToken
     readonly count: integer
     readonly fingerprint: string
 
+    --- Borrows the rows as a shared checked view.
+    ---
+    --- ::: tip Nonescaping views at -O1
+    --- A nonescaping result can remain virtual, so no row-view wrapper is allocated.
+    --- An escape or opaque call materializes the same checked view.
+    --- :::
     read: function(borrows self: Array<T>): soa.Span<T> borrows (self)
+
+    --- Borrows the rows as an exclusive checked view.
+    ---
+    --- ::: tip Nonescaping views at -O1
+    --- A nonescaping result can remain virtual, so no row-view wrapper is allocated.
+    --- An escape or opaque call materializes the same checked view.
+    --- :::
     write: function(
         exclusive self: Array<T>
     ): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan) borrows (self)
+
     close: nosuspend function(takes self: Array<T>): nil
     drop: nosuspend function(takes self: Array<T>): nil
 end

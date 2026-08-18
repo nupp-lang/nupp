@@ -46,9 +46,19 @@ record heap.Array<T> is heap.ArrayToken
     close: nosuspend function(takes self: Array<T>): nil
 
     --- Borrows the whole allocation as a shared checked span.
+    ---
+    --- ::: tip Nonescaping views at -O1
+    --- A nonescaping result can remain virtual, so no span wrapper is allocated.
+    --- An escape or opaque call materializes the same checked span.
+    --- :::
     read: function(borrows self: Array<T>): span.Span<T> borrows (self)
 
     --- Borrows the whole allocation as an affine checked write span.
+    ---
+    --- ::: tip Nonescaping views at -O1
+    --- A nonescaping result can remain virtual, so no span wrapper is allocated.
+    --- An escape or opaque call materializes the same checked span.
+    --- :::
     write: function(exclusive self: Array<T>): span.Writable<T> borrows (self)
 end
 
