@@ -113,7 +113,17 @@ local function countQuotes(borrows source: span.Span<uint8>): uint32
     return found
 end
 
-return {countQuotes = countQuotes, maskOps = maskOps}
+@aot(lanes = false)
+local function lookupAligned(borrows source: span.Span<uint8>): uint32
+    local species = preferredBytes()
+    local previous = species:load(source, nupp.math.u32.wrap(0))
+    local current = species:load(source, species.lanes)
+    local aligned = simd.alignBytes(previous, current, nupp.math.u32.wrap(3))
+    local table = simd.tableU8x16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+    return aligned:lookup16(table):equal(7):count()
+end
+
+return {countQuotes = countQuotes, maskOps = maskOps, lookupAligned = lookupAligned}
 ]]
 
 local PLAIN = [[
@@ -129,6 +139,7 @@ return m
 
 local BUILDER = [[
 local valueBuilder = require("nupp.value_builder")
+local simd = require("nupp.simd")
 
 @aot
 local function rows(count: integer): {number}
@@ -159,7 +170,26 @@ local function stream(source: string, tape: string, nullValue: any): (any, uint3
         valueBuilder.word(tape, nupp.math.u32.wrap(0))
 end
 
-return {rows = rows, object = object, stream = stream}
+@aot(lanes = false)
+local function primitives(source: string, nullValue: any): (any, uint32, uint32, uint32)
+    local view = simd.paddedStringU8(source)
+    local bytes = view:loadFull(nupp.math.u32.wrap(0))
+    local aligned = simd.alignBytes(view:loadTail(), bytes, nupp.math.u32.wrap(1))
+    local table = simd.tableU8x16(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+    local classes = aligned:lookup16(table):equal(7):count()
+    local scratch = valueBuilder.newWordScratch(nupp.math.u32.wrap(3))
+    local bits = simd.maskBits64(nupp.math.u32.wrap(5), nupp.math.u32.wrap(4))
+    local next = valueBuilder.appendSetBits(scratch, nupp.math.u32.wrap(0), nupp.math.u32.wrap(10), bits)
+    local state = valueBuilder.new(nullValue)
+    valueBuilder.openArray(state, next)
+    valueBuilder.number(state, valueBuilder.scratchWord(scratch, nupp.math.u32.wrap(0)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchWord(scratch, nupp.math.u32.wrap(1)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchWord(scratch, nupp.math.u32.wrap(2)) * 1.0)
+    valueBuilder.close(state)
+    return valueBuilder.finish(state), view.fullLength, view.tailLength, classes
+end
+
+return {rows = rows, object = object, stream = stream, primitives = primitives}
 ]]
 
 local function project(policy)
@@ -551,6 +581,13 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
    assert(native:find("2,4,6,8", 1, true), native)
    assert(native:find("nupp\ttrue\t1,2,3", 1, true), native)
    assert(native:find("42\ttrue\t52\t7", 1, true), native)
+   local primitives = assert(io.popen((
+      "cd %q && luajit -e %q 2>&1"
+   ):format(dir, ('package.path="build/native/?.lua;%s/../build/?.lua;"..package.path;'):format(HERE)
+      .. 'local b=require("builder");local values,full,tail,classes=b.primitives(string.rep(string.char(7),40),{});print(table.concat(values,","),full+tail,classes)')))
+   local primitiveText = primitives:read("*a")
+   primitives:close()
+   assert(primitiveText:find("10,12,44\t40", 1, true), primitiveText)
    local generated = assert(read(dir .. "/build/native/builder.lua"))
    assert(generated:find("ks_register_", 1, true), generated)
    assert(not generated:find("cdef function ks_object", 1, true),
@@ -563,7 +600,7 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
    local failureText = failure:read("*a")
    failure:close()
    assert(failureText:find("false", 1, true) and
-      failureText:find("array capacity at 5:", 1, true),
+      failureText:find("array capacity at 6:", 1, true),
       "a modeled native failure is protected and source-attributed: " .. failureText)
 end
 
@@ -689,6 +726,8 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
       uint32_t ks_count_quotes_forced_scalar(const uint8_t *source, size_t count_source);
       typedef struct { uint32_t v1, v2, v3, v4; } KsMaskOpsResult;
       KsMaskOpsResult ks_mask_ops(uint32_t low, uint32_t high);
+      uint32_t ks_lookup_aligned(const uint8_t *source, size_t count_source);
+      uint32_t ks_lookup_aligned_forced_scalar(const uint8_t *source, size_t count_source);
    ]]
    local lib = ffi.load(libraryPath(dir))
    for count = 0, 40 do
@@ -711,6 +750,13 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
    test.equal(tonumber(mask.v2), 0xFFFFFFFF, "prefix XOR carries into the high mask word")
    test.equal(tonumber(mask.v3), 0, "firstSet finds the first logical bit")
    test.equal(tonumber(mask.v4), 33, "clearFirst drains one bit from a 64-bit mask")
+   local lookupSource = ffi.new("uint8_t[64]")
+   for i = 0, 63 do lookupSource[i] = i % 16 end
+   test.equal(
+      tonumber(lib.ks_lookup_aligned(lookupSource, 64)),
+      tonumber(lib.ks_lookup_aligned_forced_scalar(lookupSource, 64)),
+      "lookup and cross-vector alignment agree with the scalar oracle"
+   )
 end
 
 function M.explicitSimdNamesWhyAotOffCannotRunIt()

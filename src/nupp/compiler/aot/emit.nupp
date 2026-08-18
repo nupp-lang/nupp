@@ -111,6 +111,13 @@ function emit.cType(typeName: string): string
         return (explicitScalar and "ks_scalar_u8x" or "ks_u8x") .. tostring(explicitWidth)
     elseif typeName == "simd_mask_bits64" then
         return "KsMaskBits64"
+    elseif typeName == "simd_table_u8x16" then
+        return "KsTableU8x16"
+    elseif typeName == "simd_padded_string_u8" then
+        if explicitWidth ~= 16 and explicitWidth ~= 32 then
+            error("explicit SIMD width was not selected", 0)
+        end
+        return "KsPaddedStringU8x" .. tostring(explicitWidth)
     end
     local layout = typeName:match("^ref:(.+)$")
     if layout ~= nil then
@@ -213,6 +220,13 @@ function emit.scalar(node: scalarIR.Expr): string
         return "ks_lua_scratch_u32_get(L, &" .. tostring(
             (loaded.scratch as scalarIR.Name).cName
         ) .. ", " .. emit.scalar(loaded.index) .. ")"
+    elseif operation == "lua_scratch_u32_append_bits" then
+        local appended = node as scalarIR.LuaScratchU32AppendBits
+        return "ks_lua_scratch_u32_append_bits(L, &" .. tostring(
+            (appended.scratch as scalarIR.Name).cName
+        ) .. ", " .. emit.scalar(appended.index) .. ", " .. emit.scalar(
+            appended.base
+        ) .. ", " .. emit.scalar(appended.bits) .. ")"
     elseif operation == "lua_scratch_u8_get" then
         local loaded = node as scalarIR.LuaScratchU8Get
         return "ks_lua_scratch_u8_get(L, &" .. tostring(
@@ -248,6 +262,35 @@ function emit.scalar(node: scalarIR.Expr): string
             return helper .. "load_" .. suffix .. "(ks_bytes_" .. tostring(
                 bytes.cName
             ) .. ", ks_length_" .. tostring(bytes.cName) .. ", " .. emit.scalar(args[3]) .. ")"
+        elseif operation == "simd_table_u8x16" then
+            local values: {string} = {}
+            for index, argument in ipairs(args) do
+                values[index] = "(uint8_t)" .. emit.scalar(argument)
+            end
+            return "((KsTableU8x16){{" .. table.concat(values, ", ") .. "}})"
+        elseif operation == "simd_lookup16_u8" then
+            return helper .. "lookup16_" .. suffix .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(args[2]) .. ")"
+        elseif operation == "simd_align_bytes_u8" then
+            return helper .. "align_" .. suffix .. "(" .. emit.scalar(args[1]) .. ", " .. emit.scalar(
+                args[2]
+            ) .. ", " .. emit.scalar(args[3]) .. ")"
+        elseif operation == "simd_padded_string_u8" then
+            local bytes = args[1] as scalarIR.Name
+            return "ks_padded_string_" .. suffix .. "(ks_bytes_" .. tostring(
+                bytes.cName
+            ) .. ", ks_length_" .. tostring(bytes.cName) .. ")"
+        elseif operation == "simd_padded_length" then
+            return "(" .. emit.scalar(args[1]) .. ").length"
+        elseif operation == "simd_padded_full_length" then
+            return "(" .. emit.scalar(args[1]) .. ").full_length"
+        elseif operation == "simd_padded_tail_length" then
+            return "(" .. emit.scalar(args[1]) .. ").tail_length"
+        elseif operation == "simd_padded_load_full_u8" then
+            return helper .. "padded_load_full_" .. suffix .. "(&" .. emit.scalar(
+                args[1]
+            ) .. ", " .. emit.scalar(args[2]) .. ")"
+        elseif operation == "simd_padded_load_tail_u8" then
+            return helper .. "padded_load_tail_" .. suffix .. "(&" .. emit.scalar(args[1]) .. ")"
         elseif operation == "simd_tail_u8" then
             return helper .. "tail_" .. suffix .. "(" .. emit.scalar(args[2]) .. ")"
         elseif operation == "simd_eq_u8" then
@@ -945,6 +988,11 @@ function emit.includes(): {string}
         "#include <stddef.h>",
         "#include <stdint.h>",
         "#include <stdlib.h>",
+        "#if defined(__aarch64__)",
+        "#include <arm_neon.h>",
+        "#elif defined(__x86_64__) || defined(_M_X64)",
+        "#include <immintrin.h>",
+        "#endif",
         "/* Windows exports nothing from a shared library unless it is asked to,",
         " * so a wrapper that loaded one would find no symbol in it. Everywhere",
         " * else a definition is exported by being one. */",
@@ -962,6 +1010,7 @@ function emit.includes(): {string}
         "#define M_PI 3.14159265358979323846264338327950288",
         "#endif",
         "typedef struct { uint32_t low, high; } KsMaskBits64;",
+        "typedef struct { uint8_t lane[16]; } KsTableU8x16;",
         "static KS_UNUSED KsMaskBits64 ks_mask64(uint32_t low, uint32_t high) { KsMaskBits64 out = {low, high}; return out; }",
         "static KS_UNUSED KsMaskBits64 ks_mask64_and(KsMaskBits64 a, KsMaskBits64 b) { return ks_mask64(a.low & b.low, a.high & b.high); }",
         "static KS_UNUSED KsMaskBits64 ks_mask64_or(KsMaskBits64 a, KsMaskBits64 b) { return ks_mask64(a.low | b.low, a.high | b.high); }",
@@ -1190,6 +1239,26 @@ function emit.luaPrelude(): {string}
         "static KS_UNUSED void ks_lua_scratch_u32_set(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t value) {",
         "    if (index > scratch->length || index >= scratch->capacity) { luaL_error(L, \"AOT scratch write is out of bounds\"); return; }",
         "    if (index == scratch->length) scratch->length += 1u; scratch->words[index] = value;",
+        "}",
+        "static KS_UNUSED uint32_t ks_reverse_u32(uint32_t value) {",
+        "    value = ((value >> 1u) & UINT32_C(0x55555555)) | ((value & UINT32_C(0x55555555)) << 1u);",
+        "    value = ((value >> 2u) & UINT32_C(0x33333333)) | ((value & UINT32_C(0x33333333)) << 2u);",
+        "    value = ((value >> 4u) & UINT32_C(0x0f0f0f0f)) | ((value & UINT32_C(0x0f0f0f0f)) << 4u);",
+        "    value = ((value >> 8u) & UINT32_C(0x00ff00ff)) | ((value & UINT32_C(0x00ff00ff)) << 8u);",
+        "    return (value >> 16u) | (value << 16u);",
+        "}",
+        "static KS_UNUSED uint32_t ks_lua_scratch_u32_append_bits(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t base, KsMaskBits64 bits) {",
+        "    uint32_t needed = (uint32_t)(__builtin_popcount(bits.low) + __builtin_popcount(bits.high));",
+        "    if (index != scratch->length || needed > scratch->capacity - index) { luaL_error(L, \"AOT scratch bit append is out of bounds\"); return index; }",
+        "#if defined(__aarch64__)",
+        "    uint32_t low = ks_reverse_u32(bits.low), high = ks_reverse_u32(bits.high);",
+        "    while (low != 0u) { uint32_t bit = (uint32_t)__builtin_clz(low); scratch->words[index++] = base + bit; low &= ~(UINT32_C(0x80000000) >> bit); }",
+        "    while (high != 0u) { uint32_t bit = (uint32_t)__builtin_clz(high); scratch->words[index++] = base + UINT32_C(32) + bit; high &= ~(UINT32_C(0x80000000) >> bit); }",
+        "#else",
+        "    while (bits.low != 0u) { uint32_t bit = (uint32_t)__builtin_ctz(bits.low); scratch->words[index++] = base + bit; bits.low &= bits.low - 1u; }",
+        "    while (bits.high != 0u) { uint32_t bit = (uint32_t)__builtin_ctz(bits.high); scratch->words[index++] = base + UINT32_C(32) + bit; bits.high &= bits.high - 1u; }",
+        "#endif",
+        "    scratch->length = index; return index;",
         "}",
         "static KS_UNUSED KsLuaScratchU8 ks_lua_scratch_u8(lua_State *L, uint32_t capacity) {",
         "    unsigned char *bytes = (unsigned char *)lua_newuserdata(L, capacity == 0u ? 1u : (size_t)capacity);",
@@ -1640,6 +1709,11 @@ function emit.simdPrelude(width: integer): {string}
     end
     local lines = {
         "typedef uint8_t " .. vector .. " __attribute__((vector_size(" .. tostring(width) .. ")));",
+        "typedef struct { const uint8_t *source; size_t source_length; uint32_t length, full_length, tail_length; "
+        .. vector
+        .. " tail; } KsPaddedStringU8x"
+        .. tostring(width)
+        .. ";",
         "static inline __attribute__((unused)) " .. vector .. " ks_splat_" .. suffix .. "(uint8_t value) {",
         "    return (" .. vector .. "){ " .. table.concat(splats, ", ") .. " };",
         "}",
@@ -1654,6 +1728,71 @@ function emit.simdPrelude(width: integer): {string}
         "        if (active > " .. tostring(width) .. "u) active = " .. tostring(width) .. "u;",
         "        memcpy(&out, source + offset, active);",
         "    }",
+        "    return out;",
+        "}",
+        "static inline __attribute__((unused)) KsPaddedStringU8x"
+        .. tostring(width)
+        .. " ks_padded_string_"
+        .. suffix
+        .. "(const uint8_t *source, size_t count) {",
+        "    KsPaddedStringU8x" .. tostring(width) .. " out; memset(&out, 0, sizeof(out));",
+        "    if (count > (size_t)UINT32_MAX) return out;",
+        "    out.source = source; out.source_length = count; out.length = (uint32_t)count;",
+        "    out.tail_length = (uint32_t)(count % " .. tostring(width) .. "u);",
+        "    out.full_length = (uint32_t)(count - out.tail_length);",
+        "    if (out.tail_length != 0u) memcpy(&out.tail, source + out.full_length, out.tail_length);",
+        "    return out;",
+        "}",
+        "static inline __attribute__((unused)) "
+        .. vector
+        .. " ks_padded_load_full_"
+        .. suffix
+        .. "(const KsPaddedStringU8x"
+        .. tostring(width)
+        .. " *view, uint32_t offset) {",
+        "    " .. vector .. " out = (" .. vector .. "){ " .. table.concat(zeros, ", ") .. " };",
+        "    if (offset >= view->full_length || offset % "
+        .. tostring(width)
+        .. "u != 0u) return out;",
+        "    memcpy(&out, view->source + offset, " .. tostring(width) .. "u); return out;",
+        "}",
+        "static inline __attribute__((unused)) "
+        .. vector
+        .. " ks_padded_load_tail_"
+        .. suffix
+        .. "(const KsPaddedStringU8x"
+        .. tostring(width)
+        .. " *view) { return view->tail; }",
+        "static inline __attribute__((unused)) " .. vector .. " ks_lookup16_" .. suffix .. "(" .. vector .. " indexes, KsTableU8x16 table) {",
+        "    " .. vector .. " out = (" .. vector .. "){ " .. table.concat(zeros, ", ") .. " };",
+        "#if defined(__aarch64__)",
+        "    uint8x16_t lookup = vld1q_u8(table.lane);",
+        width == 16
+            and "    uint8x16_t input; memcpy(&input, &indexes, 16u); input = vqtbl1q_u8(lookup, input); memcpy(&out, &input, 16u);"
+            or "    uint8x16_t lo, hi; memcpy(&lo, &indexes, 16u); memcpy(&hi, ((const uint8_t *)&indexes) + 16u, 16u); lo = vqtbl1q_u8(lookup, lo); hi = vqtbl1q_u8(lookup, hi); memcpy(&out, &lo, 16u); memcpy(((uint8_t *)&out) + 16u, &hi, 16u);",
+        "#elif defined(__AVX2__) && " .. tostring(width) .. " == 32",
+        "    __m256i input, lookup, high, shuffled; __m128i table128; memcpy(&input, &indexes, 32u); memcpy(&table128, table.lane, 16u); lookup = _mm256_broadcastsi128_si256(table128); high = _mm256_and_si256(input, _mm256_set1_epi8((char)0xf0)); shuffled = _mm256_shuffle_epi8(lookup, input); shuffled = _mm256_and_si256(shuffled, _mm256_cmpeq_epi8(high, _mm256_setzero_si256())); memcpy(&out, &shuffled, 32u);",
+        "#elif defined(__SSSE3__) && " .. tostring(width) .. " == 16",
+        "    __m128i input, lookup, high, shuffled; memcpy(&input, &indexes, 16u); memcpy(&lookup, table.lane, 16u); high = _mm_and_si128(input, _mm_set1_epi8((char)0xf0)); shuffled = _mm_shuffle_epi8(lookup, input); shuffled = _mm_and_si128(shuffled, _mm_cmpeq_epi8(high, _mm_setzero_si128())); memcpy(&out, &shuffled, 16u);",
+        "#else",
+        "    for (uint32_t i = 0; i < " .. tostring(width) .. "u; ++i) { uint8_t index = ((const uint8_t *)&indexes)[i]; ((uint8_t *)&out)[i] = index < 16u ? table.lane[index] : 0u; }",
+        "#endif",
+        "    return out;",
+        "}",
+        "static inline __attribute__((unused)) " .. vector .. " ks_align_" .. suffix .. "(" .. vector .. " previous, " .. vector .. " current, uint32_t offset) {",
+        "    " .. vector .. " out = (" .. vector .. "){ " .. table.concat(zeros, ", ") .. " };",
+        "    if (offset < 1u || offset > 3u) return out;",
+        "#if defined(__aarch64__)",
+        width == 16
+            and "    uint8x16_t a, b, r; memcpy(&a, &previous, 16u); memcpy(&b, &current, 16u); if (offset == 1u) r = vextq_u8(a, b, 15); else if (offset == 2u) r = vextq_u8(a, b, 14); else r = vextq_u8(a, b, 13); memcpy(&out, &r, 16u);"
+            or "    uint8x16_t p1, c0, c1, r0, r1; memcpy(&p1, ((const uint8_t *)&previous) + 16u, 16u); memcpy(&c0, &current, 16u); memcpy(&c1, ((const uint8_t *)&current) + 16u, 16u); if (offset == 1u) { r0 = vextq_u8(p1, c0, 15); r1 = vextq_u8(c0, c1, 15); } else if (offset == 2u) { r0 = vextq_u8(p1, c0, 14); r1 = vextq_u8(c0, c1, 14); } else { r0 = vextq_u8(p1, c0, 13); r1 = vextq_u8(c0, c1, 13); } memcpy(&out, &r0, 16u); memcpy(((uint8_t *)&out) + 16u, &r1, 16u);",
+        "#elif defined(__AVX2__) && " .. tostring(width) .. " == 32",
+        "    __m256i a, b, bridge, r; memcpy(&a, &previous, 32u); memcpy(&b, &current, 32u); bridge = _mm256_permute2x128_si256(a, b, 0x21); if (offset == 1u) r = _mm256_alignr_epi8(b, bridge, 15); else if (offset == 2u) r = _mm256_alignr_epi8(b, bridge, 14); else r = _mm256_alignr_epi8(b, bridge, 13); memcpy(&out, &r, 32u);",
+        "#elif defined(__SSSE3__) && " .. tostring(width) .. " == 16",
+        "    __m128i a, b, r; memcpy(&a, &previous, 16u); memcpy(&b, &current, 16u); if (offset == 1u) r = _mm_alignr_epi8(b, a, 15); else if (offset == 2u) r = _mm_alignr_epi8(b, a, 14); else r = _mm_alignr_epi8(b, a, 13); memcpy(&out, &r, 16u);",
+        "#else",
+        "    memcpy(&out, ((const uint8_t *)&previous) + " .. tostring(width) .. "u - offset, offset); memcpy(((uint8_t *)&out) + offset, &current, " .. tostring(width) .. "u - offset);",
+        "#endif",
         "    return out;",
         "}",
         "static inline __attribute__((unused)) " .. vector .. " ks_tail_" .. suffix .. "(uint32_t active) {",
@@ -1691,6 +1830,12 @@ function emit.simdPrelude(width: integer): {string}
     lines[#lines + 1] = "    }"
     lines[#lines + 1] = "    return out;"
     lines[#lines + 1] = "}"
+    lines[#lines + 1] = "static inline __attribute__((unused)) ks_scalar_" .. suffix .. " ks_scalar_padded_load_full_" .. suffix .. "(const KsPaddedStringU8x" .. tostring(width) .. " *view, uint32_t offset) {"
+    lines[#lines + 1] = "    ks_scalar_" .. suffix .. " out = {{0}}; if (offset >= view->full_length || offset % " .. tostring(width) .. "u != 0u) return out; memcpy(out.lane, view->source + offset, " .. tostring(width) .. "u); return out;"
+    lines[#lines + 1] = "}"
+    lines[#lines + 1] = "static inline __attribute__((unused)) ks_scalar_" .. suffix .. " ks_scalar_padded_load_tail_" .. suffix .. "(const KsPaddedStringU8x" .. tostring(width) .. " *view) { ks_scalar_" .. suffix .. " out = {{0}}; memcpy(out.lane, &view->tail, " .. tostring(width) .. "u); return out; }"
+    lines[#lines + 1] = "static inline __attribute__((unused)) ks_scalar_" .. suffix .. " ks_scalar_lookup16_" .. suffix .. "(ks_scalar_" .. suffix .. " indexes, KsTableU8x16 table) { ks_scalar_" .. suffix .. " out = {{0}}; for (uint32_t i = 0; i < " .. tostring(width) .. "u; ++i) out.lane[i] = indexes.lane[i] < 16u ? table.lane[indexes.lane[i]] : 0u; return out; }"
+    lines[#lines + 1] = "static inline __attribute__((unused)) ks_scalar_" .. suffix .. " ks_scalar_align_" .. suffix .. "(ks_scalar_" .. suffix .. " previous, ks_scalar_" .. suffix .. " current, uint32_t offset) { ks_scalar_" .. suffix .. " out = {{0}}; if (offset < 1u || offset > 3u) return out; memcpy(out.lane, previous.lane + " .. tostring(width) .. "u - offset, offset); memcpy(out.lane + offset, current.lane, " .. tostring(width) .. "u - offset); return out; }"
     lines[
         #lines + 1
     ] = "static inline __attribute__((unused)) ks_scalar_"

@@ -182,6 +182,17 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
     elseif op == "lua_scratch_u32_get" then
         local loaded = node as scalarIR.LuaScratchU32Get
         return "lua.scratch_u32_get(" .. text.expression(loaded.scratch) .. ", " .. text.expression(loaded.index) .. ")"
+    elseif op == "lua_scratch_u32_append_bits" then
+        local appended = node as scalarIR.LuaScratchU32AppendBits
+        return "lua.scratch_u32_append_bits(" .. table.concat(
+            {
+                text.expression(appended.scratch),
+                text.expression(appended.index),
+                text.expression(appended.base),
+                text.expression(appended.bits),
+            },
+            ", "
+        ) .. ")"
     elseif op == "lua_scratch_u8" then
         return "lua.scratch_u8(" .. text.expression((node as scalarIR.LuaScratchU8).capacity) .. ")"
     elseif op == "lua_scratch_u8_get" then

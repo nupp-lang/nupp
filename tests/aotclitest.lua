@@ -782,6 +782,7 @@ function builder.word(bytes: string, index: uint32): uint32 return index end
 function builder.newWordScratch(capacity: uint32): any return {} end
 function builder.scratchWord(scratch: any, index: uint32): uint32 return index end
 function builder.setScratchWord(scratch: any, index: uint32, value: uint32): nil end
+function builder.appendSetBits(scratch: any, index: uint32, base: uint32, bits: any): uint32 return index end
 function builder.newByteScratch(capacity: uint32): any return {} end
 function builder.scratchByte(scratch: any, index: uint32): uint32 return index end
 function builder.setScratchByte(scratch: any, index: uint32, value: uint32): nil end
@@ -818,13 +819,19 @@ local function decode(source: string, tape: string, nullValue: any): (any, uint3
     local scratch = builder.newWordScratch(count)
     local byteScratch = builder.newByteScratch(count)
     local species = simd.preferredU8()
-    local bytes = species:loadString(source, nupp.math.u32.wrap(0))
+    local view = simd.paddedStringU8(source)
+    local bytes = view:loadFull(nupp.math.u32.wrap(0))
+    local previous = view:loadTail()
+    local aligned = simd.alignBytes(previous, bytes, nupp.math.u32.wrap(1))
+    local lookup = simd.tableU8x16(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+    local classified = aligned:lookup16(lookup)
     local quotes = bytes:equal(34):count()
+    local classes = classified:equal(1):count()
     local shifted = nupp.math.u32.shiftLeft(nupp.math.u32.wrap(1), nupp.math.u32.wrap(3))
     local rawWide = simd.maskBits64(shifted, nupp.math.u32.wrap(1))
     local wide = rawWide:prefixXor(false)
     local first, left = drain(wide)
-    builder.setScratchWord(scratch, nupp.math.u32.wrap(0), nupp.math.u32.notBits(shifted))
+    local next = builder.appendSetBits(scratch, nupp.math.u32.wrap(0), view.fullLength, wide)
     builder.setScratchByte(byteScratch, nupp.math.u32.wrap(0), nupp.math.u32.wrap(65))
     builder.openObject(state, nupp.math.u32.wrap(1))
     builder.key(state, source, nupp.math.u32.wrap(0), count, false)
@@ -837,7 +844,7 @@ local function decode(source: string, tape: string, nullValue: any): (any, uint3
     builder.close(state)
     return builder.finish(state), builder.byte(source, nupp.math.u32.wrap(0)), nupp.math.u32.add(
         builder.scratchWord(scratch, nupp.math.u32.wrap(0)),
-        nupp.math.u32.add(quotes, nupp.math.u32.add(first, left))
+        nupp.math.u32.add(quotes, nupp.math.u32.add(classes, nupp.math.u32.add(first, nupp.math.u32.add(left, nupp.math.u32.add(next, view.tailLength)))))
     )
 end
 return {decode = decode}
@@ -850,9 +857,14 @@ return {decode = decode}
    assert(decoded.ir:find("lua_string_byte", 1, true), decoded.ir)
    assert(decoded.ir:find("lua.builder_finish", 1, true), decoded.ir)
    assert(decoded.ir:find("lua.scratch_u32", 1, true), decoded.ir)
-   assert(decoded.ir:find("simd_load_string_u8", 1, true), decoded.ir)
-   assert(decoded.ir:find("u32_shl", 1, true) and decoded.ir:find("u32_not", 1, true), decoded.ir)
+   assert(decoded.ir:find("simd_padded_load_full_u8", 1, true), decoded.ir)
+   assert(decoded.ir:find("simd_lookup16_u8", 1, true), decoded.ir)
+   assert(decoded.ir:find("simd_align_bytes_u8", 1, true), decoded.ir)
+   assert(decoded.ir:find("lua.scratch_u32_append_bits", 1, true), decoded.ir)
+   assert(decoded.ir:find("u32_shl", 1, true), decoded.ir)
    assert(decoded.c:find("KsLuaBuilder", 1, true), decoded.c)
+   assert(decoded.c:find("ks_lookup16_u8x", 1, true), decoded.c)
+   assert(decoded.c:find("ks_lua_scratch_u32_append_bits", 1, true), decoded.c)
    assert(decoded.c:find("KsLuaScratchU32", 1, true), decoded.c)
    assert(decoded.c:find("KsLuaScratchU8", 1, true), decoded.c)
    assert(decoded.c:find("KsMaskBits64", 1, true), decoded.c)

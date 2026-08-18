@@ -187,6 +187,17 @@ record scalarIR.LuaScratchU32Get
     source: scalarIR.Source?
 end
 
+--- Appends every set-bit position from a 64-bit mask to one word scratch.
+record scalarIR.LuaScratchU32AppendBits
+    op: 'lua_scratch_u32_append_bits'
+    scratch: scalarIR.Expr
+    index: scalarIR.Expr
+    base: scalarIR.Expr
+    bits: scalarIR.Expr
+    type: 'u32'
+    source: scalarIR.Source?
+end
+
 record scalarIR.LuaScratchU8
     op: 'lua_scratch_u8'
     capacity: scalarIR.Expr
@@ -437,6 +448,15 @@ record scalarIR.Simd
         | 'simd_lanes'
         | 'simd_load_u8'
         | 'simd_load_string_u8'
+        | 'simd_table_u8x16'
+        | 'simd_lookup16_u8'
+        | 'simd_align_bytes_u8'
+        | 'simd_padded_string_u8'
+        | 'simd_padded_length'
+        | 'simd_padded_full_length'
+        | 'simd_padded_tail_length'
+        | 'simd_padded_load_full_u8'
+        | 'simd_padded_load_tail_u8'
         | 'simd_tail_u8'
         | 'simd_eq_u8'
         | 'simd_range_u8'
@@ -484,6 +504,7 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.LuaBuilder
     | scalarIR.LuaScratchU32
     | scalarIR.LuaScratchU32Get
+    | scalarIR.LuaScratchU32AppendBits
     | scalarIR.LuaScratchU8
     | scalarIR.LuaScratchU8Get
     | scalarIR.LuaBytes

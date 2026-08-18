@@ -16,6 +16,15 @@ sealed interface simd.VectorU8
     orBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
     xorBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
     notBits: function(borrows self: VectorU8): simd.VectorU8
+
+    --- Looks up every lane in one immutable 16-byte table. Indexes outside
+    --- 0..15 produce zero, matching the native table instructions.
+    lookup16: function(borrows self: VectorU8, table: simd.TableU8x16): simd.VectorU8
+end
+
+--- One immutable 16-byte lookup table embedded in generated native code.
+--- @export
+sealed interface simd.TableU8x16
 end
 
 --- One predicate bit per logical vector lane.
@@ -73,6 +82,22 @@ sealed interface simd.SpeciesU8
     tail: function(borrows self: SpeciesU8, active: integer): simd.MaskU8
 end
 
+--- A rooted string split into complete blocks and one zero-padded
+--- final block. The view exists only for the duration of its AOT entry.
+--- @export
+sealed interface simd.PaddedStringU8
+    readonly length: uint32
+    readonly fullLength: uint32
+    readonly tailLength: uint32
+
+    --- Loads a complete block. The offset must be below `fullLength` and
+    --- aligned to the preferred species width.
+    loadFull: function(borrows self: PaddedStringU8, offset: uint32): simd.VectorU8
+
+    --- Loads the sole incomplete block, already copied and zero padded.
+    loadTail: function(borrows self: PaddedStringU8): simd.VectorU8
+end
+
 --- Selects the artifact tier's preferred packed byte species.
 --- @raises when called without AOT intrinsic lowering
 --- @export
@@ -84,6 +109,38 @@ end
 --- @raises when called without AOT intrinsic lowering
 --- @export
 function simd.maskBits64(low: uint32, high: uint32): simd.MaskBits64
+    error("nupp.simd values exist only inside an @aot function", 2)
+end
+
+--- Embeds one immutable 16-byte lookup table in an AOT entry.
+--- @raises when called without AOT intrinsic lowering
+--- @export
+function simd.tableU8x16(
+    b0: uint32, b1: uint32, b2: uint32, b3: uint32,
+    b4: uint32, b5: uint32, b6: uint32, b7: uint32,
+    b8: uint32, b9: uint32, b10: uint32, b11: uint32,
+    b12: uint32, b13: uint32, b14: uint32, b15: uint32
+): simd.TableU8x16
+    error("nupp.simd values exist only inside an @aot function", 2)
+end
+
+--- Aligns `previous .. current`, bringing the last `offset` bytes of the
+--- previous vector into the beginning of the result. Offsets 1..3 are
+--- admitted because they are the cross-block lookback needed by UTF-8 scans.
+--- @raises when called without AOT intrinsic lowering
+--- @export
+function simd.alignBytes(
+    previous: simd.VectorU8,
+    current: simd.VectorU8,
+    offset: uint32
+): simd.VectorU8
+    error("nupp.simd values exist only inside an @aot function", 2)
+end
+
+--- Roots a Lua string and prepares its one incomplete preferred-width block.
+--- @raises when called without AOT intrinsic lowering
+--- @export
+function simd.paddedStringU8(source: string): simd.PaddedStringU8
     error("nupp.simd values exist only inside an @aot function", 2)
 end
 

@@ -290,6 +290,14 @@ function valueBuilder.setScratchWord(scratch: any, index: uint32, value: uint32)
     scratch.words[index] = value
 end
 
+--- Appends `base + bit_index` for every set bit in one 64-bit mask and
+--- returns the next unwritten index. AOT performs one capacity check before
+--- draining the complete mask.
+--- @raises when called without AOT lowering or when the append exceeds scratch
+function valueBuilder.appendSetBits(scratch: any, index: uint32, base: uint32, bits: any): uint32
+    error("appendSetBits exists only inside an @aot function", 2)
+end
+
 --- Allocates a bounded byte work buffer local to one decode.
 function valueBuilder.newByteScratch(capacity: uint32): any
     return {capacity = capacity, length = 0, bytes = ffi.new("uint8_t[?]", capacity)}
