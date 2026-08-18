@@ -1409,45 +1409,46 @@ local function indexedRangeWalk(result, remarks)
             remark(remarks, entry.loop, "OPT-6", "indexed-range: lowers " .. table.concat(parts, ", "))
         end
 
-        -- A const derived view used only by proved indexed operations can carry one
-        -- count/finish scalar instead of allocating a wrapper. The source view remains
-        -- the explicit root; generation composes its physical adapter from this
-        -- semantic chain. Any unclassified use keeps the ordinary safe object.
+        -- A standard root or derived view used only by proved indexed operations can
+        -- carry one count/finish scalar instead of allocating a wrapper. Generation
+        -- composes its physical adapter from the checked producer and semantic chain.
+        -- Any unclassified use keeps the ordinary safe object.
         local candidates, byConstructor = {}, {}
-        local function stableBound(node): boolean
-            if not node then
-                return true
-            end
-            if isToken(node) then
-                return node.kind == "number"
-            end
-            if node.kind == "number" then
-                return true
-            end
-            if node.kind == "name" then
-                return node.token ~= nil and node.token.definition ~= nil and node.token.definition.constant == true
-            end
-            if node.kind == "paren" then
-                return stableBound(node.expr)
-            end
-            if node.kind == "unop" and node.op and node.op.kind == "-" then
-                return stableBound(node.operand)
-            end
-            if node.kind == "binop" and node.op and (node.op.kind == "+" or node.op.kind == "-") then
-                return stableBound(node.left) and stableBound(node.right)
-            end
-
-            return false
-        end
 
         local function findCandidates(node)
             if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
                 return
             end
-            if node.kind == "localStmt" and node.isConst and #(node.names or {}) == 1 and #(node.exprs or {}) == 1 then
+            if node.kind == "localStmt" and #(node.names or {}) == 1 and #(node.exprs or {}) == 1 then
                 local constructor = node.exprs[1]
-                local source = constructor and constructor.obj
+                local producer = constructor and constructor.indexedViewProducer
+                if not producer and constructor and constructor.kind == "call" then
+                    local exact = constructor.obj and constructor.obj.exactCallExport
+                    local resultName = node.names[1]
+                    local resultDefinition = resultName and resultName.definition
+                    local resultType = resultName and resultName.inferredType or resultDefinition and (
+                        resultDefinition.inferredType or resultDefinition.type
+                    )
+                    local root = exact and resultType and indexedViews.exportProducer(
+                        exact.module,
+                        exact.member,
+                        resultType
+                    ) or nil
+                    local producerArgs = constructor.args and constructor.args.exprs or {}
+                    if root then
+                        producer = {producer = root, source = producerArgs[1], count = producerArgs[2],}
+                        constructor.indexedViewProducer = producer
+                    end
+                end
+                local source = producer and producer.source or (constructor and constructor.obj)
                 local operation = constructor and constructor.indexedViewOperation
+                if producer then
+                    operation = {
+                        kind = "root",
+                        descriptor = producer.producer.descriptor,
+                        producer = producer.producer,
+                    }
+                end
                 if not operation
                     and constructor
                     and constructor.kind == "methodCall"
@@ -1463,26 +1464,79 @@ local function indexedRangeWalk(result, remarks)
                         operation = {kind = "shared", descriptor = descriptor,}
                     end
                 end
+                if not operation and node.isConst and constructor and constructor.kind == "name" then
+                    local token = constructor.token
+                    local descriptor = indexedViews.describe(
+                        token and (token.inferredType or token.definition and token.definition.type)
+                    )
+                    if descriptor then
+                        operation = {kind = "alias", descriptor = descriptor,}
+                        source = constructor
+                    end
+                end
                 local args = constructor and constructor.args and constructor.args.exprs or {}
                 local definition = node.names[1] and node.names[1].definition
                 if operation and (
-                    operation.kind == "slice" or operation.kind == "shared" or operation.kind == "field"
-                ) and source and source.kind == "name" and source.token and source.token.definition and (
-                    operation.kind ~= "slice" or args[1]
+                    operation.kind == "root"
+                    or operation.kind == "slice"
+                    or operation.kind == "shared"
+                    or operation.kind == "alias"
+                    or operation.kind == "field"
                 ) and (
-                    operation.kind ~= "slice" or stableBound(args[1])
-                ) and (operation.kind ~= "slice" or stableBound(args[2])) and definition then
+                    producer
+                    and producer.transport
+                    or source
+                    and source.kind == "name"
+                    and source.token
+                    and source.token.definition
+                ) and (
+                    operation.kind ~= "slice" or args[1]
+                ) and (node.isConst or operation.kind == "root" and operation.descriptor.writable) and definition then
                     local candidate = {
                         kind = operation.kind,
                         definition = definition,
                         constructor = constructor,
                         source = source,
-                        sourceDefinition = source.token.definition,
+                        sourceDefinition = source and source.token and source.token.definition or nil,
                         first = args[1],
                         last = args[2],
                         descriptor = operation.descriptor,
+                        producer = operation.producer,
+                        count = producer and producer.count or nil,
+                        transport = producer and producer.transport or nil,
                         ordinal = operation.ordinal,
                         stat = node,
+                        admitted = true,
+                        dependencies = {},
+                    }
+                    candidates[definition] = candidate
+                    byConstructor[constructor] = candidate
+                end
+            elseif node.kind == "withStmt" and #(node.bindings or {}) == 1 then
+                local binding = node.bindings[1]
+                local constructor = binding.expr
+                local producer = constructor and constructor.indexedViewProducer
+                local source = producer and producer.source
+                local definition = binding.name and binding.name.definition
+                if producer
+                    and producer.producer.descriptor.writable
+                    and source
+                    and source.kind == "name"
+                    and source.token
+                    and source.token.definition
+                    and definition
+                then
+                    local candidate = {
+                        kind = "root",
+                        definition = definition,
+                        constructor = constructor,
+                        source = source,
+                        sourceDefinition = source.token.definition,
+                        descriptor = producer.producer.descriptor,
+                        producer = producer.producer,
+                        count = producer.count,
+                        stat = node,
+                        withBinding = binding,
                         admitted = true,
                         dependencies = {},
                     }
@@ -1508,7 +1562,18 @@ local function indexedRangeWalk(result, remarks)
                     or parent
                     and parent.kind == "bracketIndex"
                     and parent.obj == node
-                    and parent.indexedDirectAccess == true
+                    and parent.indexedAccess ~= nil
+                    and (
+                    not parent.soaRow or parent.indexedDirectAccess == true
+                )
+                allowed = allowed
+                    or parent
+                    and parent.kind == "localStmt"
+                    and parent.isConst
+                    and parent.exprs
+                    and parent.exprs[
+                    1
+                ] == node
                 if parent and parent.kind == "methodCall" and parent.obj == node and parent.indexedViewOperation then
                     local child = byConstructor[parent]
                     if child then
@@ -1519,6 +1584,21 @@ local function indexedRangeWalk(result, remarks)
                 for _, ancestor in ipairs(ancestors) do
                     if ancestor.kind == "call" and ancestor.ownershipSyntax == "drop" then
                         allowed = true
+                    end
+                    local transport = ancestor.kind == "call" and ancestor.indexedViewParameterTransport or nil
+                    if transport then
+                        for index in pairs(transport.params) do
+                            if ancestor.args and ancestor.args.exprs and ancestor.args.exprs[index] == node then
+                                allowed = true
+                            end
+                        end
+                    end
+                    if ancestor.kind == "call" and ancestor.indexedRangeCall then
+                        for index = 3, #(ancestor.args and ancestor.args.exprs or {}) do
+                            if ancestor.args.exprs[index] == node then
+                                allowed = true
+                            end
+                        end
                     end
                 end
                 if parent and parent.kind == "callStmt" and parent.expr and parent.expr.ownershipSyntax == "drop" then
@@ -1556,7 +1636,12 @@ local function indexedRangeWalk(result, remarks)
         for definition, candidate in pairs(candidates) do
             if candidate.admitted then
                 definition.virtualIndexedView = candidate
-                candidate.constructor.virtualIndexedView = candidate
+                if candidate.kind ~= "alias" then
+                    candidate.constructor.virtualIndexedView = candidate
+                end
+                if candidate.withBinding then
+                    candidate.withBinding.virtualIndexedView = candidate
+                end
                 local owner = candidate.stat.automaticOwners and candidate.stat.automaticOwners[1]
                 if owner then
                     owner.lowerable = false
@@ -1565,7 +1650,9 @@ local function indexedRangeWalk(result, remarks)
                     remarks,
                     candidate.constructor,
                     "OPT-6",
-                    "view-scalar-replacement: virtualizes one " .. candidate.kind
+                    "view-scalar-replacement: virtualizes one " .. candidate.kind .. (
+                        candidate.kind == "root" and " (anchor=rooted-access)" or ""
+                    )
                 )
             else
                 remark(
@@ -1580,6 +1667,377 @@ local function indexedRangeWalk(result, remarks)
                     ) .. ")"
                 )
             end
+        end
+    end
+end
+
+local function declineRecursiveViewTransports(functions, ordered)
+    local state, stack, position = {}, {}, {}
+    local function visit(definition)
+        local plan = functions[definition]
+        if not plan or state[definition] == 2 then
+            return
+        end
+        if state[definition] == 1 then
+            for index = position[definition], #stack do
+                local recursive = functions[stack[index]]
+                recursive.admitted = false
+                recursive.decline = "recursive-call"
+            end
+            return
+        end
+        state[definition] = 1
+        stack[#stack + 1] = definition
+        position[definition] = #stack
+        for callee in pairs(plan.callees) do
+            visit(callee)
+        end
+        position[definition] = nil
+        stack[#stack] = nil
+        state[definition] = 2
+    end
+
+    for _, plan in ipairs(ordered) do
+        visit(plan.node.name.definition)
+    end
+end
+
+-- Transports a sealed root through the narrowest useful internal ABI: a local,
+-- nonrecursive function whose terminal return is that root and whose function value
+-- is never observed. The checked source signature remains a view; generation returns
+-- anchor, offset and count scalars only to these statically resolved calls.
+local function indexedViewReturnTransportWalk(result, remarks)
+    local functions, ordered = {}, {}
+    local function collect(node)
+        if not node or isToken(node) then
+            return
+        end
+        if node.kind == "localFuncStmt" and node.name and node.body and node.body.body then
+            local stats = node.body.body.stats or {}
+            local terminal = stats[#stats]
+            local value = terminal and terminal.kind == "returnStmt" and #(
+                terminal.exprs or {}
+            ) == 1 and terminal.exprs[1] or nil
+            local producer = value and value.indexedViewProducer or nil
+            if producer
+                and producer.source
+                and producer.source.kind == "name"
+                and producer.source.token
+                and producer.source.token.definition
+            then
+                local plan = {
+                    node = node,
+                    terminal = terminal,
+                    value = value,
+                    producer = producer,
+                    calls = {},
+                    callees = {},
+                    admitted = true,
+                }
+                functions[node.name.definition] = plan
+                ordered[#ordered + 1] = plan
+            end
+        end
+        for _, child in ipairs(node) do
+            collect(child)
+        end
+    end
+
+    collect(result.root)
+
+    local function references(node, parent, currentFunction)
+        if not node or isToken(node) then
+            return
+        end
+        local enclosing = currentFunction
+        if node.kind == "localFuncStmt" then
+            enclosing = node
+        end
+        if node.kind == "name" and node.token then
+            local plan = functions[node.token.definition]
+            if plan then
+                if parent and parent.kind == "call" and parent.obj == node then
+                    local callerDefinition = enclosing and enclosing.name and enclosing.name.definition or nil
+                    local caller = functions[callerDefinition]
+                    if caller then
+                        caller.callees[node.token.definition] = true
+                    end
+                    if enclosing == plan.node then
+                        plan.admitted = false
+                        plan.decline = "recursive-call"
+                    else
+                        plan.calls[#plan.calls + 1] = parent
+                    end
+                else
+                    plan.admitted = false
+                    plan.decline = "dynamic-call-boundary"
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            references(child, node, enclosing)
+        end
+    end
+
+    references(result.root, nil, nil)
+    declineRecursiveViewTransports(functions, ordered)
+
+    for _, plan in ipairs(ordered) do
+        if plan.admitted and #plan.calls > 0 then
+            plan.node.indexedViewReturnTransport = plan
+            plan.terminal.indexedViewReturnTransport = plan
+            for _, call in ipairs(plan.calls) do
+                call.indexedViewReturnTransport = plan
+                call.indexedViewProducer = {producer = plan.producer.producer, transport = true,}
+                remark(remarks, call, "OPT-6", "view-scalar-replacement: transports view through static call")
+            end
+        else
+            remark(
+                remarks,
+                plan.value,
+                "OPT-6",
+                "view-scalar-replacement: declines static return (" .. tostring(
+                    plan.decline or "no-static-caller"
+                ) .. ")"
+            )
+        end
+    end
+end
+
+local function indexedViewParameterTransportPlan(result, remarks)
+    local bindings = {}
+    local functions, ordered = {}, {}
+    local function collect(node)
+        if not node or isToken(node) then
+            return
+        end
+        if node.kind == "localStmt" and #(node.names or {}) == 1 and #(node.exprs or {}) == 1 then
+            local value = node.exprs[1]
+            local producer = value.indexedViewProducer
+            local operation = value.indexedViewOperation
+            if producer or operation then
+                bindings[
+                    node.names[1].definition
+                ] = {
+                    producer = producer and producer.producer or nil,
+                    source = producer and producer.source or value.obj,
+                }
+            end
+        elseif node.kind == "localFuncStmt" and node.name and node.body and not node.indexedViewReturnTransport then
+            local params = {}
+            for index, param in ipairs(node.body.params or {}) do
+                local name = param.name
+                local descriptor = name and indexedViews.describe(
+                    name.inferredType or name.definition and name.definition.type
+                )
+                if descriptor then
+                    params[index] = {param = param, descriptor = descriptor,}
+                end
+            end
+            if next(params) then
+                local plan = {node = node, params = params, calls = {}, callees = {}, admitted = true,}
+                functions[node.name.definition] = plan
+                ordered[#ordered + 1] = plan
+            end
+        end
+        for _, child in ipairs(node) do
+            collect(child)
+        end
+    end
+
+    collect(result.root)
+
+    local function rootProducer(definition, seen)
+        if not definition or seen[definition] then
+            return nil
+        end
+        seen[definition] = true
+        local binding = bindings[definition]
+        if not binding then
+            return nil
+        end
+        if binding.producer then
+            return binding.producer
+        end
+        local source = binding.source
+
+        return source and source.kind == "name" and source.token and rootProducer(source.token.definition, seen) or nil
+    end
+
+    local function references(node, parent, currentFunction)
+        if not node or isToken(node) then
+            return
+        end
+        local enclosing = currentFunction
+        if node.kind == "localFuncStmt" then
+            enclosing = node
+        end
+        if node.kind == "name" and node.token then
+            local plan = functions[node.token.definition]
+            if plan then
+                if parent and parent.kind == "call" and parent.obj == node then
+                    local callerDefinition = enclosing and enclosing.name and enclosing.name.definition or nil
+                    local caller = functions[callerDefinition]
+                    if caller then
+                        caller.callees[node.token.definition] = true
+                    end
+                    if enclosing == plan.node then
+                        plan.admitted = false
+                        plan.decline = "recursive-call"
+                    else
+                        plan.calls[#plan.calls + 1] = parent
+                    end
+                else
+                    plan.admitted = false
+                    plan.decline = "dynamic-call-boundary"
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            references(child, node, enclosing)
+        end
+    end
+
+    references(result.root, nil, nil)
+    declineRecursiveViewTransports(functions, ordered)
+
+    local planned = {}
+    for _, plan in ipairs(ordered) do
+        local parameterDefinitions = {}
+        for _, paramPlan in pairs(plan.params) do
+            parameterDefinitions[paramPlan.param.name.definition] = true
+        end
+        local function validateUses(node, parent)
+            if not node or isToken(node) or node ~= plan.node and NESTED_FUNCTION[node.kind] then
+                return
+            end
+            if node.kind == "name" and node.token and parameterDefinitions[node.token.definition] then
+                local allowed = parent and parent.kind == "unop" and parent.indexedLength and parent.operand == node
+                allowed = allowed
+                    or parent
+                    and parent.kind == "bracketIndex"
+                    and parent.obj == node
+                    and parent.indexedAccess ~= nil
+                    and (
+                    not parent.soaRow or parent.indexedDirectAccess == true
+                )
+                allowed = allowed
+                    or parent
+                    and parent.kind == "methodCall"
+                    and parent.obj == node
+                    and parent.indexedViewOperation ~= nil
+                allowed = allowed
+                    or parent
+                    and parent.kind == "localStmt"
+                    and parent.isConst
+                    and parent.exprs
+                    and parent.exprs[
+                    1
+                ] == node
+                if not allowed then
+                    plan.admitted = false
+                    plan.decline = "unsupported-view-operation"
+                end
+            end
+            for _, child in ipairs(node) do
+                validateUses(child, node)
+            end
+        end
+
+        validateUses(plan.node, nil)
+        if plan.admitted and #plan.calls > 0 then
+            for index, paramPlan in pairs(plan.params) do
+                local selected
+                for _, call in ipairs(plan.calls) do
+                    local argument = call.args and call.args.exprs and call.args.exprs[index]
+                    local producer = argument and argument.kind == "name" and argument.token and rootProducer(
+                        argument.token.definition,
+                        {}
+                    ) or nil
+                    if not producer
+                        or producer.descriptor.adapter ~= paramPlan.descriptor.adapter
+                        or producer.descriptor.writable ~= paramPlan.descriptor.writable
+                        or selected
+                        and selected.kind ~= producer.kind
+                    then
+                        plan.admitted = false
+                        plan.decline = "incompatible-view-abi"
+                        break
+                    end
+                    selected = selected or producer
+                end
+                paramPlan.producer = selected
+                if not plan.admitted then
+                    break
+                end
+            end
+        else
+            plan.admitted = false
+            plan.decline = plan.decline or "no-static-caller"
+        end
+        if plan.admitted then
+            for _, paramPlan in pairs(plan.params) do
+                local definition = paramPlan.param.name.definition
+                local view = {
+                    kind = "root",
+                    descriptor = paramPlan.descriptor,
+                    producer = paramPlan.producer,
+                    parameterTransport = true,
+                }
+                definition.virtualIndexedView = view
+                paramPlan.param.indexedViewParameterTransport = view
+            end
+            for _, call in ipairs(plan.calls) do
+                call.indexedViewParameterTransport = plan
+            end
+            planned[#planned + 1] = plan
+        else
+            remark(
+                remarks,
+                plan.node,
+                "OPT-6",
+                "view-scalar-replacement: declines static parameter (" .. tostring(plan.decline) .. ")"
+            )
+        end
+    end
+
+    return planned
+end
+
+local function finalizeIndexedViewParameterTransport(plans, remarks)
+    for _, plan in ipairs(plans) do
+        local admitted = true
+        for index in pairs(plan.params) do
+            for _, call in ipairs(plan.calls) do
+                local argument = call.args and call.args.exprs and call.args.exprs[index]
+                local definition = argument
+                    and argument.kind == "name"
+                    and argument.token
+                    and argument.token.definition
+                    or nil
+                if not definition or not definition.virtualIndexedView then
+                    admitted = false
+                end
+            end
+        end
+        if admitted then
+            for _, call in ipairs(plan.calls) do
+                remark(remarks, call, "OPT-6", "view-scalar-replacement: transports view through static call")
+            end
+        else
+            for _, paramPlan in pairs(plan.params) do
+                paramPlan.param.name.definition.virtualIndexedView = nil
+                paramPlan.param.indexedViewParameterTransport = nil
+            end
+            for _, call in ipairs(plan.calls) do
+                call.indexedViewParameterTransport = nil
+            end
+            remark(
+                remarks,
+                plan.node,
+                "OPT-6",
+                "view-scalar-replacement: declines static parameter (dependent-view-escapes)"
+            )
         end
     end
 end
@@ -1627,7 +2085,10 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): {any}
         concatBufferWalk(result, remarks)
     end
     if level >= optimize.passes["OPT-6"].level and not disabled["OPT-6"] then
+        indexedViewReturnTransportWalk(result, remarks)
+        local parameterTransports = indexedViewParameterTransportPlan(result, remarks)
         indexedRangeWalk(result, remarks)
+        finalizeIndexedViewParameterTransport(parameterTransports, remarks)
     end
     for _, entry in ipairs(remarks) do
         entry.filename = result.filename or opts.filename

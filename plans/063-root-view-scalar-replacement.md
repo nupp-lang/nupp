@@ -1,6 +1,38 @@
 # Root indexed-view scalar replacement
 
-Status: proposed — follows `plans/061-counted-indexed-view-lowering.md`
+Status: implemented — same-module R2; cross-module ABI transport deferred
+
+## Implementation result
+
+The regular backend now scalar-replaces exact, nonescaping roots from the sealed
+Span, heap, and SoA producers. The selected liveness strategy is `rooted-access`:
+generated loads and stores remain expressed through one captured source owner, so
+the pointer or columns cannot become detached from their anchor. Dynamic counts and
+slice starts are captured once, arbitrary indexes retain `_checkedIndex`, and
+virtual roots compose with slices, shared downgrades, SoA projections, whole-row
+gathers/scatters, `#view`, and `indexed.range`.
+
+R2 landed for directly called, nonrecursive local functions in one checked module.
+Their view parameters and single view return are transported as anchor, offset, and
+count scalars. Captured, recursive, exported, dynamic, foreign, and otherwise opaque
+calls retain the ordinary materialized ABI. Cross-module lowered summaries and ABI
+cache versioning were deliberately not added: the measured local path removes both
+callee and caller wrappers, while widening the private ABI across separately built
+modules would add invalidation and bridge machinery without a demonstrated site.
+
+The R3 acceptance fixture implements dirty acquisition in checked Nupp. Its dirty
+counter executes before the returned writable root is flattened, and direct stores
+follow that effect. This validates Tecs-shaped semantics without recognizing Tecs or
+accepting an unsafe producer annotation; only the exact standard dense root enters
+the fast lane.
+
+On the arm64 landing host, eight-element roots acquired 500,000 times measured
+0.198x materialized time for shared C arrays, 0.083x for writable C arrays, 0.033x
+for a nested writable slice, 0.200x/0.086x for heap read/write, and 0.083x/0.048x
+for SoA read/write. Static parameter and return transport measured 0.175x and
+0.215x; effectful dirty acquisition measured 0.111x. The forced dynamic path
+remained materialized at 1.019x. The virtual shared and dirty acquisition traces
+contained no `NEWREF`, `TDUP`, or `TNEW`.
 
 ## Decision
 

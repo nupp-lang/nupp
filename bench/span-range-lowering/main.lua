@@ -117,6 +117,10 @@ local function verifyRoots()
    kernelEnabled.gcCopy(writer, reader)
    assert(positions[count - 1].x == velocities[count - 1].x, "C array roots")
    writer:drop()
+
+   kernelEnabled.rootGcCopy(positions, velocities, count)
+   assert(positions[count - 1].x == velocities[count - 1].x,
+      "virtual C array roots survive collection")
 end
 
 verifyRoots()

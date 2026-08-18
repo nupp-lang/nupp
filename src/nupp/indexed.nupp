@@ -31,6 +31,23 @@ function indexed.range(first: integer, last: integer, borrows ...: any): indexed
     return new indexed.Range(first = first, last = last)
 end
 
+--- Private range validation for scalar-replaced views. Each variadic value is a
+--- logical count rather than a materialized wrapper.
+--- @raises when no count is supplied or the bounds exceed one
+function indexed._rangeCounts(first: integer, last: integer, ...: integer): indexed.Range
+    local count = select("#", ...)
+    if count < 1 or first < 1 or last < first - 1 then
+        error("indexed range out of bounds", 2)
+    end
+    for index = 1, count do
+        if last > select(index, ...) then
+            error("indexed range out of bounds", 2)
+        end
+    end
+
+    return new indexed.Range(first = first, last = last)
+end
+
 --- Private allocation-free slice validation used by virtual standard views.
 --- @raises when the requested inclusive bounds exceed the supplied count
 function indexed._sliceFinish(count: integer, first: integer, last: integer?, message: string): integer
@@ -40,6 +57,29 @@ function indexed._sliceFinish(count: integer, first: integer, last: integer?, me
     end
 
     return finish
+end
+
+--- Private root validation used when the compiler scalar-replaces a standard
+--- C-array view. Returning the count lets the source binding carry the complete
+--- dynamic scalar representation without allocating a wrapper.
+--- @raises when count is negative
+function indexed._rootCount(count: integer, message: string): integer
+    if count < 0 then
+        error(message, 2)
+    end
+
+    return count
+end
+
+--- Private logical-index check for a scalar-replaced view. The physical adapter
+--- adds its own offset after this preserves the public wrapper's error.
+--- @raises when index is outside 1 through count
+function indexed._checkedIndex(count: integer, index: integer, message: string): integer
+    if index < 1 or index > count then
+        error(message, 2)
+    end
+
+    return index
 end
 
 return indexed

@@ -1334,7 +1334,11 @@ function gen.generate(
     local function emitViewRoot(node)
         local view = virtualView(node)
         if view then
-            emitViewRoot(view.source)
+            if view.kind == "root" and view.anchorName then
+                e(view.anchorName)
+            else
+                emitViewRoot(view.source)
+            end
         else
             emit(node)
         end
@@ -1343,7 +1347,13 @@ function gen.generate(
     local function emitViewCount(node)
         local view = virtualView(node)
         if view then
-            if view.kind == "slice" then
+            if view.kind == "root" then
+                if view.countName then
+                    e(view.countName)
+                else
+                    emit(node)
+                end
+            elseif view.kind == "slice" then
                 e("(")
                 emit(node)
                 e("-")
@@ -1361,10 +1371,14 @@ function gen.generate(
     local function emitViewOffset(node)
         local view = virtualView(node)
         if view then
-            emitViewOffset(view.source)
+            if view.kind == "root" then
+                e(view.offsetName or "0")
+            else
+                emitViewOffset(view.source)
+            end
             if view.kind == "slice" then
                 e("+")
-                emit(view.first)
+                e(view.firstName)
                 e("-1")
             end
         else
@@ -1385,30 +1399,84 @@ function gen.generate(
         return projectedView(view.source)
     end
 
-    local function emitSpanSlot(view, index, field)
+    local function rootView(node)
+        local view = virtualView(node)
+        if not view then
+            return nil
+        end
+        if view.kind == "root" then
+            return view
+        end
+
+        return rootView(view.source)
+    end
+
+    local function emitIndex(index)
+        if type(index) == "string" then
+            e(index)
+        else
+            emit(index)
+        end
+    end
+
+    local function emitCheckedViewIndex(view, index)
+        local descriptor = virtualView(view).descriptor
+        local message = descriptor.adapter == "soa"
+            and "SoA row index out of bounds"
+            or descriptor.writable
+            and "write span index out of bounds"
+            or "span index out of bounds"
+        e(compilerModuleName("nupp.indexed") .. "._checkedIndex(")
+        emitViewCount(view)
+        e(",")
+        emitIndex(index)
+        e((",%q)"):format(message))
+    end
+
+    local function emitSpanSlot(view, index, field, checked)
         local projection = projectedView(view)
         if projection then
             emitViewRoot(projection.source)
             e((".columns[%d]["):format(projection.ordinal))
         else
-            emitViewRoot(view)
-            e(".pointer[")
+            local root = rootView(view)
+            local producerKind = root and root.producer and root.producer.kind or nil
+            if producerKind == "string" then
+                needsFfi = true
+                e("__nuppFfi.cast(\"const uint8_t *\",")
+                emitViewRoot(view)
+                e(")[")
+            else
+                emitViewRoot(view)
+                if producerKind ~= "carray" and producerKind ~= "fixed-carray" then
+                    e(".pointer")
+                end
+                e("[")
+            end
         end
         emitViewOffset(view)
         e("+")
-        emit(index)
+        if checked then
+            emitCheckedViewIndex(view, index)
+        else
+            emitIndex(index)
+        end
         e("-1]")
         if field then
             e("." .. field)
         end
     end
 
-    local function emitSoaSlot(view, ordinal, index)
+    local function emitSoaSlot(view, ordinal, index, checked)
         emitViewRoot(view)
         e((".columns[%d]["):format(ordinal))
         emitViewOffset(view)
         e("+")
-        emit(index)
+        if checked then
+            emitCheckedViewIndex(view, index)
+        else
+            emitIndex(index)
+        end
         e("-1]")
     end
 
@@ -2870,8 +2938,8 @@ function gen.generate(
             then
                 local access = target.obj
                 local direct = access.indexedDirectAccess == true
-                if direct and emitDepth.view.info(access.obj) then
-                    emitDepth.view.spanSlot(access.obj, access.expr, target.name.text)
+                if emitDepth.view.info(access.obj) then
+                    emitDepth.view.spanSlot(access.obj, access.expr, target.name.text, not direct)
                     e("=", sourceLine(target))
                     emit(x.exprs[1])
                     return
@@ -2896,8 +2964,8 @@ function gen.generate(
                 and target.indexedAccess
                 and target.indexedAccess.adapter == "span"
             then
-                if target.indexedDirectAccess and emitDepth.view.info(target.obj) then
-                    emitDepth.view.spanSlot(target.obj, target.expr)
+                if emitDepth.view.info(target.obj) then
+                    emitDepth.view.spanSlot(target.obj, target.expr, nil, not target.indexedDirectAccess)
                     e("=", sourceLine(target))
                     emit(x.exprs[1])
                     return
@@ -2922,8 +2990,8 @@ function gen.generate(
             end
             local row, ordinal = soaFieldTarget(target)
             if row and ordinal then
-                if emitDepth.view.info(row.obj) and emitDepth.soa.unchecked(row) then
-                    emitDepth.view.soaSlot(row.obj, ordinal, row.expr)
+                if emitDepth.view.info(row.obj) then
+                    emitDepth.view.soaSlot(row.obj, ordinal, row.expr, not emitDepth.soa.unchecked(row))
                     e("=", sourceLine(x))
                     emit(x.exprs[1])
                 else
@@ -2947,7 +3015,7 @@ function gen.generate(
                         e(("; const %s="):format(indexName))
                         emit(target.expr)
                     end
-                    e(("; const %s="):format(valueName))
+                    e(((emitDepth.view.info(target.obj) and " const %s=" or "; const %s="):format(valueName)))
                     emit(x.exprs[1])
                     for ordinal, field in ipairs(target.soaRow.element.fieldOrder or {}) do
                         e(";")
@@ -2979,7 +3047,17 @@ function gen.generate(
                 and x.target.indexedAccess.adapter == "span"
             then
                 e("do ", sourceLine(x))
-                if x.target.indexedDirectAccess then
+                if emitDepth.view.info(x.target.obj) then
+                    local indexName = nextTemp()
+                    e(("const %s="):format(indexName))
+                    emit(x.target.expr)
+                    e(";")
+                    emitDepth.view.spanSlot(x.target.obj, indexName, nil, not x.target.indexedDirectAccess)
+                    e("=")
+                    emitDepth.view.spanSlot(x.target.obj, indexName, nil, not x.target.indexedDirectAccess)
+                    e((" %s "):format(x.op.kind:sub(1, -2)), x.op.line)
+                    emit(x.value)
+                elseif x.target.indexedDirectAccess then
                     if emitDepth.view.info(x.target.obj) then
                         emitDepth.view.spanSlot(x.target.obj, x.target.expr)
                         e("=")
@@ -3024,9 +3102,13 @@ function gen.generate(
             then
                 local target = x.target
                 local access = target.obj
-                if access.indexedDirectAccess and emitDepth.view.info(access.obj) then
+                if emitDepth.view.info(access.obj) then
                     e("do ", sourceLine(x))
-                    emitDepth.view.spanSlot(access.obj, access.expr, target.name.text)
+                    local indexName = nextTemp()
+                    e(("const %s="):format(indexName))
+                    emit(access.expr)
+                    e(";")
+                    emitDepth.view.spanSlot(access.obj, indexName, target.name.text, not access.indexedDirectAccess)
                     e((" %s "):format(x.op.kind), x.op.line)
                     emit(x.value)
                     e(" end")
@@ -3050,9 +3132,13 @@ function gen.generate(
             end
             local row, ordinal = soaFieldTarget(x.target)
             if row and ordinal then
-                if emitDepth.view.info(row.obj) and emitDepth.soa.unchecked(row) then
+                if emitDepth.view.info(row.obj) then
                     e("do ", sourceLine(x))
-                    emitDepth.view.soaSlot(row.obj, ordinal, row.expr)
+                    local indexName = nextTemp()
+                    e(("const %s="):format(indexName))
+                    emit(row.expr)
+                    e(";")
+                    emitDepth.view.soaSlot(row.obj, ordinal, indexName, not emitDepth.soa.unchecked(row))
                     e((" %s "):format(x.op.kind), x.op.line)
                     emit(x.value)
                     e(" end")
@@ -3188,8 +3274,13 @@ function gen.generate(
             and x.obj.indexedAccess
         then
             local access = x.obj
-            if access.indexedDirectAccess and emitDepth.view.info(access.obj) then
-                emitDepth.view.spanSlot(access.obj, access.expr, x.name and x.name.text or nil)
+            if emitDepth.view.info(access.obj) then
+                emitDepth.view.spanSlot(
+                    access.obj,
+                    access.expr,
+                    x.name and x.name.text or nil,
+                    not access.indexedDirectAccess
+                )
                 return
             end
             emit(access.obj)
@@ -3210,8 +3301,8 @@ function gen.generate(
             return
         end
         if kind == "bracketIndex" and x.indexedAccess and x.indexedAccess.adapter == "span" then
-            if x.indexedDirectAccess and emitDepth.view.info(x.obj) then
-                emitDepth.view.spanSlot(x.obj, x.expr)
+            if emitDepth.view.info(x.obj) then
+                emitDepth.view.spanSlot(x.obj, x.expr, nil, not x.indexedDirectAccess)
                 return
             end
             emit(x.obj)
@@ -3266,6 +3357,49 @@ function gen.generate(
             for index = 2, #arguments do
                 e(",")
                 emit(arguments[index])
+            end
+            e(")")
+            return
+        end
+        if kind == "call" and x.indexedRangeCall then
+            local arguments = x.args and x.args.exprs or {}
+            local virtual = false
+            for index = 3, #arguments do
+                virtual = virtual or emitDepth.view.info(arguments[index]) ~= nil
+            end
+            if virtual then
+                e(compilerModuleName("nupp.indexed") .. "._rangeCounts(", sourceLine(x))
+                for index, argument in ipairs(arguments) do
+                    if index > 1 then
+                        e(",")
+                    end
+                    if index >= 3 then
+                        emitDepth.view.count(argument)
+                    else
+                        emit(argument)
+                    end
+                end
+                e(")")
+                return
+            end
+        end
+        if kind == "call" and x.indexedViewParameterTransport then
+            local plan = x.indexedViewParameterTransport
+            emit(x.obj)
+            e("(", sourceLine(x))
+            for index, argument in ipairs(x.args and x.args.exprs or {}) do
+                if index > 1 then
+                    e(",")
+                end
+                if plan.params[index] then
+                    emitDepth.view.root(argument)
+                    e(",")
+                    emitDepth.view.offset(argument)
+                    e(",")
+                    emitDepth.view.count(argument)
+                else
+                    emit(argument)
+                end
             end
             e(")")
             return
@@ -4928,7 +5062,23 @@ function gen.generate(
             emit(region)
 
         elseif kind == "cleanupRegion" or kind == "withStmt" then
-            if kind == "withStmt" and x.directCleanup then
+            local virtualBinding = kind == "withStmt" and x.bindings and x.bindings[
+                1
+            ] and x.bindings[1].virtualIndexedView or nil
+            if virtualBinding then
+                local binding = x.bindings[1]
+                virtualBinding.anchorName = virtualBinding.anchorName or nextTemp()
+                e("do const " .. virtualBinding.anchorName .. "=", x.withTok and x.withTok.line or sourceLine(x))
+                emit(virtualBinding.source)
+                e("; const " .. binding.name.text .. "=", sourceLine(binding.expr))
+                emit(binding.expr)
+                e("; do")
+                if x.body then
+                    emit(x.body)
+                end
+                e("end end", x.endTok and x.endTok.line or nil)
+                return
+            elseif kind == "withStmt" and x.directCleanup then
                 local binding = x.bindings[1]
                 e("do const ", x.withTok and x.withTok.line or sourceLine(x))
                 e(binding.name.text .. "=", sourceLine(binding.expr))
@@ -5355,6 +5505,31 @@ function gen.generate(
             end
             e("end")
 
+        elseif kind == "returnStmt" and x.indexedViewReturnTransport then
+            local producer = x.indexedViewReturnTransport.producer
+            local root = producer.producer
+            local producerKind = root and root.kind
+            e("return ", sourceLine(x))
+            emit(producer.source)
+            e(",0,")
+            if producerKind == "string" then
+                e("#")
+                emit(producer.source)
+            elseif producerKind == "fixed-carray" then
+                emit(producer.count)
+            elseif producerKind == "heap" or producerKind == "soa" then
+                emit(producer.source)
+                e(".count")
+            else
+                e(compilerModuleName("nupp.indexed") .. "._rootCount(")
+                emit(producer.count)
+                local message = root.descriptor
+                    and root.descriptor.writable
+                    and "write span count cannot be negative"
+                    or "span count cannot be negative"
+                e((",%q)"):format(message))
+            end
+
         elseif kind == "returnStmt" and activeWith() then
             emitPackedReturn(activeWith(), x)
 
@@ -5547,7 +5722,13 @@ function gen.generate(
 
         elseif kind == "param" then
             -- name (or '...'); annotation tokens skip via the token rule
-            if x.vararg then
+            if x.indexedViewParameterTransport then
+                local view = x.indexedViewParameterTransport
+                view.anchorName = view.anchorName or nextTemp()
+                view.offsetName = view.offsetName or nextTemp()
+                view.countName = view.countName or nextTemp()
+                e(("%s,%s,%s"):format(view.anchorName, view.offsetName, view.countName), sourceLine(x))
+            elseif x.vararg then
                 e("...", sourceLine(x))
             elseif x.name then
                 emit(x.name)
@@ -5596,6 +5777,32 @@ function gen.generate(
             end
             return
 
+        elseif kind == "call" and x.virtualIndexedView and x.virtualIndexedView.kind == "root" then
+            local view = x.virtualIndexedView
+            if view.transport then
+                if not view.transportEmission then
+                    error("transported indexed view was emitted outside its binding")
+                end
+                emitChildren(x)
+                return
+            end
+            local producerKind = view.producer and view.producer.kind
+            local moduleName = compilerModuleName("nupp.indexed")
+            if producerKind == "string" then
+                e("#" .. view.anchorName, sourceLine(x))
+            elseif producerKind == "fixed-carray" then
+                emit(view.count)
+            else
+                e(moduleName .. "._rootCount(", sourceLine(x))
+                emit(view.count)
+                local message = view.descriptor
+                    and view.descriptor.writable
+                    and "write span count cannot be negative"
+                    or "span count cannot be negative"
+                e((",%q)"):format(message))
+            end
+            return
+
         elseif kind == "methodCall" and x.soaFieldProjection and not x.virtualIndexedView then
             emit(x.obj)
             e((":fieldBySlot(%d)"):format(x.soaFieldProjection.ordinal), sourceLine(x))
@@ -5603,12 +5810,14 @@ function gen.generate(
 
         elseif kind == "methodCall" and x.virtualIndexedView then
             local view = x.virtualIndexedView
-            if view.kind == "slice" then
+            if view.kind == "root" then
+                e(view.anchorName .. ".count", sourceLine(x))
+            elseif view.kind == "slice" then
                 local moduleName = compilerModuleName("nupp.indexed")
                 e(moduleName .. "._sliceFinish(", sourceLine(x))
                 emitDepth.view.count(view.source)
                 e(",")
-                emit(view.first)
+                e(view.firstName)
                 e(",")
                 if view.last then
                     emit(view.last)
@@ -5632,8 +5841,8 @@ function gen.generate(
             local row = x.obj
             local view = row and row.obj
             if view and row.expr then
-                if emitDepth.view.info(view) and emitDepth.soa.unchecked(row) then
-                    emitDepth.view.soaSlot(view, x.soaField.ordinal, row.expr)
+                if emitDepth.view.info(view) then
+                    emitDepth.view.soaSlot(view, x.soaField.ordinal, row.expr, not emitDepth.soa.unchecked(row))
                 elseif view.kind == "name" then
                     -- Keep the common loop form as a plain column load. A name is
                     -- stable to evaluate twice. A canonical count-bounded loop uses
@@ -5672,10 +5881,25 @@ function gen.generate(
             return
 
         elseif kind == "bracketIndex" and x.soaRow then
-            emit(x.obj)
-            e(":get(", sourceLine(x))
-            emit(x.expr)
-            e(")")
+            local view = emitDepth.view.info(x.obj)
+            local element = x.soaRow.element
+            if view and x.indexedDirectAccess and element and element.tag == "nominal" then
+                emitDepth.view.root(x.obj)
+                e(".element({", sourceLine(x))
+                for ordinal, field in ipairs(element.fieldOrder or {}) do
+                    if ordinal > 1 then
+                        e(",")
+                    end
+                    e(field .. "=")
+                    emitDepth.view.soaSlot(x.obj, ordinal, x.expr)
+                end
+                e("})")
+            else
+                emit(x.obj)
+                e(":get(", sourceLine(x))
+                emit(x.expr)
+                e(")")
+            end
             return
 
         elseif kind == "assignStmt" and #(
@@ -5731,6 +5955,51 @@ function gen.generate(
             -- The module the checker projected through a builtin namespace. OPT-5
             -- shares this binding when the module is string.buffer.
             e(compilerModuleName(x.compilerModule), sourceLine(x))
+
+        elseif kind == "localStmt" and #(
+            x.names or {}
+        ) == 1 and #(
+            x.exprs or {}
+        ) == 1 and x.names[
+            1
+        ].definition and x.names[
+            1
+        ].definition.virtualIndexedView and x.names[1].definition.virtualIndexedView.kind == "alias" then
+            local view = x.names[1].definition.virtualIndexedView
+            e((x.isConst and "const " or "local ") .. x.names[1].text .. "=", sourceLine(x))
+            emitDepth.view.count(view.source)
+
+        elseif kind == "localStmt" and #(
+            x.names or {}
+        ) == 1 and #(
+            x.exprs or {}
+        ) == 1 and x.exprs[1].virtualIndexedView and x.exprs[1].virtualIndexedView.kind == "root" then
+            local view = x.exprs[1].virtualIndexedView
+            view.anchorName = view.anchorName or nextTemp()
+            if view.transport then
+                view.offsetName = view.offsetName or nextTemp()
+                e(("const %s,%s,%s="):format(view.anchorName, view.offsetName, x.names[1].text), sourceLine(x))
+                view.transportEmission = true
+                emit(x.exprs[1])
+                view.transportEmission = nil
+            else
+                e("const " .. view.anchorName .. "=", sourceLine(x))
+                emit(view.source)
+                e(";")
+                emitChildren(x)
+            end
+
+        elseif kind == "localStmt" and #(
+            x.names or {}
+        ) == 1 and #(
+            x.exprs or {}
+        ) == 1 and x.exprs[1].virtualIndexedView and x.exprs[1].virtualIndexedView.kind == "slice" then
+            local view = x.exprs[1].virtualIndexedView
+            view.firstName = view.firstName or nextTemp()
+            e("const " .. view.firstName .. "=", sourceLine(x))
+            emit(view.first)
+            e(";")
+            emitChildren(x)
 
         elseif kind == "localStmt" and x.concatBuffer then
             -- The accumulator keeps its declaration, so anything reading it after the

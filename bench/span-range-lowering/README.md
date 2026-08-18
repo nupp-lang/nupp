@@ -1,6 +1,7 @@
 # Span range lowering benchmark
 
-This benchmark is the evidence gate for `plans/061-counted-indexed-view-lowering.md`.
+This benchmark is the evidence gate for `plans/061-counted-indexed-view-lowering.md`
+and `plans/063-root-view-scalar-replacement.md`.
 It compares the existing handwritten-guard kernel shape, a semantics-preserving
 adoption of `indexed.range` with `OPT-6` disabled and enabled, handwritten direct
 FFI access, and forced-scalar AOT context. The first three are checked Nupp; the
@@ -49,6 +50,28 @@ The same harness includes a slice-heavy construction gate. One representative
 compiler-virtualized slice at 4.252 ms, and the handwritten scalar control at
 7.785 ms. The virtual form retains the slice bounds check but emits neither a
 wrapper allocation nor an automatic-cleanup region.
+
+Plan 063 adds `roots.lua`, which acquires and consumes a root inside the repeated
+workload. On the arm64 landing host, eight-element roots over 500,000 acquisitions
+produced these representative enabled/materialized ratios:
+
+| Root path | Ratio |
+| --- | ---: |
+| Shared C array | 0.198x |
+| Writable C array | 0.083x |
+| Nested writable slice | 0.033x |
+| Static parameter transport | 0.175x |
+| Static return transport | 0.215x |
+| Effectful dirty acquisition | 0.111x |
+| Heap shared / writable | 0.200x / 0.086x |
+| SoA shared / writable | 0.083x / 0.048x |
+| Forced dynamic return | 1.019x |
+
+The virtual shared-root and dirty-acquisition traces report zero `NEWREF`, `TDUP`,
+and `TNEW`; the materialized control reports three `TDUP` operations. The dynamic
+case is intentionally unchanged. `kernel.rootGcCopy` and the string checksum force
+collection while virtual roots are live to check the `rooted-access` anchor
+strategy.
 
 `matrix.nupp` separately checks `uint8`, `int32`, `float`, a multi-field struct,
 one/two/four participating spans, shared reads, exclusive stores,

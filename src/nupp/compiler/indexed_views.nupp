@@ -18,6 +18,11 @@ record indexed.Descriptor
     nominal: Type
 end
 
+record indexed.Producer
+    kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa'
+    descriptor: indexed.Descriptor
+end
+
 local function describe(t: Type): indexed.Descriptor?
     local raw = T.unwrapOwnership(t)
     if raw.tag == "intersection" then
@@ -66,5 +71,60 @@ local function describe(t: Type): indexed.Descriptor?
 end
 
 indexed.describe = describe
+
+--- Describes one sealed standard module function which creates a root view.
+--- The call checker supplies the already-resolved export identity; spelling is
+--- deliberately insufficient.
+function indexed.exportProducer(moduleName: string, member: string, result: Type): indexed.Producer?
+    if moduleName ~= "nupp.span" then
+        return nil
+    end
+    local descriptor = describe(result)
+    if not descriptor then
+        return nil
+    end
+    local kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa'
+    if member == "fromCarray" or member == "writeCarray" then
+        kind = "carray"
+    elseif member == "fromFixedCarray" or member == "writeFixedCarray" then
+        kind = "fixed-carray"
+    elseif member == "fromString" then
+        kind = "string"
+    else
+        return nil
+    end
+
+    return new indexed.Producer(kind = kind, descriptor = descriptor)
+end
+
+--- Describes root views borrowed from the sealed standard owners. Returning a
+--- standard view is not enough: both the owner module and member identity are
+--- required before generation may reach the private physical representation.
+function indexed.methodProducer(receiver: Type, member: string, result: Type): indexed.Producer?
+    local raw = T.unwrapOwnership(receiver)
+    if raw.tag ~= "nominal" then
+        return nil
+    end
+    local nominal = raw as T.Nominal
+    local origin = (nominal.origin or nominal) as T.Nominal
+    local moduleName = origin.moduleName or nominal.moduleName or origin.sealedModule
+    if origin.name ~= "Array" or (member ~= "read" and member ~= "write") then
+        return nil
+    end
+    local kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa'
+    if moduleName == "nupp.heap" then
+        kind = "heap"
+    elseif moduleName == "nupp.soa" then
+        kind = "soa"
+    else
+        return nil
+    end
+    local descriptor = describe(result)
+    if not descriptor then
+        return nil
+    end
+
+    return new indexed.Producer(kind = kind, descriptor = descriptor)
+end
 
 return indexed

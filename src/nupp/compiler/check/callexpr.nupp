@@ -1531,6 +1531,17 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 node.indexedRangeCall = {views = views,}
             end
         end
+        local indexedProducer = node.kind == "call"
+            and callee
+            and callee.exactCallExport
+            and indexedViews.exportProducer(
+            callee.exactCallExport.module,
+            callee.exactCallExport.member,
+            first
+        ) or nil
+        if indexedProducer then
+            node.indexedViewProducer = {producer = indexedProducer, source = argExprs[1], count = argExprs[2],}
+        end
         if dynamicExport and dynamicExport.module == "nupp.dynamic" then
             local source = argExprs[1]
             local entry = source and c.ownershipEntry(source) or nil
@@ -1709,6 +1720,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 node.fixedWidthPhysicalParameters = {[2] = true}
             end
             local first, rets, pack = c.inferCall(node, callable and dropSelf(methodType) or methodType, node.args)
+            local indexedProducer = callable and indexedViews.methodProducer(rawReceiver, member.text, first) or nil
+            if indexedProducer then
+                node.indexedViewProducer = {producer = indexedProducer, source = receiver,}
+            end
             local literal = receiver
             while literal and literal.kind == "paren" do
                 literal = literal.expr

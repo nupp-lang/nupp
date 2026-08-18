@@ -113,7 +113,9 @@ return particles:read()[3].x
 ]])
    assertEq(value, 12, "mixed indexed range")
    assert(code:find(".columns[", 1, true), "SoA range did not select a column")
-   assert(code:find(".pointer[", 1, true), "span range did not select its pointer")
+   local compact = code:gsub("%s+", "")
+   assert(not compact:find(".fromCarray(", 1, true), "span root remained materialized")
+   assert(compact:find("[0+index-1].x", 1, true), "span range did not index its captured C array")
 end
 
 function M.nonRaisingWithOverDirectFieldsNeedsNoProtectedBody()

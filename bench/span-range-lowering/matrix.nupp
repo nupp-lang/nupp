@@ -2,11 +2,18 @@
 -- representative comparison remains in kernel.nupp/main.lua.
 local span = require("nupp.span")
 local indexed = require("nupp.indexed")
+local heap = require("nupp.heap")
+local soa = require("nupp.soa")
 
 local matrix = {}
 
 struct matrix.Scalar
     value: float
+end
+
+struct matrix.RootParticle
+    x: float
+    y: float
 end
 
 @relax("frames")
@@ -164,6 +171,181 @@ function matrix.sliceMaterialized(exclusive output: span.WriteSpan<float>, repea
         end
         drop window
     end
+end
+
+@relax("frames")
+function matrix.sharedRoot(borrows storage: float[?], count: integer, repeats: integer): number
+    local total = 0
+    for _ = 1, repeats do
+        const values = span.fromCarray(storage, count)
+        for index = 1, #values do
+            total += values[index]
+        end
+    end
+
+    return total
+end
+
+@relax("frames")
+function matrix.writableRoot(exclusive storage: float[?], count: integer, repeats: integer): nil
+    for _ = 1, repeats do
+        const values = span.writeCarray(storage, count)
+        for index = 1, #values do
+            values[index] += 1
+        end
+        drop values
+    end
+end
+
+@relax("frames")
+function matrix.nestedWritableRoot(exclusive storage: float[?], count: integer, repeats: integer): nil
+    for _ = 1, repeats do
+        const root = span.writeCarray(storage, count)
+        const window = root:slice(2, count - 1)
+        for index = 1, #window do
+            window[index] += 1
+        end
+        drop window
+        drop root
+    end
+end
+
+@relax("frames")
+function matrix.heapSharedRoot(count: integer, repeats: integer): number
+    const storage = heap.allocate(ffi.typeof<float>(), count)
+    local total = 0
+    for _ = 1, repeats do
+        const values = storage:read()
+        for index = 1, #values do
+            total += values[index]
+        end
+    end
+    drop storage
+
+    return total
+end
+
+@relax("frames")
+function matrix.heapWritableRoot(count: integer, repeats: integer): nil
+    const storage = heap.allocate(ffi.typeof<float>(), count)
+    for _ = 1, repeats do
+        const values = storage:write()
+        for index = 1, #values do
+            values[index] += 1
+        end
+        drop values
+    end
+    drop storage
+end
+
+@relax("frames")
+function matrix.soaSharedRoot(count: integer, repeats: integer): number
+    const storage = soa.allocate(ffi.typeof<matrix.RootParticle>(), count)
+    local total = 0
+    for _ = 1, repeats do
+        const rows = storage:read()
+        const xs = rows:field("x")
+        for index = 1, #xs do
+            total += xs[index]
+        end
+    end
+    drop storage
+
+    return total
+end
+
+@relax("frames")
+function matrix.soaWritableRoot(count: integer, repeats: integer): nil
+    const storage = soa.allocate(ffi.typeof<matrix.RootParticle>(), count)
+    for _ = 1, repeats do
+        const rows = storage:write()
+        do
+            const xs = rows:field("x")
+            for index = 1, #xs do
+                xs[index] += 1
+            end
+        end
+        drop rows
+    end
+    drop storage
+end
+
+local function sumStatic(borrows values: span.Span<float>): number
+    const input = values
+    local total = 0
+    for index = 1, #input do
+        total += input[index]
+    end
+
+    return total
+end
+
+@relax("frames")
+function matrix.staticParameterRoot(borrows storage: float[?], count: integer, repeats: integer): number
+    local total = 0
+    for _ = 1, repeats do
+        const values = span.fromCarray(storage, count)
+        total += sumStatic(values)
+    end
+
+    return total
+end
+
+local function acquireStatic(borrows storage: float[?], count: integer): span.Span<float> borrows (storage)
+    return span.fromCarray(storage, count)
+end
+
+@relax("frames")
+function matrix.staticReturnedRoot(borrows storage: float[?], count: integer, repeats: integer): number
+    local total = 0
+    for _ = 1, repeats do
+        const values = acquireStatic(storage, count)
+        for index = 1, #values do
+            total += values[index]
+        end
+    end
+
+    return total
+end
+
+local function acquireDynamic(borrows storage: float[?], count: integer): span.Span<float> borrows (storage)
+    return span.fromCarray(storage, count)
+end
+
+local dynamicAcquire = acquireDynamic
+
+@relax("frames")
+function matrix.dynamicReturnedRoot(borrows storage: float[?], count: integer, repeats: integer): number
+    local total = 0
+    for _ = 1, repeats do
+        local values = dynamicAcquire(storage, count)
+        for index = 1, #values do
+            total += values[index]
+        end
+    end
+
+    return total
+end
+
+local tecsDirtyCount = 0 as integer
+
+local function tecsGetMut(exclusive storage: float[?], count: integer): span.Writable<float> borrows (storage)
+    tecsDirtyCount += 1
+    return span.writeCarray(storage, count)
+end
+
+@relax("frames")
+function matrix.tecsDirtyRoot(exclusive storage: float[?], count: integer, repeats: integer): integer
+    const before = tecsDirtyCount
+    for _ = 1, repeats do
+        const values = tecsGetMut(storage, count)
+        for index = 1, #values do
+            values[index] += 1
+        end
+        drop values
+    end
+
+    return tecsDirtyCount - before
 end
 
 return matrix

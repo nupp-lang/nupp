@@ -100,4 +100,21 @@ function kernel.gcCopy(
     end
 end
 
+@relax("frames")
+function kernel.rootGcCopy(
+    exclusive positions: kernel.Position[?],
+    borrows velocities: kernel.Velocity[?],
+    count: integer
+): nil
+    const output = span.writeCarray(positions, count)
+    const input = span.fromCarray(velocities, count)
+    for index = 1, #output do
+        if index % 67 == 0 then
+            collectgarbage()
+        end
+        output[index].x = input[index].x
+    end
+    drop output
+end
+
 return kernel
