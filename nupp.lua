@@ -784,11 +784,6 @@ nupp lsp            # start the language server]],
                   title = "Optimization",
                   source = "docs/tooling/optimization.md",
                },
-               {
-                  path = "guides/constant-folding",
-                  title = "Constant folding",
-                  source = "docs/tooling/constant-folding.md",
-               },
 
                {
                   path = "reference/cli",
