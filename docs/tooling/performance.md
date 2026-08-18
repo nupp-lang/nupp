@@ -17,22 +17,11 @@ nupp run -O1 --remarks app.nupp
 ```
 
 Two groups follow. **Always-on lowerings** need no flag and are part of what the
-language means. **Passes** are the `-O1` catalog, each named by a stable
-`OPT-n` code.
+language means. **Optimization passes** are the `-O1` catalog.
 
 Every generated tab below is the compiler's real output with whitespace
 normalized and the module prelude elided. Temporary names are stable but not a
 promise.
-
-## Levels
-
-    nupp build -O1
-    nupp run -O1 app.nupp
-
-`-O0`, the default, rewrites nothing: its generated Lua is the language
-semantics with types erased. `-O1` enables every current pass; `-O2` means the
-same today and reserves room for a stronger tier later. The level is part of the
-build key, so changing it triggers a cold build.
 
 ## Always-on lowerings
 
@@ -347,9 +336,17 @@ input the cost model does not have, so it is deferred rather than rejected;
 `bench/switch-dispatch.lua` keeps both `ph-ffi` and `ph-lua` baselines, and
 `plans/057-switch-dispatch-optimization.md` records the decision.
 
-## Passes
+## Optimization passes
 
-Each of the following needs `-O1`.
+    nupp build -O1
+    nupp run -O1 app.nupp
+
+`-O0`, the default, rewrites nothing: its generated Lua is the language
+semantics with types erased. `-O1` enables every current pass; `-O2` means the
+same today and reserves room for a stronger tier later. The level is part of the
+build key, so changing it triggers a cold build.
+
+Each pass below is named by a stable `OPT-n` code.
 
 | Code | Name | Level | Rewrite |
 | --- | --- | --- | --- |
@@ -926,7 +923,7 @@ An [`@aot`](aot.md) function retains the same resolved field identities and
 single-map-loop fact, and its backend keeps unit strides in IR for direct scalar
 or lane lowering.
 
-## Not optimized on purpose
+### Rewrites deliberately not made
 
 Nupp does not cache a closure created inside a loop: that changes function
 identity. The `loop-invariant-closure` lint instead suggests lifting a closure
