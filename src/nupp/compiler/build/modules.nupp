@@ -594,7 +594,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- be: reuse produced no diagnostics, so the second `nupp check` over a project with
     -- an error would have said nothing was wrong. Now a record carries what the file
     -- had to say, so replaying it says the same thing the check would have.
-    local cacheCompatible = oldState.compilerHash == newState.compilerHash
+    local cacheCompatible = oldState.moduleCompilerHash == newState.moduleCompilerHash
         and oldState.configHash == newState.configHash
     -- Everything the project is written in, not the closure of its entries.
     --

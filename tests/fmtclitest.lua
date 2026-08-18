@@ -35,9 +35,12 @@ local function readFile(path)
 end
 
 --- Runs the binary in `dir` and returns its output and whether it succeeded.
+-- With the store where the project keeps it. This suite is about that store --
+-- what a warm run reuses, and what a damaged file costs -- so it has to be the
+-- one the run reads, not whichever shared directory the whole test run named.
 local function run(dir, argv)
    local outfile = os.tmpname()
-   local status = os.execute(("cd '%s' && '%s' %s > '%s' 2>&1")
+   local status = os.execute(("cd '%s' && NUPP_CACHE_DIR= '%s' %s > '%s' 2>&1")
       :format(dir, NUPP, argv, outfile))
    local out = readFile(outfile)
    os.remove(outfile)

@@ -31,6 +31,18 @@ local function read(path)
    return text
 end
 
+--- Where a project's content-keyed stores went.
+---
+--- Headers, formatting verdicts and type-function results answer about content rather
+--- than about a project, so `NUPP_CACHE_DIR` may name one directory for all of them --
+--- and the test runner sets it, because a run that makes a project per case would
+--- otherwise start every one of them cold. A case about what those stores do has to
+--- reach the file that was actually written. The check state is not one of them: it is
+--- keyed by module name and stays with the project.
+local function contentCacheDir(dir, outDir)
+   return os.getenv("NUPP_CACHE_DIR") or (dir .. "/" .. outDir .. "/cache")
+end
+
 local function exists(path)
    local f = io.open(path, "rb")
    if not f then return false end
@@ -1358,7 +1370,7 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
 
    assertEq(project.check(dir, {stats = {}, diagnostics = {}}), 0,
       "a consumer executes closed and inferred exported type calls")
-   local cache = dir .. "/out/cache/type-functions.buf"
+   local cache = contentCacheDir(dir, "out") .. "/type-functions.buf"
    assert(exists(cache), "the type-function result store is persisted")
 
    -- Rechecking a changed consumer admits a validated persisted result. Damage is a
@@ -1428,12 +1440,12 @@ return {
    assertEq(answerOf(), cold, "a warm cache gives the cold answer")
 
    for _, damage in ipairs({"not a buffer at all", "", "\0\0\0\0"}) do
-      for _, name in ipairs({"headers.buf", "checks.buf"}) do
-         write(dir .. "/out/cache/" .. name, damage)
-      end
+      write(contentCacheDir(dir, "out") .. "/headers.buf", damage)
+      write(dir .. "/out/cache/checks.buf", damage)
       assertEq(answerOf(), cold, "a damaged cache gives the cold answer")
    end
 
+   remove(contentCacheDir(dir, "out"))
    remove(dir .. "/out/cache")
    assertEq(answerOf(), cold, "no cache at all gives the cold answer")
    remove(dir)

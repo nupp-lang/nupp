@@ -293,6 +293,14 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     local newState = cache.emptyState()
     newState.compilerHash = toolFingerprint()
+    -- What compiling a module reaches, rather than everything the compiler contains. An
+    -- edit to a command, to the language server, or to anything else the module build
+    -- does not call now leaves the last build's artifacts reusable, where before it
+    -- rebuilt the project.
+    newState.moduleCompilerHash = cache.subsystemFingerprint(
+        {"nupp.compiler.build.modules"},
+        cache.sharedCacheDir(join(root, join(outDir, "cache")))
+    )
     newState.configHash = hash.digest(stable(config))
     -- Every other target's record is carried through untouched, so building one does
     -- not make the others look like they produced nothing.
@@ -778,7 +786,13 @@ local function treeDigest(path)
     for _, file in ipairs(files) do
         local relative = file:sub(#normalize(path) + 2)
         local native = relative:match("^native/") or relative:match("^lib/")
-        if relative ~= ".nupp-state.json" and relative ~= ".nupp-complete" and not native then
+        -- `cache/` holds what a run worked out rather than what it produced. Its
+        -- entries are keyed by their inputs and stamped with the compiler that computed
+        -- them, so two stages that wrote the same program still write different bytes
+        -- there -- the second was written by the first, which is the whole point of the
+        -- exercise.
+        local derived = relative:match("^cache/")
+        if relative ~= ".nupp-state.json" and relative ~= ".nupp-complete" and not native and not derived then
             parts[#parts + 1] = relative .. "\0" .. (hashFile(file) or "")
         end
     end

@@ -307,6 +307,25 @@ declarations invalidate the project index, while body-only edits preserve it.
 Deleting the state file, changing compiler/configuration inputs, or modifying
 an emitted artifact safely falls back to the required cold work.
 
+"Changing the compiler" means changing the part of it that computes the answer
+being reused, not changing any part of it. Module artifacts are keyed on what
+compiling a module reaches; parsed headers on the parser; formatting verdicts
+on the formatter; comptime type blueprints on the checker. Each is the digest
+of that module and everything it requires, read off the compiler's own tree, so
+a new command, a language-server change, or an edit to a diagnostic's prose
+leaves all four reusable. Anything that cannot be read that way — a compiler
+that is one bundled file, a `require` naming a computed module — falls back to
+the digest of the whole compiler, which invalidates more than it has to and
+never less.
+
+Two of these stores hold answers about content rather than about a project: a
+file's header and its formatting verdict are the same answers wherever the file
+is. `NUPP_CACHE_DIR` names one directory for them, which is what a run making
+many small projects wants — the test suite makes one per case — so the second
+project starts from what the first worked out. The build state is not moved by
+it: its records are keyed by module name, so two projects sharing them would
+read each other's modules.
+
 The checker and generator finish before module outputs are changed. Each file
 is written through a sibling temporary file, state is saved after the
 artifacts, and `.nupp-complete` is written last. `bin/nupp` only selects a

@@ -136,6 +136,12 @@ type cache.State = {
     targets: {[string]: {string}},
 
     compilerHash: string?,
+
+    --- The digest of the part of the compiler that compiles a module, which is what
+    --- decides whether the last build's artifacts can be reused. `compilerHash` beside
+    --- it stays the whole compiler: it says which compiler wrote this state, and it is
+    --- what the completion stamp carries.
+    moduleCompilerHash: string?,
     configHash: string?,
 
     --- Source path -> the key its ahead-of-time artifact was built under.
@@ -260,6 +266,247 @@ local function toolFingerprint(): string
     toolFingerprintMemo = hash.digest(table.concat(parts, "\0"))
 
     return toolFingerprintMemo
+end
+
+--- What the compiler's own modules are, and which of them each one requires.
+---
+--- Read off the built tree by the compiler's own lexer, so a `require` written inside a
+--- string -- `explain` and `gen` both compose source text containing one -- is a string
+--- and not an edge. A `require` whose argument is not a literal cannot be followed, and
+--- one anywhere in the tree abandons the graph rather than producing a smaller one than
+--- the truth: a stamp that covers too little is a wrong answer kept, where covering too
+--- much is only work redone.
+type cache.ModuleGraph = {
+    --- Module name -> the file it lives in, relative to the tree root.
+    files: {[string]: string},
+
+    --- Module name -> the modules it requires.
+    edges: {[string]: {string}},
+
+    --- Module name -> the digest of its file.
+    digests: {[string]: string}
+}
+
+--- Bumped when an entry stops decoding into what the reader expects.
+local GRAPH_STAMP = "modules/1"
+
+local graphMemo: cache.ModuleGraph? = nil
+local graphAttempted = false
+
+--- The module name a file under `root` provides: the path, without its extension, with
+--- the separators spelled as dots. `init` is how a directory names itself.
+local function moduleNameOf(root: string, path: string): string?
+    if path:sub(1, #root + 1) ~= root .. "/" then
+        return nil
+    end
+    local relative = path:sub(#root + 2):gsub("%.lua$", "")
+    local name = relative:gsub("/", ".")
+    name = name:gsub("%.init$", "")
+
+    return name ~= "" and name or nil
+end
+
+--- The modules `text` requires, or nil when it requires something this cannot name.
+---
+--- The shapes are `require "m"`, `require("m")`, and `pcall(require, "m")`, which is
+--- how an optional library is reached. A `require` that is a field of something -- the
+--- checker looks up `env.globals.require` -- is a different name that happens to be
+--- spelled the same, and is not one of these.
+local function requiredBy(text: string, path: string): {string}?
+    local lexer = require("nupp.compiler.lexer")
+    local tokens = lexer.lex(text, path)
+    local names: {string} = {}
+    for index = 1, #tokens do
+        local token = tokens[index]
+        local previous = tokens[index - 1]
+        if token.kind == "name" and token.text == "require" and not (
+            previous and (previous.text == "." or previous.text == ":")
+        ) then
+            local following = tokens[index + 1]
+            local literal = nil
+            if following and following.kind == "string" then
+                literal = following
+            elseif following and following.text == "(" and tokens[index + 2] and tokens[index + 2].kind == "string" then
+                literal = tokens[index + 2]
+            elseif following and following.text == "," and previous and previous.text == "(" and tokens[
+                index + 2
+            ] and tokens[index + 2].kind == "string" then
+                literal = tokens[index + 2]
+            end
+            if not literal then
+                return nil
+            end
+            -- On its own line: `chunk and pcall(chunk)` is one value, the way any
+            -- call inside a larger expression is, so the string would arrive as nil.
+            local chunk = loadstring("return " .. literal.text)
+            if not chunk then
+                return nil
+            end
+            local ok, value = pcall(chunk)
+            if not ok or type(value) ~= "string" then
+                return nil
+            end
+            names[#names + 1] = value as string
+        end
+    end
+
+    return names
+end
+
+--- Reads the graph of the running compiler, or nil when it cannot be had.
+---
+--- `cacheDir` is where the answer is kept between commands. Computing it lexes the
+--- whole built tree, which is a tenth of a second and far too much to spend on every
+--- command; the store makes it once per compiler. Passing no directory computes it in
+--- this process, which is what a caller with nowhere to write does.
+local function moduleGraph(cacheDir: string?): cache.ModuleGraph?
+    if graphAttempted then
+        return graphMemo
+    end
+    graphAttempted = true
+    local dir = moduleDir()
+    if basename(dir) == "build" then
+        dir = dirname(dir)
+    end
+    -- The bootstrap is one bundled file with every module inside it, so there is no
+    -- graph to read and nothing narrower than the whole of it to stamp with.
+    if dir:match("bootstrap$") then
+        return nil
+    end
+    -- `<root>/nupp/compiler` is where this file is, so the tree the module names are
+    -- relative to is two directories above it.
+    local root = dirname(dirname(dir))
+    local store = nil
+    if cacheDir then
+        store = require(
+            "nupp.compiler.build.store"
+        ).openValue(join(cacheDir, "modulegraph.buf"), GRAPH_STAMP .. "\0" .. toolFingerprint())
+        local stored = store.value
+        if type(stored) == "table" then
+            graphMemo = stored as cache.ModuleGraph
+
+            return graphMemo
+        end
+    end
+    local graph: cache.ModuleGraph = {files = {}, edges = {}, digests = {}}
+    local sources: {[string]: string} = {}
+    -- Under `nupp/` rather than the whole tree the compiler was found in. Every module
+    -- here is a `nupp.*` one, and listing the root meant whatever else happened to sit
+    -- beside the compiler -- a project's own build output, in a development checkout --
+    -- was read and digested for a graph it is not part of.
+    for _, path in ipairs(listFiles(join(root, "nupp"))) do
+        if path:match("%.lua$") then
+            local name = moduleNameOf(root, path)
+            local text = name and readFile(path) or nil
+            if name and text then
+                graph.files[name] = path
+                graph.digests[name] = hash.digest(text)
+                sources[name] = text
+            end
+        end
+    end
+    for name, text in pairs(sources) do
+        local required = requiredBy(text, graph.files[name] or name)
+        if not required then
+            return nil
+        end
+        local edges: {string} = {}
+        for _, required_name in ipairs(required) do
+            if graph.files[required_name] then
+                edges[#edges + 1] = required_name
+            end
+        end
+        table.sort(edges)
+        graph.edges[name] = edges
+    end
+    graphMemo = graph
+    if store then
+        store.set(graph)
+        store.save()
+    end
+
+    return graphMemo
+end
+
+--- Where the stores that answer about content rather than about a project belong.
+---
+--- Every entry in them is keyed by what it was computed from and stamped with the code
+--- that computed it, so two projects sharing one directory can only hit each other's
+--- entries when the answer is the same answer. `NUPP_CACHE_DIR` is how a run that makes
+--- many small projects -- the test suite makes one per case -- says to keep them
+--- together, rather than having each pay for what the last one worked out.
+---
+--- The build state is not one of these and is not moved: its records are keyed by
+--- module name, so two projects sharing them would read each other's modules.
+function cache.sharedCacheDir(fallback: string?): string?
+    local named = os.getenv("NUPP_CACHE_DIR")
+    if named and named ~= "" then
+        return named
+    end
+
+    return fallback
+end
+
+local subsystemMemo: {[string]: string} = {}
+
+--- The digest of one part of the compiler: the named modules, and everything they
+--- require, and nothing else.
+---
+--- What a stamp is for is saying that an answer kept from last time was computed by
+--- code that has not changed. `toolFingerprint` answers that for the whole compiler,
+--- which is true and far too strong: a header is the parser's answer, so editing the
+--- code generator threw away every header in the project and made the next command
+--- reparse all of it. This says which code an answer actually came from.
+---
+--- Falls back to the whole compiler whenever the graph cannot be read, whenever a named
+--- module is not in it, and for the bootstrap, which is one file. Every fallback costs
+--- work that turns out to have been unnecessary and none of them changes an answer.
+function cache.subsystemFingerprint(roots: {string}, cacheDir: string?): string
+    local ordered = {}
+    for index, name in ipairs(roots) do
+        ordered[index] = name
+    end
+    table.sort(ordered)
+    local memoKey = table.concat(ordered, "\0")
+    local remembered = subsystemMemo[memoKey]
+    if remembered then
+        return remembered
+    end
+    local graph = moduleGraph(cacheDir)
+    local answer = nil
+    if graph then
+        local reached: {[string]: boolean} = {}
+        local pending = {}
+        for _, name in ipairs(ordered) do
+            pending[#pending + 1] = name
+        end
+        local complete = true
+        while #pending > 0 do
+            local name = table.remove(pending)
+            if not reached[name] then
+                if not graph.digests[name] then
+                    complete = false
+                    break
+                end
+                reached[name] = true
+                for _, required in ipairs(graph.edges[name] or {}) do
+                    pending[#pending + 1] = required
+                end
+            end
+        end
+        if complete then
+            local parts = {}
+            for name in pairs(reached) do
+                parts[#parts + 1] = name .. "\0" .. (graph.digests[name] or "missing")
+            end
+            table.sort(parts)
+            answer = hash.digest(table.concat(parts, "\0"))
+        end
+    end
+    answer = answer or toolFingerprint()
+    subsystemMemo[memoKey] = answer
+
+    return answer as string
 end
 
 -- Bumped whenever a recorded digest stops meaning what it meant, which discards the

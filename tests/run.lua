@@ -490,6 +490,13 @@ end
 --- packed from measurement.
 local timingsPath = dir .. "/../" .. buildDir .. "/.nupp-test-times.json"
 
+--- Where each shard's content-keyed store goes.
+---
+--- Under the build directory, so `nupp clean` removes it with everything else, and
+--- keyed by nothing: the stores inside stamp and key their own entries, so a stale one
+--- is a miss rather than a wrong answer.
+local shardCacheRoot = dir .. "/../" .. buildDir .. "/.nupp-test-cache"
+
 local function recordedTimings()
    local file = io.open(timingsPath, "rb")
    if not file then
@@ -615,8 +622,17 @@ if #shard == 0 and not only and #suites > 1 and jobs ~= 1
       local running = {}
       for _, names in ipairs(groups) do
          if #names > 0 then
-            local command = ("luajit '%s' --json --shard=%s%s"):format(
-               arg[0], table.concat(names, ","), verbose and " --verbose" or "")
+            -- One content-keyed store per shard. Every suite that runs `nupp` in a
+            -- temporary project otherwise starts that project's store cold, and the
+            -- most expensive thing in it -- what the compiler's own modules require,
+            -- which decides what a stored answer is stamped with -- is the same answer
+            -- for all of them. Per shard rather than for the whole run because a store
+            -- is written whole: shards sharing one file would take turns discarding
+            -- each other's entries.
+            local index = #running + 1
+            local command = ("NUPP_CACHE_DIR='%s/shard-%d' luajit '%s' --json --shard=%s%s")
+               :format(shardCacheRoot, index, arg[0], table.concat(names, ","),
+                  verbose and " --verbose" or "")
             running[#running + 1] = {names = names, pipe = io.popen(command, "r")}
          end
       end
