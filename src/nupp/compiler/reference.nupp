@@ -1551,6 +1551,15 @@ userdata and cycles are not admitted. With `aot = "off"`, the unchanged ordinary
 body runs; with `require`, one native call returns the completed ordinary Lua
 value.
 
+A pointer-free parser may call resolved
+`nupp.value_builder.materializeTree(nodes, links, source, root, nullValue)` in a
+builder. Its native-endian node and uint32 link blobs are bounds-checked before
+one C traversal constructs the graph. Raw source slices and validated
+backslash/Unicode string recipes become ordinary Lua-owned strings. The
+ordinary module implementation supplies the same behavior with `aot = "off"`.
+The operation is a construction boundary, not access to `lua_State` or raw VM
+stack positions.
+
 An AOT block kernel may use independently sized spans, structured scalar
 control flow, and up to four numeric or boolean results. A loop from one through
 `#input` authorizes access to that input. A zero-based `uint32` append cursor

@@ -11,11 +11,17 @@ The implementation has four stages:
 2. `simd_json.parser` is an iterative scalar AOT state machine. It validates the
    complete grammar, escapes and surrogate pairs, then writes pointer-free node,
    link, frame, and binary64 fields into caller-owned arenas.
-3. `simd_json.arena` materializes ordinary Lua strings and tables only after the
-   native parse succeeds. Correctly rounded libc conversion handles decimal
-   spellings that the AOT parser cannot prove exactly representable directly.
+3. `simd_json.arena` bulk-copies the pointer-free nodes and links into rooted
+   strings, then one VM-aware AOT call traverses `nupp.value_builder`'s checked
+   tree recipe and constructs presized ordinary Lua tables and strings. Native
+   construction performs decimal conversion and escape decoding once per value.
 4. Documents below 128 bytes retain the original JIT-friendly recursive decoder,
    avoiding native arena setup where it cannot amortize.
+
+The former recursive Lua arena materializer remains as `arena.materialize` and
+`arena.decode` solely for differential tests and paired benchmarks. The normal
+large-document path uses `materializeBuilder`/`decodeBuilder` and performs no
+per-node FFI read in Lua.
 
 `simd_json.scanner` and `json.decodeLegacy` remain as the frozen J0 oracle and
 benchmark baseline; they are no longer the large-document decode path.
@@ -31,7 +37,8 @@ Run the differential tests against `lua-cjson`:
 ```
 
 After building, measure classification, structural indexing, native parsing,
-Lua materialization, both decoders, and `lua-cjson`:
+the old Lua materializer, native builder consumption, the legacy/arena/builder
+decoders, and `lua-cjson`:
 
 ```sh
 LUA_PATH='build/?.lua;../../build/?.lua;../../.rocks/share/lua/5.1/?.lua;../../.rocks/share/lua/5.1/?/init.lua;;' \
@@ -49,8 +56,13 @@ luajit benchmark.lua --json 15
 ```
 
 Set `NUPP_JSON_BENCH_OUTPUT` to write that JSON report without shell
-redirection. The completed Apple arm64/NEON parser result is committed at
-`results/arm64-macos-neon-parser.json`.
+redirection. The completed Apple arm64/NEON builder result is committed at
+`results/arm64-macos-neon-builder.json`. Across the five large payloads its
+paired geometric-mean throughput is 1.870x the old arena decoder (95% bootstrap
+CI 1.827–1.931x) and 3.918x the legacy decoder (3.723–4.058x). Escaped strings
+improve 4.149x over the arena route (3.641–4.619x). The builder remains behind
+`lua-cjson`: 0.693x its throughput for records, 0.714x ASCII, 0.520x Unicode,
+0.440x escaped strings, and 0.226x numbers.
 
 The J0 baseline is `results/arm64-macos-neon-baseline.json`; the structural
 index result is `results/arm64-macos-neon-index.json`. Add separately named

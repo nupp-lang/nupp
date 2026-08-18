@@ -1,15 +1,19 @@
 # Lua-value construction in AOT functions
 
-Status: V1a and the core V2 subset implemented; V1b and V3 through V6 remain proposed — follows
+Status: V1a, the core V2 subset, and the V4 tree-recipe JSON migration implemented;
+V1b, general V3 strings, V5 fusion, and V6 remain proposed — follows
 `plans/038-aot-functions.md` and `plans/062-aot-block-simd-parsing.md`
 
 The implemented slice selects and fingerprints the VM-aware ABI, emits one
 digest-named registrar per generated translation unit, caches its closure table,
 and verifies rooted construction of presized arrays, maps, nested fresh tables,
 numbers, booleans, nil, string literals, and rooted string arguments. Dynamic
-capacities and indexes are checked with source sites. Pure kernels retain their
-existing FFI ABI. Input slices, transformed `nupp.io` strings, JSON migration,
-the full host matrix, and the performance decisions below remain open stages.
+capacities and indexes are checked with source sites. A general pointer-free tree
+recipe now admits rooted source slices, validated backslash/Unicode transforms,
+presized containers, and opaque rooted null replacements; the detachable SIMD JSON
+decoder consumes it in one VM-aware call. Pure kernels retain their existing FFI ABI.
+General `nupp.io` string lowering, representation fusion, the full host matrix, and
+the final support decision remain open stages.
 
 ## Decision
 
@@ -567,6 +571,12 @@ forced collection, leak no native storage under injected failures, perform one f
 Lua string creation, and clear the V3 performance gate.
 
 ### V4 — Build JSON values from validated parser output
+
+Implemented on Apple arm64/NEON through the general
+`nupp.value_builder.materializeTree` recipe. The old recursive arena materializer
+remains only as an explicit benchmark/oracle path; ordinary large-document decode
+uses two bulk blob copies and one VM-aware construction call. The committed paired
+result clears every V4 performance threshold.
 
 - Add final container counts and string recipes to a detachable construction-oriented
   representation under `bench/simd-json`.

@@ -25,7 +25,7 @@ local struct Node
     linkStart: uint32
     linkCount: uint32
     parent: uint32
-    nativeNumber: uint32
+    flags: uint32
 end
 
 local struct Frame
@@ -78,7 +78,7 @@ local function parse(
             local length: uint32 = 0
             local opens = false
             local numberValue: number = 0
-            local nativeNumber: uint32 = 0
+            local flags: uint32 = 0
             local byte: uint32 = 0
             if cursor < #source then
                 byte = source[(cursor + 1) as integer]
@@ -103,6 +103,7 @@ local function parse(
                     while stringCursor < closing and stringCursor < #source do
                         local stringByte = source[(stringCursor + 1) as integer]
                         if stringByte == 92 then
+                            flags = 1
                             stringCursor = nupp.math.u32.add(stringCursor, 1)
                             if stringCursor >= closing or stringCursor >= #source then
                                 return root, 1, nupp.math.u32.add(stringCursor, 1), nodeCount
@@ -486,7 +487,7 @@ local function parse(
                     if negative then
                         numberValue = -numberValue
                     end
-                    nativeNumber = 1
+                    flags = 1
                 end
             else
                 return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
@@ -502,7 +503,7 @@ local function parse(
                 node.linkStart = 0
                 node.linkCount = 0
                 node.parent = 0
-                node.nativeNumber = nativeNumber
+                node.flags = flags
                 nodeCount = nupp.math.u32.add(nodeCount, 1)
                 nodeId = nodeCount
             else
@@ -623,7 +624,15 @@ local function parse(
                             key.linkStart = 0
                             key.linkCount = 0
                             key.parent = frame.node
-                            key.nativeNumber = 0
+                            local keyCursor = nupp.math.u32.add(keyStart, 1)
+                            local keyEscaped: uint32 = 0
+                            while keyCursor < closingQuote and keyCursor < #source do
+                                if source[(keyCursor + 1) as integer] == 92 then
+                                    keyEscaped = 1
+                                end
+                                keyCursor = nupp.math.u32.add(keyCursor, 1)
+                            end
+                            key.flags = keyEscaped
                             nodeCount = nupp.math.u32.add(nodeCount, 1)
                             frame.count = nupp.math.u32.add(frame.count, 1)
                             frame.state = 1

@@ -24,6 +24,10 @@ local function project(files)
    manifest:write('return {include = {"."}}\n')
    manifest:close()
    for name, source in pairs(files) do
+      local parent = name:match("^(.*)/[^/]+$")
+      if parent then
+         assert(os.execute(("mkdir -p %q"):format(dir .. "/" .. parent)) == 0)
+      end
       local handle = assert(io.open(dir .. "/" .. name, "wb"))
       handle:write(source)
       handle:close()
@@ -703,6 +707,7 @@ local function object(name: string): {[string]: any}
     result["ready"] = true
     return result
 end
+
 return {object = object}
 ]]}
    local out, code = run(dir, "--json builder.nupp")
@@ -718,6 +723,34 @@ return {object = object}
    assert(decoded.c:find("lua_rawset(L", 1, true), decoded.c)
    assert(decoded.binding:find("package", 1, true) and
       decoded.binding:find(only.registrar, 1, true), decoded.binding)
+end
+
+function M.valueTreesLowerToOneCheckedVmConstructionOperation()
+   local dir = project{
+      ["nupp/value_builder.g.nupp"] = [[
+local builder = {}
+function builder.materializeTree(nodes: string, links: string, source: string, root: integer, nullValue: any): any
+    return nullValue
+end
+return builder
+]],
+      ["tree.nupp"] = [[
+local builder = require("nupp.value_builder")
+@aot
+local function materialize(nodes: string, links: string, source: string, root: integer, nullValue: any): any
+    return builder.materializeTree(nodes, links, source, root, nullValue)
+end
+return {materialize = materialize}
+]],
+   }
+   local out, code = run(dir, "--json tree.nupp")
+   test.equal(code, 0, out)
+   local decoded = require("cjson").decode(out)
+   local only = decoded.functions[1]
+   test.equal(only.entryMode, "lua-builder")
+   assert(decoded.ir:find("lua.tree(", 1, true), decoded.ir)
+   assert(decoded.c:find("ks_lua_tree_push", 1, true), decoded.c)
+   assert(decoded.c:find("luaL_checklstring", 1, true), decoded.c)
 end
 
 function M.aFileWithNoAotFunctionIsAnError()

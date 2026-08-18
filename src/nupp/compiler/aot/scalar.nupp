@@ -26,7 +26,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 6
+const scalarIR.VERSION = 7
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -135,6 +135,21 @@ record scalarIR.LuaNewTable
     hashCapacity: scalarIR.Expr
     fields: {scalarIR.LuaField}?
     type: 'lua_table'
+    source: scalarIR.Source?
+end
+
+--- Builds one ordinary Lua value graph from a bounds-checked, pointer-free
+--- preorder tree representation. The format belongs to `nupp.value_builder`;
+--- codecs produce it without receiving VM authority, and this operation is the
+--- single VM-aware consumption boundary.
+record scalarIR.LuaTree
+    op: 'lua_tree'
+    nodes: scalarIR.Expr
+    links: scalarIR.Expr
+    sourceBytes: scalarIR.Expr
+    root: scalarIR.Expr
+    nullValue: scalarIR.Expr
+    type: 'lua_value'
     source: scalarIR.Source?
 end
 
@@ -374,6 +389,7 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.LuaNil
     | scalarIR.LuaString
     | scalarIR.LuaNewTable
+    | scalarIR.LuaTree
     | scalarIR.Name
     | scalarIR.SpanCount
     | scalarIR.Load
@@ -762,6 +778,7 @@ record scalarIR.Program
     --- Conservative additional Lua stack slots required by verified
     --- construction. Builders check this once on entry.
     maxStack: integer?
+
     params: {scalarIR.Param}
     layouts: {scalarIR.Layout}?
     regions: {scalarIR.Region}

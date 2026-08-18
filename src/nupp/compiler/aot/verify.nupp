@@ -526,12 +526,35 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 "unsupported fresh-table literal key"
             )
             holds(
-                verify.NUMERIC[field.value.type] == true or field.value.type == "bool"
-                    or field.value.type == "lua_nil" or field.value.type == "lua_string"
-                    or field.value.type == "lua_table",
+                verify.NUMERIC[
+                    field.value.type
+                ] == true
+                or field.value.type == "bool"
+                or field.value.type == "lua_nil"
+                or field.value.type == "lua_string"
+                or field.value.type == "lua_table",
                 "unsupported fresh-table literal value"
             )
         end
+    elseif op == "lua_tree" then
+        local tree = node as scalarIR.LuaTree
+        holds(scope.entryMode == "lua-builder" and node.type == "lua_value", "Lua tree outside a builder")
+        for _, bytes in ipairs({tree.nodes, tree.links, tree.sourceBytes}) do
+            holds(
+                bytes.type == "lua_string" and bytes.op == "local" and (bytes as scalarIR.Name).cName ~= nil,
+                "Lua tree byte input is not a rooted string parameter"
+            )
+            scalarWalk(bytes, values, scope)
+        end
+        holds(verify.NUMERIC[tree.root.type] == true, "Lua tree root is not numeric")
+        scalarWalk(tree.root, values, scope)
+        holds(
+            tree.nullValue.type == "lua_value" and tree.nullValue.op == "local" and (
+                tree.nullValue as scalarIR.Name
+            ).cName ~= nil,
+            "Lua tree null replacement is not rooted"
+        )
+        scalarWalk(tree.nullValue, values, scope)
     elseif op == "neg" or op == "not" or op == "bnot" then
         local operand = (node as scalarIR.Unary).value
         scalarWalk(operand, values, scope)
@@ -994,8 +1017,13 @@ local function block(
             scalarWalk(write.value, values, scope)
             holds(verify.NUMERIC[write.key.type] == true or write.key.type == "lua_string", "unsupported Lua table key")
             holds(
-                verify.NUMERIC[write.value.type] == true or write.value.type == "bool" or write.value.type == "lua_table"
-                    or write.value.type == "lua_string" or write.value.type == "lua_nil",
+                verify.NUMERIC[
+                    write.value.type
+                ] == true
+                or write.value.type == "bool"
+                or write.value.type == "lua_table"
+                or write.value.type == "lua_string"
+                or write.value.type == "lua_nil",
                 "unsupported Lua table value"
             )
         elseif statement.op == "assign" then
@@ -1308,7 +1336,10 @@ local function signature(
     for _, param in ipairs(program.params) do
         holds(byName[param.name] == nil, "duplicate IR parameter")
         holds(
-            param.kind == "write_span" or param.kind == "read_span" or param.kind == "uniform" or param.kind == "scalar",
+            param.kind == "write_span"
+            or param.kind == "read_span"
+            or param.kind == "uniform"
+            or param.kind == "scalar",
             "unknown IR parameter kind"
         )
         if param.kind == "uniform" then
@@ -1318,7 +1349,9 @@ local function signature(
             )
         elseif param.kind == "scalar" then
             holds(
-                program.entryMode == "lua-builder" and param.type == "lua_string" and param.region == nil,
+                program.entryMode == "lua-builder" and (
+                    param.type == "lua_string" or param.type == "lua_value"
+                ) and param.region == nil,
                 "invalid Lua builder scalar"
             )
         else
@@ -1482,7 +1515,11 @@ local function constructionStack(statements: {scalarIR.Statement}, inLoop: boole
             local nested, allocates = constructionExpression(statement.value)
             holds(not (inLoop and allocates), "fresh Lua table allocation inside a loop is not stack bounded")
             depth = math.max(depth, nested)
-            if statement.type == "lua_table" or statement.type == "lua_string" or statement.type == "lua_nil" then
+            if statement.type == "lua_table"
+                or statement.type == "lua_string"
+                or statement.type == "lua_nil"
+                or statement.type == "lua_value"
+            then
                 roots = roots + 1
             end
         elseif statement.op == "lua_set_index" or statement.op == "lua_set_key" then
@@ -1525,9 +1562,9 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     holds(program.entryMode == "kernel" or program.entryMode == "lua-builder", "invalid AOT entry mode")
     if program.entryMode == "lua-builder" then
         holds(
-            program.runtimeAbi == "lua-5.1"
-                and program.registrar ~= nil
-                and (program.registrar as string):match("^ks_register_[0-9a-f]+$") ~= nil,
+            program.runtimeAbi == "lua-5.1" and program.registrar ~= nil and (
+                program.registrar as string
+            ):match("^ks_register_[0-9a-f]+$") ~= nil,
             "invalid Lua builder registration ABI"
         )
         for _, param in ipairs(program.params) do
@@ -1564,10 +1601,14 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     holds(#resultTypes == #sourceResults and #resultTypes <= 4, "invalid AOT entry results")
     for _, resultType in ipairs(resultTypes) do
         holds(
-            verify.NUMERIC[resultType] == true or resultType == "bool"
-                or program.entryMode == "lua-builder" and (
-                    resultType == "lua_table" or resultType == "lua_string" or resultType == "lua_nil"
-                ),
+            verify.NUMERIC[
+                resultType
+            ] == true or resultType == "bool" or program.entryMode == "lua-builder" and (
+                resultType == "lua_table"
+                or resultType == "lua_string"
+                or resultType == "lua_nil"
+                or resultType == "lua_value"
+            ),
             "invalid AOT entry result type"
         )
     end

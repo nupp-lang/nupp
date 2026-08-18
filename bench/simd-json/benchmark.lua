@@ -91,7 +91,7 @@ local report = {
 }
 
 local names = indexOnly and {"classify", "index"} or {
-   "classify", "index", "parse", "materialize", "legacy", "nupp", "cjson",
+   "classify", "index", "parse", "materialize", "build", "legacy", "arena", "nupp", "cjson",
 }
 
 local function sorted(values)
@@ -200,10 +200,24 @@ for payloadIndex, payload in ipairs(payloads) do
          end
          return os.clock() - started
       end,
+      build = function()
+         local started = os.clock()
+         for _ = 1, iterations do
+            arena.materializeBuilder(document, json.null)
+         end
+         return os.clock() - started
+      end,
       legacy = function()
          local started = os.clock()
          for _ = 1, iterations do
             json.decodeLegacy(source)
+         end
+         return os.clock() - started
+      end,
+      arena = function()
+         local started = os.clock()
+         for _ = 1, iterations do
+            arena.decode(source, json.null)
          end
          return os.clock() - started
       end,
@@ -230,8 +244,8 @@ for payloadIndex, payload in ipairs(payloads) do
    end
 
    local raw = {
-      classify = {}, index = {}, parse = {}, materialize = {},
-      legacy = {}, nupp = {}, cjson = {},
+      classify = {}, index = {}, parse = {}, materialize = {}, build = {},
+      legacy = {}, arena = {}, nupp = {}, cjson = {},
    }
    for sample = 1, samples do
       collectgarbage()
@@ -251,8 +265,11 @@ for payloadIndex, payload in ipairs(payloads) do
       summary.legacyMBps = #source * iterations / median(raw.legacy) / 1000000
       summary.parseMBps = #source * iterations / median(raw.parse) / 1000000
       summary.materializeMBps = #source * iterations / median(raw.materialize) / 1000000
+      summary.buildMBps = #source * iterations / median(raw.build) / 1000000
+      summary.arenaMBps = #source * iterations / median(raw.arena) / 1000000
       summary.cjsonMBps = #source * iterations / median(raw.cjson) / 1000000
       summary.nuppToLegacyThroughput = ratioSummary(raw.legacy, raw.nupp)
+      summary.nuppToArenaThroughput = ratioSummary(raw.arena, raw.nupp)
       summary.nuppToCjsonThroughput = ratioSummary(raw.cjson, raw.nupp)
       summary.classifierShare = ratioSummary(raw.classify, raw.nupp)
    end
@@ -302,6 +319,20 @@ if not indexOnly then
       pairedGeomeans[sample] = math.exp(logSum / count)
    end
    report.largeNuppToLegacyThroughput = bootstrapSummary(pairedGeomeans)
+
+   pairedGeomeans = {}
+   for sample = 1, samples do
+      local logSum, count = 0, 0
+      for _, payload in ipairs(report.payloads) do
+         if not payload.short then
+            logSum = logSum + math.log(
+               payload.seconds.arena[sample] / payload.seconds.nupp[sample])
+            count = count + 1
+         end
+      end
+      pairedGeomeans[sample] = math.exp(logSum / count)
+   end
+   report.largeNuppToArenaThroughput = bootstrapSummary(pairedGeomeans)
 end
 
 if jsonOutput then
@@ -326,6 +357,11 @@ if not indexOnly then
       report.largeNuppToLegacyThroughput.median,
       report.largeNuppToLegacyThroughput.low95,
       report.largeNuppToLegacyThroughput.high95
+   ))
+   print(("large-payload builder/arena geometric mean %.3fx [%.3f, %.3f]"):format(
+      report.largeNuppToArenaThroughput.median,
+      report.largeNuppToArenaThroughput.low95,
+      report.largeNuppToArenaThroughput.high95
    ))
 end
 
@@ -364,6 +400,11 @@ for _, payload in ipairs(report.payloads) do
          payload.summary.nuppToLegacyThroughput.median,
          payload.summary.nuppToLegacyThroughput.low95,
          payload.summary.nuppToLegacyThroughput.high95
+      ))
+      print(("  builder/arena throughput %.3fx [%.3f, %.3f]"):format(
+         payload.summary.nuppToArenaThroughput.median,
+         payload.summary.nuppToArenaThroughput.low95,
+         payload.summary.nuppToArenaThroughput.high95
       ))
    end
    print(("  index/classify throughput %.3fx [%.3f, %.3f]"):format(

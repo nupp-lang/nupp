@@ -1,5 +1,5 @@
 return {
-   include = { "src" },
+   include = { "src", "../../src" },
 
    build = {
       outDir = "build",

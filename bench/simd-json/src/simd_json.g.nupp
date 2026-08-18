@@ -322,7 +322,7 @@ function json.decode(source: string): any
     if #source < json.arenaMinBytes then
         return decode(source)
     end
-    return arena.decode(source, json.null)
+    return arena.decodeBuilder(source, json.null)
 end
 
 function json.validate(source: string): (boolean, string?)

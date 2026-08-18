@@ -784,9 +784,45 @@ local function call(
         kernel.usesSimd = true
 
         return new scalarIR.Simd(op = "simd_species_u8", args = {}, type = "simd_species_u8", source = lower.site(node))
+    elseif identity == "nupp.value_builder.materializeTree" then
+        if #args ~= 5 then
+            context.reject(
+                lower.site(node),
+                "value_builder.materializeTree takes nodes, links, source, root, and null value"
+            )
+        end
+        if args[
+            1
+        ].type ~= "lua_string" or args[
+            2
+        ].type ~= "lua_string" or args[
+            3
+        ].type ~= "lua_string" or args[1].op ~= "local" or args[2].op ~= "local" or args[3].op ~= "local" then
+            context.reject(lower.site(node), "value_builder tree buffers must be rooted string parameters")
+        end
+        if args[4].type ~= "f64" and args[4].type ~= "i32" and args[4].type ~= "u32" then
+            context.reject(lower.site(node), "value_builder tree root must be numeric")
+        end
+        if args[5].type ~= "lua_value" or args[5].op ~= "local" then
+            context.reject(lower.site(node), "value_builder null replacement must be a rooted Lua value")
+        end
+        kernel.usesLua = true
+
+        return new scalarIR.LuaTree(
+            op = "lua_tree",
+            nodes = args[1],
+            links = args[2],
+            sourceBytes = args[3],
+            root = args[4],
+            nullValue = args[5],
+            type = "lua_value",
+            source = lower.site(node)
+        )
     end
-    if identity == "table.new" or path == "table.new"
-        and kernel.modules.table == "@prelude.table" and environment.table == nil
+    if identity == "table.new"
+        or path == "table.new"
+        and kernel.modules.table == "@prelude.table"
+        and environment.table == nil
     then
         if #args ~= 2 then
             context.reject(lower.site(node), "table.new in an AOT builder takes array and hash capacities")
@@ -1069,12 +1105,9 @@ function lower.expression(
                 key = lower.expression(bracket.key as cst.Node, environment, activeIndex, kernel)
                 value = lower.expression(bracket.value as cst.Node, environment, activeIndex, kernel)
             end
-            fields[#fields + 1] = new scalarIR.LuaField(
-                key = key,
-                value = value,
-                indexed = indexed,
-                source = lower.site(raw)
-            )
+            fields[
+                #fields + 1
+            ] = new scalarIR.LuaField(key = key, value = value, indexed = indexed, source = lower.site(raw))
         end
         kernel.usesLua = true
         return new scalarIR.LuaNewTable(
@@ -1691,7 +1724,9 @@ local function assignStmt(
         local tableBinding = tableName ~= nil and environment[tableName as string] or nil
         if tableBinding ~= nil and tableBinding.type == "lua_table" and target.name ~= nil then
             local value = lower.expression(exprs[1], environment, kernel.index, kernel)
-            out[#out + 1] = new scalarIR.LuaSet(
+            out[
+                #out + 1
+            ] = new scalarIR.LuaSet(
                 op = "lua_set_key",
                 table = new scalarIR.Name(
                     op = "local",
@@ -1725,13 +1760,20 @@ local function assignStmt(
                 context.reject(lower.site(target.expr), "fresh table keys must be numeric or strings")
             end
             local value = lower.expression(exprs[1], environment, kernel.index, kernel)
-            if value.type ~= "f64" and value.type ~= "f32" and value.type ~= "i32"
-                and value.type ~= "u32" and value.type ~= "bool" and value.type ~= "lua_table"
-                and value.type ~= "lua_string" and value.type ~= "lua_nil"
+            if value.type ~= "f64"
+                and value.type ~= "f32"
+                and value.type ~= "i32"
+                and value.type ~= "u32"
+                and value.type ~= "bool"
+                and value.type ~= "lua_table"
+                and value.type ~= "lua_string"
+                and value.type ~= "lua_nil"
             then
                 context.reject(lower.site(exprs[1]), "fresh table values must be admitted Lua primitives or tables")
             end
-            out[#out + 1] = new scalarIR.LuaSet(
+            out[
+                #out + 1
+            ] = new scalarIR.LuaSet(
                 op = (key.type == "lua_string" and "lua_set_key" or "lua_set_index") as any,
                 table = new scalarIR.Name(
                     op = "local",
@@ -2195,6 +2237,17 @@ function lower.parameters(
                 kind = "scalar",
                 name = name as string,
                 type = "lua_string",
+                sourceType = spelling,
+                source = lower.site(raw)
+            )
+        elseif spelling == "any" then
+            if mode ~= nil then
+                context.reject(lower.site(raw), "an opaque Lua value parameter has no ownership mode")
+            end
+            param = new scalarIR.Param(
+                kind = "scalar",
+                name = name as string,
+                type = "lua_value",
                 sourceType = spelling,
                 source = lower.site(raw)
             )
@@ -2672,6 +2725,8 @@ function lower.program(
         local resultType = lower.helperValueType(sourceType)
         if resultType == nil and sourceType == "string" then
             resultType = "lua_string"
+        elseif resultType == nil and sourceType == "any" then
+            resultType = "lua_value"
         elseif resultType == nil and sourceType == "nil" then
             resultType = "lua_nil"
         elseif resultType == nil and (sourceType:sub(1, 1) == "{" or sourceType == "table") then
@@ -2712,10 +2767,15 @@ function lower.program(
             usesSimd = false,
             usesLua = (function(): boolean
                 for _, resultType in ipairs(resultTypes) do
-                    if resultType == "lua_table" or resultType == "lua_string" or resultType == "lua_nil" then
+                    if resultType == "lua_table"
+                    or resultType == "lua_string"
+                    or resultType == "lua_nil"
+                    or resultType == "lua_value"
+                    then
                         return true
                     end
                 end
+
                 return false
             end)(),
             serial = 0,

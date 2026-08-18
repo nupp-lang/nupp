@@ -147,13 +147,27 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
         local created = node as scalarIR.LuaNewTable
         local fields: {string} = {}
         for position, field in ipairs(created.fields or {}) do
-            fields[position] = (field.indexed and "index " or "key ") .. text.expression(
-                field.key
-            ) .. " = " .. text.expression(field.value)
+            fields[
+                position
+            ] = (
+                field.indexed and "index " or "key "
+            ) .. text.expression(field.key) .. " = " .. text.expression(field.value)
         end
-        return "lua.new_table(" .. text.expression(created.arrayCapacity) .. ", " .. text.expression(
-            created.hashCapacity
-        ) .. "){" .. table.concat(fields, "; ") .. "}"
+        return "lua.new_table(" .. text.expression(
+            created.arrayCapacity
+        ) .. ", " .. text.expression(created.hashCapacity) .. "){" .. table.concat(fields, "; ") .. "}"
+    elseif op == "lua_tree" then
+        local tree = node as scalarIR.LuaTree
+        return "lua.tree(" .. table.concat(
+            {
+                text.expression(tree.nodes),
+                text.expression(tree.links),
+                text.expression(tree.sourceBytes),
+                text.expression(tree.root),
+                text.expression(tree.nullValue),
+            },
+            ", "
+        ) .. ")"
     elseif tostring(op):match("^simd_") ~= nil then
         local simd = node as scalarIR.Simd
         local values: {string} = {}
@@ -242,9 +256,9 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
         elseif op == "lua_set_index" or op == "lua_set_key" then
             lines[
                 #lines + 1
-            ] = prefix .. op .. " " .. text.expression(statement.table) .. "[" .. text.expression(
-                statement.key
-            ) .. "] = " .. text.expression(statement.value)
+            ] = prefix .. op .. " " .. text.expression(
+                statement.table
+            ) .. "[" .. text.expression(statement.key) .. "] = " .. text.expression(statement.value)
         elseif op == "assign" or op == "vassign" then
             local verb = op == "assign" and "set " or "vset "
             for _, assignment in ipairs(statement.values) do

@@ -2,6 +2,8 @@ local ffi = require("ffi")
 local indexer = require("simd_json.indexer")
 local parser = require("simd_json.parser")
 local span = require("nupp.span")
+local _valueBuilder = require("nupp.value_builder")
+local _materializeTree = _valueBuilder.materializeTree
 
 local arena = {}
 
@@ -20,6 +22,12 @@ end
 local arraySpec = "$" .. "[?]"
 local NodeArray = ffi.typeof(arraySpec, parser.Node)
 local FrameArray = ffi.typeof(arraySpec, parser.Frame)
+local nodeSize = ffi.sizeof(parser.Node)
+
+@aot
+local function buildValue(nodeBytes: string, linkBytes: string, source: string, root: integer, nullValue: any): any
+    return _materializeTree(nodeBytes, linkBytes, source, root, nullValue)
+end
 
 local function fail(position: uint32, stage: string, status: uint32, level: integer): never
     error(("invalid JSON at byte %d: %s status %d"):format(position, stage, status), level)
@@ -143,7 +151,7 @@ local function materializeNode(document: Document, nullValue: any, nodeId: integ
     elseif tag == parser.FALSE then
         return false
     elseif tag == parser.NUMBER then
-        if tonumber(node.nativeNumber) == 1 then
+        if tonumber(node.flags) == 1 then
             return tonumber(node.number)
         end
         unsafe do
@@ -181,8 +189,22 @@ function arena.materialize(document: Document, nullValue: any): any
     return materializeNode(document, nullValue, document.root)
 end
 
+--- Crosses into the VM-aware builder once after native parsing. The two blob
+--- copies replace one FFI field read per node and let the C closure allocate
+--- and populate the complete ordinary Lua graph directly.
+function arena.materializeBuilder(document: Document, nullValue: any): any
+    local nodeBytes = ffi.string(document.nodes, document.nodeCount * nodeSize)
+    local linkCount = math.max(document.nodeCount - 1, 0)
+    local linkBytes = ffi.string(document.links, linkCount * 4)
+    return buildValue(nodeBytes, linkBytes, document.source, document.root, nullValue)
+end
+
 function arena.decode(source: string, nullValue: any): any
     return arena.materialize(arena.parse(source), nullValue)
+end
+
+function arena.decodeBuilder(source: string, nullValue: any): any
+    return arena.materializeBuilder(arena.parse(source), nullValue)
 end
 
 return arena

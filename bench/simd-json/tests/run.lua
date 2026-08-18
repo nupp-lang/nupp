@@ -6,6 +6,7 @@ local indexer = require("simd_json.indexer")
 local parser = require("simd_json.parser")
 local scanner = require("simd_json.scanner")
 local span = require("nupp.span")
+local valueBuilder = require("nupp.value_builder")
 
 ffi.cdef[[
    typedef struct { uint32_t v1; uint32_t v2; uint32_t v3; } SimdJsonIndexResult;
@@ -159,9 +160,11 @@ end
 for _, source in ipairs(corpus) do
    local actual = json.decode(source)
    local arenaActual = arena.decode(source, json.null)
+   local builderActual = arena.decodeBuilder(source, json.null)
    local expected = cjson.decode(source)
    check(same(actual, expected), "differential mismatch for " .. source)
    check(same(arenaActual, expected), "arena differential mismatch for " .. source)
+   check(same(builderActual, expected), "builder differential mismatch for " .. source)
    local valid, why = json.validate(source)
    check(valid and why == nil, "valid input rejected: " .. tostring(why))
    local expectedTape = referenceTape(source)
@@ -190,6 +193,26 @@ for _, source in ipairs(corpus) do
       local _, linkStatus = parsed(source, nodeCount, nodeCount - 2)
       check(linkStatus == parser.LINK_CAPACITY, "one-short link arena was accepted")
    end
+end
+
+do
+   local document = arena.parse([[{"safe":[1,2,3]}]])
+   local nodeBytes = ffi.string(document.nodes, document.nodeCount * ffi.sizeof(parser.Node))
+   local linkBytes = ffi.string(document.links, math.max(document.nodeCount - 1, 0) * 4)
+   local fallback = valueBuilder.materializeTree(
+      nodeBytes, linkBytes, document.source, document.root, json.null)
+   check(same(fallback, cjson.decode(document.source)),
+      "ordinary value-tree fallback differs from the native builder")
+   local root = document.root
+   document.root = document.nodeCount + 1
+   check(not pcall(arena.materializeBuilder, document, json.null),
+      "builder accepted an out-of-range root")
+   document.root = root
+   local tag = document.nodes[root - 1].tag
+   document.nodes[root - 1].tag = 99
+   check(not pcall(arena.materializeBuilder, document, json.null),
+      "builder accepted an unknown node tag")
+   document.nodes[root - 1].tag = tag
 end
 
 local invalid = {
@@ -246,6 +269,8 @@ do
       local source = cjson.encode(value)
       check(same(arena.decode(source, json.null), cjson.decode(source)),
          "generated arena differential mismatch at case " .. case)
+      check(same(arena.decodeBuilder(source, json.null), cjson.decode(source)),
+         "generated builder differential mismatch at case " .. case)
       local truncated = source:sub(1, -2)
       check(not pcall(arena.decode, truncated, json.null),
          "truncated generated document accepted at case " .. case)

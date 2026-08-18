@@ -303,6 +303,15 @@ structured control flow, and final return. It rejects reads during construction,
 mutation of argument or previously published tables, metatables, dynamic calls,
 callbacks, userdata, cycles, and arbitrary Lua execution.
 
+Pointer-free parsers may also return the native-endian tree representation
+consumed by `nupp.value_builder.materializeTree`. An AOT builder lowers that
+resolved call to one bounds-checked C traversal: source and arena blobs remain
+rooted strings, tables are presized from authored child counts, raw writes keep
+barriers correct, and source slices or validated backslash/Unicode recipes
+become Lua-owned strings. The ordinary module implementation is the `aot=off`
+oracle. This is a general codec/AST construction boundary; it does not expose
+`lua_State`, stack indexes, or collector objects.
+
 Every live constructed object stays in an absolute Lua stack slot across
 allocating calls. Generated code uses the public Lua 5.1 API for allocation,
 barriers, strings, stack checks, and errors; it does not address LuaJIT collector

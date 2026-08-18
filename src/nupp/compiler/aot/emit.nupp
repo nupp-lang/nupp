@@ -525,6 +525,7 @@ end
 --- on what was compiled before it, and an artifact cache keyed on the source
 --- would then be wrong rather than merely cold.
 local laneTemporary = 0
+
 local luaTemporary = 0
 
 --- Starts one function's emission.
@@ -858,6 +859,7 @@ function emit.includes(): {string}
         "#include <stdbool.h>",
         "#include <stddef.h>",
         "#include <stdint.h>",
+        "#include <stdlib.h>",
         "/* Windows exports nothing from a shared library unless it is asked to,",
         " * so a wrapper that loaded one would find no symbol in it. Everywhere",
         " * else a definition is exported by being one. */",
@@ -865,6 +867,11 @@ function emit.includes(): {string}
         "#define KS_API __declspec(dllexport)",
         "#else",
         "#define KS_API",
+        "#endif",
+        "#if defined(__GNUC__)",
+        "#define KS_UNUSED __attribute__((unused))",
+        "#else",
+        "#define KS_UNUSED",
         "#endif",
         "#ifndef M_PI",
         "#define M_PI 3.14159265358979323846264338327950288",
@@ -886,19 +893,23 @@ function emit.luaPrelude(): {string}
         "extern int lua_checkstack(lua_State *L, int extra);",
         "extern int lua_gettop(lua_State *L);",
         "extern double luaL_checknumber(lua_State *L, int narg);",
+        "extern const char *luaL_checklstring(lua_State *L, int narg, size_t *length);",
         "extern int lua_toboolean(lua_State *L, int index);",
         "extern void lua_createtable(lua_State *L, int narr, int nrec);",
         "extern void lua_pushnumber(lua_State *L, double value);",
         "extern void lua_pushboolean(lua_State *L, int value);",
         "extern void lua_pushnil(lua_State *L);",
         "extern const char *lua_pushlstring(lua_State *L, const char *value, size_t length);",
+        "extern void *lua_newuserdata(lua_State *L, size_t size);",
         "extern void lua_pushvalue(lua_State *L, int index);",
+        "extern void lua_insert(lua_State *L, int index);",
+        "extern void lua_settop(lua_State *L, int index);",
         "extern void lua_pushcclosure(lua_State *L, lua_CFunction function, int upvalues);",
         "extern void lua_rawseti(lua_State *L, int index, int key);",
         "extern void lua_rawset(lua_State *L, int index);",
         "extern int luaL_error(lua_State *L, const char *format, ...);",
         "",
-        "static int ks_lua_count(lua_State *L, double value, const char *what) {",
+        "static KS_UNUSED int ks_lua_count(lua_State *L, double value, const char *what) {",
         "    if (!(value >= 0.0) || value > (double)INT_MAX || floor(value) != value)",
         "        return luaL_error(L, \"AOT builder %s must be a nonnegative integer in C API range\", what);",
         "    return (int)value;",
@@ -907,6 +918,139 @@ function emit.luaPrelude(): {string}
         "    if (!(value >= 1.0) || value > (double)INT_MAX || floor(value) != value)",
         "        return luaL_error(L, \"AOT builder array index at %s must be a positive integer in C API range\", site);",
         "    return (int)value;",
+        "}",
+        "typedef struct {",
+        "    double number;",
+        "    uint32_t tag, start, length, link_start, link_count, parent, flags;",
+        "} KsLuaTreeNode;",
+        "typedef struct {",
+        "    const unsigned char *nodes, *links, *source;",
+        "    size_t node_count, link_count, source_length;",
+        "    int null_index;",
+        "} KsLuaTree;",
+        "static int ks_tree_hex(unsigned char byte) {",
+        "    if (byte >= '0' && byte <= '9') return (int)(byte - '0');",
+        "    if (byte >= 'A' && byte <= 'F') return (int)(byte - 'A') + 10;",
+        "    if (byte >= 'a' && byte <= 'f') return (int)(byte - 'a') + 10;",
+        "    return -1;",
+        "}",
+        "static int ks_tree_hex4(const unsigned char *source, size_t length, size_t *at, uint32_t *value) {",
+        "    if (*at > length || length - *at < 4u) return 0;",
+        "    uint32_t out = 0;",
+        "    for (int i = 0; i < 4; ++i) {",
+        "        int digit = ks_tree_hex(source[(*at)++]);",
+        "        if (digit < 0) return 0;",
+        "        out = out * 16u + (uint32_t)digit;",
+        "    }",
+        "    *value = out;",
+        "    return 1;",
+        "}",
+        "static size_t ks_tree_utf8(unsigned char *out, uint32_t codepoint) {",
+        "    if (codepoint <= 0x7fu) { out[0] = (unsigned char)codepoint; return 1; }",
+        "    if (codepoint <= 0x7ffu) { out[0] = (unsigned char)(0xc0u | (codepoint >> 6)); out[1] = (unsigned char)(0x80u | (codepoint & 0x3fu)); return 2; }",
+        "    if (codepoint <= 0xffffu) { out[0] = (unsigned char)(0xe0u | (codepoint >> 12)); out[1] = (unsigned char)(0x80u | ((codepoint >> 6) & 0x3fu)); out[2] = (unsigned char)(0x80u | (codepoint & 0x3fu)); return 3; }",
+        "    out[0] = (unsigned char)(0xf0u | (codepoint >> 18)); out[1] = (unsigned char)(0x80u | ((codepoint >> 12) & 0x3fu)); out[2] = (unsigned char)(0x80u | ((codepoint >> 6) & 0x3fu)); out[3] = (unsigned char)(0x80u | (codepoint & 0x3fu)); return 4;",
+        "}",
+        "static int ks_tree_string(lua_State *L, const KsLuaTree *tree, const KsLuaTreeNode *node) {",
+        "    size_t start = (size_t)node->start, length = (size_t)node->length;",
+        "    if (start > tree->source_length || length > tree->source_length - start)",
+        "        return luaL_error(L, \"AOT value tree string range is out of bounds\");",
+        "    const unsigned char *source = tree->source + start;",
+        "    if (node->flags == 0u) { lua_pushlstring(L, (const char *)source, length); return 1; }",
+        "    if (node->flags != 1u) return luaL_error(L, \"AOT value tree has an unknown string recipe\");",
+        "    int base = lua_gettop(L);",
+        "    unsigned char *out = (unsigned char *)lua_newuserdata(L, length > 0u ? length : 1u);",
+        "    size_t at = 0, written = 0;",
+        "    while (at < length) {",
+        "        unsigned char byte = source[at++];",
+        "        if (byte != '\\\\') { out[written++] = byte; continue; }",
+        "        if (at >= length) return luaL_error(L, \"AOT value tree has an incomplete escape\");",
+        "        unsigned char escaped = source[at++];",
+        "        if (escaped == '\"' || escaped == '\\\\' || escaped == '/') out[written++] = escaped;",
+        "        else if (escaped == 'b') out[written++] = '\\b';",
+        "        else if (escaped == 'f') out[written++] = '\\f';",
+        "        else if (escaped == 'n') out[written++] = '\\n';",
+        "        else if (escaped == 'r') out[written++] = '\\r';",
+        "        else if (escaped == 't') out[written++] = '\\t';",
+        "        else if (escaped == 'u') {",
+        "            uint32_t codepoint = 0;",
+        "            if (!ks_tree_hex4(source, length, &at, &codepoint)) return luaL_error(L, \"AOT value tree has an invalid Unicode escape\");",
+        "            if (codepoint >= 0xd800u && codepoint <= 0xdbffu) {",
+        "                uint32_t low = 0;",
+        "                if (at > length || length - at < 2u || source[at] != '\\\\' || source[at + 1u] != 'u') return luaL_error(L, \"AOT value tree has an unmatched high surrogate\");",
+        "                at += 2u;",
+        "                if (!ks_tree_hex4(source, length, &at, &low) || low < 0xdc00u || low > 0xdfffu) return luaL_error(L, \"AOT value tree has an invalid low surrogate\");",
+        "                codepoint = 0x10000u + (codepoint - 0xd800u) * 0x400u + low - 0xdc00u;",
+        "            } else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) return luaL_error(L, \"AOT value tree has an unmatched low surrogate\");",
+        "            written += ks_tree_utf8(out + written, codepoint);",
+        "        } else return luaL_error(L, \"AOT value tree has an unknown escape\");",
+        "    }",
+        "    lua_pushlstring(L, (const char *)out, written);",
+        "    lua_insert(L, base + 1);",
+        "    lua_settop(L, base + 1);",
+        "    return 1;",
+        "}",
+        "static int ks_tree_read_node(lua_State *L, const KsLuaTree *tree, uint32_t id, KsLuaTreeNode *node) {",
+        "    if (id == 0u || (size_t)id > tree->node_count) return luaL_error(L, \"AOT value tree node id is out of bounds\");",
+        "    memcpy(node, tree->nodes + ((size_t)id - 1u) * sizeof(*node), sizeof(*node));",
+        "    return 1;",
+        "}",
+        "static uint32_t ks_tree_link(lua_State *L, const KsLuaTree *tree, size_t index) {",
+        "    uint32_t id = 0;",
+        "    if (index >= tree->link_count) { luaL_error(L, \"AOT value tree link is out of bounds\"); return 0; }",
+        "    memcpy(&id, tree->links + index * sizeof(id), sizeof(id));",
+        "    return id;",
+        "}",
+        "static int ks_tree_push_node(lua_State *L, const KsLuaTree *tree, uint32_t id, size_t depth) {",
+        "    if (depth > tree->node_count || depth > 1024u) return luaL_error(L, \"AOT value tree nesting is excessive\");",
+        "    KsLuaTreeNode node; ks_tree_read_node(L, tree, id, &node);",
+        "    if (node.tag == 0u) { lua_pushvalue(L, tree->null_index); return 1; }",
+        "    if (node.tag == 1u || node.tag == 2u) { lua_pushboolean(L, node.tag == 1u); return 1; }",
+        "    if (node.tag == 3u) {",
+        "        if (node.flags == 1u) lua_pushnumber(L, node.number);",
+        "        else {",
+        "            size_t start = (size_t)node.start, length = (size_t)node.length; char *end = NULL;",
+        "            if (start > tree->source_length || length > tree->source_length - start) return luaL_error(L, \"AOT value tree number range is out of bounds\");",
+        "            double value = strtod((const char *)(tree->source + start), &end);",
+        "            if (end != (char *)(tree->source + start + length)) return luaL_error(L, \"AOT value tree number recipe is invalid\");",
+        "            lua_pushnumber(L, value);",
+        "        }",
+        "        return 1;",
+        "    }",
+        "    if (node.tag == 4u) return ks_tree_string(L, tree, &node);",
+        "    if (node.tag != 5u && node.tag != 6u) return luaL_error(L, \"AOT value tree node tag is invalid\");",
+        "    if ((size_t)node.link_start > tree->link_count || (size_t)node.link_count > tree->link_count - (size_t)node.link_start) return luaL_error(L, \"AOT value tree child range is out of bounds\");",
+        "    if (node.tag == 6u && (node.link_count & 1u) != 0u) return luaL_error(L, \"AOT value tree object has an unmatched key\");",
+        "    if (node.link_count > (uint32_t)INT_MAX) return luaL_error(L, \"AOT value tree container exceeds the C API capacity range\");",
+        "    if (!lua_checkstack(L, 4)) return luaL_error(L, \"AOT builder Lua stack exhausted\");",
+        "    lua_createtable(L, node.tag == 5u ? (int)node.link_count : 0, node.tag == 6u ? (int)(node.link_count / 2u) : 0);",
+        "    int table_index = lua_gettop(L);",
+        "    if (node.tag == 5u) {",
+        "        for (uint32_t offset = 0; offset < node.link_count; ++offset) {",
+        "            ks_tree_push_node(L, tree, ks_tree_link(L, tree, (size_t)node.link_start + offset), depth + 1u);",
+        "            lua_rawseti(L, table_index, (int)offset + 1);",
+        "        }",
+        "    } else {",
+        "        for (uint32_t offset = 0; offset < node.link_count; offset += 2u) {",
+        "            uint32_t key_id = ks_tree_link(L, tree, (size_t)node.link_start + offset);",
+        "            KsLuaTreeNode key; ks_tree_read_node(L, tree, key_id, &key);",
+        "            if (key.tag != 4u) return luaL_error(L, \"AOT value tree object key is not a string\");",
+        "            ks_tree_string(L, tree, &key);",
+        "            ks_tree_push_node(L, tree, ks_tree_link(L, tree, (size_t)node.link_start + offset + 1u), depth + 1u);",
+        "            lua_rawset(L, table_index);",
+        "        }",
+        "    }",
+        "    return 1;",
+        "}",
+        "static KS_UNUSED int ks_lua_tree_push(lua_State *L, int nodes_index, int links_index, int source_index, double root_value, int null_index) {",
+        "    size_t node_bytes = 0, link_bytes = 0, source_length = 0;",
+        "    const char *nodes = luaL_checklstring(L, nodes_index, &node_bytes);",
+        "    const char *links = luaL_checklstring(L, links_index, &link_bytes);",
+        "    const char *source = luaL_checklstring(L, source_index, &source_length);",
+        "    if (node_bytes % sizeof(KsLuaTreeNode) != 0u || link_bytes % sizeof(uint32_t) != 0u) return luaL_error(L, \"AOT value tree blob has an invalid size\");",
+        "    int root = ks_lua_index(L, root_value, \"value tree root\");",
+        "    KsLuaTree tree = {(const unsigned char *)nodes, (const unsigned char *)links, (const unsigned char *)source, node_bytes / sizeof(KsLuaTreeNode), link_bytes / sizeof(uint32_t), source_length, null_index};",
+        "    return ks_tree_push_node(L, &tree, (uint32_t)root, 1u);",
         "}",
         "",
     }
@@ -923,9 +1067,9 @@ local function cBytes(value: string): string
 end
 
 local function luaSite(source: scalarIR.Source?): string
-    return source ~= nil and tostring((source as scalarIR.Source).line) .. ":" .. tostring(
-        (source as scalarIR.Source).column
-    ) or "1:1"
+    return source ~= nil and tostring(
+        (source as scalarIR.Source).line
+    ) .. ":" .. tostring((source as scalarIR.Source).column) or "1:1"
 end
 
 --- What the compiled object reports about one struct's layout.
@@ -1473,11 +1617,15 @@ local function luaPush(value: scalarIR.Expr, prefix: string): {string}
             local created = value as scalarIR.LuaNewTable
             luaTemporary = luaTemporary + 1
             local slot = "lt" .. tostring(luaTemporary)
-            local lines: {string} = {
+            local lines: {
+                string
+            } = {
                 prefix .. "if (!lua_checkstack(L, 3)) return luaL_error(L, \"AOT builder Lua stack exhausted\");",
                 prefix .. "lua_createtable(L, ks_lua_count(L, " .. emit.scalar(
                     created.arrayCapacity
-                ) .. ", \"array capacity at " .. luaSite(created.source) .. "\"), ks_lua_count(L, " .. emit.scalar(
+                ) .. ", \"array capacity at " .. luaSite(
+                    created.source
+                ) .. "\"), ks_lua_count(L, " .. emit.scalar(
                     created.hashCapacity
                 ) .. ", \"hash capacity at " .. luaSite(created.source) .. "\"));",
             }
@@ -1517,6 +1665,22 @@ local function luaPush(value: scalarIR.Expr, prefix: string): {string}
             }
         end
         return {prefix .. "lua_pushvalue(L, " .. tostring((value as scalarIR.Name).cName) .. ");"}
+    elseif value.type == "lua_value" then
+        if value.op == "lua_tree" then
+            local tree = value as scalarIR.LuaTree
+            return {
+                prefix .. "ks_lua_tree_push(L, " .. tostring(
+                    (tree.nodes as scalarIR.Name).cName
+                ) .. ", " .. tostring(
+                    (tree.links as scalarIR.Name).cName
+                ) .. ", " .. tostring(
+                    (tree.sourceBytes as scalarIR.Name).cName
+                ) .. ", " .. emit.scalar(
+                    tree.root
+                ) .. ", " .. tostring((tree.nullValue as scalarIR.Name).cName) .. ");",
+            }
+        end
+        return {prefix .. "lua_pushvalue(L, " .. tostring((value as scalarIR.Name).cName) .. ");"}
     elseif value.type == "bool" then
         return {prefix .. "lua_pushboolean(L, " .. emit.scalar(value) .. ");"}
     elseif emit.SCALAR_C[value.type] ~= nil then
@@ -1547,16 +1711,19 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
 
     for _, statement in ipairs(statements) do
         if statement.op == "let" and (
-            statement.type == "lua_table" or statement.type == "lua_string" or statement.type == "lua_nil"
+            statement.type == "lua_table"
+            or statement.type == "lua_string"
+            or statement.type == "lua_nil"
+            or statement.type == "lua_value"
         ) then
             append(luaPush(statement.value, prefix))
             lines[#lines + 1] = prefix .. "int " .. statement.cName .. " = lua_gettop(L);"
         elseif statement.op == "let" then
             lines[
                 #lines + 1
-            ] = prefix .. emit.cType(statement.type) .. " " .. statement.cName .. " = " .. emit.scalar(
-                statement.value
-            ) .. ";"
+            ] = prefix .. emit.cType(
+                statement.type
+            ) .. " " .. statement.cName .. " = " .. emit.scalar(statement.value) .. ";"
         elseif statement.op == "lua_set_index" then
             local write = statement as scalarIR.LuaSet
             append(luaPush(write.value, prefix))
@@ -1564,16 +1731,12 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
                 #lines + 1
             ] = prefix .. "lua_rawseti(L, " .. tostring(
                 (write.table as scalarIR.Name).cName
-            ) .. ", ks_lua_index(L, " .. emit.scalar(
-                write.key
-            ) .. ", \"" .. luaSite(write.source) .. "\"));"
+            ) .. ", ks_lua_index(L, " .. emit.scalar(write.key) .. ", \"" .. luaSite(write.source) .. "\"));"
         elseif statement.op == "lua_set_key" then
             local write = statement as scalarIR.LuaSet
             append(luaPush(write.key, prefix))
             append(luaPush(write.value, prefix))
-            lines[
-                #lines + 1
-            ] = prefix .. "lua_rawset(L, " .. tostring((write.table as scalarIR.Name).cName) .. ");"
+            lines[#lines + 1] = prefix .. "lua_rawset(L, " .. tostring((write.table as scalarIR.Name).cName) .. ");"
         elseif statement.op == "assign" then
             -- Builder scalar assignments retain the ordinary simultaneous
             -- assignment lowering. Lua handles are immutable logical roots.
@@ -1968,10 +2131,10 @@ function emit.program(programs: {scalarIR.Program}): string
                     ) .. ")" or "luaL_checknumber(L, " .. tostring(position) .. ")"
                     lines[
                         #lines + 1
-                    ] = "    " .. emit.cType(param.type) .. " p_" .. param.name .. " = (" .. emit.cType(
+                    ] = "    " .. emit.cType(
                         param.type
-                    ) .. ")(" .. read .. ");"
-                elseif param.kind == "scalar" and param.type == "lua_string" then
+                    ) .. " p_" .. param.name .. " = (" .. emit.cType(param.type) .. ")(" .. read .. ");"
+                elseif param.kind == "scalar" and (param.type == "lua_string" or param.type == "lua_value") then
                     -- The argument itself is the root. Source uses carry this
                     -- positive absolute stack index; no GC pointer is taken.
                 else
@@ -1985,65 +2148,65 @@ function emit.program(programs: {scalarIR.Program}): string
             lines[#lines + 1] = "}"
             lines[#lines + 1] = ""
         else
-        local params = emit.parameters(program.params, general)
-        local cResult = #resultTypes == 0 and "void" or resultStruct ~= nil and resultStruct or emit.cType(
-            resultTypes[1]
-        )
+            local params = emit.parameters(program.params, general)
+            local cResult = #resultTypes == 0 and "void" or resultStruct ~= nil and resultStruct or emit.cType(
+                resultTypes[1]
+            )
 
-        --- One C definition of the kernel.
-        local function implementation(symbol: string, forced: boolean): nil
-            explicitScalar = forced and program.usesSimd == true
-            if forced and general then
-                -- The block may declare locals before its first loop, so a
-                -- loop pragma cannot be placed at function entry. Keep this
-                -- test-only oracle wholly scalar instead.
-                lines[#lines + 1] = "__attribute__((optnone))"
+            --- One C definition of the kernel.
+            local function implementation(symbol: string, forced: boolean): nil
+                explicitScalar = forced and program.usesSimd == true
+                if forced and general then
+                    -- The block may declare locals before its first loop, so a
+                    -- loop pragma cannot be placed at function entry. Keep this
+                    -- test-only oracle wholly scalar instead.
+                    lines[#lines + 1] = "__attribute__((optnone))"
+                end
+                lines[#lines + 1] = "__attribute__((noinline))"
+                lines[#lines + 1] = "KS_API " .. cResult .. " " .. symbol .. "(" .. params .. ") {"
+                if program.fpContract == true then
+                    for _, line in ipairs(emit.contractPragma()) do
+                        lines[#lines + 1] = line
+                    end
+                end
+                if not general then
+                    for _, line in ipairs(emit.bounds(program.rangeGuard)) do
+                        lines[#lines + 1] = line
+                    end
+                end
+                if forced and not general then
+                    for _, line in ipairs(emit.forcedScalarPragma()) do
+                        lines[#lines + 1] = line
+                    end
+                end
+                if general then
+                    for _, line in ipairs(emit.block(program.body or {}, 1, body)) do
+                        lines[#lines + 1] = line
+                    end
+                elseif lanes ~= nil and not forced then
+                    for _, line in ipairs(emit.groupBound(width)) do
+                        lines[#lines + 1] = line
+                    end
+                    for _, line in ipairs(emit.block((lanes as scalarIR.LaneBody).statements, 2, body)) do
+                        lines[#lines + 1] = line
+                    end
+                    lines[#lines + 1] = "    }"
+                end
+                if not general then
+                    lines[#lines + 1] = "    for (; i < end; ++i) {"
+                    for _, line in ipairs(emit.block((program.loop as scalarIR.Loop).statements, 2, body)) do
+                        lines[#lines + 1] = line
+                    end
+                    lines[#lines + 1] = "    }"
+                end
+                lines[#lines + 1] = "}"
+                lines[#lines + 1] = ""
             end
-            lines[#lines + 1] = "__attribute__((noinline))"
-            lines[#lines + 1] = "KS_API " .. cResult .. " " .. symbol .. "(" .. params .. ") {"
-            if program.fpContract == true then
-                for _, line in ipairs(emit.contractPragma()) do
-                    lines[#lines + 1] = line
-                end
-            end
-            if not general then
-                for _, line in ipairs(emit.bounds(program.rangeGuard)) do
-                    lines[#lines + 1] = line
-                end
-            end
-            if forced and not general then
-                for _, line in ipairs(emit.forcedScalarPragma()) do
-                    lines[#lines + 1] = line
-                end
-            end
-            if general then
-                for _, line in ipairs(emit.block(program.body or {}, 1, body)) do
-                    lines[#lines + 1] = line
-                end
-            elseif lanes ~= nil and not forced then
-                for _, line in ipairs(emit.groupBound(width)) do
-                    lines[#lines + 1] = line
-                end
-                for _, line in ipairs(emit.block((lanes as scalarIR.LaneBody).statements, 2, body)) do
-                    lines[#lines + 1] = line
-                end
-                lines[#lines + 1] = "    }"
-            end
-            if not general then
-                lines[#lines + 1] = "    for (; i < end; ++i) {"
-                for _, line in ipairs(emit.block((program.loop as scalarIR.Loop).statements, 2, body)) do
-                    lines[#lines + 1] = line
-                end
-                lines[#lines + 1] = "    }"
-            end
-            lines[#lines + 1] = "}"
-            lines[#lines + 1] = ""
-        end
 
-        if not general or program.usesSimd == true then
-            implementation(program.symbol .. "_forced_scalar", true)
-        end
-        implementation(program.symbol, false)
+            if not general or program.usesSimd == true then
+                implementation(program.symbol .. "_forced_scalar", true)
+            end
+            implementation(program.symbol, false)
         end
     end
 
