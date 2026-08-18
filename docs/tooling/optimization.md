@@ -679,21 +679,6 @@ reported without claiming the loop can never form another trace. JSON includes
 the bytecode fingerprint, trace profile, stable reason identity, and
 reachability.
 
-### Switches stay branch-shaped
-
-A [switch expression](../switch-expressions.md) lowers to lexical temporaries
-and an ordered `if`/`elseif` chain, creating neither an arm closure nor a
-generic dispatch table, so one inside a hot loop does not itself add the
-function-construction bytecode that stops trace recording. The selector is
-evaluated once and operands to its left are captured before the branch, so
-lowering preserves observable evaluation order.
-
-The optimizer synthesizes no balanced decision tree, BDD/MTBDD, polymorphic
-inline cache, or string lookup table; numeric and type predicates retain source
-order, including refined-interface predicates that may run user code. Reordering
-them needs profile evidence and a proof that it is unobservable, which the
-explicit cases supply without making it part of the language semantics.
-
 ## Observable behavior
 
 Passes preserve answers. One that trades a non-answer guarantee for speed must

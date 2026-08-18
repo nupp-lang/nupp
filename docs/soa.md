@@ -228,39 +228,13 @@ Use semantic reflection to generate storage and snapshot adapters. Use runtime
 layout reflection when allocation sizes, alignment, or the storage fingerprint
 matter on the selected target.
 
-## Hot loops and AOT functions
+## Hot loops
 
-The canonical loop `for index = 1, #rows` proves every indexed row access
-is in bounds. Nupp lowers fields inside that loop to direct typed-column loads
-and stores using the view offset. An arbitrary index keeps its runtime bounds
-check.
-
-No profiler call is injected into the loop. `nupp bc --check FILE` inspects the
-lowered bytecode without executing it; see
-[LuaJIT trace checking](tooling/jit-trace-checking.md) for the complete trace
-contract.
-
-An [`@aot`](tooling/aot.md) function retains the same resolved field identities
-and single-map-loop fact. A borrowed kernel names the writable capability
-intersection rather than the affine owner alias:
-
-```nupp
-@aot
-local function advance(
-    exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>,
-    delta: float
-): nil
-    for index = 1, #rows do
-        rows[index].x += rows[index].dx * delta
-        rows[index].y += rows[index].dy * delta
-    end
-end
-```
-
-The AOT backend retains those field identities and unit strides in its IR for
-direct scalar or lane lowering. `nupp aot` can display the lowered artifacts;
-`nupp build` still emits the ordinary Lua body until object integration is
-wired into production builds.
+The canonical loop `for index = 1, #rows` proves every indexed row access is in
+bounds, and an arbitrary index keeps its runtime bounds check. How that proof
+lowers to direct typed-column loads and stores, and what an [`@aot`](tooling/aot.md)
+kernel retains, is in
+[Performance](tooling/performance.md#structure-of-arrays-hot-loops).
 
 ## Snapshots and ECS storage
 

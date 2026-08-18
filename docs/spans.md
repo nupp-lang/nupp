@@ -143,26 +143,9 @@ range check proves matching indexed reads and writes non-raising inside
 the dominated numeric loop. This proof is part of checking at every optimization
 level: it is what permits those calls inside `noraise` code.
 
-With `-O1`, the regular backend also uses the proof to emit
-direct FFI element access for the exact span and bare loop index. The range call
-still validates every span once, and the generated access still includes the
-span's physical offset. `-O0`, held frames, a computed index, a different span,
-or an access outside the witnessed loop retains one checked helper operation.
-The proof is local to the function containing `indexed.range`; passing its bounds
-or result to another function does not transport it.
-
-At `-O1`, a nonescaping const slice used only by proved indexed operations can
-remain virtual. Nupp keeps its checked finish, root, offset, count, and access
-capability as compiler facts instead of allocating the slice wrapper. Nested
-slices compose offsets, while the bounds check still executes once at each
-authored `slice` expression. Returning, capturing, storing, or passing the slice
-to an unsupported call keeps the ordinary rooted runtime object.
-
-The same scalar representation starts at `fromString`, the shared and writable
-C-array constructors, and `heap.Array:read()` or `heap.Array:write()`. Directly
-called, nonrecursive local functions in the same module can receive and return a
-virtual view without allocating a wrapper. Exported, recursive, dynamic, foreign,
-cross-module, and otherwise opaque boundaries use the materialized ABI.
+How that proof is spent at `-O1` — direct FFI element access, and virtual
+slices that allocate no wrapper — is in
+[Performance](tooling/performance.md#indexed-views-and-ranges).
 
 ## Passing a span to C
 

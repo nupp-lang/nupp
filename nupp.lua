@@ -780,6 +780,11 @@ nupp lsp            # start the language server]],
                   source = "docs/tooling/aot.md",
                },
                {
+                  path = "guides/performance",
+                  title = "Performance",
+                  source = "docs/tooling/performance.md",
+               },
+               {
                   path = "guides/optimization",
                   title = "Optimization",
                   source = "docs/tooling/optimization.md",
