@@ -261,6 +261,62 @@ end
 return {quotes = quotes}
 ]]
 
+-- The same kernel with its two preconditions written as asserts. `assert(ok, m)` and
+-- `if not ok then error(m) end` state one fact in opposite polarity, so the backend
+-- reads either spelling and has to reach the same kernel from both.
+local function replaceOnce(text, from, to)
+   local at = assert(text:find(from, 1, true), "fixture text not found:\n" .. from)
+   return text:sub(1, at - 1) .. to .. text:sub(at + #from)
+end
+
+local COMPUTE_ASSERTED = replaceOnce(
+   replaceOnce(COMPUTE, [[
+    if #out ~= #points then
+        error("length mismatch", 2)
+    end]], [[
+    assert(#out == #points, "length mismatch")]]),
+   [[
+    if first < 1 or last > #out or first > last + 1 then
+        error("range out of bounds", 2)
+    end]], [[
+    assert(first >= 1 and last <= #out and first <= last + 1, "range out of bounds")]])
+
+function M.assertGuardsReachTheSameKernel()
+   local plain = project{["compute.nupp"] = COMPUTE}
+   local asserted = project{["compute.nupp"] = COMPUTE_ASSERTED}
+   local wanted, wantedCode = run(plain, PINNED .. "--emit c compute.nupp")
+   local got, gotCode = run(asserted, PINNED .. "--emit c compute.nupp")
+   test.equal(wantedCode, 0, wanted)
+   test.equal(gotCode, 0, "assert guards are admitted like error guards\n" .. got)
+   test.equal(got, wanted, "both spellings emit the same C")
+end
+
+function M.anAssertGuardStillHasToSayTheRightThing()
+   local dir = project{["compute.nupp"] = replaceOnce(COMPUTE_ASSERTED,
+      "assert(#out == #points", "assert(#out ~= #points")}
+   local out, code = run(dir, PINNED .. "compute.nupp")
+   test.equal(code, 1, "a guard that proves nothing is refused\n" .. out)
+   assert(out:find("compare span counts with ==", 1, true),
+      "the comparison the asserted spelling wants is named: " .. out)
+end
+
+function M.anAssertRangeGuardIsMatchedAgainstItsWrittenForm()
+   local dir = project{["compute.nupp"] = replaceOnce(COMPUTE_ASSERTED,
+      "first >= 1 and last <= #out", "first > 1 and last <= #out")}
+   local out, code = run(dir, PINNED .. "compute.nupp")
+   test.equal(code, 1, "a range guard that is not the admitted one is refused\n" .. out)
+   assert(out:find("first >= 1 and last <= #output and first <= last + 1", 1, true),
+      "the asserted spelling is quoted back: " .. out)
+end
+
+function M.anAssertGuardTakesAConditionAndAMessage()
+   local dir = project{["compute.nupp"] = replaceOnce(COMPUTE_ASSERTED,
+      '"length mismatch")', '"length mismatch", "and another")')}
+   local out, code = run(dir, PINNED .. "compute.nupp")
+   test.equal(code, 1, "a third argument is not part of the shape\n" .. out)
+   assert(out:find("condition and an optional message", 1, true), "the shape is named: " .. out)
+end
+
 function M.aRegisterResidentLoopReportsItsGangAndWidth()
    local dir = project{["compute.nupp"] = COMPUTE}
    local out, code = run(dir, PINNED .. "compute.nupp")

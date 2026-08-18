@@ -379,6 +379,16 @@ record lower.Bound
     source: scalarIR.Source?
 end
 
+--- One admitted precondition, and the polarity it was written in.
+---
+--- `if not ok then error(m) end` states what must not happen; `assert(ok, m)`
+--- states what must hold. They carry the same fact, so lowering reads either
+--- and remembers which spelling it saw to know how to match the condition.
+record lower.GuardForm
+    cond: cst.Node?
+    asserted: boolean
+end
+
 --- What lowering one kernel's body needs to know.
 record lower.Kernel
     --- Span and uniform parameters by name, as the signature admitted them.
@@ -2771,7 +2781,31 @@ end
 --- Both guards have this shape, and it is the shape that makes them checkable:
 --- a guard whose body did something else would be a guard whose failure the
 --- backend could not reason about.
-function lower.guardClause(stat: cst.Node?, shapeWhy: string, bodyWhy: string, context: lower.Context): cst.IfClause
+function lower.isGuardStatement(stat: cst.Node?): boolean
+    if stat == nil then
+        return false
+    end
+    if stat.kind == "ifStmt" then
+        return true
+    end
+    local called = stat.kind == "callStmt" and (stat as cst.CallStmt).expr or nil
+
+    return called ~= nil and called.kind == "call" and lower.nameOf((called as cst.Call).obj) == "assert"
+end
+
+--- One precondition, in either spelling.
+function lower.guardClause(stat: cst.Node?, shapeWhy: string, bodyWhy: string, context: lower.Context): lower.GuardForm
+    local asserted = stat ~= nil and stat.kind == "callStmt" and (stat as cst.CallStmt).expr or nil
+    if asserted ~= nil and asserted.kind == "call" and lower.nameOf((asserted as cst.Call).obj) == "assert" then
+        local args = (asserted as cst.Call).args
+        local exprs = args ~= nil and args.kind == "args" and ((args as cst.Args).exprs or {}) or {}
+        if #exprs < 1 or #exprs > 2 then
+            context.reject(lower.site(stat), "an assert guard takes its condition and an optional message")
+        end
+
+        return new lower.GuardForm(cond = exprs[1], asserted = true)
+    end
+
     local branch = stat as cst.IfStmt
     if stat == nil or stat.kind ~= "ifStmt" or #(branch.clauses or {}) ~= 1 or branch.elseClause ~= nil then
         context.reject(lower.site(stat), shapeWhy)
@@ -2785,7 +2819,7 @@ function lower.guardClause(stat: cst.Node?, shapeWhy: string, bodyWhy: string, c
         context.reject(lower.site(stat), bodyWhy)
     end
 
-    return clause
+    return new lower.GuardForm(cond = clause.cond, asserted = false)
 end
 
 --- The length agreements one guard proves.
@@ -2794,26 +2828,30 @@ end
 --- them all with one counter and a shorter one would be read past its end.
 function lower.lengthGuards(
     stat: cst.Node,
-    clause: cst.IfClause,
+    form: lower.GuardForm,
     signature: lower.Signature,
     context: lower.Context
 ): {scalarIR.Guard}
     local primary = signature.writes[1]
     local guarded: {[string]: scalarIR.Source} = {}
+    local joiner = form.asserted and "and" or "or"
+    local comparison = form.asserted and "==" or "~="
 
-    --- One comparison, or a chain of them joined by `or`.
+    --- One comparison, or a chain of them joined by the spelling's connective.
     local function collect(expr: cst.Node?): nil
         local operator = expr as cst.Binop
         if expr ~= nil and expr.kind == "binop" and operator.op ~= nil and (
             operator.op as lexer.Token
-        ).text == "or" then
+        ).text == joiner then
             collect(operator.lhs)
             collect(operator.rhs)
 
             return
         end
-        if expr == nil or expr.kind ~= "binop" or operator.op == nil or (operator.op as lexer.Token).text ~= "~=" then
-            context.reject(lower.site(expr or stat), "the guard may only compare span counts with ~=")
+        if expr == nil or expr.kind ~= "binop" or operator.op == nil or (
+            operator.op as lexer.Token
+        ).text ~= comparison then
+            context.reject(lower.site(expr or stat), "the guard may only compare span counts with " .. comparison)
         end
 
         local left, right = lower.dotCount(operator.lhs), lower.dotCount(operator.rhs)
@@ -2834,7 +2872,7 @@ function lower.lengthGuards(
         guarded[other as string] = lower.site(expr)
     end
 
-    collect(clause.cond)
+    collect(form.cond)
 
     local guards: {scalarIR.Guard} = {}
     for _, span in ipairs(signature.spans) do
@@ -2864,23 +2902,39 @@ end
 --- understood would not be a check.
 function lower.rangeGuard(
     stat: cst.Node,
-    clause: cst.IfClause,
+    form: lower.GuardForm,
     signature: lower.Signature,
     context: lower.Context
 ): scalarIR.RangeGuard
     local primary = signature.writes[1]
-    local written = lower.compactType(clause.cond)
-    local firstName, lastName = written:match("^([%a_][%w_]*)<1or([%a_][%w_]*)>#([%a_][%w_]*)or")
-    local countName = select(3, written:match("^([%a_][%w_]*)<1or([%a_][%w_]*)>#([%a_][%w_]*)or"))
-    local expected = firstName ~= nil and (
-        tostring(
-            firstName
-        ) .. "<1or" .. tostring(
-            lastName
-        ) .. ">#" .. primary.name .. "or" .. tostring(firstName) .. ">" .. tostring(lastName) .. "+1"
-    ) or ""
+    local written = lower.compactType(form.cond)
+    local pattern = form.asserted
+        and "^([%a_][%w_]*)>=1and([%a_][%w_]*)<=#([%a_][%w_]*)and"
+        or "^([%a_][%w_]*)<1or([%a_][%w_]*)>#([%a_][%w_]*)or"
+    local firstName, lastName, countName = written:match(pattern)
+    local expected = ""
+    if firstName ~= nil then
+        if form.asserted then
+            expected = tostring(
+                firstName
+            ) .. ">=1and" .. tostring(
+                lastName
+            ) .. "<=#" .. primary.name .. "and" .. tostring(firstName) .. "<=" .. tostring(lastName) .. "+1"
+        else
+            expected = tostring(
+                firstName
+            ) .. "<1or" .. tostring(
+                lastName
+            ) .. ">#" .. primary.name .. "or" .. tostring(firstName) .. ">" .. tostring(lastName) .. "+1"
+        end
+    end
     if written ~= expected or countName ~= primary.name then
-        context.reject(lower.site(clause.cond), "range guard must be `first < 1 or last > #output or first > last + 1`")
+        context.reject(
+            lower.site(form.cond),
+            form.asserted
+            and "range guard must be `first >= 1 and last <= #output and first <= last + 1`"
+            or "range guard must be `first < 1 or last > #output or first > last + 1`"
+        )
     end
 
     local first = signature.byName[tostring(firstName)]
@@ -2892,7 +2946,7 @@ function lower.rangeGuard(
         or first.sourceType ~= "integer"
         or last.sourceType ~= "integer"
     then
-        context.reject(lower.site(clause.cond), "range bounds must be uniform integer parameters")
+        context.reject(lower.site(form.cond), "range bounds must be uniform integer parameters")
     end
 
     return new scalarIR.RangeGuard(
@@ -3210,7 +3264,7 @@ function lower.program(
     local statements = body.body ~= nil and (body.body as cst.Block).stats or {}
     local mapShape = #resultTypes == 0 and #signature.writes > 0 and #signature.reads > 0 and (
         #statements == 2 or #statements == 3
-    ) and statements[1].kind == "ifStmt" and statements[#statements].kind == "fornumStmt"
+    ) and lower.isGuardStatement(statements[1]) and statements[#statements].kind == "fornumStmt"
 
     if not mapShape then
         if contract.lanesRequired then
@@ -3295,7 +3349,7 @@ function lower.program(
         lower.guardClause(
             statements[1],
             "the first statement must be a single length-mismatch guard",
-            "a length guard must call error directly",
+            "a length guard must call error or assert directly",
             context
         ),
         signature,
@@ -3309,7 +3363,7 @@ function lower.program(
             lower.guardClause(
                 statements[2],
                 "the optional second statement must be a range guard",
-                "a range guard must call error directly",
+                "a range guard must call error or assert directly",
                 context
             ),
             signature,
