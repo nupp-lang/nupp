@@ -1535,9 +1535,9 @@ annotating one reports NUPP2902.
 
 An AOT block kernel may use independently sized spans, structured scalar
 control flow, and up to four numeric or boolean results. A loop from one through
-`input.count` authorizes access to that input. A zero-based `uint32` append
-cursor authorizes `output:set(cursor + 1, value)` only inside a dominating
-`cursor < output.count` branch; the same rule applies to reads. These proofs
+`#input` authorizes access to that input. A zero-based `uint32` append cursor
+authorizes `output[cursor + 1] = value` only inside a dominating
+`cursor < #output` branch; the same rule applies to reads. These proofs
 remain in checked AOT IR, so omitting the guard is a compile-time refusal rather
 than an unchecked native access.
 

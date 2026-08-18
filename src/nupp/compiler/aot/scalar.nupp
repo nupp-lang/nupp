@@ -132,7 +132,7 @@ record scalarIR.Load
     indexCName: string?
 
     --- A zero-based append/read cursor authorized by a dominating
-    --- `cursor < span.count` branch. The source access is `cursor + 1`.
+    --- `cursor < #span` branch. The source access is `cursor + 1`.
     cursor: string?
 
     cursorCName: string?

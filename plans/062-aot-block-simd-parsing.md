@@ -290,7 +290,7 @@ not available, emit the existing modeled check or decline the body.
 ### Variable-rate bounded output
 
 Support an append cursor over a writable span: an ordinary mutable `uint32`
-count plus proved `count < output.count` before each write. A dedicated public
+count plus proved `count < #output` before each write. A dedicated public
 `AppendSpan` is not required initially; add one only if ordinary non-AOT uses
 justify its ownership and failure surface.
 

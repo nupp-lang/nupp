@@ -198,10 +198,10 @@ local function delimiters(
     exclusive offsets: span.WriteSpan<uint32>
 ): uint32
     local written: uint32 = 0
-    for i = 1, source.count do
-        if source:get(i) == 44 then
-            if written < offsets.count then
-                offsets:set(written + 1, nupp.math.u32.fromI32(i))
+    for i = 1, #source do
+        if source[i] == 44 then
+            if written < #offsets then
+                offsets[written + 1] = nupp.math.u32.fromI32(i)
                 written = nupp.math.u32.add(written, 1)
             else
                 return written
@@ -221,9 +221,9 @@ local span = require("nupp.span")
 local function afterIncrement(borrows source: span.Span<uint8>): uint32
     local cursor: uint32 = 0
     local byte: uint32 = 0
-    while cursor < source.count do
+    while cursor < #source do
         cursor = nupp.math.u32.add(cursor, 1)
-        byte = source:get((cursor + 1) as integer)
+        byte = source[(cursor + 1) as integer]
     end
     return byte
 end
@@ -241,9 +241,9 @@ local function quotes(borrows source: span.Span<uint8>): uint32
     local species = preferredBytes()
     local cursor = 0.0
     local found: uint32 = 0
-    while cursor < source.count do
+    while cursor < #source do
         local bytes = species:load(source, cursor)
-        local tail = species:tail(source.count - cursor)
+        local tail = species:tail(#source - cursor)
         local quote = bytes:equal(34)
         local slash = bytes:equal(92)
         local either = quote:orBits(slash)
@@ -362,20 +362,20 @@ end
 
 function M.blockKernelsRejectAnUnguardedAppendCursor()
    local source = DELIMITERS:gsub(
-      "            if written < offsets.count then\n",
+      "            if written < #offsets then\n",
       "            if true then\n"
    )
    local dir = project{["unguarded.nupp"] = source}
    local out, code = run(dir, "unguarded.nupp")
    test.equal(code, 1, out)
-   assert(out:find("cursor + 1 under cursor < span.count", 1, true), out)
+   assert(out:find("cursor + 1 under cursor < #span", 1, true), out)
 end
 
 function M.whileBoundsStopAuthorizingAChangedCursor()
    local dir = project{["changed.nupp"] = MUTATED_WHILE_CURSOR}
    local out, code = run(dir, "changed.nupp")
    test.equal(code, 1, out)
-   assert(out:find("cursor + 1 under cursor < span.count", 1, true), out)
+   assert(out:find("cursor + 1 under cursor < #span", 1, true), out)
 end
 
 function M.scopedSimdSelectsOnePackedRegisterForTheTargetTier()

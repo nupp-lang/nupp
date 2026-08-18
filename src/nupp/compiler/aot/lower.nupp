@@ -498,10 +498,7 @@ local function spanRead(
         end
     end
     if not (activeIndex ~= nil and direct == activeIndex) and cursor == nil then
-        context.reject(
-            lower.site(node),
-            "span loads need a counted-loop index or cursor + 1 under cursor < #span"
-        )
+        context.reject(lower.site(node), "span loads need a counted-loop index or cursor + 1 under cursor < #span")
     end
 
     local element = param.element
@@ -980,11 +977,23 @@ function lower.expression(
         return new scalarIR.Bool(op = "bool", value = kind == "trueExpr", type = "bool", source = lower.site(node))
     elseif kind == "unop" and (node as cst.Unop).op ~= nil then
         local operator = node as cst.Unop
+        local counted = lower.dotCount(operator)
+        local spanParam = counted ~= nil and kernel.params[counted as string] or nil
+        if spanParam ~= nil and spanParam.region ~= nil then
+            return new scalarIR.SpanCount(
+                op = "span_count",
+                span = counted as string,
+                type = "f64",
+                source = lower.site(node)
+            )
+        end
 
         return unary(operator, lower.expression(operator.operand as cst.Node, environment, activeIndex, kernel), kernel)
     elseif kind == "methodCall" then
         local simd = simdMethod(node as cst.MethodCall, environment, activeIndex, kernel)
-        if simd ~= nil then return simd end
+        if simd ~= nil then
+            return simd
+        end
         context.reject(lower.site(node), "method call is not an admitted SIMD operation")
     elseif kind == "bracketIndex" then
         return spanRead(node as cst.BracketIndex, environment, activeIndex, kernel)
@@ -1560,16 +1569,18 @@ local function assignStmt(
         if output == nil or output.kind ~= "write_span" then
             context.reject(lower.site(target), "native indexed stores require a writable span")
         end
-        local direct = lower.nameOf(target.expr)
+        local indexArg = lower.unwrapped(target.expr)
+        local direct = lower.nameOf(indexArg)
         local cursor: string? = nil
-        if target.expr ~= nil and target.expr.kind == "binop" then
-            local index = target.expr as cst.Binop
+        if indexArg ~= nil and indexArg.kind == "binop" then
+            local index = indexArg as cst.Binop
             local written = index.op ~= nil and (index.op as lexer.Token).text or ""
             local token = index.rhs ~= nil and index.rhs.kind == "number" and (index.rhs as cst.NumberLit).token or nil
             local offset = token ~= nil and tonumber((token as lexer.Token).text) or nil
             local candidate = lower.nameOf(index.lhs)
-            if written == "+" and offset == 1 and candidate ~= nil
-                and kernel.cursorBounds[candidate as string] == spanName then
+            if written == "+" and offset == 1 and candidate ~= nil and kernel.cursorBounds[
+                candidate as string
+            ] == spanName then
                 cursor = candidate
             end
         end
@@ -1669,8 +1680,8 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         return lower.block(block ~= nil and (block as cst.Block).stats or {}, inherit(environment), kernel)
     end
 
-    --- A positive `uint32 cursor < span.count` fact authorizes exactly
-    --- `span:get(cursor + 1)` or `span:set(cursor + 1, value)` in that arm.
+    --- A positive `uint32 cursor < #span` fact authorizes exactly
+    --- `span[cursor + 1]` in that arm.
     local function cursorBound(condition: cst.Node?): (string?, string?)
         if condition == nil or condition.kind ~= "binop" then
             return nil, nil

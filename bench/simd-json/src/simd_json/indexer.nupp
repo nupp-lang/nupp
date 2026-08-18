@@ -30,9 +30,9 @@ local function index(borrows source: span.Span<uint8>, exclusive tape: span.Writ
     local haveNonAscii = false
     local lastNonAscii = 0.0
 
-    while cursor < source.count do
+    while cursor < #source do
         local bytes = species:load(source, cursor)
-        local tail = species:tail(source.count - cursor)
+        local tail = species:tail(#source - cursor)
 
         local quoteMask = bytes:equal(34)
         local slashMask = bytes:equal(92)
@@ -61,8 +61,8 @@ local function index(borrows source: span.Span<uint8>, exclusive tape: span.Writ
             local lane: uint32 = nupp.math.u32.trailingZeros(events)
             local position = cursor + lane
             local positionIndex: uint32 = nupp.math.u32.wrap(position as integer)
-            if positionIndex < source.count then
-                local byte = source:get((positionIndex + 1) as integer)
+            if positionIndex < #source then
+                local byte = source[(positionIndex + 1) as integer]
                 if byte == 92 then
                     if not inString then
                         return written, 4, nupp.math.u32.add(positionIndex, 1)
@@ -78,8 +78,8 @@ local function index(borrows source: span.Span<uint8>, exclusive tape: span.Writ
                     local escaped = haveSlash and position == lastSlash + 1 and slashOdd
                     if byte == 34 and not escaped then
                         inString = not inString
-                        if written < tape.count then
-                            tape:set((written + 1) as integer, positionIndex)
+                        if written < #tape then
+                            tape[(written + 1) as integer] = positionIndex
                             written = nupp.math.u32.add(written, 1)
                         else
                             return written, 1, nupp.math.u32.add(positionIndex, 1)
@@ -90,8 +90,8 @@ local function index(borrows source: span.Span<uint8>, exclusive tape: span.Writ
                             return written, 3, nupp.math.u32.add(positionIndex, 1)
                         end
                     elseif not inString then
-                        if written < tape.count then
-                            tape:set((written + 1) as integer, positionIndex)
+                        if written < #tape then
+                            tape[(written + 1) as integer] = positionIndex
                             written = nupp.math.u32.add(written, 1)
                         else
                             return written, 1, nupp.math.u32.add(positionIndex, 1)
@@ -115,8 +115,8 @@ local function index(borrows source: span.Span<uint8>, exclusive tape: span.Writ
             if haveNonAscii and expected ~= 0 and position ~= lastNonAscii + 1 then
                 return written, 2, nupp.math.u32.wrap((lastNonAscii + 2) as integer)
             end
-            if positionIndex < source.count then
-                local byte = source:get((positionIndex + 1) as integer)
+            if positionIndex < #source then
+                local byte = source[(positionIndex + 1) as integer]
                 local isContinuation = byte >= 128 and byte <= 191
                 if expected ~= 0 then
                     if not isContinuation then

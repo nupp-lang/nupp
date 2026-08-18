@@ -55,19 +55,19 @@ local function sumBytes(
     borrows second: span.Span<uint8>
 ): (number, uint32, uint32)
     local total = 0.0
-    for i = 1, first.count do
-        total = total + first:get(i)
+    for i = 1, #first do
+        total = total + first[i]
     end
-    for i = 1, second.count do
-        total = total + second:get(i)
+    for i = 1, #second do
+        total = total + second[i]
     end
-    return total, nupp.math.u32.wrap(first.count), nupp.math.u32.wrap(second.count)
+    return total, nupp.math.u32.wrap(#first), nupp.math.u32.wrap(#second)
 end
 
 @aot(lanes = false)
 local function fillDecimals(exclusive values: span.WriteSpan<Decimal>, value: number): nil
-    for i = 1, values.count do
-        values:getMut(i).value = value
+    for i = 1, #values do
+        values[i].value = value
     end
 end
 
@@ -90,9 +90,9 @@ local function countQuotes(borrows source: span.Span<uint8>): uint32
     local species = preferredBytes()
     local cursor = 0.0
     local found: uint32 = 0
-    while cursor < source.count do
+    while cursor < #source do
         local bytes = species:load(source, cursor)
-        local tail = species:tail(source.count - cursor)
+        local tail = species:tail(#source - cursor)
         local matches = bytes:equal(34)
         local valid = matches:andBits(tail)
         found = nupp.math.u32.add(found, valid:count())

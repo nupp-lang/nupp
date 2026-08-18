@@ -56,10 +56,10 @@ local function parse(
 
     while not done do
         local skipping = true
-        while skipping and cursor < source.count do
+        while skipping and cursor < #source do
             local byte: uint32 = 0
-            if cursor < source.count then
-                byte = source:get((cursor + 1) as integer)
+            if cursor < #source then
+                byte = source[(cursor + 1) as integer]
             end
             if byte == 32 or byte == 9 or byte == 10 or byte == 13 then
                 cursor = nupp.math.u32.add(cursor, 1)
@@ -69,7 +69,7 @@ local function parse(
         end
 
         if needValue then
-            if cursor >= source.count then
+            if cursor >= #source then
                 return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
             end
 
@@ -80,14 +80,14 @@ local function parse(
             local numberValue: number = 0
             local nativeNumber: uint32 = 0
             local byte: uint32 = 0
-            if cursor < source.count then
-                byte = source:get((cursor + 1) as integer)
+            if cursor < #source then
+                byte = source[(cursor + 1) as integer]
             end
 
             if byte == 34 then
                 tag = 4
-                if tapeCursor < tape.count then
-                    local opening = tape:get((tapeCursor + 1) as integer)
+                if tapeCursor < #tape then
+                    local opening = tape[(tapeCursor + 1) as integer]
                     if opening ~= cursor then
                         return root, 5, nupp.math.u32.add(cursor, 1), nodeCount
                     end
@@ -95,21 +95,21 @@ local function parse(
                 else
                     return root, 5, nupp.math.u32.add(cursor, 1), nodeCount
                 end
-                if tapeCursor < tape.count then
-                    local closing = tape:get((tapeCursor + 1) as integer)
+                if tapeCursor < #tape then
+                    local closing = tape[(tapeCursor + 1) as integer]
                     start = nupp.math.u32.add(cursor, 1)
                     length = nupp.math.u32.sub(closing, start)
                     local stringCursor: uint32 = start
-                    while stringCursor < closing and stringCursor < source.count do
-                        local stringByte = source:get((stringCursor + 1) as integer)
+                    while stringCursor < closing and stringCursor < #source do
+                        local stringByte = source[(stringCursor + 1) as integer]
                         if stringByte == 92 then
                             stringCursor = nupp.math.u32.add(stringCursor, 1)
-                            if stringCursor >= closing or stringCursor >= source.count then
+                            if stringCursor >= closing or stringCursor >= #source then
                                 return root, 1, nupp.math.u32.add(stringCursor, 1), nodeCount
                             end
                             local escaped: uint32 = 0
-                            if stringCursor < source.count then
-                                escaped = source:get((stringCursor + 1) as integer)
+                            if stringCursor < #source then
+                                escaped = source[(stringCursor + 1) as integer]
                             else
                                 return root, 1, nupp.math.u32.add(stringCursor, 1), nodeCount
                             end
@@ -119,12 +119,12 @@ local function parse(
                                 local digits: uint32 = 0
                                 while digits < 4 do
                                     local at = nupp.math.u32.add(stringCursor, digits)
-                                    if at >= closing or at >= source.count then
+                                    if at >= closing or at >= #source then
                                         return root, 1, nupp.math.u32.add(at, 1), nodeCount
                                     end
                                     local encoded: uint32 = 0
-                                    if at < source.count then
-                                        encoded = source:get((at + 1) as integer)
+                                    if at < #source then
+                                        encoded = source[(at + 1) as integer]
                                     else
                                         return root, 1, nupp.math.u32.add(at, 1), nodeCount
                                     end
@@ -144,22 +144,22 @@ local function parse(
                                 end
                                 stringCursor = nupp.math.u32.add(stringCursor, 4)
                                 if codepoint >= 0xD800 and codepoint <= 0xDBFF then
-                                    if stringCursor >= closing or stringCursor >= source.count then
+                                    if stringCursor >= closing or stringCursor >= #source then
                                         return root, 1, nupp.math.u32.add(stringCursor, 1), nodeCount
                                     end
                                     local slash: uint32 = 0
-                                    if stringCursor < source.count then
-                                        slash = source:get((stringCursor + 1) as integer)
+                                    if stringCursor < #source then
+                                        slash = source[(stringCursor + 1) as integer]
                                     else
                                         return root, 1, nupp.math.u32.add(stringCursor, 1), nodeCount
                                     end
                                     local markerAt = nupp.math.u32.add(stringCursor, 1)
-                                    if markerAt >= closing or markerAt >= source.count then
+                                    if markerAt >= closing or markerAt >= #source then
                                         return root, 1, nupp.math.u32.add(markerAt, 1), nodeCount
                                     end
                                     local marker: uint32 = 0
-                                    if markerAt < source.count then
-                                        marker = source:get((markerAt + 1) as integer)
+                                    if markerAt < #source then
+                                        marker = source[(markerAt + 1) as integer]
                                     else
                                         return root, 1, nupp.math.u32.add(markerAt, 1), nodeCount
                                     end
@@ -171,12 +171,12 @@ local function parse(
                                     digits = 0
                                     while digits < 4 do
                                         local at = nupp.math.u32.add(stringCursor, digits)
-                                        if at >= closing or at >= source.count then
+                                        if at >= closing or at >= #source then
                                             return root, 1, nupp.math.u32.add(at, 1), nodeCount
                                         end
                                         local encoded: uint32 = 0
-                                        if at < source.count then
-                                            encoded = source:get((at + 1) as integer)
+                                        if at < #source then
+                                            encoded = source[(at + 1) as integer]
                                         else
                                             return root, 1, nupp.math.u32.add(at, 1), nodeCount
                                         end
@@ -231,7 +231,7 @@ local function parse(
                 end
                 opens = true
                 cursor = nupp.math.u32.add(cursor, 1)
-                if tapeCursor < tape.count then
+                if tapeCursor < #tape then
                     tapeCursor = nupp.math.u32.add(tapeCursor, 1)
                 else
                     return root, 5, cursor, nodeCount
@@ -241,8 +241,8 @@ local function parse(
                 local matched: uint32 = 0
                 while matched < 4 do
                     local at: uint32 = nupp.math.u32.add(cursor, matched)
-                    if at < source.count then
-                        local actual = source:get((at + 1) as integer)
+                    if at < #source then
+                        local actual = source[(at + 1) as integer]
                         local expected: uint32 = switch matched do
                             case 0 -> 116
                             case 1 -> 114
@@ -264,8 +264,8 @@ local function parse(
                 local matched: uint32 = 0
                 while matched < 5 do
                     local at: uint32 = nupp.math.u32.add(cursor, matched)
-                    if at < source.count then
-                        local actual = source:get((at + 1) as integer)
+                    if at < #source then
+                        local actual = source[(at + 1) as integer]
                         local expected: uint32 = switch matched do
                             case 0 -> 102
                             case 1 -> 97
@@ -288,8 +288,8 @@ local function parse(
                 local matched: uint32 = 0
                 while matched < 4 do
                     local at: uint32 = nupp.math.u32.add(cursor, matched)
-                    if at < source.count then
-                        local actual = source:get((at + 1) as integer)
+                    if at < #source then
+                        local actual = source[(at + 1) as integer]
                         local expected: uint32 = switch matched do
                             case 0 -> 110
                             case 1 -> 117
@@ -309,25 +309,25 @@ local function parse(
                 tag = 3
                 if byte == 45 then
                     cursor = nupp.math.u32.add(cursor, 1)
-                    if cursor >= source.count then
+                    if cursor >= #source then
                         return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
                     end
-                    if cursor < source.count then
-                        byte = source:get((cursor + 1) as integer)
+                    if cursor < #source then
+                        byte = source[(cursor + 1) as integer]
                     end
                 end
                 if byte == 48 then
                     cursor = nupp.math.u32.add(cursor, 1)
-                    if cursor < source.count then
-                        local following = source:get((cursor + 1) as integer)
+                    if cursor < #source then
+                        local following = source[(cursor + 1) as integer]
                         if following >= 48 and following <= 57 then
                             return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
                         end
                     end
                 elseif byte >= 49 and byte <= 57 then
                     local digits = true
-                    while digits and cursor < source.count do
-                        local digit = source:get((cursor + 1) as integer)
+                    while digits and cursor < #source do
+                        local digit = source[(cursor + 1) as integer]
                         if digit >= 48 and digit <= 57 then
                             cursor = nupp.math.u32.add(cursor, 1)
                         else
@@ -337,17 +337,17 @@ local function parse(
                 else
                     return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
                 end
-                if cursor < source.count then
-                    local point = source:get((cursor + 1) as integer)
+                if cursor < #source then
+                    local point = source[(cursor + 1) as integer]
                     if point == 46 then
                         cursor = nupp.math.u32.add(cursor, 1)
-                        if cursor >= source.count then
+                        if cursor >= #source then
                             return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
                         end
                         local fractions = false
                         local scanning = true
-                        while scanning and cursor < source.count do
-                            local digit = source:get((cursor + 1) as integer)
+                        while scanning and cursor < #source do
+                            local digit = source[(cursor + 1) as integer]
                             if digit >= 48 and digit <= 57 then
                                 fractions = true
                                 cursor = nupp.math.u32.add(cursor, 1)
@@ -360,20 +360,20 @@ local function parse(
                         end
                     end
                 end
-                if cursor < source.count then
-                    local exponent = source:get((cursor + 1) as integer)
+                if cursor < #source then
+                    local exponent = source[(cursor + 1) as integer]
                     if exponent == 69 or exponent == 101 then
                         cursor = nupp.math.u32.add(cursor, 1)
-                        if cursor < source.count then
-                            local sign = source:get((cursor + 1) as integer)
+                        if cursor < #source then
+                            local sign = source[(cursor + 1) as integer]
                             if sign == 43 or sign == 45 then
                                 cursor = nupp.math.u32.add(cursor, 1)
                             end
                         end
                         local exponentDigits = false
                         local scanning = true
-                        while scanning and cursor < source.count do
-                            local digit = source:get((cursor + 1) as integer)
+                        while scanning and cursor < #source do
+                            local digit = source[(cursor + 1) as integer]
                             if digit >= 48 and digit <= 57 then
                                 exponentDigits = true
                                 cursor = nupp.math.u32.add(cursor, 1)
@@ -401,8 +401,8 @@ local function parse(
                 local exponentValue: uint32 = 0
                 local digitCount: uint32 = 0
                 local exact = true
-                while at < cursor and at < source.count do
-                    local digit = source:get((at + 1) as integer)
+                while at < cursor and at < #source do
+                    local digit = source[(at + 1) as integer]
                     if digit == 45 and at == start then
                         negative = true
                     elseif digit == 46 then
@@ -493,8 +493,8 @@ local function parse(
             end
 
             local nodeId: uint32 = 0
-            if nodeCount < nodes.count then
-                local node = nodes:getMut((nodeCount + 1) as integer)
+            if nodeCount < #nodes then
+                local node = nodes[(nodeCount + 1) as integer]
                 node.tag = tag
                 node.number = numberValue
                 node.start = start
@@ -516,15 +516,15 @@ local function parse(
                 root = nodeId
             else
                 local top: uint32 = nupp.math.u32.sub(depth, 1)
-                if top < frames.count then
-                    local frame = frames:getMut((top + 1) as integer)
+                if top < #frames then
+                    local frame = frames[(top + 1) as integer]
                     local allowed = frame.kind == 5 and frame.state == 0 or frame.kind == 6 and frame.state == 2
                     if not allowed then
                         return root, 1, nupp.math.u32.add(start, 1), nodeCount
                     end
                     local childCursor = nupp.math.u32.sub(nodeId, 1)
-                    if childCursor < nodes.count then
-                        local child = nodes:getMut((childCursor + 1) as integer)
+                    if childCursor < #nodes then
+                        local child = nodes[(childCursor + 1) as integer]
                         child.parent = frame.node
                     else
                         return root, 2, nupp.math.u32.add(start, 1), nodeCount
@@ -542,8 +542,8 @@ local function parse(
 
             needValue = false
             if opens then
-                if depth < frames.count then
-                    local frame = frames:getMut((depth + 1) as integer)
+                if depth < #frames then
+                    local frame = frames[(depth + 1) as integer]
                     frame.kind = tag
                     frame.node = nodeId
                     frame.count = 0
@@ -554,33 +554,33 @@ local function parse(
                 end
             end
         elseif depth == 0 then
-            if cursor < source.count then
+            if cursor < #source then
                 return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
             end
             done = true
         else
             local top: uint32 = nupp.math.u32.sub(depth, 1)
-            if top < frames.count then
-                local frame = frames:getMut((top + 1) as integer)
-                if cursor >= source.count then
+            if top < #frames then
+                local frame = frames[(top + 1) as integer]
+                if cursor >= #source then
                     return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
                 end
                 local byte: uint32 = 0
-                if cursor < source.count then
-                    byte = source:get((cursor + 1) as integer)
+                if cursor < #source then
+                    byte = source[(cursor + 1) as integer]
                 end
                 local closing = frame.kind == 5 and byte == 93 or frame.kind == 6 and byte == 125
                 local mayClose = frame.state == 0 and frame.count == 0 or frame.state == 1 or frame.state == 3
                 if closing and mayClose then
                     local nodeCursor: uint32 = nupp.math.u32.sub(frame.node, 1)
-                    if nodeCursor < nodes.count then
-                        local node = nodes:getMut((nodeCursor + 1) as integer)
+                    if nodeCursor < #nodes then
+                        local node = nodes[(nodeCursor + 1) as integer]
                         node.linkCount = frame.count
                     else
                         return root, 2, nupp.math.u32.add(cursor, 1), nodeCount
                     end
                     cursor = nupp.math.u32.add(cursor, 1)
-                    if tapeCursor < tape.count then
+                    if tapeCursor < #tape then
                         tapeCursor = nupp.math.u32.add(tapeCursor, 1)
                     else
                         return root, 5, cursor, nodeCount
@@ -591,7 +591,7 @@ local function parse(
                         needValue = true
                     elseif frame.state == 1 and byte == 44 then
                         cursor = nupp.math.u32.add(cursor, 1)
-                        if tapeCursor < tape.count then
+                        if tapeCursor < #tape then
                             tapeCursor = nupp.math.u32.add(tapeCursor, 1)
                         else
                             return root, 5, cursor, nodeCount
@@ -606,17 +606,17 @@ local function parse(
                         return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
                     end
                     local keyStart: uint32 = cursor
-                    if tapeCursor < tape.count then
+                    if tapeCursor < #tape then
                         tapeCursor = nupp.math.u32.add(tapeCursor, 1)
                     else
                         return root, 5, nupp.math.u32.add(cursor, 1), nodeCount
                     end
-                    if tapeCursor < tape.count then
-                        local closingQuote = tape:get((tapeCursor + 1) as integer)
+                    if tapeCursor < #tape then
+                        local closingQuote = tape[(tapeCursor + 1) as integer]
                         cursor = nupp.math.u32.add(closingQuote, 1)
                         tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                        if nodeCount < nodes.count then
-                            local key = nodes:getMut((nodeCount + 1) as integer)
+                        if nodeCount < #nodes then
+                            local key = nodes[(nodeCount + 1) as integer]
                             key.tag = 4
                             key.start = nupp.math.u32.add(keyStart, 1)
                             key.length = nupp.math.u32.sub(closingQuote, nupp.math.u32.add(keyStart, 1))
@@ -635,7 +635,7 @@ local function parse(
                     end
                 elseif frame.state == 1 and byte == 58 then
                     cursor = nupp.math.u32.add(cursor, 1)
-                    if tapeCursor < tape.count then
+                    if tapeCursor < #tape then
                         tapeCursor = nupp.math.u32.add(tapeCursor, 1)
                     else
                         return root, 5, cursor, nodeCount
@@ -644,7 +644,7 @@ local function parse(
                     needValue = true
                 elseif frame.state == 3 and byte == 44 then
                     cursor = nupp.math.u32.add(cursor, 1)
-                    if tapeCursor < tape.count then
+                    if tapeCursor < #tape then
                         tapeCursor = nupp.math.u32.add(tapeCursor, 1)
                     else
                         return root, 5, cursor, nodeCount
@@ -663,20 +663,20 @@ local function parse(
     -- container interrupt the parent's children. Compact links by parent
     -- after parsing to give every container one contiguous child range.
     local nodeCursor: uint32 = 0
-    while nodeCursor < nodeCount and nodeCursor < nodes.count do
-        local node = nodes:getMut((nodeCursor + 1) as integer)
+    while nodeCursor < nodeCount and nodeCursor < #nodes do
+        local node = nodes[(nodeCursor + 1) as integer]
         node.linkStart = 0
         node.linkCount = 0
         nodeCursor = nupp.math.u32.add(nodeCursor, 1)
     end
 
     nodeCursor = 0
-    while nodeCursor < nodeCount and nodeCursor < nodes.count do
-        local child = nodes:getMut((nodeCursor + 1) as integer)
+    while nodeCursor < nodeCount and nodeCursor < #nodes do
+        local child = nodes[(nodeCursor + 1) as integer]
         if child.parent > 0 then
             local parentCursor = nupp.math.u32.sub(child.parent, 1)
-            if parentCursor < nodes.count then
-                local parent = nodes:getMut((parentCursor + 1) as integer)
+            if parentCursor < #nodes then
+                local parent = nodes[(parentCursor + 1) as integer]
                 parent.linkCount = nupp.math.u32.add(parent.linkCount, 1)
             else
                 return root, 2, nupp.math.u32.add(child.start, 1), nodeCount
@@ -687,27 +687,27 @@ local function parse(
 
     linkCount = 0
     nodeCursor = 0
-    while nodeCursor < nodeCount and nodeCursor < nodes.count do
-        local node = nodes:getMut((nodeCursor + 1) as integer)
+    while nodeCursor < nodeCount and nodeCursor < #nodes do
+        local node = nodes[(nodeCursor + 1) as integer]
         node.linkStart = linkCount
         linkCount = nupp.math.u32.add(linkCount, node.linkCount)
         node.linkCount = 0
         nodeCursor = nupp.math.u32.add(nodeCursor, 1)
     end
-    if linkCount > links.count then
+    if linkCount > #links then
         return root, 3, 1, nodeCount
     end
 
     nodeCursor = 0
-    while nodeCursor < nodeCount and nodeCursor < nodes.count do
-        local child = nodes:getMut((nodeCursor + 1) as integer)
+    while nodeCursor < nodeCount and nodeCursor < #nodes do
+        local child = nodes[(nodeCursor + 1) as integer]
         if child.parent > 0 then
             local parentCursor = nupp.math.u32.sub(child.parent, 1)
-            if parentCursor < nodes.count then
-                local parent = nodes:getMut((parentCursor + 1) as integer)
+            if parentCursor < #nodes then
+                local parent = nodes[(parentCursor + 1) as integer]
                 local linkCursor = nupp.math.u32.add(parent.linkStart, parent.linkCount)
-                if linkCursor < links.count then
-                    links:set((linkCursor + 1) as integer, nupp.math.u32.add(nodeCursor, 1))
+                if linkCursor < #links then
+                    links[(linkCursor + 1) as integer] = nupp.math.u32.add(nodeCursor, 1)
                     parent.linkCount = nupp.math.u32.add(parent.linkCount, 1)
                 else
                     return root, 3, nupp.math.u32.add(child.start, 1), nodeCount
