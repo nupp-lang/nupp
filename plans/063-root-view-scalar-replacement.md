@@ -400,12 +400,21 @@ Extend the existing indexed-view scalar-replacement identity rather than adding 
 pass per producer. Remarks should distinguish decisions:
 
 ```text
-view-scalar-replacement: virtualizes standard write root
+view-scalar-replacement: virtualizes standard write root (anchor=region-last-use)
 view-scalar-replacement: transports view through static call
 view-scalar-replacement: materializes at exported bridge
 view-scalar-replacement: declines root (view-escapes)
 view-scalar-replacement: declines producer (observable-cleanup)
 ```
+
+Every accepted virtual root remark must name the selected anchor strategy. Use one
+stable value from a small inspected vocabulary, such as `rooted-access`,
+`region-last-use`, or `runtime-barrier`; settle the final names with the liveness
+spike rather than exposing a private helper name. This is correctness-load-bearing
+inspection, not optional verbose diagnostics: two generated forms that keep the
+same view virtual but anchor it differently must produce different remarks. The
+remark belongs to the root decision, so derived slices and projections do not repeat
+it unless they introduce a different anchor.
 
 Add stable decline reasons for at least:
 
@@ -449,6 +458,8 @@ Report separately:
 
 - elapsed time and acquisitions per second;
 - bytes or objects allocated where a stable counter is available;
+- collector CPU time and collection count over fixed work where the runtime exposes
+  stable measurements;
 - hot-trace `NEWREF`, `TDUP`, calls, comparisons, hash loads, FFI loads/stores, and
   side exits;
 - interpreter-only behavior as context;
@@ -459,7 +470,12 @@ Landing gates:
 
 - R1's hot acquisition traces contain no view allocation or constructor call;
 - R1 improves a repeated standard-root workload by at least 10%, unless allocation
-  evidence demonstrates a material GC reduction on a representative application;
+  and collector evidence on a representative repeated-acquisition workload shows
+  all of the following instead: at least 90% fewer view-attributable allocated bytes
+  or objects, at least 20% less collector CPU time or 20% fewer collections over
+  fixed work, and no median elapsed-time regression greater than 2%; if stable
+  allocation and collector measurements are unavailable, this exception is
+  unavailable;
 - an ordinary loop over one long-lived root does not regress beyond benchmark noise;
 - SoA projected access remains within Plan 061's handwritten-column gate;
 - R2 removes both callee construction and caller materialization on the static path;
@@ -493,6 +509,7 @@ view optimization and reject that adapter design.
 - string and C-array roots surviving forced collection;
 - heap and SoA owners with finalizer sentinels surviving through final access;
 - anchors retained through nested calls, errors, and cleanup regions;
+- every accepted virtual root remark naming the keepalive strategy actually emitted;
 - no detached pointer surviving after its legal borrow ends; and
 - materialized escape retaining its parent root exactly as before.
 
@@ -510,6 +527,9 @@ view optimization and reject that adapter design.
 - flattened single and multiple view results;
 - nested static helpers and separately checked modules;
 - materializing exported/dynamic bridges;
+- a directly recursive function and a mutually recursive static call group declining
+  flattened transport, materializing at the ordinary call boundary, and preserving
+  exactly-once cleanup;
 - ABI-version mismatch falling back safely;
 - function values and overloads retaining ordinary callable behavior;
 - incremental invalidation when a lowered signature or adapter changes; and
