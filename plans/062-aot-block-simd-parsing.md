@@ -1,6 +1,6 @@
 # AOT block kernels, scoped SIMD, and native JSON parsing
 
-Status: in progress — J0 through J2 are implemented; J3 and later stages remain
+Status: implemented — native AVX2 performance verification remains a release gate
 
 ## Decision
 
@@ -549,6 +549,15 @@ Gate: native parsing eliminates byte-at-a-time Lua work, agrees with the oracle
 corpus and differential fuzzer, and clears the J3 performance gate. Report
 materialization separately even if it becomes the largest component.
 
+Implementation result (2026-08-17): the AArch64 NEON large-payload geometric
+mean is 2.127x the retained decoder with a paired bootstrap 95 percent interval
+of 2.101x to 2.146x. Every large family clears 1.25x; the lowest interval is
+1.407x for escaped strings. The short-document adaptive path retains 0.987x
+throughput with a 0.964x lower bound. The 1,024-check suite includes direct arena
+decoding, bit-identical numeric comparisons, one-short node/link/frame arenas,
+and deterministic generated and mutated documents. Native AVX2 timing remains
+a release/CI gate on an x86-64 host.
+
 ### J4 — Profile-driven SIMD extensions
 
 - Profile J3 with representative payload families.
@@ -560,6 +569,11 @@ materialization separately even if it becomes the largest component.
 Gate: no operation lands solely because one architecture has an attractive
 instruction. Each must clear the J4 performance gate on every target where it
 claims an optimized lowering.
+
+Implementation result (2026-08-17): no additional SIMD operation landed. The
+component report puts escaped-string cost in Lua materialization and numeric
+cost in scalar grammar/conversion; neither identifies a portable vector
+operation that clears the J4 end-to-end gate.
 
 ### J5 — Decide the experiment
 
@@ -574,6 +588,12 @@ and build latency. Then choose one explicit outcome:
   their own gates.
 
 No public `nupp.json` replacement is implied by this plan.
+
+Decision (2026-08-17): retain the detachable JSON implementation as a benchmark
+and compiler acceptance workload. Do not propose it as `nupp.json`; `lua-cjson`
+remains substantially faster on several families, and the experiment's purpose
+is to validate useful AOT and scoped-SIMD machinery rather than acquire a public
+JSON compatibility commitment.
 
 ## Verification matrix
 

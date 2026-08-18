@@ -1,5 +1,6 @@
 local simd = require("nupp.simd")
 local span = require("nupp.span")
+local _preferredU8 = simd.preferredU8
 
 local indexer = {}
 
@@ -13,11 +14,8 @@ const indexer.INVALID_BACKSLASH = 4
 --- characters while validating every input byte as UTF-8. No operation reads
 --- beyond `source`, including the final packed load.
 @aot(lanes = false)
-local function index(
-    borrows source: span.Span<uint8>,
-    exclusive tape: span.WriteSpan<uint32>
-): (uint32, uint32, uint32)
-    local species = simd.preferredU8()
+local function index(borrows source: span.Span<uint8>, exclusive tape: span.WriteSpan<uint32>): (uint32, uint32, uint32)
+    local species = _preferredU8()
     local cursor: integer = 0
     local written: uint32 = 0
     local inString = false
@@ -124,10 +122,14 @@ local function index(
                     if not isContinuation then
                         return written, 2, nupp.math.u32.add(positionIndex, 1)
                     end
-                    local constrained = constraint == 1 and byte < 160
-                        or constraint == 2 and byte > 159
-                        or constraint == 3 and byte < 144
-                        or constraint == 4 and byte > 143
+                    local constrained = constraint == 1
+                        and byte < 160
+                        or constraint == 2
+                        and byte > 159
+                        or constraint == 3
+                        and byte < 144
+                        or constraint == 4
+                        and byte > 143
                     if constrained then
                         return written, 2, nupp.math.u32.add(positionIndex, 1)
                     end
@@ -164,6 +166,7 @@ local function index(
     if expected ~= 0 then
         return written, 2, nupp.math.u32.wrap((lastNonAscii + 2) as integer)
     end
+
     return written, 0, 0
 end
 

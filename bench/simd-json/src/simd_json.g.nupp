@@ -1,4 +1,5 @@
 local scanner = require("simd_json.scanner")
+local arena = require("simd_json.arena")
 local span = require("nupp.span")
 local ffi = require("ffi")
 
@@ -314,12 +315,18 @@ local function decode(source: string): any
     return value
 end
 
+json.decodeLegacy = decode
+const json.arenaMinBytes = 128
+
 function json.decode(source: string): any
-    return decode(source)
+    if #source < json.arenaMinBytes then
+        return decode(source)
+    end
+    return arena.decode(source, json.null)
 end
 
 function json.validate(source: string): (boolean, string?)
-    local ok, result = pcall(decode, source)
+    local ok, result = pcall(json.decode, source)
     if ok then
         return true, nil
     end

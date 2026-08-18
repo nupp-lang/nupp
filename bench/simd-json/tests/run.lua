@@ -1,7 +1,9 @@
 local ffi = require("ffi")
 local cjson = require("cjson")
 local json = require("simd_json")
+local arena = require("simd_json.arena")
 local indexer = require("simd_json.indexer")
+local parser = require("simd_json.parser")
 local scanner = require("simd_json.scanner")
 local span = require("nupp.span")
 
@@ -13,8 +15,11 @@ ffi.cdef[[
 ]]
 local nativeExtension = ffi.os == "Windows" and ".dll" or ffi.os == "OSX" and ".dylib" or ".so"
 local native = ffi.load("build/lib/libsimd_json_aot" .. nativeExtension)
+local NodeArray = ffi.typeof("$[?]", parser.Node)
+local FrameArray = ffi.typeof("$[?]", parser.Frame)
 
 local checks = 0
+local numberBits = ffi.typeof("union { double number; uint64_t bits; }")
 local function check(condition, message)
    checks = checks + 1
    assert(condition, message)
@@ -31,6 +36,13 @@ local function same(left, right)
       return false
    end
    if type(left) ~= "table" then
+      if type(left) == "number" then
+         local leftBits = numberBits()
+         local rightBits = numberBits()
+         leftBits.number = left
+         rightBits.number = right
+         return tostring(leftBits.bits) == tostring(rightBits.bits)
+      end
       return left == right
    end
    for key, value in pairs(left) do
@@ -59,6 +71,7 @@ local corpus = {
    "[]",
    "{}",
    [[ [1, true, null, {"nested": [2, 3]}] ]],
+   [[{"head":1,"nested":[2,3],"tail":4}]],
    [[{"name":"Nupp","unicode":"κόσμος","escaped":"\u0061","n":1.25}]],
    "-9223372036854775808",
    "5e-324",
@@ -117,10 +130,38 @@ local function scalarIndexed(source, capacity)
    return positions, tonumber(result.v2), tonumber(result.v3)
 end
 
+local function parsed(source, nodeCapacity, linkCapacity, frameCapacity)
+   local tapePositions, tapeStatus = indexed(source)
+   assert(tapeStatus == indexer.OK)
+   local tapeStorage = ffi.new("uint32_t[?]", math.max(#tapePositions, 1))
+   for offset, position in ipairs(tapePositions) do
+      tapeStorage[offset - 1] = position
+   end
+   nodeCapacity = nodeCapacity == nil and math.max(#tapePositions + 1, 1) or nodeCapacity
+   linkCapacity = linkCapacity == nil and nodeCapacity or linkCapacity
+   frameCapacity = frameCapacity == nil and nodeCapacity or frameCapacity
+   local nodes = ffi.new(NodeArray, math.max(nodeCapacity, 1))
+   local links = ffi.new("uint32_t[?]", math.max(linkCapacity, 1))
+   local frames = ffi.new(FrameArray, math.max(frameCapacity, 1))
+   local nodeWrite = span.writeCarray(nodes, nodeCapacity)
+   local linkWrite = span.writeCarray(links, linkCapacity)
+   local frameWrite = span.writeCarray(frames, frameCapacity)
+   local root, status, position, nodeCount = parser.parse(
+      span.fromString(source),
+      span.fromCarray(tapeStorage, #tapePositions),
+      nodeWrite, linkWrite, frameWrite)
+   nodeWrite:drop()
+   linkWrite:drop()
+   frameWrite:drop()
+   return tonumber(root), tonumber(status), tonumber(position), tonumber(nodeCount)
+end
+
 for _, source in ipairs(corpus) do
    local actual = json.decode(source)
+   local arenaActual = arena.decode(source, json.null)
    local expected = cjson.decode(source)
    check(same(actual, expected), "differential mismatch for " .. source)
+   check(same(arenaActual, expected), "arena differential mismatch for " .. source)
    local valid, why = json.validate(source)
    check(valid and why == nil, "valid input rejected: " .. tostring(why))
    local expectedTape = referenceTape(source)
@@ -140,6 +181,14 @@ for _, source in ipairs(corpus) do
       check(#partial == #expectedTape - 1, "capacity result wrote the wrong count")
       check(capacityStatus == indexer.TAPE_CAPACITY and capacityPosition > 0,
          "exact tape capacity failure was not reported")
+   end
+   local _, parseStatus, _, nodeCount = parsed(source)
+   check(parseStatus == parser.OK, "valid input failed native parsing")
+   if nodeCount > 1 then
+      local _, nodeStatus = parsed(source, nodeCount - 1)
+      check(nodeStatus == parser.NODE_CAPACITY, "one-short node arena was accepted")
+      local _, linkStatus = parsed(source, nodeCount, nodeCount - 2)
+      check(linkStatus == parser.LINK_CAPACITY, "one-short link arena was accepted")
    end
 end
 
@@ -176,6 +225,31 @@ local invalid = {
 for _, source in ipairs(invalid) do
    local valid, why = json.validate(source)
    check(not valid and type(why) == "string", "invalid input accepted: " .. source)
+   local arenaValid = pcall(arena.decode, source, json.null)
+   check(not arenaValid, "invalid input accepted by arena parser: " .. source)
+end
+
+do
+   local state = 104729
+   local function random(limit)
+      state = state * 48271 % 2147483647
+      return state % limit
+   end
+   for case = 1, 200 do
+      local value = {
+         id = random(1000000),
+         active = random(2) == 1,
+         ratio = (random(2000001) - 1000000) / (2 ^ random(18)),
+         text = ("case-%d-quote-\"-slash-\\-κόσμος"):format(case),
+         values = {random(1000), random(1000) / 8, random(1000) / 1000},
+      }
+      local source = cjson.encode(value)
+      check(same(arena.decode(source, json.null), cjson.decode(source)),
+         "generated arena differential mismatch at case " .. case)
+      local truncated = source:sub(1, -2)
+      check(not pcall(arena.decode, truncated, json.null),
+         "truncated generated document accepted at case " .. case)
+   end
 end
 
 local invalidUtf8 = {
@@ -241,6 +315,10 @@ do
    end
    local valid, why = json.validate(source)
    check(valid and why == nil, "bounded deep nesting rejected: " .. tostring(why))
+   local _, exactStatus = parsed(source, nil, nil, 64)
+   local _, shortStatus = parsed(source, nil, nil, 63)
+   check(exactStatus == parser.OK, "exact frame capacity was rejected")
+   check(shortStatus == parser.FRAME_CAPACITY, "one-short frame arena was accepted")
 end
 
 do

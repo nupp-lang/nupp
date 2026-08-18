@@ -1,7 +1,9 @@
 local cjson = require("cjson")
 local ffi = require("ffi")
 local json = require("simd_json")
+local arena = require("simd_json.arena")
 local indexer = require("simd_json.indexer")
+local parser = require("simd_json.parser")
 local scanner = require("simd_json.scanner")
 local span = require("nupp.span")
 
@@ -88,7 +90,9 @@ local report = {
    payloads = {},
 }
 
-local names = indexOnly and {"classify", "index"} or {"classify", "index", "nupp", "cjson"}
+local names = indexOnly and {"classify", "index"} or {
+   "classify", "index", "parse", "materialize", "legacy", "nupp", "cjson",
+}
 
 local function sorted(values)
    local copy = {}
@@ -149,6 +153,16 @@ for payloadIndex, payload in ipairs(payloads) do
    local tape = span.writeCarray(tapeStorage, #source)
    local indexed, indexError = indexer.index(input, tape)
    assert(indexError == 0 and indexed <= #source)
+   local tapeRead = span.fromCarray(tapeStorage, tonumber(indexed))
+   local NodeArray = ffi.typeof("$[?]", parser.Node)
+   local FrameArray = ffi.typeof("$[?]", parser.Frame)
+   local nodes = ffi.new(NodeArray, math.max(#source, 1))
+   local links = ffi.new("uint32_t[?]", math.max(#source, 1))
+   local frames = ffi.new(FrameArray, math.max(#source, 1))
+   local nodeWrite = span.writeCarray(nodes, #source)
+   local linkWrite = span.writeCarray(links, #source)
+   local frameWrite = span.writeCarray(frames, #source)
+   local document = arena.parse(source)
    local iterations = math.max(1, math.ceil(targetBytes / #source))
    if payload.short then
       iterations = math.max(iterations, 10000)
@@ -169,6 +183,27 @@ for payloadIndex, payload in ipairs(payloads) do
          local started = os.clock()
          for _ = 1, iterations do
             indexer.index(input, tape)
+         end
+         return os.clock() - started
+      end,
+      parse = function()
+         local started = os.clock()
+         for _ = 1, iterations do
+            parser.parse(input, tapeRead, nodeWrite, linkWrite, frameWrite)
+         end
+         return os.clock() - started
+      end,
+      materialize = function()
+         local started = os.clock()
+         for _ = 1, iterations do
+            arena.materialize(document, json.null)
+         end
+         return os.clock() - started
+      end,
+      legacy = function()
+         local started = os.clock()
+         for _ = 1, iterations do
+            json.decodeLegacy(source)
          end
          return os.clock() - started
       end,
@@ -194,7 +229,10 @@ for payloadIndex, payload in ipairs(payloads) do
       end
    end
 
-   local raw = {classify = {}, index = {}, nupp = {}, cjson = {}}
+   local raw = {
+      classify = {}, index = {}, parse = {}, materialize = {},
+      legacy = {}, nupp = {}, cjson = {},
+   }
    for sample = 1, samples do
       collectgarbage()
       for offset = 0, #names - 1 do
@@ -210,7 +248,11 @@ for payloadIndex, payload in ipairs(payloads) do
    }
    if not indexOnly then
       summary.nuppMBps = #source * iterations / median(raw.nupp) / 1000000
+      summary.legacyMBps = #source * iterations / median(raw.legacy) / 1000000
+      summary.parseMBps = #source * iterations / median(raw.parse) / 1000000
+      summary.materializeMBps = #source * iterations / median(raw.materialize) / 1000000
       summary.cjsonMBps = #source * iterations / median(raw.cjson) / 1000000
+      summary.nuppToLegacyThroughput = ratioSummary(raw.legacy, raw.nupp)
       summary.nuppToCjsonThroughput = ratioSummary(raw.cjson, raw.nupp)
       summary.classifierShare = ratioSummary(raw.classify, raw.nupp)
    end
@@ -226,6 +268,9 @@ for payloadIndex, payload in ipairs(payloads) do
    report.payloads[#report.payloads + 1] = measured
    output:drop()
    tape:drop()
+   nodeWrite:drop()
+   linkWrite:drop()
+   frameWrite:drop()
 end
 
 do
@@ -243,8 +288,31 @@ do
    report.largeIndexToClassifierThroughput = bootstrapSummary(pairedGeomeans)
 end
 
+if not indexOnly then
+   local pairedGeomeans = {}
+   for sample = 1, samples do
+      local logSum, count = 0, 0
+      for _, payload in ipairs(report.payloads) do
+         if not payload.short then
+            logSum = logSum + math.log(
+               payload.seconds.legacy[sample] / payload.seconds.nupp[sample])
+            count = count + 1
+         end
+      end
+      pairedGeomeans[sample] = math.exp(logSum / count)
+   end
+   report.largeNuppToLegacyThroughput = bootstrapSummary(pairedGeomeans)
+end
+
 if jsonOutput then
-   print(cjson.encode(report))
+   local encoded = cjson.encode(report)
+   local outputPath = os.getenv("NUPP_JSON_BENCH_OUTPUT")
+   if outputPath then
+      local outputFile = assert(io.open(outputPath, "wb"))
+      outputFile:write(encoded, "\n")
+      outputFile:close()
+   end
+   print(encoded)
    return
 end
 
@@ -253,6 +321,13 @@ print(("large-payload index/classify geometric mean %.3fx [%.3f, %.3f]"):format(
    report.largeIndexToClassifierThroughput.low95,
    report.largeIndexToClassifierThroughput.high95
 ))
+if not indexOnly then
+   print(("large-payload arena/legacy geometric mean %.3fx [%.3f, %.3f]"):format(
+      report.largeNuppToLegacyThroughput.median,
+      report.largeNuppToLegacyThroughput.low95,
+      report.largeNuppToLegacyThroughput.high95
+   ))
+end
 
 print(("platform: %s/%s, %s, samples: %d, warmups: %d"):format(
    report.environment.os,
@@ -284,6 +359,11 @@ for _, payload in ipairs(report.payloads) do
          payload.summary.classifierShare.median * 100,
          payload.summary.classifierShare.low95 * 100,
          payload.summary.classifierShare.high95 * 100
+      ))
+      print(("  arena/legacy throughput %.3fx [%.3f, %.3f]"):format(
+         payload.summary.nuppToLegacyThroughput.median,
+         payload.summary.nuppToLegacyThroughput.low95,
+         payload.summary.nuppToLegacyThroughput.high95
       ))
    end
    print(("  index/classify throughput %.3fx [%.3f, %.3f]"):format(

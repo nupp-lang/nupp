@@ -1,0 +1,188 @@
+local ffi = require("ffi")
+local indexer = require("simd_json.indexer")
+local parser = require("simd_json.parser")
+local span = require("nupp.span")
+
+local arena = {}
+
+ffi.cdef[[double strtod(const char *text, char **end);]]
+
+local record Document
+    source: string
+    tape: any
+    nodes: any
+    links: any
+    frames: any
+    root: integer
+    nodeCount: integer
+end
+
+local arraySpec = "$" .. "[?]"
+local NodeArray = ffi.typeof(arraySpec, parser.Node)
+local FrameArray = ffi.typeof(arraySpec, parser.Frame)
+
+local function fail(position: uint32, stage: string, status: uint32, level: integer): never
+    error(("invalid JSON at byte %d: %s status %d"):format(position, stage, status), level)
+end
+
+local function decodeString(source: string, first: integer, length: integer): string
+    source = source:sub(first, first + length - 1)
+    local slash = source:find("\\", 1, true)
+    if slash == nil then
+        return source
+    end
+
+    first = 1
+    local last = length
+    local parts: {string} = {}
+    local start = first
+    local position = first
+    local simple: {
+        [integer]: string
+    } = {[34] = '"', [92] = "\\", [47] = "/", [98] = "\b", [102] = "\f", [110] = "\n", [114] = "\r", [116] = "\t",}
+    while position <= last do
+        if source:byte(position) ~= 92 then
+            position = position + 1
+        else
+            parts[#parts + 1] = source:sub(start, position - 1)
+            position = position + 1
+            local escaped = source:byte(position)
+            local replacement = escaped and simple[escaped] or nil
+            if replacement ~= nil then
+                parts[#parts + 1] = replacement
+                position = position + 1
+            elseif escaped == 117 then
+                if position + 4 > last then
+                    error("incomplete Unicode escape", 0)
+                end
+                local digits = source:sub(position + 1, position + 4)
+                if not digits:match("^[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$") then
+                    error("invalid Unicode escape", 0)
+                end
+                local codepoint = tonumber(digits, 16) as integer
+                position = position + 5
+                if codepoint >= 0xD800 and codepoint <= 0xDBFF then
+                    if position + 5 > last or source:byte(position) ~= 92 or source:byte(position + 1) ~= 117 then
+                        error("high surrogate without a low surrogate", 0)
+                    end
+                    local lowDigits = source:sub(position + 2, position + 5)
+                    if not lowDigits:match("^[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$") then
+                        error("invalid low surrogate", 0)
+                    end
+                    local low = tonumber(lowDigits, 16) as integer
+                    if low < 0xDC00 or low > 0xDFFF then
+                        error("invalid low surrogate", 0)
+                    end
+                    position = position + 6
+                    codepoint = 0x10000 + (codepoint - 0xD800) * 0x400 + low - 0xDC00
+                elseif codepoint >= 0xDC00 and codepoint <= 0xDFFF then
+                    error("low surrogate without a high surrogate", 0)
+                end
+                parts[#parts + 1] = nupp.data.utf8.encode(codepoint)
+            else
+                error("unknown escape", 0)
+            end
+            start = position
+        end
+    end
+    parts[#parts + 1] = source:sub(start, last)
+
+    return table.concat(parts)
+end
+
+function arena.parse(source: string): Document
+    local length: integer = #source
+    local capacity: integer = math.max(length, 1)
+    local tapeStorage = ffi.new("uint32_t[?]", capacity) as uint32[?]
+    local tapeWrite = span.writeCarray(tapeStorage, length)
+    local tapeCount, indexStatus, indexPosition = indexer.index(span.fromString(source), tapeWrite)
+    drop tapeWrite
+    if indexStatus ~= indexer.OK then
+        fail(indexPosition, "indexing", indexStatus, 2)
+    end
+
+    local arenaCapacity = math.max((tapeCount as integer) + 1, 1)
+    local nodes = ffi.new(NodeArray, arenaCapacity) as parser.Node[?]
+    local links = ffi.new("uint32_t[?]", arenaCapacity) as uint32[?]
+    local frames = ffi.new(FrameArray, arenaCapacity) as parser.Frame[?]
+    local nodeWrite = span.writeCarray(nodes, arenaCapacity)
+    local linkWrite = span.writeCarray(links, arenaCapacity)
+    local frameWrite = span.writeCarray(frames, arenaCapacity)
+    local root, status, errorByte, nodeCount = parser.parse(
+        span.fromString(source),
+        span.fromCarray(tapeStorage, tapeCount as integer),
+        nodeWrite,
+        linkWrite,
+        frameWrite
+    )
+    drop nodeWrite
+    drop linkWrite
+    drop frameWrite
+    if status ~= parser.OK then
+        fail(errorByte, "parser", status, 2)
+    end
+
+    return new Document(
+        source = source,
+        tape = tapeStorage,
+        nodes = nodes,
+        links = links,
+        frames = frames,
+        root = root as integer,
+        nodeCount = nodeCount as integer
+    )
+end
+
+local function materializeNode(document: Document, nullValue: any, nodeId: integer): any
+    local node = document.nodes[nodeId - 1]
+    local tag = tonumber(node.tag) as integer
+    if tag == parser.NULL then
+        return nullValue
+    elseif tag == parser.TRUE then
+        return true
+    elseif tag == parser.FALSE then
+        return false
+    elseif tag == parser.NUMBER then
+        if tonumber(node.nativeNumber) == 1 then
+            return tonumber(node.number)
+        end
+        unsafe do
+            local first = tonumber(node.start) as integer
+            return tonumber(ffi.C.strtod(ffi.cast("const char *", ffi.cast<uint8*>(document.source) + first), nil))
+        end
+    elseif tag == parser.STRING then
+        return decodeString(document.source, (tonumber(node.start) as integer) + 1, tonumber(node.length) as integer)
+    elseif tag == parser.ARRAY then
+        local result: {any} = {}
+        local first = tonumber(node.linkStart) as integer
+        for offset = 0, (tonumber(node.linkCount) as integer) - 1 do
+            result[
+                #result + 1
+            ] = materializeNode(document, nullValue, tonumber(document.links[first + offset]) as integer)
+        end
+        return result
+    elseif tag == parser.OBJECT then
+        local result: {[string]: any} = {}
+        local first = tonumber(node.linkStart) as integer
+        for offset = 0, (tonumber(node.linkCount) as integer) - 1, 2 do
+            local key = materializeNode(
+                document,
+                nullValue,
+                tonumber(document.links[first + offset]) as integer
+            ) as string
+            result[key] = materializeNode(document, nullValue, tonumber(document.links[first + offset + 1]) as integer)
+        end
+        return result
+    end
+    error("invalid arena node tag", 0)
+end
+
+function arena.materialize(document: Document, nullValue: any): any
+    return materializeNode(document, nullValue, document.root)
+end
+
+function arena.decode(source: string, nullValue: any): any
+    return arena.materialize(arena.parse(source), nullValue)
+end
+
+return arena
