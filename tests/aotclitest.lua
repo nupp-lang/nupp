@@ -801,7 +801,7 @@ end
 
 function M.valueTreesLowerToOneCheckedVmConstructionOperation()
    local dir = project{
-      ["nupp/value_builder.g.nupp"] = [[
+      ["nupp/valuebuilder.g.nupp"] = [[
 local builder = {}
 function builder.materializeTree(nodes: string, links: string, source: string, root: integer, nullValue: any): any
     return nullValue
@@ -809,7 +809,7 @@ end
 return builder
 ]],
       ["tree.nupp"] = [[
-local builder = require("nupp.value_builder")
+local builder = require("nupp.valuebuilder")
 @aot
 local function materialize(nodes: string, links: string, source: string, root: integer, nullValue: any): any
     return builder.materializeTree(nodes, links, source, root, nullValue)
@@ -829,7 +829,7 @@ end
 
 function M.valueStreamsFuseRootedByteReadsAndLuaConstruction()
    local dir = project{
-      ["nupp/value_builder.g.nupp"] = [[
+      ["nupp/valuebuilder.g.nupp"] = [[
 local builder = {}
 function builder.new(nullValue: any): any return {} end
 function builder.newSized(nullValue: any, depth: uint32, bytes: uint32): any return {} end
@@ -863,7 +863,7 @@ function builder.finish(state: any): any return nil end
 return builder
 ]],
       ["stream.g.nupp"] = [[
-local builder = require("nupp.value_builder")
+local builder = require("nupp.valuebuilder")
 local simd = require("nupp.simd")
 local function drain(bits: simd.MaskBits64): (uint32, uint32)
     return bits:firstSet(), bits:clearFirst():count()

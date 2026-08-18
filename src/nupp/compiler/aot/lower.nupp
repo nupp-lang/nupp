@@ -850,11 +850,11 @@ local function call(
             type = "simd_padded_string_u8",
             source = lower.site(node)
         )
-    elseif identity == "nupp.value_builder.materializeTree" then
+    elseif identity == "nupp.valuebuilder.materializeTree" then
         if #args ~= 5 then
             context.reject(
                 lower.site(node),
-                "value_builder.materializeTree takes nodes, links, source, root, and null value"
+                "valuebuilder.materializeTree takes nodes, links, source, root, and null value"
             )
         end
         if args[
@@ -864,13 +864,13 @@ local function call(
         ].type ~= "lua_string" or args[
             3
         ].type ~= "lua_string" or args[1].op ~= "local" or args[2].op ~= "local" or args[3].op ~= "local" then
-            context.reject(lower.site(node), "value_builder tree buffers must be rooted string parameters")
+            context.reject(lower.site(node), "valuebuilder tree buffers must be rooted string parameters")
         end
         if args[4].type ~= "f64" and args[4].type ~= "i32" and args[4].type ~= "u32" then
-            context.reject(lower.site(node), "value_builder tree root must be numeric")
+            context.reject(lower.site(node), "valuebuilder tree root must be numeric")
         end
         if args[5].type ~= "lua_value" or args[5].op ~= "local" then
-            context.reject(lower.site(node), "value_builder null replacement must be a rooted Lua value")
+            context.reject(lower.site(node), "valuebuilder null replacement must be a rooted Lua value")
         end
         kernel.usesLua = true
 
@@ -884,8 +884,8 @@ local function call(
             type = "lua_value",
             source = lower.site(node)
         )
-    elseif identity == "nupp.value_builder.new" or identity == "nupp.value_builder.newSized" then
-        local sized = identity == "nupp.value_builder.newSized"
+    elseif identity == "nupp.valuebuilder.new" or identity == "nupp.valuebuilder.newSized" then
+        local sized = identity == "nupp.valuebuilder.newSized"
         if #args ~= (
             sized and 3 or 1
         ) or args[
@@ -896,8 +896,8 @@ local function call(
             context.reject(
                 lower.site(node),
                 sized
-                and "value_builder.newSized takes a rooted null replacement, uint32 depth, and uint32 string capacity"
-                or "value_builder.new takes one rooted null replacement"
+                and "valuebuilder.newSized takes a rooted null replacement, uint32 depth, and uint32 string capacity"
+                or "valuebuilder.new takes one rooted null replacement"
             )
         end
         kernel.usesLua = true
@@ -909,9 +909,9 @@ local function call(
             type = "lua_builder",
             source = lower.site(node)
         )
-    elseif identity == "nupp.value_builder.newWordScratch" then
+    elseif identity == "nupp.valuebuilder.newWordScratch" then
         if #args ~= 1 or args[1].type ~= "u32" then
-            context.reject(lower.site(node), "value_builder.newWordScratch takes one uint32 capacity")
+            context.reject(lower.site(node), "valuebuilder.newWordScratch takes one uint32 capacity")
         end
         kernel.usesLua = true
         return new scalarIR.LuaScratchU32(
@@ -920,9 +920,9 @@ local function call(
             type = "lua_scratch_u32",
             source = lower.site(node)
         )
-    elseif identity == "nupp.value_builder.scratchWord" then
+    elseif identity == "nupp.valuebuilder.scratchWord" then
         if #args ~= 2 or args[1].type ~= "lua_scratch_u32" or args[1].op ~= "local" or args[2].type ~= "u32" then
-            context.reject(lower.site(node), "value_builder.scratchWord takes a local scratch buffer and uint32 index")
+            context.reject(lower.site(node), "valuebuilder.scratchWord takes a local scratch buffer and uint32 index")
         end
         kernel.usesLua = true
         return new scalarIR.LuaScratchU32Get(
@@ -932,13 +932,13 @@ local function call(
             type = "u32",
             source = lower.site(node)
         )
-    elseif identity == "nupp.value_builder.setScratchWord" then
+    elseif identity == "nupp.valuebuilder.setScratchWord" then
         if #args ~= 3 or args[
             1
         ].type ~= "lua_scratch_u32" or args[1].op ~= "local" or args[2].type ~= "u32" or args[3].type ~= "u32" then
             context.reject(
                 lower.site(node),
-                "value_builder.setScratchWord takes a local scratch buffer, uint32 index, and uint32 value"
+                "valuebuilder.setScratchWord takes a local scratch buffer, uint32 index, and uint32 value"
             )
         end
         kernel.usesLua = true
@@ -950,7 +950,7 @@ local function call(
             type = "lua_effect",
             source = lower.site(node)
         )
-    elseif identity == "nupp.value_builder.appendSetBits" then
+    elseif identity == "nupp.valuebuilder.appendSetBits" then
         if #args ~= 4 or args[
             1
         ].type ~= "lua_scratch_u32" or args[
@@ -958,7 +958,7 @@ local function call(
         ].op ~= "local" or args[2].type ~= "u32" or args[3].type ~= "u32" or args[4].type ~= "simd_mask_bits64" then
             context.reject(
                 lower.site(node),
-                "value_builder.appendSetBits takes a local word scratch, uint32 index and base, and MaskBits64"
+                "valuebuilder.appendSetBits takes a local word scratch, uint32 index and base, and MaskBits64"
             )
         end
         kernel.usesLua = true
@@ -971,9 +971,9 @@ local function call(
             type = "u32",
             source = lower.site(node)
         )
-    elseif identity == "nupp.value_builder.newByteScratch" then
+    elseif identity == "nupp.valuebuilder.newByteScratch" then
         if #args ~= 1 or args[1].type ~= "u32" then
-            context.reject(lower.site(node), "value_builder.newByteScratch takes one uint32 capacity")
+            context.reject(lower.site(node), "valuebuilder.newByteScratch takes one uint32 capacity")
         end
         kernel.usesLua = true
         return new scalarIR.LuaScratchU8(
@@ -982,9 +982,9 @@ local function call(
             type = "lua_scratch_u8",
             source = lower.site(node)
         )
-    elseif identity == "nupp.value_builder.scratchByte" then
+    elseif identity == "nupp.valuebuilder.scratchByte" then
         if #args ~= 2 or args[1].type ~= "lua_scratch_u8" or args[1].op ~= "local" or args[2].type ~= "u32" then
-            context.reject(lower.site(node), "value_builder.scratchByte takes a local byte scratch and uint32 index")
+            context.reject(lower.site(node), "valuebuilder.scratchByte takes a local byte scratch and uint32 index")
         end
         kernel.usesLua = true
         return new scalarIR.LuaScratchU8Get(
@@ -994,11 +994,11 @@ local function call(
             type = "u32",
             source = lower.site(node)
         )
-    elseif identity == "nupp.value_builder.setScratchByte" then
+    elseif identity == "nupp.valuebuilder.setScratchByte" then
         if #args ~= 3 or args[
             1
         ].type ~= "lua_scratch_u8" or args[1].op ~= "local" or args[2].type ~= "u32" or args[3].type ~= "u32" then
-            context.reject(lower.site(node), "value_builder.setScratchByte takes a local byte scratch, index, and byte")
+            context.reject(lower.site(node), "valuebuilder.setScratchByte takes a local byte scratch, index, and byte")
         end
         kernel.usesLua = true
         return new scalarIR.LuaScratchU8Set(
@@ -1009,9 +1009,9 @@ local function call(
             type = "lua_effect",
             source = lower.site(node)
         )
-    elseif identity == "nupp.value_builder.resetByteScratch" then
+    elseif identity == "nupp.valuebuilder.resetByteScratch" then
         if #args ~= 1 or args[1].type ~= "lua_scratch_u8" or args[1].op ~= "local" then
-            context.reject(lower.site(node), "value_builder.resetByteScratch takes one local byte scratch")
+            context.reject(lower.site(node), "valuebuilder.resetByteScratch takes one local byte scratch")
         end
         kernel.usesLua = true
         return new scalarIR.LuaScratchU8Set(
@@ -1020,21 +1020,21 @@ local function call(
             type = "lua_effect",
             source = lower.site(node)
         )
-    elseif identity == "nupp.value_builder.byte"
-        or identity == "nupp.value_builder.word"
-        or identity == "nupp.value_builder.length"
+    elseif identity == "nupp.valuebuilder.byte"
+        or identity == "nupp.valuebuilder.word"
+        or identity == "nupp.valuebuilder.length"
     then
-        local takesIndex = identity ~= "nupp.value_builder.length"
+        local takesIndex = identity ~= "nupp.valuebuilder.length"
         if #args ~= (
             takesIndex and 2 or 1
         ) or args[1].type ~= "lua_string" or args[1].op ~= "local" or takesIndex and args[2].type ~= "u32" then
-            context.reject(lower.site(node), "value_builder rooted byte access has an invalid argument")
+            context.reject(lower.site(node), "valuebuilder rooted byte access has an invalid argument")
         end
         kernel.usesLua = true
         return new scalarIR.LuaBytes(
-            op = identity == "nupp.value_builder.byte"
+            op = identity == "nupp.valuebuilder.byte"
             and "lua_string_byte"
-            or identity == "nupp.value_builder.word"
+            or identity == "nupp.valuebuilder.word"
             and "lua_string_u32"
             or "lua_string_length",
             bytes = args[1],
@@ -1042,9 +1042,9 @@ local function call(
             type = "u32",
             source = lower.site(node)
         )
-    elseif identity == "nupp.value_builder.finish" then
+    elseif identity == "nupp.valuebuilder.finish" then
         if #args ~= 1 or args[1].type ~= "lua_builder" or args[1].op ~= "local" then
-            context.reject(lower.site(node), "value_builder.finish takes one local builder")
+            context.reject(lower.site(node), "valuebuilder.finish takes one local builder")
         end
         kernel.usesLua = true
         return new scalarIR.LuaBuilderFinish(
@@ -1053,26 +1053,26 @@ local function call(
             type = "lua_value",
             source = lower.site(node)
         )
-    elseif identity == "nupp.value_builder.depth"
-        or identity == "nupp.value_builder.kind"
-        or identity == "nupp.value_builder.count"
+    elseif identity == "nupp.valuebuilder.depth"
+        or identity == "nupp.valuebuilder.kind"
+        or identity == "nupp.valuebuilder.count"
     then
         if #args ~= 1 or args[1].type ~= "lua_builder" or args[1].op ~= "local" then
-            context.reject(lower.site(node), "value_builder stream query takes one local builder")
+            context.reject(lower.site(node), "valuebuilder stream query takes one local builder")
         end
         kernel.usesLua = true
         return new scalarIR.LuaBuilderQuery(
-            op = identity == "nupp.value_builder.depth"
+            op = identity == "nupp.valuebuilder.depth"
             and "lua_builder_depth"
-            or identity == "nupp.value_builder.kind"
+            or identity == "nupp.valuebuilder.kind"
             and "lua_builder_kind"
             or "lua_builder_count",
             builder = args[1],
             type = "u32",
             source = lower.site(node)
         )
-    elseif identity ~= nil and identity:match("^nupp%.value_builder%.") ~= nil then
-        local action = tostring(identity):match("^nupp%.value_builder%.(.+)$")
+    elseif identity ~= nil and identity:match("^nupp%.valuebuilder%.") ~= nil then
+        local action = tostring(identity):match("^nupp%.valuebuilder%.(.+)$")
         local operations: {
             [string]: string
         } = {
@@ -1092,7 +1092,7 @@ local function call(
         local operation = operations[tostring(action)]
         if operation ~= nil then
             if #args < 1 or args[1].type ~= "lua_builder" or args[1].op ~= "local" then
-                context.reject(lower.site(node), "value_builder event needs one local builder")
+                context.reject(lower.site(node), "valuebuilder event needs one local builder")
             end
             local event = new scalarIR.LuaBuild(
                 op = operation as any,
@@ -1102,7 +1102,7 @@ local function call(
             )
             if action == "openArray" or action == "openObject" then
                 if #args ~= 2 or args[2].type ~= "u32" then
-                    context.reject(lower.site(node), "value_builder container opening needs a uint32 capacity")
+                    context.reject(lower.site(node), "valuebuilder container opening needs a uint32 capacity")
                 end
                 event.capacity = args[2]
             elseif action == "key" or action == "string" then
@@ -1111,7 +1111,7 @@ local function call(
                 ].type ~= "lua_string" or args[
                     2
                 ].op ~= "local" or args[3].type ~= "u32" or args[4].type ~= "u32" or args[5].type ~= "bool" then
-                    context.reject(lower.site(node), "value_builder string event has invalid arguments")
+                    context.reject(lower.site(node), "valuebuilder string event has invalid arguments")
                 end
                 event.sourceBytes, event.start, event.length, event.escaped = args[2], args[3], args[4], args[5]
             elseif action == "keyScratch" or action == "stringScratch" then
@@ -1120,28 +1120,28 @@ local function call(
                 ].type ~= "lua_scratch_u8" or args[
                     2
                 ].op ~= "local" or args[3].type ~= "u32" or args[4].type ~= "u32" then
-                    context.reject(lower.site(node), "value_builder scratch string event has invalid arguments")
+                    context.reject(lower.site(node), "valuebuilder scratch string event has invalid arguments")
                 end
                 event.scratch, event.start, event.length = args[2], args[3], args[4]
             elseif action == "numberSlice" or action == "integerSlice" then
                 if #args ~= 4 or args[
                     2
                 ].type ~= "lua_string" or args[2].op ~= "local" or args[3].type ~= "u32" or args[4].type ~= "u32" then
-                    context.reject(lower.site(node), "value_builder number slice has invalid arguments")
+                    context.reject(lower.site(node), "valuebuilder number slice has invalid arguments")
                 end
                 event.sourceBytes, event.start, event.length = args[2], args[3], args[4]
             elseif action == "number" then
                 if #args ~= 2 or args[2].type ~= "f64" then
-                    context.reject(lower.site(node), "value_builder.number takes one number")
+                    context.reject(lower.site(node), "valuebuilder.number takes one number")
                 end
                 event.value = args[2]
             elseif action == "boolean" then
                 if #args ~= 2 or args[2].type ~= "bool" then
-                    context.reject(lower.site(node), "value_builder.boolean takes one boolean")
+                    context.reject(lower.site(node), "valuebuilder.boolean takes one boolean")
                 end
                 event.value = args[2]
             elseif #args ~= 1 then
-                context.reject(lower.site(node), "value_builder event takes only its builder")
+                context.reject(lower.site(node), "valuebuilder event takes only its builder")
             end
             kernel.usesLua = true
             return event
