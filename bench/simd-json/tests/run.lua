@@ -28,6 +28,9 @@ local function check(condition, message)
 end
 
 local function same(left, right, simdjsonNumbers)
+   if left == simdjsonBench.empty_array or left == simdjsonBench.empty_object then
+      return type(right) == "table" and next(right) == nil
+   end
    if left == json.null then
       return right == cjson.null
    end
@@ -173,10 +176,9 @@ for _, source in ipairs(corpus) do
    check(same(fusedActual, expected), "fused differential mismatch for " .. source)
    if source ~= "1e309" then
       local simdjsonActual = simdjsonBench.decode(source, json.null)
-      local lazyActual = simdjsonBench.lazy(source, json.null)
+      local pulledActual = simdjsonBench.pull(source, true, json.null)
       check(same(simdjsonActual, expected, true), "simdjson Lua DOM mismatch for " .. source)
-      check(same(simdjsonBench.materialize(lazyActual), expected, true),
-         "simdjson lazy DOM mismatch for " .. source)
+      check(same(pulledActual, expected, true), "simdjson pull mismatch for " .. source)
    end
    local valid, why = json.validate(source)
    check(valid and why == nil, "valid input rejected: " .. tostring(why))
@@ -312,21 +314,101 @@ for _, source in ipairs(invalid) do
    check(not fusedValid, "invalid input accepted by fused parser: " .. source)
    local simdjsonValid = pcall(simdjsonBench.decode, source, json.null)
    check(not simdjsonValid, "invalid input accepted by simdjson Lua DOM: " .. source)
-   local simdjsonLazyValid = pcall(simdjsonBench.lazy, source, json.null)
-   check(not simdjsonLazyValid, "invalid input accepted by simdjson lazy DOM: " .. source)
+   local simdjsonPullValid = pcall(simdjsonBench.pull, source, true, json.null)
+   check(not simdjsonPullValid, "invalid input accepted by simdjson pull: " .. source)
+   local simdjsonSkippedValid = pcall(simdjsonBench.pull, source, {})
+   check(not simdjsonSkippedValid, "invalid skipped input accepted by simdjson pull: " .. source)
 end
 
 do
    local nullValue = {}
-   local source = [[{"items":[{"name":"first"},null,3],"items":[{"name":"last"}],"empty":{},"nullable":null}]]
-   local lazy = simdjsonBench.lazy(source, nullValue)
-   check(simdjsonBench.type(lazy) == "object", "lazy root type is not exposed")
-   check(simdjsonBench.type(lazy.items) == "array", "lazy child type is not exposed")
-   check(#lazy.items == 1 and lazy.items[1].name == "last", "lazy indexing differs from a Lua DOM")
-   check(lazy.nullable == nullValue, "lazy null did not preserve the caller's sentinel")
-   check(lazy.missing == nil and lazy.items[2] == nil, "lazy missing values do not return nil")
-   check(#lazy.empty == 0, "lazy empty object has the wrong size")
-   check(not pcall(function() lazy.items[1] = false end), "lazy DOM accepted a write")
+   local source = [[{"id":7,"profile":{"name":"Nupp","ignored":9},"items":[1,null,2],"nullable":null,"emptyArray":[],"emptyObject":{},"ignored":{"deep":true}}]]
+   local shape = {
+      id = true,
+      profile = {name = true},
+      items = simdjsonBench.array(true),
+      nullable = true,
+      emptyArray = true,
+      emptyObject = true,
+   }
+   local pulled = simdjsonBench.pull(source, shape)
+   check(pulled.id == 7 and pulled.profile.name == "Nupp",
+      "pull did not materialize selected fields")
+   check(pulled.profile.ignored == nil and pulled.ignored == nil,
+      "pull materialized an unselected field")
+   check(#pulled.items == 2 and pulled.items[1] == 1 and pulled.items[2] == 2,
+      "pull did not drop and compact null array values")
+   check(pulled.nullable == nil, "pull did not drop null by default")
+   check(pulled.emptyArray == simdjsonBench.empty_array,
+      "pull lost the empty-array sentinel")
+   check(pulled.emptyObject == simdjsonBench.empty_object,
+      "pull lost the empty-object sentinel")
+
+   local preserved = simdjsonBench.pull(source, shape, nullValue)
+   check(preserved.nullable == nullValue and preserved.items[2] == nullValue,
+      "pull did not preserve the caller's null sentinel")
+   check(preserved.items[3] == 2, "preserved pull changed array positions")
+
+   local eager = simdjsonBench.decode(source)
+   check(eager.nullable == nil and eager.items[1] == 1 and eager.items[2] == 2,
+      "eager decode did not drop null by default")
+   local eagerPreserved = simdjsonBench.decode(source, nullValue)
+   check(eagerPreserved.nullable == nullValue and eagerPreserved.items[2] == nullValue,
+      "eager decode did not preserve the caller's null sentinel")
+   check(simdjsonBench.decode("[null]") == simdjsonBench.empty_array,
+      "an array emptied by null dropping lost its sentinel")
+   check(simdjsonBench.decode([[{"only":null}]]) == simdjsonBench.empty_object,
+      "an object emptied by null dropping lost its sentinel")
+   check(not pcall(simdjsonBench.pull, [[{"ignored":1e309,"id":1}]], {id = true}),
+      "pull did not validate an unselected overflowing number")
+   check(simdjsonBench.pull("[1,2,3]", simdjsonBench.array(false)) ==
+      simdjsonBench.empty_array, "false array shape did not drop every member")
+   check(not pcall(simdjsonBench.pull, "1", "all"),
+      "pull accepted a truthy non-shape value")
+end
+
+do
+   local nullValue = {}
+   check(simdjsonBench.encode(simdjsonBench.empty_array) == "[]",
+      "empty-array sentinel serialized incorrectly")
+   check(simdjsonBench.serialize(simdjsonBench.empty_object) == "{}",
+      "empty-object sentinel serialized incorrectly")
+   check(not pcall(simdjsonBench.encode, {}), "ambiguous empty Lua table serialized")
+   check(not pcall(simdjsonBench.encode, {[2] = true}), "sparse array serialized as JSON")
+   check(not pcall(simdjsonBench.encode, {[1] = true, key = false}),
+      "mixed array and object serialized as JSON")
+   check(not pcall(simdjsonBench.encode, 0 / 0), "NaN serialized as JSON")
+   check(not pcall(simdjsonBench.encode, "\255"), "invalid UTF-8 serialized as JSON")
+   local cycle = {}
+   cycle.self = cycle
+   check(not pcall(simdjsonBench.encode, cycle), "cyclic table serialized as JSON")
+
+   local encoded = simdjsonBench.encode({
+      array = {1, nullValue, 2},
+      emptyArray = simdjsonBench.empty_array,
+      emptyObject = simdjsonBench.empty_object,
+      text = "quote-\"-κόσμος",
+   }, nullValue)
+   local decoded = simdjsonBench.decode(encoded, nullValue)
+   check(decoded.array[2] == nullValue and decoded.array[3] == 2,
+      "serialized null sentinel did not round trip")
+   check(decoded.emptyArray == simdjsonBench.empty_array
+      and decoded.emptyObject == simdjsonBench.empty_object,
+      "serialized empty-container sentinels did not round trip")
+
+   local writer = simdjsonBench.writer(nullValue)
+   writer:startObject():key("items"):startArray():write(1)
+   local first = writer:flush()
+   writer:null():write(simdjsonBench.empty_object):close()
+      :key("empty"):write(simdjsonBench.empty_array):close()
+   local last = writer:finish()
+   check(first .. last == [[{"items":[1,null,{}],"empty":[]}]],
+      "streaming writer emitted the wrong chunks")
+   check(not pcall(function() writer:write(true) end),
+      "finished streaming writer accepted another value")
+   check(not pcall(function()
+      simdjsonBench.writer():startObject():write(true)
+   end), "streaming writer accepted an object value without a key")
 end
 
 do
@@ -352,8 +434,8 @@ do
          "generated fused differential mismatch at case " .. case)
       check(same(simdjsonBench.decode(source, json.null), cjson.decode(source), true),
          "generated simdjson Lua DOM mismatch at case " .. case)
-      check(same(simdjsonBench.materialize(simdjsonBench.lazy(source, json.null)), cjson.decode(source), true),
-         "generated simdjson lazy DOM mismatch at case " .. case)
+      check(same(simdjsonBench.pull(source, true, json.null), cjson.decode(source), true),
+         "generated simdjson pull mismatch at case " .. case)
       local truncated = source:sub(1, -2)
       check(not pcall(arena.decode, truncated, json.null),
          "truncated generated document accepted at case " .. case)

@@ -64,23 +64,36 @@ function M.error(code)
 end
 
 --- Parses and constructs an ordinary Lua DOM in one native call.
+--- JSON null is dropped unless nullValue is supplied.
 function M.decode(source, nullValue)
    return luaNative.decode(source, nullValue)
 end
 
---- Parses into a read-only simdjson-backed DOM that defers Lua allocation.
-function M.lazy(source, nullValue)
-   return luaNative.lazy(source, nullValue)
+--- Selectively materializes a document with simdjson On-Demand.
+--- `true` selects a complete value, object tables select named fields, and
+--- `array(shape)` applies one shape to every array item.
+function M.pull(source, shape, nullValue)
+   return luaNative.pull(source, shape == nil and true or shape, nullValue)
 end
 
---- Converts a lazy root or nested container into ordinary Lua values.
-function M.materialize(value)
-   return luaNative.materialize(value)
+--- Constructs the shape used to pull every item from a JSON array.
+function M.array(shape)
+   return luaNative.array(shape == nil and true or shape)
 end
 
---- Returns the JSON type of a lazy root or nested container.
-function M.type(value)
-   return luaNative.type(value)
+--- Serializes one Lua value. Empty containers require the exported sentinels.
+function M.encode(value, nullValue)
+   return luaNative.encode(value, nullValue)
 end
+
+M.serialize = M.encode
+
+--- Creates an incremental writer. flush() returns the next completed chunk.
+function M.writer(nullValue)
+   return luaNative.writer(nullValue)
+end
+
+M.empty_array = luaNative.empty_array
+M.empty_object = luaNative.empty_object
 
 return M

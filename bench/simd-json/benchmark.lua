@@ -42,12 +42,18 @@ local function numbers()
 end
 
 local payloads = {
-   {name = "records", source = records(), short = false},
-   {name = "ascii", source = strings("ordinary-ascii-value-", 5000), short = false},
-   {name = "unicode", source = strings("κόσμος-日本語-🙂-", 3500), short = false},
-   {name = "escaped", source = strings("quote-\"-slash-\\-line-\n-", 4000), short = false},
-   {name = "numbers", source = numbers(), short = false},
-   {name = "short", source = [[{"ok":true,"n":42,"s":"hello"}]], short = true},
+   {name = "records", source = records(), short = false,
+      pullShape = simdjsonBench.array({id = true, name = true})},
+   {name = "ascii", source = strings("ordinary-ascii-value-", 5000), short = false,
+      pullShape = simdjsonBench.array(true)},
+   {name = "unicode", source = strings("κόσμος-日本語-🙂-", 3500), short = false,
+      pullShape = simdjsonBench.array(true)},
+   {name = "escaped", source = strings("quote-\"-slash-\\-line-\n-", 4000), short = false,
+      pullShape = simdjsonBench.array(true)},
+   {name = "numbers", source = numbers(), short = false,
+      pullShape = simdjsonBench.array(true)},
+   {name = "short", source = [[{"ok":true,"n":42,"s":"hello"}]], short = true,
+      pullShape = {ok = true, n = true}},
 }
 
 local function hash32(source)
@@ -94,9 +100,9 @@ local report = {
 }
 
 local names = indexOnly and {"classify", "index"} or {
-   "classify", "index", "simdjsonStage1", "simdjsonDom", "simdjsonLua", "simdjsonLazy",
-   "simdjsonLazyMaterialize", "parse", "materialize", "build", "legacy", "arena", "builder",
-   "fused", "nupp", "cjson",
+   "classify", "index", "simdjsonStage1", "simdjsonDom", "simdjsonLua", "simdjsonPull",
+   "simdjsonPullSelected", "simdjsonEncode", "cjsonEncode", "parse", "materialize", "build",
+   "legacy", "arena", "builder", "fused", "nupp", "cjson",
 }
 
 local function sorted(values)
@@ -169,6 +175,7 @@ for payloadIndex, payload in ipairs(payloads) do
    local frameWrite = span.writeCarray(frames, #source)
    local document = arena.parse(source)
    local simdjsonParser = simdjsonBench.new(source)
+   local simdjsonValue = simdjsonBench.decode(source, json.null)
    local iterations = math.max(1, math.ceil(targetBytes / #source))
    if payload.short then
       iterations = math.max(iterations, 10000)
@@ -213,17 +220,31 @@ for payloadIndex, payload in ipairs(payloads) do
          end
          return os.clock() - started
       end,
-      simdjsonLazy = function()
+      simdjsonPull = function()
          local started = os.clock()
          for _ = 1, iterations do
-            simdjsonBench.lazy(source, json.null)
+            simdjsonBench.pull(source, true, json.null)
          end
          return os.clock() - started
       end,
-      simdjsonLazyMaterialize = function()
+      simdjsonPullSelected = function()
          local started = os.clock()
          for _ = 1, iterations do
-            simdjsonBench.materialize(simdjsonBench.lazy(source, json.null))
+            simdjsonBench.pull(source, payload.pullShape, json.null)
+         end
+         return os.clock() - started
+      end,
+      simdjsonEncode = function()
+         local started = os.clock()
+         for _ = 1, iterations do
+            simdjsonBench.encode(simdjsonValue, json.null)
+         end
+         return os.clock() - started
+      end,
+      cjsonEncode = function()
+         local started = os.clock()
+         for _ = 1, iterations do
+            cjson.encode(simdjsonValue)
          end
          return os.clock() - started
       end,
@@ -300,7 +321,8 @@ for payloadIndex, payload in ipairs(payloads) do
 
    local raw = {
       classify = {}, index = {}, simdjsonStage1 = {}, simdjsonDom = {},
-      simdjsonLua = {}, simdjsonLazy = {}, simdjsonLazyMaterialize = {},
+      simdjsonLua = {}, simdjsonPull = {}, simdjsonPullSelected = {},
+      simdjsonEncode = {}, cjsonEncode = {},
       parse = {}, materialize = {}, build = {},
       legacy = {}, arena = {}, builder = {}, nupp = {}, cjson = {},
       fused = {},
@@ -323,9 +345,11 @@ for payloadIndex, payload in ipairs(payloads) do
       summary.simdjsonStage1MBps = #source * iterations / median(raw.simdjsonStage1) / 1000000
       summary.simdjsonDomMBps = #source * iterations / median(raw.simdjsonDom) / 1000000
       summary.simdjsonLuaMBps = #source * iterations / median(raw.simdjsonLua) / 1000000
-      summary.simdjsonLazyMBps = #source * iterations / median(raw.simdjsonLazy) / 1000000
-      summary.simdjsonLazyMaterializeMBps =
-         #source * iterations / median(raw.simdjsonLazyMaterialize) / 1000000
+      summary.simdjsonPullMBps = #source * iterations / median(raw.simdjsonPull) / 1000000
+      summary.simdjsonPullSelectedMBps =
+         #source * iterations / median(raw.simdjsonPullSelected) / 1000000
+      summary.simdjsonEncodeMBps = #source * iterations / median(raw.simdjsonEncode) / 1000000
+      summary.cjsonEncodeMBps = #source * iterations / median(raw.cjsonEncode) / 1000000
       summary.legacyMBps = #source * iterations / median(raw.legacy) / 1000000
       summary.parseMBps = #source * iterations / median(raw.parse) / 1000000
       summary.materializeMBps = #source * iterations / median(raw.materialize) / 1000000

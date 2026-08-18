@@ -9,22 +9,50 @@ The benchmark also carries a deliberately narrow C++ binding to the system
 LuaJIT development files (`brew install simdjson luajit` on macOS). The binding
 is calibration and experimental API code, not a Nupp runtime dependency. It
 retains the reusable On-Demand stage-one and simdjson DOM calibration calls and
-also exposes two end-to-end Lua APIs:
+also exposes parsing and serialization APIs:
 
-- `simdjson_bench.decode(source, nullValue)` parses directly into ordinary Lua
-  tables, strings, numbers, booleans, and the supplied null sentinel.
-- `simdjson_bench.lazy(source, nullValue)` returns a read-only, random-access
-  view that owns a simdjson DOM and defers Lua value allocation until fields are
-  read. `simdjson_bench.type(view)` reports its JSON type, and
-  `simdjson_bench.materialize(view)` converts any container view to ordinary Lua
-  values.
+- `simdjson_bench.decode(source, nullValue)` eagerly constructs ordinary Lua
+  values through simdjson's DOM parser.
+- `simdjson_bench.pull(source, shape, nullValue)` uses On-Demand without first
+  constructing a simdjson DOM. `true` selects a complete value, an object-shaped
+  Lua table selects named fields, and `simdjson_bench.array(itemShape)` applies
+  one shape to every array member. `false` drops a value, so `array(false)`
+  validates an array without retaining its members. Unselected values are still
+  consumed and validated, but allocate no Lua values.
+- `simdjson_bench.encode(value, nullValue)` (also named `serialize`) converts a
+  Lua value to JSON with simdjson's low-level string builder.
+- `simdjson_bench.writer(nullValue)` exposes the same builder incrementally.
+  `startObject`, `startArray`, `key`, `write`, `null`, and `close` form a checked
+  JSON stream. `flush()` returns and clears the current chunk; concatenating the
+  chunks with the final `finish()` result produces the document.
 
-The lazy view is backed by simdjson's repeatable DOM API. It is not an On-Demand
-cursor: On-Demand is forward-only and would need a distinct iterator-shaped
-contract. Array views use one-based indexes, object access uses string keys,
-missing members return `nil`, and duplicate object keys resolve to the last
-value so that lazy access agrees with eager Lua table construction. The view
-does not currently expose object or array iteration.
+JSON null is dropped by default: object members disappear and array members are
+compacted. Passing any non-nil `nullValue` preserves null with that identity.
+`empty_array` and `empty_object` are stable exported sentinels used by both
+parsing paths and accepted by both serializers. An ordinary empty Lua table is
+rejected during serialization because it does not say which JSON container it
+means. Non-empty Lua tables must be either contiguous one-based arrays or
+string-keyed objects.
+
+```lua
+local projected = simdjson_bench.pull(source, {
+   id = true,
+   profile = {name = true},
+   tags = simdjson_bench.array(true),
+})
+
+local writer = simdjson_bench.writer(myNull)
+writer:startObject():key("id"):write(projected.id)
+local prefix = writer:flush()
+writer:key("items"):write(simdjson_bench.empty_array):close()
+local json = prefix .. writer:finish()
+```
+
+The removed lazy-DOM prototype offered random access by constructing a complete
+native DOM first. Pull shapes make the intended trade explicit: traversal is
+forward-only inside one native call, while only selected application values
+cross into Lua. This also prevents an On-Demand cursor or nested value from
+escaping the parser and input-buffer lifetime that makes it valid.
 
 These APIs inherit simdjson DOM number behavior rather than promising exact
 `nupp.json` compatibility. In particular, negative zero is normalized and an
@@ -75,10 +103,10 @@ Run the differential tests against `lua-cjson`:
 ```
 
 After building, measure classification, structural indexing, simdjson stage
-one and internal DOM construction, eager Lua DOM construction, lazy-root
-creation, lazy full materialization, native arena parsing, the old Lua
-materializer, tree-builder consumption, the legacy/arena/tree-builder/fused
-decoders, and `lua-cjson`:
+one and internal DOM construction, eager Lua DOM construction, On-Demand pull
+construction, serialization, native arena parsing, the old Lua materializer,
+tree-builder consumption, the legacy/arena/tree-builder/fused decoders, and
+`lua-cjson`:
 
 ```sh
 LUA_PATH='build/?.lua;../../build/?.lua;../../.rocks/share/lua/5.1/?.lua;../../.rocks/share/lua/5.1/?/init.lua;;' \
@@ -134,12 +162,23 @@ on ASCII strings, 1,119 MB/s on Unicode, 876 MB/s on escaped strings, and
 478 MB/s on numbers. That is respectively 1.65x, 2.63x, 2.61x, 1.93x, and
 1.85x the colocated `lua-cjson` result.
 
-Creating only the lazy root reaches 804, 2,575, 2,139, 1,564, and 765 MB/s on
-those payloads. Creating a lazy root and then materializing the whole document
-reaches 197, 867, 965, 795, and 428 MB/s, so callers that need the full tree
-should use the direct eager API. Per-document ownership is deliberately simple
-in this experiment: on the 30-byte payload it makes lazy-root creation only
-25 MB/s, while the reusable eager parser reaches 140 MB/s.
+That historical result also records the now-removed lazy-DOM prototype. Its
+numbers remain in the immutable result record, but the current harness replaces
+them with On-Demand pull and serialization measurements.
+
+The replacement result is committed at
+`results/arm64-macos-neon-simdjson-pull-codec.json` with the same nine-sample,
+2 MB-per-sample protocol. Full On-Demand materialization reaches 190 MB/s on
+records, 943 MB/s on ASCII strings, 1,181 MB/s on Unicode, 676 MB/s on escaped
+strings, and 499 MB/s on numbers. Pulling only `id` and `name` from each record
+reaches 248 MB/s versus 227 MB/s for the colocated eager DOM-to-Lua path; the
+advantage is selective allocation, not a promise that On-Demand is faster when
+the requested shape is the whole document.
+
+Serialization reaches 73, 308, 365, 293, and 66 MB/s on those five payloads.
+The colocated `lua-cjson` encoder reaches 78, 388, 405, 407, and 38 MB/s. The
+simdjson builder wins on the number-heavy payload but the Lua table walk and
+per-string UTF-8 validation leave the current binding behind on the others.
 
 The lookup4/padded-load result is committed at
 `results/arm64-macos-neon-stage1-lookup.json`. It is a nine-sample, 2 MB-per-
