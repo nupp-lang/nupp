@@ -1,0 +1,189 @@
+--[[
+What one file exports, read off its parse and nothing else.
+
+A header is what the project index is built from, and what the store between
+commands keeps: a file's declarations, their syntax, and where each was named.
+Computing one reads the parse tree and the tokens under it, so this module
+requires the parser and stops there.
+
+That boundary is the point. The stored header is stamped with a digest of the
+compiler that computed it (`nupp.compiler.build.cache`), and a stamp is only as
+narrow as the code it covers. While this lived in `nupp.compiler.env` the
+narrowest honest answer was the whole environment -- the checker, the code
+generator and everything they reach -- so editing any of them threw away every
+header in the project and made the next command reparse all of it. Here the
+answer is the parser and this file.
+]]
+
+local cst = require("nupp.compiler.cst")
+local lexer = require("nupp.compiler.lexer")
+local parser = require("nupp.compiler.parser")
+
+local header = {}
+
+--- One exported declaration, as a file's header records it.
+type header.Declaration = {
+    name: string,
+    kind: string,
+    statKind: string,
+    visibility: string,
+
+    --- The declaration's source text. It changes whenever anything a dependent could
+    --- see about the declaration changes, which is what the early cutoff compares.
+    signature: string,
+
+    isAnnotation: boolean?,
+    deprecated: any?,
+
+    --- The token it was named at. `any` because it is a copy of a token rather than
+    --- one: a live token is a handle on the parse that produced it, and a header
+    --- outlives its parse.
+    token: any
+}
+
+--- What one file exports, in the form the project index is built from.
+type header.Header = {
+    path: string,
+    moduleName: string?,
+
+    --- The local the file returns, which qualified declarations attach to.
+    moduleLocal: string?,
+
+    declarations: {header.Declaration}
+}
+
+local function declarationKind(stat): string
+    if stat.kind == "recordDecl" then
+        return stat.declKind
+    end
+
+    return "type"
+end
+
+local function annotationString(expr): string?
+    if not expr or expr.kind ~= "string" or not expr.token then
+        return nil
+    end
+    local text = expr.token.text
+    local chunk = loadstring("return " .. text)
+    if chunk then
+        local ok, value = pcall(chunk)
+        if ok and type(value) == "string" then
+            return value
+        end
+    end
+
+    return nil
+end
+
+local function syntacticDeprecation(application): any
+    local deprecated = {}
+    for _, argument in ipairs(application.annotationArgs or {}) do
+        local name = argument.name and argument.name.text or "reason"
+        local value = annotationString(argument.expr)
+        if (name == "reason" or name == "replacement") and value then
+            deprecated[name] = value
+        end
+    end
+
+    return deprecated
+end
+
+local function annotatedDeclaration(stat): any, boolean, any
+    local annotationDefinition = false
+    local deprecated = nil
+    while stat and stat.kind == "pragmaStmt" do
+        if stat.name and stat.name.text == "annotation" then
+            annotationDefinition = true
+        elseif stat.name and stat.name.text == "deprecated" then
+            deprecated = syntacticDeprecation(stat)
+        end
+        stat = stat.stat
+    end
+
+    return stat, annotationDefinition, deprecated
+end
+
+--- A declaration's syntax without trivia. Whitespace and comments do not change a
+--- reflected type or a module interface, so they must not invalidate either reader.
+local function declarationSignature(stat): string
+    local parts = {}
+    local function walk(value)
+        if cst.isToken(value) then
+            if value.kind ~= "eof" and not value.missing then
+                parts[#parts + 1] = value.kind .. "\1" .. value.text
+            end
+        else
+            for _, child in ipairs(value) do
+                walk(child)
+            end
+        end
+    end
+
+    walk(stat)
+
+    return table.concat(parts, "\2")
+end
+
+--- What the index keeps of the token a declaration was named at.
+---
+--- A copy rather than the token, because a live token is a handle on the parse that
+--- produced it: `definition`, `stmtLastTok` and `groupRef` point back into the tree and
+--- at other tokens. A header outlives its parse -- it is compared across reparses for
+--- the early cutoff, and it is written to disk between commands -- and neither of those
+--- can be holding a whole syntax tree open.
+local function declarationToken(tok): any
+    -- Plain records rather than a slice of the file's block: this copy outlives the
+    -- token stream it came from, and holding a span into that block would hold the
+    -- whole file's source with it.
+    local trivia = {}
+    for index = 1, tok and tok.triviaCount or 0 do
+        trivia[index] = lexer.triviaRecord(tok, index)
+    end
+
+    return {kind = tok.kind, text = tok.text, offset = tok.offset, line = tok.line, col = tok.col, trivia = trivia}
+end
+
+--- Extracts only project-index information from one parse.
+---
+--- `moduleName` is passed rather than resolved: which module a path names is a
+--- question about the project's include roots, which this module deliberately knows
+--- nothing about.
+---
+--- A file that did not parse still has a header, holding no declarations. It is a file
+--- of the project either way, and saying so is what keeps a syntax error from also
+--- reading as a module that vanished.
+function header.of(path: string, moduleName: string?, parsed: parser.ParseResult?): header.Header
+    local produced: header.Header = {path = path, moduleName = moduleName, declarations = {}}
+    if not parsed or #parsed.errors > 0 then
+        return produced
+    end
+    local moduleLocal = cst.returnedLocal(parsed.root)
+    produced.moduleLocal = moduleLocal
+    for _, block in ipairs(parsed.root.blocks or {}) do
+        for _, stat in ipairs(block.stats or {}) do
+            local declaration, isAnnotation, deprecated = annotatedDeclaration(stat)
+            local visibility = declaration and cst.declVisibility(declaration, moduleLocal)
+            if declaration and (
+                declaration.kind == "typeAlias" or declaration.kind == "recordDecl"
+            ) and (visibility == "module" or visibility == "global") then
+                produced.declarations[
+                    #produced.declarations + 1
+                ] = {
+                    name = declaration.name.text,
+                    kind = declarationKind(declaration),
+                    statKind = declaration.kind,
+                    visibility = visibility,
+                    token = declarationToken(declaration.name),
+                    signature = declarationSignature(stat),
+                    isAnnotation = isAnnotation,
+                    deprecated = deprecated,
+                }
+            end
+        end
+    end
+
+    return produced
+end
+
+return header
