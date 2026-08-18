@@ -124,11 +124,13 @@ Each used builtin is bound once per generated module and omitted when unused;
 definition, so a shadowed `table` is untouched and generated modules stay
 standalone under external LuaJIT.
 
-Inside a VM-aware [`@aot`](aot.md) builder the same identity lowers natively:
-capacities are checked and passed to `lua_createtable`, writes to the still-fresh
-table use public raw-set API calls, and table literals carry inferred array/hash
-capacities. `nupp aot --json` reports `entryMode: "lua-builder"`. Allocation
-alone is not a reason to add `@aot` — profile the construction loop first.
+::: tip See also
+An `@aot` builder lowers the same identity to `lua_createtable` and public
+raw-set calls; see
+[building ordinary Lua values](aot.md#building-ordinary-lua-values). Table
+allocation alone is not a reason to add `@aot` — profile the construction loop
+first.
+:::
 
 ### `string.buffer`
 
@@ -189,6 +191,8 @@ end
 local text = __nuppT6
 ```
 :::
+
+#### Static result maps
 
 When every case and result — including `else` — is a compiler-known inert
 scalar, and there are enough of them, the decision finishes in one table read
@@ -299,6 +303,14 @@ local kind = __nuppT4
 
 Every map is allocated once in generated module setup, never at the switch site.
 
+::: tip See also
+The AOT scalar subset admits a switch as the sole initializer of one local and
+emits a native C `switch` for an exact-width selector; see
+[scalar switch initializers](aot.md#scalar-switch-initializers).
+:::
+
+#### What keeps ordered branches
+
 Ordered branches come back for coverage builds, which need one instrumentable
 condition per authored case, and for small maps, block arms, destructuring,
 contextual `yield`, early `return`, refinements, any result whose evaluation can
@@ -311,12 +323,7 @@ guard and may share that read across a leading run of record cases. An optional,
 gradual, primitive, refined, or otherwise open selector keeps the guarded or
 authored-order predicate.
 
-In the [AOT](aot.md) scalar subset, a switch that initializes one scalar local,
-uses integer-valued numeric cases, has expression arms, and is checker-proven
-exhaustive is admitted. An established `int32` or `uint32` selector is emitted as
-a native C `switch`, leaving the C compiler to choose branches, a tree, bit
-tests, or a jump table; a binary64 selector retains equality branches because
-converting it would change semantics.
+#### What is not built
 
 There is no per-dispatch C helper, function table, BDD, MTBDD, or LuaJIT VM
 extension. Stock LuaJIT cannot jump from a computed case ordinal to an arbitrary
@@ -857,6 +864,8 @@ The same pass scalar-replaces the view itself. Above, `left` and `right` become
 bare counts rather than span objects — the checked finish, root, offset, count,
 and access capability are kept as compiler facts instead of allocating a wrapper.
 
+#### SoA columns
+
 A [SoA](../soa.md) view is the other admitted shape. The canonical
 `for index = 1, #rows` loop proves every row access in bounds, and a const-bound
 view lets each field become a direct typed-column load or store:
@@ -902,6 +911,8 @@ end
     OPT-6: indexed-range: lowers 4 soa accesses
     OPT-6: view-scalar-replacement: virtualizes one alias
 
+#### Admitted roots and what they keep
+
 An arbitrary index keeps its runtime bounds check. Admitted roots come from
 `span.fromString`, the shared and writable C-array constructors,
 `heap.Array:read()`/`write()`, and `soa.Array:read()`/`write()`. Slices retain
@@ -919,9 +930,11 @@ Recursive, exported, dynamic, foreign, cross-module, `any`, and otherwise opaque
 boundaries retain the materialized ABI, as does returning, capturing, or storing
 the view.
 
-An [`@aot`](aot.md) function retains the same resolved field identities and
-single-map-loop fact, and its backend keeps unit strides in IR for direct scalar
-or lane lowering.
+::: tip See also
+An `@aot` function retains the same resolved field identities and single-map-loop
+fact, and its backend keeps unit strides in IR for direct scalar or lane
+lowering; see [automatic vectorisation](aot.md#automatic-vectorisation).
+:::
 
 ### Rewrites deliberately not made
 
