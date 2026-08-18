@@ -163,29 +163,116 @@ built_is_current() {
         | head -n 1)" ]
 }
 
+# One build at a time, per tree.
+#
+# A build removes the completion stamp before it writes anything, so while one is
+# running every other process sees a tree that looks like it was never built --
+# and each of them starts its own over the same output directory. A test suite
+# whose own build takes a minute is enough: every command a test runs in that
+# minute becomes another compiler compiling the same files, and none of them
+# finish because the others keep moving the files under them.
+#
+# `mkdir` is the lock because it is atomic wherever this script runs. The pid in
+# it is what tells a lock somebody is holding from one a killed build left
+# behind.
+BUILD_LOCK="$ROOT/build/.nupp-build-lock"
+BUILD_LOCK_HELD=no
+
+# How long to wait for another build before deciding it is not coming back. A
+# cold build of this compiler is about twenty seconds and a bootstrap one a few
+# minutes, so this is minutes past anything legitimate.
+BUILD_LOCK_WAIT=900
+
+release_build_lock() {
+    [ "$BUILD_LOCK_HELD" = yes ] || return 0
+    BUILD_LOCK_HELD=no
+    rm -rf "$BUILD_LOCK"
+}
+
+lock_holder_alive() {
+    holder=$(cat "$BUILD_LOCK/pid" 2>/dev/null) || return 1
+    [ -n "$holder" ] || return 1
+    kill -0 "$holder" 2>/dev/null
+}
+
+# 0 holding the lock and with a build still to do, 1 when somebody else's build
+# has already produced what this one was going to.
+take_build_lock() {
+    waited=0
+    while :; do
+        mkdir -p "$ROOT/build" 2>/dev/null
+        if mkdir "$BUILD_LOCK" 2>/dev/null; then
+            printf '%s\n' "$$" > "$BUILD_LOCK/pid"
+            BUILD_LOCK_HELD=yes
+            trap 'release_build_lock' EXIT
+            trap 'release_build_lock; exit 130' INT
+            trap 'release_build_lock; exit 143' TERM
+            return 0
+        fi
+        if ! lock_holder_alive; then
+            rm -rf "$BUILD_LOCK"
+            continue
+        fi
+        sleep 1
+        waited=$((waited + 1))
+        # Whoever holds it is building the same sources this needs built, so
+        # their answer is this one's answer.
+        built_is_current && return 1
+        if [ "$waited" -ge "$BUILD_LOCK_WAIT" ]; then
+            echo "nupp: another build has held $BUILD_LOCK for ${waited}s;" \
+                "building without it" >&2
+            return 0
+        fi
+    done
+}
+
 # With the best compiler available: the built one when there is one, since a
 # compiler that has kept up with the sources is likelier to compile them than a
 # bundle from whenever it was last refreshed.
+#
+# The built one is chosen on whether it is there, not on whether the stamp says
+# the last build finished. Those differ exactly while a build is running, and
+# answering "there is no compiler here" then sent every concurrent command to
+# the stage-0 bootstrap -- the slowest compiler in the tree -- to build the
+# whole thing from nothing, when a working compiler was sitting right there.
 #
 # When that one cannot build, the bootstrap gets a turn. A build can succeed and
 # still leave a compiler that does not run — that is an ordinary afternoon when
 # the thing being edited is the compiler — and without the second attempt the
 # only way out is knowing to delete build/ by hand.
 build_now() {
-    if built_exists; then
-        (cd "$ROOT" && luajit -e "$LUAPATH" "$LUA_BUILT" build) && return 0
-        [ -f "$BOOTSTRAP" ] || return 1
-        echo "nupp: falling back to the bootstrap compiler" >&2
+    take_build_lock || return 0
+    build_status=1
+    if [ -f "$BUILT" ]; then
+        if (cd "$ROOT" && luajit -e "$LUAPATH" "$LUA_BUILT" build); then
+            release_build_lock
+            return 0
+        fi
+        if [ -f "$BOOTSTRAP" ]; then
+            echo "nupp: falling back to the bootstrap compiler" >&2
+        fi
     fi
-    [ -f "$BOOTSTRAP" ] || return 1
-    (cd "$ROOT" && luajit "$LUA_BOOTSTRAP" build)
+    if [ -f "$BOOTSTRAP" ]; then
+        (cd "$ROOT" && luajit "$LUA_BOOTSTRAP" build)
+        build_status=$?
+    fi
+    release_build_lock
+
+    return "$build_status"
 }
 
 # `build` and `clean` are the build; running one before them would be doing
 # their job twice or undoing it. `help` and a bare invocation answer without
 # reading a single source file.
+#
+# A comptime worker is a child of a build that is already running: it is handed
+# one request by the compiler that started it and answers that. Letting it ask
+# whether the tree needs building meant every worker a build spawned started a
+# second build of the same tree, while its parent was still writing the files.
+is_worker=no
 case "${1:-}" in
-    ""|-h|--help|help|__comptime-worker-service) rebuild=no ;;
+    ""|-h|--help|help) rebuild=no ;;
+    __comptime-worker|__comptime-worker-service) rebuild=no; is_worker=yes ;;
     build|clean)       rebuild=no ;;
     *)                 rebuild=yes ;;
 esac
@@ -217,7 +304,14 @@ if [ "$rebuild" = yes ] && ! built_is_current; then
     fi
 fi
 
-if built_exists; then
+# A worker is a child of a build that is running, and the compiler running it is
+# the one in build/ -- stamp or no stamp, because that build removed the stamp
+# before it started writing. Answering with the bootstrap instead has one
+# compiler's questions answered by another one, and the comptime value that comes
+# back is a value the asking compiler does not recognize: a build rejecting its
+# own source with "unknown is not a Handler", intermittently, depending on which
+# modules needed a worker.
+if built_exists || { [ "$is_worker" = yes ] && [ -f "$BUILT" ]; }; then
     exec luajit -e "$LUAPATH" "$LUA_BUILT" "$@"
 fi
 
