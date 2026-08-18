@@ -5,6 +5,7 @@ local arena = require("simd_json.arena")
 local indexer = require("simd_json.indexer")
 local parser = require("simd_json.parser")
 local scanner = require("simd_json.scanner")
+local simdjsonBench = require("simdjson_bench")
 local span = require("nupp.span")
 local valueBuilder = require("nupp.value_builder")
 
@@ -470,6 +471,19 @@ if ffi.os ~= "Windows" then
       end
       check(ffi.C.munmap(allocation, pageSize * 2) == 0, "guard-page release failed")
    end
+end
+
+do
+   check(simdjsonBench.version():match("^%d+%.%d+%.%d+$") ~= nil,
+      "simdjson version is unavailable")
+   check(#simdjsonBench.implementation() > 0, "simdjson implementation is unavailable")
+   local valid = simdjsonBench.new([[{"values":[1,2.5,true,null],"text":"κόσμος"}]])
+   check(valid:stage1() == 0, "simdjson stage 1 rejected valid JSON")
+   check(valid:dom() == 0, "simdjson DOM rejected valid JSON")
+   local invalidUtf8 = simdjsonBench.new(string.char(34, 255, 34))
+   check(invalidUtf8:stage1() ~= 0, "simdjson stage 1 accepted invalid UTF-8")
+   local invalidControl = simdjsonBench.new(string.char(34, 1, 34))
+   check(invalidControl:stage1() ~= 0, "simdjson stage 1 accepted a raw control byte")
 end
 
 print(("ok - %d SIMD JSON checks"):format(checks))

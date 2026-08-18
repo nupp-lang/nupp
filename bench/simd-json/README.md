@@ -4,6 +4,12 @@ This is a deliberately detachable experiment. Delete `bench/simd-json` to
 remove the JSON implementation; the AOT support it exercises remains useful to
 byte codecs, image kernels, checksums, and other narrow-buffer workloads.
 
+The benchmark also carries a deliberately narrow C++ binding to the system
+`simdjson` package. It requires `pkg-config` and simdjson development files
+(`brew install simdjson` on macOS). The binding is calibration code, not a Nupp
+runtime dependency: it exposes only reusable On-Demand stage-one and eager DOM
+parse calls over one pre-padded input.
+
 The production route has three stages inside one native entry:
 
 1. `simd_json.fused` reads the Lua-rooted input with target-width packed bytes.
@@ -47,9 +53,10 @@ Run the differential tests against `lua-cjson`:
 ./run.sh
 ```
 
-After building, measure classification, structural indexing, native arena
-parsing, the old Lua materializer, tree-builder consumption, the
-legacy/arena/tree-builder/fused decoders, and `lua-cjson`:
+After building, measure classification, structural indexing, simdjson stage one
+and eager DOM construction, native arena parsing, the old Lua materializer,
+tree-builder consumption, the legacy/arena/tree-builder/fused decoders, and
+`lua-cjson`:
 
 ```sh
 LUA_PATH='build/?.lua;../../build/?.lua;../../.rocks/share/lua/5.1/?.lua;../../.rocks/share/lua/5.1/?/init.lua;;' \
@@ -85,6 +92,23 @@ ASCII, 0.822x on Unicode, 0.702x on escaped strings, and 0.611x on numbers.
 The gains concentrate where presized objects or transformed strings amortize
 their metadata; the retained per-payload figures make the small regressions on
 plain string and decimal-heavy arrays explicit.
+
+The same-machine simdjson calibration is committed at
+`results/arm64-macos-simdjson-4.6.4.json`. It uses simdjson 4.6.4's `arm64`
+implementation, four warmups, fifteen paired samples, reused parser buffers,
+and input padding prepared outside the timed loop. Stage one reaches 3.550 GB/s
+on records, 6.730 GB/s on ASCII strings, 4.476 GB/s on Unicode, 6.955 GB/s on
+escaped strings, and 4.667 GB/s on numbers. The corresponding eager simdjson
+DOM rates are 0.989, 3.891, 2.939, 1.804, and 0.803 GB/s.
+
+Those DOM numbers construct simdjson's compact internal representation, not
+Lua tables and strings, so they are a ceiling rather than an end-to-end API
+comparison. Stage one is the actionable comparison: it is 6.7–18.7 times the
+current Nupp classifier on these payloads. `MaskBits64` makes a 64-byte source
+kernel expressible, but the present AOT SIMD vocabulary still lacks the byte
+table lookup, cross-vector byte alignment, block batching, and ARM-friendly
+set-bit emission needed to reproduce simdjson's kernel rather than merely its
+two-stage shape.
 
 The prior tree result remains at `results/arm64-macos-neon-builder.json` as the
 V4 baseline.
