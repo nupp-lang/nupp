@@ -798,14 +798,24 @@ local function call(
             args[index] = lower.convert(argument, "u32", lower.site(node), context)
         end
         kernel.usesSimd = true
-        return new scalarIR.Simd(op = "simd_table_u8x16", args = args, type = "simd_table_u8x16", source = lower.site(node))
+        return new scalarIR.Simd(
+            op = "simd_table_u8x16",
+            args = args,
+            type = "simd_table_u8x16",
+            source = lower.site(node)
+        )
     elseif identity == "nupp.simd.alignBytes" then
         if #args ~= 3 or args[1].type ~= "simd_vector_u8" or args[2].type ~= "simd_vector_u8" then
             context.reject(lower.site(node), "simd.alignBytes takes two byte vectors and a uint32 offset")
         end
         args[3] = lower.convert(args[3], "u32", lower.site(node), context)
         kernel.usesSimd = true
-        return new scalarIR.Simd(op = "simd_align_bytes_u8", args = args, type = "simd_vector_u8", source = lower.site(node))
+        return new scalarIR.Simd(
+            op = "simd_align_bytes_u8",
+            args = args,
+            type = "simd_vector_u8",
+            source = lower.site(node)
+        )
     elseif identity == "nupp.simd.paddedStringU8" then
         local bytes = args[1]
         local rooted = bytes ~= nil and bytes.op == "local" and bytes as scalarIR.Name or nil
@@ -817,13 +827,19 @@ local function call(
             or param == nil
             or param.kind ~= "scalar"
             or param.type ~= "lua_string"
-            or (rooted as scalarIR.Name).cName ~= param.cName
-        then
+            or (
+            rooted as scalarIR.Name
+        ).cName ~= param.cName then
             context.reject(lower.site(node), "simd.paddedStringU8 requires a rooted string parameter")
         end
         kernel.usesSimd = true
         kernel.usesLua = true
-        return new scalarIR.Simd(op = "simd_padded_string_u8", args = args, type = "simd_padded_string_u8", source = lower.site(node))
+        return new scalarIR.Simd(
+            op = "simd_padded_string_u8",
+            args = args,
+            type = "simd_padded_string_u8",
+            source = lower.site(node)
+        )
     elseif identity == "nupp.value_builder.materializeTree" then
         if #args ~= 5 then
             context.reject(
@@ -925,13 +941,11 @@ local function call(
             source = lower.site(node)
         )
     elseif identity == "nupp.value_builder.appendSetBits" then
-        if #args ~= 4
-            or args[1].type ~= "lua_scratch_u32"
-            or args[1].op ~= "local"
-            or args[2].type ~= "u32"
-            or args[3].type ~= "u32"
-            or args[4].type ~= "simd_mask_bits64"
-        then
+        if #args ~= 4 or args[
+            1
+        ].type ~= "lua_scratch_u32" or args[
+            1
+        ].op ~= "local" or args[2].type ~= "u32" or args[3].type ~= "u32" or args[4].type ~= "simd_mask_bits64" then
             context.reject(
                 lower.site(node),
                 "value_builder.appendSetBits takes a local word scratch, uint32 index and base, and MaskBits64"
@@ -1275,6 +1289,11 @@ local function simdMethod(
             )
         end
         kernel.context.reject(source, "SIMD operation " .. method .. " is not admitted for " .. receiverType)
+    elseif receiverType == "simd_species_u8" and method == "splat" and #raw == 1 then
+        args[
+            2
+        ] = lower.convert(lower.expression(raw[1], environment, activeIndex, kernel), "u32", source, kernel.context)
+        return new scalarIR.Simd(op = "simd_splat_u8", args = args, type = "simd_vector_u8", source = source)
     elseif receiverType == "simd_species_u8" and method == "load" then
         if #raw ~= 2 then
             kernel.context.reject(source, "SIMD byte loads take a source and offset")
@@ -1344,6 +1363,11 @@ local function simdMethod(
             type = "simd_mask_u8",
             source = source
         )
+    elseif receiverType == "simd_vector_u8" and method == "shiftRight" and #raw == 1 then
+        args[
+            2
+        ] = lower.convert(lower.expression(raw[1], environment, activeIndex, kernel), "u32", source, kernel.context)
+        return new scalarIR.Simd(op = "simd_shr_u8", args = args, type = "simd_vector_u8", source = source)
     elseif receiverType == "simd_vector_u8" and method == "lookup16" and #raw == 1 then
         local tableValue = lower.expression(raw[1], environment, activeIndex, kernel)
         if tableValue.type ~= "simd_table_u8x16" then

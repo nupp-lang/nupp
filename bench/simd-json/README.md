@@ -13,8 +13,9 @@ parse calls over one pre-padded input.
 The production route has three stages inside one native entry:
 
 1. `simd_json.fused` reads the Lua-rooted input with target-width packed bytes.
-   Prefix-XOR quote masks, bit-run escape detection, and continuation masks
-   classify structure and validate UTF-8 without scanning each non-ASCII byte.
+   Prefix-XOR quote masks and bit-run escape detection classify structure.
+   simdjson's lookup4 tables validate UTF-8 from the current bytes and the
+   preceding three bytes without scanning each non-ASCII byte.
 2. Structural words are appended to bounded Lua-rooted native scratch storage.
    Closing quotes carry one escape bit, so ordinary strings and object keys do
    not need a second scan merely to discover whether they require unescaping.
@@ -103,12 +104,19 @@ DOM rates are 0.989, 3.891, 2.939, 1.804, and 0.803 GB/s.
 
 Those DOM numbers construct simdjson's compact internal representation, not
 Lua tables and strings, so they are a ceiling rather than an end-to-end API
-comparison. Stage one is the actionable comparison: it is 6.7–18.7 times the
-current Nupp classifier on these payloads. `MaskBits64` makes a 64-byte source
-kernel expressible, but the present AOT SIMD vocabulary still lacks the byte
-table lookup, cross-vector byte alignment, block batching, and ARM-friendly
-set-bit emission needed to reproduce simdjson's kernel rather than merely its
-two-stage shape.
+comparison.
+
+The lookup4/padded-load result is committed at
+`results/arm64-macos-neon-stage1-lookup.json`. It is a nine-sample, 2 MB-per-
+sample run and records the fused decoder separately from its public dispatch
+alias. The fused path reaches 150 MB/s on records, 517 MB/s on ASCII strings,
+586 MB/s on Unicode, 319 MB/s on escaped strings, and 170 MB/s on numbers.
+Relative to the older fused result after normalizing each run to its colocated
+`lua-cjson` measurement, the ratios improve on records, ASCII, Unicode, and
+escaped strings; numbers are about eight percent lower. The large Unicode gain
+is the intended removal of the comparison-heavy continuation path. Stage one
+still trails simdjson because the fused parser processes one preferred vector
+at a time instead of scheduling and draining 64-byte blocks ahead of stage two.
 
 The prior tree result remains at `results/arm64-macos-neon-builder.json` as the
 V4 baseline.

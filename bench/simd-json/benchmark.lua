@@ -95,7 +95,7 @@ local report = {
 
 local names = indexOnly and {"classify", "index"} or {
    "classify", "index", "simdjsonStage1", "simdjsonDom", "parse", "materialize", "build",
-   "legacy", "arena", "builder", "nupp", "cjson",
+   "legacy", "arena", "builder", "fused", "nupp", "cjson",
 }
 
 local function sorted(values)
@@ -247,6 +247,13 @@ for payloadIndex, payload in ipairs(payloads) do
          end
          return os.clock() - started
       end,
+      fused = function()
+         local started = os.clock()
+         for _ = 1, iterations do
+            arena.decodeFused(source, json.null)
+         end
+         return os.clock() - started
+      end,
       nupp = function()
          local started = os.clock()
          for _ = 1, iterations do
@@ -273,6 +280,7 @@ for payloadIndex, payload in ipairs(payloads) do
       classify = {}, index = {}, simdjsonStage1 = {}, simdjsonDom = {},
       parse = {}, materialize = {}, build = {},
       legacy = {}, arena = {}, builder = {}, nupp = {}, cjson = {},
+      fused = {},
    }
    for sample = 1, samples do
       collectgarbage()
@@ -297,6 +305,7 @@ for payloadIndex, payload in ipairs(payloads) do
       summary.buildMBps = #source * iterations / median(raw.build) / 1000000
       summary.arenaMBps = #source * iterations / median(raw.arena) / 1000000
       summary.builderMBps = #source * iterations / median(raw.builder) / 1000000
+      summary.fusedMBps = #source * iterations / median(raw.fused) / 1000000
       summary.cjsonMBps = #source * iterations / median(raw.cjson) / 1000000
       summary.nuppToLegacyThroughput = ratioSummary(raw.legacy, raw.nupp)
       summary.nuppToArenaThroughput = ratioSummary(raw.arena, raw.nupp)

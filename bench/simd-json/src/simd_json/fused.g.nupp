@@ -23,21 +23,49 @@ local function decode(source: string, nullValue: any): (any, uint32, uint32)
     local tape = _valueBuilder.newWordScratch(sourceCount)
     local species = _preferredU8()
     local lanes: uint32 = species.lanes
+    local input = _simd.paddedStringU8(source)
+    local zeroBytes = species:splat(0)
+    local nibbleMask = species:splat(15)
+    local continuationFlag = species:splat(128)
+    local byte1HighTable = _simd.tableU8x16(2, 2, 2, 2, 2, 2, 2, 2, 128, 128, 128, 128, 33, 1, 21, 73)
+    local byte1LowTable = _simd.tableU8x16(
+        231,
+        163,
+        131,
+        131,
+        139,
+        203,
+        203,
+        203,
+        203,
+        203,
+        203,
+        203,
+        203,
+        219,
+        203,
+        203
+    )
+    local byte2HighTable = _simd.tableU8x16(1, 1, 1, 1, 1, 1, 1, 1, 230, 174, 186, 186, 1, 1, 1, 1)
     local scanCursor: uint32 = 0
     local tapeCount: uint32 = 0
     local scanInString = false
     local slashOdd = false
     local slashCarry = false
     local stringEscaped = false
-    local expectedUtf8: uint32 = 0
-    local utf8Constraint: uint32 = 0
+    local previousBytes = zeroBytes
     local maxDepth: uint32 = 0
     local hasObject = false
+    local previousNonAscii = false
 
     while scanCursor < sourceCount do
-        local bytes = species:loadString(source, scanCursor)
-        local tail = species:tail(nupp.math.u32.sub(sourceCount, scanCursor))
-        local active = tail:count()
+        local bytes = input:loadTail()
+        local active: uint32 = input.tailLength
+        if scanCursor < input.fullLength then
+            bytes = input:loadFull(scanCursor)
+            active = lanes
+        end
+        local tail = species:tail(active)
         local activeBits = tail:bits()
         local quoteBits = bytes:equal(34):andBits(tail):bits()
         local slashBits = bytes:equal(92):andBits(tail):bits()
@@ -153,120 +181,28 @@ local function decode(source: string, nullValue: any): (any, uint32, uint32)
             )
         end
 
-        -- UTF-8 validation is a mask equality: the continuation mask must
-        -- exactly match the positions demanded by two-, three-, and four-byte
-        -- leads, plus at most three carried positions from the prior vector.
-        local nonAsciiBits = bytes:inRange(128, 255):andBits(tail):bits()
-        if nonAsciiBits ~= 0 or expectedUtf8 ~= 0 then
-            local continuationBits = bytes:inRange(128, 191):andBits(tail):bits()
-            local lead2Bits = bytes:inRange(194, 223):andBits(tail):bits()
-            local lead3Bits = bytes:inRange(224, 239):andBits(tail):bits()
-            local lead4Bits = bytes:inRange(240, 244):andBits(tail):bits()
-            local recognizedUtf8 = nupp.math.u32.orBits(
-                continuationBits,
-                nupp.math.u32.orBits(lead2Bits, nupp.math.u32.orBits(lead3Bits, lead4Bits))
-            )
-            local invalidLeadBits = nupp.math.u32.andBits(nonAsciiBits, nupp.math.u32.notBits(recognizedUtf8))
-            local incomingExpected = expectedUtf8
-            local incomingRequired: uint32 = 0
-            if incomingExpected ~= 0 then
-                incomingRequired = nupp.math.u32.sub(nupp.math.u32.shiftLeft(1, incomingExpected), 1)
-            end
-            local requiredBits = nupp.math.u32.orBits(
-                incomingRequired,
-                nupp.math.u32.orBits(
-                    nupp.math.u32.shiftLeft(
-                        nupp.math.u32.orBits(lead2Bits, nupp.math.u32.orBits(lead3Bits, lead4Bits)),
-                        1
-                    ),
-                    nupp.math.u32.orBits(
-                        nupp.math.u32.shiftLeft(nupp.math.u32.orBits(lead3Bits, lead4Bits), 2),
-                        nupp.math.u32.shiftLeft(lead4Bits, 3)
-                    )
-                )
-            )
-            local badUtf8 = nupp.math.u32.orBits(
-                invalidLeadBits,
-                nupp.math.u32.xorBits(continuationBits, nupp.math.u32.andBits(requiredBits, activeBits))
-            )
-            local lowContinuationBits = bytes:inRange(128, 159):andBits(tail):bits()
-            local highContinuationBits = bytes:inRange(160, 191):andBits(tail):bits()
-            local belowNinetyBits = bytes:inRange(128, 143):andBits(tail):bits()
-            local atLeastNinetyBits = bytes:inRange(144, 191):andBits(tail):bits()
-            badUtf8 = nupp.math.u32.orBits(
-                badUtf8,
-                nupp.math.u32.andBits(nupp.math.u32.shiftLeft(bytes:equal(224):bits(), 1), lowContinuationBits)
-            )
-            badUtf8 = nupp.math.u32.orBits(
-                badUtf8,
-                nupp.math.u32.andBits(nupp.math.u32.shiftLeft(bytes:equal(237):bits(), 1), highContinuationBits)
-            )
-            badUtf8 = nupp.math.u32.orBits(
-                badUtf8,
-                nupp.math.u32.andBits(nupp.math.u32.shiftLeft(bytes:equal(240):bits(), 1), belowNinetyBits)
-            )
-            badUtf8 = nupp.math.u32.orBits(
-                badUtf8,
-                nupp.math.u32.andBits(nupp.math.u32.shiftLeft(bytes:equal(244):bits(), 1), atLeastNinetyBits)
-            )
-            if utf8Constraint ~= 0 then
-                local firstByte = _valueBuilder.byte(source, scanCursor)
-                local violates = utf8Constraint == 1
-                    and firstByte < 160
-                    or utf8Constraint == 2
-                    and firstByte > 159
-                    or utf8Constraint == 3
-                    and firstByte < 144
-                    or utf8Constraint == 4
-                    and firstByte > 143
-                if violates then
-                    badUtf8 = nupp.math.u32.orBits(badUtf8, 1)
-                end
-            end
+        -- simdjson's lookup4 validator. Three nibble tables classify every
+        -- adjacent byte pair; the continuation marker cancels the only legal
+        -- continuation-continuation cases using the two- and three-byte
+        -- lookback vectors.
+        local currentNonAscii = bytes:inRange(128, 255):andBits(tail):any()
+        if currentNonAscii or previousNonAscii then
+            local previous1 = _simd.alignBytes(previousBytes, bytes, 1)
+            local previous2 = _simd.alignBytes(previousBytes, bytes, 2)
+            local previous3 = _simd.alignBytes(previousBytes, bytes, 3)
+            local byte1High = previous1:shiftRight(4):lookup16(byte1HighTable)
+            local byte1Low = previous1:andBits(nibbleMask):lookup16(byte1LowTable)
+            local byte2High = bytes:shiftRight(4):lookup16(byte2HighTable)
+            local specialCases = byte1High:andBits(byte1Low):andBits(byte2High)
+            local mustContinue = previous2:inRange(224, 255):orBits(previous3:inRange(240, 255))
+            local required = mustContinue:select(continuationFlag, zeroBytes)
+            local badUtf8 = required:xorBits(specialCases):equal(0):notBits():bits()
             if badUtf8 ~= 0 then
-                return nullValue, 2, nupp.math.u32.add(
-                    nupp.math.u32.add(scanCursor, nupp.math.u32.trailingZeros(badUtf8)),
-                    1
-                )
-            end
-
-            expectedUtf8 = 0
-            utf8Constraint = 0
-            local lastLaneBit = nupp.math.u32.shiftLeft(1, nupp.math.u32.sub(active, 1))
-            if nupp.math.u32.andBits(lead4Bits, lastLaneBit) ~= 0 then
-                expectedUtf8 = 3
-            elseif nupp.math.u32.andBits(lead3Bits, lastLaneBit) ~= 0 then
-                expectedUtf8 = 2
-            elseif nupp.math.u32.andBits(lead2Bits, lastLaneBit) ~= 0 then
-                expectedUtf8 = 1
-            end
-            if nupp.math.u32.andBits(bytes:equal(224):bits(), lastLaneBit) ~= 0 then
-                utf8Constraint = 1
-            elseif nupp.math.u32.andBits(bytes:equal(237):bits(), lastLaneBit) ~= 0 then
-                utf8Constraint = 2
-            elseif nupp.math.u32.andBits(bytes:equal(240):bits(), lastLaneBit) ~= 0 then
-                utf8Constraint = 3
-            elseif nupp.math.u32.andBits(bytes:equal(244):bits(), lastLaneBit) ~= 0 then
-                utf8Constraint = 4
-            end
-            if active > 1 then
-                local penultimateBit = nupp.math.u32.shiftLeft(1, nupp.math.u32.sub(active, 2))
-                if nupp.math.u32.andBits(lead4Bits, penultimateBit) ~= 0 then
-                    if expectedUtf8 < 2 then
-                        expectedUtf8 = 2
-                    end
-                elseif nupp.math.u32.andBits(lead3Bits, penultimateBit) ~= 0 and expectedUtf8 < 1 then
-                    expectedUtf8 = 1
+                local badLane = nupp.math.u32.trailingZeros(badUtf8)
+                if badLane >= active then
+                    return nullValue, 2, nupp.math.u32.add(sourceCount, 1)
                 end
-            end
-            if active > 2 then
-                local antepenultimateBit = nupp.math.u32.shiftLeft(1, nupp.math.u32.sub(active, 3))
-                if nupp.math.u32.andBits(lead4Bits, antepenultimateBit) ~= 0 and expectedUtf8 < 1 then
-                    expectedUtf8 = 1
-                end
-            end
-            if incomingExpected > active then
-                expectedUtf8 = nupp.math.u32.sub(incomingExpected, active)
+                return nullValue, 2, nupp.math.u32.add(nupp.math.u32.add(scanCursor, badLane), 1)
             end
         end
 
@@ -275,6 +211,18 @@ local function decode(source: string, nullValue: any): (any, uint32, uint32)
         -- never rescanned merely to discover whether they need unescaping.
         local events = nupp.math.u32.orBits(unescapedQuotes, nupp.math.u32.andBits(syntaxBits, outsideBits))
         local remainingSlashes = slashBits
+
+        -- Blocks with no string-state event can publish every structural
+        -- offset with one capacity check and one target-specific mask drain.
+        if not scanInString and unescapedQuotes == 0 and slashBits == 0 then
+            tapeCount = _valueBuilder.appendSetBits(
+                tape,
+                tapeCount,
+                scanCursor,
+                _simd.maskBits64(events, nupp.math.u32.wrap(0))
+            )
+            events = 0
+        end
 
         while events ~= 0 do
             local lane = nupp.math.u32.trailingZeros(events)
@@ -304,10 +252,26 @@ local function decode(source: string, nullValue: any): (any, uint32, uint32)
         if scanInString and remainingSlashes ~= 0 then
             stringEscaped = true
         end
+        previousBytes = bytes
+        previousNonAscii = currentNonAscii
         scanCursor = nupp.math.u32.add(scanCursor, lanes)
     end
-    if expectedUtf8 ~= 0 then
-        return nullValue, 2, nupp.math.u32.add(sourceCount, 1)
+
+    -- An exact-width input has no padded tail block to expose an incomplete
+    -- final sequence, so check the previous three bytes against one zero block.
+    if input.tailLength == 0 and previousNonAscii then
+        local previous1 = _simd.alignBytes(previousBytes, zeroBytes, 1)
+        local previous2 = _simd.alignBytes(previousBytes, zeroBytes, 2)
+        local previous3 = _simd.alignBytes(previousBytes, zeroBytes, 3)
+        local byte1High = previous1:shiftRight(4):lookup16(byte1HighTable)
+        local byte1Low = previous1:andBits(nibbleMask):lookup16(byte1LowTable)
+        local byte2High = zeroBytes:shiftRight(4):lookup16(byte2HighTable)
+        local specialCases = byte1High:andBits(byte1Low):andBits(byte2High)
+        local mustContinue = previous2:inRange(224, 255):orBits(previous3:inRange(240, 255))
+        local required = mustContinue:select(continuationFlag, zeroBytes)
+        if required:xorBits(specialCases):equal(0):notBits():any() then
+            return nullValue, 2, nupp.math.u32.add(sourceCount, 1)
+        end
     end
 
     local capacityCount: uint32 = 0

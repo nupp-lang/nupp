@@ -120,7 +120,9 @@ local function lookupAligned(borrows source: span.Span<uint8>): uint32
     local current = species:load(source, species.lanes)
     local aligned = simd.alignBytes(previous, current, nupp.math.u32.wrap(3))
     local table = simd.tableU8x16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
-    return aligned:lookup16(table):equal(7):count()
+    local lookedUp = aligned:shiftRight(nupp.math.u32.wrap(4)):lookup16(table)
+    local matches = lookedUp:xorBits(species:splat(nupp.math.u32.wrap(15))):equal(0)
+    return matches:count()
 end
 
 return {countQuotes = countQuotes, maskOps = maskOps, lookupAligned = lookupAligned}

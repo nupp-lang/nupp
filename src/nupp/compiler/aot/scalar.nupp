@@ -448,6 +448,8 @@ record scalarIR.Simd
         | 'simd_lanes'
         | 'simd_load_u8'
         | 'simd_load_string_u8'
+        | 'simd_splat_u8'
+        | 'simd_shr_u8'
         | 'simd_table_u8x16'
         | 'simd_lookup16_u8'
         | 'simd_align_bytes_u8'

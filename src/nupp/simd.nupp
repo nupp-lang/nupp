@@ -16,6 +16,7 @@ sealed interface simd.VectorU8
     orBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
     xorBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
     notBits: function(borrows self: VectorU8): simd.VectorU8
+    shiftRight: function(borrows self: VectorU8, count: uint32): simd.VectorU8
 
     --- Looks up every lane in one immutable 16-byte table. Indexes outside
     --- 0..15 produce zero, matching the native table instructions.
@@ -69,6 +70,9 @@ end
 sealed interface simd.SpeciesU8
     readonly lanes: integer
 
+    --- Broadcasts the low byte of `value` to every lane.
+    splat: function(borrows self: SpeciesU8, value: uint32): simd.VectorU8
+
     --- Loads at a zero-based offset. Inactive final lanes are zero and are
     --- excluded by `tail`; the implementation never reads beyond the span.
     load: function(borrows self: SpeciesU8, borrows source: nupp.span.Span<uint8>, offset: integer): simd.VectorU8
@@ -116,10 +120,22 @@ end
 --- @raises when called without AOT intrinsic lowering
 --- @export
 function simd.tableU8x16(
-    b0: uint32, b1: uint32, b2: uint32, b3: uint32,
-    b4: uint32, b5: uint32, b6: uint32, b7: uint32,
-    b8: uint32, b9: uint32, b10: uint32, b11: uint32,
-    b12: uint32, b13: uint32, b14: uint32, b15: uint32
+    b0: uint32,
+    b1: uint32,
+    b2: uint32,
+    b3: uint32,
+    b4: uint32,
+    b5: uint32,
+    b6: uint32,
+    b7: uint32,
+    b8: uint32,
+    b9: uint32,
+    b10: uint32,
+    b11: uint32,
+    b12: uint32,
+    b13: uint32,
+    b14: uint32,
+    b15: uint32
 ): simd.TableU8x16
     error("nupp.simd values exist only inside an @aot function", 2)
 end
@@ -129,11 +145,7 @@ end
 --- admitted because they are the cross-block lookback needed by UTF-8 scans.
 --- @raises when called without AOT intrinsic lowering
 --- @export
-function simd.alignBytes(
-    previous: simd.VectorU8,
-    current: simd.VectorU8,
-    offset: uint32
-): simd.VectorU8
+function simd.alignBytes(previous: simd.VectorU8, current: simd.VectorU8, offset: uint32): simd.VectorU8
     error("nupp.simd values exist only inside an @aot function", 2)
 end
 

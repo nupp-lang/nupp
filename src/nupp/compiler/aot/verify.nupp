@@ -443,9 +443,28 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             simd_lanes = {result = "u32", operands = {"simd_species_u8"}},
             simd_load_u8 = {result = "simd_vector_u8", operands = {"simd_species_u8", "u32"}},
             simd_load_string_u8 = {result = "simd_vector_u8", operands = {"simd_species_u8", "lua_string", "u32"},},
+            simd_splat_u8 = {result = "simd_vector_u8", operands = {"simd_species_u8", "u32"}},
+            simd_shr_u8 = {result = "simd_vector_u8", operands = {"simd_vector_u8", "u32"}},
             simd_table_u8x16 = {
                 result = "simd_table_u8x16",
-                operands = {"u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32", "u32"},
+                operands = {
+                    "u32",
+                    "u32",
+                    "u32",
+                    "u32",
+                    "u32",
+                    "u32",
+                    "u32",
+                    "u32",
+                    "u32",
+                    "u32",
+                    "u32",
+                    "u32",
+                    "u32",
+                    "u32",
+                    "u32",
+                    "u32"
+                },
             },
             simd_lookup16_u8 = {result = "simd_vector_u8", operands = {"simd_vector_u8", "simd_table_u8x16"}},
             simd_align_bytes_u8 = {result = "simd_vector_u8", operands = {"simd_vector_u8", "simd_vector_u8", "u32"}},
@@ -511,7 +530,9 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
             local rooted = args[rootIndex] as scalarIR.Name
             local param = scope.spans[rooted.name]
             holds(
-                scope.entryMode == "lua-builder" and args[rootIndex].op == "local" and rooted.cName ~= nil and param ~= nil and (
+                scope.entryMode == "lua-builder" and args[
+                    rootIndex
+                ].op == "local" and rooted.cName ~= nil and param ~= nil and (
                     param as scalarIR.Param
                 ).kind == "scalar" and (
                     param as scalarIR.Param
