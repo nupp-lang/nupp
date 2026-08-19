@@ -1,7 +1,8 @@
 # WebAssembly application runtime
 
 Status: proposed. Written 2026-08-19. Follows the AOT contract in plan 038,
-the embedding boundary in plan 054, and VM-aware AOT construction in plan 064.
+the embedding boundary in plan 054, VM-aware AOT construction in plan 064, and
+cross-target production in plan 043.
 
 ## Decision
 
@@ -24,6 +25,12 @@ LuaJIT to WebAssembly. The first runtime is Lua 5.4, compiled by a pinned
 Emscripten/Clang toolchain. Generated application Lua uses a compiler-owned
 portable dialect that the runtime accepts; it does not contain the LuaJIT syntax
 extensions the current emitter passes through.
+
+The dialect is not only syntax. Lua 5.4's integer subtype changes answers rather
+than spellings, and the standard library the payload links is itself written
+against LuaJIT's `ffi`, `bit`, `table.new` and `string.buffer`. The number model
+is ported in the emitter and the library in the runtime. Neither moves on its
+own because the source that names it compiles.
 
 The web target preserves Nupp's existing meanings:
 
@@ -60,6 +67,10 @@ The first supported web target is complete only when all of these hold:
   consumed by an ordinary scalar AOT kernel without copying;
 - VM-aware AOT construction allocates and returns ordinary tables and strings in
   the application Lua state through the verified construction IR;
+- generated Lua computes and prints the same numbers under the linked Lua 5.4
+  runtime as under LuaJIT;
+- every standard-library module either runs on the web runtime or reports at
+  check time that the target has no provider for it;
 - `aot = "off"` runs the same source body and changes performance and artifacts,
   not answers;
 - the JavaScript host catches every Lua failure at a protected boundary and
@@ -68,7 +79,9 @@ The first supported web target is complete only when all of these hold:
 - the default runner cannot freeze the document's main thread when an
   application loops indefinitely;
 - a target that names an unavailable browser facility fails during checking or
-  packaging, rather than lazily reaching a missing global; and
+  packaging, rather than lazily reaching a missing global;
+- rebuilding from identical inputs reproduces every byte outside the one named
+  toolchain metadata section; and
 - scalar output is the correctness baseline before WebAssembly SIMD is enabled.
 
 The first release does not require compiling Nupp or C inside the browser. Web
@@ -133,6 +146,24 @@ a WebAssembly implementation of that host boundary. Web callbacks do not expose
 raw Lua stack indexes, collector pointers or struct addresses to application
 JavaScript.
 
+Plan 043 remains authoritative for cross-target production. Its model is that
+the payload is platform-neutral Lua stamped into a pinned prebuilt stub, so one
+machine builds for every platform without holding that platform's toolchain. The
+web target keeps that model wherever it still applies. `aot = "off"` and
+`emit-c` builds stamp their payload into a prebuilt web stub -- stock Lua, the
+runtime and the loader, compiled once by release CI -- and need no local
+Emscripten at all. Only `aot = "require"` compiles generated C, and only that
+policy requires the toolchain. The stub is a cataloged `platforms` entry named
+by its triple, which extends the existing distribution path rather than adding a
+second one beside it.
+
+Plan 063 assumed a tracing JIT and this target has none. Root-view scalar
+replacement removes view allocation on the native target because LuaJIT sinks
+what the pass leaves behind; here the same removal has to be complete in the
+compiler. Plan 058's advisor rests on the same assumption from the other side:
+an unannotated hot body runs the interpreter rather than a trace, so a candidate
+it would decline natively may be the one that decides a web build.
+
 Plan 053 remains authoritative for user C interop. Arbitrary desktop shared
 libraries do not become available in a browser merely because generated AOT C
 does. A dependency must have an explicit wasm32 build and browser-safe host
@@ -141,7 +172,9 @@ contract or the web target rejects it.
 The browser playground remains a separate product surface. Its Fengari state is
 a private compiler state with shims sufficient for checking and generation. It
 does not share application values with a produced web artifact and is not the
-runtime against which struct or AOT behavior is validated.
+runtime against which struct or AOT behavior is validated. It does share the
+portable emitter, which is a compiler-side dependency rather than a shared
+runtime.
 
 ## Artifact and build target
 
@@ -153,7 +186,7 @@ build = {
     targets = {
         web = {
             kind = "web",
-            platform = "wasm32-unknown-emscripten",
+            layoutTarget = "wasm32-unknown-emscripten",
             entries = {"src/main.nupp"},
             output = "dist/app",
             aot = "require",
@@ -161,6 +194,17 @@ build = {
     },
 }
 ```
+
+The triple is spelled in the existing `layoutTarget`, which already names the
+target of compile-time C layout intrinsics, and a stub-stamped build names it in
+`platforms` the way plan 043 does. The web kind adds no third spelling for the
+same fact, and it does not overload the target name with the platform.
+
+`aot = "require"` is this target's ordinary policy rather than an aggressive
+one. Every other target treats AOT as opt-in polish over a JIT-ed baseline; here
+an unannotated body runs an interpreter with nothing behind it, so the projects
+that reach for the web target are the ones that should be requiring compilation
+rather than permitting it.
 
 The output stem produces at least:
 
@@ -187,6 +231,7 @@ The build records:
 - wasm32 layout-model version;
 - AOT IR, construction IR and registration ABI versions;
 - selected browser feature providers;
+- long-jump mode and any WebAssembly feature it requires;
 - scalar or SIMD feature tier;
 - generated C, compile and link flags; and
 - every input digest already carried by modules, dependencies and resources.
@@ -194,7 +239,16 @@ The build records:
 Production support pins the toolchain by version and digest, just as the native
 stub pins LuaJIT. An initial development implementation may discover an `emcc`
 installation explicitly selected by the project, but its complete identity and
-flags remain in the artifact key.
+flags remain in the artifact key, and a discovered toolchain identifies the
+machine that found it: those artifacts are machine-local, never published and
+never entered into a shared cache. Only a pinned toolchain produces an artifact
+another machine may reuse.
+
+Rebuilds are byte-identical apart from the WebAssembly `producers` section,
+which records the toolchain that wrote the module and is stripped before any
+comparison. Nothing else is exempt. The build passes the flags that make Clang,
+Emscripten and `wasm-ld` reproducible, and a difference anywhere else is a
+defect rather than expected toolchain noise.
 
 `aot = "emit-c"` writes deterministic C and registration metadata for a vendor
 web build without invoking Emscripten. `aot = "require"` invokes the selected
@@ -206,12 +260,57 @@ There is no dynamic AOT loading mode. Browsers do not search for shared
 libraries, and one link is what lets generated code, struct storage and the Lua
 state share a memory and ABI.
 
+### Error and suspension build mode
+
+Two Emscripten choices decide the shape of the whole artifact, so the target
+names both rather than accepting a default.
+
+Lua's error handling compiles to `setjmp` and `longjmp`. The scalar baseline
+selects emulated long jumps, which keeps WebAssembly exception handling out of
+the required feature set at a size and speed cost that is measured rather than
+assumed. An exception-handling build is a later tier with its own artifact
+identity and its own feature check, not a silent upgrade under the same name.
+
+The runtime does not use Asyncify or JSPI. A host operation suspends only where
+Lua itself yields, and no provider suspends inside a C frame. That is a
+constraint on provider design rather than an implementation detail: a provider
+that cannot express its wait as a yield at the Nupp suspension boundary is not
+admitted, because admitting one buys a whole-program transform that inflates
+every function in the module to pay for the few that suspend.
+
 ## Portable generated Lua
 
 Add a target dialect to the generator rather than rewriting emitted text after
 generation. The portable emitter preserves the existing line-count invariant:
 all target lowering for a source line stays on that line, so chunk names and
 tracebacks continue to identify authored positions without source maps.
+
+### Number model
+
+Lua 5.4's integer subtype is the largest difference between the runtimes and the
+one that is not a syntax question. LuaJIT gives every Nupp `number` one
+representation. Lua 5.4 carries an integer through most arithmetic on integer
+operands, and that result prints differently, divides differently, wraps where a
+double would lose precision, and is accepted or refused where a float is not:
+`tostring(1.0)` is `1.0` rather than `1`, `string.format` with `%d` raises on a
+non-integral float, `//` and `%` differ on mixed operands, `math.type` starts
+answering, and a numeric `for` variable changes subtype with its bounds.
+
+The target keeps Nupp's number. Generated arithmetic produces Lua floats, and an
+operation whose Lua 5.4 result is an integer is forced back before anything can
+observe it. Printed representations, table-key identity, comparison and division
+therefore read what they read today. A Lua 5.4 integer is an implementation
+detail of the runtime, never a value a Nupp program can see.
+
+The fixed-width refinements are the same question one level up. `int32`,
+`uint32` and the other established widths are refinements over that number,
+`nupp.math.i32` and `nupp.math.u32` are implemented against LuaJIT's `bit`
+library, and the float helpers beside them round by punning bits through it.
+They are reimplemented for the target rather than assumed to carry across, and
+their answers are compared against the native ones at the boundaries the
+refinements exist to police.
+
+### Syntax lowering
 
 For the Lua 5.4 runtime, generation must at least:
 
@@ -220,13 +319,15 @@ For the Lua 5.4 runtime, generation must at least:
   evaluating receivers, keys and arguments exactly once;
 - lower every compound assignment with the same single-evaluation rule;
 - lower short functions and named varargs;
-- lower `continue` to a generated `goto` whose label cannot be entered across a
-  local declaration;
+- lower `continue` to a generated `goto`, wrapping the remainder of the loop
+  body in a block wherever a local declared after the jump would otherwise place
+  the label inside that local's scope, which Lua 5.4 rejects;
 - translate Nupp `const` bindings to Lua `local name <const>` where the binding
   shape permits it and to checked ordinary locals where it does not;
 - use Lua 5.4 floor division directly;
 - preserve Nupp's signed 32-bit bit-operation semantics through compiler-owned
-  helpers instead of assuming Lua's native integer width agrees;
+  helpers, under the number model above, instead of assuming Lua's native
+  integer width agrees;
 - reject LuaJIT cdata literal suffixes outside reified/AOT lowering rather than
   silently changing values; and
 - bind target runtime helpers by resolved compiler identity, not mutable globals.
@@ -238,9 +339,55 @@ multiple cleanup identities, suspension rules and primary/suppressed error
 composition remain compiler-owned. The ordinary protected-region lowering is
 the initial correctness path; `<close>` is a later verified optimization.
 
+### Dialect versions
+
+The dialect is parameterized by the Lua version it targets, with one axis rather
+than one dialect per consumer. Lua 5.3 and Lua 5.4 accept the same generated
+text apart from the 5.4 attribute lowerings -- `local name <const>`, and
+`<close>` once it is proved -- which the 5.3 form omits. That axis is what lets
+the playground consume the same emitter instead of rewriting its output.
+
 The generated dialect is tested under the exact Lua VM linked into the web
 runtime. Success under the compiler's LuaJIT state or the playground's Fengari
 state is not target validation.
+
+## Standard library on the web target
+
+Porting the emitter ports the code the compiler writes, not the code it links.
+The shipped library reaches for LuaJIT directly, and none of those reaches
+survives a stock PUC runtime:
+
+- `nupp.data.valuebuilder` builds values through `ffi` and presizes with
+  `table.new`, and it is plan 064's own support code, so it sits on the critical
+  path rather than beside it;
+- `nupp.data.bitset`, `nupp.mem.span`, `nupp.mem.heap` and `nupp.mem.soa` hold
+  their storage as `ffi` allocations;
+- `nupp.math.i32` and `nupp.math.u32` are written against the `bit` library,
+  down to punning floats through their bits;
+- `nupp.io`'s buffers, views, readers and writers hold their bytes as `ffi`
+  allocations, and `nupp.json` falls back to `package.loadlib` of a native
+  library when its host does not already provide one -- which this target's
+  first required outcome forbids outright;
+- `nupp.workers` frames its messages with `string.buffer` across OS threads; and
+- `nupp.profile` and its trace and zone modules read `jit.profile`, `jit.util`
+  and `jit.vmdef`, which describe a compiler this target does not contain.
+
+Every standard-library module therefore carries an explicit web disposition, and
+that profile is compiler data rather than something a program discovers when a
+`require` fails. A module either:
+
+- runs unchanged on the portable dialect;
+- has a target implementation, in the runtime's C or in portable Lua, whose
+  observable behavior is the same; or
+- has no web provider, and says so at check time naming the source call.
+
+The storage-holding modules take C implementations rather than portable Lua
+ones. The artifact is statically linked and already registers generated C
+against the application state, so a bitset word array or a span allocation costs
+one more translation unit and keeps the representation it has today. Rewriting
+them over Lua tables would commit inside the library exactly the substitution
+this plan refuses in the language. `nupp.profile` reports no web provider, and
+`nupp.workers` reports the same until independent worker states exist.
 
 ## Struct representation
 
@@ -250,11 +397,14 @@ descriptors and method table. The generated C translation unit declares the
 corresponding C type and exports layout reporters derived with `sizeof`,
 `_Alignof` and `offsetof`.
 
-An owning struct value is a Lua full userdata whose payload contains the exact
-struct bytes and whose uservalue or runtime header retains the descriptor and
-metatable. Construction zeroes the payload before applying positional or named
-initializers. Primitive reads and writes use generated or descriptor-driven C
-accessors so conversion follows the field's C type:
+An owning struct value is a Lua full userdata holding the exact struct bytes,
+with the descriptor and metatable reached through a user value. Lua guarantees
+the payload only its own maximum alignment, which is below the sixteen bytes the
+SIMD tier wants, so the allocation carries the slack the descriptor requires and
+the bytes begin at the first correctly aligned offset inside it rather than at
+the payload's first byte. Construction zeroes those bytes before applying
+positional or named initializers. Primitive reads and writes use generated or
+descriptor-driven C accessors so conversion follows the field's C type:
 
 - `float` stores through `float` and therefore truncates to binary32;
 - signed and unsigned integer fields use their declared widths;
@@ -269,6 +419,14 @@ move independently of the bytes it names. Mutation reaches the parent's bytes.
 Views participate in Nupp's existing borrow and exclusivity checks at the source
 level; the runtime representation is not treated as permission to manufacture
 aliases in unchecked code.
+
+Materialize a view only where one escapes. `owner.inner.field` names an offset
+the compiler already holds in the descriptor, so the chain lowers to a single
+accessor on the owning userdata at a folded offset and allocates nothing; a view
+userdata is built when a nested value is bound, passed or returned. Without that
+lowering every nested field read allocates, under a collector with no tracing
+JIT behind it -- which is the allocation plan 063 removes on the native target
+by relying on a pass this runtime does not have.
 
 Pointer fields use wasm32 addresses inside the module's linear memory. They do
 not become JavaScript numbers or public offsets. Existing unsafe and pinning
@@ -340,8 +498,10 @@ against the same `lua_State`. No JavaScript callback allocates a table or string
 and no Lua object is held solely in an unrooted C pointer.
 
 The generated C targets a versioned `nupp-wasm-lua` API profile. That profile is
-implemented either by the selected public Lua 5.4 C API or by thin
-compiler-owned adapters where plan 064's Lua 5.1-oriented subset differs.
+the public Lua 5.4 C API plus a header of macros wherever plan 064's
+Lua 5.1-oriented subset differs. Macros rather than wrapper functions: the calls
+plan 064 generates are a small fixed set, the mapping is mechanical, and a
+header leaves link-time optimization nothing to see through.
 Generated code does not infer compatibility from a symbol with the same name.
 The profile, Lua build and registration ABI are part of every artifact digest.
 
@@ -414,6 +574,12 @@ Lua yields a runtime-owned continuation, JavaScript settles the operation, and
 the scheduler resumes the owning state on its single runtime thread. JavaScript
 never resumes an arbitrary coroutine or calls into a busy state reentrantly.
 
+Providers are designed for the worker first, because that is the default host. A
+worker has no DOM: canvas integration there means `OffscreenCanvas` and a DOM
+message means a port rather than a node. A provider that can exist only on the
+main thread declares that, rather than discovering it when the default host
+loads it.
+
 Run untrusted or potentially nonterminating applications in a dedicated Web
 Worker by default. Terminating the worker is the hard cancellation boundary.
 The main-thread mode is opt-in for hosts that need synchronous DOM integration
@@ -439,6 +605,15 @@ It may:
 It may not claim that its FFI stubs validate struct layout or that compiling a C
 translation unit happened in-browser. A future hosted build service is an
 external product decision, not part of the language target.
+
+The playground is also the portable emitter's first consumer, and adopting it
+deletes machinery rather than adding it. Today the playground reaches Lua 5.3 by
+rewriting generated text. Its `tools/patch-bootstrap-for-browser.lua` edits
+`const`, `ULL` literals and expression syntax out of the compiler at build time,
+and its host runtime applies the same rewrites again at load time to any chunk
+the VM refused. That is the post-generation rewriting this plan replaces.
+When the dialect lands, the playground selects its 5.3 form and both rewriting
+layers go. One dialect is tested, and the playground runs the tested one.
 
 ## Diagnostics and inspection
 
@@ -468,8 +643,17 @@ Inspection commands add the selected runtime and artifact information:
 - `--emit binding` shows the registered-closure wrapper rather than an FFI
   declaration;
 - build JSON lists `.js` and `.wasm` outputs, features, toolchain identity,
-  module size and AOT entries; and
-- a struct-layout inspection prints modeled and compiled wasm32 measurements.
+  module and payload transfer size and AOT entries;
+- a struct-layout inspection prints modeled and compiled wasm32 measurements;
+- `nupp bc` reports that this target records no traces, rather than reading
+  LuaJIT bytecode; `--check`, whose whole subject is trace abort and
+  blacklisting, has nothing to answer here and says so; and
+- the AOT advisor scores web candidates against an interpreted baseline, so it
+  recommends bodies it would leave alone natively.
+
+That last pair is the target's answer to "why is this build slow". Every other
+target answers it with trace behavior, and this one has none, so the advisor and
+the artifact's own size and entry report carry the question instead.
 
 ## Verification
 
@@ -481,8 +665,25 @@ Verification is differential and layered.
 - Compare portable and LuaJIT output for expression evaluation order, false
   versus nil coalescing, multiple returns, varargs and error positions.
 - Exercise `continue`, `break`, `goto`, return and errors across nested affine
-  cleanup regions.
+  cleanup regions, including loop bodies that declare a local after a
+  `continue`.
 - Assert generated line counts and traceback source lines remain unchanged.
+- Compare every arithmetic operator, `//`, `%`, comparison, `tostring`,
+  `string.format` and table-key identity against the LuaJIT baseline over
+  integer boundaries, non-integral values, negative zero, infinities and NaN.
+- Assert no generated expression makes a Lua 5.4 integer observable, and hold
+  the fixed-width refinements and `nupp.math.i32`/`u32` to their native answers
+  at every boundary they establish.
+
+### Standard library
+
+- Load every module the target admits under the linked runtime and run that
+  module's own suite against it.
+- Compare each target implementation with its native counterpart rather than
+  with its own specification: bitsets, spans, heap allocations and the value
+  builder answer identically or the disposition is wrong.
+- Prove a module with no web provider reports at check time, names the source
+  call, and never reaches a failing `require`.
 
 ### Layout and structs
 
@@ -494,6 +695,8 @@ Verification is differential and layered.
   initialization, field views and parent rooting.
 - Keep a nested view alive through collection and prove its owner remains rooted;
   release every owner and prove no allocation remains registered.
+- Prove a nested field read through its owner allocates nothing, and that
+  binding, passing or returning a nested value does materialize a view.
 
 ### AOT
 
@@ -519,8 +722,15 @@ Verification is differential and layered.
   page.
 - Move the output directory and serve it from a different path to prove loader
   URLs are relocatable.
-- Rebuild from identical inputs and compare all deterministic bytes after
-  separating any toolchain metadata that cannot be made reproducible.
+- Rebuild from identical inputs and compare every byte outside the `producers`
+  section, which is stripped before comparison. A difference elsewhere is a
+  defect, not accepted toolchain noise.
+- Record compressed transfer size for the loader, the module and the payload on
+  every build, and treat an unexplained move the way a timing regression is
+  treated. The size decides whether the target is usable, so it is measured from
+  the first artifact rather than at the end.
+- Build with no local Emscripten installed and prove `aot = "off"` still
+  produces a working artifact from the prebuilt stub.
 
 ### Performance
 
@@ -529,7 +739,9 @@ entry and steady-state calls separately. Compare:
 
 - portable Lua under the Wasm VM;
 - scalar AOT;
-- `wasm-simd128` AOT where admitted; and
+- `wasm-simd128` AOT where admitted;
+- emulated long jumps against a WebAssembly exception-handling build, in module
+  size and in call cost, before either is promoted; and
 - the existing native LuaJIT/AOT result as a reference, not an equality target.
 
 The first performance gate is architectural: one transition per AOT call, no
@@ -539,27 +751,34 @@ hold.
 
 ## Implementation sequence
 
-1. Add the portable generator dialect and run generated modules under a native
-   PUC Lua 5.4 test interpreter before WebAssembly is involved.
-2. Add the wasm32 layout model, target vocabulary and scalar AOT selection;
+1. Add the portable generator dialect, including the number model, and run
+   generated modules under a native PUC Lua 5.4 test interpreter before
+   WebAssembly is involved.
+2. Give every standard-library module a web disposition and implement the ones
+   that need it: the fixed-width helpers, bitsets, spans, heap and the value
+   builder stop reaching for `ffi`, `bit`, `table.new` and `string.buffer`, and
+   the modules with no provider start saying so at check time.
+3. Add the wasm32 layout model, target vocabulary and scalar AOT selection;
    compare every modeled layout with Clang's emitted reporters.
-3. Build the minimal PUC Lua runtime with Emscripten and load an embedded
-   generated module through a protected JavaScript entry.
-4. Add the `web` target, deterministic `.js`/`.wasm` outputs, artifact metadata
-   and a worker-based console runner.
-5. Implement owning primitive structs, generated descriptors, field access,
+4. Build the minimal PUC Lua runtime with Emscripten, fixing the long-jump mode,
+   and load an embedded generated module through a protected JavaScript entry.
+5. Add the `web` target, deterministic `.js`/`.wasm` outputs, artifact metadata,
+   recorded transfer size and a worker-based console runner. Publish the
+   prebuilt web stub so an `aot = "off"` build needs no local toolchain.
+6. Implement owning primitive structs, generated descriptors, field access,
    construction and layout intrinsics.
-6. Add nested struct and fixed-array views with parent rooting, then pointer
-   fields under the existing unsafe rules.
-7. Add GC-owned contiguous allocations and the web span provider.
-8. Register pure scalar AOT kernels as Lua C closures and pass struct spans
+7. Add nested struct and fixed-array views with parent rooting and the
+   escape-only materialization lowering, then pointer fields under the existing
+   unsafe rules.
+8. Add GC-owned contiguous allocations and the web span provider.
+9. Register pure scalar AOT kernels as Lua C closures and pass struct spans
    through one checked call.
-9. Port plan 064's VM-aware registrar to the wasm runtime ABI and run its forced
-   collection fixtures.
-10. Add suspension-backed browser scheduling and the first explicit asynchronous
+10. Port plan 064's VM-aware registrar to the wasm runtime ABI and run its
+    forced collection fixtures.
+11. Add suspension-backed browser scheduling and the first explicit asynchronous
     provider.
-11. Add `wasm-simd128`, feature selection and differential lane tests.
-12. Pin the production toolchain, complete browser automation, document the web
+12. Add `wasm-simd128`, feature selection and differential lane tests.
+13. Pin the production toolchain, complete browser automation, document the web
     host API and change this plan's status with the implementation.
 
 Each step leaves the previous one usable. No step silently represents a struct
@@ -586,6 +805,12 @@ as a table or marks an uncompiled `@aot` body as compiled.
   symbols; the stable surface is the versioned host/runtime API.
 - Do not make arbitrary C dependencies browser-compatible without an explicit
   wasm32 build and capability review.
+- Do not use Asyncify or JSPI to let a host operation suspend inside a C frame.
+- Do not reach the target runtime by rewriting generated text after generation.
+- Do not add `wasm32-wasi` or a standalone non-browser host under this target.
+  The application boundary here is the browser and its event loop; a server-side
+  WebAssembly host is a separate target with its own providers, and nothing in
+  this plan is written to prevent one later.
 - Do not call the worker boundary a security sandbox for hostile native code.
 
 ## Open questions to settle by spikes
@@ -596,19 +821,18 @@ decision:
 1. Whether the payload and resources belong in Wasm data segments or a separate
    content-addressed data file for browser caching.
 2. Whether generic descriptor-driven struct access is fast enough outside AOT
-   or generated per-field C closures are warranted.
-3. Whether owning struct bytes should begin directly at the full-userdata
-   payload or behind a runtime header with an aligned offset.
-4. Whether contiguous allocations should use Lua userdata storage, the runtime
+   or generated per-field C closures are warranted, once the escape-only
+   lowering has removed the allocation from the same measurement.
+3. Whether contiguous allocations should use Lua userdata storage, the runtime
    allocator, or separate arenas while preserving deterministic ownership.
-5. Which thin compatibility surface best isolates plan 064's generated Lua C
-   API calls from Lua-version changes without obstructing LTO.
-6. Whether the initial loader uses Emscripten's generated module shell or a
+4. Whether the initial loader uses Emscripten's generated module shell or a
    smaller compiler-owned instantiation layer after link.
-7. Which provider and component calls may safely run on the main thread and
+5. Which provider and component calls may safely run on the main thread and
    which require the default worker host.
-8. What scalar-to-SIMD artifact selection strategy gives reliable browser
+6. What scalar-to-SIMD artifact selection strategy gives reliable browser
    caching without duplicating the whole payload.
+7. What emulated long jumps cost against WebAssembly exception handling, and
+   whether the second tier earns a separate artifact identity.
 
 Answer these with executable fixtures and record the selected results in the
 implementation status or a narrower follow-up plan. Do not postpone the target
