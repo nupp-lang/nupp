@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 # Keep the VM and its one test dependency identical to the POSIX jobs. LuaJIT
 # publishes rolling source releases, not official Windows binaries.
 $luajitCommit = "1edc3e52b67eaf6ce5f809be8e17d6862594b8bc"
-$cjsonCommit = "5ce46a80b10ef9d380a45c9e6cff9ecffbe71ebb"
+$simdjsonCommit = "1bcf71bd85059ab6574ea1159de9298dcc1212c5"
 $luarocksCommit = "3421bedc2ce2b64e79530bb97497531b014899a8"
 # The compiler parses its own doc comments with `nupp.peg`, which resolves
 # native LPeg, so the module has to exist before the first build rather than
@@ -11,8 +11,9 @@ $luarocksCommit = "3421bedc2ce2b64e79530bb97497531b014899a8"
 $lpegVersion = "1.1.0-2"
 $toolRoot = Join-Path $env:RUNNER_TEMP "nupp-ci-tools"
 $luajitRoot = Join-Path $toolRoot "luajit"
-$cjsonRoot = Join-Path $toolRoot "lua-cjson"
-$cjsonBuild = Join-Path $toolRoot "cjson-build"
+$simdjsonRoot = Join-Path $toolRoot "simdjson"
+$simdjsonBuild = Join-Path $toolRoot "simdjson-build"
+$simdjsonInstall = Join-Path $toolRoot "simdjson-install"
 $luarocksRoot = Join-Path $toolRoot "luarocks"
 $luarocksInstall = Join-Path $toolRoot "luarocks-install"
 
@@ -41,23 +42,18 @@ if ($LASTEXITCODE -ne 0) {
 # records `lua51.dll` internally and only gives LuaRocks the name it probes.
 Copy-Item (Join-Path $luajitRoot "src\lua51.lib") (Join-Path $luajitRoot "src\luajit.lib")
 
-git clone --filter=blob:none https://github.com/openresty/lua-cjson.git $cjsonRoot
-git -C $cjsonRoot checkout --detach $cjsonCommit
-# lua-cjson still aliases snprintf for the pre-UCRT MSVC runtime. Current
-# runners provide the standard function, where the alias is a hard error.
-$cjsonCMake = Join-Path $cjsonRoot "CMakeLists.txt"
-(Get-Content $cjsonCMake) |
-    Where-Object { $_ -ne "    add_definitions(-Dsnprintf=_snprintf)" } |
-    Set-Content -Encoding utf8 $cjsonCMake
-cmake -S $cjsonRoot -B $cjsonBuild -A x64 `
-    "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" `
-    "-DLUA_INCLUDE_DIR:PATH=$luajitRoot\src" `
-    "-DLUA_LIBRARY:FILEPATH=$luajitRoot\src\lua51.lib"
-cmake --build $cjsonBuild --config Release --parallel 2
+git clone --filter=blob:none https://github.com/simdjson/simdjson.git $simdjsonRoot
+git -C $simdjsonRoot checkout --detach $simdjsonCommit
+cmake -S $simdjsonRoot -B $simdjsonBuild -A x64 `
+    "-DCMAKE_INSTALL_PREFIX:PATH=$simdjsonInstall" `
+    "-DBUILD_SHARED_LIBS:BOOL=OFF" `
+    "-DSIMDJSON_DEVELOPER_MODE:BOOL=OFF" `
+    "-DSIMDJSON_INSTALL:BOOL=ON"
+cmake --build $simdjsonBuild --config Release --parallel 2
+cmake --install $simdjsonBuild --config Release
 
 $moduleRoot = Join-Path $env:GITHUB_WORKSPACE ".rocks\lib\lua\5.1"
 New-Item -ItemType Directory -Force $moduleRoot | Out-Null
-Copy-Item (Join-Path $cjsonBuild "Release\cjson.dll") (Join-Path $moduleRoot "cjson.dll")
 
 git clone --filter=blob:none https://github.com/luarocks/luarocks.git $luarocksRoot
 git -C $luarocksRoot checkout --detach $luarocksCommit
@@ -91,10 +87,18 @@ $gitBash = (Get-Command bash.exe).Source
 $gitSh = Join-Path (Split-Path $gitBash) "sh.exe"
 $luaPath = ($luajitRoot -replace "\\", "/") + "/src/?.lua;;"
 $luaCPath = ($moduleRoot -replace "\\", "/") + "/?.dll;;"
+$simdjsonPrefix = ($simdjsonInstall -replace "\\", "/")
+$luaJitPrefix = ((Join-Path $luajitRoot "src") -replace "\\", "/")
+
 $luaJitBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 $luarocksInstall | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 "LUA_PATH=$luaPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 "LUA_CPATH=$luaCPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+"NUPP_JSON_CC=clang++" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+"NUPP_JSON_SIMDJSON_ROOT=$simdjsonPrefix" |
+    Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+"NUPP_JSON_LUAJIT_ROOT=$luaJitPrefix" |
+    Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 "NUPP_LUAROCKS=$luarocksInstall\luarocks.bat" |
     Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 "NUPP_CI_BASH=$gitBash" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -102,10 +106,12 @@ $luarocksInstall | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
 $env:LUA_PATH = $luaPath
 $env:LUA_CPATH = $luaCPath
-& (Join-Path $luaJitBin "luajit.exe") -e 'require("cjson"); require("lpeg"); assert((nil ?? 1) == 1)'
+$env:Path = "$luaJitBin;$env:Path"
+& (Join-Path $luaJitBin "luajit.exe") -e 'require("lpeg"); assert((nil ?? 1) == 1)'
 if ($LASTEXITCODE -ne 0) {
-    throw "the CI LuaJIT toolchain cannot load lua-cjson, LPeg or Nupp syntax"
+    throw "the CI LuaJIT toolchain cannot load LPeg or Nupp syntax"
 }
+clang++ --version
 & (Join-Path $luarocksInstall "luarocks.bat") --version
 if ($LASTEXITCODE -ne 0) {
     throw "the CI LuaRocks installation cannot run"

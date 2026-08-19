@@ -4,7 +4,7 @@ set -eu
 # Nupp emits the syntax extensions from LuaJIT's rolling 2.1 branch. Distribution
 # packages commonly carry beta3 instead, so CI builds the exact VM it is testing.
 luajit_commit=1edc3e52b67eaf6ce5f809be8e17d6862594b8bc
-cjson_commit=5ce46a80b10ef9d380a45c9e6cff9ecffbe71ebb
+simdjson_commit=1bcf71bd85059ab6574ea1159de9298dcc1212c5
 luarocks_commit=3421bedc2ce2b64e79530bb97497531b014899a8
 # The compiler parses its own doc comments with `nupp.peg`, which resolves
 # native LPeg, so the module has to exist before the first build rather than
@@ -12,8 +12,10 @@ luarocks_commit=3421bedc2ce2b64e79530bb97497531b014899a8
 lpeg_version=1.1.0-2
 tool_root="$RUNNER_TEMP/nupp-ci-tools"
 luajit_root="$tool_root/luajit"
-cjson_root="$tool_root/lua-cjson"
-cjson_build="$tool_root/cjson-build"
+luajit_install="$tool_root/luajit-install"
+simdjson_root="$tool_root/simdjson"
+simdjson_build="$tool_root/simdjson-build"
+simdjson_install="$tool_root/simdjson-install"
 luarocks_root="$tool_root/luarocks"
 luarocks_install="$tool_root/luarocks-install"
 
@@ -32,19 +34,21 @@ if [ "$(uname -s)" = Darwin ]; then
 else
     make -C "$luajit_root" -j2
 fi
+make -C "$luajit_root" install PREFIX="$luajit_install"
 
-git clone --filter=blob:none https://github.com/openresty/lua-cjson.git "$cjson_root"
-git -C "$cjson_root" checkout --detach "$cjson_commit"
-cmake -S "$cjson_root" -B "$cjson_build" \
+git clone --filter=blob:none https://github.com/simdjson/simdjson.git "$simdjson_root"
+git -C "$simdjson_root" checkout --detach "$simdjson_commit"
+cmake -S "$simdjson_root" -B "$simdjson_build" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-    -DLUA_INCLUDE_DIR="$luajit_root/src" \
-    -DLUA_LIBRARY="$luajit_root/src/libluajit.a"
-cmake --build "$cjson_build" --config Release --parallel 2
+    -DCMAKE_INSTALL_PREFIX="$simdjson_install" \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DSIMDJSON_DEVELOPER_MODE=OFF \
+    -DSIMDJSON_INSTALL=ON
+cmake --build "$simdjson_build" --config Release --parallel 2
+cmake --install "$simdjson_build" --config Release
 
 module_root="$GITHUB_WORKSPACE/.rocks/lib/lua/5.1"
 mkdir -p "$module_root"
-cp "$cjson_build/cjson.so" "$module_root/cjson.so"
 
 git clone --filter=blob:none https://github.com/luarocks/luarocks.git "$luarocks_root"
 git -C "$luarocks_root" checkout --detach "$luarocks_commit"
@@ -52,19 +56,27 @@ git -C "$luarocks_root" checkout --detach "$luarocks_commit"
     --prefix="$luarocks_install" \
     --rocks-tree="$GITHUB_WORKSPACE/.rocks" \
     --lua-version=5.1 \
-    --with-lua-bin="$luajit_root/src" \
-    --with-lua-include="$luajit_root/src" \
-    --with-lua-lib="$luajit_root/src" \
+    --with-lua-bin="$luajit_install/bin" \
+    --with-lua-include="$luajit_install/include/luajit-2.1" \
+    --with-lua-lib="$luajit_install/lib" \
     --with-lua-interpreter=luajit \
     --force-config && make install)
 
 "$luarocks_install/bin/luarocks" install lpeg "$lpeg_version"
 
-printf '%s\n' "$luajit_root/src" "$luarocks_install/bin" >> "$GITHUB_PATH"
+pkg_config_path="$simdjson_install/lib/pkgconfig:$luajit_install/lib/pkgconfig"
+printf '%s\n' "$luajit_install/bin" "$luarocks_install/bin" >> "$GITHUB_PATH"
 printf 'LUA_PATH=%s/src/?.lua;;\n' "$luajit_root" >> "$GITHUB_ENV"
 printf 'LUA_CPATH=%s/?.so;;\n' "$module_root" >> "$GITHUB_ENV"
+printf 'PKG_CONFIG_PATH=%s\n' "$pkg_config_path" >> "$GITHUB_ENV"
+if [ "$(uname -s)" = Darwin ]; then
+    printf 'DYLD_LIBRARY_PATH=%s/lib\n' "$luajit_install" >> "$GITHUB_ENV"
+else
+    printf 'LD_LIBRARY_PATH=%s/lib\n' "$luajit_install" >> "$GITHUB_ENV"
+fi
 
 LUA_PATH="$luajit_root/src/?.lua;;" \
 LUA_CPATH="$module_root/?.so;;" \
-    "$luajit_root/src/luajit" -e 'require("cjson"); require("lpeg"); assert((nil ?? 1) == 1)'
+    "$luajit_install/bin/luajit" -e 'require("lpeg"); assert((nil ?? 1) == 1)'
+PKG_CONFIG_PATH="$pkg_config_path" pkg-config --cflags --libs simdjson luajit
 "$luarocks_install/bin/luarocks" --version

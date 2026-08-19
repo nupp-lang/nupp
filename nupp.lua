@@ -26,6 +26,24 @@ for _, name in ipairs(LEXERS) do
    bundledLexers[#bundledLexers + 1] = "scintillua/lexers/" .. name .. ".lua"
 end
 
+-- Windows runners do not carry a dependable pkg-config. The CI setup can name
+-- the two dependency roots outright; ordinary builds keep using the packages
+-- installed on their host. Both roots are one contract, so a partial override
+-- is a configuration error rather than a link command assembled from two
+-- unrelated installations.
+local JSON_SIMDJSON_ROOT = os.getenv("NUPP_JSON_SIMDJSON_ROOT")
+local JSON_LUAJIT_ROOT = os.getenv("NUPP_JSON_LUAJIT_ROOT")
+if (JSON_SIMDJSON_ROOT == nil) ~= (JSON_LUAJIT_ROOT == nil) then
+   error("NUPP_JSON_SIMDJSON_ROOT and NUPP_JSON_LUAJIT_ROOT must be set together")
+end
+local JSON_EXPLICIT_ROOTS = JSON_SIMDJSON_ROOT ~= nil
+local JSON_CFLAGS = {
+   "-std=c++17", "-O3", "-DNDEBUG", "-Wall", "-Wextra", "-Werror",
+}
+if JSON_EXPLICIT_ROOTS then
+   JSON_CFLAGS[#JSON_CFLAGS + 1] = "-DSIMDJSON_THREADS_ENABLED=1"
+end
+
 -- The built-in project templates `nupp init` scaffolds from.
 --
 -- They live outside `src` on purpose. A template's filenames carry the
@@ -104,16 +122,22 @@ return {
    dependencies = {
       jsonNative = {
          kind = "c",
-         cc = "c++",
+         cc = os.getenv("NUPP_JSON_CC") or "c++",
          sources = { "runtime/json/json.cpp" },
          headers = { "runtime/json/json.h" },
-         cflags = {
-            "-std=c++17", "-O3", "-DNDEBUG", "-Wall", "-Wextra", "-Werror",
-         },
+         includeDirs = JSON_EXPLICIT_ROOTS and {
+            JSON_SIMDJSON_ROOT .. "/include",
+            JSON_LUAJIT_ROOT,
+         } or nil,
+         cflags = JSON_CFLAGS,
+         ldflags = JSON_EXPLICIT_ROOTS and {
+            JSON_SIMDJSON_ROOT .. "/lib/simdjson.lib",
+            JSON_LUAJIT_ROOT .. "/lua51.lib",
+         } or nil,
          -- One shell-compatible string keeps the stage-zero compiler able to build
          -- this dependency; the self-hosted builder splits it into the same two
          -- package names before invoking pkg-config without a shell.
-         pkgConfig = "simdjson luajit",
+         pkgConfig = JSON_EXPLICIT_ROOTS and nil or "simdjson luajit",
       },
       -- Renders the markdown. Pulls in lpeg, cosmo, alt-getopt and luautf8,
       -- which LuaRocks resolves rather than this file listing them.

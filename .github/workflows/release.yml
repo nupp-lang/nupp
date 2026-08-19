@@ -37,7 +37,7 @@ jobs:
       # starting a sealed worker through `bin/nupp` -- which is a LuaJIT launcher. A
       # build of the compiler therefore needs the same interpreter the compiler matrix
       # builds, whatever interpreter drives the build itself.
-      - name: Build LuaJIT and lua-cjson
+      - name: Build LuaJIT and simdjson
         shell: bash
         run: .github/scripts/setup-luajit-posix.sh
 
@@ -73,9 +73,9 @@ jobs:
           set -euo pipefail
           # The stub runs the compiler, which reads its own doc comments
           # through nupp.peg, so it carries LPeg for the same reason it
-          # carries lua-cjson.
+          # carries the JSON runtime.
           cargo build --release --manifest-path host/Cargo.toml \
-            --target-dir build/bootstrap-host --features cjson,lpeg
+            --target-dir build/bootstrap-host --features json,lpeg
           cargo build --release --manifest-path runtime/native/Cargo.toml \
             --target-dir build/bootstrap-native --no-default-features \
             --features files,process
@@ -385,7 +385,7 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      - name: Build LuaJIT and lua-cjson
+      - name: Build LuaJIT and simdjson
         shell: bash
         run: .github/scripts/setup-luajit-posix.sh
 

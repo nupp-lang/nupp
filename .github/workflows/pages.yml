@@ -31,24 +31,9 @@ jobs:
           cache: npm
           cache-dependency-path: editors/playground/package-lock.json
 
-      - name: Install LuaJIT and LuaRocks
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes liblua5.1-0-dev luarocks
-          curl --fail --location --silent --show-error \
-            --output luajit.tar.gz \
-            https://github.com/LuaJIT/LuaJIT/archive/1edc3e52b67eaf6ce5f809be8e17d6862594b8bc.tar.gz
-          echo "85497ea149d136afbe2d7ef222e08849248e52cecc6dc8deefd8588e551e4e00  luajit.tar.gz" \
-            | sha256sum --check
-          tar xzf luajit.tar.gz
-          make -C LuaJIT-1edc3e52b67eaf6ce5f809be8e17d6862594b8bc
-          sudo make -C LuaJIT-1edc3e52b67eaf6ce5f809be8e17d6862594b8bc install PREFIX=/usr/local
-          sudo ldconfig
-          luarocks --lua-version=5.1 --tree=.rocks install lua-cjson 2.1.0.10-1
-          # The compiler parses its own doc comments with `nupp.peg`, which
-          # resolves native LPeg, so the module has to exist before the first
-          # build rather than arriving with what `nupp doc` renders with.
-          luarocks --lua-version=5.1 --tree=.rocks install lpeg 1.1.0-2
+      - name: Build LuaJIT and simdjson
+        shell: bash
+        run: .github/scripts/setup-luajit-posix.sh
 
       - name: Install playground dependencies
         run: npm ci --prefix editors/playground

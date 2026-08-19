@@ -26,12 +26,12 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v5
 
-      - name: Build LuaJIT and lua-cjson
+      - name: Build LuaJIT and simdjson
         if: runner.os != 'Windows'
         shell: bash
         run: .github/scripts/setup-luajit-posix.sh
 
-      - name: Build LuaJIT and lua-cjson
+      - name: Build LuaJIT and simdjson
         if: runner.os == 'Windows'
         shell: pwsh
         run: .github/scripts/setup-luajit-windows.ps1
