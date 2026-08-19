@@ -183,7 +183,10 @@ output against it, so the two cannot drift.
    intended repair.
 3. Read `docs` on a diagnostic, or run `./bin/nupp explain <code> --json`, when
    the message alone does not say what the rule is. `explain` gives the rule, a
-   program that reports the code, and the same program corrected.
+   program that reports the code, and the same program corrected. For the
+   surrounding prose rather than the rule, `./bin/nupp reference --for <code>`
+   prints the sections that cover it, and `--section` takes the `docs` pointer
+   itself — a few hundred words either way, where the chapter is thousands.
 4. Inspect `related` locations before changing cross-file declarations or
    ownership transfers.
 5. Use `./bin/nupp lsp inspect`, `definition`, and `references` when more

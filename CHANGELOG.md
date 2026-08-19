@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Let a reader take the part of the reference they need. `nupp reference` had
+  three slices -- `language`, `cli`, `performance` -- and the first is over
+  thirteen thousand words, so a question about one construct cost the whole
+  chapter. `--section NAME` prints one section, a few hundred words, named by
+  its heading or by any `docs` pointer at it, so the anchor every diagnostic
+  already carries is a thing that can be followed rather than only cited.
+  `--for CODE` goes the other way and prints whichever sections explain a
+  diagnostic, which is what a reader holding one actually has. Bare `nupp
+  reference` now lists every section, because the alternative to naming the
+  slices is guessing at them: agents in the evaluation harness ran `nupp
+  reference types`, `nupp reference syntax` and `nupp reference
+  docs/modules.md`, all of which failed, and then loaded the whole chapter
+  instead. `types` and `modules` are real names now.
+
 - Say whether `nupp check --json` actually checked anything. An empty
   `diagnostics` meant two different things -- a project with nothing wrong,
   and a run that never reached a file because it could not use the manifest --

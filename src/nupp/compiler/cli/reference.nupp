@@ -16,13 +16,23 @@ local spec = require("nupp.compiler.cli.spec")
 local command = spec.command{
     name = "reference",
     summary = "List or print a focused Nupp reference chapter",
-    usage = {"nupp reference [language|cli|performance|all] [--format markdown|skill|json] [-o PATH]"},
+    usage = {
+        "nupp reference [language|cli|performance|all] [--format markdown|skill|json] [-o PATH]",
+        "nupp reference --section NAME | --for CODE",
+    },
     positionals = {{name = "chapter", choices = {"language", "cli", "performance", "all"}}},
-    intro = [[With no chapter, lists the available focused references. `all` is the
-complete Nupp reference, meant to be pasted whole.
+    intro = [[With no chapter, lists the available focused references and the sections
+inside them. `all` is the complete Nupp reference, meant to be pasted whole.
+
+A chapter is thousands of words. `--section` prints one section, named by its
+heading or by any `docs` pointer at it, and `--for` prints whichever sections
+explain a diagnostic code -- which is what a reader holding one actually has.
 
   nupp reference cli
   nupp reference language
+  nupp reference --section affine-resources
+  nupp reference --section docs/modules.md#modules
+  nupp reference --for NUPP2004
   nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
   nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
   nupp reference --format skill -o .claude/skills/nupp/SKILL.md]],
@@ -47,6 +57,20 @@ complete Nupp reference, meant to be pasted whole.
             constant = "json",
             duplicate = "output format was specified more than once",
             help = "Shorthand for --format json"
+        },
+        {
+            name = "--section",
+            value = "NAME",
+            key = "section",
+            duplicate = "a section was named more than once",
+            help = "Print one section, by heading or by a docs pointer at it"
+        },
+        {
+            name = "--for",
+            value = "CODE",
+            key = "forCode",
+            duplicate = "a code was named more than once",
+            help = "Print whichever sections explain that diagnostic code"
         },
         {
             names = {"-o", "--output"},
@@ -104,6 +128,91 @@ local function run(parsed: any): integer
         return command:usageError("at most one reference chapter is required")
     end
     local topic = positional[1]
+    local wantedSection = parsed.values.section
+    local wantedCode = parsed.values.forCode
+    if wantedSection and wantedCode then
+        return command:usageError("--section and --for name the same thing two ways")
+    end
+    if (wantedSection or wantedCode) and topic then
+        return command:usageError("--section and --for already say which part to print")
+    end
+
+    -- One section, or the sections covering one code. Both answer the question a
+    -- reader actually arrived with, rather than handing over the chapter it lives in.
+    if wantedSection or wantedCode then
+        local chosen: {any} = {}
+        if wantedSection then
+            local section, chapter = reference.findSection(wantedSection)
+            if not section then
+                return command:usageError(
+                    "no reference section named " .. wantedSection .. "; `nupp reference` lists them"
+                )
+            end
+            chosen[1] = {section = section, chapter = chapter}
+        else
+            for _, found in ipairs(reference.sectionsFor(wantedCode)) do
+                chosen[#chosen + 1] = found
+            end
+            if #chosen == 0 then
+                -- The code may still be real and simply not be what any section is
+                -- about; `explain` is where a code always answers.
+                return command:usageError(
+                    "no reference section covers " .. wantedCode .. "; try `nupp explain " .. wantedCode .. "`"
+                )
+            end
+        end
+        local parts: {string} = {}
+        for _, found in ipairs(chosen) do
+            parts[#parts + 1] = reference.sectionMarkdown(found.section, found.chapter)
+        end
+        local rendered = table.concat(parts, "\n\n")
+        if format == "json" then
+            local sections: {any} = {}
+            for _, found in ipairs(chosen) do
+                sections[
+                    #sections + 1
+                ] = {
+                    title = found.section.title,
+                    body = found.section.body,
+                    example = found.section.example,
+                    codes = found.section.codes,
+                }
+            end
+            local payload = {
+                title = sections[1].title,
+                sections = sections,
+                chapters = {},
+                tooling = reference.tooling,
+                markdown = rendered,
+            }
+            if parsed.values.output then
+                local file, err = io.open(parsed.values.output, "w")
+                if not file then
+                    io.stderr:write(tostring(err) .. "\n")
+                    return 1
+                end
+                file:write(require("nupp.compiler.cli.report").encode(payload), "\n")
+                file:close()
+                return 0
+            end
+            require("nupp.compiler.cli.report").write(payload)
+            return 0
+        end
+        if parsed.values.output then
+            local file, err = io.open(parsed.values.output, "w")
+            if not file then
+                io.stderr:write(tostring(err) .. "\n")
+                return 1
+            end
+            file:write(rendered, "\n")
+            file:close()
+            return 0
+        end
+        io.write(rendered, "\n")
+
+        return 0
+    end
+
     if not topic and not parsed.values.format and not parsed.values.output then
         io.write(reference.catalog(), "\n")
         return 0

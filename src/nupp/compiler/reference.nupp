@@ -2590,6 +2590,64 @@ function reference.chapter(name: string): reference.Chapter?
     return nil
 end
 
+--- A heading as the anchor a `docs` pointer names it by: lower case, with runs of
+--- anything that is not a letter or a digit collapsed to one hyphen.
+---
+--- The same rule GitHub and the documentation site slugify headings with, so a pointer
+--- copied out of a diagnostic, a doc page or this reference all name the same section.
+function reference.slug(title: string): string
+    local text = title:lower():gsub("[^%w]+", "-")
+
+    return (text:gsub("^%-+", ""):gsub("%-+$", ""))
+end
+
+--- The section a slug names, and the chapter holding it.
+---
+--- Accepts what a reader actually has in hand rather than only the bare slug: a whole
+--- `docs` pointer such as `docs/modules.md#diagnostics`, a bare `#anchor`, or the
+--- heading written out. Everything before a `#` is a file name this reference does not
+--- have and does not need -- the anchor is what identifies the section.
+function reference.findSection(name: string): (reference.Section?, reference.Chapter?)
+    local wanted = reference.slug((name:match("#(.*)$") or name))
+    for _, chapter in ipairs(reference.chapters) do
+        for _, section in ipairs(chapter.sections) do
+            if reference.slug(section.title) == wanted then
+                return section, chapter
+            end
+        end
+    end
+
+    return nil, nil
+end
+
+--- Every section that says what one diagnostic code means, with its chapter.
+---
+--- This is the loop a diagnostic already half-closes: every one carries the code that
+--- reports it, and every section records the codes it covers, so holding a code is
+--- enough to reach the prose about it without reading the chapter it sits in.
+function reference.sectionsFor(code: string): {{
+    section: reference.Section,
+    chapter: reference.Chapter
+}}
+    local found: {{
+        section: reference.Section,
+        chapter: reference.Chapter
+    }} = {}
+    local wanted = code:upper()
+    for _, chapter in ipairs(reference.chapters) do
+        for _, section in ipairs(chapter.sections) do
+            for _, listed in ipairs(section.codes) do
+                if listed:upper() == wanted then
+                    found[#found + 1] = {section = section, chapter = chapter}
+                    break
+                end
+            end
+        end
+    end
+
+    return found
+end
+
 --- The short discovery response for `nupp reference`: enough to choose a focused
 --- chapter without having to pay for the complete reference first.
 function reference.catalog(): string
@@ -2604,9 +2662,21 @@ function reference.catalog(): string
         out[#out + 1] = ("  %s %s"):format(pad(chapter.name, widest), chapter.summary)
     end
     out[#out + 1] = ""
+    -- The sections, not only the chapters. A reader who cannot see what the slices
+    -- are guesses at them, and a guess that misses costs a whole chapter: the
+    -- language reference is over thirteen thousand words.
+    for _, chapter in ipairs(reference.chapters) do
+        out[#out + 1] = chapter.title .. " sections"
+        for _, section in ipairs(chapter.sections) do
+            out[#out + 1] = "  " .. reference.slug(section.title)
+        end
+        out[#out + 1] = ""
+    end
     out[
         #out + 1
-    ] = "Run `nupp reference <chapter>` for one chapter, or " .. "`nupp reference all` for the complete reference."
+    ] = "Run `nupp reference <chapter>` for one chapter, `nupp reference all` for the "
+        .. "complete reference,\n`nupp reference --section <name>` for one section, or "
+        .. "`nupp reference --for <CODE>` for\nwhichever sections explain a diagnostic."
 
     return table.concat(out, "\n")
 end
@@ -2687,6 +2757,18 @@ function reference.markdown(opts: {level: integer?}?): string
 end
 
 --- One focused chapter as a standalone Markdown reference.
+--- One section on its own, titled so a reader can see which chapter it came from.
+---
+--- What `--section` and `--for` print. The whole point is that this is the small
+--- answer: a chapter is thousands of words, and a reader who knows which construct
+--- they are asking about should not have to load the rest to read about it.
+function reference.sectionMarkdown(section: reference.Section, chapter: reference.Chapter): string
+    local out: {string} = {"# " .. section.title, "", "From the Nupp " .. chapter.title .. " reference.", ""}
+    renderSection(out, section, 2)
+
+    return (table.concat(out, "\n"):gsub("\n+$", ""))
+end
+
 function reference.chapterMarkdown(chapter: reference.Chapter): string
     local out: {string} = {"# Nupp " .. chapter.title .. " reference", "", chapter.summary, ""}
     renderChapter(out, chapter, 2)

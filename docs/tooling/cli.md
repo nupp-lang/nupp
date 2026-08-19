@@ -1016,12 +1016,20 @@ List or print a focused Nupp reference chapter
 
 Usage:
   nupp reference [language|cli|performance|all] [--format markdown|skill|json] [-o PATH]
+  nupp reference --section NAME | --for CODE
 
-With no chapter, lists the available focused references. `all` is the
-complete Nupp reference, meant to be pasted whole.
+With no chapter, lists the available focused references and the sections
+inside them. `all` is the complete Nupp reference, meant to be pasted whole.
+
+A chapter is thousands of words. `--section` prints one section, named by its
+heading or by any `docs` pointer at it, and `--for` prints whichever sections
+explain a diagnostic code -- which is what a reader holding one actually has.
 
   nupp reference cli
   nupp reference language
+  nupp reference --section affine-resources
+  nupp reference --section docs/modules.md#modules
+  nupp reference --for NUPP2004
   nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
   nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
   nupp reference --format skill -o .claude/skills/nupp/SKILL.md
@@ -1030,6 +1038,8 @@ Options:
   --format FORMAT    Output format: markdown (default), skill, or json
   --skill            Shorthand for --format skill
   --json             Shorthand for --format json
+  --section NAME     Print one section, by heading or by a docs pointer at it
+  --for CODE         Print whichever sections explain that diagnostic code
   -o, --output PATH  Write to this file rather than to standard output
   --schema           Print the JSON Schema of --json output and exit
   --color[=WHEN]     When to color output: always, never, or auto (default)
@@ -1050,8 +1060,46 @@ Nupp reference chapters
   cli         Nupp commands, JSON contracts, testing, and coverage workflows.
   performance Nupp trace checking, sampling, abort analysis, zones, and benchmark workflow.
 
-Run `nupp reference <chapter>` for one chapter, or `nupp reference all` for the complete reference.
+Language sections
+  gradual-typing-over-luajit
+  declaring-things
+  types
+  functions
+  …
+
+CLI sections
+  …
+
+Performance sections
+  …
+
+Run `nupp reference <chapter>` for one chapter, `nupp reference all` for the complete reference,
+`nupp reference --section <name>` for one section, or `nupp reference --for <CODE>` for
+whichever sections explain a diagnostic.
 ```
+
+A chapter is thousands of words -- `language` is over thirteen thousand -- and
+a reader who knows which construct they are asking about should not have to
+load the rest of it. `--section` prints one:
+
+```bash
+nupp reference --section types
+nupp reference --section affine-resources
+```
+
+A section is named by its heading, or by any `docs` pointer at it, so the
+anchor a diagnostic already carries is a thing that can be followed:
+`--section docs/modules.md#modules` prints the same section as `--section
+modules`. `--for CODE` goes the other way and prints whichever sections explain
+a diagnostic, which is what a reader holding one actually has:
+
+```bash
+nupp reference --for NUPP2004
+```
+
+A code that no section covers says so and points at `nupp explain`, which is
+where every code answers. The catalogue above names every section, so nothing
+has to be guessed at.
 
 The chapters are generated from the compiler, so they cannot describe a
 construct the compiler does not have. Their examples compile in the test suite,

@@ -182,4 +182,86 @@ function M.referenceCommandListsAndSelectsChapters()
 end
 
 
+--- A reader who knows which construct they are asking about should not have to
+--- load the chapter it lives in. The size is the whole point of the feature, so
+--- it is what the test asserts.
+function M.oneSectionIsSelectableAndFarSmallerThanItsChapter()
+   local chapterPipe = assert(io.popen(('%q reference language'):format(NUPP)))
+   local chapter = chapterPipe:read("*a")
+   chapterPipe:close()
+   local sectionPipe = assert(io.popen(('%q reference --section types'):format(NUPP)))
+   local section = sectionPipe:read("*a")
+   sectionPipe:close()
+   assert(section:find("# Types", 1, true), "the section prints under its heading")
+   assert(#section * 10 < #chapter,
+      ("a section is a slice, not the chapter: %d vs %d bytes"):format(#section, #chapter))
+end
+
+--- Every diagnostic carries a `docs` pointer, and the anchor in it is what
+--- identifies the section. Naming a section by the whole pointer has to work, or
+--- the pointer is one a reader cannot follow.
+function M.aDocsPointerNamesItsSection()
+   local pipe = assert(io.popen(
+      ('%q reference --section "docs/modules.md#modules"'):format(NUPP)))
+   local out = pipe:read("*a")
+   pipe:close()
+   assert(out:find("# Modules", 1, true), "a docs pointer resolves: " .. out:sub(1, 120))
+end
+
+--- The loop a diagnostic half-closes: holding a code is enough to reach the prose.
+function M.aCodeReachesTheSectionsExplainingIt()
+   local reference = require("nupp.compiler.reference")
+   local checked = 0
+   for _, chapter in ipairs(reference.chapters) do
+      for _, section in ipairs(chapter.sections) do
+         for _, code in ipairs(section.codes) do
+            local found = reference.sectionsFor(code)
+            assert(#found > 0, code .. " is cited but reaches no section")
+            checked = checked + 1
+         end
+      end
+   end
+   assert(checked > 0, "the reference cites codes")
+   assert(#reference.sectionsFor("NUPP9999") == 0, "an uncited code reaches nothing")
+end
+
+--- Guessing is what the catalogue is meant to stop, so it has to name the slices.
+function M.theCatalogueNamesEverySection()
+   local reference = require("nupp.compiler.reference")
+   local pipe = assert(io.popen(('%q reference'):format(NUPP)))
+   local catalogue = pipe:read("*a")
+   pipe:close()
+   for _, chapter in ipairs(reference.chapters) do
+      for _, section in ipairs(chapter.sections) do
+         local slug = reference.slug(section.title)
+         assert(catalogue:find(slug, 1, true),
+            slug .. " is a slice the catalogue does not mention")
+      end
+   end
+end
+
+
+--- Two examples in this command's own help named sections that do not exist, and
+--- nothing noticed until they were tried by hand. An example is a promise.
+function M.everySectionExampleInTheHelpResolves()
+   local pipe = assert(io.popen(('%q reference --help'):format(NUPP)))
+   local help = pipe:read("*a")
+   pipe:close()
+   local checked = 0
+   for name in help:gmatch("nupp reference %-%-section ([^%s]+)") do
+      -- The usage line spells the argument `NAME`, which is the placeholder and
+      -- not a section. Anything in capitals is one of those.
+      if not name:match("^%u+$") then
+      checked = checked + 1
+      local run = assert(io.popen(
+         ('%q reference --section %q >/dev/null 2>&1; echo $?'):format(NUPP, name)))
+      local status = run:read("*a")
+      run:close()
+      assert(status:match("^0"), "the help offers --section " .. name .. ", which does not resolve")
+      end
+   end
+   assert(checked > 0, "the help shows how to name a section")
+end
+
+
 return M

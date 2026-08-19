@@ -48,6 +48,14 @@ whenever output is not a terminal, so piped output never carries escapes.
   thousand tokens: every construct, a compiled example of each, and the codes that
   report misuse. Read it before writing `.nupp` if you have not already.
   `--format skill` ejects it as an agent skill.
+- `./bin/nupp reference` with no chapter lists every section by name, and
+  `--section NAME` prints one — a few hundred words rather than the chapter's
+  thousands. A section is named by its heading or by any `docs` pointer at it,
+  so the anchor a diagnostic carries can be followed directly. Reach for a
+  section when the question is about one construct, and the chapter only when
+  it is not.
+- `./bin/nupp reference --for CODE` prints whichever sections explain a
+  diagnostic code, which is what you have when a check reports one.
 - `./bin/nupp check [FILE...]` type-checks source. A `.nupp` file is checked
   strictly; `.g.nupp` opts a file out of the strict floor without giving up the
   typed syntax, and `.lua` is plain Lua the typed layer is refused in.
