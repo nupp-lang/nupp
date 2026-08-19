@@ -1,5 +1,3 @@
-# Bitsets
-
 `nupp.data.bitset` holds sets of bit positions across as many 32-bit words as
 they need. LuaJIT's `bit` library operates on one word at a time and has no
 population count or trailing-zero operation, so the multi-word part lives here:

@@ -1,5 +1,3 @@
-# `nupp.log`
-
 Leveled logging whose disabled path is the path it is designed around.
 
 ```nupp

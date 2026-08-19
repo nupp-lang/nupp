@@ -1,5 +1,3 @@
-# Declaration derives
-
 `@derive` generates a closed set of checked members on a record. It is a
 declaration-augmentation phase, not a text macro: it cannot add imports,
 top-level declarations, modules, records, interfaces, or independently

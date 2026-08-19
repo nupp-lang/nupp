@@ -1,5 +1,3 @@
-# JSON
-
 `nupp.data.json` is Nupp's strict, simdjson-backed JSON runtime. It parses,
 selectively pulls, serializes, and streams JSON without exposing a third-party
 Lua module:

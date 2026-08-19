@@ -1,5 +1,3 @@
-# Parsing-expression grammars
-
 `nupp.peg` compiles textual parsing-expression grammars into reusable typed
 matchers. The same grammar language works inside `comptime` and at runtime.
 Nupp ships native LPeg and uses it for general matching while retaining a few

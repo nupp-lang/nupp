@@ -1,5 +1,3 @@
-# Data and text
-
 `nupp.data` groups serialization, Unicode, identifiers, byte digests and
 bitsets. Reach it directly from the global [`nupp` namespace](stdlib.md); the C
 and Rust providers remain hidden.

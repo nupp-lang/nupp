@@ -1,5 +1,3 @@
-# Byte buffers, readers and writers
-
 `nupp.io` supplies in-memory byte I/O without requiring a stream framework. A
 buffer holds its bytes in a LuaJIT FFI array, so using it adds no native
 dependency. Files and processes build on the same reader and writer contracts

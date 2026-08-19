@@ -48,6 +48,13 @@ Every page opens the same way.
 A page owns one concept. If it needs two H1-sized ideas, it is two pages with a
 link between them.
 
+**A module overview page has no H1.** A page registered under `modules/` in
+`nupp.lua` is folded into that module's generated reference, which has already
+written the heading and named the module above it. An H1 of its own lands
+directly under that one and says the subject twice, so such a page opens at
+step 2, with the sentence that says what the module is. The generated page
+supplies the heading; the overview supplies everything a generator cannot know.
+
 ## Titles
 
 Titles are short, and they are one of two kinds.

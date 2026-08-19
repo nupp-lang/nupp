@@ -1,5 +1,3 @@
-# Filesystem metadata and directories
-
 `nupp.io.files` reads what the filesystem knows about a name: whether it
 resolves, what it refers to, what a directory contains, and where the platform
 keeps a user's folders. It also moves and removes names.

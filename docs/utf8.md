@@ -1,5 +1,3 @@
-# UTF-8
-
 `nupp.data.utf8` treats strings and [`nupp.io.ByteView`](io.md#byte-views)
 values as byte sequences. Byte offsets are 1-based here so they compose with Lua
 string positions. Invalid input decodes as U+FFFD while validation remains

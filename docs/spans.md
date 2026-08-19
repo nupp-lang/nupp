@@ -1,5 +1,3 @@
-# Checked spans
-
 `nupp.span` gives a C array a rooted, one-based, bounds-checked view. A shared
 `Span<T>` reads contiguous elements; a writable span adds exclusive access and
 an affine lifetime, so the pointer cannot outlive or overlap its owner.

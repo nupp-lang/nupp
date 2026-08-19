@@ -1,5 +1,3 @@
-# Math helpers
-
 `nupp.math` adds the scalar and two-dimensional operations missing from Lua's
 built-in `math` table. It is pure generated Lua and adds no native dependency.
 
