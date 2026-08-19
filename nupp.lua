@@ -879,6 +879,16 @@ nupp lsp            # start the language server]],
                   title = "Distribution",
                   source = "docs/reference/distribution.md",
                },
+               -- A directory rather than a list of files: an enhancement
+               -- proposal is published by being written, and a manifest that
+               -- also had to name each one would fail by quietly showing one
+               -- proposal fewer than the repository holds. The index at the
+               -- route is generated from the proposals themselves.
+               {
+                  path = "neps",
+                  title = "NEPs",
+                  directory = "docs/neps",
+               },
             },
          },
       },
