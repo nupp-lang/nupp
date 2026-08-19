@@ -97,7 +97,6 @@ local RESOURCES = {
    {source = "src/nupp/soa.nupp", output = "nupp/compiler/nupp/soa.nupp"},
    {source = "src/nupp/suspension.nupp", output = "nupp/compiler/nupp/suspension.nupp"},
    {source = "src/nupp/io/process.nupp", output = "nupp/compiler/nupp/io/process.nupp"},
-   {source = "src/nupp/io/processbackend.nupp", output = "nupp/compiler/nupp/io/processbackend.nupp"},
    {source = "src/nupp/workers.nupp", output = "nupp/compiler/nupp/workers.nupp"},
    {source = "src/nupp/io/http.nupp", output = "nupp/compiler/nupp/io/http.nupp"},
    {source = "src/nupp/compiler/decls/processnative.d.nupp", output = "nupp/compiler/decls/processnative.d.nupp"},

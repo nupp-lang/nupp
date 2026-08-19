@@ -1711,7 +1711,7 @@ pub mod files {
 
 /// Child processes: spawning them, moving bytes to and from them, and reaping them.
 ///
-/// The platform half of the seam `nupp.io.processbackend` describes. Spawning, ordered
+/// The platform half of the seam `nupp.io.process` describes. Spawning, ordered
 /// stdio wiring, environment construction, SIGPIPE containment, the nonblocking
 /// operations and readiness waiting, and exit decoding live here; the lifecycle policy
 /// above -- deadlines, `communicate`, suspension, cancellation, cleanup -- stays in
@@ -1758,7 +1758,7 @@ pub mod process {
 
     use super::set_error;
 
-    /// How a stream was asked to be connected. Mirrors `processbackend.StreamMode`, plus
+    /// How a stream was asked to be connected. Mirrors `process.StreamMode`, plus
     /// stderr's option to join stdout.
     pub const MODE_PIPE: u8 = 0;
     pub const MODE_INHERIT: u8 = 1;
