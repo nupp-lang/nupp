@@ -792,7 +792,7 @@ end
 function M.stringBufferPointersBecomeCheckedSpans()
    assertClean(table.concat({
       "local buffer = require('string.buffer')",
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local b = buffer.new()",
       "local available: uint64 = 0",
       "do",

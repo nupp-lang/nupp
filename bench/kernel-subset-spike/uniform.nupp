@@ -13,7 +13,7 @@
 --
 -- Forced by annotation: the estimate is above the threshold, but the point of
 -- this file is the loop shape rather than the decision about it.
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Body
     x: float

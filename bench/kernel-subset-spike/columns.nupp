@@ -9,7 +9,7 @@
 -- An entity-component store keeps components in columns, which is what makes
 -- them worth having. This is that layout: one span per component, contiguous,
 -- so a lane load is a vector load.
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Position
     x: float

@@ -50,7 +50,7 @@ end
 -- A register-resident loop: sixteen bytes read once, then arithmetic over locals that
 -- touches no memory. Above the intensity threshold, so lanes are expected to pay.
 local COMPUTE = [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Point
     re: float
@@ -110,7 +110,7 @@ return {escapes = escapes, Point = Point, Escape = Escape,}
 -- The same shape with almost no arithmetic: two fields in, two fields out, one multiply
 -- and add each. Below the threshold, so lane lowering is declined rather than refused.
 local STREAMING = [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Position
     x: float
@@ -168,7 +168,7 @@ local REFUSED = STREAMING
 local PINNED = "--target x86_64-unknown-linux-gnu --features avx2 "
 
 local BYTE_CLASSIFIER = [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 @aot(lanes = true)
 local function classify(
@@ -194,7 +194,7 @@ return {classify = classify}
 -- A non-JSON variable-rate block kernel. Its output cursor advances only under
 -- the count check that authorizes the following one-based span store.
 local DELIMITERS = [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 @aot(lanes = false)
 local function delimiters(
@@ -219,7 +219,7 @@ return {delimiters = delimiters}
 ]]
 
 local MUTATED_WHILE_CURSOR = [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 @aot(lanes = false)
 local function afterIncrement(borrows source: span.Span<uint8>): uint32
@@ -236,7 +236,7 @@ return {afterIncrement = afterIncrement}
 ]]
 
 local SCOPED_SIMD = [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 local preferredBytes = simd.preferredU8
 
@@ -482,7 +482,7 @@ end
 
 function M.fixedWidthSwitchesEmitNativeCDispatch()
    local source = [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Signed
     value: int32
@@ -551,7 +551,7 @@ end
 
 function M.binary64SwitchesKeepComparisonBranches()
    local dir = project{["switch.nupp"] = [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Value
     value: int32
@@ -624,7 +624,7 @@ end
 -- `nupp.math.f32` and takes eight. One file used to hold exactly one function,
 -- and two gangs in one file is where the shared prelude has to not collide.
 local TWO = [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Sample
     value: float

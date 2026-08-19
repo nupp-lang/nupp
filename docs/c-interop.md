@@ -575,7 +575,7 @@ For larger or explicitly native-owned arrays, use the malloc-backed standard
 library allocation and immediately give it bounds:
 
 ```nupp
-local heap = require("nupp.heap")
+local heap = require("nupp.mem.heap")
 
 local values = heap.allocate(ffi.typeof<int32>(), 1000000)
 local writable = values:write()

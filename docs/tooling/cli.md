@@ -719,7 +719,7 @@ built compiler in 18.9s: 164 compiled, 0 reused
   check 16.1s  generate 952ms
   slowest
     nupp.compiler.gen            1.9s
-    nupp.heap                    699ms
+    nupp.mem.heap                699ms
     nupp.compiler.check.calls    664ms
 ```
 
@@ -1377,7 +1377,7 @@ that starts with a dash.
 --profile writes collapsed-stack text: one line per stack, frames separated by
 semicolons, then the sample count. speedscope.app, FlameGraph.pl and inferno
 all read it directly. Frames are prefixed by the zone path that was open, so a
-program that calls nupp.zone reports itself in its own terms, and the leaf
+program that calls nupp.profile.zone reports itself in its own terms, and the leaf
 carries the VM state most of its samples were in: N compiled, I interpreted,
 C in a C function, G collecting, J compiling.
 

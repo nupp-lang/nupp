@@ -5,7 +5,7 @@ but they may also be moved, returned, or dropped early. `with` gives an affine
 value a stricter contract: one exact extent whose visible name is a borrow.
 
 ```nupp:playground
-local soa = require("nupp.soa")
+local soa = require("nupp.mem.soa")
 local ffi = require("ffi")
 
 local struct Position

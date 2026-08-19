@@ -32,8 +32,8 @@ local function compile(src, options)
 end
 
 local HEADER = [[
-local span = require("nupp.span")
-local indexed = require("nupp.indexed")
+local span = require("nupp.mem.span")
+local indexed = require("nupp.mem.indexed")
 local struct Cell
     value: int32
 end
@@ -277,7 +277,7 @@ return work
 
     local bytes = compile(
         [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 local function work(borrows source: string): integer
     const values = span.fromString(source)
     local total = 0
@@ -299,7 +299,7 @@ function M.heapRootsStayRootedThroughTheirOwners()
     local shared = compile(
         HEADER
         .. [[
-local heap = require("nupp.heap")
+local heap = require("nupp.mem.heap")
 local function work(borrows storage: heap.Array<Cell>): int32
     const values = storage:read()
     local total = 0 as int32
@@ -318,7 +318,7 @@ return work
     local writable = compile(
         HEADER
         .. [[
-local heap = require("nupp.heap")
+local heap = require("nupp.mem.heap")
 local function work(exclusive storage: heap.Array<Cell>): nil
     const values = storage:write()
     for index = 1, #values do
@@ -336,7 +336,7 @@ end
 function M.soaRootsComposeWithResolvedFieldProjection()
     local code = compile(
         [[
-local soa = require("nupp.soa")
+local soa = require("nupp.mem.soa")
 local struct Particle
     x: float
     y: float
@@ -391,7 +391,7 @@ end
 function M.virtualRootValidationAndBoundsRunAtTheAuthoredAccess()
     local _, _, raw = compile(
         [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 local Runtime = {}
 function Runtime.read(borrows storage: int32[?], count: integer, index: integer): int32
     const values = span.fromCarray(storage, count)
@@ -493,7 +493,7 @@ end
 function M.soaWholeRowsGatherAndScatterWithoutAViewWrapper()
     local code = compile(
         [[
-local soa = require("nupp.soa")
+local soa = require("nupp.mem.soa")
 local struct Particle
     x: float
     y: float
@@ -679,8 +679,8 @@ end
 function M.effectfulDenseAcquisitionKeepsDirtyTrackingBeforeDirectStores()
     local compact, _, raw = compile(
         [[
-local span = require("nupp.span")
-local indexed = require("nupp.indexed")
+local span = require("nupp.mem.span")
+local indexed = require("nupp.mem.indexed")
 local R3 = {}
 local dirtyX = 0
 local dirtyY = 0
@@ -756,7 +756,7 @@ end
 function M.fixedSpansUseTheCommonAdapter()
     local code = compile(
         [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 local struct Cell
     value: uint8
 end
@@ -796,7 +796,7 @@ end
 function M.aLookalikeIndexedTypeCannotEnterTheTrustedRange()
     local _, diagnostics = checked(
         [[
-local indexed = require("nupp.indexed")
+local indexed = require("nupp.mem.indexed")
 local record Fake
     readonly count: integer
 end

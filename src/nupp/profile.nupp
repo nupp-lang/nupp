@@ -14,7 +14,7 @@ The second question is the one a sampler cannot answer and the one that usually
 matters here: code the JIT refused is an order of magnitude slower than code it
 took, and nothing says so out loud.
 
-Both channels attribute work through `nupp.zone`, so a sample or an abort
+Both channels attribute work through `nupp.profile.zone`, so a sample or an abort
 carries the zone path that was open when it happened. Both are process-wide
 rather than per-coroutine, and at most one session of each kind runs at a time.
 
@@ -31,10 +31,10 @@ answer.
     print(report.samples, report.stacks)
 ]]
 
-local zone = require("nupp.zone")
+local zone = require("nupp.profile.zone")
 local jitProfile = require("jit.profile")
 local jitUtil = require("jit.util")
-local traceRegistry = require("nupp._trace")
+local traceRegistry = require("nupp.profile._trace")
 
 local profile = {}
 

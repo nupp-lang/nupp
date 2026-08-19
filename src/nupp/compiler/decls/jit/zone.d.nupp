@@ -11,7 +11,7 @@ Reading the array directly is possible but not typed here, so it needs a cast.
 
 The stock implementation does its table work whether or not a profiler is
 listening, which makes an instrumented hot path pay for zones it is not being
-measured with. `nupp.zone` wraps this and gates it; prefer that over calling
+measured with. `nupp.profile.zone` wraps this and gates it; prefer that over calling
 this module directly.
 ]]
 

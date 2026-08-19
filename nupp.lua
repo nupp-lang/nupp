@@ -86,15 +86,15 @@ local RESOURCES = {
    {source = "src/nupp/resources.nupp", output = "nupp/compiler/nupp/resources.nupp"},
    {source = "src/nupp/dynamic.nupp", output = "nupp/compiler/nupp/dynamic.nupp"},
    {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
-   {source = "src/nupp/zone.nupp", output = "nupp/compiler/nupp/zone.nupp"},
-   {source = "src/nupp/_trace.nupp", output = "nupp/compiler/nupp/_trace.nupp"},
+   {source = "src/nupp/profile/zone.nupp", output = "nupp/compiler/nupp/profile/zone.nupp"},
+   {source = "src/nupp/profile/_trace.nupp", output = "nupp/compiler/nupp/profile/_trace.nupp"},
    {source = "src/nupp/profile.nupp", output = "nupp/compiler/nupp/profile.nupp"},
-   {source = "src/nupp/indexed.nupp", output = "nupp/compiler/nupp/indexed.nupp"},
-   {source = "src/nupp/span.nupp", output = "nupp/compiler/nupp/span.nupp"},
+   {source = "src/nupp/mem/indexed.nupp", output = "nupp/compiler/nupp/mem/indexed.nupp"},
+   {source = "src/nupp/mem/span.nupp", output = "nupp/compiler/nupp/mem/span.nupp"},
    {source = "src/nupp/simd.nupp", output = "nupp/compiler/nupp/simd.nupp"},
    {source = "src/nupp/valuebuilder.g.nupp", output = "nupp/compiler/nupp/valuebuilder.g.nupp"},
-   {source = "src/nupp/heap.nupp", output = "nupp/compiler/nupp/heap.nupp"},
-   {source = "src/nupp/soa.nupp", output = "nupp/compiler/nupp/soa.nupp"},
+   {source = "src/nupp/mem/heap.nupp", output = "nupp/compiler/nupp/mem/heap.nupp"},
+   {source = "src/nupp/mem/soa.nupp", output = "nupp/compiler/nupp/mem/soa.nupp"},
    {source = "src/nupp/suspension.nupp", output = "nupp/compiler/nupp/suspension.nupp"},
    {source = "src/nupp/io/process.nupp", output = "nupp/compiler/nupp/io/process.nupp"},
    {source = "src/nupp/workers.nupp", output = "nupp/compiler/nupp/workers.nupp"},
@@ -407,7 +407,7 @@ end]],
     count: uint64
 )
 
-local spans = require("nupp.span")
+local spans = require("nupp.mem.span")
 local input = ffi.new<int32[256]>()
 local output = ffi.new<int32[256]>()
 local readable = spans.fromCarray(input, 256)
@@ -454,7 +454,7 @@ update(
                            .. "push and pop inline—leaving no Lua call for a hot path to pay for.",
                         code = [[nupp.log.debug("spawn at %d,%d", x, y) -- unevaluated when filtered
 
-local zone = require("nupp.zone")
+local zone = require("nupp.profile.zone")
 zone.push("physics")
 stepWorld()
 zone.pop() -- inlined against the zone stack, not called]],
@@ -747,14 +747,14 @@ nupp lsp            # start the language server]],
                   source = "docs/math.md",
                },
                {
+                  path = "modules/nupp/mem/span",
+                  title = "nupp.mem.span",
+                  source = "docs/spans.md",
+               },
+               {
                   path = "modules/nupp/peg",
                   title = "nupp.peg",
                   source = "docs/peg.md",
-               },
-               {
-                  path = "modules/nupp/span",
-                  title = "nupp.span",
-                  source = "docs/spans.md",
                },
                {
                   path = "guides/build",

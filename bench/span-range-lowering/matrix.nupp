@@ -1,9 +1,9 @@
 -- Width, view-count, and arithmetic-shape coverage for OPT-6. The five-way
 -- representative comparison remains in kernel.nupp/main.lua.
-local span = require("nupp.span")
-local indexed = require("nupp.indexed")
-local heap = require("nupp.heap")
-local soa = require("nupp.soa")
+local span = require("nupp.mem.span")
+local indexed = require("nupp.mem.indexed")
+local heap = require("nupp.mem.heap")
+local soa = require("nupp.mem.soa")
 
 local matrix = {}
 

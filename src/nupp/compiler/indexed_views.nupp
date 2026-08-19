@@ -48,7 +48,7 @@ local function describe(t: Type): indexed.Descriptor?
         return nil
     end
 
-    if moduleName == "nupp.span" and (
+    if moduleName == "nupp.mem.span" and (
         name == "Span" or name == "FixedSpan" or name == "WriteSpan" or name == "FixedWriteSpan"
     ) then
         return new indexed.Descriptor(
@@ -58,7 +58,7 @@ local function describe(t: Type): indexed.Descriptor?
             fixedCount = (name == "FixedSpan" or name == "FixedWriteSpan") and args[2] or nil,
             nominal = nominal
         )
-    elseif moduleName == "nupp.soa" and (name == "Span" or name == "WriteSpan") then
+    elseif moduleName == "nupp.mem.soa" and (name == "Span" or name == "WriteSpan") then
         return new indexed.Descriptor(
             adapter = "soa",
             element = element,
@@ -76,7 +76,7 @@ indexed.describe = describe
 --- The call checker supplies the already-resolved export identity; spelling is
 --- deliberately insufficient.
 function indexed.exportProducer(moduleName: string, member: string, result: Type): indexed.Producer?
-    if moduleName ~= "nupp.span" then
+    if moduleName ~= "nupp.mem.span" then
         return nil
     end
     local descriptor = describe(result)
@@ -112,9 +112,9 @@ function indexed.methodProducer(receiver: Type, member: string, result: Type): i
         return nil
     end
     local kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa'
-    if moduleName == "nupp.heap" then
+    if moduleName == "nupp.mem.heap" then
         kind = "heap"
-    elseif moduleName == "nupp.soa" then
+    elseif moduleName == "nupp.mem.soa" then
         kind = "soa"
     else
         return nil

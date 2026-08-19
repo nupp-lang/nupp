@@ -68,7 +68,7 @@ local function run(parsed: any): integer
     local positional: {string} = parsed.positional
     if values.list then
         local codes = explain.codes()
-        for _, reason in ipairs(require("nupp._trace").records()) do
+        for _, reason in ipairs(require("nupp.profile._trace").records()) do
             codes[#codes + 1] = reason.id
         end
         table.sort(codes)
@@ -86,7 +86,7 @@ local function run(parsed: any): integer
     -- is the same request typed with less shift.
     local requested = positional[1]
     local code = requested:upper()
-    local reason = require("nupp._trace").reason(requested:lower())
+    local reason = require("nupp.profile._trace").reason(requested:lower())
     local entry = reason and {
         code = reason.id,
         summary = reason.explanation or reason.id,
@@ -119,8 +119,8 @@ local function run(parsed: any): integer
             class = display.class,
             repair = display.repair,
             reasonCatalog = reason and {
-                id = require("nupp._trace").CATALOG_ID,
-                version = require("nupp._trace").CATALOG_VERSION,
+                id = require("nupp.profile._trace").CATALOG_ID,
+                version = require("nupp.profile._trace").CATALOG_VERSION,
             } or nil,
         })
         return 0

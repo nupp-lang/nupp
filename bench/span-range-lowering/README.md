@@ -92,7 +92,7 @@ as follows:
   backend beneficiaries in required-AOT builds.
 - `tests/fixtures/native_foundations.nupp`: an existing same-function witness,
   but only a small correctness fixture.
-- `src/nupp/soa.nupp` and SoA benchmarks: the same proof now selects the SoA
+- `src/nupp/mem/soa.nupp` and SoA benchmarks: the same proof now selects the SoA
   physical adapter and lowers projected fields directly to columns.
 - Other `get` and `set` spellings in the compiler and tests name unrelated
   containers.

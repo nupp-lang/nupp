@@ -323,7 +323,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 and boundEntry.definition
                 and stat.isConst
                 and rangeExport
-                and rangeExport.module == "nupp.indexed"
+                and rangeExport.module == "nupp.mem.indexed"
                 and rangeExport.member == "range"
                 and indexedRangeCall
             then

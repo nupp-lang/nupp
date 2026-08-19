@@ -13,7 +13,7 @@ local OUT = here .. "build/tecsbits/"
 package.path = OUT .. "fallback/?.lua;" .. OUT .. "fallback/?/init.lua;" .. package.path
 
 local ordinary = require("tecsbits")
-local spans = require("nupp.span")
+local spans = require("nupp.mem.span")
 
 ffi.cdef [[
 typedef struct { float x; float y; float rotation; int32_t layer; uint32_t flags; } KsTransform2D;

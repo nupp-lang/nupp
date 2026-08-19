@@ -9,7 +9,7 @@ local OUT = here .. "build/columns/"
 package.path = OUT .. "fallback/?.lua;" .. OUT .. "fallback/?/init.lua;" .. package.path
 
 local ordinary = require("columns")
-local spans = require("nupp.span")
+local spans = require("nupp.mem.span")
 
 ffi.cdef [[
 typedef struct { float x; float y; } KsPosition;

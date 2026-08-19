@@ -9,7 +9,7 @@
 -- arithmetic and takes four lanes; `brighten` is written through
 -- `nupp.math.f32` and takes eight. That is the case where the two preludes have
 -- to coexist, which is why the mask helpers carry their mask in their name.
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Sample
     value: float

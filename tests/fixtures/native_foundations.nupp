@@ -1,5 +1,5 @@
-local span = require("nupp.span")
-local indexed = require("nupp.indexed")
+local span = require("nupp.mem.span")
+local indexed = require("nupp.mem.indexed")
 local system = {}
 local TENTH = nupp.math.f32.narrow(0.1)
 

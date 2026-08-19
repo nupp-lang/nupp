@@ -9,7 +9,7 @@ local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
 local suffix = ffi.os == "OSX" and ".dylib" or ".so"
 local checked = require("checked")
 local lib = ffi.load(here .. "build/libkernel_spike" .. suffix)
-local spans = require("nupp.span")
+local spans = require("nupp.mem.span")
 local PositionArray = ffi.typeof("$[?]", checked.Position)
 local VelocityArray = ffi.typeof("$[?]", checked.Velocity)
 

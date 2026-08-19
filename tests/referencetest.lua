@@ -8,7 +8,7 @@
 local reference = require("nupp.compiler.reference")
 local explain = require("nupp.compiler.explain")
 local lints = require("nupp.compiler.lints")
-local trace = require("nupp._trace")
+local trace = require("nupp.profile._trace")
 local json = require("testjson")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

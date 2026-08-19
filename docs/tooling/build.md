@@ -265,7 +265,7 @@ into constructors, types, functions, and values. `constructorPattern` is the Lua
 pattern a function's last name segment has to match to count as a constructor,
 defaulting to `^new`; `""` leaves every function in Functions. A Markdown link
 whose target names a module, a declaration, or a member, such as
-`[](nupp.zone)`, is resolved to whatever documents it, in handwritten pages and
+`[](nupp.profile.zone)`, is resolved to whatever documents it, in handwritten pages and
 doc comments alike. A page whose `path` is a module's route, meaning `modules/`
 followed by the module name with its dots as slashes, is that module's overview,
 rendered above the generated API rather than as a second page beside it.
@@ -344,7 +344,7 @@ built compiler in 18.9s: 164 compiled, 0 reused
   check 16.1s  generate 952ms
   slowest
     nupp.compiler.gen            1.9s
-    nupp.heap                    699ms
+    nupp.mem.heap                699ms
     nupp.compiler.check.calls    664ms
 ```
 

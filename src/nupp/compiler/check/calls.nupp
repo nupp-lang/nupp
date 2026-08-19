@@ -96,7 +96,7 @@ local function spanElement(t: Type): Type?
     end
     local owner = t as T.Nominal
     local origin = (owner.origin or owner) as T.Nominal
-    if origin.moduleName ~= "nupp.span" then
+    if origin.moduleName ~= "nupp.mem.span" then
         return nil
     end
     if origin.name ~= "Span"

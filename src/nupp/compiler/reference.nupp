@@ -21,7 +21,7 @@ construct cannot quietly stop working the way this says it does.
 
 local lints = require("nupp.compiler.lints")
 local explain = require("nupp.compiler.explain")
-local trace = require("nupp._trace")
+local trace = require("nupp.profile._trace")
 
 local reference = {}
 
@@ -1229,8 +1229,8 @@ field to a root. Closures borrow captured owners by default. `takes (source)` ma
 single-shot closure; `scoped` proves callback captures cannot escape.
 
 Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds
-dynamic owners. `nupp.span` provides `Span<T>` and affine `WriteSpan<T>` views;
-fixed variants remove a runtime length check. `nupp.heap.Array<T>` moves its count
+dynamic owners. `nupp.mem.span` provides `Span<T>` and affine `WriteSpan<T>` views;
+fixed variants remove a runtime length check. `nupp.mem.heap.Array<T>` moves its count
 with its private pointer. Suspension cannot strand an obligation.
 
 `WriteSpan.getMut(index)` returns a checked mutable element pointer borrowed
@@ -1454,7 +1454,7 @@ return m
         title = "Checked span views",
         codes = {"NUPP2001", "NUPP2004", "NUPP2602", "NUPP2604"},
         body = [=[
-`nupp.span` wraps rooted C arrays in sealed, bounds-checked shared and writable
+`nupp.mem.span` wraps rooted C arrays in sealed, bounds-checked shared and writable
 views. `WriteSpan.slice(first, last)` returns one affine child writer; its
 parent remains blocked until that child is committed or dropped. Empty slices
 use the inclusive `first, first - 1` convention.
@@ -1470,8 +1470,8 @@ to direct rooted FFI indexing after the one range check. Arbitrary indexes,
 held frames and accesses outside the same-function witness remain checked.
 ]=],
         example = [=[
-local span = require("nupp.span")
-local indexed = require("nupp.indexed")
+local span = require("nupp.mem.span")
+local indexed = require("nupp.mem.indexed")
 local m = {}
 
 local struct Value
@@ -2510,7 +2510,7 @@ Read the leaf suffix before guessing: `_[N]` is native, `_[I]` interpreted,
 hot `_[I]` frames. A shorter native stack can be normal because LuaJIT inlines
 compiled calls.
 
-Use `nupp.zone` around phases such as `frame/physics`, not around each loop
+Use `nupp.profile.zone` around phases such as `frame/physics`, not around each loop
 iteration. Recognized `zone.push` and discarded `zone.pop` statements lower
 inline. Zones are optional attribution; trace checking and abort collection do
 not require them.

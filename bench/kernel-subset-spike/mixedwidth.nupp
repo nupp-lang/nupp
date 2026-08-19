@@ -15,7 +15,7 @@
 -- What that found: the rounding costs more than the lane count does. This body
 -- runs at 1.06x its own scalar oracle, which is a gang that costs about what it
 -- saves.
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Body
     x: float

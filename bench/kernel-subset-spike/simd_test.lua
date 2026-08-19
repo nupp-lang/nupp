@@ -6,7 +6,7 @@ local out = here .. "build/lanedemo/"
 package.path = out .. "fallback/?.lua;" .. out .. "fallback/?/init.lua;" .. package.path
 
 local ordinary = require("lanedemo")
-local spans = require("nupp.span")
+local spans = require("nupp.mem.span")
 
 ffi.cdef [[
 void ks_advance(void *particles, const void *source, float dt, size_t count);

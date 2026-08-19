@@ -133,8 +133,8 @@ local ENTRIES: {any} = {
         rule = "A private field is representation available only while checking the "
         .. "canonical module that declares its record. Expose a public method when "
         .. "another module needs an operation without revealing that representation.",
-        wrong = "local h = require('nupp.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a.pointer\n",
-        right = "local h = require('nupp.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a:read()[1]\n",
+        wrong = "local h = require('nupp.mem.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a.pointer\n",
+        right = "local h = require('nupp.mem.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a:read()[1]\n",
         related = {"NUPP2004", "NUPP2202"},
         docs = "docs/type-system/records.md#private-fields",
     },
@@ -623,9 +623,9 @@ local ENTRIES: {any} = {
         .. "prove. Only a declaration in the interface's own module may explicitly name "
         .. "it after `is`; structural lookalikes do not satisfy it. Obtain the value from "
         .. "that module's constructors instead of declaring another implementation.",
-        wrong = "local spans = require(\"nupp.span\")\n\n"
+        wrong = "local spans = require(\"nupp.mem.span\")\n\n"
         .. "local record Forged is spans.Span<int32>\nend\n\nreturn Forged\n",
-        right = "local spans = require(\"nupp.span\")\n\n"
+        right = "local spans = require(\"nupp.mem.span\")\n\n"
         .. "local storage = ffi.new<int32[4]>()\n"
         .. "local view = spans.fromFixedCarray(storage, 4)\n\nreturn #view\n",
         related = {"NUPP2001", "NUPP2117"},
@@ -1715,8 +1715,8 @@ ENTRIES[
     code = "NUPP2403",
     summary = "An SoA allocation or field projection has no resolved stored field",
     rule = "Structure-of-arrays storage accepts only a reified struct whose top-level fields have fixed C storage; a record, union, interface, GC-managed field, owned field, borrowed field, or variable-size field is not SoA-eligible. A row's `field` projection must likewise name one such stored field of that struct, not a dynamic name or an unknown one.",
-    wrong = "local soa = require(\"nupp.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal rows = soa.allocate(ffi.typeof<int32>(), 4)\nreturn rows\n",
-    right = "local soa = require(\"nupp.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal struct Point\n    x: float\n    y: float\nend\n\nlocal rows = soa.allocate(ffi.typeof<Point>(), 4)\nrows:close()\n",
+    wrong = "local soa = require(\"nupp.mem.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal rows = soa.allocate(ffi.typeof<int32>(), 4)\nreturn rows\n",
+    right = "local soa = require(\"nupp.mem.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal struct Point\n    x: float\n    y: float\nend\n\nlocal rows = soa.allocate(ffi.typeof<Point>(), 4)\nrows:close()\n",
     related = {"NUPP2402", "NUPP2009"},
     docs = "docs/soa.md#diagnostics",
 }

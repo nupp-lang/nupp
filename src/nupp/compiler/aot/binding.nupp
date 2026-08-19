@@ -450,7 +450,7 @@ end
 function binding.module(programs: {scalarIR.Program}, library: string): string
     local lines: {
         string
-    } = {"-- Generated from verified test-only native C IR.", "", "local span = require(\"nupp.span\")", "",}
+    } = {"-- Generated from verified test-only native C IR.", "", "local span = require(\"nupp.mem.span\")", "",}
 
     local function append(more: {string}): nil
         for _, line in ipairs(more) do

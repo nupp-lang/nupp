@@ -1,4 +1,4 @@
--- Run through run.sh so the checked kernel and nupp.span module are built first.
+-- Run through run.sh so the checked kernel and nupp.mem.span module are built first.
 local ffi = require("ffi")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
@@ -7,7 +7,7 @@ package.path = out .. "runtime/?.lua;" .. out .. "runtime/?/init.lua;" .. packag
 
 local kernelDisabled = assert(loadfile(out .. "disabled/kernel.lua"))()
 local kernelEnabled = assert(loadfile(out .. "enabled/kernel.lua"))()
-local spans = require("nupp.span")
+local spans = require("nupp.mem.span")
 
 ffi.cdef [[
 void ks_advance_forced_scalar(void *positions, const void *velocities,

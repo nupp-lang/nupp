@@ -11,7 +11,7 @@ local OUT = here .. "build/corrected/"
 package.path = OUT .. "fallback/?.lua;" .. OUT .. "fallback/?/init.lua;" .. package.path
 
 local ordinary = require("corrected")
-local spans = require("nupp.span")
+local spans = require("nupp.mem.span")
 
 ffi.cdef [[
 typedef struct { float a; float b; float c; } KsSample;

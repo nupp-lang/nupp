@@ -85,10 +85,10 @@ Frames say which function ran. Zones say which phase it ran in, and that is
 usually the question, because the same `sort` called from loading and from
 rendering is two different problems.
 
-`nupp.zone` is a stack of names that the profiler reads:
+`nupp.profile.zone` is a stack of names that the profiler reads:
 
 ```nupp
-local zone = require("nupp.zone")
+local zone = require("nupp.profile.zone")
 
 local function frame()
     zone.push("frame")
@@ -121,7 +121,7 @@ the call itself, and a call on the hottest path can stop a trace forming.
 
 So `push`, and a `pop` whose result is discarded, are lowered rather than
 called. Written in statement position on a receiver that is a bare
-`local zone = require("nupp.zone")`, they are generated inline against the
+`local zone = require("nupp.profile.zone")`, they are generated inline against the
 module's own state, leaving nothing on the hot path to pay for.
 
 | Spelling | Lowered | Reason |
@@ -130,7 +130,7 @@ module's own state, leaving nothing on the hot path to pay for.
 | `zone.pop()` | yes | the popped name is discarded |
 | `local name = zone.pop()` | no | the popped name is kept |
 | `holder.zone.push("frame")` | no | the receiver is not a bare name |
-| `other.push("frame")` | no | `other` is not `nupp.zone` |
+| `other.push("frame")` | no | `other` is not `nupp.profile.zone` |
 
 Mark warm paths rather than the innermost loop even so. Every other spelling
 calls through the ordinary API, and `enter` and `leave` always do.

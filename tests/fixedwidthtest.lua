@@ -121,7 +121,7 @@ return Bad, bad
 ]]), "NUPP2012,NUPP2012,NUPP2012,NUPP2012", "storage-only value positions")
 
    checkedTree([[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 local struct Bytes
     signed: int8
     unsigned: uint16

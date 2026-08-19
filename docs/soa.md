@@ -1,11 +1,11 @@
 # Structure-of-arrays storage
 
-`nupp.soa` stores every top-level field of a reified struct in its own
+`nupp.mem.soa` stores every top-level field of a reified struct in its own
 contiguous column. Code still reads and writes ordinary struct fields, while the
 container provides the column layout needed by data-oriented loops.
 
 ```nupp:playground
-local soa = require("nupp.soa")
+local soa = require("nupp.mem.soa")
 local ffi = require("ffi")
 
 local struct Position
@@ -112,12 +112,12 @@ same checked view.
 ## Field spans
 
 `field("name")` projects one resolved field as a normal typed
-[`nupp.span`](spans.md) view. A shared row view
+[`nupp.mem.span`](spans.md) view. A shared row view
 returns `span.Span<Field>`, and an exclusive row view returns
 `span.Writable<Field>`.
 
 ```nupp
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 with
     rows = particles:write(),
@@ -238,7 +238,7 @@ lowers to direct typed-column loads and stores, and what an
 
 ## Snapshots and ECS storage
 
-`nupp.soa` supplies storage mechanics, not a general storage interface or a
+`nupp.mem.soa` supplies storage mechanics, not a general storage interface or a
 snapshot format. An ECS remains responsible for capacity, archetype movement,
 dirty state, component policy, and schema migration.
 

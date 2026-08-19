@@ -92,9 +92,9 @@ end
 --- never captured by accident.
 ---
 --- Empty link text stands for the target itself, which is what makes a reference cheap
---- enough to write in passing: `[](nupp.zone)` renders that name as code and links
---- it. A name that resolves to nothing still renders, so a reference to something that
---- moved reads as the name it used to have rather than as an empty link.
+--- enough to write in passing: `[](nupp.profile.zone)` renders that name as code and
+--- links it. A name that resolves to nothing still renders, so a reference to something
+--- that moved reads as the name it used to have rather than as an empty link.
 ---
 --- An empty URL means the name is documented but not reachable from here, which is what
 --- one module's markdown says about its neighbours. The reference keeps its text and

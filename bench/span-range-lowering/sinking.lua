@@ -7,7 +7,7 @@ local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
 local out = here .. "build/"
 package.path = out .. "runtime/?.lua;" .. out .. "runtime/?/init.lua;" .. package.path
 
-local spans = require("nupp.span")
+local spans = require("nupp.mem.span")
 local optimized = assert(loadfile(out .. "enabled/matrix.lua"))()
 local count = 10
 local repeats = tonumber(os.getenv("NUPP_SLICE_REPEATS") or "500000")

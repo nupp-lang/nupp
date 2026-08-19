@@ -59,8 +59,8 @@ end
 
 function M.aCheckedRangeDischargesMatchingSpanBoundsOnly()
    local found = refusals(table.concat({
-      "local span = require('nupp.span')",
-      "local indexed = require('nupp.indexed')",
+      "local span = require('nupp.mem.span')",
+      "local indexed = require('nupp.mem.indexed')",
       "local struct Value n: integer end",
       "const storage = carray(Value, 4)",
       "const values = span.fromCarray(storage, 4)",
@@ -77,8 +77,8 @@ end
 
 function M.rangeProofsRequireStableSpanIdentities()
    local found = refusals(table.concat({
-      "local span = require('nupp.span')",
-      "local indexed = require('nupp.indexed')",
+      "local span = require('nupp.mem.span')",
+      "local indexed = require('nupp.mem.indexed')",
       "local struct Value n: integer end",
       "const storage = carray(Value, 2)",
       "local values = span.fromCarray(storage, 2)",
@@ -92,8 +92,8 @@ end
 
 function M.rangeProofsDoNotEnterNestedFunctions()
    local found = refusals(table.concat({
-      "local span = require('nupp.span')",
-      "local indexed = require('nupp.indexed')",
+      "local span = require('nupp.mem.span')",
+      "local indexed = require('nupp.mem.indexed')",
       "local struct Value n: integer end",
       "const storage = carray(Value, 2)",
       "const values = span.fromCarray(storage, 2)",

@@ -53,7 +53,7 @@ This is `bench/kernel-subset-spike/mandelbrot.nupp`, trimmed to its shape. It
 is ordinary Nupp: spans, structs, a `while` loop with a `break`.
 
 ```nupp
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Point
     re: float
@@ -761,7 +761,7 @@ The C compiler chooses the physical native dispatch. Nupp does not force a jump
 table or synthesize a C perfect hash.
 
 ```nupp
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Code
     value: int32

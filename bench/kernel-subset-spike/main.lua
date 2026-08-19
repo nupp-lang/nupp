@@ -7,7 +7,7 @@ package.path = here .. "build/fallback/?.lua;" .. here .. "build/fallback/?/init
    .. here .. "build/nupp/?.lua;" .. here .. "build/nupp/?/init.lua;" .. package.path
 
 local checked = require("checked")
-local spans = require("nupp.span")
+local spans = require("nupp.mem.span")
 local ordinary = require("kernels")
 
 ffi.cdef[[

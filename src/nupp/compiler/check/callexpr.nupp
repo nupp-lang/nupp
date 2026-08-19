@@ -119,8 +119,8 @@ local function debugFormatPlan(format: string): any
 end
 
 -- Which zone-stack operation `push` or `pop` names, when the receiver is a plain
--- identifier statically known to hold the module `require("nupp.zone")` returns, or
--- nil for anything else.
+-- identifier statically known to hold the module `require("nupp.profile.zone")`
+-- returns, or nil for anything else.
 --
 -- A local's own type is read rather than re-inferred, so a receiver more elaborate than
 -- a name, whether a field, a call, or an interface a future session could swap in, is
@@ -143,7 +143,7 @@ local function zoneIntrinsic(c, callee): string?
     if not baseType then
         return nil
     end
-    local zoneType = c.env and c.env.resolveModule and c.env.resolveModule(c.env, "nupp.zone")
+    local zoneType = c.env and c.env.resolveModule and c.env.resolveModule(c.env, "nupp.profile.zone")
     if not zoneType then
         return nil
     end
@@ -499,9 +499,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         if baseName ~= "" and memberName == "range" then
             local holder = c.lookupEntry(baseName)
-            if holder and holder.requiredModule == "nupp.span" then
+            if holder and holder.requiredModule == "nupp.mem.span" then
                 c.diag("NUPP2403", node, "span.range was replaced by indexed.range", nil, {
-                    help = "require nupp.indexed and call indexed.range(first, last, view, ...)"
+                    help = "require nupp.mem.indexed and call indexed.range(first, last, view, ...)"
                 })
                 return T.any
             end
@@ -1486,7 +1486,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
         end
         local soaExport = node.kind == "call" and callee and callee.exactCallExport or nil
-        if soaExport and soaExport.module == "nupp.soa" and (
+        if soaExport and soaExport.module == "nupp.mem.soa" and (
             soaExport.member == "allocate" or soaExport.member == "layoutof"
         ) then
             local witness = argExprs[1] and rawType(c.infer(argExprs[1])) or nil
@@ -1502,7 +1502,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
         end
         local indexedExport = node.kind == "call" and callee and callee.exactCallExport or nil
-        if indexedExport and indexedExport.module == "nupp.indexed" and indexedExport.member == "range" then
+        if indexedExport and indexedExport.module == "nupp.mem.indexed" and indexedExport.member == "range" then
             local views, valid = {}, #argExprs >= 3
             for position = 3, #argExprs do
                 local argument = argExprs[position]
@@ -1702,7 +1702,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         local candidateOrigin = (candidateNominal.origin or candidateNominal) as T.Nominal
                         if (
                             candidateOrigin.moduleName or candidateNominal.moduleName or candidateOrigin.sealedModule
-                        ) == "nupp.soa" and candidateOrigin.name == "WriteSpan" then
+                        ) == "nupp.mem.soa" and candidateOrigin.name == "WriteSpan" then
                             nominal = candidateNominal
                             break
                         end
@@ -1711,7 +1711,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             local origin = nominal and ((nominal.origin or nominal) as T.Nominal) or nil
             local spanElement = nil
-            if nominal and origin and origin.moduleName == "nupp.span" and nominal.typeArgs then
+            if nominal and origin and origin.moduleName == "nupp.mem.span" and nominal.typeArgs then
                 spanElement = nominal.typeArgs[1]
             end
             if callable and member.text == "set" and spanElement and fixedWidth.isPhysical(spanElement) then
@@ -1737,7 +1737,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             if origin and (
                 origin.moduleName or (nominal and nominal.moduleName) or origin.sealedModule
-            ) == "nupp.soa" and (origin.name == "Span" or origin.name == "WriteSpan") and member.text == "field" then
+            ) == "nupp.mem.soa" and (
+                origin.name == "Span" or origin.name == "WriteSpan"
+            ) and member.text == "field" then
                 local fieldArgument = methodArgs[1]
                 local fieldName = literalString(fieldArgument)
                 local element = nominal and nominal.typeArgs and nominal.typeArgs[1] or nil
@@ -1784,7 +1786,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     end
                     local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
                         c.env,
-                        "nupp.span"
+                        "nupp.mem.span"
                     ) or nil
                     local exported = exports and exports.types and exports.types[
                         origin.name == "WriteSpan" and "Writable" or "Span"

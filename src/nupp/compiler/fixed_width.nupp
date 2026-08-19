@@ -55,7 +55,7 @@ function fixed.storageOnlyValue(t: T.Type?, seen: {[string]: boolean}?): T.Type?
     seen[raw.id] = true
     if raw.tag == "nominal" then
         local origin = (raw.origin or raw) as T.Nominal
-        if raw.declKind == "struct" or origin.moduleName == "nupp.span" then
+        if raw.declKind == "struct" or origin.moduleName == "nupp.mem.span" then
             return nil
         end
         for _, name in ipairs(raw.fieldOrder or {}) do

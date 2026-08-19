@@ -22,13 +22,15 @@ and `pinned(T)`, while `drop`, `unsafe adopt`, and `unsafe release` are language
 operations over affine values.
 
 This module's siblings are ordinary modules shipped with the compiler, reached
-with `require` and separate from the fields of the ambient global:
-[](nupp.profile), [](nupp.resources), [](nupp.dynamic), [](nupp.zone), and
-`nupp.compiler`, which holds the self-hosted compiler implementation and is hidden
-from public API documentation by its `@!internal` namespace root.
+with `require` and separate from the fields of the ambient global: [](nupp.profile)
+and the [](nupp.profile.zone) markers it reads, the `nupp.mem` storage family
+(`nupp.mem.span`, `nupp.mem.heap`, `nupp.mem.soa`, and the `nupp.mem.indexed` range
+they share), [](nupp.resources), [](nupp.dynamic), and `nupp.compiler`, which holds
+the self-hosted compiler implementation and is hidden from public API documentation
+by its `@!internal` namespace root.
 
 ```nupp
-local zone = require("nupp.zone")
+local zone = require("nupp.profile.zone")
 ```
 ]]
 

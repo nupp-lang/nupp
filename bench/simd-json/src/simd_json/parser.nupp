@@ -1,4 +1,4 @@
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local parser = {}
 

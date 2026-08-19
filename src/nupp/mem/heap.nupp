@@ -8,7 +8,7 @@ checked span views.
 
 local heap = {}
 local ffi = require("ffi")
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 cdef function malloc(size: uint64): voidptr
 cdef function free(takes pointer: voidptr)

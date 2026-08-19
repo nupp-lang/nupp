@@ -5,7 +5,7 @@ local indexer = require("simd_json.indexer")
 local parser = require("simd_json.parser")
 local scanner = require("simd_json.scanner")
 local simdjsonBench = require("simdjson_bench")
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 io.stdout:setvbuf("no")
 

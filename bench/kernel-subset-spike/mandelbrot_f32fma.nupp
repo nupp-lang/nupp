@@ -15,7 +15,7 @@
 --
 -- The cost is visible in every line: the arithmetic is prefix calls rather than
 -- operators. That is the trade this file exists to price.
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Point
     re: float

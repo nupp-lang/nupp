@@ -37,6 +37,8 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppD
 
 
 
+
+
 const nupp = { }
 return nupp
 
@@ -734,226 +736,6 @@ false }, bitset.Bitset)
 end
 
 return bitset
-
-end
-package.preload["nupp._trace"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
-
-
-
-
-
-
-
-
-local vmdef = require ( "jit.vmdef" )
-
-local trace = { }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-trace . CATALOG_VERSION = 1
-trace . CATALOG_ID = "nupp-trace-reasons-v1"
-trace . PINNED_LUAJIT_REVISION = "1edc3e52b67eaf6ce5f809be8e17d6862594b8bc"
-trace . PINNED_LUAJIT_VERSION = 1785763465
-
-local records
-
-= {
-{
-id = "jit/loop-function-construction" ,
-class = "blocker" ,
-opcodes = { FNEW = true } ,
-source = { [ "jit-loop-closure" ] = true , [ "loop-invariant-closure" ] = true } ,
-explanation = "LuaJIT has no recorder for constructing a function" ,
-repair = "declare one function outside the loop and pass what varies to it" ,
-lint = "NUPP2515" ,
-contractSeverity = "error" ,
-} ,
-{
-id = "jit/loop-upvalue-close" ,
-class = "blocker" ,
-opcodes = { UCLO = true } ,
-explanation = "LuaJIT has no recorder for closing an upvalue" ,
-repair = "move the captured lifetime outside the repeated region" ,
-contractSeverity = "error" ,
-} ,
-{
-id = "jit/ffi-vararg-policy" ,
-class = "risk" ,
-source = { [ "jit-boundary" ] = true } ,
-explanation = "this variadic FFI form depends on argument types and the target ABI" ,
-repair = "move the call behind an explicit jit.off boundary when it is not a hot operation" ,
-lint = "NUPP2514" ,
-contractSeverity = "error" ,
-} ,
-{
-id = "jit/ffi-callback" ,
-class = "risk" ,
-source = { [ "jit-callback" ] = true } ,
-explanation = "a C call that re-enters Lua through this callback cannot remain on a trace" ,
-repair = "disable the callback and its calling boundary with jit.off" ,
-lint = "NUPP2502" ,
-contractSeverity = "error" ,
-} ,
-{
-id = "jit/disabled-callee" ,
-class = "blocker" ,
-explanation = "the resolved callee is explicitly disabled with jit.off" ,
-repair = "remove @jit from the caller or keep the disabled call outside its checked hot path" ,
-contractSeverity = "error" ,
-} ,
-{
-id = "jit/dynamic-call" ,
-class = "risk" ,
-explanation = "the call target is dynamic, so its bytecode recordability is unknown" ,
-} ,
-{ id = "jit/expected-loop-leave" , class = "stop" , runtime = { "leaving loop in root trace" } } ,
-{ id = "jit/expected-inner-loop" , class = "stop" , runtime = { "inner loop in root trace" } } ,
-{ id = "jit/expected-down-recursion" , class = "stop" , runtime = { "down-recursion, restarting" } } ,
-{ id = "jit/expected-up-recursion" , class = "stop" , runtime = { "up-recursion" } } ,
-{ id = "jit/retry-recording" , class = "stop" , runtime = { "retry recording" } } ,
-{ id = "jit/runtime-blacklisted" , class = "risk" , runtime = { "blacklisted" } } ,
-{ id = "jit/runtime-trace-too-short" , class = "stop" , runtime = { "trace too short" } } ,
-{ id = "jit/runtime-trace-too-long" , class = "risk" , runtime = { "trace too long" } } ,
-{ id = "jit/runtime-trace-too-deep" , class = "risk" , runtime = { "trace too deep" } } ,
-{ id = "jit/runtime-too-many-snapshots" , class = "risk" , runtime = { "too many snapshots" } } ,
-{ id = "jit/runtime-loop-unroll-limit" , class = "risk" , runtime = { "loop unroll limit reached" } } ,
-{ id = "jit/runtime-call-unroll-limit" , class = "risk" , runtime = { "call unroll limit reached" } } ,
-{ id = "jit/runtime-disabled-callee" , class = "blocker" , runtime = { "JIT compilation disabled for function" } } ,
-{ id = "jit/runtime-ffi-call" , class = "risk" , runtime = { "NYI: unsupported C function type" } } ,
-{ id = "jit/runtime-ffi-conversion" , class = "risk" , runtime = { "NYI: unsupported C type conversion" } } ,
-{ id = "jit/runtime-type-instability" , class = "risk" , runtime = { "persistent type instability" } } ,
-{
-id = "jit/runtime-machine-code-limit" ,
-class = "risk" ,
-runtime = { "machine code too long" , "hit mcode limit (retrying)" , "failed to allocate mcode memory" , }
-} ,
-{ id = "jit/runtime-recorder-error" , class = "risk" , runtime = { "error thrown or hook called during recording" } } ,
-{ id = "jit/runtime-unknown" , class = "risk" } ,
-}
-
-local byId , byOpcode , bySource , byRuntime = { } , { } , { } , { }
-for _ , record in ipairs ( records ) do
-byId [ record . id ] = record
-for opcode in pairs ( record . opcodes or { } ) do
-byOpcode [ opcode ] = record
-end
-for source in pairs ( record . source or { } ) do
-bySource [ source ] = record
-end
-for _ , format in ipairs ( record . runtime or { } ) do
-byRuntime [ format ] = record
-end
-end
-
-local function smallDigest ( value )
-local digest = 2166136261
-for index = 1 , # value do
-digest = bit . tobit ( bit . bxor ( digest , value : byte ( index ) ) * 16777619 )
-end
-
-return ( "%08x" ) : format ( bit . band ( digest , 0xffffffff ) )
-end
-
-function trace . profile ( )
-local status = { jit . status ( ) }
-local flags = { }
-for index = 2 , # status do
-flags [ # flags + 1 ] = tostring ( status [ index ] )
-end
-table . sort ( flags )
-
-
-
-local version = math . floor ( tonumber ( jit . version : match ( "LuaJIT 2%.1%.(%d+)" ) ) or jit . version_num )
-local revision = version == trace . PINNED_LUAJIT_VERSION and trace . PINNED_LUAJIT_REVISION or "external:" .. tostring (
-version
-)
-local bytecodeSchema = smallDigest ( vmdef . bcnames )
-local id = table . concat ( { revision , jit . arch , jit . os , table . concat ( flags , "," ) , bytecodeSchema } , "|" )
-
-return {
-id = id ,
-luajitRevision = revision ,
-luajitVersion = version ,
-architecture = jit . arch ,
-operatingSystem = jit . os ,
-enabledRecorderFeatures = flags ,
-bytecodeSchema = bytecodeSchema ,
-supported = revision == trace . PINNED_LUAJIT_REVISION ,
-}
-end
-
-function trace . reason ( id )
-return byId [ id ]
-end
-
-function trace . forOpcode ( opcode )
-return byOpcode [ opcode ]
-end
-
-function trace . forSource ( source )
-return bySource [ source ]
-end
-
-function trace . opcodeName ( opcode )
-local start = opcode * 6 + 1
-return ( vmdef . bcnames : sub ( start , start + 5 ) : gsub ( "%s+$" , "" ) )
-end
-
-function trace . runtime ( errorCode , errorArg )
-if not errorCode then
-return byId [ "jit/runtime-unknown" ] , "abort"
-end
-local format = vmdef . traceerr [ errorCode ]
-if not format then
-return byId [ "jit/runtime-unknown" ] , "error " .. tostring ( errorCode )
-end
-if format : find ( "NYI: bytecode" , 1 , true ) and type ( errorArg ) == "number" then
-local opcode = trace . opcodeName ( errorArg )
-return byOpcode [ opcode ] or byId [ "jit/runtime-unknown" ] , "NYI: bytecode " .. opcode
-end
-local record = byRuntime [ format ] or byId [ "jit/runtime-unknown" ]
-if errorArg == nil then
-return record , format
-end
-local ok , detail = pcall ( string . format , format , errorArg )
-
-return record , ok and detail or format
-end
-
-function trace . records ( )
-local copy = { }
-for index , record in ipairs ( records ) do
-copy [ index ] = record
-end
-
-return copy
-end
-
-return trace
 
 end
 package.preload["nupp.compiler"] = function(...)
@@ -3771,7 +3553,7 @@ end
 function binding . module ( programs , library )
 local lines
 
-= { "-- Generated from verified test-only native C IR." , "" , "local span = require(\"nupp.span\")" , "" , }
+= { "-- Generated from verified test-only native C IR." , "" , "local span = require(\"nupp.mem.span\")" , "" , }
 
 local function append ( more )
 for _ , line in ipairs ( more ) do
@@ -28026,9 +27808,11 @@ identity = source and source . identity or (
 noAllocate = noAllocate ,
 noRaise = noRaise ,
 traceFindings = traceFindings ,
-traceProfileId = source and source . traceProfileId or require ( "nupp._trace" ) . profile ( ) . id ,
-reasonCatalogId = source and source . reasonCatalogId or require ( "nupp._trace" ) . CATALOG_ID ,
-reasonCatalogVersion = source and source . reasonCatalogVersion or require ( "nupp._trace" ) . CATALOG_VERSION ,
+traceProfileId = source and source . traceProfileId or require ( "nupp.profile._trace" ) . profile ( ) . id ,
+reasonCatalogId = source and source . reasonCatalogId or require ( "nupp.profile._trace" ) . CATALOG_ID ,
+reasonCatalogVersion = source and source . reasonCatalogVersion or require (
+"nupp.profile._trace"
+) . CATALOG_VERSION ,
 }
 end
 end
@@ -30800,7 +30584,6 @@ end
 
 
 
-
 local bound = ann or init or T . any
 
 
@@ -31026,7 +30809,7 @@ if boundEntry
 and boundEntry . definition
 and stat . isConst
 and rangeExport
-and rangeExport . module == "nupp.indexed"
+and rangeExport . module == "nupp.mem.indexed"
 and rangeExport . member == "range"
 and indexedRangeCall
 then
@@ -31792,7 +31575,7 @@ local baseType = c . lookupVar ( base . token . text )
 if not baseType then
 return nil
 end
-local zoneType = c . env and c . env . resolveModule and c . env . resolveModule ( c . env , "nupp.zone" )
+local zoneType = c . env and c . env . resolveModule and c . env . resolveModule ( c . env , "nupp.profile.zone" )
 if not zoneType then
 return nil
 end
@@ -32148,9 +31931,9 @@ argTable = callArgs . table
 end
 if baseName ~= "" and memberName == "range" then
 local holder = c . lookupEntry ( baseName )
-if holder and holder . requiredModule == "nupp.span" then
+if holder and holder . requiredModule == "nupp.mem.span" then
 c . diag ( "NUPP2403" , node , "span.range was replaced by indexed.range" , nil , {
-help = "require nupp.indexed and call indexed.range(first, last, view, ...)"
+help = "require nupp.mem.indexed and call indexed.range(first, last, view, ...)"
 } )
 return T . any
 end
@@ -33135,7 +32918,7 @@ dynamicExport = { module = "nupp.dynamic" , member = callee . name . text , }
 end
 end
 local soaExport = node . kind == "call" and callee and callee . exactCallExport or nil
-if soaExport and soaExport . module == "nupp.soa" and (
+if soaExport and soaExport . module == "nupp.mem.soa" and (
 soaExport . member == "allocate" or soaExport . member == "layoutof"
 ) then
 local witness = argExprs [ 1 ] and rawType ( c . infer ( argExprs [ 1 ] ) ) or nil
@@ -33151,7 +32934,7 @@ end
 end
 end
 local indexedExport = node . kind == "call" and callee and callee . exactCallExport or nil
-if indexedExport and indexedExport . module == "nupp.indexed" and indexedExport . member == "range" then
+if indexedExport and indexedExport . module == "nupp.mem.indexed" and indexedExport . member == "range" then
 local views , valid = { } , # argExprs >= 3
 for position = 3 , # argExprs do
 local argument = argExprs [ position ]
@@ -33351,7 +33134,7 @@ local candidateNominal = candidate
 local candidateOrigin = ( candidateNominal . origin or candidateNominal )
 if (
 candidateOrigin . moduleName or candidateNominal . moduleName or candidateOrigin . sealedModule
-) == "nupp.soa" and candidateOrigin . name == "WriteSpan" then
+) == "nupp.mem.soa" and candidateOrigin . name == "WriteSpan" then
 nominal = candidateNominal
 break
 end
@@ -33360,7 +33143,7 @@ end
 end
 local origin = nominal and ( ( nominal . origin or nominal ) ) or nil
 local spanElement = nil
-if nominal and origin and origin . moduleName == "nupp.span" and nominal . typeArgs then
+if nominal and origin and origin . moduleName == "nupp.mem.span" and nominal . typeArgs then
 spanElement = nominal . typeArgs [ 1 ]
 end
 if callable and member . text == "set" and spanElement and fixedWidth . isPhysical ( spanElement ) then
@@ -33386,7 +33169,9 @@ end
 end
 if origin and (
 origin . moduleName or ( nominal and nominal . moduleName ) or origin . sealedModule
-) == "nupp.soa" and ( origin . name == "Span" or origin . name == "WriteSpan" ) and member . text == "field" then
+) == "nupp.mem.soa" and (
+origin . name == "Span" or origin . name == "WriteSpan"
+) and member . text == "field" then
 local fieldArgument = methodArgs [ 1 ]
 local fieldName = literalString ( fieldArgument )
 local element = nominal and nominal . typeArgs and nominal . typeArgs [ 1 ] or nil
@@ -33433,7 +33218,7 @@ access = origin . name == "WriteSpan" and "read-write" or "read-only" ,
 end
 local exports = c . env and c . env . resolveModuleExports and c . env . resolveModuleExports (
 c . env ,
-"nupp.span"
+"nupp.mem.span"
 ) or nil
 local exported = exports and exports . types and exports . types [
 origin . name == "WriteSpan" and "Writable" or "Span"
@@ -33832,7 +33617,7 @@ return nil
 end
 local owner = t
 local origin = ( owner . origin or owner )
-if origin . moduleName ~= "nupp.span" then
+if origin . moduleName ~= "nupp.mem.span" then
 return nil
 end
 if origin . name ~= "Span"
@@ -36233,12 +36018,15 @@ local pointerShaped , validateCleanups = c . pointerShaped , c . validateCleanup
 local handlers = { }
 
 local function countedView ( name , element , at )
-local exports = c . env and c . env . resolveModuleExports and c . env . resolveModuleExports ( c . env , "nupp.span" ) or nil
+local exports = c . env and c . env . resolveModuleExports and c . env . resolveModuleExports (
+c . env ,
+"nupp.mem.span"
+) or nil
 local declaration = exports and exports . types and exports . types [ name ] or nil
 if not declaration or declaration . tag ~= "nominal" or not declaration . typeParams or not declaration . typeParams [
 1
 ] then
-c . diag ( "NUPP2630" , at , "countedBy requires the bundled nupp.span module" )
+c . diag ( "NUPP2630" , at , "countedBy requires the bundled nupp.mem.span module" )
 return T . any
 end
 
@@ -50662,7 +50450,7 @@ c . validateTypeBounds ( t . typeParams , t . typeBounds , map , node )
 
 local origin = ( t . origin or t )
 local storageGeneric = (
-origin . moduleName == "nupp.span" and (
+origin . moduleName == "nupp.mem.span" and (
 origin . name == "Span"
 or origin . name == "FixedSpan"
 or origin . name == "WriteSpan"
@@ -50670,7 +50458,7 @@ or origin . name == "FixedWriteSpan"
 or origin . name == "WriteSplit"
 )
 ) or (
-origin . moduleName == "nupp.soa" and (
+origin . moduleName == "nupp.mem.soa" and (
 origin . name == "Array" or origin . name == "Span" or origin . name == "WriteSpan"
 )
 )
@@ -55458,7 +55246,7 @@ local asJson = values . format == "json"
 local positional = parsed . positional
 if values . list then
 local codes = explain . codes ( )
-for _ , reason in ipairs ( require ( "nupp._trace" ) . records ( ) ) do
+for _ , reason in ipairs ( require ( "nupp.profile._trace" ) . records ( ) ) do
 codes [ # codes + 1 ] = reason . id
 end
 table . sort ( codes )
@@ -55476,7 +55264,7 @@ end
 
 local requested = positional [ 1 ]
 local code = requested : upper ( )
-local reason = require ( "nupp._trace" ) . reason ( requested : lower ( ) )
+local reason = require ( "nupp.profile._trace" ) . reason ( requested : lower ( ) )
 local entry = reason and {
 code = reason . id ,
 summary = reason . explanation or reason . id ,
@@ -55509,8 +55297,8 @@ strict = display . strict ,
 class = display . class ,
 repair = display . repair ,
 reasonCatalog = reason and {
-id = require ( "nupp._trace" ) . CATALOG_ID ,
-version = require ( "nupp._trace" ) . CATALOG_VERSION ,
+id = require ( "nupp.profile._trace" ) . CATALOG_ID ,
+version = require ( "nupp.profile._trace" ) . CATALOG_VERSION ,
 } or nil ,
 } )
 return 0
@@ -58466,13 +58254,23 @@ local spec = require ( "nupp.compiler.cli.spec" )
 local command = spec . command {
 name = "reference" ,
 summary = "List or print a focused Nupp reference chapter" ,
-usage = { "nupp reference [language|cli|performance|all] [--format markdown|skill|json] [-o PATH]" } ,
+usage = {
+"nupp reference [language|cli|performance|all] [--format markdown|skill|json] [-o PATH]" ,
+"nupp reference --section NAME | --for CODE" ,
+} ,
 positionals = { { name = "chapter" , choices = { "language" , "cli" , "performance" , "all" } } } ,
-intro = [[With no chapter, lists the available focused references. `all` is the
-complete Nupp reference, meant to be pasted whole.
+intro = [[With no chapter, lists the available focused references and the sections
+inside them. `all` is the complete Nupp reference, meant to be pasted whole.
+
+A chapter is thousands of words. `--section` prints one section, named by its
+heading or by any `docs` pointer at it, and `--for` prints whichever sections
+explain a diagnostic code -- which is what a reader holding one actually has.
 
   nupp reference cli
   nupp reference language
+  nupp reference --section affine-resources
+  nupp reference --section docs/modules.md#modules
+  nupp reference --for NUPP2004
   nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
   nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
   nupp reference --format skill -o .claude/skills/nupp/SKILL.md]] ,
@@ -58497,6 +58295,20 @@ key = "format" ,
 constant = "json" ,
 duplicate = "output format was specified more than once" ,
 help = "Shorthand for --format json"
+} ,
+{
+name = "--section" ,
+value = "NAME" ,
+key = "section" ,
+duplicate = "a section was named more than once" ,
+help = "Print one section, by heading or by a docs pointer at it"
+} ,
+{
+name = "--for" ,
+value = "CODE" ,
+key = "forCode" ,
+duplicate = "a code was named more than once" ,
+help = "Print whichever sections explain that diagnostic code"
 } ,
 {
 names = { "-o" , "--output" } ,
@@ -58554,6 +58366,91 @@ if # positional > 1 then
 return command : usageError ( "at most one reference chapter is required" )
 end
 local topic = positional [ 1 ]
+local wantedSection = parsed . values . section
+local wantedCode = parsed . values . forCode
+if wantedSection and wantedCode then
+return command : usageError ( "--section and --for name the same thing two ways" )
+end
+if ( wantedSection or wantedCode ) and topic then
+return command : usageError ( "--section and --for already say which part to print" )
+end
+
+
+
+if wantedSection or wantedCode then
+local chosen = { }
+if wantedSection then
+local section , chapter = reference . findSection ( wantedSection )
+if not section then
+return command : usageError (
+"no reference section named " .. wantedSection .. "; `nupp reference` lists them"
+)
+end
+chosen [ 1 ] = { section = section , chapter = chapter }
+else
+for _ , found in ipairs ( reference . sectionsFor ( wantedCode ) ) do
+chosen [ # chosen + 1 ] = found
+end
+if # chosen == 0 then
+
+
+return command : usageError (
+"no reference section covers " .. wantedCode .. "; try `nupp explain " .. wantedCode .. "`"
+)
+end
+end
+local parts = { }
+for _ , found in ipairs ( chosen ) do
+parts [ # parts + 1 ] = reference . sectionMarkdown ( found . section , found . chapter )
+end
+local rendered = table . concat ( parts , "\n\n" )
+if format == "json" then
+local sections = { }
+for _ , found in ipairs ( chosen ) do
+sections [
+# sections + 1
+] = {
+title = found . section . title ,
+body = found . section . body ,
+example = found . section . example ,
+codes = found . section . codes ,
+}
+end
+local payload = {
+title = sections [ 1 ] . title ,
+sections = sections ,
+chapters = { } ,
+tooling = reference . tooling ,
+markdown = rendered ,
+}
+if parsed . values . output then
+local file , err = io . open ( parsed . values . output , "w" )
+if not file then
+io . stderr : write ( tostring ( err ) .. "\n" )
+return 1
+end
+file : write ( require ( "nupp.compiler.cli.report" ) . encode ( payload ) , "\n" )
+file : close ( )
+return 0
+end
+require ( "nupp.compiler.cli.report" ) . write ( payload )
+return 0
+end
+if parsed . values . output then
+local file , err = io . open ( parsed . values . output , "w" )
+if not file then
+io . stderr : write ( tostring ( err ) .. "\n" )
+return 1
+end
+file : write ( rendered , "\n" )
+file : close ( )
+return 0
+end
+io . write ( rendered , "\n" )
+
+return 0
+end
+
 if not topic and not parsed . values . format and not parsed . values . output then
 io . write ( reference . catalog ( ) , "\n" )
 return 0
@@ -59088,7 +58985,7 @@ that starts with a dash.
 --profile writes collapsed-stack text: one line per stack, frames separated by
 semicolons, then the sample count. speedscope.app, FlameGraph.pl and inferno
 all read it directly. Frames are prefixed by the zone path that was open, so a
-program that calls nupp.zone reports itself in its own terms, and the leaf
+program that calls nupp.profile.zone reports itself in its own terms, and the leaf
 carries the VM state most of its samples were in: N compiled, I interpreted,
 C in a C function, G collecting, J compiling.
 
@@ -64331,6 +64228,7 @@ local cst = { }
 
 
 
+
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -67079,6 +66977,7 @@ raises = array ( value . raises ) ,
 isFunction = value . isFunction ,
 isMetamethod = value . isMetamethod ,
 isType = value . isType ,
+comptimeKind = value . comptimeKind ,
 members = value . members and array ( value . members , member ) or nil ,
 annotations = annotations ( value . annotations ) ,
 }
@@ -67089,6 +66988,7 @@ local info = value . doc
 return {
 name = value . name ,
 kind = value . kind ,
+comptimeKind = value . comptimeKind ,
 signature = value . signature ,
 path = value . path ,
 module = value . module ,
@@ -67127,7 +67027,7 @@ namespace = value . namespace ,
 }
 end )
 
-return json . encode ( { schemaVersion = 1 , modules = model } ) .. "\n"
+return json . encode ( { schemaVersion = 2 , modules = model } ) .. "\n"
 end
 
 local function sourceFiles ( root , config , settings , requested )
@@ -67584,7 +67484,7 @@ local route = moduleFile ( module . name ) : gsub ( "/index%.html$" , "" )
 local overview = configured [ route ]
 ordered [ # ordered + 1 ] = {
 path = route ,
-title = overview and overview . title or ( module . namespace and "Namespace: " or "Module: " ) .. module . name ,
+title = overview and overview . title or module . name ,
 module = module ,
 overview = overview and overview . markdown or nil ,
 source = overview and overview . source or nil ,
@@ -67624,11 +67524,7 @@ end
 local overview = candidate . overview or ""
 markdown = doc . markdown ( { module } , nil , modules , overview , settings . constructorPattern )
 local links = symbolLinks ( linkIndex , module , relativePrefix ( file ) )
-body [
-# body + 1
-] = '<h1>' .. (
-module . namespace and "Namespace: " or "Module: "
-) .. '<code>' .. htmlEscape ( module . name ) .. '</code></h1>'
+body [ # body + 1 ] = '<h1><code>' .. htmlEscape ( module . name ) .. '</code></h1>'
 
 
 if overview ~= "" then
@@ -68091,8 +67987,12 @@ local api = { }
 
 local DEFAULT_CONSTRUCTOR_PATTERN = "^new"
 
+local function kindClass ( kind )
+return htmlEscape ( ( kind : gsub ( "[^%w_-]+" , "-" ) ) )
+end
+
 local function kindBadge ( kind )
-return '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape ( kind ) .. '">' .. htmlEscape ( kind ) .. '</span>'
+return '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. kindClass ( kind ) .. '">' .. htmlEscape ( kind ) .. '</span>'
 end
 
 
@@ -68127,7 +68027,7 @@ end
 
 
 local function isConstructor ( item , pattern )
-if pattern == "" or item . kind ~= "function" then
+if pattern == "" or item . kind ~= "function" or item . comptimeKind then
 return false
 end
 
@@ -68138,6 +68038,9 @@ end
 
 
 local function displayKind ( item , constructorPattern )
+if item . comptimeKind then
+return "comptime " .. item . comptimeKind
+end
 if isConstructor ( item , constructorPattern or DEFAULT_CONSTRUCTOR_PATTERN ) then
 return "constructor"
 end
@@ -68249,7 +68152,7 @@ item . path
 
 
 if group . kinds then
-row [ # row + 1 ] = kindBadge ( item . kind )
+row [ # row + 1 ] = kindBadge ( displayKind ( item , constructorPattern ) )
 end
 row [ # row + 1 ] = inlineHtml ( summaryText ( item . doc . text ) )
 rows [ # rows + 1 ] = row
@@ -68306,6 +68209,7 @@ end
 
 
 
+
 local function memberHeading ( name , path , tag , extra , badge )
 return '<div class="nuppdoc-api-member' .. (
 extra or ""
@@ -68314,7 +68218,7 @@ path
 ) .. '"><' .. tag .. '><code>' .. htmlEscape (
 name
 ) .. "</code>" .. (
-badge and '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape (
+badge and '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. kindClass (
 badge
 ) .. '">' .. htmlEscape ( badge ) .. "</span>" or ""
 ) .. '<a class="nuppdoc-header-anchor" href="#' .. htmlEscape (
@@ -68341,7 +68245,15 @@ local hGroup , hName , hSub = htag ( level ) , htag ( level + 1 ) , htag ( level
 if # methods > 0 then
 out [ # out + 1 ] = "<" .. hGroup .. ">Methods</" .. hGroup .. ">"
 for _ , method in ipairs ( methods ) do
-out [ # out + 1 ] = memberHeading ( method . name , method . path , hName )
+out [
+# out + 1
+] = memberHeading (
+method . name ,
+method . path ,
+hName ,
+nil ,
+method . comptimeKind and "comptime " .. method . comptimeKind or nil
+)
 out [ # out + 1 ] = annotationBadges ( method . annotations )
 out [ # out + 1 ] = markdownHtml ( method . text , links )
 out [
@@ -68391,7 +68303,15 @@ end
 if # fields > 0 then
 out [ # out + 1 ] = "<" .. hGroup .. ">Fields</" .. hGroup .. ">"
 for _ , field in ipairs ( fields ) do
-out [ # out + 1 ] = memberHeading ( field . name , field . path , hName )
+out [
+# out + 1
+] = memberHeading (
+field . name ,
+field . path ,
+hName ,
+nil ,
+field . comptimeKind and "comptime " .. field . comptimeKind or nil
+)
 out [ # out + 1 ] = annotationBadges ( field . annotations )
 out [ # out + 1 ] = markdownHtml ( field . text , links )
 out [
@@ -68420,7 +68340,7 @@ out [
 item . path
 ) .. '"><h3><code>' .. htmlEscape (
 item . name
-) .. '</code><span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape (
+) .. '</code><span class="nuppdoc-kind-badge nuppdoc-kind-' .. kindClass (
 kind
 ) .. '">' .. htmlEscape (
 kind
@@ -68529,7 +68449,7 @@ local THEME = [[
 .nuppdoc-outline-title{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.66rem;font-weight:600}.nuppdoc-outline a[aria-current]{color:var(--nuppdoc-accent)}
 .nuppdoc-outline-section details{margin:0;padding:0;border:0;background:transparent}.nuppdoc-outline-section summary{position:relative;margin:0;padding:0 1rem 0 0;cursor:pointer;list-style:none}.nuppdoc-outline-section summary::-webkit-details-marker{display:none}.nuppdoc-outline-section summary::marker{content:""}.nuppdoc-outline-section summary::after{position:absolute;top:50%;right:.15rem;width:.32rem;height:.32rem;border-right:1.5px solid var(--nuppdoc-text-muted);border-bottom:1.5px solid var(--nuppdoc-text-muted);content:"";transform:translateY(-65%) rotate(45deg);transition:transform 120ms ease}.nuppdoc-outline-section details:not([open])>summary::after{transform:translateY(-50%) rotate(-45deg)}.nuppdoc-outline-section details>ol{margin:0;padding:0 0 0 .65rem;border:0;list-style:none}
 .nuppdoc-breadcrumbs{margin:0 0 .75rem}.nuppdoc-breadcrumbs ol{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin:0;padding:0;list-style:none}.nuppdoc-breadcrumbs li{display:inline-flex;align-items:center;margin:0;padding:0;color:var(--nuppdoc-text-faint);font-size:.82rem;line-height:1.2}.nuppdoc-breadcrumbs li+li::before{margin:0 .45rem;color:var(--nuppdoc-border);content:"/"}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-faint);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.16em}.nuppdoc-breadcrumbs .nuppdoc-breadcrumb-home{font-size:.9rem;text-decoration:none}.nuppdoc-breadcrumbs [aria-current="page"]{color:var(--nuppdoc-text-muted)}
-.nuppdoc-module-summary h3{margin-top:1.65rem;font-size:1rem}.nuppdoc-module-summary table,.nuppdoc-module-modules table{table-layout:fixed}.nuppdoc-module-summary th:first-child{width:28%}.nuppdoc-module-summary th:nth-child(2):not(:last-child){width:19%}.nuppdoc-module-modules th:first-child{width:32%}.nuppdoc-module-summary .nuppdoc-kind-badge{margin-left:0}.nuppdoc-kind-record,.nuppdoc-kind-interface,.nuppdoc-kind-struct,.nuppdoc-kind-type{color:#8250df;border-color:color-mix(in srgb,#8250df 35%,var(--nuppdoc-border));background:color-mix(in srgb,#8250df 12%,var(--nuppdoc-background))}.nuppdoc-kind-variable{color:#9a6700;border-color:color-mix(in srgb,#9a6700 35%,var(--nuppdoc-border));background:color-mix(in srgb,#9a6700 12%,var(--nuppdoc-background))}.nuppdoc-annotations{display:flex;flex-wrap:wrap;gap:.3rem;margin:.35rem 0 .1rem}.nuppdoc-annotation{padding:.12rem .42rem;color:#bc4c00;border:1px solid color-mix(in srgb,#bc4c00 35%,var(--nuppdoc-border));border-radius:999px;background:color-mix(in srgb,#bc4c00 12%,var(--nuppdoc-background));font-family:var(--nuppdoc-font-mono);font-size:.66rem;font-weight:650}
+.nuppdoc-module-summary h3{margin-top:1.65rem;font-size:1rem}.nuppdoc-module-summary table,.nuppdoc-module-modules table{table-layout:fixed}.nuppdoc-module-summary th:first-child{width:28%}.nuppdoc-module-summary th:nth-child(2):not(:last-child){width:19%}.nuppdoc-module-modules th:first-child{width:32%}.nuppdoc-module-summary .nuppdoc-kind-badge{margin-left:0}.nuppdoc-kind-record,.nuppdoc-kind-interface,.nuppdoc-kind-struct,.nuppdoc-kind-type{color:#8250df;border-color:color-mix(in srgb,#8250df 35%,var(--nuppdoc-border));background:color-mix(in srgb,#8250df 12%,var(--nuppdoc-background))}.nuppdoc-kind-variable{color:#9a6700;border-color:color-mix(in srgb,#9a6700 35%,var(--nuppdoc-border));background:color-mix(in srgb,#9a6700 12%,var(--nuppdoc-background))}.nuppdoc-kind-comptime-function,.nuppdoc-kind-comptime-type{color:#bc4c00;border-color:color-mix(in srgb,#bc4c00 35%,var(--nuppdoc-border));background:color-mix(in srgb,#bc4c00 12%,var(--nuppdoc-background))}.nuppdoc-annotations{display:flex;flex-wrap:wrap;gap:.3rem;margin:.35rem 0 .1rem}.nuppdoc-annotation{padding:.12rem .42rem;color:#bc4c00;border:1px solid color-mix(in srgb,#bc4c00 35%,var(--nuppdoc-border));border-radius:999px;background:color-mix(in srgb,#bc4c00 12%,var(--nuppdoc-background));font-family:var(--nuppdoc-font-mono);font-size:.66rem;font-weight:650}
 .nuppdoc-home-shell{display:block;max-width:none}.nuppdoc-home-content{width:min(calc(100% - 2 * var(--nuppdoc-home-gutter)),var(--nuppdoc-home-width));padding-top:4.5rem}.nuppdoc-home-hero{margin:0 0 4rem}.nuppdoc-hero-main{display:grid;align-items:start;gap:3rem;grid-template-columns:minmax(0,1fr)}.nuppdoc-hero-main.has-image{grid-template-columns:minmax(0,1fr) minmax(280px,.8fr)}.nuppdoc-hero-copy{position:relative;z-index:1}.nuppdoc-hero-copy h1{max-width:720px;margin:0;color:var(--nuppdoc-accent);font-size:5.5rem;letter-spacing:-.04em;line-height:.95}.nuppdoc-hero-text{max-width:650px;margin:1.08rem 0 0;color:var(--nuppdoc-text-muted);font-size:1.6rem;line-height:1.35}.nuppdoc-hero-actions{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:2rem}.nuppdoc-hero-action{display:inline-flex;align-items:center;justify-content:center;padding:.52rem .95rem;border:1px solid transparent;border-radius:16px;font-size:.9rem;font-weight:650;line-height:1;text-decoration:none}.nuppdoc-hero-action.brand{color:var(--nuppdoc-accent-contrast);background:var(--nuppdoc-accent)}.nuppdoc-hero-action.alt{color:var(--nuppdoc-text);border-color:var(--nuppdoc-border);background:var(--nuppdoc-background-alt)}.nuppdoc-hero-image{position:relative;display:grid;align-self:center;place-items:center}.nuppdoc-hero-starburst{position:absolute;width:var(--nuppdoc-hero-glow-size);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 38%,transparent) 0,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 20%,transparent) 34%,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 8%,transparent) 58%,transparent 76%);filter:blur(var(--nuppdoc-hero-glow-blur));opacity:var(--nuppdoc-hero-glow-opacity)}.nuppdoc-hero-image img{position:relative;z-index:1;width:min(100%,390px);max-height:330px;border-radius:20px;box-shadow:0 24px 70px rgb(0 0 0 / 22%);object-fit:contain}.nuppdoc-features{position:relative;z-index:2;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-top:2rem}.nuppdoc-feature{margin:0;padding:1.4rem;border:1px solid var(--nuppdoc-border);border-radius:12px;background:var(--nuppdoc-background-alt)}.nuppdoc-feature-icon,.nuppdoc-feature-image{display:inline-grid;width:40px;height:40px;place-items:center;margin-bottom:1rem;border-radius:8px;background:var(--nuppdoc-accent-soft);font-size:1.25rem;object-fit:contain}.nuppdoc-feature h2{margin:0 0 .55rem;padding:0;border:0;font-size:1rem;letter-spacing:0}.nuppdoc-feature-details{margin:0;color:var(--nuppdoc-text-muted);font-size:.86rem;line-height:1.55}.nuppdoc-footer{display:flex;flex-wrap:wrap;justify-content:center;gap:.45rem}.nuppdoc-footer a{color:var(--nuppdoc-text-muted)}
 .nuppdoc-hero-starburst{overflow:hidden;clip-path:circle(50% at 50% 50%)}.nuppdoc-hero-image img{box-shadow:none;filter:drop-shadow(0 24px 35px rgb(0 0 0 / 22%))}
 @media(max-width:1100px){.nuppdoc-panel-toggle-right{display:none}.nuppdoc-shell.is-sidebar-collapsed{grid-template-columns:0 minmax(0,1fr)}.nuppdoc-features{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -69132,6 +69052,14 @@ extract.Member = {} extract.Member.__index = extract.Member
 
 
 
+
+
+
+
+
+
+
+
 local function firstToken ( node )
 if not node then
 return nil
@@ -69438,7 +69366,12 @@ local returns = { }
 for _ , value in ipairs ( body and body . rets or { } ) do
 returns [ # returns + 1 ] = documentedResultType ( value )
 end
-local prefix = stat . kind == "localFuncStmt" and "local function " or "function "
+local prefix
+if stat . kind == "localFuncStmt" then
+prefix = ( stat . isConst and "const " or "local " ) .. ( stat . comptimeTok and "comptime " or "" ) .. "function "
+else
+prefix = ( stat . comptimeTok and "comptime " or "" ) .. "function "
+end
 local result = prefix .. name .. genericText ( body ) .. "(" .. table . concat ( params , ", " ) .. ")"
 if # returns > 0 then
 result = result .. ": " .. table . concat ( returns , ", " )
@@ -69524,6 +69457,26 @@ end
 return widest
 end
 
+
+
+
+local function comptimeKind ( node )
+local fn = typeFunction ( node )
+if fn then
+for _ , overload in ipairs ( node . kind == "tintersection" and node . types or { node } ) do
+if not overload . comptimeOnly then
+return nil
+end
+end
+return "function"
+end
+if node and node . comptimeOnly then
+return "type"
+end
+
+return nil
+end
+
 local function typeFunctionDetails ( node , info )
 local details = { params = { } , returns = { } }
 for _ , param in ipairs ( node . params or { } ) do
@@ -69569,6 +69522,7 @@ returns = { } ,
 raises = info . raises ,
 typeargs = { } ,
 annotations = annotationsOf ( field ) ,
+comptimeKind = comptimeKind ( field . type ) ,
 }
 local fn = typeFunction ( field . type )
 if fn then
@@ -69840,7 +69794,8 @@ basePath .. "." .. entry . name . text ,  params =
 { } ,  returns =
 { } ,  raises =
 fieldInfo . raises ,  annotations =
-annotationsOf ( entry ) }, extract.Member)
+annotationsOf ( entry ) ,  comptimeKind =
+comptimeKind ( entry . type ) }, extract.Member)
 
 local fieldFunction = typeFunction ( entry . type )
 if fieldFunction then
@@ -69951,12 +69906,13 @@ end
 local lines = docLines ( documented )
 local info = parseDoc ( lines )
 local public = includeAll or declarationFile or info . tags . export or info . tags . public
-local kind , name , signature
+local kind , name , signature , itemComptimeKind
 if stat . kind == "funcStmt" or stat . kind == "localFuncStmt" then
 name = stat . kind == "funcStmt" and syntax ( stat . name ) or stat . name . text
 public = public or stat . kind == "funcStmt"
 kind = stat . name and stat . name . method and "method" or "function"
 signature = functionSignature ( stat , name )
+itemComptimeKind = stat . comptimeTok and "function" or nil
 elseif stat . kind == "cdefFunc" then
 
 
@@ -69991,6 +69947,7 @@ end
 if typeFunction ( stat . types [ 1 ] ) then
 kind = "function"
 end
+itemComptimeKind = comptimeKind ( stat . types [ 1 ] )
 else
 return nil
 end
@@ -70000,7 +69957,11 @@ end
 if info . tags . internal and not includePrivate then
 public = false
 end
-if kind == "method" and privateName ( name ) and not includePrivate then
+
+
+
+
+if privateName ( name ) and not includePrivate then
 public = false
 end
 if not public then
@@ -70030,6 +69991,7 @@ returns = { } ,
 raises = info . raises ,
 typeargs = { } ,
 annotations = # applied > 0 and applied or nil ,
+comptimeKind = itemComptimeKind ,
 }
 local declaredFunction = stat . kind == "localStmt" and typeFunction ( stat . types and stat . types [ 1 ] ) or nil
 local generics = stat . generics or (
@@ -70121,7 +70083,8 @@ item . params ,  returns =
 item . returns ,  raises =
 item . raises ,  isFunction =
 true ,  annotations =
-item . annotations }, extract.Member)
+item . annotations ,  comptimeKind =
+item . comptimeKind }, extract.Member)
 
 end
 else
@@ -71710,7 +71673,11 @@ out [ # out + 1 ] = hGroup .. " Methods"
 out [ # out + 1 ] = ""
 for _ , method in ipairs ( methods ) do
 out [ # out + 1 ] = '<a id="' .. method . path .. '"></a>'
-out [ # out + 1 ] = hName .. " `" .. method . name .. "`"
+out [
+# out + 1
+] = hName .. " `" .. method . name .. "`" .. (
+method . comptimeKind and " _comptime " .. method . comptimeKind .. "_" or ""
+)
 out [ # out + 1 ] = ""
 markdownAnnotations ( out , method . annotations )
 if method . text ~= "" then
@@ -71746,7 +71713,11 @@ out [ # out + 1 ] = hGroup .. " Fields"
 out [ # out + 1 ] = ""
 for _ , field in ipairs ( fields ) do
 out [ # out + 1 ] = '<a id="' .. field . path .. '"></a>'
-out [ # out + 1 ] = hName .. " `" .. field . name .. "`"
+out [
+# out + 1
+] = hName .. " `" .. field . name .. "`" .. (
+field . comptimeKind and " _comptime " .. field . comptimeKind .. "_" or ""
+)
 out [ # out + 1 ] = ""
 markdownAnnotations ( out , field . annotations )
 if field . text ~= "" then
@@ -71846,7 +71817,7 @@ out [ # out + 1 ] = ""
 end
 for moduleIndex , module in ipairs ( modules ) do
 out [ # out + 1 ] = '<a id="' .. module . name .. '"></a>'
-out [ # out + 1 ] = ( module . namespace and "# Namespace: `" or "# Module: `" ) .. module . name .. "`"
+out [ # out + 1 ] = "# `" .. module . name .. "`"
 out [ # out + 1 ] = ""
 
 
@@ -72831,7 +72802,7 @@ text = text : sub ( 1 , 117 ) : match ( "^(.*)%s+%S*$" ) or text : sub ( 1 , 117
 text = text .. "..."
 end
 
-return text ~= "" and text or "—"
+return text
 end
 
 local function escapeJs ( text )
@@ -74871,16 +74842,15 @@ local BUNDLED_SOURCE = {
 [ "nupp.resources" ] = "/nupp/resources.nupp" ,
 [ "nupp.dynamic" ] = "/nupp/dynamic.nupp" ,
 [ "nupp.derive" ] = "/nupp/derive.nupp" ,
-[ "nupp.zone" ] = "/nupp/zone.nupp" ,
+[ "nupp.profile.zone" ] = "/nupp/profile/zone.nupp" ,
 [ "nupp.profile" ] = "/nupp/profile.nupp" ,
-[ "nupp.indexed" ] = "/nupp/indexed.nupp" ,
-[ "nupp.span" ] = "/nupp/span.nupp" ,
+[ "nupp.mem.indexed" ] = "/nupp/mem/indexed.nupp" ,
+[ "nupp.mem.span" ] = "/nupp/mem/span.nupp" ,
 [ "nupp.simd" ] = "/nupp/simd.nupp" ,
-[ "nupp.heap" ] = "/nupp/heap.nupp" ,
-[ "nupp.soa" ] = "/nupp/soa.nupp" ,
+[ "nupp.mem.heap" ] = "/nupp/mem/heap.nupp" ,
+[ "nupp.mem.soa" ] = "/nupp/mem/soa.nupp" ,
 [ "nupp.suspension" ] = "/nupp/suspension.nupp" ,
 [ "nupp.io.process" ] = "/nupp/io/process.nupp" ,
-[ "nupp.io.processtypes" ] = "/nupp/io/processtypes.nupp" ,
 [ "nupp.workers" ] = "/nupp/workers.nupp" ,
 [ "nupp.io.http" ] = "/nupp/io/http.nupp" ,
 [ "nupp.valuebuilder" ] = "/nupp/valuebuilder.g.nupp" ,
@@ -75112,8 +75082,8 @@ summary = "A private record field is used outside its module" ,
 rule = "A private field is representation available only while checking the "
 .. "canonical module that declares its record. Expose a public method when "
 .. "another module needs an operation without revealing that representation." ,
-wrong = "local h = require('nupp.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a.pointer\n" ,
-right = "local h = require('nupp.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a:read()[1]\n" ,
+wrong = "local h = require('nupp.mem.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a.pointer\n" ,
+right = "local h = require('nupp.mem.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a:read()[1]\n" ,
 related = { "NUPP2004" , "NUPP2202" } ,
 docs = "docs/type-system/records.md#private-fields" ,
 } ,
@@ -75438,8 +75408,8 @@ rule = "A `satisfies` declaration names the runtime test that decides whether a 
 .. "comparisons against literals, `type()` tests, `and`, `or`, "
 .. "`not`. A call, arithmetic, or a name from outside the subject "
 .. "cannot be evaluated there. A refinement that always answers the "
-.. "same way is also refused — always true identifies every value, "
-.. "always false leaves the type uninhabited — and so is one on a "
+.. "same way is also refused, since always true identifies every value "
+.. "and always false leaves the type uninhabited, and so is one on a "
 .. "struct, which `ffi.istype` already answers exactly.\n\n"
 .. "A declaration is also held to the refinements of the interfaces "
 .. "it declares. `record C is Shape` is a claim the checker proves, "
@@ -75462,7 +75432,7 @@ code = "NUPP2123" ,
 summary = "A metatable value does not fit the key it is written under" ,
 rule = "A metamethod declaration is a contract, and a metatable literal "
 .. "is where the value fulfilling it is written, so the value is "
-.. "held to it — with `self` specialized to the receiver, through a "
+.. "held to it, with `self` specialized to the receiver, through a "
 .. "bounded type parameter as readily as through a concrete type. "
 .. "Where the declaration contracts for nothing, LuaJIT still says "
 .. "what it will do with the key: `__mode` is read as a string, "
@@ -75602,9 +75572,9 @@ rule = "A sealed interface carries hidden invariants that its public shape canno
 .. "prove. Only a declaration in the interface's own module may explicitly name "
 .. "it after `is`; structural lookalikes do not satisfy it. Obtain the value from "
 .. "that module's constructors instead of declaring another implementation." ,
-wrong = "local spans = require(\"nupp.span\")\n\n"
+wrong = "local spans = require(\"nupp.mem.span\")\n\n"
 .. "local record Forged is spans.Span<int32>\nend\n\nreturn Forged\n" ,
-right = "local spans = require(\"nupp.span\")\n\n"
+right = "local spans = require(\"nupp.mem.span\")\n\n"
 .. "local storage = ffi.new<int32[4]>()\n"
 .. "local view = spans.fromFixedCarray(storage, 4)\n\nreturn #view\n" ,
 related = { "NUPP2001" , "NUPP2117" } ,
@@ -76136,7 +76106,7 @@ code = "NUPP2208" ,
 summary = "A constructor does not hold up its declaration" ,
 rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The "
 .. "instance is made before it and returned after it, so its whole "
-.. "job is to fill the fields in — and every field that cannot hold "
+.. "job is to fill the fields in, and every field that cannot hold "
 .. "nil has to be filled, or the value handed back does not match "
 .. "the declaration it claims. That guarantee is the reason to "
 .. "prefer a constructor over a literal, so declaring one closes "
@@ -76158,7 +76128,7 @@ docs = "docs/type-system/records.md#constructors-and-result-policies" ,
 {
 code = "NUPP3005" ,
 summary = "Generated code that a Lua VM will not load" ,
-rule = "The generator writes Lua and this is that Lua refusing to parse. Almost always it is one limit: a function may capture at most sixty names from around it, and one that reaches past that cannot be loaded at all. A function reading that many things from its scope is usually reading a record it could take as one argument instead — pass what varies, or gather what it reads into one value and capture that.\n\nAny other spelling of this is a bug in the compiler rather than in the program, and `nupp bc FILE` shows the code it wrote. It is reported where the file is built rather than where the module is first required, because the line a VM would name belongs to generated text and the line here is the one that was written." ,
+rule = "The generator writes Lua and this is that Lua refusing to parse. Almost always it is one limit: a function may capture at most sixty names from around it, and one that reaches past that cannot be loaded at all. A function reading that many things from its scope is usually reading a record it could take as one argument instead. Pass what varies, or gather what it reads into one value and capture that.\n\nAny other spelling of this is a bug in the compiler rather than in the program, and `nupp bc FILE` shows the code it wrote. It is reported where the file is built rather than where the module is first required, because the line a VM would name belongs to generated text and the line here is the one that was written." ,
 related = { "NUPP3004" } ,
 docs = "docs/diagnostics.md#code-families" ,
 } ,
@@ -76167,7 +76137,7 @@ code = "NUPP3001" ,
 summary = "`is` has nothing to test against this type" ,
 rule = "A record is identified by the metatable it stamps and a struct "
 .. "by its ctype, so both answer `is` exactly. An interface has "
-.. "neither, by design — it is conformance rather than provenance — "
+.. "neither, by design, being conformance rather than provenance, "
 .. "so something has to stand in for one.\n\n"
 .. "Three things can. A literal-typed field is a tag, and the test "
 .. "is read off it with nothing written. A `satisfies` declaration "
@@ -76338,7 +76308,7 @@ ENTRIES [
 ] = {
 code = "NUPP1004" ,
 summary = "A required expression is missing" ,
-rule = "An expression position — a parenthesized operand, a call argument, or the whole of a value — must actually contain one; a token that cannot begin an expression is reported there and replaced with a zero-width placeholder. `new` is held to the same requirement in its own way: it takes a suffixed expression that must end in a call, since a bare `new T` would be a second spelling of `new T()`." ,
+rule = "An expression position, whether a parenthesized operand, a call argument, or the whole of a value, must actually contain one; a token that cannot begin an expression is reported there and replaced with a zero-width placeholder. `new` is held to the same requirement in its own way: it takes a suffixed expression that must end in a call, since a bare `new T` would be a second spelling of `new T()`." ,
 wrong = "local record Point\n    x: integer\nend\n\nlocal bare = new Point\n\nreturn bare\n" ,
 right = "local record Point\n    x: integer\nend\n\nlocal made = new Point(x = 1)\n\nreturn made\n" ,
 related = { "NUPP1002" , "NUPP1003" } ,
@@ -76350,7 +76320,7 @@ ENTRIES [
 ] = {
 code = "NUPP1005" ,
 summary = "Another syntax or recovery constraint failed" ,
-rule = "The catch-all syntax code, used for a structural violation that is not a missing token, name, or expression — a `return` that is not the last statement in its block, a `const` path that is not static, and similar constraints the parser enforces directly. Each diagnostic's message names the specific rule that failed." ,
+rule = "The catch-all syntax code, used for a structural violation that is not a missing token, name, or expression: a `return` that is not the last statement in its block, a `const` path that is not static, and similar constraints the parser enforces directly. Each diagnostic's message names the specific rule that failed." ,
 wrong = "return 1\nlocal x = 2\n" ,
 right = "local x = 2\nreturn x\n" ,
 related = { "NUPP1002" , "NUPP1004" } ,
@@ -76694,8 +76664,8 @@ ENTRIES [
 code = "NUPP2403" ,
 summary = "An SoA allocation or field projection has no resolved stored field" ,
 rule = "Structure-of-arrays storage accepts only a reified struct whose top-level fields have fixed C storage; a record, union, interface, GC-managed field, owned field, borrowed field, or variable-size field is not SoA-eligible. A row's `field` projection must likewise name one such stored field of that struct, not a dynamic name or an unknown one." ,
-wrong = "local soa = require(\"nupp.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal rows = soa.allocate(ffi.typeof<int32>(), 4)\nreturn rows\n" ,
-right = "local soa = require(\"nupp.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal struct Point\n    x: float\n    y: float\nend\n\nlocal rows = soa.allocate(ffi.typeof<Point>(), 4)\nrows:close()\n" ,
+wrong = "local soa = require(\"nupp.mem.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal rows = soa.allocate(ffi.typeof<int32>(), 4)\nreturn rows\n" ,
+right = "local soa = require(\"nupp.mem.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal struct Point\n    x: float\n    y: float\nend\n\nlocal rows = soa.allocate(ffi.typeof<Point>(), 4)\nrows:close()\n" ,
 related = { "NUPP2402" , "NUPP2009" } ,
 docs = "docs/soa.md#diagnostics" ,
 }
@@ -76979,7 +76949,7 @@ ENTRIES [
 ] = {
 code = "NUPP2619" ,
 summary = "A borrowed field's value does not derive from its declared root" ,
-rule = "A field declared `T borrows (source)` must be provably derived from the sibling field named as its `source` — the same provenance chain, not merely an equal or coincidentally matching value. Constructing the borrowed field from a different root than the one passed as `source`, or returning a declared borrowed result whose sources cannot be traced to the matching arguments, is refused." ,
+rule = "A field declared `T borrows (source)` must be provably derived from the sibling field named as its `source`, sharing the same provenance chain rather than merely an equal or coincidentally matching value. Constructing the borrowed field from a different root than the one passed as `source`, or returning a declared borrowed result whose sources cannot be traced to the matching arguments, is refused." ,
 wrong = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal right = new Buffer(value = \"right\")\nlocal cursor = new Cursor(source = left, bytes = view(right))\nprint(cursor.bytes.value)\n" ,
 right = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal cursor = new Cursor(source = left, bytes = view(left))\nprint(cursor.bytes.value)\n" ,
 related = { "NUPP2602" , "NUPP2203" , "NUPP2707" } ,
@@ -76991,7 +76961,7 @@ ENTRIES [
 ] = {
 code = "NUPP3002" ,
 summary = "A struct field's type has no C declarator the generator can emit" ,
-rule = "Every field of a reified `struct` lowers to a literal C declarator inside the `ffi.typeof` string the record compiles to. The checker admits any pointer or fixed array uniformly as a reifiable field, but the generator still has to spell each concrete shape syntactically, and some admitted shapes — an array whose element is itself a pointer, chief among them — have no case in that spelling. Such a field is refused at generation rather than at check." ,
+rule = "Every field of a reified `struct` lowers to a literal C declarator inside the `ffi.typeof` string the record compiles to. The checker admits any pointer or fixed array uniformly as a reifiable field, but the generator still has to spell each concrete shape syntactically, and some admitted shapes have no case in that spelling, chief among them an array whose element is itself a pointer. Such a field is refused at generation rather than at check." ,
 wrong = "local record Widget\n    id: integer\nend\n\nlocal struct Holder\n    items: Widget*[3]\nend\n\nreturn Holder\n" ,
 right = "cdef struct Widget\n    id: integer\nend\n\nlocal struct Holder\n    items: Widget*\n    count: int32\nend\n\nreturn Holder\n" ,
 related = { "NUPP2201" , "NUPP3003" , "NUPP3004" } ,
@@ -77003,7 +76973,7 @@ ENTRIES [
 ] = {
 code = "NUPP3003" ,
 summary = "A cdef struct field or function signature has no C spelling" ,
-rule = "`cdef struct` and `cdef function` declare literal C, and every field and parameter type must render as one. A pointer to an ordinary Nupp record — one with no `cdef struct` layout of its own — passes the checker's general rule that any pointer is reifiable, but has no C declarator: only cdef-declared aggregates, primitives, `cstring`, `voidptr`, and pointers built from those actually render. Point at a `cdef struct` instead of a plain `record`." ,
+rule = "`cdef struct` and `cdef function` declare literal C, and every field and parameter type must render as one. A pointer to an ordinary Nupp record, one with no `cdef struct` layout of its own, passes the checker's general rule that any pointer is reifiable, but has no C declarator: only cdef-declared aggregates, primitives, `cstring`, `voidptr`, and pointers built from those actually render. Point at a `cdef struct` instead of a plain `record`." ,
 wrong = "local record Widget\n    id: integer\nend\n\ncdef function inspect(target: Widget*)\n\nreturn inspect\n" ,
 right = "cdef struct Widget\n    id: integer\nend\n\ncdef function inspect(target: Widget*)\n\nreturn inspect\n" ,
 related = { "NUPP2203" , "NUPP3002" , "NUPP3004" } ,
@@ -77233,7 +77203,7 @@ end
 seen [ raw . id ] = true
 if raw . tag == "nominal" then
 local origin = ( raw . origin or raw )
-if raw . declKind == "struct" or origin . moduleName == "nupp.span" then
+if raw . declKind == "struct" or origin . moduleName == "nupp.mem.span" then
 return nil
 end
 for _ , name in ipairs ( raw . fieldOrder or { } ) do
@@ -81300,7 +81270,7 @@ and "SoA row index out of bounds"
 or descriptor . writable
 and "write span index out of bounds"
 or "span index out of bounds"
-e ( compilerModuleName ( "nupp.indexed" ) .. "._checkedIndex(" )
+e ( compilerModuleName ( "nupp.mem.indexed" ) .. "._checkedIndex(" )
 emitViewCount ( view )
 e ( "," )
 emitIndex ( index )
@@ -83242,7 +83212,7 @@ for index = 3 , # arguments do
 virtual = virtual or emitDepth . view . info ( arguments [ index ] ) ~= nil
 end
 if virtual then
-e ( compilerModuleName ( "nupp.indexed" ) .. "._rangeCounts(" , sourceLine ( x ) )
+e ( compilerModuleName ( "nupp.mem.indexed" ) .. "._rangeCounts(" , sourceLine ( x ) )
 for index , argument in ipairs ( arguments ) do
 if index > 1 then
 e ( "," )
@@ -85395,7 +85365,7 @@ elseif producerKind == "heap" or producerKind == "soa" then
 emit ( producer . source )
 e ( ".count" )
 else
-e ( compilerModuleName ( "nupp.indexed" ) .. "._rootCount(" )
+e ( compilerModuleName ( "nupp.mem.indexed" ) .. "._rootCount(" )
 emit ( producer . count )
 local message = root . descriptor
 and root . descriptor . writable
@@ -85611,7 +85581,7 @@ emitChildren ( x )
 end
 
 elseif kind == "call" and x . soaLayout and x . soaOperation then
-local moduleName = compilerModuleName ( "nupp.soa" )
+local moduleName = compilerModuleName ( "nupp.mem.soa" )
 local args = x . args and x . args . exprs or { }
 local line = sourceLine ( x )
 if x . soaOperation == "allocate" then
@@ -85661,7 +85631,7 @@ emitChildren ( x )
 return
 end
 local producerKind = view . producer and view . producer . kind
-local moduleName = compilerModuleName ( "nupp.indexed" )
+local moduleName = compilerModuleName ( "nupp.mem.indexed" )
 if producerKind == "string" then
 e ( "#" .. view . anchorName , sourceLine ( x ) )
 elseif producerKind == "fixed-carray" then
@@ -85687,7 +85657,7 @@ local view = x . virtualIndexedView
 if view . kind == "root" then
 e ( view . anchorName .. ".count" , sourceLine ( x ) )
 elseif view . kind == "slice" then
-local moduleName = compilerModuleName ( "nupp.indexed" )
+local moduleName = compilerModuleName ( "nupp.mem.indexed" )
 e ( moduleName .. "._sliceFinish(" , sourceLine ( x ) )
 emitDepth . view . count ( view . source )
 e ( "," )
@@ -91599,7 +91569,7 @@ if not element then
 return nil
 end
 
-if moduleName == "nupp.span" and (
+if moduleName == "nupp.mem.span" and (
 name == "Span" or name == "FixedSpan" or name == "WriteSpan" or name == "FixedWriteSpan"
 ) then
 return setmetatable({ adapter =
@@ -91609,7 +91579,7 @@ name == "WriteSpan" or name == "FixedWriteSpan" ,  fixedCount =
 ( name == "FixedSpan" or name == "FixedWriteSpan" ) and args [ 2 ] or nil ,  nominal =
 nominal }, indexed.Descriptor)
 
-elseif moduleName == "nupp.soa" and ( name == "Span" or name == "WriteSpan" ) then
+elseif moduleName == "nupp.mem.soa" and ( name == "Span" or name == "WriteSpan" ) then
 return setmetatable({ adapter =
 "soa" ,  element =
 element ,  writable =
@@ -91627,7 +91597,7 @@ indexed . describe = describe
 
 
 function indexed . exportProducer ( moduleName , member , result )
-if moduleName ~= "nupp.span" then
+if moduleName ~= "nupp.mem.span" then
 return nil
 end
 local descriptor = describe ( result )
@@ -91663,9 +91633,9 @@ if origin . name ~= "Array" or ( member ~= "read" and member ~= "write" ) then
 return nil
 end
 local kind
-if moduleName == "nupp.heap" then
+if moduleName == "nupp.mem.heap" then
 kind = "heap"
-elseif moduleName == "nupp.soa" then
+elseif moduleName == "nupp.mem.soa" then
 kind = "soa"
 else
 return nil
@@ -111634,7 +111604,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppD
 
 local lints = require ( "nupp.compiler.lints" )
 local explain = require ( "nupp.compiler.explain" )
-local trace = require ( "nupp._trace" )
+local trace = require ( "nupp.profile._trace" )
 
 local reference = { }
 
@@ -112842,8 +112812,8 @@ field to a root. Closures borrow captured owners by default. `takes (source)` ma
 single-shot closure; `scoped` proves callback captures cannot escape.
 
 Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds
-dynamic owners. `nupp.span` provides `Span<T>` and affine `WriteSpan<T>` views;
-fixed variants remove a runtime length check. `nupp.heap.Array<T>` moves its count
+dynamic owners. `nupp.mem.span` provides `Span<T>` and affine `WriteSpan<T>` views;
+fixed variants remove a runtime length check. `nupp.mem.heap.Array<T>` moves its count
 with its private pointer. Suspension cannot strand an obligation.
 
 `WriteSpan.getMut(index)` returns a checked mutable element pointer borrowed
@@ -113067,7 +113037,7 @@ return m
 "Checked span views" ,  codes =
 { "NUPP2001" , "NUPP2004" , "NUPP2602" , "NUPP2604" } ,  body =
 [=[
-`nupp.span` wraps rooted C arrays in sealed, bounds-checked shared and writable
+`nupp.mem.span` wraps rooted C arrays in sealed, bounds-checked shared and writable
 views. `WriteSpan.slice(first, last)` returns one affine child writer; its
 parent remains blocked until that child is committed or dropped. Empty slices
 use the inclusive `first, first - 1` convention.
@@ -113083,8 +113053,8 @@ to direct rooted FFI indexing after the one range check. Arbitrary indexes,
 held frames and accesses outside the same-function witness remain checked.
 ]=] ,  example =
 [=[
-local span = require("nupp.span")
-local indexed = require("nupp.indexed")
+local span = require("nupp.mem.span")
+local indexed = require("nupp.mem.indexed")
 local m = {}
 
 local struct Value
@@ -114123,7 +114093,7 @@ Read the leaf suffix before guessing: `_[N]` is native, `_[I]` interpreted,
 hot `_[I]` frames. A shorter native stack can be normal because LuaJIT inlines
 compiled calls.
 
-Use `nupp.zone` around phases such as `frame/physics`, not around each loop
+Use `nupp.profile.zone` around phases such as `frame/physics`, not around each loop
 iteration. Recognized `zone.push` and discarded `zone.pop` statements lower
 inline. Zones are optional attribution; trace checking and abort collection do
 not require them.
@@ -114205,6 +114175,64 @@ end
 
 
 
+
+
+
+function reference . slug ( title )
+local text = title : lower ( ) : gsub ( "[^%w]+" , "-" )
+
+return ( text : gsub ( "^%-+" , "" ) : gsub ( "%-+$" , "" ) )
+end
+
+
+
+
+
+
+
+function reference . findSection ( name )
+local wanted = reference . slug ( ( name : match ( "#(.*)$" ) or name ) )
+for _ , chapter in ipairs ( reference . chapters ) do
+for _ , section in ipairs ( chapter . sections ) do
+if reference . slug ( section . title ) == wanted then
+return section , chapter
+end
+end
+end
+
+return nil , nil
+end
+
+
+
+
+
+
+function reference . sectionsFor ( code )
+
+
+
+local found
+
+
+= { }
+local wanted = code : upper ( )
+for _ , chapter in ipairs ( reference . chapters ) do
+for _ , section in ipairs ( chapter . sections ) do
+for _ , listed in ipairs ( section . codes ) do
+if listed : upper ( ) == wanted then
+found [ # found + 1 ] = { section = section , chapter = chapter }
+break
+end
+end
+end
+end
+
+return found
+end
+
+
+
 function reference . catalog ( )
 local out = { "Nupp reference chapters" , "" }
 local widest = 0
@@ -114217,9 +114245,21 @@ for _ , chapter in ipairs ( reference . chapters ) do
 out [ # out + 1 ] = ( "  %s %s" ) : format ( pad ( chapter . name , widest ) , chapter . summary )
 end
 out [ # out + 1 ] = ""
+
+
+
+for _ , chapter in ipairs ( reference . chapters ) do
+out [ # out + 1 ] = chapter . title .. " sections"
+for _ , section in ipairs ( chapter . sections ) do
+out [ # out + 1 ] = "  " .. reference . slug ( section . title )
+end
+out [ # out + 1 ] = ""
+end
 out [
 # out + 1
-] = "Run `nupp reference <chapter>` for one chapter, or " .. "`nupp reference all` for the complete reference."
+] = "Run `nupp reference <chapter>` for one chapter, `nupp reference all` for the "
+.. "complete reference,\n`nupp reference --section <name>` for one section, or "
+.. "`nupp reference --for <CODE>` for\nwhichever sections explain a diagnostic."
 
 return table . concat ( out , "\n" )
 end
@@ -114299,6 +114339,18 @@ end
 return ( table . concat ( out , "\n" ) : gsub ( "\n+$" , "" ) )
 end
 
+
+
+
+
+
+
+function reference . sectionMarkdown ( section , chapter )
+local out = { "# " .. section . title , "" , "From the Nupp " .. chapter . title .. " reference." , "" }
+renderSection ( out , section , 2 )
+
+return ( table . concat ( out , "\n" ) : gsub ( "\n+$" , "" ) )
+end
 
 function reference . chapterMarkdown ( chapter )
 local out = { "# Nupp " .. chapter . title .. " reference" , "" , chapter . summary , "" }
@@ -119196,7 +119248,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppD
 
 
 
-local trace = require ( "nupp._trace" )
+local trace = require ( "nupp.profile._trace" )
 local hash = require ( "nupp.compiler.build.hash" )
 
 local bytecode = { }
@@ -119539,7 +119591,7 @@ package.preload["nupp.compiler.trace_source"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 local cst = require ( "nupp.compiler.cst" )
-local trace = require ( "nupp._trace" )
+local trace = require ( "nupp.profile._trace" )
 local analysisMod = require ( "nupp.compiler.analysis" )
 
 local source = { }
@@ -124533,125 +124585,6 @@ local format = { }
 return format
 
 end
-package.preload["nupp.heap"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.heap#free_nosuspend"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.heap#free_nosuspend") end;__nuppCleanup1=cleanup;return cleanup(value) end;
-
-
-
-
-
-
-
-local heap = { }
-local ffi = require ( "ffi" )
-local span = require ( "nupp.span" )
-
-pcall(__nuppFfi.cdef, "void * malloc(uint64_t);") const malloc = __nuppFfi.C.malloc
-pcall(__nuppFfi.cdef, "void free(void *);") const free = __nuppFfi.C.free
-local free_nosuspend = free
-
-local function finish_array ( self )
-do
-local raw = self
-do local __nuppT13=0; local  __nuppT19 ; local __nuppT20=false ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT21= raw . pointer ; __nuppT19= __nuppT21 ; __nuppT13=1;  __nuppT20=true;  local pointer=__nuppT19;
-do (function(__nuppT22,...)  __nuppT20=false;  return __nuppT22(...)  end)( free_nosuspend , pointer ) end end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 and __nuppT20 then  const __nuppT23,__nuppT24=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT23 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT24 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
-end
-end
-
-local finish_array_nosuspend = finish_array
-
-
-
-
-
-
-function heap . destroyArray ( self )
-self : close ( )
-end ;__nuppCleanups["nupp.heap#heap.destroyArray"]=heap.destroyArray
-
-
-
-
-heap.Array = {} heap.Array.__index = heap.Array
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function heap . Array . read ( self )
-return span . fromCarray ( self . pointer , self . count )
-end
-
-function heap . Array . close ( self )
-finish_array_nosuspend ( self )
-end
-
-function heap . Array . drop ( self )
-self : close ( )
-end
-
-function heap . Array . write ( self )
-return span . writeCarray ( self . pointer , self . count )
-end
-
-
-
-
-
-
-function heap . allocate ( element , count ) __nuppCleanups["nupp.heap#heap.destroyArray"]=heap.destroyArray;
-if count < 0 then
-error ( "heap array count cannot be negative" , 2 )
-end
-
-local width = ffi . sizeof ( element )
-if width <= 0 or ( count > 0 and count > math.floor(( 9007199254740991 ) / ( width )) ) then
-error ( "heap array byte size is too large" , 2 )
-end
-
-local bytes = width * count
-if bytes == 0 then
-bytes = 1
-end
-local raw = malloc ( bytes )
-if raw == nil then
-error ( "heap array allocation failed" , 2 )
-end
-
-
-
-local pointerSpec = "$ *"
-local pointerType = ffi . typeof ( pointerSpec , element )
-do
-local pointer = ffi . cast ( pointerType , raw )
-local array = setmetatable({ pointer =  pointer ,  count =  count }, heap.Array)
-return array
-end
-end
-
-return heap
-
-end
 package.preload["nupp.hotreload"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
@@ -125040,94 +124973,6 @@ end
 _G [ API_KEY ] = hotreload
 
 return hotreload
-
-end
-package.preload["nupp.indexed"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
-
-
-
-
-
-
-local indexed = { }
-
-
-
-indexed.Range = {} indexed.Range.__index = indexed.Range
-
-
-
-
-
-
-function indexed . range ( first , last , ... )
-local count = select ( "#" , ... )
-if count < 1 or first < 1 or last < first - 1 then
-error ( "indexed range out of bounds" , 2 )
-end
-for index = 1 , count do
-local candidate = select ( index , ... )
-if last > candidate . count then
-error ( "indexed range out of bounds" , 2 )
-end
-end
-
-return setmetatable({ first =  first ,  last =  last }, indexed.Range)
-end
-
-
-
-
-function indexed . _rangeCounts ( first , last , ... )
-local count = select ( "#" , ... )
-if count < 1 or first < 1 or last < first - 1 then
-error ( "indexed range out of bounds" , 2 )
-end
-for index = 1 , count do
-if last > select ( index , ... ) then
-error ( "indexed range out of bounds" , 2 )
-end
-end
-
-return setmetatable({ first =  first ,  last =  last }, indexed.Range)
-end
-
-
-
-function indexed . _sliceFinish ( count , first , last , message )
-local finish = last or count
-if first < 1 or finish < first - 1 or finish > count then
-error ( message , 2 )
-end
-
-return finish
-end
-
-
-
-
-
-function indexed . _rootCount ( count , message )
-if count < 0 then
-error ( message , 2 )
-end
-
-return count
-end
-
-
-
-
-function indexed . _checkedIndex ( count , index , message )
-if index < 1 or index > count then
-error ( message , 2 )
-end
-
-return index
-end
-
-return indexed
 
 end
 package.preload["nupp.io.http"] = function(...)
@@ -126217,10 +126062,302 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppD
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 local suspension = require ( "nupp.suspension" )
-local processtypes = require ( "nupp.io.processtypes" )
 
 local process = { }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+process.Exit = {} process.Exit.__index = process.Exit
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+process.Result = {} process.Result.__index = process.Result
+
+
+
+
+
+
+
+
+
+
+function process.Result:succeeded()
+return self . exit : succeeded ( )
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+process.Interest = {} process.Interest.__index = process.Interest
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+process.Backend = {} process.Backend.__index = process.Backend
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -126245,6 +126382,11 @@ local progressed , releasePump , await , awaitTick , pumpOnce , readForCompletio
 
 
 local defaultBackend = nil
+
+
+
+
+
 
 
 
@@ -126404,7 +126546,7 @@ function ( )
 
 
 
-return setmetatable({ child =  self . owner . handle ,  read =  { self . handle } ,  write =  { } }, processtypes.Interest)
+return setmetatable({ child =  self . owner . handle ,  read =  { self . handle } ,  write =  { } }, process.Interest)
 end
 )
 
@@ -126586,7 +126728,7 @@ local before = 0
 local function interest ( )
 
 
-return setmetatable({ child =  self . owner . handle ,  read =  { } ,  write =  { self . handle } }, processtypes.Interest)
+return setmetatable({ child =  self . owner . handle ,  read =  { } ,  write =  { self . handle } }, process.Interest)
 end
 
 
@@ -126786,7 +126928,7 @@ function ( )
 
 
 
-return setmetatable({ child =  self . handle ,  read =  { } ,  write =  { } }, processtypes.Interest)
+return setmetatable({ child =  self . handle ,  read =  { } ,  write =  { } }, process.Interest)
 end
 )
 if self . timedOut and self . exit ~= nil then
@@ -126874,7 +127016,7 @@ if stdin ~= nil and not stdin . closed and sent < # pending then
 write [ # write + 1 ] = stdin . handle
 end
 
-return setmetatable({ child =  self . handle ,  read =  read ,  write =  write }, processtypes.Interest)
+return setmetatable({ child =  self . handle ,  read =  read ,  write =  write }, process.Interest)
 end
 
 while not ( inputDone ( ) and outputDone ( ) ) do
@@ -126938,11 +127080,7 @@ end
 
 abandonInput ( )
 
-return setmetatable({ output =
-table . concat ( out ) ,  errorOutput =
-table . concat ( err ) ,  exit =
-self : wait ( ) }, processtypes.Result)
-
+return setmetatable({ output =  table . concat ( out ) ,  errorOutput =  table . concat ( err ) ,  exit =  self : wait ( ) }, process.Result)
 end )
 if not ok then
 return nil , answer == nil and "process communication failed without saying why" or tostring ( answer )
@@ -126995,7 +127133,7 @@ function ( )
 return not self . closing
 end ,
 function ( )
-return setmetatable({ child =  self . handle ,  read =  { } ,  write =  { } }, processtypes.Interest)
+return setmetatable({ child =  self . handle ,  read =  { } ,  write =  { } }, process.Interest)
 end
 )
 if self . reaped then
@@ -127059,7 +127197,7 @@ function ( )
 return self . exit ~= nil
 end ,
 function ( )
-return setmetatable({ child =  self . handle ,  read =  { } ,  write =  { } }, processtypes.Interest)
+return setmetatable({ child =  self . handle ,  read =  { } ,  write =  { } }, process.Interest)
 end
 )
 end )
@@ -127345,7 +127483,7 @@ end
 return false
 end ,
 function ( )
-return setmetatable({ child =  source . owner . handle ,  read =  { source . handle } ,  write =  { } }, processtypes.Interest)
+return setmetatable({ child =  source . owner . handle ,  read =  { source . handle } ,  write =  { } }, process.Interest)
 end ,
 stopAt
 )
@@ -127512,7 +127650,126 @@ end
 return process
 
 end
-package.preload["nupp.io.processtypes"] = function(...)
+package.preload["nupp.mem.heap"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.heap#free_nosuspend"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.heap#free_nosuspend") end;__nuppCleanup1=cleanup;return cleanup(value) end;
+
+
+
+
+
+
+
+local heap = { }
+local ffi = require ( "ffi" )
+local span = require ( "nupp.mem.span" )
+
+pcall(__nuppFfi.cdef, "void * malloc(uint64_t);") const malloc = __nuppFfi.C.malloc
+pcall(__nuppFfi.cdef, "void free(void *);") const free = __nuppFfi.C.free
+local free_nosuspend = free
+
+local function finish_array ( self )
+do
+local raw = self
+do local __nuppT13=0; local  __nuppT19 ; local __nuppT20=false ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT21= raw . pointer ; __nuppT19= __nuppT21 ; __nuppT13=1;  __nuppT20=true;  local pointer=__nuppT19;
+do (function(__nuppT22,...)  __nuppT20=false;  return __nuppT22(...)  end)( free_nosuspend , pointer ) end end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 and __nuppT20 then  const __nuppT23,__nuppT24=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT23 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT24 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
+end
+end
+
+local finish_array_nosuspend = finish_array
+
+
+
+
+
+
+function heap . destroyArray ( self )
+self : close ( )
+end ;__nuppCleanups["nupp.mem.heap#heap.destroyArray"]=heap.destroyArray
+
+
+
+
+heap.Array = {} heap.Array.__index = heap.Array
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function heap . Array . read ( self )
+return span . fromCarray ( self . pointer , self . count )
+end
+
+function heap . Array . close ( self )
+finish_array_nosuspend ( self )
+end
+
+function heap . Array . drop ( self )
+self : close ( )
+end
+
+function heap . Array . write ( self )
+return span . writeCarray ( self . pointer , self . count )
+end
+
+
+
+
+
+
+function heap . allocate ( element , count ) __nuppCleanups["nupp.mem.heap#heap.destroyArray"]=heap.destroyArray;
+if count < 0 then
+error ( "heap array count cannot be negative" , 2 )
+end
+
+local width = ffi . sizeof ( element )
+if width <= 0 or ( count > 0 and count > math.floor(( 9007199254740991 ) / ( width )) ) then
+error ( "heap array byte size is too large" , 2 )
+end
+
+local bytes = width * count
+if bytes == 0 then
+bytes = 1
+end
+local raw = malloc ( bytes )
+if raw == nil then
+error ( "heap array allocation failed" , 2 )
+end
+
+
+
+local pointerSpec = "$ *"
+local pointerType = ffi . typeof ( pointerSpec , element )
+do
+local pointer = ffi . cast ( pointerType , raw )
+local array = setmetatable({ pointer =  pointer ,  count =  count }, heap.Array)
+return array
+end
+end
+
+return heap
+
+end
+package.preload["nupp.mem.indexed"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
 
@@ -127520,39 +127777,88 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppD
 
 
 
+local indexed = { }
 
 
 
+indexed.Range = {} indexed.Range.__index = indexed.Range
 
 
 
 
 
 
+function indexed . range ( first , last , ... )
+local count = select ( "#" , ... )
+if count < 1 or first < 1 or last < first - 1 then
+error ( "indexed range out of bounds" , 2 )
+end
+for index = 1 , count do
+local candidate = select ( index , ... )
+if last > candidate . count then
+error ( "indexed range out of bounds" , 2 )
+end
+end
 
+return setmetatable({ first =  first ,  last =  last }, indexed.Range)
+end
 
 
 
 
+function indexed . _rangeCounts ( first , last , ... )
+local count = select ( "#" , ... )
+if count < 1 or first < 1 or last < first - 1 then
+error ( "indexed range out of bounds" , 2 )
+end
+for index = 1 , count do
+if last > select ( index , ... ) then
+error ( "indexed range out of bounds" , 2 )
+end
+end
 
+return setmetatable({ first =  first ,  last =  last }, indexed.Range)
+end
 
 
 
+function indexed . _sliceFinish ( count , first , last , message )
+local finish = last or count
+if first < 1 or finish < first - 1 or finish > count then
+error ( message , 2 )
+end
 
-local processtypes = { }
+return finish
+end
 
 
 
 
 
+function indexed . _rootCount ( count , message )
+if count < 0 then
+error ( message , 2 )
+end
 
+return count
+end
 
 
 
 
+function indexed . _checkedIndex ( count , index , message )
+if index < 1 or index > count then
+error ( message , 2 )
+end
 
+return index
+end
 
+return indexed
 
+end
+package.preload["nupp.mem.soa"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.soa#free_nosuspend"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.soa#free_nosuspend") end;__nuppCleanup1=cleanup;return cleanup(value) end;
 
 
 
@@ -127561,11 +127867,19 @@ local processtypes = { }
 
 
 
+local soa = { }
+local ffi = require ( "ffi" )
+local span = require ( "nupp.mem.span" )
 
+pcall(__nuppFfi.cdef, "void * malloc(uint64_t);") const malloc = __nuppFfi.C.malloc
+pcall(__nuppFfi.cdef, "void free(void *);") const free = __nuppFfi.C.free
+local free_nosuspend = free
 
+local MAX_EXACT_INTEGER = 9007199254740991
 
 
 
+soa.FieldLayout = {} soa.FieldLayout.__index = soa.FieldLayout
 
 
 
@@ -127577,6 +127891,7 @@ local processtypes = { }
 
 
 
+soa.SegmentLayout = {} soa.SegmentLayout.__index = soa.SegmentLayout
 
 
 
@@ -127584,14 +127899,15 @@ local processtypes = { }
 
 
 
+soa.InstanceLayout = {} soa.InstanceLayout.__index = soa.InstanceLayout
 
 
 
 
-processtypes.Exit = {} processtypes.Exit.__index = processtypes.Exit
 
 
 
+soa.Layout = {} soa.Layout.__index = soa.Layout
 
 
 
@@ -127599,25 +127915,158 @@ processtypes.Exit = {} processtypes.Exit.__index = processtypes.Exit
 
 
 
+function soa.Layout:forCount(count)
+if count < 0 then
+error ( "SoA row count cannot be negative" , 2 )
+end
 
+local segments = { }
+local cursor = 0
+for ordinal , field in ipairs ( self . fields ) do
+if count > 0 and count > math.floor(( MAX_EXACT_INTEGER ) / ( field . elementSize )) then
+error ( "SoA field byte size is too large" , 2 )
+end
+local byteCount = ( field . elementSize * count )
+local remainder = cursor % field . alignment
+if remainder ~= 0 then
+cursor = ( cursor + field . alignment - remainder )
+end
+if cursor > MAX_EXACT_INTEGER - byteCount then
+error ( "SoA slab byte size is too large" , 2 )
+end
+segments [ ordinal ] = setmetatable({ field =  field ,  offset =  cursor ,  byteCount =  byteCount }, soa.SegmentLayout)
+cursor = ( cursor + byteCount )
+end
 
+return setmetatable({ count =  count ,  byteSize =  cursor ,  segments =  segments }, soa.InstanceLayout)
+end
 
 
+local layoutCache = setmetatable ( { } , { __mode = "k" } )
 
 
-processtypes.Result = {} processtypes.Result.__index = processtypes.Result
 
 
+function soa . _layout ( raw )
+local prior = layoutCache [ raw ]
+if prior then
+return prior
+end
 
+local fields = { }
+local fingerprint = { "soa1" , raw . name }
+local alignment = 1
+for ordinal , source in ipairs ( raw . fields ) do
+local fieldAlignment = source . alignment
+if fieldAlignment > alignment then
+alignment = fieldAlignment
+end
+local field = setmetatable({ name =
+source . name ,  identity =
+( raw . name ) .. "." .. ( source . name ) ,  ctype =
+source . ctype ,  ordinal =
+ordinal ,  elementSize =
+source . size ,  alignment =
+fieldAlignment ,  pointerType =
+source . pointerType }, soa.FieldLayout)
 
+fields [ ordinal ] = field
+fingerprint [
+# fingerprint + 1
+] = string . format ( "%s:%s@%d/%d" , field . identity , field . ctype , field . elementSize , field . alignment )
+end
 
+local layout = setmetatable({ name =
+raw . name ,  fingerprint =
+table . concat ( fingerprint , "|" ) ,  alignment =
+alignment ,  fields =
+fields }, soa.Layout)
 
+layoutCache [ raw ] = layout
 
+return layout
+end
 
 
 
-function processtypes.Result:succeeded()
-return self . exit : succeeded ( )
+
+
+
+
+
+
+
+function soa . destroyArray ( self )
+self : close ( )
+end ;__nuppCleanups["nupp.mem.soa#soa.destroyArray"]=soa.destroyArray
+
+
+function soa . destroyWriteSpan ( self )
+do
+local _raw = self
+end
+end ;__nuppCleanups["nupp.mem.soa#soa.destroyWriteSpan"]=soa.destroyWriteSpan
+
+
+
+
+
+
+
+
+
+
+const SpanImpl = {} SpanImpl.__index = SpanImpl
+
+
+
+
+
+
+
+function SpanImpl:checkedIndex(index)
+if index < 1 or index > self . count then
+error ( "SoA row index out of bounds" , 2 )
+end
+return self . offset + index - 1
+end
+
+function SpanImpl:get(index)
+local physical = self : checkedIndex ( index )
+local value = ffi . new ( self . element )
+for ordinal , field in ipairs ( self . layout . fields ) do
+( value ) [ field . name ] = ( self . columns [ ordinal ] ) [ physical ]
+end
+
+return value
+end
+
+function SpanImpl:slice(first, last)
+local finish = last or self . count
+if first < 1 or finish < first - 1 or finish > self . count then
+error ( "SoA slice out of bounds" , 2 )
+end
+
+return setmetatable({ anchor =
+self ,  element =
+self . element ,  layout =
+self . layout ,  columns =
+self . columns ,  offset =
+self . offset + first - 1 ,  count =
+finish - first + 1 }, SpanImpl)
+
+end
+
+function SpanImpl:field(name)
+error ( "SoA field projection requires compiler lowering: " .. tostring ( name ) , 2 )
+end
+
+function SpanImpl:fieldBySlot(ordinal)
+local pointer = ( self . columns [ ordinal ] ) + self . offset
+do
+local rooted = pointer
+return span . fromCarray ( rooted , self . count )
+end
 end
 
 
@@ -127633,7 +128082,6 @@ end
 
 
 
-processtypes.Interest = {} processtypes.Interest.__index = processtypes.Interest
 
 
 
@@ -127647,45 +128095,126 @@ processtypes.Interest = {} processtypes.Interest.__index = processtypes.Interest
 
 
 
+const WriteSpanImpl = {} WriteSpanImpl.__index = WriteSpanImpl
 
 
 
 
-processtypes.Backend = {} processtypes.Backend.__index = processtypes.Backend
 
 
 
+function WriteSpanImpl:checkedIndex(index)
+if index < 1 or index > self . count then
+error ( "SoA row index out of bounds" , 2 )
+end
+return self . offset + index - 1
+end
 
+function WriteSpanImpl:get(index)
+local physical = self : checkedIndex ( index )
+local value = ffi . new ( self . element )
+for ordinal , field in ipairs ( self . layout . fields ) do
+( value ) [ field . name ] = ( self . columns [ ordinal ] ) [ physical ]
+end
 
+return value
+end
 
+function WriteSpanImpl:set(index, value)
+local physical = self : checkedIndex ( index )
+for ordinal , field in ipairs ( self . layout . fields ) do
+( self . columns [ ordinal ] ) [ physical ] = ( value ) [ field . name ]
+end
+end
 
+function WriteSpanImpl:field(name)
+error ( "SoA field projection requires compiler lowering: " .. tostring ( name ) , 2 )
+end
 
+function WriteSpanImpl:fieldBySlot(ordinal)
+local pointer = ( self . columns [ ordinal ] ) + self . offset
+do
+local rooted = pointer
+return span . writeCarray ( rooted , self . count )
+end
+end
 
+function WriteSpanImpl:shared()
+return setmetatable({ anchor =
+self ,  element =
+self . element ,  layout =
+self . layout ,  columns =
+self . columns ,  offset =
+self . offset ,  count =
+self . count }, SpanImpl)
 
+end
 
 
 
 
+function WriteSpanImpl:copyFrom(targetFirst, source, sourceFirst, count)
 
 
 
 
 
 
+if count < 0
+or targetFirst < 1
+or sourceFirst < 1
+or targetFirst
+- 1 > self . count
+- count
+or sourceFirst
+- 1 > source .count
+- count
+then
+error ( "SoA copy range is out of bounds" , 2 )
+end
+if count == 0 then
+return
+end
+local other = source
+for ordinal , field in ipairs ( self . layout . fields ) do
+local destination = ( self . columns [ ordinal ] ) + self . offset + targetFirst - 1
+local input = ( other . columns [ ordinal ] ) + other . offset + sourceFirst - 1
+ffi . copy ( destination , input , count * field . elementSize )
+end
+end
 
+function WriteSpanImpl:slice(first, last)
 
 
 
 
+local finish = last or self . count
+if first < 1 or finish < first - 1 or finish > self . count then
+error ( "SoA slice out of bounds" , 2 )
+end
 
+return setmetatable({ anchor =
+self ,  element =
+self . element ,  layout =
+self . layout ,  columns =
+self . columns ,  offset =
+self . offset + first - 1 ,  count =
+finish - first + 1 }, WriteSpanImpl)
 
+end
 
 
 
 
+function WriteSpanImpl . drop ( self )
+do
+local _raw = self
+end
+end
 
 
 
+soa.Array = {} soa.Array.__index = soa.Array
 
 
 
@@ -127715,29 +128244,108 @@ processtypes.Backend = {} processtypes.Backend.__index = processtypes.Backend
 
 
 
+function soa . Array . read ( self )
+return setmetatable({ anchor =
+self ,  element =
+self . element ,  layout =
+self . layout ,  columns =
+self . columns ,  offset =
+0 ,  count =
+self . count }, SpanImpl)
 
+end
 
+function soa . Array . write (
+self
+)
+return setmetatable({ anchor =
+self ,  element =
+self . element ,  layout =
+self . layout ,  columns =
+self . columns ,  offset =
+0 ,  count =
+self . count }, WriteSpanImpl)
 
+end
 
+local function finishArray ( self )
+do
+local raw = self
+do local __nuppT13=0; local  __nuppT19 ; local __nuppT20=false ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT21= raw . raw ; __nuppT19= __nuppT21 ; __nuppT13=1;  __nuppT20=true;  local pointer=__nuppT19;
+do (function(__nuppT22,...)  __nuppT20=false;  return __nuppT22(...)  end)( free_nosuspend , pointer ) end end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 and __nuppT20 then  const __nuppT23,__nuppT24=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT23 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT24 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
+end
+end
 
+local finishArrayNosuspend = finishArray
 
+function soa . Array . close ( self )
+finishArrayNosuspend ( self )
+end
 
+function soa . Array . drop ( self )
+self : close ( )
+end
 
 
 
+function soa . _allocate ( element , count , rawLayout ) __nuppCleanups["nupp.mem.soa#soa.destroyArray"]=soa.destroyArray;
+local layout = soa . _layout ( rawLayout )
+local instance = layout : forCount ( count )
+local bytes = instance . byteSize
+local alignment = layout . alignment
+local padding = alignment - 1
+if bytes > MAX_EXACT_INTEGER - padding then
+error ( "SoA aligned slab byte size is too large" , 2 )
+end
+local allocationBytes = bytes + padding
+if allocationBytes == 0 then
+allocationBytes = 1
+end
+local raw = malloc ( allocationBytes )
+if raw == nil then
+error ( "SoA allocation failed" , 2 )
+end
 
+local columns = { }
+do
+local rawAddress = tonumber ( __nuppFfi.cast("uint64_t" , raw ) )
+local adjustment = ( alignment - ( rawAddress % alignment ) ) % alignment
+local allocation = __nuppFfi.cast("uint8_t *" , raw )
+local base = allocation + adjustment
+for ordinal , segment in ipairs ( instance . segments ) do
+columns [ ordinal ] = ffi . cast ( segment . field . pointerType , base + segment . offset )
+end
+return setmetatable({ raw =
+raw ,  element =
+element ,  layout =
+layout ,  columns =
+columns ,  count =
+count ,  fingerprint =
+layout . fingerprint }, soa.Array)
 
+end
+end
 
 
 
 
 
+function soa . allocate ( element , count ) __nuppCleanups["nupp.mem.soa#soa.destroyArray"]=soa.destroyArray;
+error ( "soa.allocate requires compiler lowering" , 2 )
+end
 
 
 
 
+function soa . layoutof ( element )
+error ( "soa.layoutof requires compiler lowering" , 2 )
+end
 
+return soa
 
+end
+package.preload["nupp.mem.span"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;
 
 
 
@@ -127746,6 +128354,7 @@ processtypes.Backend = {} processtypes.Backend.__index = processtypes.Backend
 
 
 
+local span = { }
 
 
 
@@ -127753,6 +128362,11 @@ processtypes.Backend = {} processtypes.Backend.__index = processtypes.Backend
 
 
 
+function span . destroyWriteSpan ( writable )
+do
+local _raw = writable
+end
+end ;__nuppCleanups["nupp.mem.span#span.destroyWriteSpan"]=span.destroyWriteSpan
 
 
 
@@ -127765,6 +128379,7 @@ processtypes.Backend = {} processtypes.Backend.__index = processtypes.Backend
 
 
 
+const SpanImpl = {} SpanImpl.__index = SpanImpl
 
 
 
@@ -127772,37 +128387,90 @@ processtypes.Backend = {} processtypes.Backend.__index = processtypes.Backend
 
 
 
+function SpanImpl:get(index)
+if index < 1 or index > self . count then
+error ( "span index out of bounds" , 2 )
+end
+do
+return self . pointer [ self . offset + index - 1 ]
+end
+end
 
 
 
+function SpanImpl:slice(first, last)
+local finish = last or self . count
+if first < 1 or finish < first - 1 or finish > self . count then
+error ( "span slice out of bounds" , 2 )
+end
 
+return setmetatable({ anchor =
+self ,  pointer =
+self . pointer ,  offset =
+self . offset + first - 1 ,  count =
+finish - first + 1 }, SpanImpl)
 
+end
 
 
+function SpanImpl:ref()
+do
+local pointer = ( self . pointer ) + self . offset
+return pointer , self . count
+end
+end
 
 
 
 
 
+span.FixedSpan = {}
 
 
 
 
+const FixedSpanImpl = {} FixedSpanImpl.__index = FixedSpanImpl
 
 
 
 
 
+function FixedSpanImpl:get(index)
+if index < 1 or index > ( self . count ) then
+error ( "span index out of bounds" , 2 )
+end
+do
+return self . pointer [ self . offset + index - 1 ]
+end
+end
 
+function FixedSpanImpl:slice(first, last)
+local finish = last or ( self . count )
+if first < 1 or finish < first - 1 or finish > ( self . count ) then
+error ( "span slice out of bounds" , 2 )
+end
 
+return setmetatable({ anchor =
+self ,  pointer =
+self . pointer ,  offset =
+self . offset + first - 1 ,  count =
+finish - first + 1 }, SpanImpl)
 
+end
 
+function FixedSpanImpl:ref()
+do
+local pointer = ( self . pointer ) + self . offset
+return pointer , self . count
+end
+end
 
 
 
 
 
 
+span.WriteSplit = {} span.WriteSplit.__index = span.WriteSplit
 
 
 
@@ -127812,6 +128480,7 @@ processtypes.Backend = {} processtypes.Backend.__index = processtypes.Backend
 
 
 
+span.WriteSpan = {}
 
 
 
@@ -127823,7 +128492,327 @@ processtypes.Backend = {} processtypes.Backend.__index = processtypes.Backend
 
 
 
-return processtypes
+
+
+
+
+
+
+span.FixedWriteSpan = {}
+
+
+
+
+
+
+
+
+
+
+
+
+
+const WriteSpanImpl = {} WriteSpanImpl.__index = WriteSpanImpl
+
+
+
+
+
+
+
+
+
+
+function WriteSpanImpl:getMut(index)
+if index < 1 or index > self . count then
+error ( "write span index out of bounds" , 2 )
+end
+do
+local elementOffset = self . offset + index - 1
+local pointer = ( self . pointer ) + elementOffset
+return pointer
+end
+end
+
+
+
+function WriteSpanImpl:get(index)
+if index < 1 or index > self . count then
+error ( "write span index out of bounds" , 2 )
+end
+do
+return self . pointer [ self . offset + index - 1 ]
+end
+end
+
+function WriteSpanImpl:set(index, value)
+if index < 1 or index > self . count then
+error ( "write span index out of bounds" , 2 )
+end
+do
+self . pointer [ self . offset + index - 1 ] = value
+end
+end
+
+
+function WriteSpanImpl:ref()
+do
+local pointer = ( self . pointer ) + self . offset
+return pointer , self . count
+end
+end
+
+
+function WriteSpanImpl:shared()
+return setmetatable({ anchor =
+self ,  pointer =
+self . pointer ,  offset =
+self . offset ,  count =
+self . count }, SpanImpl)
+
+end
+
+
+
+function WriteSpanImpl:slice(first, last)
+local finish = last or self . count
+if first < 1 or finish < first - 1 or finish > self . count then
+error ( "write span slice out of bounds" , 2 )
+end
+
+return setmetatable({ anchor =
+self ,  pointer =
+self . pointer ,  offset =
+self . offset + first - 1 ,  count =
+finish - first + 1 }, WriteSpanImpl)
+
+end
+
+
+
+function WriteSpanImpl:splitAt(mid)
+if mid < 0 or mid > self . count then
+error ( "write span split point out of bounds" , 2 )
+end
+do
+local left , right = (function() return  setmetatable({ anchor =
+
+
+self ,  pointer =
+self . pointer ,  offset =
+self . offset ,  count =
+mid }, WriteSpanImpl) , setmetatable({ anchor =
+
+
+self ,  pointer =
+self . pointer ,  offset =
+self . offset + mid ,  count =
+self . count - mid }, WriteSpanImpl)  end)()
+
+
+return setmetatable({ anchor =  self ,  left =  left ,  right =  right }, span.WriteSplit)
+end
+end
+
+
+
+
+const FixedWriteSpanImpl = {} FixedWriteSpanImpl.__index = FixedWriteSpanImpl
+
+
+
+
+
+
+
+function FixedWriteSpanImpl:getMut(index)
+if index < 1 or index > ( self . count ) then
+error ( "write span index out of bounds" , 2 )
+end
+do
+local elementOffset = self . offset + index - 1
+local pointer = ( self . pointer ) + elementOffset
+return pointer
+end
+end
+
+
+
+function FixedWriteSpanImpl:get(index)
+if index < 1 or index > ( self . count ) then
+error ( "write span index out of bounds" , 2 )
+end
+do
+return self . pointer [ self . offset + index - 1 ]
+end
+end
+
+function FixedWriteSpanImpl:set(index, value)
+if index < 1 or index > ( self . count ) then
+error ( "write span index out of bounds" , 2 )
+end
+do
+self . pointer [ self . offset + index - 1 ] = value
+end
+end
+
+function FixedWriteSpanImpl:ref()
+do
+local pointer = ( self . pointer ) + self . offset
+return pointer , self . count
+end
+end
+
+function FixedWriteSpanImpl:shared()
+return setmetatable({ anchor =
+self ,  pointer =
+self . pointer ,  offset =
+self . offset ,  count =
+self . count }, FixedSpanImpl)
+
+end
+
+function FixedWriteSpanImpl:slice(first, last)
+
+
+
+
+local finish = last or ( self . count )
+if first < 1 or finish < first - 1 or finish > ( self . count ) then
+error ( "write span slice out of bounds" , 2 )
+end
+
+return setmetatable({ anchor =
+self ,  pointer =
+self . pointer ,  offset =
+self . offset + first - 1 ,  count =
+finish - first + 1 }, WriteSpanImpl)
+
+end
+
+function FixedWriteSpanImpl:splitAt(mid)
+if mid < 0 or mid > ( self . count ) then
+error ( "write span split point out of bounds" , 2 )
+end
+do
+local left , right = (function() return  setmetatable({ anchor =
+
+
+self ,  pointer =
+self . pointer ,  offset =
+self . offset ,  count =
+mid }, WriteSpanImpl) , setmetatable({ anchor =
+
+
+self ,  pointer =
+self . pointer ,  offset =
+self . offset + mid ,  count =
+( self . count ) - mid }, WriteSpanImpl)  end)()
+
+
+return setmetatable({ anchor =  self ,  left =  left ,  right =  right }, span.WriteSplit)
+end
+end
+
+
+function WriteSpanImpl . drop ( self )
+do
+local _raw = self
+end
+end
+
+function FixedWriteSpanImpl . drop ( self )
+do
+local _raw = self
+end
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function span . fromString ( source )
+local pointer = __nuppFfi.cast("const uint8_t *" , source )
+return ( setmetatable({ anchor =  source ,  pointer =  pointer ,  offset =  0 ,  count =  # source }, SpanImpl) )
+end
+
+
+
+
+
+
+
+
+
+function span . fromCarray ( source , count )
+if count < 0 then
+error ( "span count cannot be negative" , 2 )
+end
+return ( setmetatable({ anchor =  source ,  pointer =  source ,  offset =  0 ,  count =  count }, SpanImpl) )
+end
+
+
+
+
+
+
+
+
+
+function span . fromFixedCarray (
+source ,
+count
+)
+return ( setmetatable({ anchor =
+source ,  pointer =  source ,  offset =  0 ,  count =  count }, FixedSpanImpl)
+)
+end
+
+
+
+
+
+
+
+
+
+
+
+function span . writeCarray ( source , count )
+if count < 0 then
+error ( "write span count cannot be negative" , 2 )
+end
+return ( setmetatable({ anchor =  source ,  pointer =  source ,  offset =  0 ,  count =  count }, WriteSpanImpl) )
+end
+
+
+
+
+
+
+
+
+
+function span . writeFixedCarray (
+source ,
+count
+)
+return ( setmetatable({ anchor =
+source ,  pointer =  source ,  offset =  0 ,  count =  count }, FixedWriteSpanImpl)
+)
+end
+
+return span
 
 end
 package.preload["nupp.profile"] = function(...)
@@ -127860,10 +128849,10 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppD
 
 
 
-local zone = require ( "nupp.zone" )
+local zone = require ( "nupp.profile.zone" )
 local jitProfile = require ( "jit.profile" )
 local jitUtil = require ( "jit.util" )
-local traceRegistry = require ( "nupp._trace" )
+local traceRegistry = require ( "nupp.profile._trace" )
 
 local profile = { }
 
@@ -128707,6 +129696,427 @@ end
 return profile
 
 end
+package.preload["nupp.profile._trace"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+
+local vmdef = require ( "jit.vmdef" )
+
+local trace = { }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+trace . CATALOG_VERSION = 1
+trace . CATALOG_ID = "nupp-trace-reasons-v1"
+trace . PINNED_LUAJIT_REVISION = "1edc3e52b67eaf6ce5f809be8e17d6862594b8bc"
+trace . PINNED_LUAJIT_VERSION = 1785763465
+
+local records
+
+= {
+{
+id = "jit/loop-function-construction" ,
+class = "blocker" ,
+opcodes = { FNEW = true } ,
+source = { [ "jit-loop-closure" ] = true , [ "loop-invariant-closure" ] = true } ,
+explanation = "LuaJIT has no recorder for constructing a function" ,
+repair = "declare one function outside the loop and pass what varies to it" ,
+lint = "NUPP2515" ,
+contractSeverity = "error" ,
+} ,
+{
+id = "jit/loop-upvalue-close" ,
+class = "blocker" ,
+opcodes = { UCLO = true } ,
+explanation = "LuaJIT has no recorder for closing an upvalue" ,
+repair = "move the captured lifetime outside the repeated region" ,
+contractSeverity = "error" ,
+} ,
+{
+id = "jit/ffi-vararg-policy" ,
+class = "risk" ,
+source = { [ "jit-boundary" ] = true } ,
+explanation = "this variadic FFI form depends on argument types and the target ABI" ,
+repair = "move the call behind an explicit jit.off boundary when it is not a hot operation" ,
+lint = "NUPP2514" ,
+contractSeverity = "error" ,
+} ,
+{
+id = "jit/ffi-callback" ,
+class = "risk" ,
+source = { [ "jit-callback" ] = true } ,
+explanation = "a C call that re-enters Lua through this callback cannot remain on a trace" ,
+repair = "disable the callback and its calling boundary with jit.off" ,
+lint = "NUPP2502" ,
+contractSeverity = "error" ,
+} ,
+{
+id = "jit/disabled-callee" ,
+class = "blocker" ,
+explanation = "the resolved callee is explicitly disabled with jit.off" ,
+repair = "remove @jit from the caller or keep the disabled call outside its checked hot path" ,
+contractSeverity = "error" ,
+} ,
+{
+id = "jit/dynamic-call" ,
+class = "risk" ,
+explanation = "the call target is dynamic, so its bytecode recordability is unknown" ,
+} ,
+{ id = "jit/expected-loop-leave" , class = "stop" , runtime = { "leaving loop in root trace" } } ,
+{ id = "jit/expected-inner-loop" , class = "stop" , runtime = { "inner loop in root trace" } } ,
+{ id = "jit/expected-down-recursion" , class = "stop" , runtime = { "down-recursion, restarting" } } ,
+{ id = "jit/expected-up-recursion" , class = "stop" , runtime = { "up-recursion" } } ,
+{ id = "jit/retry-recording" , class = "stop" , runtime = { "retry recording" } } ,
+{ id = "jit/runtime-blacklisted" , class = "risk" , runtime = { "blacklisted" } } ,
+{ id = "jit/runtime-trace-too-short" , class = "stop" , runtime = { "trace too short" } } ,
+{ id = "jit/runtime-trace-too-long" , class = "risk" , runtime = { "trace too long" } } ,
+{ id = "jit/runtime-trace-too-deep" , class = "risk" , runtime = { "trace too deep" } } ,
+{ id = "jit/runtime-too-many-snapshots" , class = "risk" , runtime = { "too many snapshots" } } ,
+{ id = "jit/runtime-loop-unroll-limit" , class = "risk" , runtime = { "loop unroll limit reached" } } ,
+{ id = "jit/runtime-call-unroll-limit" , class = "risk" , runtime = { "call unroll limit reached" } } ,
+{ id = "jit/runtime-disabled-callee" , class = "blocker" , runtime = { "JIT compilation disabled for function" } } ,
+{ id = "jit/runtime-ffi-call" , class = "risk" , runtime = { "NYI: unsupported C function type" } } ,
+{ id = "jit/runtime-ffi-conversion" , class = "risk" , runtime = { "NYI: unsupported C type conversion" } } ,
+{ id = "jit/runtime-type-instability" , class = "risk" , runtime = { "persistent type instability" } } ,
+{
+id = "jit/runtime-machine-code-limit" ,
+class = "risk" ,
+runtime = { "machine code too long" , "hit mcode limit (retrying)" , "failed to allocate mcode memory" , }
+} ,
+{ id = "jit/runtime-recorder-error" , class = "risk" , runtime = { "error thrown or hook called during recording" } } ,
+{ id = "jit/runtime-unknown" , class = "risk" } ,
+}
+
+local byId , byOpcode , bySource , byRuntime = { } , { } , { } , { }
+for _ , record in ipairs ( records ) do
+byId [ record . id ] = record
+for opcode in pairs ( record . opcodes or { } ) do
+byOpcode [ opcode ] = record
+end
+for source in pairs ( record . source or { } ) do
+bySource [ source ] = record
+end
+for _ , format in ipairs ( record . runtime or { } ) do
+byRuntime [ format ] = record
+end
+end
+
+local function smallDigest ( value )
+local digest = 2166136261
+for index = 1 , # value do
+digest = bit . tobit ( bit . bxor ( digest , value : byte ( index ) ) * 16777619 )
+end
+
+return ( "%08x" ) : format ( bit . band ( digest , 0xffffffff ) )
+end
+
+function trace . profile ( )
+local status = { jit . status ( ) }
+local flags = { }
+for index = 2 , # status do
+flags [ # flags + 1 ] = tostring ( status [ index ] )
+end
+table . sort ( flags )
+
+
+
+local version = math . floor ( tonumber ( jit . version : match ( "LuaJIT 2%.1%.(%d+)" ) ) or jit . version_num )
+local revision = version == trace . PINNED_LUAJIT_VERSION and trace . PINNED_LUAJIT_REVISION or "external:" .. tostring (
+version
+)
+local bytecodeSchema = smallDigest ( vmdef . bcnames )
+local id = table . concat ( { revision , jit . arch , jit . os , table . concat ( flags , "," ) , bytecodeSchema } , "|" )
+
+return {
+id = id ,
+luajitRevision = revision ,
+luajitVersion = version ,
+architecture = jit . arch ,
+operatingSystem = jit . os ,
+enabledRecorderFeatures = flags ,
+bytecodeSchema = bytecodeSchema ,
+supported = revision == trace . PINNED_LUAJIT_REVISION ,
+}
+end
+
+function trace . reason ( id )
+return byId [ id ]
+end
+
+function trace . forOpcode ( opcode )
+return byOpcode [ opcode ]
+end
+
+function trace . forSource ( source )
+return bySource [ source ]
+end
+
+function trace . opcodeName ( opcode )
+local start = opcode * 6 + 1
+return ( vmdef . bcnames : sub ( start , start + 5 ) : gsub ( "%s+$" , "" ) )
+end
+
+function trace . runtime ( errorCode , errorArg )
+if not errorCode then
+return byId [ "jit/runtime-unknown" ] , "abort"
+end
+local format = vmdef . traceerr [ errorCode ]
+if not format then
+return byId [ "jit/runtime-unknown" ] , "error " .. tostring ( errorCode )
+end
+if format : find ( "NYI: bytecode" , 1 , true ) and type ( errorArg ) == "number" then
+local opcode = trace . opcodeName ( errorArg )
+return byOpcode [ opcode ] or byId [ "jit/runtime-unknown" ] , "NYI: bytecode " .. opcode
+end
+local record = byRuntime [ format ] or byId [ "jit/runtime-unknown" ]
+if errorArg == nil then
+return record , format
+end
+local ok , detail = pcall ( string . format , format , errorArg )
+
+return record , ok and detail or format
+end
+
+function trace . records ( )
+local copy = { }
+for index , record in ipairs ( records ) do
+copy [ index ] = record
+end
+
+return copy
+end
+
+return trace
+
+end
+package.preload["nupp.profile.zone"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local zone = { }
+
+
+local stack = require ( "jit.zone" )
+
+
+
+local references = 0
+local generation = 0
+
+
+
+
+zone . __nuppActive = false
+zone . __nuppDepth = 0
+zone . __nuppStack = stack
+zone . __nuppVersion = 0
+
+
+
+local pathVersion = - 1
+local pathText = ""
+local pathBuffer = { }
+
+
+function zone . isActive ( )
+return zone . __nuppActive
+end
+
+
+function zone . depth ( )
+return zone . __nuppDepth
+end
+
+
+
+
+function zone . acquire ( )
+references = references + 1
+if references > 1 then
+return
+end
+
+for index = # stack , 1 , - 1 do
+stack [ index ] = nil
+end
+zone . __nuppDepth = 0
+zone . __nuppVersion = ( zone . __nuppVersion + 1 )
+generation = generation + 1
+zone . __nuppActive = true
+end
+
+
+
+function zone . release ( )
+if references == 0 then
+return
+end
+
+references = references - 1
+if references > 0 then
+return
+end
+
+for index = # stack , 1 , - 1 do
+stack [ index ] = nil
+end
+zone . __nuppDepth = 0
+zone . __nuppVersion = ( zone . __nuppVersion + 1 )
+zone . __nuppActive = false
+end
+
+
+
+
+
+
+function zone . push ( name )
+if not zone . __nuppActive then
+return
+end
+
+zone . __nuppDepth = ( zone . __nuppDepth + 1 )
+stack [ zone . __nuppDepth ] = name
+zone . __nuppVersion = ( zone . __nuppVersion + 1 )
+end
+
+
+
+
+
+
+
+
+function zone . pop ( )
+if not zone . __nuppActive or zone . __nuppDepth == 0 then
+return nil
+end
+
+local name = stack [ zone . __nuppDepth ]
+stack [ zone . __nuppDepth ] = nil
+zone . __nuppDepth = ( zone . __nuppDepth - 1 )
+zone . __nuppVersion = ( zone . __nuppVersion + 1 )
+
+return name
+end
+
+
+function zone . current ( )
+if zone . __nuppDepth == 0 then
+return nil
+end
+return stack [ zone . __nuppDepth ]
+end
+
+
+
+
+
+
+
+
+function zone . path ( )
+if zone . __nuppVersion == pathVersion then
+return pathText
+end
+
+if zone . __nuppDepth == 0 then
+pathText = ""
+else
+for index = 1 , zone . __nuppDepth do
+pathBuffer [ index ] = stack [ index ]
+end
+pathText = table . concat ( pathBuffer , "/" , 1 , zone . __nuppDepth )
+end
+pathVersion = zone . __nuppVersion
+
+return pathText
+end
+
+
+
+
+
+
+function zone . enter ( name )
+if not zone . __nuppActive then
+return 0
+end
+
+zone . __nuppDepth = ( zone . __nuppDepth + 1 )
+stack [ zone . __nuppDepth ] = name
+zone . __nuppVersion = ( zone . __nuppVersion + 1 )
+
+return generation
+end
+
+
+
+function zone . leave ( token )
+if token == 0 or not zone . __nuppActive or token ~= generation then
+return
+end
+if zone . __nuppDepth == 0 then
+return
+end
+
+stack [ zone . __nuppDepth ] = nil
+zone . __nuppDepth = ( zone . __nuppDepth - 1 )
+zone . __nuppVersion = ( zone . __nuppVersion + 1 )
+end
+
+return zone
+
+end
 package.preload["nupp.resources"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;
 
@@ -129085,964 +130495,6 @@ error ( "nupp.simd values exist only inside an @aot function" , 2 )
 end
 
 return simd
-
-end
-package.preload["nupp.soa"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.soa#free_nosuspend"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.soa#free_nosuspend") end;__nuppCleanup1=cleanup;return cleanup(value) end;
-
-
-
-
-
-
-
-
-local soa = { }
-local ffi = require ( "ffi" )
-local span = require ( "nupp.span" )
-
-pcall(__nuppFfi.cdef, "void * malloc(uint64_t);") const malloc = __nuppFfi.C.malloc
-pcall(__nuppFfi.cdef, "void free(void *);") const free = __nuppFfi.C.free
-local free_nosuspend = free
-
-local MAX_EXACT_INTEGER = 9007199254740991
-
-
-
-soa.FieldLayout = {} soa.FieldLayout.__index = soa.FieldLayout
-
-
-
-
-
-
-
-
-
-
-
-soa.SegmentLayout = {} soa.SegmentLayout.__index = soa.SegmentLayout
-
-
-
-
-
-
-
-soa.InstanceLayout = {} soa.InstanceLayout.__index = soa.InstanceLayout
-
-
-
-
-
-
-
-soa.Layout = {} soa.Layout.__index = soa.Layout
-
-
-
-
-
-
-
-function soa.Layout:forCount(count)
-if count < 0 then
-error ( "SoA row count cannot be negative" , 2 )
-end
-
-local segments = { }
-local cursor = 0
-for ordinal , field in ipairs ( self . fields ) do
-if count > 0 and count > math.floor(( MAX_EXACT_INTEGER ) / ( field . elementSize )) then
-error ( "SoA field byte size is too large" , 2 )
-end
-local byteCount = ( field . elementSize * count )
-local remainder = cursor % field . alignment
-if remainder ~= 0 then
-cursor = ( cursor + field . alignment - remainder )
-end
-if cursor > MAX_EXACT_INTEGER - byteCount then
-error ( "SoA slab byte size is too large" , 2 )
-end
-segments [ ordinal ] = setmetatable({ field =  field ,  offset =  cursor ,  byteCount =  byteCount }, soa.SegmentLayout)
-cursor = ( cursor + byteCount )
-end
-
-return setmetatable({ count =  count ,  byteSize =  cursor ,  segments =  segments }, soa.InstanceLayout)
-end
-
-
-local layoutCache = setmetatable ( { } , { __mode = "k" } )
-
-
-
-
-function soa . _layout ( raw )
-local prior = layoutCache [ raw ]
-if prior then
-return prior
-end
-
-local fields = { }
-local fingerprint = { "soa1" , raw . name }
-local alignment = 1
-for ordinal , source in ipairs ( raw . fields ) do
-local fieldAlignment = source . alignment
-if fieldAlignment > alignment then
-alignment = fieldAlignment
-end
-local field = setmetatable({ name =
-source . name ,  identity =
-( raw . name ) .. "." .. ( source . name ) ,  ctype =
-source . ctype ,  ordinal =
-ordinal ,  elementSize =
-source . size ,  alignment =
-fieldAlignment ,  pointerType =
-source . pointerType }, soa.FieldLayout)
-
-fields [ ordinal ] = field
-fingerprint [
-# fingerprint + 1
-] = string . format ( "%s:%s@%d/%d" , field . identity , field . ctype , field . elementSize , field . alignment )
-end
-
-local layout = setmetatable({ name =
-raw . name ,  fingerprint =
-table . concat ( fingerprint , "|" ) ,  alignment =
-alignment ,  fields =
-fields }, soa.Layout)
-
-layoutCache [ raw ] = layout
-
-return layout
-end
-
-
-
-
-
-
-
-
-
-
-function soa . destroyArray ( self )
-self : close ( )
-end ;__nuppCleanups["nupp.soa#soa.destroyArray"]=soa.destroyArray
-
-
-function soa . destroyWriteSpan ( self )
-do
-local _raw = self
-end
-end ;__nuppCleanups["nupp.soa#soa.destroyWriteSpan"]=soa.destroyWriteSpan
-
-
-
-
-
-
-
-
-
-
-const SpanImpl = {} SpanImpl.__index = SpanImpl
-
-
-
-
-
-
-
-function SpanImpl:checkedIndex(index)
-if index < 1 or index > self . count then
-error ( "SoA row index out of bounds" , 2 )
-end
-return self . offset + index - 1
-end
-
-function SpanImpl:get(index)
-local physical = self : checkedIndex ( index )
-local value = ffi . new ( self . element )
-for ordinal , field in ipairs ( self . layout . fields ) do
-( value ) [ field . name ] = ( self . columns [ ordinal ] ) [ physical ]
-end
-
-return value
-end
-
-function SpanImpl:slice(first, last)
-local finish = last or self . count
-if first < 1 or finish < first - 1 or finish > self . count then
-error ( "SoA slice out of bounds" , 2 )
-end
-
-return setmetatable({ anchor =
-self ,  element =
-self . element ,  layout =
-self . layout ,  columns =
-self . columns ,  offset =
-self . offset + first - 1 ,  count =
-finish - first + 1 }, SpanImpl)
-
-end
-
-function SpanImpl:field(name)
-error ( "SoA field projection requires compiler lowering: " .. tostring ( name ) , 2 )
-end
-
-function SpanImpl:fieldBySlot(ordinal)
-local pointer = ( self . columns [ ordinal ] ) + self . offset
-do
-local rooted = pointer
-return span . fromCarray ( rooted , self . count )
-end
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-const WriteSpanImpl = {} WriteSpanImpl.__index = WriteSpanImpl
-
-
-
-
-
-
-
-function WriteSpanImpl:checkedIndex(index)
-if index < 1 or index > self . count then
-error ( "SoA row index out of bounds" , 2 )
-end
-return self . offset + index - 1
-end
-
-function WriteSpanImpl:get(index)
-local physical = self : checkedIndex ( index )
-local value = ffi . new ( self . element )
-for ordinal , field in ipairs ( self . layout . fields ) do
-( value ) [ field . name ] = ( self . columns [ ordinal ] ) [ physical ]
-end
-
-return value
-end
-
-function WriteSpanImpl:set(index, value)
-local physical = self : checkedIndex ( index )
-for ordinal , field in ipairs ( self . layout . fields ) do
-( self . columns [ ordinal ] ) [ physical ] = ( value ) [ field . name ]
-end
-end
-
-function WriteSpanImpl:field(name)
-error ( "SoA field projection requires compiler lowering: " .. tostring ( name ) , 2 )
-end
-
-function WriteSpanImpl:fieldBySlot(ordinal)
-local pointer = ( self . columns [ ordinal ] ) + self . offset
-do
-local rooted = pointer
-return span . writeCarray ( rooted , self . count )
-end
-end
-
-function WriteSpanImpl:shared()
-return setmetatable({ anchor =
-self ,  element =
-self . element ,  layout =
-self . layout ,  columns =
-self . columns ,  offset =
-self . offset ,  count =
-self . count }, SpanImpl)
-
-end
-
-
-
-
-function WriteSpanImpl:copyFrom(targetFirst, source, sourceFirst, count)
-
-
-
-
-
-
-if count < 0
-or targetFirst < 1
-or sourceFirst < 1
-or targetFirst
-- 1 > self . count
-- count
-or sourceFirst
-- 1 > source .count
-- count
-then
-error ( "SoA copy range is out of bounds" , 2 )
-end
-if count == 0 then
-return
-end
-local other = source
-for ordinal , field in ipairs ( self . layout . fields ) do
-local destination = ( self . columns [ ordinal ] ) + self . offset + targetFirst - 1
-local input = ( other . columns [ ordinal ] ) + other . offset + sourceFirst - 1
-ffi . copy ( destination , input , count * field . elementSize )
-end
-end
-
-function WriteSpanImpl:slice(first, last)
-
-
-
-
-local finish = last or self . count
-if first < 1 or finish < first - 1 or finish > self . count then
-error ( "SoA slice out of bounds" , 2 )
-end
-
-return setmetatable({ anchor =
-self ,  element =
-self . element ,  layout =
-self . layout ,  columns =
-self . columns ,  offset =
-self . offset + first - 1 ,  count =
-finish - first + 1 }, WriteSpanImpl)
-
-end
-
-
-
-
-function WriteSpanImpl . drop ( self )
-do
-local _raw = self
-end
-end
-
-
-
-soa.Array = {} soa.Array.__index = soa.Array
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function soa . Array . read ( self )
-return setmetatable({ anchor =
-self ,  element =
-self . element ,  layout =
-self . layout ,  columns =
-self . columns ,  offset =
-0 ,  count =
-self . count }, SpanImpl)
-
-end
-
-function soa . Array . write (
-self
-)
-return setmetatable({ anchor =
-self ,  element =
-self . element ,  layout =
-self . layout ,  columns =
-self . columns ,  offset =
-0 ,  count =
-self . count }, WriteSpanImpl)
-
-end
-
-local function finishArray ( self )
-do
-local raw = self
-do local __nuppT13=0; local  __nuppT19 ; local __nuppT20=false ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT21= raw . raw ; __nuppT19= __nuppT21 ; __nuppT13=1;  __nuppT20=true;  local pointer=__nuppT19;
-do (function(__nuppT22,...)  __nuppT20=false;  return __nuppT22(...)  end)( free_nosuspend , pointer ) end end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 and __nuppT20 then  const __nuppT23,__nuppT24=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT23 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT24 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
-end
-end
-
-local finishArrayNosuspend = finishArray
-
-function soa . Array . close ( self )
-finishArrayNosuspend ( self )
-end
-
-function soa . Array . drop ( self )
-self : close ( )
-end
-
-
-
-function soa . _allocate ( element , count , rawLayout ) __nuppCleanups["nupp.soa#soa.destroyArray"]=soa.destroyArray;
-local layout = soa . _layout ( rawLayout )
-local instance = layout : forCount ( count )
-local bytes = instance . byteSize
-local alignment = layout . alignment
-local padding = alignment - 1
-if bytes > MAX_EXACT_INTEGER - padding then
-error ( "SoA aligned slab byte size is too large" , 2 )
-end
-local allocationBytes = bytes + padding
-if allocationBytes == 0 then
-allocationBytes = 1
-end
-local raw = malloc ( allocationBytes )
-if raw == nil then
-error ( "SoA allocation failed" , 2 )
-end
-
-local columns = { }
-do
-local rawAddress = tonumber ( __nuppFfi.cast("uint64_t" , raw ) )
-local adjustment = ( alignment - ( rawAddress % alignment ) ) % alignment
-local allocation = __nuppFfi.cast("uint8_t *" , raw )
-local base = allocation + adjustment
-for ordinal , segment in ipairs ( instance . segments ) do
-columns [ ordinal ] = ffi . cast ( segment . field . pointerType , base + segment . offset )
-end
-return setmetatable({ raw =
-raw ,  element =
-element ,  layout =
-layout ,  columns =
-columns ,  count =
-count ,  fingerprint =
-layout . fingerprint }, soa.Array)
-
-end
-end
-
-
-
-
-
-function soa . allocate ( element , count ) __nuppCleanups["nupp.soa#soa.destroyArray"]=soa.destroyArray;
-error ( "soa.allocate requires compiler lowering" , 2 )
-end
-
-
-
-
-function soa . layoutof ( element )
-error ( "soa.layoutof requires compiler lowering" , 2 )
-end
-
-return soa
-
-end
-package.preload["nupp.span"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;
-
-
-
-
-
-
-
-
-local span = { }
-
-
-
-
-
-
-
-function span . destroyWriteSpan ( writable )
-do
-local _raw = writable
-end
-end ;__nuppCleanups["nupp.span#span.destroyWriteSpan"]=span.destroyWriteSpan
-
-
-
-
-
-
-
-
-
-
-
-
-const SpanImpl = {} SpanImpl.__index = SpanImpl
-
-
-
-
-
-
-
-function SpanImpl:get(index)
-if index < 1 or index > self . count then
-error ( "span index out of bounds" , 2 )
-end
-do
-return self . pointer [ self . offset + index - 1 ]
-end
-end
-
-
-
-function SpanImpl:slice(first, last)
-local finish = last or self . count
-if first < 1 or finish < first - 1 or finish > self . count then
-error ( "span slice out of bounds" , 2 )
-end
-
-return setmetatable({ anchor =
-self ,  pointer =
-self . pointer ,  offset =
-self . offset + first - 1 ,  count =
-finish - first + 1 }, SpanImpl)
-
-end
-
-
-function SpanImpl:ref()
-do
-local pointer = ( self . pointer ) + self . offset
-return pointer , self . count
-end
-end
-
-
-
-
-
-span.FixedSpan = {}
-
-
-
-
-const FixedSpanImpl = {} FixedSpanImpl.__index = FixedSpanImpl
-
-
-
-
-
-function FixedSpanImpl:get(index)
-if index < 1 or index > ( self . count ) then
-error ( "span index out of bounds" , 2 )
-end
-do
-return self . pointer [ self . offset + index - 1 ]
-end
-end
-
-function FixedSpanImpl:slice(first, last)
-local finish = last or ( self . count )
-if first < 1 or finish < first - 1 or finish > ( self . count ) then
-error ( "span slice out of bounds" , 2 )
-end
-
-return setmetatable({ anchor =
-self ,  pointer =
-self . pointer ,  offset =
-self . offset + first - 1 ,  count =
-finish - first + 1 }, SpanImpl)
-
-end
-
-function FixedSpanImpl:ref()
-do
-local pointer = ( self . pointer ) + self . offset
-return pointer , self . count
-end
-end
-
-
-
-
-
-
-span.WriteSplit = {} span.WriteSplit.__index = span.WriteSplit
-
-
-
-
-
-
-
-
-
-span.WriteSpan = {}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-span.FixedWriteSpan = {}
-
-
-
-
-
-
-
-
-
-
-
-
-
-const WriteSpanImpl = {} WriteSpanImpl.__index = WriteSpanImpl
-
-
-
-
-
-
-
-
-
-
-function WriteSpanImpl:getMut(index)
-if index < 1 or index > self . count then
-error ( "write span index out of bounds" , 2 )
-end
-do
-local elementOffset = self . offset + index - 1
-local pointer = ( self . pointer ) + elementOffset
-return pointer
-end
-end
-
-
-
-function WriteSpanImpl:get(index)
-if index < 1 or index > self . count then
-error ( "write span index out of bounds" , 2 )
-end
-do
-return self . pointer [ self . offset + index - 1 ]
-end
-end
-
-function WriteSpanImpl:set(index, value)
-if index < 1 or index > self . count then
-error ( "write span index out of bounds" , 2 )
-end
-do
-self . pointer [ self . offset + index - 1 ] = value
-end
-end
-
-
-function WriteSpanImpl:ref()
-do
-local pointer = ( self . pointer ) + self . offset
-return pointer , self . count
-end
-end
-
-
-function WriteSpanImpl:shared()
-return setmetatable({ anchor =
-self ,  pointer =
-self . pointer ,  offset =
-self . offset ,  count =
-self . count }, SpanImpl)
-
-end
-
-
-
-function WriteSpanImpl:slice(first, last)
-local finish = last or self . count
-if first < 1 or finish < first - 1 or finish > self . count then
-error ( "write span slice out of bounds" , 2 )
-end
-
-return setmetatable({ anchor =
-self ,  pointer =
-self . pointer ,  offset =
-self . offset + first - 1 ,  count =
-finish - first + 1 }, WriteSpanImpl)
-
-end
-
-
-
-function WriteSpanImpl:splitAt(mid)
-if mid < 0 or mid > self . count then
-error ( "write span split point out of bounds" , 2 )
-end
-do
-local left , right = (function() return  setmetatable({ anchor =
-
-
-self ,  pointer =
-self . pointer ,  offset =
-self . offset ,  count =
-mid }, WriteSpanImpl) , setmetatable({ anchor =
-
-
-self ,  pointer =
-self . pointer ,  offset =
-self . offset + mid ,  count =
-self . count - mid }, WriteSpanImpl)  end)()
-
-
-return setmetatable({ anchor =  self ,  left =  left ,  right =  right }, span.WriteSplit)
-end
-end
-
-
-
-
-const FixedWriteSpanImpl = {} FixedWriteSpanImpl.__index = FixedWriteSpanImpl
-
-
-
-
-
-
-
-function FixedWriteSpanImpl:getMut(index)
-if index < 1 or index > ( self . count ) then
-error ( "write span index out of bounds" , 2 )
-end
-do
-local elementOffset = self . offset + index - 1
-local pointer = ( self . pointer ) + elementOffset
-return pointer
-end
-end
-
-
-
-function FixedWriteSpanImpl:get(index)
-if index < 1 or index > ( self . count ) then
-error ( "write span index out of bounds" , 2 )
-end
-do
-return self . pointer [ self . offset + index - 1 ]
-end
-end
-
-function FixedWriteSpanImpl:set(index, value)
-if index < 1 or index > ( self . count ) then
-error ( "write span index out of bounds" , 2 )
-end
-do
-self . pointer [ self . offset + index - 1 ] = value
-end
-end
-
-function FixedWriteSpanImpl:ref()
-do
-local pointer = ( self . pointer ) + self . offset
-return pointer , self . count
-end
-end
-
-function FixedWriteSpanImpl:shared()
-return setmetatable({ anchor =
-self ,  pointer =
-self . pointer ,  offset =
-self . offset ,  count =
-self . count }, FixedSpanImpl)
-
-end
-
-function FixedWriteSpanImpl:slice(first, last)
-
-
-
-
-local finish = last or ( self . count )
-if first < 1 or finish < first - 1 or finish > ( self . count ) then
-error ( "write span slice out of bounds" , 2 )
-end
-
-return setmetatable({ anchor =
-self ,  pointer =
-self . pointer ,  offset =
-self . offset + first - 1 ,  count =
-finish - first + 1 }, WriteSpanImpl)
-
-end
-
-function FixedWriteSpanImpl:splitAt(mid)
-if mid < 0 or mid > ( self . count ) then
-error ( "write span split point out of bounds" , 2 )
-end
-do
-local left , right = (function() return  setmetatable({ anchor =
-
-
-self ,  pointer =
-self . pointer ,  offset =
-self . offset ,  count =
-mid }, WriteSpanImpl) , setmetatable({ anchor =
-
-
-self ,  pointer =
-self . pointer ,  offset =
-self . offset + mid ,  count =
-( self . count ) - mid }, WriteSpanImpl)  end)()
-
-
-return setmetatable({ anchor =  self ,  left =  left ,  right =  right }, span.WriteSplit)
-end
-end
-
-
-function WriteSpanImpl . drop ( self )
-do
-local _raw = self
-end
-end
-
-function FixedWriteSpanImpl . drop ( self )
-do
-local _raw = self
-end
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function span . fromString ( source )
-local pointer = __nuppFfi.cast("const uint8_t *" , source )
-return ( setmetatable({ anchor =  source ,  pointer =  pointer ,  offset =  0 ,  count =  # source }, SpanImpl) )
-end
-
-
-
-
-
-
-
-
-
-function span . fromCarray ( source , count )
-if count < 0 then
-error ( "span count cannot be negative" , 2 )
-end
-return ( setmetatable({ anchor =  source ,  pointer =  source ,  offset =  0 ,  count =  count }, SpanImpl) )
-end
-
-
-
-
-
-
-
-
-
-function span . fromFixedCarray (
-source ,
-count
-)
-return ( setmetatable({ anchor =
-source ,  pointer =  source ,  offset =  0 ,  count =  count }, FixedSpanImpl)
-)
-end
-
-
-
-
-
-
-
-
-
-
-
-function span . writeCarray ( source , count )
-if count < 0 then
-error ( "write span count cannot be negative" , 2 )
-end
-return ( setmetatable({ anchor =  source ,  pointer =  source ,  offset =  0 ,  count =  count }, WriteSpanImpl) )
-end
-
-
-
-
-
-
-
-
-
-function span . writeFixedCarray (
-source ,
-count
-)
-return ( setmetatable({ anchor =
-source ,  pointer =  source ,  offset =  0 ,  count =  count }, FixedWriteSpanImpl)
-)
-end
-
-return span
 
 end
 package.preload["nupp.suspension"] = function(...)
@@ -132532,207 +132984,6 @@ workers . Exit = workers . Exit
 return workers
 
 end
-package.preload["nupp.zone"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-local zone = { }
-
-
-local stack = require ( "jit.zone" )
-
-
-
-local references = 0
-local generation = 0
-
-
-
-
-zone . __nuppActive = false
-zone . __nuppDepth = 0
-zone . __nuppStack = stack
-zone . __nuppVersion = 0
-
-
-
-local pathVersion = - 1
-local pathText = ""
-local pathBuffer = { }
-
-
-function zone . isActive ( )
-return zone . __nuppActive
-end
-
-
-function zone . depth ( )
-return zone . __nuppDepth
-end
-
-
-
-
-function zone . acquire ( )
-references = references + 1
-if references > 1 then
-return
-end
-
-for index = # stack , 1 , - 1 do
-stack [ index ] = nil
-end
-zone . __nuppDepth = 0
-zone . __nuppVersion = ( zone . __nuppVersion + 1 )
-generation = generation + 1
-zone . __nuppActive = true
-end
-
-
-
-function zone . release ( )
-if references == 0 then
-return
-end
-
-references = references - 1
-if references > 0 then
-return
-end
-
-for index = # stack , 1 , - 1 do
-stack [ index ] = nil
-end
-zone . __nuppDepth = 0
-zone . __nuppVersion = ( zone . __nuppVersion + 1 )
-zone . __nuppActive = false
-end
-
-
-
-
-
-
-function zone . push ( name )
-if not zone . __nuppActive then
-return
-end
-
-zone . __nuppDepth = ( zone . __nuppDepth + 1 )
-stack [ zone . __nuppDepth ] = name
-zone . __nuppVersion = ( zone . __nuppVersion + 1 )
-end
-
-
-
-
-
-
-
-
-function zone . pop ( )
-if not zone . __nuppActive or zone . __nuppDepth == 0 then
-return nil
-end
-
-local name = stack [ zone . __nuppDepth ]
-stack [ zone . __nuppDepth ] = nil
-zone . __nuppDepth = ( zone . __nuppDepth - 1 )
-zone . __nuppVersion = ( zone . __nuppVersion + 1 )
-
-return name
-end
-
-
-function zone . current ( )
-if zone . __nuppDepth == 0 then
-return nil
-end
-return stack [ zone . __nuppDepth ]
-end
-
-
-
-
-
-
-
-
-function zone . path ( )
-if zone . __nuppVersion == pathVersion then
-return pathText
-end
-
-if zone . __nuppDepth == 0 then
-pathText = ""
-else
-for index = 1 , zone . __nuppDepth do
-pathBuffer [ index ] = stack [ index ]
-end
-pathText = table . concat ( pathBuffer , "/" , 1 , zone . __nuppDepth )
-end
-pathVersion = zone . __nuppVersion
-
-return pathText
-end
-
-
-
-
-
-
-function zone . enter ( name )
-if not zone . __nuppActive then
-return 0
-end
-
-zone . __nuppDepth = ( zone . __nuppDepth + 1 )
-stack [ zone . __nuppDepth ] = name
-zone . __nuppVersion = ( zone . __nuppVersion + 1 )
-
-return generation
-end
-
-
-
-function zone . leave ( token )
-if token == 0 or not zone . __nuppActive or token ~= generation then
-return
-end
-if zone . __nuppDepth == 0 then
-return
-end
-
-stack [ zone . __nuppDepth ] = nil
-zone . __nuppDepth = ( zone . __nuppDepth - 1 )
-zone . __nuppVersion = ( zone . __nuppVersion + 1 )
-end
-
-return zone
-
-end
 package.preload["nupp.embedded"] = function()
 return {
 ["/decls/ffi.d.nupp"] = [=[
@@ -132841,12 +133092,12 @@ local record JitProfile
     ---
     --- `mode` is a string of option characters:
     ---
-    --- * `"f"` — sample the function, `"l"` the line, `"z"` the zone (see
+    --- * `"f"`: sample the function, `"l"` the line, `"z"` the zone (see
     ---     the bundled `jit.zone` module).
-    --- * `"i<n>"` — sample every `n` milliseconds, 10 by default. Below
+    --- * `"i<n>"`: sample every `n` milliseconds, 10 by default. Below
     ---     about 10 the timer starts taking real time away from the thread it
     ---     is measuring.
-    --- * `"r"` — report raw sample counts rather than accumulating. * `"v"` — report
+    --- * `"r"`: report raw sample counts rather than accumulating. * `"v"`: report
     --- the VM state.
     ---
     --- The callback runs on the interrupted thread, so it must not allocate heavily or
@@ -132897,7 +133148,7 @@ Declarations for LuaJIT's jit.util module, loaded for `require("jit.util")`.
 Not a field on `jit`: LuaJIT registers this under `package.loaded` only, so it
 has to be require()d.
 
-Everything here reads VM internals — bytecode, IR, snapshots, machine code —
+Everything here reads VM internals, meaning bytecode, IR, snapshots and machine code,
 whose shape tracks the LuaJIT build rather than any stable contract, and an index
 that does not exist answers nil rather than raising. Treat the results as
 diagnostic output to print, not as data to compute with.
@@ -133054,7 +133305,7 @@ Reading the array directly is possible but not typed here, so it needs a cast.
 
 The stock implementation does its table work whether or not a profiler is
 listening, which makes an instrumented hot path pay for zones it is not being
-measured with. `nupp.zone` wraps this and gates it; prefer that over calling
+measured with. `nupp.profile.zone` wraps this and gates it; prefer that over calling
 this module directly.
 ]]
 
@@ -134522,10 +134773,10 @@ record nupp.reflect
     end
 
     --- Reflects a concrete type for use inside a `comptime` block.
-    metamethod __call: function(self, typeName: any): Info
+    metamethod __call: comptime function(self, typeName: any): Info
 
     --- Builds a keyed field-codec recipe from a reflected record.
-    fieldCodec: function(info: Info): FieldCodecBlueprint
+    fieldCodec: comptime function(info: Info): FieldCodecBlueprint
 end
 
 --- Internal typed schema for the compiler-owned @deprecated annotation.
@@ -137527,13 +137778,13 @@ local jit: {
     --- The handler's own signature is decided by the event, which is why this one is
     --- variadic:
     ---
-    --- * `"bc"` — `(func)`, once per function the VM records bytecode for. * `"trace"`
-    --- — `(what, tr, func, pc, otr, oex)`, where `what` is
+    --- * `"bc"`: `(func)`, once per function the VM records bytecode for. * `"trace"`:
+    --- `(what, tr, func, pc, otr, oex)`, where `what` is
     ---     `"start"`, `"stop"`, `"abort"`, `"flush"` or `"free"`. On
     ---     `"abort"`, `otr` is an error code to look up in
     ---     `require("jit.vmdef").traceerr` and `oex` is its argument; on
     ---     `"start"` for a side trace they are the parent trace and its exit.
-    --- * `"record"` — `(tr, func, pc, depth)`, per bytecode recorded. * `"texit"` —
+    --- * `"record"`: `(tr, func, pc, depth)`, per bytecode recorded. * `"texit"`:
     --- `(tr, ex, ngpr, nfpr)`, per trace exit.
     ---
     --- A handler runs inside the compiler, so it must not allocate heavily, raise, or
@@ -137725,16 +137976,18 @@ local type __NuppScalarWriterCleanup = affine(nupp.io.ScalarWriter, __nuppDestro
 Internal native process binding installed by the compiler bootstrap.
 
 The public module is `nupp.io.process`. This declaration exists only so that module can
-type-check the private preload which joins its platform-neutral state machine to the
-native crate; none of these operations are a user-facing ABI.
+name the private preload which joins its platform-neutral state machine to the native
+crate; none of these operations are a user-facing ABI.
+
+Deliberately not typed in that module's terms. Naming `nupp.io.process.Backend` here
+would make the two require each other, and a resolved cycle answers `any` without
+saying so -- the binding would stop being typed and nothing would report it. The one
+call site casts instead, where a reader can see what is being assumed.
 ]]
 
-local processtypes = require("nupp.io.processtypes")
-
 local record ProcessNative
-    new: function(
-        exited: function(exitCode: integer, killed: boolean, timedOut: boolean): processtypes.Exit
-    ): processtypes.Backend
+    --- Answers a `nupp.io.process.Backend`, built over that module's `exited`.
+    new: function(exited: any): any
 end
 
 local binding: ProcessNative
@@ -137745,16 +137998,18 @@ return binding
 Internal native process binding installed by the compiler bootstrap.
 
 The public module is `nupp.io.process`. This declaration exists only so that module can
-type-check the private preload which joins its platform-neutral state machine to the
-native crate; none of these operations are a user-facing ABI.
+name the private preload which joins its platform-neutral state machine to the native
+crate; none of these operations are a user-facing ABI.
+
+Deliberately not typed in that module's terms. Naming `nupp.io.process.Backend` here
+would make the two require each other, and a resolved cycle answers `any` without
+saying so -- the binding would stop being typed and nothing would report it. The one
+call site casts instead, where a reader can see what is being assumed.
 ]]
 
-local processtypes = require("nupp.io.processtypes")
-
 local record ProcessNative
-    new: function(
-        exited: function(exitCode: integer, killed: boolean, timedOut: boolean): processtypes.Exit
-    ): processtypes.Backend
+    --- Answers a `nupp.io.process.Backend`, built over that module's `exited`.
+    new: function(exited: any): any
 end
 
 local binding: ProcessNative
@@ -137998,225 +138253,6 @@ end
 
 return native
 ]],
-["/nupp/_trace.nupp"] = [=[
---[[
-Stable identities shared by static trace checking and the opt-in runtime collector.
-
-The recorder's strings are presentation, not API.  A trace event is first interpreted
-under the exact VM profile that emitted it, then mapped to one of the identities here.
-Static checks use those same records, which is what keeps a bytecode finding, an @jit
-contract error and an observed abort from acquiring three explanations.
-]]
-
-local vmdef = require("jit.vmdef")
-
-local trace = {}
-
-type trace.Reason = {
-    id: string,
-    class: 'blocker' | 'risk' | 'stop',
-    opcodes: {[string]: boolean}?,
-    source: {[string]: boolean}?,
-    runtime: {string}?,
-    explanation: string?,
-    repair: string?,
-    lint: string?,
-    contractSeverity: string?
-}
-
-type trace.Profile = {
-    id: string,
-    luajitRevision: string,
-    luajitVersion: integer,
-    architecture: string,
-    operatingSystem: string,
-    enabledRecorderFeatures: {string},
-    bytecodeSchema: string,
-    supported: boolean
-}
-
-trace.CATALOG_VERSION = 1
-trace.CATALOG_ID = "nupp-trace-reasons-v1"
-trace.PINNED_LUAJIT_REVISION = "1edc3e52b67eaf6ce5f809be8e17d6862594b8bc"
-trace.PINNED_LUAJIT_VERSION = 1785763465
-
-local records: {
-    trace.Reason
-} = {
-    {
-        id = "jit/loop-function-construction",
-        class = "blocker",
-        opcodes = {FNEW = true},
-        source = {["jit-loop-closure"] = true, ["loop-invariant-closure"] = true},
-        explanation = "LuaJIT has no recorder for constructing a function",
-        repair = "declare one function outside the loop and pass what varies to it",
-        lint = "NUPP2515",
-        contractSeverity = "error",
-    },
-    {
-        id = "jit/loop-upvalue-close",
-        class = "blocker",
-        opcodes = {UCLO = true},
-        explanation = "LuaJIT has no recorder for closing an upvalue",
-        repair = "move the captured lifetime outside the repeated region",
-        contractSeverity = "error",
-    },
-    {
-        id = "jit/ffi-vararg-policy",
-        class = "risk",
-        source = {["jit-boundary"] = true},
-        explanation = "this variadic FFI form depends on argument types and the target ABI",
-        repair = "move the call behind an explicit jit.off boundary when it is not a hot operation",
-        lint = "NUPP2514",
-        contractSeverity = "error",
-    },
-    {
-        id = "jit/ffi-callback",
-        class = "risk",
-        source = {["jit-callback"] = true},
-        explanation = "a C call that re-enters Lua through this callback cannot remain on a trace",
-        repair = "disable the callback and its calling boundary with jit.off",
-        lint = "NUPP2502",
-        contractSeverity = "error",
-    },
-    {
-        id = "jit/disabled-callee",
-        class = "blocker",
-        explanation = "the resolved callee is explicitly disabled with jit.off",
-        repair = "remove @jit from the caller or keep the disabled call outside its checked hot path",
-        contractSeverity = "error",
-    },
-    {
-        id = "jit/dynamic-call",
-        class = "risk",
-        explanation = "the call target is dynamic, so its bytecode recordability is unknown",
-    },
-    {id = "jit/expected-loop-leave", class = "stop", runtime = {"leaving loop in root trace"}},
-    {id = "jit/expected-inner-loop", class = "stop", runtime = {"inner loop in root trace"}},
-    {id = "jit/expected-down-recursion", class = "stop", runtime = {"down-recursion, restarting"}},
-    {id = "jit/expected-up-recursion", class = "stop", runtime = {"up-recursion"}},
-    {id = "jit/retry-recording", class = "stop", runtime = {"retry recording"}},
-    {id = "jit/runtime-blacklisted", class = "risk", runtime = {"blacklisted"}},
-    {id = "jit/runtime-trace-too-short", class = "stop", runtime = {"trace too short"}},
-    {id = "jit/runtime-trace-too-long", class = "risk", runtime = {"trace too long"}},
-    {id = "jit/runtime-trace-too-deep", class = "risk", runtime = {"trace too deep"}},
-    {id = "jit/runtime-too-many-snapshots", class = "risk", runtime = {"too many snapshots"}},
-    {id = "jit/runtime-loop-unroll-limit", class = "risk", runtime = {"loop unroll limit reached"}},
-    {id = "jit/runtime-call-unroll-limit", class = "risk", runtime = {"call unroll limit reached"}},
-    {id = "jit/runtime-disabled-callee", class = "blocker", runtime = {"JIT compilation disabled for function"}},
-    {id = "jit/runtime-ffi-call", class = "risk", runtime = {"NYI: unsupported C function type"}},
-    {id = "jit/runtime-ffi-conversion", class = "risk", runtime = {"NYI: unsupported C type conversion"}},
-    {id = "jit/runtime-type-instability", class = "risk", runtime = {"persistent type instability"}},
-    {
-        id = "jit/runtime-machine-code-limit",
-        class = "risk",
-        runtime = {"machine code too long", "hit mcode limit (retrying)", "failed to allocate mcode memory",}
-    },
-    {id = "jit/runtime-recorder-error", class = "risk", runtime = {"error thrown or hook called during recording"}},
-    {id = "jit/runtime-unknown", class = "risk"},
-}
-
-local byId, byOpcode, bySource, byRuntime = {}, {}, {}, {}
-for _, record in ipairs(records) do
-    byId[record.id] = record
-    for opcode in pairs(record.opcodes or {}) do
-        byOpcode[opcode] = record
-    end
-    for source in pairs(record.source or {}) do
-        bySource[source] = record
-    end
-    for _, format in ipairs(record.runtime or {}) do
-        byRuntime[format] = record
-    end
-end
-
-local function smallDigest(value: string): string
-    local digest = 2166136261
-    for index = 1, #value do
-        digest = bit.tobit(bit.bxor(digest, value:byte(index)) * 16777619)
-    end
-
-    return ("%08x"):format(bit.band(digest, 0xffffffff))
-end
-
-function trace.profile(): trace.Profile
-    local status = {jit.status()}
-    local flags = {}
-    for index = 2, #status do
-        flags[#flags + 1] = tostring(status[index])
-    end
-    table.sort(flags)
-    -- `jit.version_num` is the compatibility number (20199 for every current 2.1
-    -- snapshot). The pinned snapshot identity is the timestamp suffix exposed in the
-    -- full version string.
-    local version = math.floor(tonumber(jit.version:match("LuaJIT 2%.1%.(%d+)")) or jit.version_num) as integer
-    local revision = version == trace.PINNED_LUAJIT_VERSION and trace.PINNED_LUAJIT_REVISION or "external:" .. tostring(
-        version
-    )
-    local bytecodeSchema = smallDigest(vmdef.bcnames)
-    local id = table.concat({revision, jit.arch, jit.os, table.concat(flags, ","), bytecodeSchema}, "|")
-
-    return {
-        id = id,
-        luajitRevision = revision,
-        luajitVersion = version,
-        architecture = jit.arch,
-        operatingSystem = jit.os,
-        enabledRecorderFeatures = flags,
-        bytecodeSchema = bytecodeSchema,
-        supported = revision == trace.PINNED_LUAJIT_REVISION,
-    }
-end
-
-function trace.reason(id: string): trace.Reason?
-    return byId[id]
-end
-
-function trace.forOpcode(opcode: string): trace.Reason?
-    return byOpcode[opcode]
-end
-
-function trace.forSource(source: string): trace.Reason?
-    return bySource[source]
-end
-
-function trace.opcodeName(opcode: integer): string
-    local start = opcode * 6 + 1
-    return (vmdef.bcnames:sub(start, start + 5):gsub("%s+$", ""))
-end
-
-function trace.runtime(errorCode: integer?, errorArg: number | string | nil): trace.Reason, string
-    if not errorCode then
-        return byId["jit/runtime-unknown"], "abort"
-    end
-    local format = vmdef.traceerr[errorCode]
-    if not format then
-        return byId["jit/runtime-unknown"], "error " .. tostring(errorCode)
-    end
-    if format:find("NYI: bytecode", 1, true) and type(errorArg) == "number" then
-        local opcode = trace.opcodeName(errorArg as integer)
-        return byOpcode[opcode] or byId["jit/runtime-unknown"], "NYI: bytecode " .. opcode
-    end
-    local record = byRuntime[format] or byId["jit/runtime-unknown"]
-    if errorArg == nil then
-        return record, format
-    end
-    local ok, detail = pcall(string.format, format, errorArg)
-
-    return record, ok and detail as string or format
-end
-
-function trace.records(): {trace.Reason}
-    local copy = {}
-    for index, record in ipairs(records) do
-        copy[index] = record
-    end
-
-    return copy
-end
-
-return trace
-]=],
 ["/nupp/derive.nupp"] = [[
 -- The standard derives are ordinary comptime providers.  Their runtime work is
 -- deliberately kept in this module too, so a generated member is just an
@@ -138847,211 +138883,6 @@ _G.__nuppDynamicPolicyCount = function(policy: string): integer
 end
 
 return dynamic
-]=],
-["/nupp/heap.nupp"] = [=[
---[[
-Owned, malloc-backed C arrays.
-
-The returned array is affine and is released with `free` at scope exit. Its logical
-element count moves with the allocation and its pointer is available only through
-checked span views.
-]]
-
-local heap = {}
-local ffi = require("ffi")
-local span = require("nupp.span")
-
-cdef function malloc(size: uint64): voidptr
-cdef function free(takes pointer: voidptr)
-local free_nosuspend = free as nosuspend function(takes pointer: voidptr): nil
-
-local function finish_array(takes self: any): nil
-    nosuspend do
-        local raw = unsafe release self
-        local pointer = unsafe adopt raw.pointer as affine(voidptr, free_nosuspend)
-        free_nosuspend(pointer)
-    end
-end
-
-local finish_array_nosuspend = finish_array as nosuspend function(takes self: any): nil
-
-sealed interface heap.ArrayToken
-    close: nosuspend function(takes self: ArrayToken): nil
-end
-
---- @export
-function heap.destroyArray<T is heap.ArrayToken>(takes self: T): nil
-    self:close()
-end
-
---- An owned contiguous native allocation whose logical count cannot be separated
---- from its pointer in checked code.
---- @export
-record heap.Array<T> is heap.ArrayToken
-    private pointer: T[?]
-    readonly count: integer
-
-    --- Releases the allocation. Scope exit invokes this automatically.
-    drop: nosuspend function(takes self: Array<T>): nil
-
-    close: nosuspend function(takes self: Array<T>): nil
-
-    --- Borrows the whole allocation as a shared checked span.
-    ---
-    --- ::: tip Nonescaping views at -O1
-    --- A nonescaping result can remain virtual, so no span wrapper is allocated.
-    --- An escape or opaque call materializes the same checked span.
-    --- :::
-    read: function(borrows self: Array<T>): span.Span<T> borrows (self)
-
-    --- Borrows the whole allocation as an affine checked write span.
-    ---
-    --- ::: tip Nonescaping views at -O1
-    --- A nonescaping result can remain virtual, so no span wrapper is allocated.
-    --- An escape or opaque call materializes the same checked span.
-    --- :::
-    write: function(exclusive self: Array<T>): span.Writable<T> borrows (self)
-end
-
-function heap.Array.read<T>(borrows self: heap.Array<T>): span.Span<T> borrows (self)
-    return span.fromCarray(self.pointer, self.count)
-end
-
-function heap.Array.close<T>(takes self: heap.Array<T>): nil
-    finish_array_nosuspend(self)
-end
-
-function heap.Array.drop<T>(takes self: heap.Array<T>): nil
-    self:close()
-end
-
-function heap.Array.write<T>(exclusive self: heap.Array<T>): span.Writable<T> borrows (self)
-    return span.writeCarray(self.pointer, self.count)
-end
-
---- Allocates `count` contiguous values of `element` outside LuaJIT's GC allocation
---- limit. The result owns the allocation and is automatically freed.
---- @export
---- @raises when count is negative, the byte size overflows a Lua integer, or malloc
----     fails
-function heap.allocate<T>(element: ctype<T>, count: integer): affine(heap.Array<T>, heap.destroyArray)
-    if count < 0 then
-        error("heap array count cannot be negative", 2)
-    end
-
-    local width = ffi.sizeof(element)
-    if width <= 0 or (count > 0 and count > 9007199254740991 // width) then
-        error("heap array byte size is too large", 2)
-    end
-
-    local bytes = width * count
-    if bytes == 0 then
-        bytes = 1
-    end
-    local raw = malloc(bytes as uint64)
-    if raw == nil then
-        error("heap array allocation failed", 2)
-    end
-
-    -- A variable spec keeps this on LuaJIT's dynamic-ctype path. The static assertion
-    -- records the relationship already established by the ctype<T> argument.
-    local pointerSpec = "$ *"
-    local pointerType = ffi.typeof(pointerSpec, element)
-    unsafe do
-        local pointer = ffi.cast(pointerType, raw) as T[?]
-        local array = new heap.Array(pointer = pointer, count = count) as heap.Array<T>
-        return array
-    end
-end
-
-return heap
-]=],
-["/nupp/indexed.nupp"] = [=[
---[[
-One checked inclusive range shared by every compiler-owned indexed view. The public
-checker validates the variadic operands against their trusted descriptors; the
-runtime body deliberately stays representation-neutral and reads the private count
-slot carried by each bundled view implementation.
-]]
-
-local indexed = {}
-
---- Inclusive integer bounds validated once against every supplied indexed view.
---- @export
-record indexed.Range
-    readonly first: integer
-    readonly last: integer
-end
-
---- @export
---- @raises when no view is supplied or the bounds exceed a supplied view
-function indexed.range(first: integer, last: integer, borrows ...: any): indexed.Range
-    local count = select("#", ...)
-    if count < 1 or first < 1 or last < first - 1 then
-        error("indexed range out of bounds", 2)
-    end
-    for index = 1, count do
-        local candidate = select(index, ...) as any
-        if last > candidate.count then
-            error("indexed range out of bounds", 2)
-        end
-    end
-
-    return new indexed.Range(first = first, last = last)
-end
-
---- Private range validation for scalar-replaced views. Each variadic value is a
---- logical count rather than a materialized wrapper.
---- @raises when no count is supplied or the bounds exceed one
-function indexed._rangeCounts(first: integer, last: integer, ...: integer): indexed.Range
-    local count = select("#", ...)
-    if count < 1 or first < 1 or last < first - 1 then
-        error("indexed range out of bounds", 2)
-    end
-    for index = 1, count do
-        if last > select(index, ...) then
-            error("indexed range out of bounds", 2)
-        end
-    end
-
-    return new indexed.Range(first = first, last = last)
-end
-
---- Private allocation-free slice validation used by virtual standard views.
---- @raises when the requested inclusive bounds exceed the supplied count
-function indexed._sliceFinish(count: integer, first: integer, last: integer?, message: string): integer
-    local finish = last or count
-    if first < 1 or finish < first - 1 or finish > count then
-        error(message, 2)
-    end
-
-    return finish
-end
-
---- Private root validation used when the compiler scalar-replaces a standard
---- C-array view. Returning the count lets the source binding carry the complete
---- dynamic scalar representation without allocating a wrapper.
---- @raises when count is negative
-function indexed._rootCount(count: integer, message: string): integer
-    if count < 0 then
-        error(message, 2)
-    end
-
-    return count
-end
-
---- Private logical-index check for a scalar-replaced view. The physical adapter
---- adds its own offset after this preserves the public wrapper's error.
---- @raises when index is outside 1 through count
-function indexed._checkedIndex(count: integer, index: integer, message: string): integer
-    if index < 1 or index > count then
-        error(message, 2)
-    end
-
-    return index
-end
-
-return indexed
 ]=],
 ["/nupp/io/http.nupp"] = [=[
 --[[
@@ -140113,6 +139944,29 @@ that answers in bytes and opaque handles. Platform providers differ in how they
 spawn and how they read; they do not differ in what a process is, so nothing
 about what a process is lives in any one of them.
 
+Two vocabularies, kept apart inside the one module.
+
+The first is the one callers use: options, streams, an exit. It is tecs's
+surface, deliberately, so that `tecs.io.Process`'s call sites compile against
+this module with the import changed and nothing else -- the API is good, it was
+learned from a real workload, and re-deriving it would be re-learning the same
+lessons more slowly.
+
+The second is `Backend`: the smallest set of operations a platform has to
+answer, expressed in bytes and opaque handles and nothing else. Everything above
+it -- the lifecycle, draining two pipes without deadlocking, deadlines, what
+`communicate` means -- is the state machine below, written once. A design that
+let providers differ in more than spawning and reading would end up with two of
+every bug.
+
+They share a module because nothing wants one without the other. A caller needs
+the first and reaches it here; a platform provider needs `Backend` and reaches
+it here too, along with the `Options` it is handed and the `Exit` it answers.
+
+Nothing in the caller-facing half mentions a file descriptor, a HANDLE, errno,
+or a signal number. A caller that has to know which platform it is on has been
+handed a leak.
+
 Waiting is a suspension. Under a handler -- a scheduler, a game frame -- reading
 a pipe parks the caller and the frame keeps running; with none installed the
 built-in handler drives the pumps and blocks. The same call either way, which is
@@ -140140,21 +139994,290 @@ See `plans/018-suspension.md`, S5.
 ]]
 
 local suspension = require("nupp.suspension")
-local processtypes = require("nupp.io.processtypes")
 
 local process = {}
 
---- Re-exported so a caller needs one import.
-type process.Options = processtypes.Options
+--- Where a stream goes: a pipe this process reads or writes, the parent's own
+--- descriptor, or nothing at all.
+type process.StreamMode = "pipe" | "inherit" | "null"
 
---- Re-exported so a caller needs one import.
-type process.Exit = processtypes.Exit
+--- The same, plus stderr's option to join stdout.
+type process.ErrorMode = "pipe" | "inherit" | "null" | "stdout"
 
---- Re-exported so a caller needs one import.
-type process.CommunicateOptions = processtypes.CommunicateOptions
+--- How a child was asked to be started.
+type process.Options = {
+    --- The program in `args[1]`, then its arguments. A program with no separator in
+    --- it is resolved through `PATH` by the platform, not by this module.
+    args: {string},
 
---- Re-exported so a caller needs one import.
-type process.Result = processtypes.Result
+    --- The child's working directory, or nil to inherit this one.
+    cwd: (string | nupp.io.Path)?,
+
+    --- Variables overlaid on the inherited environment, or the whole environment
+    --- when `clearEnv` is set.
+    env: {[string]: string}?,
+
+    --- Whether to start from an empty environment rather than this process's.
+    clearEnv: boolean?,
+
+    --- Defaults to `"pipe"`.
+    stdin: process.StreamMode?,
+
+    --- Defaults to `"pipe"`.
+    stdout: process.StreamMode?,
+
+    --- Defaults to `"pipe"`.
+    stderr: process.ErrorMode?,
+
+    --- Kill the child after this many milliseconds. The clock starts when it is
+    --- created, not when it is first waited on.
+    timeoutMs: integer?
+}
+
+--- Controls a complete duplex exchange.
+type process.CommunicateOptions = {
+    --- Complete standard input. Omitted input sends EOF immediately.
+    input: (string | nupp.io.Buffer | nupp.io.ByteView)?,
+
+    --- Maximum stdout and stderr bytes together. Defaults to 256 MiB.
+    maxOutputBytes: integer?
+}
+
+--- How a child ended.
+record process.Exit
+    --- The status it exited with. Zero conventionally means success, and
+    --- `succeeded` is the question worth asking instead.
+    exitCode: integer
+
+    --- Whether it was terminated rather than exiting on its own.
+    killed: boolean
+
+    --- Whether it was terminated because its deadline passed.
+    timedOut: boolean
+
+    --- Exited on its own with status zero. A killed child never succeeded, whatever
+    --- status the platform reported for it.
+    succeeded: function(process.Exit): boolean
+end
+
+--- A completed duplex exchange.
+record process.Result
+    --- How the child ended.
+    exit: process.Exit
+
+    --- Captured standard output.
+    output: string
+
+    --- Captured standard error.
+    errorOutput: string
+
+    --- Whether the child exited normally with status zero.
+    function succeeded(self): boolean
+        return self.exit:succeeded()
+    end
+end
+
+--- What a wait is waiting for.
+---
+--- A child handle on its own does not say. "The child has exited", "its stdout has
+--- bytes" and "its stdin will take some" are three different questions, and a platform
+--- asked the wrong one answers immediately and forever rather than sleeping: stdout
+--- nobody is reading is *permanently* ready, so a wait-for-exit that also asked about
+--- it would spin at full speed until the child happened to finish.
+---
+--- So each wait says what would actually let its own caller continue. Draining
+--- everything at once asks about all three; waiting for the child to end asks only
+--- about the child, and accepts that a caller who does that without reading the output
+--- can fill a pipe and stall -- which is why `communicate` exists.
+record process.Interest
+    --- The child, when its termination is one of the things being waited for, and nil
+    --- when this wait would not be advanced by it.
+    child: any?
+
+    --- Stream handles this wait wants bytes from.
+    read: {any}
+
+    --- Stream handles this wait wants to put bytes into.
+    write: {any}
+end
+
+--- What a platform must answer. Bytes and opaque handles; no policy.
+---
+--- Every operation is non-blocking except `waitReady`, and that one exists precisely so
+--- that the blocking case is a deliberate call rather than a loop. Waiting is otherwise
+--- the state machine's business: it suspends, so a caller inside a scheduler keeps its
+--- frame, which is only possible while the backend is not blocking on its behalf.
+record process.Backend
+    --- Starts a child. Answers an opaque handle and the streams that were piped,
+    --- each an opaque stream handle or nil for a mode that made none.
+    spawn: function(process.Backend, process.Options): (any?, any?, any?, any?, integer, string?)
+
+    --- Whether the child has ended, and how. Answers nil while it is still running,
+    --- so a caller can tell "not yet" from "exited with 0".
+    poll: function(process.Backend, any): (process.Exit?)
+
+    --- Asks the child to end, or insists.
+    kill: function(process.Backend, any, boolean): nil
+
+    --- Reads what is available without waiting, at most `limit` bytes. Answers the
+    --- bytes, or "" when nothing is ready, or nil at end of stream.
+    ---
+    --- `limit` is always one or more; the state machine normalises what its callers
+    --- ask for, so a backend never converts a zero or a negative into a buffer size.
+    ---
+    --- The limit is part of the seam rather than something above it, because the
+    --- contract above promises one: `nupp.io.Reader.read(count)` answers at most
+    --- `count` bytes, and a platform that always handed back whatever a pipe held would
+    --- leave the completion-oriented method holding a surplus buffer of its own -- a
+    --- second place where bytes wait, with its own emptiness to reason about, to work
+    --- around a limit the kernel accepts perfectly well.
+    read: function(process.Backend, any, integer): (string?)
+
+    --- Writes what it can without waiting. Answers how many bytes went, and whether
+    --- the far end is gone.
+    ---
+    --- Zero bytes has two meanings and they are opposites: the pipe is full and will
+    --- take more later, or nobody is reading and it never will. A backend that reports
+    --- only the count leaves a writer unable to tell waiting from finished, so it waits
+    --- forever. The second result separates them -- `EPIPE` or `EAGAIN` on POSIX,
+    --- `ERROR_BROKEN_PIPE` or a zero-length overlapped write on Win32 -- and once it is
+    --- true the bytes reported alongside it are the last that will ever go.
+    ---
+    --- A POSIX backend has to earn the right to see `EPIPE` at all. Under the default
+    --- disposition the kernel raises `SIGPIPE` first and kills the whole Nupp host
+    --- before this call can return anything, so "the child closed its stdin early"
+    --- becomes "the program that spawned it died". The signal must therefore be
+    --- suppressed, and the obvious suppression is the wrong one. Ignoring `SIGPIPE`
+    --- process-wide is permanent and global, so a library that installs it silently
+    --- changes the behaviour of the host and of every other library in it. That is not
+    --- this module's policy to set.
+    ---
+    --- What it may do instead is scoped to what it owns. The per-descriptor route is
+    --- better where it exists, and it exists in fewer places than "the BSDs" suggests:
+    --- macOS and NetBSD have `F_SETNOSIGPIPE`; FreeBSD and OpenBSD do not, and neither
+    --- does Linux. So the fcntl is a capability to detect, not a family to assume, and
+    --- the mask is what every platform without it uses.
+    ---
+    --- - Where `F_SETNOSIGPIPE` is present: set it on the child's stdin as the pipe is
+    ---   created. Per descriptor, on a descriptor this module made, affecting nothing
+    ---   else in the process. Decide that from whether the build's headers define it,
+    ---   and from nothing else. Do not probe by issuing the number and reading the
+    ---   error: command numbers are per-platform, so the number that means this here
+    ---   may mean something real and quite different there, and a probe would perform
+    ---   that operation rather than report it missing.
+    --- - Everywhere else, in this order:
+    ---
+    ---   1. Block `SIGPIPE` on this thread with `pthread_sigmask`, keeping the old
+    ---      mask.
+    ---   2. Read `sigpending`. After the block, not before: an unblocked signal is
+    ---      delivered rather than left pending, so a check taken first answers "not
+    ---      pending" for a signal that is about to arrive, and the block is what makes
+    ---      the answer stable.
+    ---   3. Write.
+    ---   4. If the write reported `EPIPE` and `SIGPIPE` was not already pending at step
+    ---      2, consume the one it raised with `sigtimedwait` and a zero timeout,
+    ---      retrying while it fails with `EINTR`. A consume abandoned on `EINTR` leaves
+    ---      the signal pending, and step 5 then delivers it -- the default disposition
+    ---      kills the host, which is the exact outcome all of this exists to avoid.
+    ---   5. Restore the mask, on every path out including the failing ones. A `write`
+    ---      that raised, an unexpected errno, a consume that could not be completed:
+    ---      each still owes the caller the mask it arrived with, because leaving
+    ---      `SIGPIPE` blocked changes the behaviour of every later write in the host
+    ---      just as surely as `SIG_IGN` would.
+    ---
+    ---   Step 4's condition is the careful part. Standard signals are not queued, so a
+    ---   `SIGPIPE` already pending when the write began is indistinguishable from the
+    ---   one the write raised, and consuming it steals a signal the host was going to
+    ---   handle. When it was already there, leave it: `EPIPE` still comes back, which
+    ---   is all this call needs, and the host keeps the signal it was already owed.
+    ---
+    --- A backend that can do neither must say so rather than quietly installing
+    --- `SIG_IGN`: process-wide policy is the host's to choose, and a caller that wants
+    --- it can set it themselves before spawning anything.
+    ---
+    --- Both routes are exercised. macOS proves the descriptor route by surviving a
+    --- child that closes stdin and surfacing `gone`; Linux proves the masking route
+    --- and that a `SIGPIPE` pending before the write remains pending afterwards. The
+    --- failure mode in either case is not a wrong answer but no host left to read one.
+    write: function(process.Backend, any, string): (integer, boolean)
+
+    --- Closes one stream. Idempotent.
+    ---
+    --- Answers whether the descriptor is *released*, and separately why the attempt
+    --- complained. Two answers because they are two facts and POSIX produces every
+    --- combination of them: `close(2)` can report `EIO` having already given the
+    --- descriptor up, and it can fail with the descriptor still ours.
+    ---
+    --- Which matters because of what a caller does next. A descriptor still held may
+    --- be closed again; one already released must never be, since the number is free
+    --- for the next `open` in the process to take, and a retry would then close a
+    --- descriptor belonging to something else entirely. Conflating the two makes that
+    --- bug reachable from an ordinary error path.
+    ---
+    --- So: `(true, nil)` closed cleanly, `(true, reason)` released but the platform
+    --- complained -- report it, never retry -- and `(false, reason)` still ours and
+    --- worth another attempt.
+    ---
+    --- A backend over a handle layer that cannot tell these apart must say released,
+    --- since leaking a descriptor costs one descriptor and closing a stranger's costs
+    --- whatever they were doing with it.
+    ---
+    --- **Never raises.** This and `reap` are return-only, and that is a contract rather
+    --- than a preference: an error carries no release state, so a caller that catches
+    --- one knows something went wrong and nothing about whether the descriptor is still
+    --- theirs -- which is exactly the fact it needs in order to decide whether trying
+    --- again is safe or catastrophic. Every outcome, including a failure the backend
+    --- did not expect, comes back as `(released, reason)`.
+    ---
+    --- A backend that raises anyway has broken this, and the state machine assumes the
+    --- descriptor was released, because between leaking one and closing someone else's
+    --- there is no contest.
+    closeStream: function(process.Backend, any): (boolean, string?)
+
+    --- Releases the child's own resources once it has ended.
+    ---
+    --- Answers released and reason, on exactly the terms `closeStream` does, and for
+    --- the same reason: a pid is reused as readily as a descriptor, so a caller has to
+    --- know whether this one is still theirs to ask about.
+    ---
+    --- `waitpid` alone does not produce all three answers -- it reports the pid on
+    --- success and an error separately -- and the mapping is the backend's to make.
+    --- `ECHILD` says the child is already gone: released, do not retry. `EINTR` says
+    --- nothing was consumed: still ours, ask again. The third, released with something
+    --- to report, is what a handle layer answers when it gives ownership up and the
+    --- cleanup around that had trouble worth passing on.
+    ---
+    --- **Never raises**, on exactly the terms `closeStream` does not, and a backend
+    --- that does is read as having released the child.
+    reap: function(process.Backend, any): (boolean, string?)
+
+    --- Milliseconds on a monotonic clock, for deadlines. The backend owns this
+    --- because a platform's monotonic clock is a platform's business.
+    now: function(process.Backend): number
+
+    --- Blocks until something in `interest` could have changed, or `timeoutMs` passes.
+    --- Answers how many things became ready, which may be zero.
+    ---
+    --- The one operation here that is allowed to block, and it exists so that a caller
+    --- with no scheduler does not spin. Every other operation is non-blocking because
+    --- waiting belongs to the state machine; *this* is the state machine asking the
+    --- platform to wait efficiently on its behalf -- `poll(2)` on POSIX,
+    --- `WaitForMultipleObjects` on Win32 -- rather than polling in a loop.
+    ---
+    --- Never called while a suspension handler is installed. Under a scheduler the
+    --- frame must keep running, so the state machine parks instead and the handler
+    --- decides when to come back.
+    ---
+    --- `timeoutMs` is a Nupp number and reaches a platform as a fixed-width integer, so
+    --- a backend converts it. Clamp before converting, not after: a negative can be
+    --- repaired on the far side -- it is a deadline already passed, and means no wait
+    --- --
+    --- but a number too large to fit has already wrapped or truncated by the time
+    --- anything over there sees it, and what arrives may be a short wait, or a long
+    --- one,
+    --- or a negative meaning forever. Nothing downstream can tell which.
+    waitReady: function(process.Backend, process.Interest, number): integer
+end
 
 -- Declared ahead of the records, whose method bodies reach them.
 -- How many bytes one read asks for. Large enough that a busy pipe empties in a pass or
@@ -140166,12 +140289,17 @@ local progressed, releasePump, await, awaitTick, pumpOnce, readForCompletion
 -- The backend `process.new` uses, installed by whichever platform module is loaded.
 -- Kept internal: a caller naming its platform is a caller that has to change when it
 -- moves to another one.
-local defaultBackend: processtypes.Backend? = nil
+local defaultBackend: process.Backend? = nil
 
+-- What `nupp.io.processnative` answers, spelled here rather than there. That
+-- declaration cannot name these types: it would then require this module while this
+-- module requires it, and a resolved cycle answers `any` without reporting one, so the
+-- binding would silently stop being checked. Written on this side the assumption is
+-- visible, and the cast below is where it is made.
 local type NativeBackendFactory = {
     new: function(
-        exited: function(exitCode: integer, killed: boolean, timedOut: boolean): processtypes.Exit
-    ): processtypes.Backend
+        exited: function(exitCode: integer, killed: boolean, timedOut: boolean): process.Exit
+    ): process.Backend
 }
 
 --- One of a child's readable streams.
@@ -140322,11 +140450,11 @@ record process.Reader is nupp.io.Reader
 
                 return false
             end,
-            function(): processtypes.Interest
+            function(): process.Interest
                 -- This stream, and the child: end of stream is something the child's
                 -- ending produces, so a reader that only asked about the pipe could
                 -- sleep through the very event that answers it.
-                return new processtypes.Interest(child = self.owner.handle, read = {self.handle}, write = {})
+                return new process.Interest(child = self.owner.handle, read = {self.handle}, write = {})
             end
         )
 
@@ -140505,10 +140633,10 @@ record process.Writer is nupp.io.Writer
         end
         local sent = 0
         local before = 0
-        local function interest(): processtypes.Interest
+        local function interest(): process.Interest
             -- Room in this pipe, and the child: a child that exits makes every
             -- remaining write impossible, which is an answer too.
-            return new processtypes.Interest(child = self.owner.handle, read = {}, write = {self.handle})
+            return new process.Interest(child = self.owner.handle, read = {}, write = {self.handle})
         end
 
         -- Both of these are written above the loop rather than in it, so the loop holds
@@ -140642,10 +140770,10 @@ end
 --- A running child.
 record process.Process
     drop: nosuspend function(takes self: process.Process): nil
-    backend: processtypes.Backend
+    backend: process.Backend
     handle: any
     deadline: number?
-    exit: processtypes.Exit?
+    exit: process.Exit?
 
     --- Whether the whole teardown finished: every stream released, the pump released,
     --- and the child handle released. The aggregate, and what makes a repeat call a
@@ -140696,26 +140824,26 @@ record process.Process
     end
 
     --- Waits for it to end and answers how. Suspends while it runs.
-    function wait(self): processtypes.Exit
+    function wait(self): process.Exit
         await(
             self,
             "process wait",
             function(): boolean
                 return self.exit ~= nil
             end,
-            function(): processtypes.Interest
+            function(): process.Interest
                 -- The child alone. Its streams are deliberately left out: output nobody
                 -- is reading stays ready forever, so asking about it here would turn
                 -- this sleep into a spin. The cost is that waiting without draining can
                 -- fill a pipe and stall, which is exactly what `communicate` is for.
-                return new processtypes.Interest(child = self.handle, read = {}, write = {})
+                return new process.Interest(child = self.handle, read = {}, write = {})
             end
         )
         if self.timedOut and self.exit ~= nil then
             self.exit.timedOut = true
         end
 
-        return self.exit as processtypes.Exit
+        return self.exit as process.Exit
     end
 
     --- Asks it to end; `force` insists. Answers whether the request was made.
@@ -140738,8 +140866,8 @@ record process.Process
     ---
     --- One combined step per pass: offer some input, take whatever each output has,
     --- suspend only when none of the three moved.
-    function communicate(self, options: processtypes.CommunicateOptions?): (processtypes.Result?, string?)
-        local ok, answer = pcall(function(): processtypes.Result
+    function communicate(self, options: process.CommunicateOptions?): (process.Result?, string?)
+        local ok, answer = pcall(function(): process.Result
             local given = options or {}
             local input = given.input
             local pending = input == nil and "" or type(input) == "string" and input as string or input:getString()
@@ -140783,7 +140911,7 @@ record process.Process
             -- Written here rather than at the wait it belongs to, because that wait is
             -- inside the loop, and a function built inside a loop is one LuaJIT never
             -- compiles. It reads what varies through names the loop shares with it.
-            local function interest(): processtypes.Interest
+            local function interest(): process.Interest
                 local read: {any} = {}
                 if stdout ~= nil and not stdout.eof and not stdout.closed then
                     read[#read + 1] = stdout.handle
@@ -140796,7 +140924,7 @@ record process.Process
                     write[#write + 1] = stdin.handle
                 end
 
-                return new processtypes.Interest(child = self.handle, read = read, write = write)
+                return new process.Interest(child = self.handle, read = read, write = write)
             end
 
             while not (inputDone() and outputDone()) do
@@ -140860,17 +140988,13 @@ record process.Process
 
             abandonInput()
 
-            return new processtypes.Result(
-                output = table.concat(out),
-                errorOutput = table.concat(err),
-                exit = self:wait()
-            )
+            return new process.Result(output = table.concat(out), errorOutput = table.concat(err), exit = self:wait())
         end)
         if not ok then
             return nil, answer == nil and "process communication failed without saying why" or tostring(answer)
         end
 
-        return answer as processtypes.Result
+        return answer as process.Result
     end
 
     --- Closes every stream, ends the child if it is still running, waits for it to
@@ -140916,8 +141040,8 @@ record process.Process
                 function(): boolean
                     return not self.closing
                 end,
-                function(): processtypes.Interest
-                    return new processtypes.Interest(child = self.handle, read = {}, write = {})
+                function(): process.Interest
+                    return new process.Interest(child = self.handle, read = {}, write = {})
                 end
             )
             if self.reaped then
@@ -140980,8 +141104,8 @@ record process.Process
                     function(): boolean
                         return self.exit ~= nil
                     end,
-                    function(): processtypes.Interest
-                        return new processtypes.Interest(child = self.handle, read = {}, write = {})
+                    function(): process.Interest
+                        return new process.Interest(child = self.handle, read = {}, write = {})
                     end
                 )
             end)
@@ -141136,7 +141260,7 @@ local BLOCKING_WAIT_MS = 20
 -- Bounded rather than indefinite, because a deadline has to be reached even when the
 -- child never speaks again, and never overshooting it: a wait longer than what is left
 -- would report the timeout late by however much it overslept.
-local function blockOnce(self: any, interest: processtypes.Interest, stopAt: number?): nil
+local function blockOnce(self: any, interest: process.Interest, stopAt: number?): nil
     local budget = BLOCKING_WAIT_MS
     if self.deadline ~= nil then
         local remaining = self.deadline - self.backend:now()
@@ -141154,7 +141278,7 @@ local function blockOnce(self: any, interest: processtypes.Interest, stopAt: num
     pumpOnce(self)
 end
 
-awaitTick = function(self: any, operation: string, interest: function(): processtypes.Interest): nil
+awaitTick = function(self: any, operation: string, interest: function(): process.Interest): nil
     if not suspension.handled() then
         blockOnce(self, interest())
 
@@ -141182,7 +141306,7 @@ await = function(
     self: any,
     operation: string,
     ready: function(): boolean,
-    interest: function(): processtypes.Interest,
+    interest: function(): process.Interest,
     stopAt: number?
 ): boolean
     if ready() then
@@ -141266,8 +141390,8 @@ readForCompletion = function(source: process.Reader, limit: integer): (string?, 
 
             return false
         end,
-        function(): processtypes.Interest
-            return new processtypes.Interest(child = source.owner.handle, read = {source.handle}, write = {})
+        function(): process.Interest
+            return new process.Interest(child = source.owner.handle, read = {source.handle}, write = {})
         end,
         stopAt
     )
@@ -141298,14 +141422,14 @@ end
 ---
 --- Called by a platform module, not by a caller: the point of the seam is that nothing
 --- above it names a platform.
-function process.useBackend(backend: processtypes.Backend): nil
+function process.useBackend(backend: process.Backend): nil
     defaultBackend = backend
 end
 
 -- Public callers include plain Lua, so the type declaration is not the runtime
 -- boundary. Reject programmer mistakes before allocating a native spawn request;
 -- platform failures remain the nil-and-reason result of `new`.
-local function validateOptions(options: processtypes.Options): nil
+local function validateOptions(options: process.Options): nil
     local given: any = options
     if type(given.args) ~= "table" or #given.args == 0 then
         error("nupp: process args must contain a program", 3)
@@ -141338,8 +141462,8 @@ end
 
 --- Builds the owned state after the platform has successfully spawned.
 local function fromSpawn(
-    backend: processtypes.Backend,
-    options: processtypes.Options,
+    backend: process.Backend,
+    options: process.Options,
     handle: any,
     inHandle: any?,
     outHandle: any?,
@@ -141382,8 +141506,8 @@ end
 --- @raises when the options do not describe a runnable child, or the backend cannot
 --- start one
 function process.spawnOn(
-    backend: processtypes.Backend,
-    options: processtypes.Options
+    backend: process.Backend,
+    options: process.Options
 ): affine(process.Process, process.destroyProcess)
     validateOptions(options)
     local handle, inHandle, outHandle, errHandle, pid, problem = backend:spawn(options)
@@ -141398,7 +141522,7 @@ end
 ---
 --- @param options what to run and how to connect it
 --- @return the child, which must be closed
-function process.new(options: processtypes.Options): (affine(process.Process?, process.destroyProcess), string?)
+function process.new(options: process.Options): (affine(process.Process?, process.destroyProcess), string?)
     validateOptions(options)
     local backend = defaultBackend
     if backend == nil then
@@ -141407,1604 +141531,238 @@ function process.new(options: processtypes.Options): (affine(process.Process?, p
         defaultBackend = backend
     end
 
-    local handle, inHandle, outHandle, errHandle, pid, problem = (backend as processtypes.Backend):spawn(options)
+    local handle, inHandle, outHandle, errHandle, pid, problem = (backend as process.Backend):spawn(options)
     if handle == nil then
         return nil, problem or "the process could not be started"
     end
 
-    return fromSpawn(backend as processtypes.Backend, options, handle, inHandle, outHandle, errHandle, pid)
+    return fromSpawn(backend as process.Backend, options, handle, inHandle, outHandle, errHandle, pid)
 end
 
 --- The exit a backend reports, with `succeeded` attached.
 ---
 --- Backends build these, so the one judgement every caller makes -- did this work --
 --- has one definition rather than one per platform.
-function process.exited(exitCode: integer, killed: boolean, timedOut: boolean): processtypes.Exit
+function process.exited(exitCode: integer, killed: boolean, timedOut: boolean): process.Exit
     return {
         exitCode = exitCode,
         killed = killed,
         timedOut = timedOut,
-        succeeded = function(self: processtypes.Exit): boolean
+        succeeded = function(self: process.Exit): boolean
             -- A killed child never succeeded, whatever status the platform reported.
             return not self.killed and not self.timedOut and self.exitCode == 0
         end,
-    } as processtypes.Exit
+    } as process.Exit
 end
 
 return process
 ]=],
-["/nupp/io/processtypes.nupp"] = [=[
+["/nupp/mem/heap.nupp"] = [=[
 --[[
-What a child process is, and what a platform has to provide to run one.
+Owned, malloc-backed C arrays.
 
-Two vocabularies, kept apart on purpose.
-
-The first is the one callers use: options, streams, an exit. It is tecs's
-surface, deliberately, so that `tecs.io.Process`'s call sites compile against
-this module with the import changed and nothing else -- the API is good, it was
-learned from a real workload, and re-deriving it would be re-learning the same
-lessons more slowly.
-
-The second is `Backend`: the smallest set of operations a platform has to
-answer, expressed in bytes and opaque handles and nothing else. Everything above it
--- the lifecycle, draining two pipes without deadlocking, deadlines, what
-`communicate` means -- is one platform-neutral state machine written once. A
-platform providers differ in how they spawn and how they read; they do not
-differ in what a process *is*, and a design that let them would end up with two
-of every bug.
-
-Nothing in the caller-facing half mentions a file descriptor, a HANDLE, errno,
-or a signal number. A caller that has to know which platform it is on has been
-handed a leak.
-
-See `plans/018-suspension.md`, S5.
+The returned array is affine and is released with `free` at scope exit. Its logical
+element count moves with the allocation and its pointer is available only through
+checked span views.
 ]]
 
-local processtypes = {}
+local heap = {}
+local ffi = require("ffi")
+local span = require("nupp.mem.span")
 
---- Where a stream goes: a pipe this process reads or writes, the parent's own
---- descriptor, or nothing at all.
-type processtypes.StreamMode = "pipe" | "inherit" | "null"
+cdef function malloc(size: uint64): voidptr
+cdef function free(takes pointer: voidptr)
+local free_nosuspend = free as nosuspend function(takes pointer: voidptr): nil
 
---- The same, plus stderr's option to join stdout.
-type processtypes.ErrorMode = "pipe" | "inherit" | "null" | "stdout"
-
---- How a child was asked to be started.
-type processtypes.Options = {
-    --- The program in `args[1]`, then its arguments. A program with no separator in
-    --- it is resolved through `PATH` by the platform, not by this module.
-    args: {string},
-
-    --- The child's working directory, or nil to inherit this one.
-    cwd: (string | nupp.io.Path)?,
-
-    --- Variables overlaid on the inherited environment, or the whole environment
-    --- when `clearEnv` is set.
-    env: {[string]: string}?,
-
-    --- Whether to start from an empty environment rather than this process's.
-    clearEnv: boolean?,
-
-    --- Defaults to `"pipe"`.
-    stdin: processtypes.StreamMode?,
-
-    --- Defaults to `"pipe"`.
-    stdout: processtypes.StreamMode?,
-
-    --- Defaults to `"pipe"`.
-    stderr: processtypes.ErrorMode?,
-
-    --- Kill the child after this many milliseconds. The clock starts when it is
-    --- created, not when it is first waited on.
-    timeoutMs: integer?
-}
-
---- Controls a complete duplex exchange.
-type processtypes.CommunicateOptions = {
-    --- Complete standard input. Omitted input sends EOF immediately.
-    input: (string | nupp.io.Buffer | nupp.io.ByteView)?,
-
-    --- Maximum stdout and stderr bytes together. Defaults to 256 MiB.
-    maxOutputBytes: integer?
-}
-
---- How a child ended.
-record processtypes.Exit
-    --- The status it exited with. Zero conventionally means success, and
-    --- `succeeded` is the question worth asking instead.
-    exitCode: integer
-
-    --- Whether it was terminated rather than exiting on its own.
-    killed: boolean
-
-    --- Whether it was terminated because its deadline passed.
-    timedOut: boolean
-
-    --- Exited on its own with status zero. A killed child never succeeded, whatever
-    --- status the platform reported for it.
-    succeeded: function(processtypes.Exit): boolean
-end
-
---- A completed duplex exchange.
-record processtypes.Result
-    --- How the child ended.
-    exit: processtypes.Exit
-
-    --- Captured standard output.
-    output: string
-
-    --- Captured standard error.
-    errorOutput: string
-
-    --- Whether the child exited normally with status zero.
-    function succeeded(self): boolean
-        return self.exit:succeeded()
+local function finish_array(takes self: any): nil
+    nosuspend do
+        local raw = unsafe release self
+        local pointer = unsafe adopt raw.pointer as affine(voidptr, free_nosuspend)
+        free_nosuspend(pointer)
     end
 end
 
---- What a wait is waiting for.
----
---- A child handle on its own does not say. "The child has exited", "its stdout has
---- bytes" and "its stdin will take some" are three different questions, and a platform
---- asked the wrong one answers immediately and forever rather than sleeping: stdout
---- nobody is reading is *permanently* ready, so a wait-for-exit that also asked about
---- it would spin at full speed until the child happened to finish.
----
---- So each wait says what would actually let its own caller continue. Draining
---- everything at once asks about all three; waiting for the child to end asks only
---- about the child, and accepts that a caller who does that without reading the output
---- can fill a pipe and stall -- which is why `communicate` exists.
-record processtypes.Interest
-    --- The child, when its termination is one of the things being waited for, and nil
-    --- when this wait would not be advanced by it.
-    child: any?
+local finish_array_nosuspend = finish_array as nosuspend function(takes self: any): nil
 
-    --- Stream handles this wait wants bytes from.
-    read: {any}
-
-    --- Stream handles this wait wants to put bytes into.
-    write: {any}
+sealed interface heap.ArrayToken
+    close: nosuspend function(takes self: ArrayToken): nil
 end
 
---- What a platform must answer. Bytes and opaque handles; no policy.
----
---- Every operation is non-blocking except `waitReady`, and that one exists precisely so
---- that the blocking case is a deliberate call rather than a loop. Waiting is otherwise
---- the state machine's business: it suspends, so a caller inside a scheduler keeps its
---- frame, which is only possible while the backend is not blocking on its behalf.
-record processtypes.Backend
-    --- Starts a child. Answers an opaque handle and the streams that were piped,
-    --- each an opaque stream handle or nil for a mode that made none.
-    spawn: function(processtypes.Backend, processtypes.Options): (any?, any?, any?, any?, integer, string?)
-
-    --- Whether the child has ended, and how. Answers nil while it is still running,
-    --- so a caller can tell "not yet" from "exited with 0".
-    poll: function(processtypes.Backend, any): (processtypes.Exit?)
-
-    --- Asks the child to end, or insists.
-    kill: function(processtypes.Backend, any, boolean): nil
-
-    --- Reads what is available without waiting, at most `limit` bytes. Answers the
-    --- bytes, or "" when nothing is ready, or nil at end of stream.
-    ---
-    --- `limit` is always one or more; the state machine normalises what its callers
-    --- ask for, so a backend never converts a zero or a negative into a buffer size.
-    ---
-    --- The limit is part of the seam rather than something above it, because the
-    --- contract above promises one: `nupp.io.Reader.read(count)` answers at most
-    --- `count` bytes, and a platform that always handed back whatever a pipe held would
-    --- leave the completion-oriented method holding a surplus buffer of its own -- a
-    --- second place where bytes wait, with its own emptiness to reason about, to work
-    --- around a limit the kernel accepts perfectly well.
-    read: function(processtypes.Backend, any, integer): (string?)
-
-    --- Writes what it can without waiting. Answers how many bytes went, and whether
-    --- the far end is gone.
-    ---
-    --- Zero bytes has two meanings and they are opposites: the pipe is full and will
-    --- take more later, or nobody is reading and it never will. A backend that reports
-    --- only the count leaves a writer unable to tell waiting from finished, so it waits
-    --- forever. The second result separates them -- `EPIPE` or `EAGAIN` on POSIX,
-    --- `ERROR_BROKEN_PIPE` or a zero-length overlapped write on Win32 -- and once it is
-    --- true the bytes reported alongside it are the last that will ever go.
-    ---
-    --- A POSIX backend has to earn the right to see `EPIPE` at all. Under the default
-    --- disposition the kernel raises `SIGPIPE` first and kills the whole Nupp host
-    --- before this call can return anything, so "the child closed its stdin early"
-    --- becomes "the program that spawned it died". The signal must therefore be
-    --- suppressed, and the obvious suppression is the wrong one. Ignoring `SIGPIPE`
-    --- process-wide is permanent and global, so a library that installs it silently
-    --- changes the behaviour of the host and of every other library in it. That is not
-    --- this module's policy to set.
-    ---
-    --- What it may do instead is scoped to what it owns. The per-descriptor route is
-    --- better where it exists, and it exists in fewer places than "the BSDs" suggests:
-    --- macOS and NetBSD have `F_SETNOSIGPIPE`; FreeBSD and OpenBSD do not, and neither
-    --- does Linux. So the fcntl is a capability to detect, not a family to assume, and
-    --- the mask is what every platform without it uses.
-    ---
-    --- - Where `F_SETNOSIGPIPE` is present: set it on the child's stdin as the pipe is
-    ---   created. Per descriptor, on a descriptor this module made, affecting nothing
-    ---   else in the process. Decide that from whether the build's headers define it,
-    ---   and from nothing else. Do not probe by issuing the number and reading the
-    ---   error: command numbers are per-platform, so the number that means this here
-    ---   may mean something real and quite different there, and a probe would perform
-    ---   that operation rather than report it missing.
-    --- - Everywhere else, in this order:
-    ---
-    ---   1. Block `SIGPIPE` on this thread with `pthread_sigmask`, keeping the old
-    ---      mask.
-    ---   2. Read `sigpending`. After the block, not before: an unblocked signal is
-    ---      delivered rather than left pending, so a check taken first answers "not
-    ---      pending" for a signal that is about to arrive, and the block is what makes
-    ---      the answer stable.
-    ---   3. Write.
-    ---   4. If the write reported `EPIPE` and `SIGPIPE` was not already pending at step
-    ---      2, consume the one it raised with `sigtimedwait` and a zero timeout,
-    ---      retrying while it fails with `EINTR`. A consume abandoned on `EINTR` leaves
-    ---      the signal pending, and step 5 then delivers it -- the default disposition
-    ---      kills the host, which is the exact outcome all of this exists to avoid.
-    ---   5. Restore the mask, on every path out including the failing ones. A `write`
-    ---      that raised, an unexpected errno, a consume that could not be completed:
-    ---      each still owes the caller the mask it arrived with, because leaving
-    ---      `SIGPIPE` blocked changes the behaviour of every later write in the host
-    ---      just as surely as `SIG_IGN` would.
-    ---
-    ---   Step 4's condition is the careful part. Standard signals are not queued, so a
-    ---   `SIGPIPE` already pending when the write began is indistinguishable from the
-    ---   one the write raised, and consuming it steals a signal the host was going to
-    ---   handle. When it was already there, leave it: `EPIPE` still comes back, which
-    ---   is all this call needs, and the host keeps the signal it was already owed.
-    ---
-    --- A backend that can do neither must say so rather than quietly installing
-    --- `SIG_IGN`: process-wide policy is the host's to choose, and a caller that wants
-    --- it can set it themselves before spawning anything.
-    ---
-    --- Both routes are exercised. macOS proves the descriptor route by surviving a
-    --- child that closes stdin and surfacing `gone`; Linux proves the masking route
-    --- and that a `SIGPIPE` pending before the write remains pending afterwards. The
-    --- failure mode in either case is not a wrong answer but no host left to read one.
-    write: function(processtypes.Backend, any, string): (integer, boolean)
-
-    --- Closes one stream. Idempotent.
-    ---
-    --- Answers whether the descriptor is *released*, and separately why the attempt
-    --- complained. Two answers because they are two facts and POSIX produces every
-    --- combination of them: `close(2)` can report `EIO` having already given the
-    --- descriptor up, and it can fail with the descriptor still ours.
-    ---
-    --- Which matters because of what a caller does next. A descriptor still held may
-    --- be closed again; one already released must never be, since the number is free
-    --- for the next `open` in the process to take, and a retry would then close a
-    --- descriptor belonging to something else entirely. Conflating the two makes that
-    --- bug reachable from an ordinary error path.
-    ---
-    --- So: `(true, nil)` closed cleanly, `(true, reason)` released but the platform
-    --- complained -- report it, never retry -- and `(false, reason)` still ours and
-    --- worth another attempt.
-    ---
-    --- A backend over a handle layer that cannot tell these apart must say released,
-    --- since leaking a descriptor costs one descriptor and closing a stranger's costs
-    --- whatever they were doing with it.
-    ---
-    --- **Never raises.** This and `reap` are return-only, and that is a contract rather
-    --- than a preference: an error carries no release state, so a caller that catches
-    --- one knows something went wrong and nothing about whether the descriptor is still
-    --- theirs -- which is exactly the fact it needs in order to decide whether trying
-    --- again is safe or catastrophic. Every outcome, including a failure the backend
-    --- did not expect, comes back as `(released, reason)`.
-    ---
-    --- A backend that raises anyway has broken this, and the state machine assumes the
-    --- descriptor was released, because between leaking one and closing someone else's
-    --- there is no contest.
-    closeStream: function(processtypes.Backend, any): (boolean, string?)
-
-    --- Releases the child's own resources once it has ended.
-    ---
-    --- Answers released and reason, on exactly the terms `closeStream` does, and for
-    --- the same reason: a pid is reused as readily as a descriptor, so a caller has to
-    --- know whether this one is still theirs to ask about.
-    ---
-    --- `waitpid` alone does not produce all three answers -- it reports the pid on
-    --- success and an error separately -- and the mapping is the backend's to make.
-    --- `ECHILD` says the child is already gone: released, do not retry. `EINTR` says
-    --- nothing was consumed: still ours, ask again. The third, released with something
-    --- to report, is what a handle layer answers when it gives ownership up and the
-    --- cleanup around that had trouble worth passing on.
-    ---
-    --- **Never raises**, on exactly the terms `closeStream` does not, and a backend
-    --- that does is read as having released the child.
-    reap: function(processtypes.Backend, any): (boolean, string?)
-
-    --- Milliseconds on a monotonic clock, for deadlines. The backend owns this
-    --- because a platform's monotonic clock is a platform's business.
-    now: function(processtypes.Backend): number
-
-    --- Blocks until something in `interest` could have changed, or `timeoutMs` passes.
-    --- Answers how many things became ready, which may be zero.
-    ---
-    --- The one operation here that is allowed to block, and it exists so that a caller
-    --- with no scheduler does not spin. Every other operation is non-blocking because
-    --- waiting belongs to the state machine; *this* is the state machine asking the
-    --- platform to wait efficiently on its behalf -- `poll(2)` on POSIX,
-    --- `WaitForMultipleObjects` on Win32 -- rather than polling in a loop.
-    ---
-    --- Never called while a suspension handler is installed. Under a scheduler the
-    --- frame must keep running, so the state machine parks instead and the handler
-    --- decides when to come back.
-    ---
-    --- `timeoutMs` is a Nupp number and reaches a platform as a fixed-width integer, so
-    --- a backend converts it. Clamp before converting, not after: a negative can be
-    --- repaired on the far side -- it is a deadline already passed, and means no wait
-    --- --
-    --- but a number too large to fit has already wrapped or truncated by the time
-    --- anything over there sees it, and what arrives may be a short wait, or a long
-    --- one,
-    --- or a negative meaning forever. Nothing downstream can tell which.
-    waitReady: function(processtypes.Backend, processtypes.Interest, number): integer
-end
-
-return processtypes
-]=],
-["/nupp/profile.nupp"] = [=[
---[[
-Profiling, in two channels.
-
-  * `profile.sample` is the statistical sampler. A timer interrupts the program
-    and writes down where it was; what comes back is collapsed-stack text, the
-    format speedscope.app, FlameGraph.pl and inferno all read. It answers where
-    the time went.
-  * `profile.trace` watches the JIT give up. It aggregates trace aborts, so
-    blacklisted hot code, a bytecode the compiler will not record, and traces
-    that grew past a limit all become rows rather than silence. It answers
-    whether the time went there compiled or interpreted.
-
-The second question is the one a sampler cannot answer and the one that usually
-matters here: code the JIT refused is an order of magnitude slower than code it
-took, and nothing says so out loud.
-
-Both channels attribute work through `nupp.zone`, so a sample or an abort
-carries the zone path that was open when it happened. Both are process-wide
-rather than per-coroutine, and at most one session of each kind runs at a time.
-
-Neither is free. A sample session pays a timer interrupt, a stack walk and a
-table write at every interval; a trace session pays a callback at every abort,
-inside the compiler. Stop a session once the question it was opened for has an
-answer.
-
-    local profile = require("nupp.profile")
-
-    local session = profile.sample({intervalMs = 5})
-    render()
-    local report = session:stop("profile.out")
-    print(report.samples, report.stacks)
-]]
-
-local zone = require("nupp.zone")
-local jitProfile = require("jit.profile")
-local jitUtil = require("jit.util")
-local traceRegistry = require("nupp._trace")
-
-local profile = {}
-
---- What `profile.sample` collects, and how much of it. Every field is optional.
-type profile.SampleOptions = {
-    --- Milliseconds between samples; 10 by default, which is 100 a second. Below about
-    --- 10 the timer starts taking real time away from the thread it is measuring, so
-    --- lower it for a short window and read the result knowing that it was paid for.
-    intervalMs: integer?,
-
-    --- How many frames to walk per sample; 16 by default. The walk is linear in this
-    --- and it happens on the interrupted thread, so raise it only when a specific
-    --- question needs the depth.
-    stackDepth: integer?,
-
-    --- Keep only the samples taken under a zone path starting with this, so
-    --- "frame/render" reads as that subtree alone.
-    ---
-    --- Applied at `stop` rather than while sampling: narrowing it costs nothing at
-    --- runtime, and widening it afterwards is not possible, because the prefix is fixed
-    --- when the session starts.
-    zone: string?,
-
-    --- The module the program starts at, as a stack frame names it. Everything below
-    --- the outermost frame from it is dropped.
-    ---
-    --- A profiler samples the whole stack it is embedded in, and what is under the
-    --- program — the loader that read it, the pcall that guards it — is not the
-    --- program. Naming its module cuts the report back to it.
-    ---
-    --- Frames read "<module>:<name>", so the module is the part to give. A stack with
-    --- no frame from it is kept whole rather than emptied, and two stacks that differ
-    --- only below the root become one, their counts summed.
-    root: string?
-}
-
---- What `profile.trace` counts. Every field is optional.
-type profile.TraceOptions = {
-    --- Include the aborts that are ordinary trace formation rather than a refusal —
-    --- leaving a loop, recursion, an inner loop. False by default; turn it on when the
-    --- question is why a particular trace never formed.
-    includeBenign: boolean?
-}
-
---- A running profiling session whose declaration chooses the report `stop` returns.
----
---- Sampling and trace-abort sessions share this lifecycle. Generic helpers can use
---- `S.Report` to preserve the concrete report chosen by a session declaration.
-interface profile.Session
-    associated type Report
-
-    pause: function(self)
-    resume: function(self)
-    stop: function(self, filename: string?): self.Report
-end
-
---- How much an abort is worth reading.
----
---- `blacklist` is always actionable: the code is demoted to the interpreter for the
---- rest of the process. `warn` is a refusal that may or may not sit on a hot path.
---- `info` is trace formation working as designed.
-type profile.Severity = "blacklist" | "warn" | "info"
-
---- One distinct stack, and what landed on it.
----
---- A row of a `SampleReport`, built at `stop`. The five state counts sum to `count`.
-record profile.Sample
-    --- The zone path the samples were taken under, "" when none was open.
-    zonePath: string
-
-    --- The stack as `dumpstack` rendered it, ";" between frames, outermost first.
-    stack: string
-
-    --- Samples on this stack, in every VM state.
-    count: integer
-
-    --- Samples running compiled machine code.
-    compiled: integer
-
-    --- Samples in the interpreter.
-    interpreted: integer
-
-    --- Samples inside a C function.
-    cCode: integer
-
-    --- Samples in the garbage collector.
-    collecting: integer
-
-    --- Samples inside the JIT compiler itself.
-    compiling: integer
-end
-
---- What a sample session saw, as `SampleSession:stop` returns it.
----
---- `tostring` on it is the collapsed-stack text, so it prints and pipes directly.
-record profile.SampleReport
-    --- The interval the session ran at, so the sample counts can be read as time.
-    intervalMs: integer
-
-    --- Samples recorded, after the zone filter.
-    samples: integer
-
-    --- Distinct stacks they fell on.
-    stacks: integer
-
-    --- One line per stack: semicolon-separated frames, a space, then the sample count.
-    --- Ordered by count descending. Empty when nothing was sampled, which a short
-    --- session and a zone prefix that matched nothing both produce.
-    text: string
-
-    metamethod __tostring: function(self): string
-end
-
---- A running sampler, as `profile.sample` returns it.
----
---- Live until `stop`, and there is at most one at a time. Dropping the handle without
---- stopping leaves the timer running for the rest of the process.
-record profile.SampleSession is profile.Session
-    associated type Report = profile.SampleReport
-
-    --- The interval it was started at.
-    intervalMs: integer
-
-    --- The zone prefix `stop` will filter by, or nil for all of them.
-    zoneFilter: string?
-
-    --- The module `stop` will cut the stacks back to, or nil to keep them whole.
-    root: string?
-
-    --- Whether recording is suspended. The timer keeps firing.
-    paused: boolean
-
-    --- Whether `stop` has run.
-    stopped: boolean
-
-    --- Samples so far, by zone path and then by stack. Two levels rather than one
-    --- joined key, so a sample taken in a zone that has not changed since the last one
-    --- costs a single table lookup.
-    aggregate: {[string]: {[string]: profile.Sample}}
-
-    pause: function(self)
-    resume: function(self)
-    stop: function(self, filename: string?): self.Report
-end
-
---- One place the JIT gave up, and how often it did.
----
---- A row of a `TraceReport`, built at `stop`.
-record profile.AbortSite
-    --- How much it is worth reading.
-    severity: profile.Severity
-
-    --- Times this exact severity, reason, location and zone fired.
-    count: integer
-
-    --- The reason, from `jit.vmdef.traceerr`. An unrecordable bytecode is rendered with
-    --- the opcode's name.
-    reason: string
-
-    --- Stable compiler identity and classification for the raw VM reason above.
-    reasonId: string
-
-    reasonClass: 'blocker' | 'risk' | 'stop'
-    rawReason: string
-
-    --- "<file>:<line>" of the function being recorded when it aborted.
-    location: string
-
-    --- The zone path that was open, "" when none was.
-    zonePath: string
-end
-
---- The exact recorder configuration used to normalize a trace report.
-record profile.TraceProfile
-    id: string
-    luajitRevision: string
-    luajitVersion: integer
-    architecture: string
-    operatingSystem: string
-    enabledRecorderFeatures: {string}
-    bytecodeSchema: string
-    supported: boolean
-end
-
---- What a trace session saw, as `TraceSession:stop` returns it.
----
---- `tostring` on it renders `sites` as RFC 4180 CSV, so it prints, sorts and diffs
---- directly.
-record profile.TraceReport
-    --- Wallclock seconds the session was active, in whole seconds: it comes from
-    --- `os.time`, so a session shorter than one reads as zero and dividing by it is the
-    --- caller's problem.
-    durationSec: integer
-
-    --- Abort events recorded. Excludes the benign ones unless `includeBenign` was set.
-    totalAborts: integer
-
-    --- Blacklist events among them. Always actionable.
-    blacklisted: integer
-
-    --- One row per distinct severity, reason, location and zone. Ordered by severity,
-    --- then by count descending.
-    sites: {profile.AbortSite}
-
-    --- The recorder and registry identities under which the events were interpreted.
-    traceProfile: profile.TraceProfile
-
-    reasonCatalogId: string
-    reasonCatalogVersion: integer
-
-    metamethod __tostring: function(self): string
-end
-
---- A running trace-abort collector, as `profile.trace` returns it.
----
---- Live until `stop`, and there is at most one at a time. Dropping the handle without
---- stopping leaves the event hook attached for the rest of the process.
-record profile.TraceSession is profile.Session
-    associated type Report = profile.TraceReport
-
-    --- Whether the benign trace-formation events are being counted.
-    includeBenign: boolean
-
-    --- `os.time` when the session started.
-    startedAt: integer
-
-    --- Whether aggregation is suspended. The hook stays attached.
-    paused: boolean
-
-    --- Whether `stop` has run.
-    stopped: boolean
-
-    --- Aborts so far, by severity, reason, location and zone joined.
-    sites: {[string]: profile.AbortSite}
-
-    --- Aborts counted so far.
-    totalAborts: integer
-
-    --- Blacklist events among them.
-    blacklisted: integer
-
-    traceProfile: profile.TraceProfile
-
-    --- The handler to hand back to `jit.attach` to detach it. Dropping the last
-    --- reference to a handler does not remove it.
-    callback: function(...: any)
-
-    pause: function(self)
-    resume: function(self)
-    stop: function(self, filename: string?): self.Report
-end
-
--------------------------------------------------------------------------------
--- Shared
--------------------------------------------------------------------------------
-
--- Writes `text` to `path`, replacing whatever was there. Raised errors carry the path,
--- since the caller passed a name and a failure that does not repeat it says nothing
--- about which name was wrong.
-local function writeFile(path: string, text: string)
-    local file, openReason = io.open(path, "wb")
-    if not file then
-        error("profile: cannot write '" .. path .. "': " .. (openReason or "unknown"), 3)
-    end
-    local written, writeReason = file:write(text)
-    if not written then
-        file:close()
-        error("profile: cannot write '" .. path .. "': " .. (writeReason or "unknown"), 3)
-    end
-    local closed, closeReason = file:close()
-    if not closed then
-        error("profile: cannot close '" .. path .. "': " .. (closeReason or "unknown"), 3)
-    end
-end
-
--------------------------------------------------------------------------------
--- Sampling
--------------------------------------------------------------------------------
-
--- The zone path and the stack are joined with ";" and "/" respectively, and a
--- collapsed-stack line ends at its first newline, so a frame carrying either would be
--- read as two frames or as two lines. Nothing legitimately names a function this way;
--- what does is a chunk loaded from a string.
-local function sanitize(frame: string): string
-    return (frame:gsub("[;/\n\r]", "_"))
-end
-
--- The VM state the most samples on a stack were in, as the one character `jit.profile`
--- reports it with. Ties go to the earlier test, which puts "compiled" ahead of the
--- states that are all forms of not running the program.
-local function dominantState(sample: profile.Sample): string
-    local state, best = "N", sample.compiled
-    if sample.interpreted > best then
-        state, best = "I", sample.interpreted
-    end
-    if sample.cCode > best then
-        state, best = "C", sample.cCode
-    end
-    if sample.collecting > best then
-        state, best = "G", sample.collecting
-    end
-    if sample.compiling > best then
-        state, best = "J", sample.compiling
-    end
-
-    return state
-end
-
--- Appends the pieces of `text`, split on `separator`, to `frames`. Empty pieces are
--- dropped: a zone path is "" when no zone is open, and dumpstack can render a frame it
--- has no name for as nothing at all.
-local function appendFrames(frames: {string}, text: string, separator: string)
-    if text == "" then
-        return
-    end
-
-    local pattern = "[^" .. separator .. "]+"
-    for piece in text:gmatch(pattern) do
-        frames[#frames + 1] = sanitize(piece)
-    end
-end
-
--- Collapsed-stack text: one line per stack, frames separated by ";", then a space and
--- the sample count. The zone path leads, so a flame graph opens on the zones and drills
--- into the code beneath each.
---
--- The leaf carries the dominant VM state as a "_[N]" suffix, the convention FlameGraph
--- and speedscope already colour on. The letters are LuaJIT's own: N compiled, I
--- interpreted, C in a C function, G collecting, J compiling.
-local function collapse(samples: {profile.Sample}): string
-    if #samples == 0 then
-        return ""
-    end
-
-    table.sort(samples, function(a: profile.Sample, b: profile.Sample): boolean
-        if a.count ~= b.count then
-            return a.count > b.count
-        end
-        if a.zonePath ~= b.zonePath then
-            return a.zonePath < b.zonePath
-        end
-
-        return a.stack < b.stack
-    end)
-
-    local lines: {string} = {}
-    for index = 1, #samples do
-        local sample = samples[index]
-        local frames: {string} = {}
-        appendFrames(frames, sample.zonePath, "/")
-        appendFrames(frames, sample.stack, ";")
-        if #frames == 0 then
-            frames[1] = "<root>"
-        end
-        frames[#frames] = frames[#frames] .. "_[" .. dominantState(sample) .. "]"
-        lines[index] = table.concat(frames, ";") .. " " .. string.format("%d", sample.count)
-    end
-
-    return table.concat(lines, "\n")
-end
-
--- Everything below the outermost frame belonging to `root` is what started the program
--- rather than the program. Frames read "<module>:<name>", so the module is matched at a
--- frame boundary; a substring match anywhere would cut a stack at a function that
--- merely mentions the name.
---
--- A stack with no frame from `root` is left whole. That is the honest answer for a
--- sample taken before the program was entered, or after it returned.
-local function trimToRoot(stack: string, root: string): string
-    local prefix = root .. ":"
-    local from = 1
-    while from <= #stack do
-        if stack:sub(from, from + #prefix - 1) == prefix then
-            return stack:sub(from)
-        end
-        local nextFrame = stack:find(";", from, true)
-        if not nextFrame then
-            return stack
-        end
-        from = nextFrame + 1
-    end
-
-    return stack
-end
-
--- One session at a time: the profiler is a process-wide singleton, and starting a
--- second would silently replace the first's callback while its handle still looked
--- live.
-local sampling = false
-
---- Starts sampling.
----
---- @param options omitted samples every zone at 10 ms to a depth of 16
---- @return the handle whose `stop` produces the report
---- @raises when a sample session is already running
-function profile.sample(options: profile.SampleOptions?): profile.SampleSession
-    if sampling then
-        error("profile.sample: a sample session is already running; stop it first", 2)
-    end
-
-    local opts: profile.SampleOptions = options or {}
-    local intervalMs = opts.intervalMs or 10
-    if intervalMs < 1 then
-        error("profile.sample: intervalMs must be at least 1", 2)
-    end
-    local stackDepth = opts.stackDepth or 16
-    if stackDepth < 1 then
-        error("profile.sample: stackDepth must be at least 1", 2)
-    end
-
-    local session = new profile.SampleSession(
-        intervalMs = intervalMs,
-        zoneFilter = opts.zone,
-        root = opts.root,
-        paused = false,
-        stopped = false,
-        aggregate = {}
-    )
-
-    -- Negative, so the walk runs outermost frame first: that is the order a collapsed
-    -- stack is written in, and reversing it here would mean building a list per sample
-    -- on the interrupted thread.
-    local walk = -stackDepth
-    local aggregate = session.aggregate
-    -- The zone path is a string the zone module holds onto until the stack changes, so
-    -- consecutive samples in one zone hit the same table entry without hashing a fresh
-    -- key.
-    local cachedPath = ""
-    local cachedStacks: {[string]: profile.Sample} = {}
-    aggregate[cachedPath] = cachedStacks
-
-    local function record(thread: any, samples: integer, vmstate: string)
-        if session.paused then
-            return
-        end
-
-        local path = zone.path()
-        if path ~= cachedPath then
-            local stacks = aggregate[path]
-            if not stacks then
-                stacks = {}
-                aggregate[path] = stacks
-            end
-            cachedPath, cachedStacks = path, stacks
-        end
-
-        -- Only meaningful for the thread this callback was handed, and only while it is
-        -- running.
-        local stack = thread and jitProfile.dumpstack(thread, "FZ;", walk) or ""
-        local sample = cachedStacks[stack]
-        if not sample then
-            sample = new profile.Sample(
-                zonePath = path,
-                stack = stack,
-                count = 0,
-                compiled = 0,
-                interpreted = 0,
-                cCode = 0,
-                collecting = 0,
-                compiling = 0
-            )
-            cachedStacks[stack] = sample
-        end
-
-        sample.count = sample.count + samples
-        if vmstate == "N" then
-            sample.compiled = sample.compiled + samples
-        elseif vmstate == "I" then
-            sample.interpreted = sample.interpreted + samples
-        elseif vmstate == "C" then
-            sample.cCode = sample.cCode + samples
-        elseif vmstate == "G" then
-            sample.collecting = sample.collecting + samples
-        elseif vmstate == "J" then
-            sample.compiling = sample.compiling + samples
-        end
-    end
-
-    zone.acquire()
-    -- "l" keys the sampler on the source line, which is the finest thing it coalesces
-    -- on: consecutive samples sharing a key arrive as one call carrying their count, so
-    -- anything coarser would attribute a run of samples to whichever stack the last of
-    -- them was on. "i<n>" is the interval. The stack and the VM state arrive either
-    -- way.
-    jitProfile.start("li" .. string.format("%d", intervalMs), record)
-    sampling = true
-
-    return session
-end
-
---- Stops recording without ending the session. The timer keeps firing, at the cost of
---- one test per sample, and what was recorded on either side of the pause is kept —
---- which is how a benchmark leaves its setup out.
----
---- Idempotent.
----
---- @raises once the session has stopped
-function profile.SampleSession:pause()
-    if self.stopped then
-        error("SampleSession:pause: the session has already stopped", 2)
-    end
-    self.paused = true
-end
-
---- Resumes recording. Idempotent.
----
---- @raises once the session has stopped
-function profile.SampleSession:resume()
-    if self.stopped then
-        error("SampleSession:resume: the session has already stopped", 2)
-    end
-    self.paused = false
-end
-
---- Ends the session and reports what it saw.
----
---- @param filename also write the collapsed-stack text there, replacing
----     whatever was in it
---- @return the report, whose `tostring` is that same text
---- @raises once the session has stopped, so it cannot be called twice
-function profile.SampleSession:stop(filename: string?): profile.SampleReport
-    if self.stopped then
-        error("SampleSession:stop: the session has already stopped", 2)
-    end
-    self.stopped = true
-    jitProfile.stop()
-    sampling = false
-    zone.release()
-
-    local prefix = self.zoneFilter
-    local root = self.root
-    local kept: {profile.Sample} = {}
-    local samples: integer = 0
-    -- Trimming can bring two stacks together, when what they differed in was only what
-    -- started them, so the rows are merged rather than the first one standing for both.
-    -- The key holds a NUL because a zone name and a frame can hold anything else.
-    local merged: {[string]: profile.Sample} = {}
-    for path, stacks in pairs(self.aggregate) do
-        if not prefix or path:sub(1, #prefix) == prefix then
-            for _, sample in pairs(stacks) do
-                samples = samples + sample.count
-                local stack = root and trimToRoot(sample.stack, root) or sample.stack
-                local row = merged[path .. "\0" .. stack]
-                if not row then
-                    row = new profile.Sample(
-                        zonePath = path,
-                        stack = stack,
-                        count = 0,
-                        compiled = 0,
-                        interpreted = 0,
-                        cCode = 0,
-                        collecting = 0,
-                        compiling = 0
-                    )
-                    merged[path .. "\0" .. stack] = row
-                    kept[#kept + 1] = row
-                end
-                row.count = row.count + sample.count
-                row.compiled = row.compiled + sample.compiled
-                row.interpreted = row.interpreted + sample.interpreted
-                row.cCode = row.cCode + sample.cCode
-                row.collecting = row.collecting + sample.collecting
-                row.compiling = row.compiling + sample.compiling
-            end
-        end
-    end
-
-    local report = new profile.SampleReport(
-        intervalMs = self.intervalMs,
-        samples = samples,
-        stacks = #kept,
-        text = collapse(kept)
-    )
-    if filename then
-        writeFile(filename, report.text)
-    end
-
-    return report
-end
-
--------------------------------------------------------------------------------
--- Trace aborts
--------------------------------------------------------------------------------
-
-local function classify(reason: string, reasonClass: string): profile.Severity
-    if reason:find("blacklist", 1, true) then
-        return "blacklist"
-    end
-    if reasonClass == "stop" then
-        return "info"
-    end
-
-    return "warn"
-end
-
-local function severityRank(severity: profile.Severity): integer
-    if severity == "blacklist" then
-        return 0
-    elseif severity == "warn" then
-        return 1
-    else
-        return 2
-    end
-end
-
--- Lua prefixes a file source with "@", and the function descriptions inherit it. Strip
--- it so a row reads "path:line". A source that is not a file — "[C]", a loaded string —
--- does not carry the prefix and is left as it is.
-local function trimSource(source: string): string
-    if source:sub(1, 1) == "@" then
-        return source:sub(2)
-    end
-    return source
-end
-
--- Where the compiler was when it gave up. `funcinfo` knows the bytecode position, so it
--- can name the line inside the function rather than the line the function started on;
--- `debug.getinfo` is the fallback for the case where it answers nothing useful.
-local function describeLocation(func: any, pc: any): string
-    if func then
-        local ok, info = pcall(jitUtil.funcinfo, func, pc as integer)
-        if ok and info then
-            local described = info as {[string]: any}
-            local source = described.short_src or described.source or "?"
-            local line = described.currentline or described.linedefined or 0
-            return string.format("%s:%d", trimSource(source as string), line as integer)
-        end
-    end
-    if type(func) == "function" then
-        local info = debug.getinfo(func, "S")
-        return string.format(
-            "%s:%d",
-            trimSource(info and info.short_src or "?"),
-            (info and info.linedefined or 0) as integer
-        )
-    end
-
-    return "?:0"
-end
-
--- RFC 4180: a field holding a comma, a quote or a line break is quoted, and an embedded
--- quote is doubled. In practice only `reason` ever needs it.
-local function csvField(text: string): string
-    if text:find("[,\"\n\r]") then
-        return "\"" .. text:gsub("\"", "\"\"") .. "\""
-    end
-    return text
-end
-
-local function serializeTraceReport(report: profile.TraceReport): string
-    local lines: {string} = {"severity,count,reason,location,zone"}
-    for index = 1, #report.sites do
-        local site = report.sites[index]
-        lines[
-            #lines + 1
-        ] = table.concat(
-            {
-                site.severity,
-                string.format("%d", site.count),
-                csvField(site.reason),
-                csvField(site.location),
-                csvField(site.zonePath),
-            },
-            ","
-        )
-    end
-
-    return table.concat(lines, "\n")
-end
-
--- A record's namespace table is the metatable its instances are stamped with, so
--- installing a declared contract is an ordinary assignment to it. The cast is because
--- the contract is not a field: see docs/metamethods.md.
-(profile.TraceReport as {[string]: any}).__tostring = serializeTraceReport;
-
-(profile.SampleReport as {[string]: any}).__tostring = function(report: profile.SampleReport): string
-    return report.text
-end
-
-local tracing = false
-
---- Starts collecting trace aborts.
----
---- @param options omitted leaves the benign trace-formation events out
---- @return the handle whose `stop` produces the report
---- @raises when a trace session is already running
-function profile.trace(options: profile.TraceOptions?): profile.TraceSession
-    if tracing then
-        error("profile.trace: a trace session is already running; stop it first", 2)
-    end
-
-    local opts: profile.TraceOptions = options or {}
-    local selected = traceRegistry.profile()
-    local session = new profile.TraceSession(
-        includeBenign = opts.includeBenign or false,
-        startedAt = os.time() as integer,
-        paused = false,
-        stopped = false,
-        sites = {},
-        totalAborts = 0,
-        blacklisted = 0,
-        traceProfile = new profile.TraceProfile(
-            id = selected.id,
-            luajitRevision = selected.luajitRevision,
-            luajitVersion = selected.luajitVersion,
-            architecture = selected.architecture,
-            operatingSystem = selected.operatingSystem,
-            enabledRecorderFeatures = selected.enabledRecorderFeatures,
-            bytecodeSchema = selected.bytecodeSchema,
-            supported = selected.supported
-        ),
-        callback = function()
-        end
-    )
-
-    -- Variadic because `jit.attach` hands each event its own arguments; a "trace"
-    -- event's are what this unpacks. The trace number is the one this does not need:
-    -- what identifies a site is where the compiler was, not which attempt it was on.
-    local function onTraceEvent(...: any)
-        local what, _, func, pc, errorCode, errorArg = ...
-        if what ~= "abort" or session.paused then
-            return
-        end
-
-        local normalizedCode = type(errorCode) == "number" and errorCode as integer or nil
-        local normalizedArg = (type(errorArg) == "number" or type(errorArg) == "string") and errorArg or nil
-        local normalized, reason = traceRegistry.runtime(normalizedCode, normalizedArg)
-        local severity = classify(reason, normalized.class)
-        if severity == "info" and not session.includeBenign then
-            return
-        end
-
-        session.totalAborts = session.totalAborts + 1
-        if severity == "blacklist" then
-            session.blacklisted = session.blacklisted + 1
-        end
-
-        local location = describeLocation(func, pc)
-        local path = zone.path()
-        local key = severity .. "|" .. reason .. "|" .. location .. "|" .. path
-        local site = session.sites[key]
-        if site then
-            site.count = site.count + 1
-        else
-            session.sites[
-                key
-            ] = new profile.AbortSite(
-                severity = severity,
-                count = 1,
-                reason = reason,
-                reasonId = normalized.id,
-                reasonClass = normalized.class,
-                rawReason = reason,
-                location = location,
-                zonePath = path
-            )
-        end
-    end
-
-    session.callback = onTraceEvent
-    zone.acquire()
-    jit.attach(onTraceEvent, "trace")
-    tracing = true
-
-    return session
-end
-
---- Stops counting without ending the session. The hook stays attached, at the cost of
---- one test per abort, and what was counted on either side of the pause is kept.
----
---- Idempotent.
----
---- @raises once the session has stopped
-function profile.TraceSession:pause()
-    if self.stopped then
-        error("TraceSession:pause: the session has already stopped", 2)
-    end
-    self.paused = true
-end
-
---- Resumes counting. Idempotent.
----
---- @raises once the session has stopped
-function profile.TraceSession:resume()
-    if self.stopped then
-        error("TraceSession:resume: the session has already stopped", 2)
-    end
-    self.paused = false
-end
-
---- Ends the session and reports what it saw.
----
---- @param filename also write the CSV there, replacing whatever was in it
---- @return the report, whose `tostring` is that CSV
---- @raises once the session has stopped, so it cannot be called twice
-function profile.TraceSession:stop(filename: string?): profile.TraceReport
-    if self.stopped then
-        error("TraceSession:stop: the session has already stopped", 2)
-    end
-    self.stopped = true
-    -- No event names the handler to remove.
-    jit.attach(self.callback)
-    tracing = false
-    zone.release()
-
-    local sites: {profile.AbortSite} = {}
-    for _, site in pairs(self.sites) do
-        sites[#sites + 1] = site
-    end
-    table.sort(sites, function(a: profile.AbortSite, b: profile.AbortSite): boolean
-        local left, right = severityRank(a.severity), severityRank(b.severity)
-        if left ~= right then
-            return left < right
-        end
-        if a.count ~= b.count then
-            return a.count > b.count
-        end
-        if a.reason ~= b.reason then
-            return a.reason < b.reason
-        end
-
-        return a.location < b.location
-    end)
-
-    local report = new profile.TraceReport(
-        durationSec = (os.time() as integer) - self.startedAt,
-        totalAborts = self.totalAborts,
-        blacklisted = self.blacklisted,
-        sites = sites,
-        traceProfile = self.traceProfile,
-        reasonCatalogId = traceRegistry.CATALOG_ID,
-        reasonCatalogVersion = traceRegistry.CATALOG_VERSION
-    )
-    if filename then
-        writeFile(filename, tostring(report))
-    end
-
-    return report
-end
-
-return profile
-]=],
-["/nupp/resources.nupp"] = [=[
---[[
-Owning wrappers for Lua's file handles, and the container that holds a runtime
-number of owners.
-
-`io.open` hands back a borrowed handle, which means nothing has to close it and
-nothing complains when nobody does. These are the same calls annotated as owners,
-so the checker knows a handle must be discharged and lexical cleanup can do it —
-on fallthrough, on error, and on structured control flow alike.
-
-Producing owners and holding them are the two halves of one subject, so they are
-one module. `Set` is the audited exception to the rule that an owner cannot live
-in dynamic storage. How many owners a set holds, and of what types, is known only
-while running, so the proof of discharge cannot stay in the checker: it is carried
-into the entry as the witness `adopt` is handed. Surrendering an owner to that
-storage is what `unsafe release` is for, and the two `unsafe` blocks below are the whole
-of what this module asks to be trusted about. `nupp ownership-audit` lists them.
-
-See `docs/ownership.md`.
-]]
-
-local resources = {}
-
---- One adopted owner and the witness that discharges it.
----
---- Both are erased: the set is one table holding owners of types it never learns,
---- and the witness the call site reified is the only thing that knows what to do
---- with the value beside it.
-local record Entry
-    value: any
-    cleanup: any
-end
-
---- A container for as many owners as a program turns out to need.
----
---- `adopt` moves an owner in and returns a borrow tied to the set; `close` discharges
---- every registration in reverse, attempts all of them, and reports the first failure
---- with a count of the ones it suppressed.
----
 --- @export
-record resources.Set
-    --- What the set is for, in diagnostics.
-    label: string
-
-    --- Adopted owners, in the order they arrived.
-    _entries: {Entry}
-
-    --- Whether `close` has already run.
-    _closed: boolean
-
-    --- Discharges every registration in reverse.
-    ---
-    --- Attempts all of them, so one failing cleanup cannot strand the rest, then
-    --- reports the first failure with a count of the ones it suppressed. Idempotent.
-    drop: nosuspend function(takes self: resources.Set)
-
-    close: nosuspend function(takes self: resources.Set)
-
-    --- Moves an owner in and returns a borrow tied to the set.
-    ---
-    --- The second argument is the discharge witness. A caller never writes it: the
-    --- checker reifies the adopted value's own cleanup contract at the call site, and
-    --- asks for an explicit terminal consumer only where there is no contract to reify.
-    ---
-    --- @param value the owner the set takes responsibility for
-    --- @param terminal what discharges an opaque owner, which carries no contract
-    --- @return the adopted value, borrowed from the set
-    --- @raises when the set is already closed, or adoption carries no witness
-    --- @param value the owner the set takes responsibility for
-    --- @param terminal what discharges an opaque owner, which carries no contract
-    --- @return the adopted value, borrowed from the set
-    --- @raises when the set is already closed, or adoption carries no witness
-    function adopt<T>(self, takes value: T, terminal: function(takes value: T)?): T borrows (self)
-        assert(not self._closed, "resource set is closed")
-        local witness = terminal
-        assert(type(witness) == "function", "resource adoption needs a discharge witness")
-        self._entries[#self._entries + 1] = new Entry(value = unsafe release value, cleanup = witness)
-
-        return self._entries[#self._entries].value as T
-    end
-
-    --- Deletes one registration and returns the original capability exactly once.
-    ---
-    --- @param value a value a previous `adopt` returned
-    --- @return that value, owned by the caller again
-    --- @raises when the value is not registered in this set, or the set is closed
-    function remove<T>(self, borrows value: T): T
-        assert(not self._closed, "resource set is closed")
-        for index = #self._entries, 1, -1 do
-            local entry = self._entries[index]
-            if entry.value == value then
-                table.remove(self._entries, index)
-                return entry.value as T
-            end
-        end
-        error("resource is not registered in this set", 2)
-    end
-end
-
---- Discharges every registration in reverse.
----
---- Attempts all of them, so one failing cleanup cannot strand the rest, then reports
---- the first failure with a count of the ones it suppressed. Idempotent.
----
---- @export
---- @param self the set, spent by this call
---- @raises when a registration's cleanup fails
-function resources.Set.close(takes self)
-    local first: any = nil
-    local suppressed = 0
-    if not self._closed then
-        self._closed = true
-        for index = #self._entries, 1, -1 do
-            local entry = self._entries[index]
-            local ok, reason = pcall(entry.cleanup, entry.value)
-            if not ok then
-                if first == nil then
-                    first = reason
-                else
-                    suppressed = suppressed + 1
-                end
-            end
-        end
-        self._entries = {}
-    end
-    -- The set is spent either way, and saying so before raising keeps a failing
-    -- cleanup from also reading as an undischarged owner.
-    local _raw = unsafe release self
-    if first ~= nil then
-        if suppressed > 0 then
-            error(tostring(first) .. " (suppressed " .. tostring(suppressed) .. " cleanup failure(s))", 0)
-        end
-        error(first, 0)
-    end
-end
-
-function resources.Set.drop(takes self)
+function heap.destroyArray<T is heap.ArrayToken>(takes self: T): nil
     self:close()
 end
 
-local function destroySet(takes value: resources.Set): nil
-    value:drop()
-end
-
---- Creates a set that owns whatever is adopted into it.
----
---- The set closes automatically at its lexical boundary, discharging what it still
---- holds.
----
+--- An owned contiguous native allocation whose logical count cannot be separated
+--- from its pointer in checked code.
 --- @export
---- @param label what the set is for, in diagnostics; omitted names it "resource"
---- @return the empty set, owned by the caller
-function resources.set(label: string?): affine(resources.Set, destroySet)
-    return new resources.Set(label = label or "resource", _entries = {}, _closed = false)
+record heap.Array<T> is heap.ArrayToken
+    private pointer: T[?]
+    readonly count: integer
+
+    --- Releases the allocation. Scope exit invokes this automatically.
+    drop: nosuspend function(takes self: Array<T>): nil
+
+    close: nosuspend function(takes self: Array<T>): nil
+
+    --- Borrows the whole allocation as a shared checked span.
+    ---
+    --- ::: tip Nonescaping views at -O1
+    --- A nonescaping result can remain virtual, so no span wrapper is allocated.
+    --- An escape or opaque call materializes the same checked span.
+    --- :::
+    read: function(borrows self: Array<T>): span.Span<T> borrows (self)
+
+    --- Borrows the whole allocation as an affine checked write span.
+    ---
+    --- ::: tip Nonescaping views at -O1
+    --- A nonescaping result can remain virtual, so no span wrapper is allocated.
+    --- An escape or opaque call materializes the same checked span.
+    --- :::
+    write: function(exclusive self: Array<T>): span.Writable<T> borrows (self)
 end
 
-local function close_file(takes file: LuaFile): nil
-    local ok, reason = file:close()
-    if not ok then
-        error(reason or "file close failed")
+function heap.Array.read<T>(borrows self: heap.Array<T>): span.Span<T> borrows (self)
+    return span.fromCarray(self.pointer, self.count)
+end
+
+function heap.Array.close<T>(takes self: heap.Array<T>): nil
+    finish_array_nosuspend(self)
+end
+
+function heap.Array.drop<T>(takes self: heap.Array<T>): nil
+    self:close()
+end
+
+function heap.Array.write<T>(exclusive self: heap.Array<T>): span.Writable<T> borrows (self)
+    return span.writeCarray(self.pointer, self.count)
+end
+
+--- Allocates `count` contiguous values of `element` outside LuaJIT's GC allocation
+--- limit. The result owns the allocation and is automatically freed.
+--- @export
+--- @raises when count is negative, the byte size overflows a Lua integer, or malloc
+---     fails
+function heap.allocate<T>(element: ctype<T>, count: integer): affine(heap.Array<T>, heap.destroyArray)
+    if count < 0 then
+        error("heap array count cannot be negative", 2)
+    end
+
+    local width = ffi.sizeof(element)
+    if width <= 0 or (count > 0 and count > 9007199254740991 // width) then
+        error("heap array byte size is too large", 2)
+    end
+
+    local bytes = width * count
+    if bytes == 0 then
+        bytes = 1
+    end
+    local raw = malloc(bytes as uint64)
+    if raw == nil then
+        error("heap array allocation failed", 2)
+    end
+
+    -- A variable spec keeps this on LuaJIT's dynamic-ctype path. The static assertion
+    -- records the relationship already established by the ctype<T> argument.
+    local pointerSpec = "$ *"
+    local pointerType = ffi.typeof(pointerSpec, element)
+    unsafe do
+        local pointer = ffi.cast(pointerType, raw) as T[?]
+        local array = new heap.Array(pointer = pointer, count = count) as heap.Array<T>
+        return array
     end
 end
 
---- Opens a file and transfers responsibility for closing it to the caller.
----
---- The returned handle closes automatically at its lexical boundary.
----
---- @export
---- @param path the path of the file to open
---- @param mode the Lua file mode; omitted uses the Lua default
---- @return the open file handle, owned by the caller
---- @raises when the file cannot be opened
-function resources.openFile(path: string, mode: string?): affine(LuaFile, close_file)
-    local file, reason = io.open(path, mode)
-    if not file then
-        error(reason or "file open failed")
-    end
-
-    return file
-end
-
---- Starts a process and transfers responsibility for closing its pipe to the caller.
----
---- The returned handle closes automatically at its lexical boundary.
----
---- @export
---- @param command the shell command to run
---- @param mode the Lua pipe mode; omitted uses the Lua default
---- @return the process pipe, owned by the caller
---- @raises when the process pipe cannot be opened
-function resources.openProcess(command: string, mode: string?): affine(LuaFile, close_file)
-    local file, reason = io.popen(command, mode)
-    if not file then
-        error(reason or "process open failed")
-    end
-
-    return file
-end
-
---- Creates a temporary file owned by the caller.
----
---- The returned handle closes automatically at its lexical boundary.
----
---- @export
---- @return the open temporary file handle, owned by the caller
---- @raises when the temporary file cannot be created
-function resources.temporaryFile(): affine(LuaFile, close_file)
-    local file = io.tmpfile()
-    if not file then
-        error("temporary file creation failed")
-    end
-
-    return file
-end
-
-return resources
+return heap
 ]=],
-["/nupp/simd.nupp"] = [[
--- Target-selected packed values that exist only inside an AOT compilation.
---
--- The interfaces deliberately have no implementation. The checker gives calls
--- their ordinary types, then the AOT lowerer replaces every operation before a
--- runtime value could exist. Calling `preferred` outside that boundary raises a
--- direct explanation instead of manufacturing a boxed vector.
+["/nupp/mem/indexed.nupp"] = [=[
+--[[
+One checked inclusive range shared by every compiler-owned indexed view. The public
+checker validates the variadic operands against their trusted descriptors; the
+runtime body deliberately stays representation-neutral and reads the private count
+slot carried by each bundled view implementation.
+]]
 
-local simd = {}
+local indexed = {}
 
---- One immutable packed value for the preferred target species.
+--- Inclusive integer bounds validated once against every supplied indexed view.
 --- @export
-sealed interface simd.VectorU8
-    equal: function(borrows self: VectorU8, value: uint32): simd.MaskU8
-    inRange: function(borrows self: VectorU8, low: uint32, high: uint32): simd.MaskU8
-    andBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
-    orBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
-    xorBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
-    notBits: function(borrows self: VectorU8): simd.VectorU8
-    shiftRight: function(borrows self: VectorU8, count: uint32): simd.VectorU8
-
-    --- Looks up every lane in one immutable 16-byte table. Indexes outside
-    --- 0..15 produce zero, matching the native table instructions.
-    lookup16: function(borrows self: VectorU8, table: simd.TableU8x16): simd.VectorU8
+record indexed.Range
+    readonly first: integer
+    readonly last: integer
 end
 
---- One immutable 16-byte lookup table embedded in generated native code.
 --- @export
-sealed interface simd.TableU8x16
+--- @raises when no view is supplied or the bounds exceed a supplied view
+function indexed.range(first: integer, last: integer, borrows ...: any): indexed.Range
+    local count = select("#", ...)
+    if count < 1 or first < 1 or last < first - 1 then
+        error("indexed range out of bounds", 2)
+    end
+    for index = 1, count do
+        local candidate = select(index, ...) as any
+        if last > candidate.count then
+            error("indexed range out of bounds", 2)
+        end
+    end
+
+    return new indexed.Range(first = first, last = last)
 end
 
---- One predicate bit per logical vector lane.
---- @export
-sealed interface simd.MaskU8
-    andBits: function(borrows self: MaskU8, other: MaskU8): simd.MaskU8
-    orBits: function(borrows self: MaskU8, other: MaskU8): simd.MaskU8
-    xorBits: function(borrows self: MaskU8, other: MaskU8): simd.MaskU8
-    notBits: function(borrows self: MaskU8): simd.MaskU8
-    select: function(borrows self: MaskU8, whenTrue: simd.VectorU8, whenFalse: simd.VectorU8): simd.VectorU8
-    any: function(borrows self: MaskU8): boolean
-    all: function(borrows self: MaskU8): boolean
-    count: function(borrows self: MaskU8): uint32
-    bits: function(borrows self: MaskU8): uint32
+--- Private range validation for scalar-replaced views. Each variadic value is a
+--- logical count rather than a materialized wrapper.
+--- @raises when no count is supplied or the bounds exceed one
+function indexed._rangeCounts(first: integer, last: integer, ...: integer): indexed.Range
+    local count = select("#", ...)
+    if count < 1 or first < 1 or last < first - 1 then
+        error("indexed range out of bounds", 2)
+    end
+    for index = 1, count do
+        if last > select(index, ...) then
+            error("indexed range out of bounds", 2)
+        end
+    end
+
+    return new indexed.Range(first = first, last = last)
 end
 
---- A target-independent 64-bit predicate bitmap.
----
---- This is deliberately not a general `uint64`: ordinary Nupp numbers retain
---- their LuaJIT representation and exactness rules. The two uint32 halves let
---- scanners combine register masks, carry prefix state across them, and drain
---- events without boxing cdata.
---- @export
-sealed interface simd.MaskBits64
-    andBits: function(borrows self: MaskBits64, other: MaskBits64): simd.MaskBits64
-    orBits: function(borrows self: MaskBits64, other: MaskBits64): simd.MaskBits64
-    xorBits: function(borrows self: MaskBits64, other: MaskBits64): simd.MaskBits64
-    notBits: function(borrows self: MaskBits64): simd.MaskBits64
-    shiftLeft: function(borrows self: MaskBits64, count: uint32): simd.MaskBits64
-    shiftRight: function(borrows self: MaskBits64, count: uint32): simd.MaskBits64
-    prefixXor: function(borrows self: MaskBits64, carry: boolean): simd.MaskBits64
-    lowBits: function(borrows self: MaskBits64): uint32
-    highBits: function(borrows self: MaskBits64): uint32
-    any: function(borrows self: MaskBits64): boolean
-    count: function(borrows self: MaskBits64): uint32
-    firstSet: function(borrows self: MaskBits64): uint32
-    clearFirst: function(borrows self: MaskBits64): simd.MaskBits64
+--- Private allocation-free slice validation used by virtual standard views.
+--- @raises when the requested inclusive bounds exceed the supplied count
+function indexed._sliceFinish(count: integer, first: integer, last: integer?, message: string): integer
+    local finish = last or count
+    if first < 1 or finish < first - 1 or finish > count then
+        error(message, 2)
+    end
+
+    return finish
 end
 
---- The preferred register-sized operation set for one element type.
---- @export
-sealed interface simd.SpeciesU8
-    readonly lanes: integer
+--- Private root validation used when the compiler scalar-replaces a standard
+--- C-array view. Returning the count lets the source binding carry the complete
+--- dynamic scalar representation without allocating a wrapper.
+--- @raises when count is negative
+function indexed._rootCount(count: integer, message: string): integer
+    if count < 0 then
+        error(message, 2)
+    end
 
-    --- Broadcasts the low byte of `value` to every lane.
-    splat: function(borrows self: SpeciesU8, value: uint32): simd.VectorU8
-
-    --- Loads at a zero-based offset. Inactive final lanes are zero and are
-    --- excluded by `tail`; the implementation never reads beyond the span.
-    load: function(borrows self: SpeciesU8, borrows source: nupp.span.Span<uint8>, offset: integer): simd.VectorU8
-
-    --- Loads directly from a string rooted by a Lua-builder AOT entry. This is
-    --- the VM-aware counterpart of `load`: storage remains owned and pinned by
-    --- Lua for the duration of the native call.
-    loadString: function(borrows self: SpeciesU8, source: string, offset: integer): simd.VectorU8
-
-    --- A mask with the first `active` lanes set, clamped to this species.
-    tail: function(borrows self: SpeciesU8, active: integer): simd.MaskU8
+    return count
 end
 
---- A rooted string split into complete blocks and one zero-padded
---- final block. The view exists only for the duration of its AOT entry.
---- @export
-sealed interface simd.PaddedStringU8
-    readonly length: uint32
-    readonly fullLength: uint32
-    readonly tailLength: uint32
+--- Private logical-index check for a scalar-replaced view. The physical adapter
+--- adds its own offset after this preserves the public wrapper's error.
+--- @raises when index is outside 1 through count
+function indexed._checkedIndex(count: integer, index: integer, message: string): integer
+    if index < 1 or index > count then
+        error(message, 2)
+    end
 
-    --- Loads a complete block. The offset must be below `fullLength` and
-    --- aligned to the preferred species width.
-    loadFull: function(borrows self: PaddedStringU8, offset: uint32): simd.VectorU8
-
-    --- Loads the sole incomplete block, already copied and zero padded.
-    loadTail: function(borrows self: PaddedStringU8): simd.VectorU8
+    return index
 end
 
---- Selects the artifact tier's preferred packed byte species.
---- @raises when called without AOT intrinsic lowering
---- @export
-function simd.preferredU8(): simd.SpeciesU8
-    error("nupp.simd values exist only inside an @aot function", 2)
-end
-
---- Combines low and high uint32 words into an AOT-only 64-bit mask.
---- @raises when called without AOT intrinsic lowering
---- @export
-function simd.maskBits64(low: uint32, high: uint32): simd.MaskBits64
-    error("nupp.simd values exist only inside an @aot function", 2)
-end
-
---- Embeds one immutable 16-byte lookup table in an AOT entry.
---- @raises when called without AOT intrinsic lowering
---- @export
-function simd.tableU8x16(
-    b0: uint32,
-    b1: uint32,
-    b2: uint32,
-    b3: uint32,
-    b4: uint32,
-    b5: uint32,
-    b6: uint32,
-    b7: uint32,
-    b8: uint32,
-    b9: uint32,
-    b10: uint32,
-    b11: uint32,
-    b12: uint32,
-    b13: uint32,
-    b14: uint32,
-    b15: uint32
-): simd.TableU8x16
-    error("nupp.simd values exist only inside an @aot function", 2)
-end
-
---- Aligns `previous .. current`, bringing the last `offset` bytes of the
---- previous vector into the beginning of the result. Offsets 1..3 are
---- admitted because they are the cross-block lookback needed by UTF-8 scans.
---- @raises when called without AOT intrinsic lowering
---- @export
-function simd.alignBytes(previous: simd.VectorU8, current: simd.VectorU8, offset: uint32): simd.VectorU8
-    error("nupp.simd values exist only inside an @aot function", 2)
-end
-
---- Roots a Lua string and prepares its one incomplete preferred-width block.
---- @raises when called without AOT intrinsic lowering
---- @export
-function simd.paddedStringU8(source: string): simd.PaddedStringU8
-    error("nupp.simd values exist only inside an @aot function", 2)
-end
-
-return simd
-]],
-["/nupp/soa.nupp"] = [=[
+return indexed
+]=],
+["/nupp/mem/soa.nupp"] = [=[
 --[[
 Structure-of-arrays storage for reified structs.
 
@@ -143016,7 +141774,7 @@ construction; it never exposes the slab or its column pointers in the public typ
 
 local soa = {}
 local ffi = require("ffi")
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 cdef function malloc(size: uint64): voidptr
 cdef function free(takes pointer: voidptr)
@@ -143490,7 +142248,7 @@ end
 
 return soa
 ]=],
-["/nupp/span.nupp"] = [=[
+["/nupp/mem/span.nupp"] = [=[
 --[[
 Bounds-carrying borrowed pointer views.
 
@@ -143960,6 +142718,1683 @@ end
 
 return span
 ]=],
+["/nupp/profile.nupp"] = [=[
+--[[
+Profiling, in two channels.
+
+  * `profile.sample` is the statistical sampler. A timer interrupts the program
+    and writes down where it was; what comes back is collapsed-stack text, the
+    format speedscope.app, FlameGraph.pl and inferno all read. It answers where
+    the time went.
+  * `profile.trace` watches the JIT give up. It aggregates trace aborts, so
+    blacklisted hot code, a bytecode the compiler will not record, and traces
+    that grew past a limit all become rows rather than silence. It answers
+    whether the time went there compiled or interpreted.
+
+The second question is the one a sampler cannot answer and the one that usually
+matters here: code the JIT refused is an order of magnitude slower than code it
+took, and nothing says so out loud.
+
+Both channels attribute work through `nupp.profile.zone`, so a sample or an abort
+carries the zone path that was open when it happened. Both are process-wide
+rather than per-coroutine, and at most one session of each kind runs at a time.
+
+Neither is free. A sample session pays a timer interrupt, a stack walk and a
+table write at every interval; a trace session pays a callback at every abort,
+inside the compiler. Stop a session once the question it was opened for has an
+answer.
+
+    local profile = require("nupp.profile")
+
+    local session = profile.sample({intervalMs = 5})
+    render()
+    local report = session:stop("profile.out")
+    print(report.samples, report.stacks)
+]]
+
+local zone = require("nupp.profile.zone")
+local jitProfile = require("jit.profile")
+local jitUtil = require("jit.util")
+local traceRegistry = require("nupp.profile._trace")
+
+local profile = {}
+
+--- What `profile.sample` collects, and how much of it. Every field is optional.
+type profile.SampleOptions = {
+    --- Milliseconds between samples; 10 by default, which is 100 a second. Below about
+    --- 10 the timer starts taking real time away from the thread it is measuring, so
+    --- lower it for a short window and read the result knowing that it was paid for.
+    intervalMs: integer?,
+
+    --- How many frames to walk per sample; 16 by default. The walk is linear in this
+    --- and it happens on the interrupted thread, so raise it only when a specific
+    --- question needs the depth.
+    stackDepth: integer?,
+
+    --- Keep only the samples taken under a zone path starting with this, so
+    --- "frame/render" reads as that subtree alone.
+    ---
+    --- Applied at `stop` rather than while sampling: narrowing it costs nothing at
+    --- runtime, and widening it afterwards is not possible, because the prefix is fixed
+    --- when the session starts.
+    zone: string?,
+
+    --- The module the program starts at, as a stack frame names it. Everything below
+    --- the outermost frame from it is dropped.
+    ---
+    --- A profiler samples the whole stack it is embedded in, and what is under the
+    --- program, the loader that read it and the pcall that guards it, is not the
+    --- program. Naming its module cuts the report back to it.
+    ---
+    --- Frames read "<module>:<name>", so the module is the part to give. A stack with
+    --- no frame from it is kept whole rather than emptied, and two stacks that differ
+    --- only below the root become one, their counts summed.
+    root: string?
+}
+
+--- What `profile.trace` counts. Every field is optional.
+type profile.TraceOptions = {
+    --- Include the aborts that are ordinary trace formation rather than a refusal:
+    --- leaving a loop, recursion, an inner loop. False by default; turn it on when the
+    --- question is why a particular trace never formed.
+    includeBenign: boolean?
+}
+
+--- A running profiling session whose declaration chooses the report `stop` returns.
+---
+--- Sampling and trace-abort sessions share this lifecycle. Generic helpers can use
+--- `S.Report` to preserve the concrete report chosen by a session declaration.
+interface profile.Session
+    associated type Report
+
+    pause: function(self)
+    resume: function(self)
+    stop: function(self, filename: string?): self.Report
+end
+
+--- How much an abort is worth reading.
+---
+--- `blacklist` is always actionable: the code is demoted to the interpreter for the
+--- rest of the process. `warn` is a refusal that may or may not sit on a hot path.
+--- `info` is trace formation working as designed.
+type profile.Severity = "blacklist" | "warn" | "info"
+
+--- One distinct stack, and what landed on it.
+---
+--- A row of a `SampleReport`, built at `stop`. The five state counts sum to `count`.
+record profile.Sample
+    --- The zone path the samples were taken under, "" when none was open.
+    zonePath: string
+
+    --- The stack as `dumpstack` rendered it, ";" between frames, outermost first.
+    stack: string
+
+    --- Samples on this stack, in every VM state.
+    count: integer
+
+    --- Samples running compiled machine code.
+    compiled: integer
+
+    --- Samples in the interpreter.
+    interpreted: integer
+
+    --- Samples inside a C function.
+    cCode: integer
+
+    --- Samples in the garbage collector.
+    collecting: integer
+
+    --- Samples inside the JIT compiler itself.
+    compiling: integer
+end
+
+--- What a sample session saw, as `SampleSession:stop` returns it.
+---
+--- `tostring` on it is the collapsed-stack text, so it prints and pipes directly.
+record profile.SampleReport
+    --- The interval the session ran at, so the sample counts can be read as time.
+    intervalMs: integer
+
+    --- Samples recorded, after the zone filter.
+    samples: integer
+
+    --- Distinct stacks they fell on.
+    stacks: integer
+
+    --- One line per stack: semicolon-separated frames, a space, then the sample count.
+    --- Ordered by count descending. Empty when nothing was sampled, which a short
+    --- session and a zone prefix that matched nothing both produce.
+    text: string
+
+    metamethod __tostring: function(self): string
+end
+
+--- A running sampler, as `profile.sample` returns it.
+---
+--- Live until `stop`, and there is at most one at a time. Dropping the handle without
+--- stopping leaves the timer running for the rest of the process.
+record profile.SampleSession is profile.Session
+    associated type Report = profile.SampleReport
+
+    --- The interval it was started at.
+    intervalMs: integer
+
+    --- The zone prefix `stop` will filter by, or nil for all of them.
+    zoneFilter: string?
+
+    --- The module `stop` will cut the stacks back to, or nil to keep them whole.
+    root: string?
+
+    --- Whether recording is suspended. The timer keeps firing.
+    paused: boolean
+
+    --- Whether `stop` has run.
+    stopped: boolean
+
+    --- Samples so far, by zone path and then by stack. Two levels rather than one
+    --- joined key, so a sample taken in a zone that has not changed since the last one
+    --- costs a single table lookup.
+    aggregate: {[string]: {[string]: profile.Sample}}
+
+    pause: function(self)
+    resume: function(self)
+    stop: function(self, filename: string?): self.Report
+end
+
+--- One place the JIT gave up, and how often it did.
+---
+--- A row of a `TraceReport`, built at `stop`.
+record profile.AbortSite
+    --- How much it is worth reading.
+    severity: profile.Severity
+
+    --- Times this exact severity, reason, location and zone fired.
+    count: integer
+
+    --- The reason, from `jit.vmdef.traceerr`. An unrecordable bytecode is rendered with
+    --- the opcode's name.
+    reason: string
+
+    --- Stable compiler identity and classification for the raw VM reason above.
+    reasonId: string
+
+    reasonClass: 'blocker' | 'risk' | 'stop'
+    rawReason: string
+
+    --- "<file>:<line>" of the function being recorded when it aborted.
+    location: string
+
+    --- The zone path that was open, "" when none was.
+    zonePath: string
+end
+
+--- The exact recorder configuration used to normalize a trace report.
+record profile.TraceProfile
+    id: string
+    luajitRevision: string
+    luajitVersion: integer
+    architecture: string
+    operatingSystem: string
+    enabledRecorderFeatures: {string}
+    bytecodeSchema: string
+    supported: boolean
+end
+
+--- What a trace session saw, as `TraceSession:stop` returns it.
+---
+--- `tostring` on it renders `sites` as RFC 4180 CSV, so it prints, sorts and diffs
+--- directly.
+record profile.TraceReport
+    --- Wallclock seconds the session was active, in whole seconds: it comes from
+    --- `os.time`, so a session shorter than one reads as zero and dividing by it is the
+    --- caller's problem.
+    durationSec: integer
+
+    --- Abort events recorded. Excludes the benign ones unless `includeBenign` was set.
+    totalAborts: integer
+
+    --- Blacklist events among them. Always actionable.
+    blacklisted: integer
+
+    --- One row per distinct severity, reason, location and zone. Ordered by severity,
+    --- then by count descending.
+    sites: {profile.AbortSite}
+
+    --- The recorder and registry identities under which the events were interpreted.
+    traceProfile: profile.TraceProfile
+
+    reasonCatalogId: string
+    reasonCatalogVersion: integer
+
+    metamethod __tostring: function(self): string
+end
+
+--- A running trace-abort collector, as `profile.trace` returns it.
+---
+--- Live until `stop`, and there is at most one at a time. Dropping the handle without
+--- stopping leaves the event hook attached for the rest of the process.
+record profile.TraceSession is profile.Session
+    associated type Report = profile.TraceReport
+
+    --- Whether the benign trace-formation events are being counted.
+    includeBenign: boolean
+
+    --- `os.time` when the session started.
+    startedAt: integer
+
+    --- Whether aggregation is suspended. The hook stays attached.
+    paused: boolean
+
+    --- Whether `stop` has run.
+    stopped: boolean
+
+    --- Aborts so far, by severity, reason, location and zone joined.
+    sites: {[string]: profile.AbortSite}
+
+    --- Aborts counted so far.
+    totalAborts: integer
+
+    --- Blacklist events among them.
+    blacklisted: integer
+
+    traceProfile: profile.TraceProfile
+
+    --- The handler to hand back to `jit.attach` to detach it. Dropping the last
+    --- reference to a handler does not remove it.
+    callback: function(...: any)
+
+    pause: function(self)
+    resume: function(self)
+    stop: function(self, filename: string?): self.Report
+end
+
+-------------------------------------------------------------------------------
+-- Shared
+-------------------------------------------------------------------------------
+
+-- Writes `text` to `path`, replacing whatever was there. Raised errors carry the path,
+-- since the caller passed a name and a failure that does not repeat it says nothing
+-- about which name was wrong.
+local function writeFile(path: string, text: string)
+    local file, openReason = io.open(path, "wb")
+    if not file then
+        error("profile: cannot write '" .. path .. "': " .. (openReason or "unknown"), 3)
+    end
+    local written, writeReason = file:write(text)
+    if not written then
+        file:close()
+        error("profile: cannot write '" .. path .. "': " .. (writeReason or "unknown"), 3)
+    end
+    local closed, closeReason = file:close()
+    if not closed then
+        error("profile: cannot close '" .. path .. "': " .. (closeReason or "unknown"), 3)
+    end
+end
+
+-------------------------------------------------------------------------------
+-- Sampling
+-------------------------------------------------------------------------------
+
+-- The zone path and the stack are joined with ";" and "/" respectively, and a
+-- collapsed-stack line ends at its first newline, so a frame carrying either would be
+-- read as two frames or as two lines. Nothing legitimately names a function this way;
+-- what does is a chunk loaded from a string.
+local function sanitize(frame: string): string
+    return (frame:gsub("[;/\n\r]", "_"))
+end
+
+-- The VM state the most samples on a stack were in, as the one character `jit.profile`
+-- reports it with. Ties go to the earlier test, which puts "compiled" ahead of the
+-- states that are all forms of not running the program.
+local function dominantState(sample: profile.Sample): string
+    local state, best = "N", sample.compiled
+    if sample.interpreted > best then
+        state, best = "I", sample.interpreted
+    end
+    if sample.cCode > best then
+        state, best = "C", sample.cCode
+    end
+    if sample.collecting > best then
+        state, best = "G", sample.collecting
+    end
+    if sample.compiling > best then
+        state, best = "J", sample.compiling
+    end
+
+    return state
+end
+
+-- Appends the pieces of `text`, split on `separator`, to `frames`. Empty pieces are
+-- dropped: a zone path is "" when no zone is open, and dumpstack can render a frame it
+-- has no name for as nothing at all.
+local function appendFrames(frames: {string}, text: string, separator: string)
+    if text == "" then
+        return
+    end
+
+    local pattern = "[^" .. separator .. "]+"
+    for piece in text:gmatch(pattern) do
+        frames[#frames + 1] = sanitize(piece)
+    end
+end
+
+-- Collapsed-stack text: one line per stack, frames separated by ";", then a space and
+-- the sample count. The zone path leads, so a flame graph opens on the zones and drills
+-- into the code beneath each.
+--
+-- The leaf carries the dominant VM state as a "_[N]" suffix, the convention FlameGraph
+-- and speedscope already colour on. The letters are LuaJIT's own: N compiled, I
+-- interpreted, C in a C function, G collecting, J compiling.
+local function collapse(samples: {profile.Sample}): string
+    if #samples == 0 then
+        return ""
+    end
+
+    table.sort(samples, function(a: profile.Sample, b: profile.Sample): boolean
+        if a.count ~= b.count then
+            return a.count > b.count
+        end
+        if a.zonePath ~= b.zonePath then
+            return a.zonePath < b.zonePath
+        end
+
+        return a.stack < b.stack
+    end)
+
+    local lines: {string} = {}
+    for index = 1, #samples do
+        local sample = samples[index]
+        local frames: {string} = {}
+        appendFrames(frames, sample.zonePath, "/")
+        appendFrames(frames, sample.stack, ";")
+        if #frames == 0 then
+            frames[1] = "<root>"
+        end
+        frames[#frames] = frames[#frames] .. "_[" .. dominantState(sample) .. "]"
+        lines[index] = table.concat(frames, ";") .. " " .. string.format("%d", sample.count)
+    end
+
+    return table.concat(lines, "\n")
+end
+
+-- Everything below the outermost frame belonging to `root` is what started the program
+-- rather than the program. Frames read "<module>:<name>", so the module is matched at a
+-- frame boundary; a substring match anywhere would cut a stack at a function that
+-- merely mentions the name.
+--
+-- A stack with no frame from `root` is left whole. That is the honest answer for a
+-- sample taken before the program was entered, or after it returned.
+local function trimToRoot(stack: string, root: string): string
+    local prefix = root .. ":"
+    local from = 1
+    while from <= #stack do
+        if stack:sub(from, from + #prefix - 1) == prefix then
+            return stack:sub(from)
+        end
+        local nextFrame = stack:find(";", from, true)
+        if not nextFrame then
+            return stack
+        end
+        from = nextFrame + 1
+    end
+
+    return stack
+end
+
+-- One session at a time: the profiler is a process-wide singleton, and starting a
+-- second would silently replace the first's callback while its handle still looked
+-- live.
+local sampling = false
+
+--- Starts sampling.
+---
+--- @param options omitted samples every zone at 10 ms to a depth of 16
+--- @return the handle whose `stop` produces the report
+--- @raises when a sample session is already running
+function profile.sample(options: profile.SampleOptions?): profile.SampleSession
+    if sampling then
+        error("profile.sample: a sample session is already running; stop it first", 2)
+    end
+
+    local opts: profile.SampleOptions = options or {}
+    local intervalMs = opts.intervalMs or 10
+    if intervalMs < 1 then
+        error("profile.sample: intervalMs must be at least 1", 2)
+    end
+    local stackDepth = opts.stackDepth or 16
+    if stackDepth < 1 then
+        error("profile.sample: stackDepth must be at least 1", 2)
+    end
+
+    local session = new profile.SampleSession(
+        intervalMs = intervalMs,
+        zoneFilter = opts.zone,
+        root = opts.root,
+        paused = false,
+        stopped = false,
+        aggregate = {}
+    )
+
+    -- Negative, so the walk runs outermost frame first: that is the order a collapsed
+    -- stack is written in, and reversing it here would mean building a list per sample
+    -- on the interrupted thread.
+    local walk = -stackDepth
+    local aggregate = session.aggregate
+    -- The zone path is a string the zone module holds onto until the stack changes, so
+    -- consecutive samples in one zone hit the same table entry without hashing a fresh
+    -- key.
+    local cachedPath = ""
+    local cachedStacks: {[string]: profile.Sample} = {}
+    aggregate[cachedPath] = cachedStacks
+
+    local function record(thread: any, samples: integer, vmstate: string)
+        if session.paused then
+            return
+        end
+
+        local path = zone.path()
+        if path ~= cachedPath then
+            local stacks = aggregate[path]
+            if not stacks then
+                stacks = {}
+                aggregate[path] = stacks
+            end
+            cachedPath, cachedStacks = path, stacks
+        end
+
+        -- Only meaningful for the thread this callback was handed, and only while it is
+        -- running.
+        local stack = thread and jitProfile.dumpstack(thread, "FZ;", walk) or ""
+        local sample = cachedStacks[stack]
+        if not sample then
+            sample = new profile.Sample(
+                zonePath = path,
+                stack = stack,
+                count = 0,
+                compiled = 0,
+                interpreted = 0,
+                cCode = 0,
+                collecting = 0,
+                compiling = 0
+            )
+            cachedStacks[stack] = sample
+        end
+
+        sample.count = sample.count + samples
+        if vmstate == "N" then
+            sample.compiled = sample.compiled + samples
+        elseif vmstate == "I" then
+            sample.interpreted = sample.interpreted + samples
+        elseif vmstate == "C" then
+            sample.cCode = sample.cCode + samples
+        elseif vmstate == "G" then
+            sample.collecting = sample.collecting + samples
+        elseif vmstate == "J" then
+            sample.compiling = sample.compiling + samples
+        end
+    end
+
+    zone.acquire()
+    -- "l" keys the sampler on the source line, which is the finest thing it coalesces
+    -- on: consecutive samples sharing a key arrive as one call carrying their count, so
+    -- anything coarser would attribute a run of samples to whichever stack the last of
+    -- them was on. "i<n>" is the interval. The stack and the VM state arrive either
+    -- way.
+    jitProfile.start("li" .. string.format("%d", intervalMs), record)
+    sampling = true
+
+    return session
+end
+
+--- Stops recording without ending the session. The timer keeps firing, at the cost of
+--- one test per sample, and what was recorded on either side of the pause is kept,
+--- which is how a benchmark leaves its setup out.
+---
+--- Idempotent.
+---
+--- @raises once the session has stopped
+function profile.SampleSession:pause()
+    if self.stopped then
+        error("SampleSession:pause: the session has already stopped", 2)
+    end
+    self.paused = true
+end
+
+--- Resumes recording. Idempotent.
+---
+--- @raises once the session has stopped
+function profile.SampleSession:resume()
+    if self.stopped then
+        error("SampleSession:resume: the session has already stopped", 2)
+    end
+    self.paused = false
+end
+
+--- Ends the session and reports what it saw.
+---
+--- @param filename also write the collapsed-stack text there, replacing
+---     whatever was in it
+--- @return the report, whose `tostring` is that same text
+--- @raises once the session has stopped, so it cannot be called twice
+function profile.SampleSession:stop(filename: string?): profile.SampleReport
+    if self.stopped then
+        error("SampleSession:stop: the session has already stopped", 2)
+    end
+    self.stopped = true
+    jitProfile.stop()
+    sampling = false
+    zone.release()
+
+    local prefix = self.zoneFilter
+    local root = self.root
+    local kept: {profile.Sample} = {}
+    local samples: integer = 0
+    -- Trimming can bring two stacks together, when what they differed in was only what
+    -- started them, so the rows are merged rather than the first one standing for both.
+    -- The key holds a NUL because a zone name and a frame can hold anything else.
+    local merged: {[string]: profile.Sample} = {}
+    for path, stacks in pairs(self.aggregate) do
+        if not prefix or path:sub(1, #prefix) == prefix then
+            for _, sample in pairs(stacks) do
+                samples = samples + sample.count
+                local stack = root and trimToRoot(sample.stack, root) or sample.stack
+                local row = merged[path .. "\0" .. stack]
+                if not row then
+                    row = new profile.Sample(
+                        zonePath = path,
+                        stack = stack,
+                        count = 0,
+                        compiled = 0,
+                        interpreted = 0,
+                        cCode = 0,
+                        collecting = 0,
+                        compiling = 0
+                    )
+                    merged[path .. "\0" .. stack] = row
+                    kept[#kept + 1] = row
+                end
+                row.count = row.count + sample.count
+                row.compiled = row.compiled + sample.compiled
+                row.interpreted = row.interpreted + sample.interpreted
+                row.cCode = row.cCode + sample.cCode
+                row.collecting = row.collecting + sample.collecting
+                row.compiling = row.compiling + sample.compiling
+            end
+        end
+    end
+
+    local report = new profile.SampleReport(
+        intervalMs = self.intervalMs,
+        samples = samples,
+        stacks = #kept,
+        text = collapse(kept)
+    )
+    if filename then
+        writeFile(filename, report.text)
+    end
+
+    return report
+end
+
+-------------------------------------------------------------------------------
+-- Trace aborts
+-------------------------------------------------------------------------------
+
+local function classify(reason: string, reasonClass: string): profile.Severity
+    if reason:find("blacklist", 1, true) then
+        return "blacklist"
+    end
+    if reasonClass == "stop" then
+        return "info"
+    end
+
+    return "warn"
+end
+
+local function severityRank(severity: profile.Severity): integer
+    if severity == "blacklist" then
+        return 0
+    elseif severity == "warn" then
+        return 1
+    else
+        return 2
+    end
+end
+
+-- Lua prefixes a file source with "@", and the function descriptions inherit it. Strip
+-- it so a row reads "path:line". A source that is not a file, "[C]" or a loaded string,
+-- does not carry the prefix and is left as it is.
+local function trimSource(source: string): string
+    if source:sub(1, 1) == "@" then
+        return source:sub(2)
+    end
+    return source
+end
+
+-- Where the compiler was when it gave up. `funcinfo` knows the bytecode position, so it
+-- can name the line inside the function rather than the line the function started on;
+-- `debug.getinfo` is the fallback for the case where it answers nothing useful.
+local function describeLocation(func: any, pc: any): string
+    if func then
+        local ok, info = pcall(jitUtil.funcinfo, func, pc as integer)
+        if ok and info then
+            local described = info as {[string]: any}
+            local source = described.short_src or described.source or "?"
+            local line = described.currentline or described.linedefined or 0
+            return string.format("%s:%d", trimSource(source as string), line as integer)
+        end
+    end
+    if type(func) == "function" then
+        local info = debug.getinfo(func, "S")
+        return string.format(
+            "%s:%d",
+            trimSource(info and info.short_src or "?"),
+            (info and info.linedefined or 0) as integer
+        )
+    end
+
+    return "?:0"
+end
+
+-- RFC 4180: a field holding a comma, a quote or a line break is quoted, and an embedded
+-- quote is doubled. In practice only `reason` ever needs it.
+local function csvField(text: string): string
+    if text:find("[,\"\n\r]") then
+        return "\"" .. text:gsub("\"", "\"\"") .. "\""
+    end
+    return text
+end
+
+local function serializeTraceReport(report: profile.TraceReport): string
+    local lines: {string} = {"severity,count,reason,location,zone"}
+    for index = 1, #report.sites do
+        local site = report.sites[index]
+        lines[
+            #lines + 1
+        ] = table.concat(
+            {
+                site.severity,
+                string.format("%d", site.count),
+                csvField(site.reason),
+                csvField(site.location),
+                csvField(site.zonePath),
+            },
+            ","
+        )
+    end
+
+    return table.concat(lines, "\n")
+end
+
+-- A record's namespace table is the metatable its instances are stamped with, so
+-- installing a declared contract is an ordinary assignment to it. The cast is because
+-- the contract is not a field: see docs/metamethods.md.
+(profile.TraceReport as {[string]: any}).__tostring = serializeTraceReport;
+
+(profile.SampleReport as {[string]: any}).__tostring = function(report: profile.SampleReport): string
+    return report.text
+end
+
+local tracing = false
+
+--- Starts collecting trace aborts.
+---
+--- @param options omitted leaves the benign trace-formation events out
+--- @return the handle whose `stop` produces the report
+--- @raises when a trace session is already running
+function profile.trace(options: profile.TraceOptions?): profile.TraceSession
+    if tracing then
+        error("profile.trace: a trace session is already running; stop it first", 2)
+    end
+
+    local opts: profile.TraceOptions = options or {}
+    local selected = traceRegistry.profile()
+    local session = new profile.TraceSession(
+        includeBenign = opts.includeBenign or false,
+        startedAt = os.time() as integer,
+        paused = false,
+        stopped = false,
+        sites = {},
+        totalAborts = 0,
+        blacklisted = 0,
+        traceProfile = new profile.TraceProfile(
+            id = selected.id,
+            luajitRevision = selected.luajitRevision,
+            luajitVersion = selected.luajitVersion,
+            architecture = selected.architecture,
+            operatingSystem = selected.operatingSystem,
+            enabledRecorderFeatures = selected.enabledRecorderFeatures,
+            bytecodeSchema = selected.bytecodeSchema,
+            supported = selected.supported
+        ),
+        callback = function()
+        end
+    )
+
+    -- Variadic because `jit.attach` hands each event its own arguments; a "trace"
+    -- event's are what this unpacks. The trace number is the one this does not need:
+    -- what identifies a site is where the compiler was, not which attempt it was on.
+    local function onTraceEvent(...: any)
+        local what, _, func, pc, errorCode, errorArg = ...
+        if what ~= "abort" or session.paused then
+            return
+        end
+
+        local normalizedCode = type(errorCode) == "number" and errorCode as integer or nil
+        local normalizedArg = (type(errorArg) == "number" or type(errorArg) == "string") and errorArg or nil
+        local normalized, reason = traceRegistry.runtime(normalizedCode, normalizedArg)
+        local severity = classify(reason, normalized.class)
+        if severity == "info" and not session.includeBenign then
+            return
+        end
+
+        session.totalAborts = session.totalAborts + 1
+        if severity == "blacklist" then
+            session.blacklisted = session.blacklisted + 1
+        end
+
+        local location = describeLocation(func, pc)
+        local path = zone.path()
+        local key = severity .. "|" .. reason .. "|" .. location .. "|" .. path
+        local site = session.sites[key]
+        if site then
+            site.count = site.count + 1
+        else
+            session.sites[
+                key
+            ] = new profile.AbortSite(
+                severity = severity,
+                count = 1,
+                reason = reason,
+                reasonId = normalized.id,
+                reasonClass = normalized.class,
+                rawReason = reason,
+                location = location,
+                zonePath = path
+            )
+        end
+    end
+
+    session.callback = onTraceEvent
+    zone.acquire()
+    jit.attach(onTraceEvent, "trace")
+    tracing = true
+
+    return session
+end
+
+--- Stops counting without ending the session. The hook stays attached, at the cost of
+--- one test per abort, and what was counted on either side of the pause is kept.
+---
+--- Idempotent.
+---
+--- @raises once the session has stopped
+function profile.TraceSession:pause()
+    if self.stopped then
+        error("TraceSession:pause: the session has already stopped", 2)
+    end
+    self.paused = true
+end
+
+--- Resumes counting. Idempotent.
+---
+--- @raises once the session has stopped
+function profile.TraceSession:resume()
+    if self.stopped then
+        error("TraceSession:resume: the session has already stopped", 2)
+    end
+    self.paused = false
+end
+
+--- Ends the session and reports what it saw.
+---
+--- @param filename also write the CSV there, replacing whatever was in it
+--- @return the report, whose `tostring` is that CSV
+--- @raises once the session has stopped, so it cannot be called twice
+function profile.TraceSession:stop(filename: string?): profile.TraceReport
+    if self.stopped then
+        error("TraceSession:stop: the session has already stopped", 2)
+    end
+    self.stopped = true
+    -- No event names the handler to remove.
+    jit.attach(self.callback)
+    tracing = false
+    zone.release()
+
+    local sites: {profile.AbortSite} = {}
+    for _, site in pairs(self.sites) do
+        sites[#sites + 1] = site
+    end
+    table.sort(sites, function(a: profile.AbortSite, b: profile.AbortSite): boolean
+        local left, right = severityRank(a.severity), severityRank(b.severity)
+        if left ~= right then
+            return left < right
+        end
+        if a.count ~= b.count then
+            return a.count > b.count
+        end
+        if a.reason ~= b.reason then
+            return a.reason < b.reason
+        end
+
+        return a.location < b.location
+    end)
+
+    local report = new profile.TraceReport(
+        durationSec = (os.time() as integer) - self.startedAt,
+        totalAborts = self.totalAborts,
+        blacklisted = self.blacklisted,
+        sites = sites,
+        traceProfile = self.traceProfile,
+        reasonCatalogId = traceRegistry.CATALOG_ID,
+        reasonCatalogVersion = traceRegistry.CATALOG_VERSION
+    )
+    if filename then
+        writeFile(filename, tostring(report))
+    end
+
+    return report
+end
+
+return profile
+]=],
+["/nupp/profile/_trace.nupp"] = [=[
+--[[
+Stable identities shared by static trace checking and the opt-in runtime collector.
+
+The recorder's strings are presentation, not API.  A trace event is first interpreted
+under the exact VM profile that emitted it, then mapped to one of the identities here.
+Static checks use those same records, which is what keeps a bytecode finding, an @jit
+contract error and an observed abort from acquiring three explanations.
+]]
+
+local vmdef = require("jit.vmdef")
+
+local trace = {}
+
+type trace.Reason = {
+    id: string,
+    class: 'blocker' | 'risk' | 'stop',
+    opcodes: {[string]: boolean}?,
+    source: {[string]: boolean}?,
+    runtime: {string}?,
+    explanation: string?,
+    repair: string?,
+    lint: string?,
+    contractSeverity: string?
+}
+
+type trace.Profile = {
+    id: string,
+    luajitRevision: string,
+    luajitVersion: integer,
+    architecture: string,
+    operatingSystem: string,
+    enabledRecorderFeatures: {string},
+    bytecodeSchema: string,
+    supported: boolean
+}
+
+trace.CATALOG_VERSION = 1
+trace.CATALOG_ID = "nupp-trace-reasons-v1"
+trace.PINNED_LUAJIT_REVISION = "1edc3e52b67eaf6ce5f809be8e17d6862594b8bc"
+trace.PINNED_LUAJIT_VERSION = 1785763465
+
+local records: {
+    trace.Reason
+} = {
+    {
+        id = "jit/loop-function-construction",
+        class = "blocker",
+        opcodes = {FNEW = true},
+        source = {["jit-loop-closure"] = true, ["loop-invariant-closure"] = true},
+        explanation = "LuaJIT has no recorder for constructing a function",
+        repair = "declare one function outside the loop and pass what varies to it",
+        lint = "NUPP2515",
+        contractSeverity = "error",
+    },
+    {
+        id = "jit/loop-upvalue-close",
+        class = "blocker",
+        opcodes = {UCLO = true},
+        explanation = "LuaJIT has no recorder for closing an upvalue",
+        repair = "move the captured lifetime outside the repeated region",
+        contractSeverity = "error",
+    },
+    {
+        id = "jit/ffi-vararg-policy",
+        class = "risk",
+        source = {["jit-boundary"] = true},
+        explanation = "this variadic FFI form depends on argument types and the target ABI",
+        repair = "move the call behind an explicit jit.off boundary when it is not a hot operation",
+        lint = "NUPP2514",
+        contractSeverity = "error",
+    },
+    {
+        id = "jit/ffi-callback",
+        class = "risk",
+        source = {["jit-callback"] = true},
+        explanation = "a C call that re-enters Lua through this callback cannot remain on a trace",
+        repair = "disable the callback and its calling boundary with jit.off",
+        lint = "NUPP2502",
+        contractSeverity = "error",
+    },
+    {
+        id = "jit/disabled-callee",
+        class = "blocker",
+        explanation = "the resolved callee is explicitly disabled with jit.off",
+        repair = "remove @jit from the caller or keep the disabled call outside its checked hot path",
+        contractSeverity = "error",
+    },
+    {
+        id = "jit/dynamic-call",
+        class = "risk",
+        explanation = "the call target is dynamic, so its bytecode recordability is unknown",
+    },
+    {id = "jit/expected-loop-leave", class = "stop", runtime = {"leaving loop in root trace"}},
+    {id = "jit/expected-inner-loop", class = "stop", runtime = {"inner loop in root trace"}},
+    {id = "jit/expected-down-recursion", class = "stop", runtime = {"down-recursion, restarting"}},
+    {id = "jit/expected-up-recursion", class = "stop", runtime = {"up-recursion"}},
+    {id = "jit/retry-recording", class = "stop", runtime = {"retry recording"}},
+    {id = "jit/runtime-blacklisted", class = "risk", runtime = {"blacklisted"}},
+    {id = "jit/runtime-trace-too-short", class = "stop", runtime = {"trace too short"}},
+    {id = "jit/runtime-trace-too-long", class = "risk", runtime = {"trace too long"}},
+    {id = "jit/runtime-trace-too-deep", class = "risk", runtime = {"trace too deep"}},
+    {id = "jit/runtime-too-many-snapshots", class = "risk", runtime = {"too many snapshots"}},
+    {id = "jit/runtime-loop-unroll-limit", class = "risk", runtime = {"loop unroll limit reached"}},
+    {id = "jit/runtime-call-unroll-limit", class = "risk", runtime = {"call unroll limit reached"}},
+    {id = "jit/runtime-disabled-callee", class = "blocker", runtime = {"JIT compilation disabled for function"}},
+    {id = "jit/runtime-ffi-call", class = "risk", runtime = {"NYI: unsupported C function type"}},
+    {id = "jit/runtime-ffi-conversion", class = "risk", runtime = {"NYI: unsupported C type conversion"}},
+    {id = "jit/runtime-type-instability", class = "risk", runtime = {"persistent type instability"}},
+    {
+        id = "jit/runtime-machine-code-limit",
+        class = "risk",
+        runtime = {"machine code too long", "hit mcode limit (retrying)", "failed to allocate mcode memory",}
+    },
+    {id = "jit/runtime-recorder-error", class = "risk", runtime = {"error thrown or hook called during recording"}},
+    {id = "jit/runtime-unknown", class = "risk"},
+}
+
+local byId, byOpcode, bySource, byRuntime = {}, {}, {}, {}
+for _, record in ipairs(records) do
+    byId[record.id] = record
+    for opcode in pairs(record.opcodes or {}) do
+        byOpcode[opcode] = record
+    end
+    for source in pairs(record.source or {}) do
+        bySource[source] = record
+    end
+    for _, format in ipairs(record.runtime or {}) do
+        byRuntime[format] = record
+    end
+end
+
+local function smallDigest(value: string): string
+    local digest = 2166136261
+    for index = 1, #value do
+        digest = bit.tobit(bit.bxor(digest, value:byte(index)) * 16777619)
+    end
+
+    return ("%08x"):format(bit.band(digest, 0xffffffff))
+end
+
+function trace.profile(): trace.Profile
+    local status = {jit.status()}
+    local flags = {}
+    for index = 2, #status do
+        flags[#flags + 1] = tostring(status[index])
+    end
+    table.sort(flags)
+    -- `jit.version_num` is the compatibility number (20199 for every current 2.1
+    -- snapshot). The pinned snapshot identity is the timestamp suffix exposed in the
+    -- full version string.
+    local version = math.floor(tonumber(jit.version:match("LuaJIT 2%.1%.(%d+)")) or jit.version_num) as integer
+    local revision = version == trace.PINNED_LUAJIT_VERSION and trace.PINNED_LUAJIT_REVISION or "external:" .. tostring(
+        version
+    )
+    local bytecodeSchema = smallDigest(vmdef.bcnames)
+    local id = table.concat({revision, jit.arch, jit.os, table.concat(flags, ","), bytecodeSchema}, "|")
+
+    return {
+        id = id,
+        luajitRevision = revision,
+        luajitVersion = version,
+        architecture = jit.arch,
+        operatingSystem = jit.os,
+        enabledRecorderFeatures = flags,
+        bytecodeSchema = bytecodeSchema,
+        supported = revision == trace.PINNED_LUAJIT_REVISION,
+    }
+end
+
+function trace.reason(id: string): trace.Reason?
+    return byId[id]
+end
+
+function trace.forOpcode(opcode: string): trace.Reason?
+    return byOpcode[opcode]
+end
+
+function trace.forSource(source: string): trace.Reason?
+    return bySource[source]
+end
+
+function trace.opcodeName(opcode: integer): string
+    local start = opcode * 6 + 1
+    return (vmdef.bcnames:sub(start, start + 5):gsub("%s+$", ""))
+end
+
+function trace.runtime(errorCode: integer?, errorArg: number | string | nil): trace.Reason, string
+    if not errorCode then
+        return byId["jit/runtime-unknown"], "abort"
+    end
+    local format = vmdef.traceerr[errorCode]
+    if not format then
+        return byId["jit/runtime-unknown"], "error " .. tostring(errorCode)
+    end
+    if format:find("NYI: bytecode", 1, true) and type(errorArg) == "number" then
+        local opcode = trace.opcodeName(errorArg as integer)
+        return byOpcode[opcode] or byId["jit/runtime-unknown"], "NYI: bytecode " .. opcode
+    end
+    local record = byRuntime[format] or byId["jit/runtime-unknown"]
+    if errorArg == nil then
+        return record, format
+    end
+    local ok, detail = pcall(string.format, format, errorArg)
+
+    return record, ok and detail as string or format
+end
+
+function trace.records(): {trace.Reason}
+    local copy = {}
+    for index, record in ipairs(records) do
+        copy[index] = record
+    end
+
+    return copy
+end
+
+return trace
+]=],
+["/nupp/profile/zone.nupp"] = [=[
+--[[
+Gated LuaJIT profiler zones: the stack work is skipped until a profiler asks for
+it.
+
+Stock `jit.zone` pushes and pops whether or not anything is listening. Skipping
+that is worth doing, but it is not the main cost: a zone marker is a call inside
+the code being measured, and calls in a hot path abort traces. Mark warm paths,
+not the hottest ones.
+
+`jit.zone` itself is left alone. Replacing its `__call` with a no-op would
+silently blank every other user of the one global stack, `luajit -jp=z` included.
+The trade is that while a session is held this is the only writer: a direct
+`jit.zone` push in that window is overwritten.
+
+`acquire` and `release` are counted, so several channels can share one stack.
+This is process-wide, not per-coroutine.
+
+`push` and `pop` are compiler intrinsics: a call in statement position on a
+receiver statically known to hold this module is generated inline against the
+fields below, rather than made, with `pop`'s popped name also needing to be
+discarded. The same call a hot path would otherwise pay for is what the note
+above is about. The fields exist for that generated code to reach; every other
+call site, and every function below, still goes through the ordinary API.
+]]
+
+local zone = {}
+
+-- The array part is what the profiler reads, so writing it directly is what it sees.
+local stack = require("jit.zone") as {string}
+
+-- Annotated: an unannotated integer binding widens to number, and these index the
+-- stack.
+local references: integer = 0
+local generation: integer = 0
+
+-- Fields rather than upvalues, so a lowered push or pop elsewhere in the program
+-- reads and writes the same state this file does. Not part of the documented API;
+-- `isActive`, `depth`, `push` and `pop` are.
+zone.__nuppActive = false
+zone.__nuppDepth = 0 as integer
+zone.__nuppStack = stack
+zone.__nuppVersion = 0 as integer
+
+-- Bumped by every change to the stack, so `path` can tell whether the string it built
+-- last time still describes it.
+local pathVersion: integer = -1
+local pathText = ""
+local pathBuffer: {string} = {}
+
+--- Whether pushes and pops are being recorded.
+function zone.isActive(): boolean
+    return zone.__nuppActive
+end
+
+--- How many zones are pushed. Zero when inactive.
+function zone.depth(): integer
+    return zone.__nuppDepth
+end
+
+--- Starts recording, or joins a recording in progress. Needs a matching `release`. The
+--- first caller clears the stack and opens a new generation, so tokens from an earlier
+--- session cannot pop into this one.
+function zone.acquire(): nil
+    references = references + 1
+    if references > 1 then
+        return
+    end
+
+    for index = #stack, 1, -1 do
+        stack[index] = nil
+    end
+    zone.__nuppDepth = 0
+    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
+    generation = generation + 1
+    zone.__nuppActive = true
+end
+
+--- Releases one `acquire`; the last empties the stack. Releasing nothing is ignored, so
+--- a teardown that runs twice is harmless.
+function zone.release(): nil
+    if references == 0 then
+        return
+    end
+
+    references = references - 1
+    if references > 0 then
+        return
+    end
+
+    for index = #stack, 1, -1 do
+        stack[index] = nil
+    end
+    zone.__nuppDepth = 0
+    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
+    zone.__nuppActive = false
+end
+
+--- Pushes a zone. A no-op while inactive.
+---
+--- Called in statement position on a receiver statically known to be this module,
+--- this is generated inline against the fields above rather than called. See the
+--- module comment.
+function zone.push(name: string): nil
+    if not zone.__nuppActive then
+        return
+    end
+
+    zone.__nuppDepth = (zone.__nuppDepth + 1) as integer
+    stack[zone.__nuppDepth] = name
+    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
+end
+
+--- Pops the innermost zone, or nil when inactive or empty. Empty is not an error: a
+--- profile can start or stop part-way through a frame, leaving half a pair outside the
+--- session.
+---
+--- Called in statement position on a receiver statically known to be this module,
+--- with the popped name discarded, this is generated inline instead. See the module
+--- comment.
+function zone.pop(): string?
+    if not zone.__nuppActive or zone.__nuppDepth == 0 then
+        return nil
+    end
+
+    local name = stack[zone.__nuppDepth]
+    stack[zone.__nuppDepth] = nil
+    zone.__nuppDepth = (zone.__nuppDepth - 1) as integer
+    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
+
+    return name
+end
+
+--- The innermost zone, without popping it.
+function zone.current(): string?
+    if zone.__nuppDepth == 0 then
+        return nil
+    end
+    return stack[zone.__nuppDepth]
+end
+
+--- The pushed zones joined with "/", outermost first, or "" when none are.
+---
+--- Cached until the stack next changes, so reading it repeatedly between two pushes
+--- costs a comparison. That is worth the two words it takes: a profiler reads this from
+--- the sampling callback, on the thread it interrupted, and a string built fresh there
+--- is an allocation charged to whatever the program happened to be doing, which the
+--- same profiler then reports as collector time the program did not spend.
+function zone.path(): string
+    if zone.__nuppVersion == pathVersion then
+        return pathText
+    end
+
+    if zone.__nuppDepth == 0 then
+        pathText = ""
+    else
+        for index = 1, zone.__nuppDepth do
+            pathBuffer[index] = stack[index]
+        end
+        pathText = table.concat(pathBuffer, "/", 1, zone.__nuppDepth)
+    end
+    pathVersion = zone.__nuppVersion
+
+    return pathText
+end
+
+--- Pushes a zone and returns a token for `leave`, or 0 when inactive.
+---
+--- The paired form, for a `leave` that may run after its session ended, usually a
+--- coroutine resumed after a profile stopped. The token carries the generation, so a
+--- late `leave` is discarded rather than popping someone else's zone.
+function zone.enter(name: string): integer
+    if not zone.__nuppActive then
+        return 0
+    end
+
+    zone.__nuppDepth = (zone.__nuppDepth + 1) as integer
+    stack[zone.__nuppDepth] = name
+    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
+
+    return generation
+end
+
+--- Closes a zone opened by `enter`. A zero token, a stale generation, or an empty stack
+--- are all ignored.
+function zone.leave(token: integer): nil
+    if token == 0 or not zone.__nuppActive or token ~= generation then
+        return
+    end
+    if zone.__nuppDepth == 0 then
+        return
+    end
+
+    stack[zone.__nuppDepth] = nil
+    zone.__nuppDepth = (zone.__nuppDepth - 1) as integer
+    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
+end
+
+return zone
+]=],
+["/nupp/resources.nupp"] = [=[
+--[[
+Owning wrappers for Lua's file handles, and the container that holds a runtime
+number of owners.
+
+`io.open` hands back a borrowed handle, which means nothing has to close it and
+nothing complains when nobody does. These are the same calls annotated as owners,
+so the checker knows a handle must be discharged and lexical cleanup can do it,
+on fallthrough, on error, and on structured control flow alike.
+
+Producing owners and holding them are the two halves of one subject, so they are
+one module. `Set` is the audited exception to the rule that an owner cannot live
+in dynamic storage. How many owners a set holds, and of what types, is known only
+while running, so the proof of discharge cannot stay in the checker: it is carried
+into the entry as the witness `adopt` is handed. Surrendering an owner to that
+storage is what `unsafe release` is for, and the two `unsafe` blocks below are the whole
+of what this module asks to be trusted about. `nupp ownership-audit` lists them.
+
+See `docs/ownership.md`.
+]]
+
+local resources = {}
+
+--- One adopted owner and the witness that discharges it.
+---
+--- Both are erased: the set is one table holding owners of types it never learns,
+--- and the witness the call site reified is the only thing that knows what to do
+--- with the value beside it.
+local record Entry
+    value: any
+    cleanup: any
+end
+
+--- A container for as many owners as a program turns out to need.
+---
+--- `adopt` moves an owner in and returns a borrow tied to the set; `close` discharges
+--- every registration in reverse, attempts all of them, and reports the first failure
+--- with a count of the ones it suppressed.
+---
+--- @export
+record resources.Set
+    --- What the set is for, in diagnostics.
+    label: string
+
+    --- Adopted owners, in the order they arrived.
+    _entries: {Entry}
+
+    --- Whether `close` has already run.
+    _closed: boolean
+
+    --- Discharges every registration in reverse.
+    ---
+    --- Attempts all of them, so one failing cleanup cannot strand the rest, then
+    --- reports the first failure with a count of the ones it suppressed. Idempotent.
+    drop: nosuspend function(takes self: resources.Set)
+
+    close: nosuspend function(takes self: resources.Set)
+
+    --- Moves an owner in and returns a borrow tied to the set.
+    ---
+    --- The second argument is the discharge witness. A caller never writes it: the
+    --- checker reifies the adopted value's own cleanup contract at the call site, and
+    --- asks for an explicit terminal consumer only where there is no contract to reify.
+    ---
+    --- @param value the owner the set takes responsibility for
+    --- @param terminal what discharges an opaque owner, which carries no contract
+    --- @return the adopted value, borrowed from the set
+    --- @raises when the set is already closed, or adoption carries no witness
+    --- @param value the owner the set takes responsibility for
+    --- @param terminal what discharges an opaque owner, which carries no contract
+    --- @return the adopted value, borrowed from the set
+    --- @raises when the set is already closed, or adoption carries no witness
+    function adopt<T>(self, takes value: T, terminal: function(takes value: T)?): T borrows (self)
+        assert(not self._closed, "resource set is closed")
+        local witness = terminal
+        assert(type(witness) == "function", "resource adoption needs a discharge witness")
+        self._entries[#self._entries + 1] = new Entry(value = unsafe release value, cleanup = witness)
+
+        return self._entries[#self._entries].value as T
+    end
+
+    --- Deletes one registration and returns the original capability exactly once.
+    ---
+    --- @param value a value a previous `adopt` returned
+    --- @return that value, owned by the caller again
+    --- @raises when the value is not registered in this set, or the set is closed
+    function remove<T>(self, borrows value: T): T
+        assert(not self._closed, "resource set is closed")
+        for index = #self._entries, 1, -1 do
+            local entry = self._entries[index]
+            if entry.value == value then
+                table.remove(self._entries, index)
+                return entry.value as T
+            end
+        end
+        error("resource is not registered in this set", 2)
+    end
+end
+
+--- Discharges every registration in reverse.
+---
+--- Attempts all of them, so one failing cleanup cannot strand the rest, then reports
+--- the first failure with a count of the ones it suppressed. Idempotent.
+---
+--- @export
+--- @param self the set, spent by this call
+--- @raises when a registration's cleanup fails
+function resources.Set.close(takes self)
+    local first: any = nil
+    local suppressed = 0
+    if not self._closed then
+        self._closed = true
+        for index = #self._entries, 1, -1 do
+            local entry = self._entries[index]
+            local ok, reason = pcall(entry.cleanup, entry.value)
+            if not ok then
+                if first == nil then
+                    first = reason
+                else
+                    suppressed = suppressed + 1
+                end
+            end
+        end
+        self._entries = {}
+    end
+    -- The set is spent either way, and saying so before raising keeps a failing
+    -- cleanup from also reading as an undischarged owner.
+    local _raw = unsafe release self
+    if first ~= nil then
+        if suppressed > 0 then
+            error(tostring(first) .. " (suppressed " .. tostring(suppressed) .. " cleanup failure(s))", 0)
+        end
+        error(first, 0)
+    end
+end
+
+function resources.Set.drop(takes self)
+    self:close()
+end
+
+local function destroySet(takes value: resources.Set): nil
+    value:drop()
+end
+
+--- Creates a set that owns whatever is adopted into it.
+---
+--- The set closes automatically at its lexical boundary, discharging what it still
+--- holds.
+---
+--- @export
+--- @param label what the set is for, in diagnostics; omitted names it "resource"
+--- @return the empty set, owned by the caller
+function resources.set(label: string?): affine(resources.Set, destroySet)
+    return new resources.Set(label = label or "resource", _entries = {}, _closed = false)
+end
+
+local function close_file(takes file: LuaFile): nil
+    local ok, reason = file:close()
+    if not ok then
+        error(reason or "file close failed")
+    end
+end
+
+--- Opens a file and transfers responsibility for closing it to the caller.
+---
+--- The returned handle closes automatically at its lexical boundary.
+---
+--- @export
+--- @param path the path of the file to open
+--- @param mode the Lua file mode; omitted uses the Lua default
+--- @return the open file handle, owned by the caller
+--- @raises when the file cannot be opened
+function resources.openFile(path: string, mode: string?): affine(LuaFile, close_file)
+    local file, reason = io.open(path, mode)
+    if not file then
+        error(reason or "file open failed")
+    end
+
+    return file
+end
+
+--- Starts a process and transfers responsibility for closing its pipe to the caller.
+---
+--- The returned handle closes automatically at its lexical boundary.
+---
+--- @export
+--- @param command the shell command to run
+--- @param mode the Lua pipe mode; omitted uses the Lua default
+--- @return the process pipe, owned by the caller
+--- @raises when the process pipe cannot be opened
+function resources.openProcess(command: string, mode: string?): affine(LuaFile, close_file)
+    local file, reason = io.popen(command, mode)
+    if not file then
+        error(reason or "process open failed")
+    end
+
+    return file
+end
+
+--- Creates a temporary file owned by the caller.
+---
+--- The returned handle closes automatically at its lexical boundary.
+---
+--- @export
+--- @return the open temporary file handle, owned by the caller
+--- @raises when the temporary file cannot be created
+function resources.temporaryFile(): affine(LuaFile, close_file)
+    local file = io.tmpfile()
+    if not file then
+        error("temporary file creation failed")
+    end
+
+    return file
+end
+
+return resources
+]=],
+["/nupp/simd.nupp"] = [[
+-- Target-selected packed values that exist only inside an AOT compilation.
+--
+-- The interfaces deliberately have no implementation. The checker gives calls
+-- their ordinary types, then the AOT lowerer replaces every operation before a
+-- runtime value could exist. Calling `preferred` outside that boundary raises a
+-- direct explanation instead of manufacturing a boxed vector.
+
+local simd = {}
+
+--- One immutable packed value for the preferred target species.
+--- @export
+sealed interface simd.VectorU8
+    equal: function(borrows self: VectorU8, value: uint32): simd.MaskU8
+    inRange: function(borrows self: VectorU8, low: uint32, high: uint32): simd.MaskU8
+    andBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
+    orBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
+    xorBits: function(borrows self: VectorU8, other: VectorU8): simd.VectorU8
+    notBits: function(borrows self: VectorU8): simd.VectorU8
+    shiftRight: function(borrows self: VectorU8, count: uint32): simd.VectorU8
+
+    --- Looks up every lane in one immutable 16-byte table. Indexes outside
+    --- 0..15 produce zero, matching the native table instructions.
+    lookup16: function(borrows self: VectorU8, table: simd.TableU8x16): simd.VectorU8
+end
+
+--- One immutable 16-byte lookup table embedded in generated native code.
+--- @export
+sealed interface simd.TableU8x16
+end
+
+--- One predicate bit per logical vector lane.
+--- @export
+sealed interface simd.MaskU8
+    andBits: function(borrows self: MaskU8, other: MaskU8): simd.MaskU8
+    orBits: function(borrows self: MaskU8, other: MaskU8): simd.MaskU8
+    xorBits: function(borrows self: MaskU8, other: MaskU8): simd.MaskU8
+    notBits: function(borrows self: MaskU8): simd.MaskU8
+    select: function(borrows self: MaskU8, whenTrue: simd.VectorU8, whenFalse: simd.VectorU8): simd.VectorU8
+    any: function(borrows self: MaskU8): boolean
+    all: function(borrows self: MaskU8): boolean
+    count: function(borrows self: MaskU8): uint32
+    bits: function(borrows self: MaskU8): uint32
+end
+
+--- A target-independent 64-bit predicate bitmap.
+---
+--- This is deliberately not a general `uint64`: ordinary Nupp numbers retain
+--- their LuaJIT representation and exactness rules. The two uint32 halves let
+--- scanners combine register masks, carry prefix state across them, and drain
+--- events without boxing cdata.
+--- @export
+sealed interface simd.MaskBits64
+    andBits: function(borrows self: MaskBits64, other: MaskBits64): simd.MaskBits64
+    orBits: function(borrows self: MaskBits64, other: MaskBits64): simd.MaskBits64
+    xorBits: function(borrows self: MaskBits64, other: MaskBits64): simd.MaskBits64
+    notBits: function(borrows self: MaskBits64): simd.MaskBits64
+    shiftLeft: function(borrows self: MaskBits64, count: uint32): simd.MaskBits64
+    shiftRight: function(borrows self: MaskBits64, count: uint32): simd.MaskBits64
+    prefixXor: function(borrows self: MaskBits64, carry: boolean): simd.MaskBits64
+    lowBits: function(borrows self: MaskBits64): uint32
+    highBits: function(borrows self: MaskBits64): uint32
+    any: function(borrows self: MaskBits64): boolean
+    count: function(borrows self: MaskBits64): uint32
+    firstSet: function(borrows self: MaskBits64): uint32
+    clearFirst: function(borrows self: MaskBits64): simd.MaskBits64
+end
+
+--- The preferred register-sized operation set for one element type.
+--- @export
+sealed interface simd.SpeciesU8
+    readonly lanes: integer
+
+    --- Broadcasts the low byte of `value` to every lane.
+    splat: function(borrows self: SpeciesU8, value: uint32): simd.VectorU8
+
+    --- Loads at a zero-based offset. Inactive final lanes are zero and are
+    --- excluded by `tail`; the implementation never reads beyond the span.
+    load: function(borrows self: SpeciesU8, borrows source: nupp.mem.span.Span<uint8>, offset: integer): simd.VectorU8
+
+    --- Loads directly from a string rooted by a Lua-builder AOT entry. This is
+    --- the VM-aware counterpart of `load`: storage remains owned and pinned by
+    --- Lua for the duration of the native call.
+    loadString: function(borrows self: SpeciesU8, source: string, offset: integer): simd.VectorU8
+
+    --- A mask with the first `active` lanes set, clamped to this species.
+    tail: function(borrows self: SpeciesU8, active: integer): simd.MaskU8
+end
+
+--- A rooted string split into complete blocks and one zero-padded
+--- final block. The view exists only for the duration of its AOT entry.
+--- @export
+sealed interface simd.PaddedStringU8
+    readonly length: uint32
+    readonly fullLength: uint32
+    readonly tailLength: uint32
+
+    --- Loads a complete block. The offset must be below `fullLength` and
+    --- aligned to the preferred species width.
+    loadFull: function(borrows self: PaddedStringU8, offset: uint32): simd.VectorU8
+
+    --- Loads the sole incomplete block, already copied and zero padded.
+    loadTail: function(borrows self: PaddedStringU8): simd.VectorU8
+end
+
+--- Selects the artifact tier's preferred packed byte species.
+--- @raises when called without AOT intrinsic lowering
+--- @export
+function simd.preferredU8(): simd.SpeciesU8
+    error("nupp.simd values exist only inside an @aot function", 2)
+end
+
+--- Combines low and high uint32 words into an AOT-only 64-bit mask.
+--- @raises when called without AOT intrinsic lowering
+--- @export
+function simd.maskBits64(low: uint32, high: uint32): simd.MaskBits64
+    error("nupp.simd values exist only inside an @aot function", 2)
+end
+
+--- Embeds one immutable 16-byte lookup table in an AOT entry.
+--- @raises when called without AOT intrinsic lowering
+--- @export
+function simd.tableU8x16(
+    b0: uint32,
+    b1: uint32,
+    b2: uint32,
+    b3: uint32,
+    b4: uint32,
+    b5: uint32,
+    b6: uint32,
+    b7: uint32,
+    b8: uint32,
+    b9: uint32,
+    b10: uint32,
+    b11: uint32,
+    b12: uint32,
+    b13: uint32,
+    b14: uint32,
+    b15: uint32
+): simd.TableU8x16
+    error("nupp.simd values exist only inside an @aot function", 2)
+end
+
+--- Aligns `previous .. current`, bringing the last `offset` bytes of the
+--- previous vector into the beginning of the result. Offsets 1..3 are
+--- admitted because they are the cross-block lookback needed by UTF-8 scans.
+--- @raises when called without AOT intrinsic lowering
+--- @export
+function simd.alignBytes(previous: simd.VectorU8, current: simd.VectorU8, offset: uint32): simd.VectorU8
+    error("nupp.simd values exist only inside an @aot function", 2)
+end
+
+--- Roots a Lua string and prepares its one incomplete preferred-width block.
+--- @raises when called without AOT intrinsic lowering
+--- @export
+function simd.paddedStringU8(source: string): simd.PaddedStringU8
+    error("nupp.simd values exist only inside an @aot function", 2)
+end
+
+return simd
+]],
 ["/nupp/suspension.nupp"] = [=[
 --[[
 Waiting, as an operation with an installable handler.
@@ -146443,206 +146878,6 @@ workers.Self = workers.Self
 workers.Exit = workers.Exit
 
 return workers
-]=],
-["/nupp/zone.nupp"] = [=[
---[[
-Gated LuaJIT profiler zones: the stack work is skipped until a profiler asks for
-it.
-
-Stock `jit.zone` pushes and pops whether or not anything is listening. Skipping
-that is worth doing, but it is not the main cost: a zone marker is a call inside
-the code being measured, and calls in a hot path abort traces. Mark warm paths,
-not the hottest ones.
-
-`jit.zone` itself is left alone. Replacing its `__call` with a no-op would
-silently blank every other user of the one global stack, `luajit -jp=z` included.
-The trade is that while a session is held this is the only writer: a direct
-`jit.zone` push in that window is overwritten.
-
-`acquire` and `release` are counted, so several channels can share one stack.
-This is process-wide, not per-coroutine.
-
-`push` and `pop` are compiler intrinsics: a call in statement position on a
-receiver statically known to hold this module is generated inline against the
-fields below, rather than made, with `pop`'s popped name also needing to be
-discarded — the same call a hot path would otherwise pay for is what the note
-above is about. The fields exist for that generated code to reach; every other
-call site, and every function below, still goes through the ordinary API.
-]]
-
-local zone = {}
-
--- The array part is what the profiler reads, so writing it directly is what it sees.
-local stack = require("jit.zone") as {string}
-
--- Annotated: an unannotated integer binding widens to number, and these index the
--- stack.
-local references: integer = 0
-local generation: integer = 0
-
--- Fields rather than upvalues, so a lowered push or pop elsewhere in the program
--- reads and writes the same state this file does. Not part of the documented API;
--- `isActive`, `depth`, `push` and `pop` are.
-zone.__nuppActive = false
-zone.__nuppDepth = 0 as integer
-zone.__nuppStack = stack
-zone.__nuppVersion = 0 as integer
-
--- Bumped by every change to the stack, so `path` can tell whether the string it built
--- last time still describes it.
-local pathVersion: integer = -1
-local pathText = ""
-local pathBuffer: {string} = {}
-
---- Whether pushes and pops are being recorded.
-function zone.isActive(): boolean
-    return zone.__nuppActive
-end
-
---- How many zones are pushed. Zero when inactive.
-function zone.depth(): integer
-    return zone.__nuppDepth
-end
-
---- Starts recording, or joins a recording in progress. Needs a matching `release`. The
---- first caller clears the stack and opens a new generation, so tokens from an earlier
---- session cannot pop into this one.
-function zone.acquire(): nil
-    references = references + 1
-    if references > 1 then
-        return
-    end
-
-    for index = #stack, 1, -1 do
-        stack[index] = nil
-    end
-    zone.__nuppDepth = 0
-    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
-    generation = generation + 1
-    zone.__nuppActive = true
-end
-
---- Releases one `acquire`; the last empties the stack. Releasing nothing is ignored, so
---- a teardown that runs twice is harmless.
-function zone.release(): nil
-    if references == 0 then
-        return
-    end
-
-    references = references - 1
-    if references > 0 then
-        return
-    end
-
-    for index = #stack, 1, -1 do
-        stack[index] = nil
-    end
-    zone.__nuppDepth = 0
-    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
-    zone.__nuppActive = false
-end
-
---- Pushes a zone. A no-op while inactive.
----
---- Called in statement position on a receiver statically known to be this module,
---- this is generated inline against the fields above rather than called — see the
---- module comment.
-function zone.push(name: string): nil
-    if not zone.__nuppActive then
-        return
-    end
-
-    zone.__nuppDepth = (zone.__nuppDepth + 1) as integer
-    stack[zone.__nuppDepth] = name
-    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
-end
-
---- Pops the innermost zone, or nil when inactive or empty. Empty is not an error: a
---- profile can start or stop part-way through a frame, leaving half a pair outside the
---- session.
----
---- Called in statement position on a receiver statically known to be this module,
---- with the popped name discarded, this is generated inline instead — see the module
---- comment.
-function zone.pop(): string?
-    if not zone.__nuppActive or zone.__nuppDepth == 0 then
-        return nil
-    end
-
-    local name = stack[zone.__nuppDepth]
-    stack[zone.__nuppDepth] = nil
-    zone.__nuppDepth = (zone.__nuppDepth - 1) as integer
-    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
-
-    return name
-end
-
---- The innermost zone, without popping it.
-function zone.current(): string?
-    if zone.__nuppDepth == 0 then
-        return nil
-    end
-    return stack[zone.__nuppDepth]
-end
-
---- The pushed zones joined with "/", outermost first, or "" when none are.
----
---- Cached until the stack next changes, so reading it repeatedly between two pushes
---- costs a comparison. That is worth the two words it takes: a profiler reads this from
---- the sampling callback, on the thread it interrupted, and a string built fresh there
---- is an allocation charged to whatever the program happened to be doing — which the
---- same profiler then reports as collector time the program did not spend.
-function zone.path(): string
-    if zone.__nuppVersion == pathVersion then
-        return pathText
-    end
-
-    if zone.__nuppDepth == 0 then
-        pathText = ""
-    else
-        for index = 1, zone.__nuppDepth do
-            pathBuffer[index] = stack[index]
-        end
-        pathText = table.concat(pathBuffer, "/", 1, zone.__nuppDepth)
-    end
-    pathVersion = zone.__nuppVersion
-
-    return pathText
-end
-
---- Pushes a zone and returns a token for `leave`, or 0 when inactive.
----
---- The paired form, for a `leave` that may run after its session ended — usually a
---- coroutine resumed after a profile stopped. The token carries the generation, so a
---- late `leave` is discarded rather than popping someone else's zone.
-function zone.enter(name: string): integer
-    if not zone.__nuppActive then
-        return 0
-    end
-
-    zone.__nuppDepth = (zone.__nuppDepth + 1) as integer
-    stack[zone.__nuppDepth] = name
-    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
-
-    return generation
-end
-
---- Closes a zone opened by `enter`. A zero token, a stale generation, or an empty stack
---- are all ignored.
-function zone.leave(token: integer): nil
-    if token == 0 or not zone.__nuppActive or token ~= generation then
-        return
-    end
-    if zone.__nuppDepth == 0 then
-        return
-    end
-
-    stack[zone.__nuppDepth] = nil
-    zone.__nuppDepth = (zone.__nuppDepth - 1) as integer
-    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
-end
-
-return zone
 ]=],
 ["/templates/app/.gitignore"] = [[
 /build/

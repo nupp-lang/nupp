@@ -8,7 +8,7 @@
 -- a fixed iteration count, so a faster machine does not turn into an empty
 -- report.
 local profile = require("nupp.profile")
-local zone = require("nupp.zone")
+local zone = require("nupp.profile.zone")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -263,7 +263,7 @@ end
 -------------------------------------------------------------------------------
 
 function M.recordedTracePayloadUsesTheStaticReasonIdentity()
-   local registry = require("nupp._trace")
+   local registry = require("nupp.profile._trace")
    local vmdef = require("jit.vmdef")
    local errorCode
    for code, format in pairs(vmdef.traceerr) do
@@ -281,7 +281,7 @@ function M.recordedTracePayloadUsesTheStaticReasonIdentity()
 end
 
 function M.unknownTracePayloadStaysVisibleWithoutInventedAdvice()
-   local registry = require("nupp._trace")
+   local registry = require("nupp.profile._trace")
    local reason, raw = registry.runtime(2147483647, "opaque")
    assertEq(reason.id, "jit/runtime-unknown", "unknown stays unknown")
    assertEq(reason.repair, nil, "an unknown event has no guessed repair")

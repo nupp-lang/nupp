@@ -1,7 +1,7 @@
 -- Forced-scalar native context for the same position/velocity element update.
 -- The driver invokes one sweep repeatedly so the AOT body keeps the subset's
 -- canonical single map loop.
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Position
     x: float

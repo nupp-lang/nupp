@@ -363,7 +363,7 @@ function resolve.install(c: state.Checker): nil
 
         local origin = (t.origin or t) as T.Nominal
         local storageGeneric = (
-            origin.moduleName == "nupp.span" and (
+            origin.moduleName == "nupp.mem.span" and (
                 origin.name == "Span"
                 or origin.name == "FixedSpan"
                 or origin.name == "WriteSpan"
@@ -371,7 +371,7 @@ function resolve.install(c: state.Checker): nil
                 or origin.name == "WriteSplit"
             )
         ) or (
-            origin.moduleName == "nupp.soa" and (
+            origin.moduleName == "nupp.mem.soa" and (
                 origin.name == "Array" or origin.name == "Span" or origin.name == "WriteSpan"
             )
         )

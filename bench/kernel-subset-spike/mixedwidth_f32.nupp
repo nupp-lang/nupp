@@ -13,7 +13,7 @@
 -- The narrowing is not a fix for `mixedwidth.nupp`. Summing many small
 -- contributions in binary32 loses them, which is why that kernel carries the
 -- total wide; this one is a measurement, not an alternative.
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Body
     x: float

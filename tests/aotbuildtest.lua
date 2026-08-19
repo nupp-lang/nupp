@@ -15,7 +15,7 @@ end
 local NUPP = HERE .. "/../bin/nupp"
 
 local KERNEL = [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Sample
     value: float
@@ -81,7 +81,7 @@ return {
 ]]
 
 local SIMD_KERNEL = [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 local preferredBytes = simd.preferredU8
 
@@ -775,7 +775,7 @@ end
 --- Two `@aot` functions over one struct, which is what used to produce a
 --- binding that declared its layout constant twice and did not compile.
 local TWO = [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Point
     x: float
@@ -874,7 +874,7 @@ function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
       local NUPP = %q
       local spans = (function()
          package.path = NUPP .. ";" .. package.path
-         return require("nupp.span")
+         return require("nupp.mem.span")
       end)()
       local count = 4096
       local function run(which)
@@ -940,7 +940,7 @@ function M.theLibraryTravelsWithWhatWasBuilt()
    handle:write(([[
       local ffi = require("ffi")
       package.path = %q .. "/?.lua;" .. %q .. ";" .. package.path
-      local spans = require("nupp.span")
+      local spans = require("nupp.mem.span")
       local mod = require("kernel")
       local count = 64
       local src = ffi.new("struct { float value; float weight; }[?]", count)
@@ -1081,7 +1081,7 @@ return {
    assert(os.remove(dir .. "/src/plain.nupp"))
    local main = assert(io.open(dir .. "/src/main.nupp", "wb"))
    main:write([[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 local kernel = require("kernel")
 
 const count: integer = 8

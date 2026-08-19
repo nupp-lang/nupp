@@ -4,8 +4,8 @@
 -- its length error and replaces only the handwritten range guard with the standard
 -- witness. The benchmark driver supplies the handwritten direct form so this file
 -- remains ordinary checked Nupp.
-local span = require("nupp.span")
-local indexed = require("nupp.indexed")
+local span = require("nupp.mem.span")
+local indexed = require("nupp.mem.indexed")
 
 local kernel = {}
 

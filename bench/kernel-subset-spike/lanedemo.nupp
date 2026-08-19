@@ -2,7 +2,7 @@
 --
 -- Nothing here names a lane, a mask, or a vector. lane lowering says the
 -- iterations are independent; the compiler decides how many run at once.
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Particle
     x: float

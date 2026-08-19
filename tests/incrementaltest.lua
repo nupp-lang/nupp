@@ -154,7 +154,7 @@ function M.countedPointerLogicalSignaturesCrossModuleSummaries()
    write(depPath, dependency)
    write(mainPath, table.concat({
       "local native = require('native')",
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local output = ffi.new<int32[4]>()",
       "local input = ffi.new<int32[4]>()",
       "local writer = spans.writeCarray(output, 4)",
@@ -633,7 +633,7 @@ function M.bundledModulesAreLoadedWhenSomethingAsksForThem()
       local env = envMod.new(dir, {cache = false})
       assertEq(checked["ffi"], nil, "building an environment does not check ffi")
       assertEq(checked["jsonNative"], nil, "nor jsonNative")
-      assertEq(checked["nupp.zone"], nil, "nor the standard library")
+      assertEq(checked["nupp.profile.zone"], nil, "nor the standard library")
 
       -- Asking is what loads it, and asking twice does not check it twice.
       assert(env.bundled["ffi"], "ffi is still there when wanted")

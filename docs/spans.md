@@ -1,4 +1,4 @@
-`nupp.span` gives a C array a rooted, one-based, bounds-checked view. A shared
+`nupp.mem.span` gives a C array a rooted, one-based, bounds-checked view. A shared
 `Span<T>` reads contiguous elements; a writable span adds exclusive access and
 an affine lifetime, so the pointer cannot outlive or overlap its owner.
 
@@ -6,7 +6,7 @@ Use spans at checked boundaries. Direct indexing through a pointer or
 variable-length C array remains an `unsafe` operation.
 
 ```nupp
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 const text = "hello"
 const bytes = span.fromString(text)
@@ -20,7 +20,7 @@ count. `fromString(source)` creates the byte-specialized `ByteSpan`. Both keep
 their source rooted for the lifetime of the view.
 
 ```nupp
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Point
     x: float
@@ -67,8 +67,8 @@ preserving the exact count for checks and generated code.
 `WriteSpan<T>` contract is what a function accepting exclusive access names:
 
 ```nupp
-local span = require("nupp.span")
-local indexed = require("nupp.indexed")
+local span = require("nupp.mem.span")
+local indexed = require("nupp.mem.indexed")
 
 local struct Point
     x: float
@@ -119,8 +119,8 @@ overlap.
 trusted Span or SoA view and returns ordinary `first` and `last` integers:
 
 ```nupp
-local span = require("nupp.span")
-local indexed = require("nupp.indexed")
+local span = require("nupp.mem.span")
+local indexed = require("nupp.mem.indexed")
 
 local struct Value
     n: integer

@@ -17,7 +17,7 @@ local OUT = here .. "build/uniform/"
 package.path = OUT .. "fallback/?.lua;" .. OUT .. "fallback/?/init.lua;" .. package.path
 
 local ordinary = require("uniform")
-local spans = require("nupp.span")
+local spans = require("nupp.mem.span")
 
 ffi.cdef [[
 typedef struct { float distance; int32_t steps; } KsTrack;

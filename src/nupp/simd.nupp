@@ -75,7 +75,7 @@ sealed interface simd.SpeciesU8
 
     --- Loads at a zero-based offset. Inactive final lanes are zero and are
     --- excluded by `tail`; the implementation never reads beyond the span.
-    load: function(borrows self: SpeciesU8, borrows source: nupp.span.Span<uint8>, offset: integer): simd.VectorU8
+    load: function(borrows self: SpeciesU8, borrows source: nupp.mem.span.Span<uint8>, offset: integer): simd.VectorU8
 
     --- Loads directly from a string rooted by a Lua-builder AOT entry. This is
     --- the VM-aware counterpart of `load`: storage remains owned and pinned by

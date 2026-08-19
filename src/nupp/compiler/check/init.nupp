@@ -601,9 +601,11 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
                 noAllocate = noAllocate,
                 noRaise = noRaise,
                 traceFindings = traceFindings,
-                traceProfileId = source and source.traceProfileId or require("nupp._trace").profile().id,
-                reasonCatalogId = source and source.reasonCatalogId or require("nupp._trace").CATALOG_ID,
-                reasonCatalogVersion = source and source.reasonCatalogVersion or require("nupp._trace").CATALOG_VERSION,
+                traceProfileId = source and source.traceProfileId or require("nupp.profile._trace").profile().id,
+                reasonCatalogId = source and source.reasonCatalogId or require("nupp.profile._trace").CATALOG_ID,
+                reasonCatalogVersion = source and source.reasonCatalogVersion or require(
+                    "nupp.profile._trace"
+                ).CATALOG_VERSION,
             }
         end
     end

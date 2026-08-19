@@ -79,12 +79,15 @@ function cdef.install(
     local handlers = {}
 
     local function countedView(name: string, element: Type, at): Type
-        local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(c.env, "nupp.span") or nil
+        local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
+            c.env,
+            "nupp.mem.span"
+        ) or nil
         local declaration = exports and exports.types and exports.types[name] or nil
         if not declaration or declaration.tag ~= "nominal" or not declaration.typeParams or not declaration.typeParams[
             1
         ] then
-            c.diag("NUPP2630", at, "countedBy requires the bundled nupp.span module")
+            c.diag("NUPP2630", at, "countedBy requires the bundled nupp.mem.span module")
             return T.any
         end
 

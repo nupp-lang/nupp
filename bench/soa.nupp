@@ -3,7 +3,7 @@
 --
 --   ./bin/nupp run -O1 bench/soa.nupp
 
-local soa = require("nupp.soa")
+local soa = require("nupp.mem.soa")
 local ffi = require("ffi")
 
 local struct Particle

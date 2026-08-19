@@ -17,7 +17,7 @@ local OUT = here .. "build/" .. KERNEL .. "/"
 package.path = OUT .. "fallback/?.lua;" .. OUT .. "fallback/?/init.lua;" .. package.path
 
 local ordinary = require(KERNEL)
-local spans = require("nupp.span")
+local spans = require("nupp.mem.span")
 
 ffi.cdef [[
 typedef struct { int32_t iterations; uint32_t escaped; } KsEscape;

@@ -251,7 +251,7 @@ end
 
 `nupp.region(parent, child, first, last)` erases to `child`; it grants no bounds
 check of its own and therefore requires `unsafe do`. Dynamic bounds produce an
-unknown overlapping interval. `nupp.span` splitting uses the same algebra rather
+unknown overlapping interval. `nupp.mem.span` splitting uses the same algebra rather
 than receiving ownership privilege from method names.
 
 A loop back edge must re-enter its header with the same obligation, roots,

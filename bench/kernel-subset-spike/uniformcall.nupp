@@ -7,7 +7,7 @@
 --
 -- Forced, because two multiplies over twenty-four bytes is below the threshold.
 -- The point of the file is the shape rather than the decision about it.
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Position
     x: float

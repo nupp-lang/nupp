@@ -118,7 +118,7 @@ function M.laneLoweringIsAttemptedRatherThanRequested()
    -- vectorisation check has anything to say about it. `simd = true` used to
    -- make every one of these a build error.
    reports([[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 @aot
 local function map(
@@ -219,7 +219,7 @@ function M.spanMethodCallsAreAdmitted()
    -- refuse the subset's own vocabulary, so whether a call resolves is left to the
    -- pass that knows the receiver's type.
    reports([[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 @aot
 local function total(values: span.Span<float>): number
@@ -235,7 +235,7 @@ return {total = total}
 ]], "", "a span read is admitted")
 
    reports([[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 @aot
 local function double(exclusive values: span.WriteSpan<float>): nil

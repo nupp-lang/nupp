@@ -51,7 +51,7 @@ local function codes(source)
 end
 
 local PRELUDE = [[
-local soa = require("nupp.soa")
+local soa = require("nupp.mem.soa")
 local ffi = require("ffi")
 
 local struct Particle
@@ -92,8 +92,8 @@ end
 
 function M.aCommonRangeRelatesSoAAndContiguousViews()
    local value, code = runs(PRELUDE .. [[
-local indexed = require("nupp.indexed")
-local span = require("nupp.span")
+local indexed = require("nupp.mem.indexed")
+local span = require("nupp.mem.span")
 const storage = carray(Particle, 3)
 storage[0].x = 2
 storage[1].x = 4
@@ -186,7 +186,7 @@ end
 
 function M.aStructKeepsItsAoSLayoutBesideSoAStorage()
    local value = runs(PRELUDE .. [[
-local heap = require("nupp.heap")
+local heap = require("nupp.mem.heap")
 local aos = heap.allocate(ffi.typeof<Particle>(), 1)
 local columns = soa.allocate(ffi.typeof<Particle>(), 1)
 do
@@ -212,7 +212,7 @@ end
 
 function M.nestedStructsAndFixedArraysRemainSingleColumns()
    local facts = runs([[
-local soa = require("nupp.soa")
+local soa = require("nupp.mem.soa")
 local ffi = require("ffi")
 local struct Position
     x: float
@@ -258,7 +258,7 @@ end
 
 function M.fieldProjectionIsTypedAndSiblingColumnsCanBeWritten()
    local value = runs(PRELUDE .. [[
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 local particles = soa.allocate(ffi.typeof<Particle>(), 2)
 do
     local rows = particles:write()
@@ -472,7 +472,7 @@ end
 
 function M.nonStructElementsAreRejectedAtTheCall()
    assertEq(codes([[
-local soa = require("nupp.soa")
+local soa = require("nupp.mem.soa")
 local ffi = require("ffi")
 local rows = soa.allocate(ffi.typeof<int32>(), 4)
 ]]), "NUPP2403", "only reified structs are eligible")

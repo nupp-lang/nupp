@@ -12,7 +12,7 @@
 -- The complex plane is an input rather than something the kernel derives from a
 -- pixel index, which keeps this a map over two spans and leaves the grid the
 -- caller's business.
-local span = require("nupp.span")
+local span = require("nupp.mem.span")
 
 local struct Point
     re: float

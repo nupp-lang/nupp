@@ -13,7 +13,7 @@ local disabled = assert(loadfile(out .. "disabled/kernel.lua"))()
 local enabled = assert(loadfile(out .. "enabled/kernel.lua"))()
 local matrixDisabled = assert(loadfile(out .. "disabled/matrix.lua"))()
 local matrixEnabled = assert(loadfile(out .. "enabled/matrix.lua"))()
-local spans = require("nupp.span")
+local spans = require("nupp.mem.span")
 local count, steps, dt = 512, 8, 0.125
 
 local function storage(types)

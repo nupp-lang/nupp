@@ -8,7 +8,7 @@ package.path = out .. "runtime/?.lua;" .. out .. "runtime/?/init.lua;" .. packag
 
 local checked = assert(loadfile(out .. "disabled/matrix.lua"))()
 local optimized = assert(loadfile(out .. "enabled/matrix.lua"))()
-local spans = require("nupp.span")
+local spans = require("nupp.mem.span")
 local count = tonumber(os.getenv("NUPP_SPAN_MATRIX_COUNT") or "100000")
 local steps = tonumber(os.getenv("NUPP_SPAN_MATRIX_STEPS") or "30")
 local rounds = tonumber(os.getenv("NUPP_SPAN_MATRIX_ROUNDS") or "7")

@@ -1426,7 +1426,7 @@ function gen.generate(
             or descriptor.writable
             and "write span index out of bounds"
             or "span index out of bounds"
-        e(compilerModuleName("nupp.indexed") .. "._checkedIndex(")
+        e(compilerModuleName("nupp.mem.indexed") .. "._checkedIndex(")
         emitViewCount(view)
         e(",")
         emitIndex(index)
@@ -3368,7 +3368,7 @@ function gen.generate(
                 virtual = virtual or emitDepth.view.info(arguments[index]) ~= nil
             end
             if virtual then
-                e(compilerModuleName("nupp.indexed") .. "._rangeCounts(", sourceLine(x))
+                e(compilerModuleName("nupp.mem.indexed") .. "._rangeCounts(", sourceLine(x))
                 for index, argument in ipairs(arguments) do
                     if index > 1 then
                         e(",")
@@ -4172,13 +4172,13 @@ function gen.generate(
             return
 
         elseif kind == "callStmt" and x.expr and x.expr.zoneIntrinsic then
-            -- The active test and the stack write stand at the site instead of behind
-            -- a call, on a receiver the checker proved is exactly the module
-            -- `nupp.zone` returns -- a zone marker being a call at all is the cost
-            -- `nupp/zone.nupp`'s own comment marks a hot path against. The receiver is
-            -- bound once so an expression more elaborate than a bare name (still
-            -- possible: the checker only requires a name, not that it stays simple)
-            -- is not evaluated twice.
+            -- The active test and the stack write stand at the site instead of behind a
+            -- call, on a receiver the checker proved is exactly the module
+            -- `nupp.profile.zone` returns -- a zone marker being a call at all is the
+            -- cost `nupp/profile/zone.nupp`'s own comment marks a hot path against. The
+            -- receiver is bound once so an expression more elaborate than a bare name
+            -- (still possible: the checker only requires a name, not that it stays
+            -- simple) is not evaluated twice.
             local call = x.expr
             local op = call.zoneIntrinsic
             local line = sourceLine(call)
@@ -5521,7 +5521,7 @@ function gen.generate(
                 emit(producer.source)
                 e(".count")
             else
-                e(compilerModuleName("nupp.indexed") .. "._rootCount(")
+                e(compilerModuleName("nupp.mem.indexed") .. "._rootCount(")
                 emit(producer.count)
                 local message = root.descriptor
                     and root.descriptor.writable
@@ -5737,7 +5737,7 @@ function gen.generate(
             end
 
         elseif kind == "call" and x.soaLayout and x.soaOperation then
-            local moduleName = compilerModuleName("nupp.soa")
+            local moduleName = compilerModuleName("nupp.mem.soa")
             local args = x.args and x.args.exprs or {}
             local line = sourceLine(x)
             if x.soaOperation == "allocate" then
@@ -5787,7 +5787,7 @@ function gen.generate(
                 return
             end
             local producerKind = view.producer and view.producer.kind
-            local moduleName = compilerModuleName("nupp.indexed")
+            local moduleName = compilerModuleName("nupp.mem.indexed")
             if producerKind == "string" then
                 e("#" .. view.anchorName, sourceLine(x))
             elseif producerKind == "fixed-carray" then
@@ -5813,7 +5813,7 @@ function gen.generate(
             if view.kind == "root" then
                 e(view.anchorName .. ".count", sourceLine(x))
             elseif view.kind == "slice" then
-                local moduleName = compilerModuleName("nupp.indexed")
+                local moduleName = compilerModuleName("nupp.mem.indexed")
                 e(moduleName .. "._sliceFinish(", sourceLine(x))
                 emitDepth.view.count(view.source)
                 e(",")

@@ -1,12 +1,12 @@
--- The nupp.zone push/pop intrinsic: a call in statement position on a receiver
--- statically known to be the module nupp.zone returns is generated inline against
+-- The nupp.profile.zone push/pop intrinsic: a call in statement position on a receiver
+-- statically known to be the module nupp.profile.zone returns is generated inline against
 -- its private fields rather than called. pop additionally needs its popped name
 -- discarded, since a captured value has nowhere to go but an ordinary call.
 local parser = require("nupp.compiler.parser")
 local gen = require("nupp.compiler.gen")
 local check = require("fragment")
 local envMod = require("nupp.compiler.env")
-local zone = require("nupp.zone")
+local zone = require("nupp.profile.zone")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -48,7 +48,7 @@ local M = {}
 
 function M.lowersPushAndADiscardedPopButNotACapturedPop()
    local code = compile([[
-local zone = require("nupp.zone")
+local zone = require("nupp.profile.zone")
 zone.push("render")
 local kept = zone.pop()
 zone.pop()
@@ -72,7 +72,7 @@ end
 
 function M.lowersPushOnlyOnABareNameReceiver()
    local code = compile([[
-local holder = {zone = require("nupp.zone")}
+local holder = {zone = require("nupp.profile.zone")}
 holder.zone.push("x")
 ]])
    assertTrue(code:find("push%s*%(") ~= nil, "a non-name receiver keeps its call\n" .. code)
@@ -80,7 +80,7 @@ end
 
 function M.matchesTheOrdinaryApiAtRunTime()
    local outer, inner, poppedCount, depthAfter, depthWhileInactive = run([[
-local zone = require("nupp.zone")
+local zone = require("nupp.profile.zone")
 zone.acquire()
 zone.push("outer")
 zone.push("inner")
@@ -104,7 +104,7 @@ function M.staysCorrectAlongsideAnUnrelatedLiveSession()
    -- started outside the compiled unit still sees what it pushed.
    zone.acquire()
    local depth = run([[
-local zone = require("nupp.zone")
+local zone = require("nupp.profile.zone")
 zone.push("compiled")
 return zone.depth()
 ]])

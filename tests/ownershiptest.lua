@@ -720,7 +720,7 @@ function M.dynamicRecoveryKeepsAndChecksTheStoredCapabilityPolicy()
 end
 function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
    assertClean(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local text = 'bytes'",
       "local whole = spans.fromString(text)",
       "local part = whole:slice(2, 4)",
@@ -737,7 +737,7 @@ end
 
 function M.spansPreserveTheCArrayElementType()
    assertClean(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local storage = ffi.new<int32[4]>()",
       "do",
       "   local view = spans.fromCarray(storage, 4)",
@@ -751,7 +751,7 @@ end
 
 function M.spansExportANameableGenericWithoutTheirRepresentation()
    assertClean(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local function first(borrows view: spans.Span<int32>): int32",
       "   return view[1]",
       "end",
@@ -762,14 +762,14 @@ function M.spansExportANameableGenericWithoutTheirRepresentation()
    }, "\n"))
 
    assertEq(codes(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local storage = ffi.new<int32[4]>()",
       "local view = spans.fromCarray(storage, 4)",
       "print(view.pointer)",
    }, "\n")), "NUPP2004", "the span interface does not expose its representation")
 
    assertEq(codes(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local made = new spans.Span()",
       "print(made)",
    }, "\n")), "NUPP2004", "the interface has no public representation to construct")
@@ -777,7 +777,7 @@ end
 
 function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
    assertClean(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local function exact(borrows view: spans.FixedSpan<int32, 4>): integer",
       "   return #view as integer",
       "end",
@@ -799,14 +799,14 @@ function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
    }, "\n"))
 
    assertEq(codes(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local storage = ffi.new<int32[4]>()",
       "local view = spans.fromFixedCarray(storage, 3)",
       "print(#view)",
    }, "\n")), "NUPP2006", "the literal count must match the fixed C array")
 
    assertEq(codes(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local record Forged is spans.Span<int32>",
       "end",
    }, "\n")), "NUPP2136", "callers cannot implement the sealed span contract")
@@ -819,7 +819,7 @@ function M.spanRefsExposeOnlyTheCapabilityTheirViewOwns()
    }, "\n")
    assertClean(table.concat({
       cdecls,
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local storage = ffi.new<int32[4]>()",
       "do",
       "   local view = spans.fromCarray(storage, 4):slice(2, 3)",
@@ -839,7 +839,7 @@ function M.spanRefsExposeOnlyTheCapabilityTheirViewOwns()
 
    assertEq(codes(table.concat({
       cdecls,
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local storage = ffi.new<int32[4]>()",
       "local view = spans.fromCarray(storage, 4)",
       "local pointer, count = view:ref()",
@@ -849,7 +849,7 @@ end
 
 function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
    assertEq(codes(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local storage = ffi.new<int32[4]>()",
       "local writable = spans.writeCarray(storage, 4)",
       "local pointer, count = writable:ref()",
@@ -858,7 +858,7 @@ function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
    }, "\n")), "NUPP2602", "a live mutable ref blocks consuming its writer")
 
    assertEq(codes(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local storage = ffi.new<int32[4]>()",
       "local writable = spans.writeCarray(storage, 4)",
       "local shared = writable:shared()",
@@ -870,7 +870,7 @@ end
 
 function M.writableSlicesAreAffineChildrenOfTheirWriter()
    assertClean(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local storage = ffi.new<int32[6]>()",
       "local writable = spans.writeCarray(storage, 6)",
       "do",
@@ -891,7 +891,7 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
    }, "\n"))
 
    assertEq(codes(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local storage = ffi.new<int32[4]>()",
       "local writable = spans.writeCarray(storage, 4)",
       "local child = writable:slice(2, 3)",
@@ -900,7 +900,7 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
    }, "\n")), "NUPP2607", "a live child blocks exclusive parent use")
 
    assertClean(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local storage = ffi.new<int32[4]>()",
       "local writable = spans.writeFixedCarray(storage, 4)",
       "local child: spans.Writable<int32> = writable:slice(2, 3)",
@@ -912,8 +912,8 @@ end
 
 function M.commonSpanRangesBorrowEveryInputWithoutBoxingOrConsumption()
    assertClean(table.concat({
-      "local spans = require('nupp.span')",
-      "local indexed = require('nupp.indexed')",
+      "local spans = require('nupp.mem.span')",
+      "local indexed = require('nupp.mem.indexed')",
       "local inputStorage = ffi.new<int32[4]>()",
       "local outputStorage = ffi.new<int32[4]>()",
       "const input = spans.fromFixedCarray(inputStorage, 4)",
@@ -926,8 +926,8 @@ function M.commonSpanRangesBorrowEveryInputWithoutBoxingOrConsumption()
    }, "\n"))
 
    assertClean(table.concat({
-      "local spans = require('nupp.span')",
-      "local indexed = require('nupp.indexed')",
+      "local spans = require('nupp.mem.span')",
+      "local indexed = require('nupp.mem.indexed')",
       "local storage = ffi.new<int32[1]>()",
       "const view = spans.fromCarray(storage, 1)",
       "local empty = indexed.range(1, 0, view)",
@@ -935,7 +935,7 @@ function M.commonSpanRangesBorrowEveryInputWithoutBoxingOrConsumption()
    }, "\n"))
 
    assertEq(codes(table.concat({
-      "local indexed = require('nupp.indexed')",
+      "local indexed = require('nupp.mem.indexed')",
       "const fake = {count = 4}",
       "local indices = indexed.range(1, 4, fake)",
       "print(indices.first)",
@@ -944,7 +944,7 @@ end
 
 function M.heapArraysAreOwnedAndBecomeCheckedSpans()
    assertClean(table.concat({
-      "local heap = require('nupp.heap')",
+      "local heap = require('nupp.mem.heap')",
       "local values = heap.allocate(ffi.typeof<int32>(), 1000000)",
       "print(values.count)",
       "do",
@@ -959,7 +959,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
    }, "\n"))
 
    assertEq(codes(table.concat({
-      "local heap = require('nupp.heap')",
+      "local heap = require('nupp.mem.heap')",
       "local values = heap.allocate(ffi.typeof<int32>(), 4)",
       "local readable = values:read()",
       "local writable = values:write()",
@@ -967,7 +967,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
    }, "\n")), "NUPP2607", "a live array read blocks a writer")
 
    assertEq(codes(table.concat({
-      "local heap = require('nupp.heap')",
+      "local heap = require('nupp.mem.heap')",
       "local values = heap.allocate(ffi.typeof<int32>(), 4)",
       "local writable = values:write()",
       "local readable = values:read()",
@@ -975,7 +975,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
    }, "\n")), "NUPP2607", "a live array writer blocks a reader")
 
    assertEq(codes(table.concat({
-      "local heap = require('nupp.heap')",
+      "local heap = require('nupp.mem.heap')",
       "local values = heap.allocate(ffi.typeof<int32>(), 4)",
       "print(values.pointer)",
    }, "\n")), "NUPP2209", "an array's allocation pointer is private")
@@ -983,7 +983,7 @@ end
 
 function M.heapArraysPreserveCountsAndCleanUpAtRuntime()
    local source = table.concat({
-      "local heap = require('nupp.heap')",
+      "local heap = require('nupp.mem.heap')",
       "local function exercise(count: integer): (integer, int32)",
       "   local values = heap.allocate(ffi.typeof<int32>(), count)",
       "   if count > 0 then",
@@ -1031,7 +1031,7 @@ end
 
 function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
    local prelude = table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local function pair(exclusive a: spans.WriteSpan<int32>, exclusive b: spans.WriteSpan<int32>): nil",
       "   if #a > 0 then a[1] = 1 as int32 end",
       "   if #b > 0 then b[1] = 2 as int32 end",
@@ -1060,7 +1060,7 @@ function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
    }, "\n"))
 
    assertClean(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local storage = ffi.new<int32[2]>()",
       "local writable = spans.writeCarray(storage, 2)",
       "do",
@@ -1074,7 +1074,7 @@ end
 
 function M.exclusiveParametersCanBeForwardedWithoutAStoredBorrow()
    local prelude = table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local function inner(exclusive values: spans.WriteSpan<int32>): nil end",
       "local function outer(exclusive values: spans.WriteSpan<int32>): nil",
       "   inner(values)",
@@ -1083,7 +1083,7 @@ function M.exclusiveParametersCanBeForwardedWithoutAStoredBorrow()
    assertClean(prelude)
 
    assertClean(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local function inner(exclusive values: spans.WriteSpan<int32>): nil end",
       "local function outer(exclusive values: spans.WriteSpan<int32>): nil",
       "   local element = values[1]",
@@ -1093,7 +1093,7 @@ function M.exclusiveParametersCanBeForwardedWithoutAStoredBorrow()
    }, "\n"))
 
    assertClean(table.concat({
-      "local spans = require('nupp.span')",
+      "local spans = require('nupp.mem.span')",
       "local function inspect(borrows values: spans.WriteSpan<int32>): nil end",
       "local function outer(exclusive values: spans.WriteSpan<int32>): nil",
       "   local element = values[1]",
@@ -1105,7 +1105,7 @@ end
 
 function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
    local source = table.concat({
-      "local heap = require('nupp.heap')",
+      "local heap = require('nupp.mem.heap')",
       "local function exercise(mid: integer): (integer, integer, int32, int32)",
       "   local values = heap.allocate(ffi.typeof<int32>(), 4)",
       "   local leftCount: integer = -1 as integer",
@@ -1158,7 +1158,7 @@ end
 
 function M.tecsShapedColumnsPartitionIntoCheckedNativeKernelInputs()
    assertClean(table.concat({
-      "local heap = require('nupp.heap')",
+      "local heap = require('nupp.mem.heap')",
       "cdef struct Transform2D",
       "   x: float",
       "   y: float",
