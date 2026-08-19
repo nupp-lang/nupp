@@ -3,6 +3,12 @@
 
 #include <stddef.h>
 
+#if defined(_WIN32)
+#define NUPP_SIMDJSON_EXPORT __declspec(dllexport)
+#else
+#define NUPP_SIMDJSON_EXPORT __attribute__((visibility("default")))
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -22,7 +28,7 @@ const char *nuppSimdjsonError(int code);
 const char *nuppSimdjsonVersion(void);
 const char *nuppSimdjsonImplementation(void);
 struct lua_State;
-int luaopen_jsonNative(struct lua_State *state);
+NUPP_SIMDJSON_EXPORT int luaopen_jsonNative(struct lua_State *state);
 
 #ifdef __cplusplus
 }

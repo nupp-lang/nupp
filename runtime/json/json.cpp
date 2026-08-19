@@ -18,12 +18,6 @@ extern "C" {
 }
 #include <simdjson.h>
 
-#if defined(_WIN32)
-#define NUPP_SIMDJSON_EXPORT __declspec(dllexport)
-#else
-#define NUPP_SIMDJSON_EXPORT __attribute__((visibility("default")))
-#endif
-
 struct nuppSimdjsonParser {
     simdjson::dom::parser dom;
     simdjson::ondemand::parser ondemand;
