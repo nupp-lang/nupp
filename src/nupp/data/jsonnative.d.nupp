@@ -1,3 +1,5 @@
+@!internal
+
 --[[
 JSON encoding and decoding, and the values a Lua table cannot express by itself.
 

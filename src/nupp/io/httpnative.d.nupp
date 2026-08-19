@@ -1,3 +1,5 @@
+@!internal
+
 --- Private provider binding for `nupp.io.http`.
 local httpnative: {newClient: function(options: any): (any?, string?)}
 

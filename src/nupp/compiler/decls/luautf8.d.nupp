@@ -1,0 +1,18 @@
+--[[
+Private declarations for the `lua-utf8` rock.
+
+Only what `nupp.data.utf8` reaches is declared. The rock offers a great deal more,
+and describing surface nothing calls would be describing it from the documentation
+rather than from use.
+]]
+
+--- @local
+local utf8: {
+    --- The UTF-8 encoding of one codepoint.
+    char: function(codepoint: integer): string,
+
+    --- Whether every sequence in the string is well formed.
+    isvalid: function(value: string): boolean
+}
+
+return utf8

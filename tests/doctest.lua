@@ -1006,6 +1006,26 @@ function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
    end
 end
 
+-- A host boundary is an implementation detail of the module that stands on it, so it
+-- must never reach the documented surface. These used to be invisible by sitting
+-- under nupp.compiler.decls, where the internal root hid them. They sit beside their
+-- modules now, inside the namespace a reader browses, so each has to say so itself.
+function M.hostBoundariesDeclareThemselvesInternal()
+   local boundaries = {
+      "src/nupp/data/jsonnative.d.nupp",
+      "src/nupp/io/processnative.d.nupp",
+      "src/nupp/io/httpnative.d.nupp",
+      "src/nupp/workers/native.d.nupp",
+   }
+   for _, relative in ipairs(boundaries) do
+      local source = readFile(HERE .. "/../" .. relative)
+      assert(source, "no boundary at " .. relative)
+      assert(source:find("@!internal", 1, true),
+         relative .. " would be documented as part of the namespace it sits in")
+   end
+end
+
+
 function M.standardLibraryBackingRecordsStayInternal()
    local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
    local module, errors, extra = doc.extract(source,
@@ -1013,7 +1033,6 @@ function M.standardLibraryBackingRecordsStayInternal()
    assert(module, errors and errors[1] and errors[1].msg)
 
    local expected = {
-      ["nupp.data.utf8"] = "length",
       ["nupp.io.files"] = "info",
       ["nupp.math.vec2"] = "add",
       ["nupp.peg"] = "compile",
@@ -1073,9 +1092,10 @@ function M.standardLibraryBackingRecordsStayInternal()
       end
    end
    -- Math, Vec2 and the three fixed-width namespaces retain private top-level
-   -- backing records. Path, URI and Log have folded theirs away; only
-   -- Files.Library, nested two levels down under nupp.io, remains.
-   assert(topLevelLibraries == 6, "private docs lost top-level backing records")
+   -- backing records. Path, URI and Log have folded theirs away, and UTF8Library
+   -- left with utf8 when it became a module; only Files.Library, nested two levels
+   -- down under nupp.io, remains.
+   assert(topLevelLibraries == 5, "private docs lost top-level backing records")
    assert(nestedLibraries == 1, "private docs lost nested backing records")
 end
 

@@ -459,26 +459,28 @@ function M.bufferAppendsInAmortizedConstantTime()
    assert(ok, problem)
 end
 
-function M.hiddenDataDependenciesLoadLazily()
-   local previous = rawget(_G, "nupp")
-   _G.nupp = nil
-   local bootstrap = stdlib.bootstrap({["native.lua_utf8"] = true,})
-   local chunk = assert(loadstring(bootstrap .. [=[
-      assert(package.loaded["lua-utf8"] == nil)
-      assert(nupp.data.utf8.length("A\226\130\172") == 2)
-      return package.loaded["lua-utf8"] ~= nil
-   ]=]))
-   -- Cleared to prove the bootstrap loads it on first access, and put back however
-   -- this ends. A failure part way through used to leave it unloaded for every later
-   -- test in the process, which broke whatever next asked for it rather than
-   -- reporting itself.
-   local loadedUtf8 = package.loaded["lua-utf8"]
+-- UTF-8 is a module rather than a lazily installed field, so what used to be proved
+-- about the ambient table is proved about the require: the rock is loaded by loading
+-- the module, not by touching a name on `nupp`.
+function M.theUtf8ModuleOpensItsRockOnRequire()
+   local loadedRock = package.loaded["lua-utf8"]
+   local loadedModule = package.loaded["nupp.data.utf8"]
    package.loaded["lua-utf8"] = nil
-   local ok, utf8Loaded = pcall(chunk)
-   package.loaded["lua-utf8"] = package.loaded["lua-utf8"] or loadedUtf8
-   _G.nupp = previous
-   assert(ok, utf8Loaded)
-   assert(utf8Loaded, "access loads the hidden implementation module")
+   package.loaded["nupp.data.utf8"] = nil
+   local ok, problem = pcall(function()
+      local utf8 = require("nupp.data.utf8")
+      assert(package.loaded["lua-utf8"] ~= nil, "requiring the module loaded the rock")
+      assert(utf8.length("A\226\130\172") == 2)
+      assert(utf8.isValid("A\226\130\172"))
+      assert(not utf8.isValid("\255"))
+      assert(utf8.encode(8364) == "\226\130\172")
+      local codepoint, nextAt = utf8.decodeAt("A\226\130\172", 2)
+      assert(codepoint == 8364 and nextAt == 5, "decodes the second codepoint")
+      assert(utf8.truncate("A\226\130\172", 3) == "A", "never cuts through a codepoint")
+   end)
+   package.loaded["lua-utf8"] = package.loaded["lua-utf8"] or loadedRock
+   package.loaded["nupp.data.utf8"] = package.loaded["nupp.data.utf8"] or loadedModule
+   assert(ok, problem)
 end
 
 -- JSON is a module rather than a lazily installed field, so what used to be proved

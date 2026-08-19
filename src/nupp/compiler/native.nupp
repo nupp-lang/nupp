@@ -35,7 +35,7 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {name = "json", module = "jsonNative", modules = {"nupp.data.json"}, host = "json", binary = true,},
     [
         "native.lua_utf8"
-    ] = {name = "lua_utf8", globals = {"nupp.data.utf8"}, module = "lua-utf8", host = "lua-utf8", binary = true,},
+    ] = {name = "lua_utf8", module = "lua-utf8", modules = {"nupp.data.utf8"}, host = "lua-utf8", binary = true,},
     ["stdlib.peg"] = {name = "peg", requires = {"native.lpeg"},},
     ["stdlib.peg.compile"] = {name = "peg_compile", globals = {"nupp.peg.compile"}, requires = {"native.lpeg"},},
     ["stdlib.fieldcodec"] = {name = "fieldcodec", globals = {"nupp.reflect.fieldCodec"},},

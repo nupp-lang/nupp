@@ -1,0 +1,178 @@
+module nupp.data.utf8
+
+--[[
+UTF-8 codepoint operations over strings and byte views.
+
+Encoding and validation are `lua-utf8`'s. Decoding is not: these answer a
+replacement character for malformed input rather than raising, and report where the
+next codepoint starts, so a caller walking a buffer of unknown provenance never has
+to guard every step. `0xFFFD` stands for one malformed byte, and the walk continues
+past it.
+
+Overlong forms, surrogate halves and codepoints above the maximum are malformed even
+though their lead bytes are well formed, so they are rejected on the value rather
+than on the shape.
+]]
+
+local native = require("lua-utf8")
+
+local REPLACEMENT: integer = 65533
+
+local function bytes(value: string | nupp.io.ByteView): string
+    if type(value) == "string" then
+        return value as string
+    end
+
+    return (value as nupp.io.ByteView):getString()
+end
+
+--- @raises when at is not an integer, or is outside the value
+local function offset(value: string, at: integer, allowEnd: boolean): integer
+    if at ~= math.floor(at) then
+        error("nupp: UTF-8 byte offset must be an integer", 3)
+    end
+    local limit = #value + (allowEnd and 1 or 0)
+    if at < 1 or at > limit then
+        error("nupp: UTF-8 byte offset is out of range", 3)
+    end
+
+    return at
+end
+
+-- The codepoint starting at `at`, and where the next one starts. A malformed
+-- sequence answers the replacement character and advances exactly one byte, so the
+-- caller always makes progress.
+local function decode(source: string, at: integer): (integer?, integer)
+    local first = source:byte(at)
+    if not first then
+        return nil, at
+    end
+    if first < 128 then
+        return first, at + 1
+    end
+    local need: integer = 0
+    local code: integer = 0
+    local min: integer = 0
+    if first >= 194 and first <= 223 then
+        need, code, min = 1, first - 192, 128
+    elseif first >= 224 and first <= 239 then
+        need, code, min = 2, first - 224, 2048
+    elseif first >= 240 and first <= 244 then
+        need, code, min = 3, first - 240, 65536
+    else
+        return REPLACEMENT, at + 1
+    end
+    for index = 1, need do
+        local continuation = source:byte(at + index)
+        if not continuation or continuation < 128 or continuation > 191 then
+            return REPLACEMENT, at + 1
+        end
+        code = code * 64 + continuation - 128
+    end
+    if code < min or code > 1114111 or (code >= 55296 and code <= 57343) then
+        return REPLACEMENT, at + 1
+    end
+
+    return code, at + need + 1
+end
+
+local utf8 = {}
+
+--- How many codepoints the value holds. A malformed byte counts as one.
+---
+--- @param value the bytes to measure
+--- @return the codepoint count
+function utf8.length(value: string | nupp.io.ByteView): integer
+    local source = bytes(value)
+    local count: integer = 0
+    local at: integer = 1
+    while at <= #source do
+        local _, nextAt = decode(source, at)
+        at = nextAt
+        count = count + 1
+    end
+
+    return count
+end
+
+--- The codepoint starting at a byte offset, and where the next one starts.
+---
+--- @param value the bytes to read
+--- @param byteOffset the 1-based byte to start at; one past the end is allowed
+--- @return the codepoint, or nil at the end of the value
+--- @return the byte the next codepoint starts at
+--- @raises when byteOffset is not an integer, or is outside the value
+function utf8.decodeAt(value: string | nupp.io.ByteView, byteOffset: integer): (integer?, integer)
+    local source = bytes(value)
+
+    return decode(source, offset(source, byteOffset, true))
+end
+
+--- The codepoint ending just before a byte offset, and where it starts.
+---
+--- @param value the bytes to read
+--- @param byteOffset the 1-based byte to look back from
+--- @return the codepoint, or nil at the start of the value
+--- @return the byte that codepoint starts at
+--- @raises when byteOffset is not an integer, or is outside the value
+function utf8.decodeBefore(value: string | nupp.io.ByteView, byteOffset: integer): (integer?, integer)
+    local source = bytes(value)
+    local at = offset(source, byteOffset, true)
+    if at == 1 then
+        return nil, 1
+    end
+    local start: integer = at - 1
+    while start > 1 and source:byte(start) >= 128 and source:byte(start) <= 191 do
+        start = start - 1
+    end
+    local codepoint, nextAt = decode(source, start)
+    -- Landing anywhere but the offset we walked back from means the bytes between
+    -- are not one sequence, so the byte before the offset stands alone.
+    if nextAt ~= at then
+        return REPLACEMENT, at - 1
+    end
+
+    return codepoint, start
+end
+
+--- The UTF-8 bytes for one codepoint.
+---
+--- @param codepoint the codepoint to encode
+--- @return its encoding
+function utf8.encode(codepoint: integer): string
+    return native.char(codepoint)
+end
+
+--- Whether the whole value is well-formed UTF-8.
+---
+--- @param value the bytes to test
+--- @return whether every sequence is well formed
+function utf8.isValid(value: string | nupp.io.ByteView): boolean
+    return native.isvalid(bytes(value))
+end
+
+--- The longest well-formed prefix no longer than `maxBytes`.
+---
+--- @param value the bytes to measure
+--- @param maxBytes the most bytes the prefix may use
+--- @return the prefix length, in bytes
+function utf8.validPrefixLength(value: string | nupp.io.ByteView, maxBytes: integer): integer
+    local source = bytes(value)
+    local limit: integer = math.max(0, math.min(#source, maxBytes)) as integer
+    while limit > 0 and not native.isvalid(source:sub(1, limit)) do
+        limit = limit - 1
+    end
+
+    return limit
+end
+
+--- The text cut to at most `maxBytes`, never through a codepoint.
+---
+--- @param text the text to cut
+--- @param maxBytes the most bytes the answer may use
+--- @return the cut text
+function utf8.truncate(text: string, maxBytes: integer): string
+    return text:sub(1, utf8.validPrefixLength(text, maxBytes))
+end
+
+export = utf8

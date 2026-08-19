@@ -1,3 +1,5 @@
+@!internal
+
 --- Private compiler-host primitives used by `nupp.workers`.
 ---
 --- The public module owns values, framing, suspension, and lifecycle. These
