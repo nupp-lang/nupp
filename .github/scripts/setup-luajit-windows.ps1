@@ -47,6 +47,7 @@ git -C $simdjsonRoot checkout --detach $simdjsonCommit
 cmake -S $simdjsonRoot -B $simdjsonBuild -A x64 `
     "-DCMAKE_INSTALL_PREFIX:PATH=$simdjsonInstall" `
     "-DBUILD_SHARED_LIBS:BOOL=OFF" `
+    "-DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON" `
     "-DSIMDJSON_DEVELOPER_MODE:BOOL=OFF" `
     "-DSIMDJSON_INSTALL:BOOL=ON"
 cmake --build $simdjsonBuild --config Release --parallel 2

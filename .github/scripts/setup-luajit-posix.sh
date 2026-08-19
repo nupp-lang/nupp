@@ -42,6 +42,7 @@ cmake -S "$simdjson_root" -B "$simdjson_build" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$simdjson_install" \
     -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DSIMDJSON_DEVELOPER_MODE=OFF \
     -DSIMDJSON_INSTALL=ON
 cmake --build "$simdjson_build" --config Release --parallel 2
