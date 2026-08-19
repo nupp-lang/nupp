@@ -190,6 +190,11 @@ local function codeGroupHtml(blocks, links)
     codeGroupIndex = codeGroupIndex + 1
     local name = "nuppdoc-code-group-" .. tostring(codeGroupIndex)
     local out = {'<div class="nuppdoc-code-group" role="radiogroup"' .. ' aria-label="Code examples">'}
+    -- The tab inputs and labels live in their own row, separate from the
+    -- panels: that's what lets the row scroll horizontally on overflow
+    -- (see .nuppdoc-code-tabs in nupp.css) instead of wrapping tabs onto a
+    -- second line, which read as broken for long captions like file paths.
+    out[#out + 1] = '<div class="nuppdoc-code-tabs">'
     for index, block in ipairs(labeled) do
         local id = name .. "-" .. tostring(index)
         out[
@@ -198,7 +203,11 @@ local function codeGroupHtml(blocks, links)
             index == 1 and " checked" or ""
         ) .. '><label class="nuppdoc-code-tab" for="' .. id .. '">' .. htmlEscape(
             block.caption
-        ) .. '</label><figure class="nuppdoc-code-panel">' .. renderedCodeBlockHtml(block, links) .. '</figure>'
+        ) .. "</label>"
+    end
+    out[#out + 1] = "</div>"
+    for index, block in ipairs(labeled) do
+        out[#out + 1] = '<figure class="nuppdoc-code-panel">' .. renderedCodeBlockHtml(block, links) .. "</figure>"
     end
     out[#out + 1] = "</div>"
 
