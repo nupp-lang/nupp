@@ -1046,6 +1046,14 @@ local package: {
     --- Modules made available without consulting the filesystem.
     preload: {[string]: function(...: any): any},
 
+    --- Every module `require` has already returned, by the name it was asked for.
+    --- Writing an entry makes that name resolve without a search.
+    loaded: {[string]: any},
+
+    --- Opens a shared object and answers the named C entry point, or nil and why
+    --- when it could not be opened.
+    loadlib: function(path: string, symbol: string): (any, string?),
+
     --- Lua 5.1 and Lua 5.2 names for the module-loader chain.
     loaders: {function(string): any},
     searchers: {function(string): any}?

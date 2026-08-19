@@ -462,35 +462,46 @@ end
 function M.hiddenDataDependenciesLoadLazily()
    local previous = rawget(_G, "nupp")
    _G.nupp = nil
-   local bootstrap = stdlib.bootstrap({
-      ["native.json"] = true,
-      ["native.lua_utf8"] = true,
-   })
+   local bootstrap = stdlib.bootstrap({["native.lua_utf8"] = true,})
    local chunk = assert(loadstring(bootstrap .. [=[
-      assert(package.loaded.jsonNative == nil)
       assert(package.loaded["lua-utf8"] == nil)
-      assert(nupp.data.json.encode({answer = 42}):find('"answer":42', 1, true))
-      assert(nupp.data.json.encode(nupp.data.json.EMPTY_ARRAY) == "[]")
-      assert(nupp.data.json.encode(nupp.data.json.EMPTY_OBJECT) == "{}")
-      assert(nupp.data.json.encode(nupp.data.json.asArray({})) == "[]")
-      assert(nupp.data.json.decode("[1,null,2]")[2] == 2)
-      assert(nupp.data.json.decode("null", nupp.data.json.NULL) == nupp.data.json.NULL)
-      assert(nupp.data.utf8.length("A€") == 2)
-      return package.loaded.jsonNative ~= nil, package.loaded["lua-utf8"] ~= nil
+      assert(nupp.data.utf8.length("A\226\130\172") == 2)
+      return package.loaded["lua-utf8"] ~= nil
    ]=]))
-   -- Both are cleared to prove the bootstrap loads them on first access, and
-   -- both are put back however this ends. A failure part way through used to
-   -- leave `jsonNative` unloaded for every later test in the process, which broke
-   -- whatever next asked for it rather than reporting itself.
-   local loadedJson, loadedUtf8 = package.loaded.jsonNative, package.loaded["lua-utf8"]
-   package.loaded.jsonNative = nil
+   -- Cleared to prove the bootstrap loads it on first access, and put back however
+   -- this ends. A failure part way through used to leave it unloaded for every later
+   -- test in the process, which broke whatever next asked for it rather than
+   -- reporting itself.
+   local loadedUtf8 = package.loaded["lua-utf8"]
    package.loaded["lua-utf8"] = nil
-   local ok, jsonLoaded, utf8Loaded = pcall(chunk)
-   package.loaded.jsonNative = package.loaded.jsonNative or loadedJson
+   local ok, utf8Loaded = pcall(chunk)
    package.loaded["lua-utf8"] = package.loaded["lua-utf8"] or loadedUtf8
    _G.nupp = previous
-   assert(ok, jsonLoaded)
-   assert(jsonLoaded and utf8Loaded, "access loads the hidden implementation modules")
+   assert(ok, utf8Loaded)
+   assert(utf8Loaded, "access loads the hidden implementation module")
+end
+
+-- JSON is a module rather than a lazily installed field, so what used to be proved
+-- about the ambient table is proved about the require: the host boundary is opened
+-- by loading the module, not by touching a name on `nupp`.
+function M.theJsonModuleOpensItsHostOnRequire()
+   local loadedJson = package.loaded.jsonNative
+   local loadedModule = package.loaded["nupp.data.json"]
+   package.loaded.jsonNative = nil
+   package.loaded["nupp.data.json"] = nil
+   local ok, problem = pcall(function()
+      local json = require("nupp.data.json")
+      assert(package.loaded.jsonNative ~= nil, "requiring the module opened the host")
+      assert(json.encode({answer = 42}):find('"answer":42', 1, true))
+      assert(json.encode(json.EMPTY_ARRAY) == "[]")
+      assert(json.encode(json.EMPTY_OBJECT) == "{}")
+      assert(json.encode(json.asArray({})) == "[]")
+      assert(json.decode("[1,null,2]")[2] == 2)
+      assert(json.decode("null", json.NULL) == json.NULL)
+   end)
+   package.loaded.jsonNative = package.loaded.jsonNative or loadedJson
+   package.loaded["nupp.data.json"] = package.loaded["nupp.data.json"] or loadedModule
+   assert(ok, problem)
 end
 
 function M.nativeGlobalMembersLoadOnFirstAccess()

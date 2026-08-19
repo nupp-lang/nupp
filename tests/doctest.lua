@@ -764,6 +764,43 @@ function M.standardTypesApiMarksItsCompilerOnlyValues()
    assert(foundFunction, "nupp.types.optional lost its comptime function kind")
 end
 
+-- The JSON surface is declared by the host boundary the module re-exports, so this
+-- is asked of that file rather than of the prelude it used to sit in.
+function M.standardJsonApiHasCompleteDocumentation()
+   local path = "src/nupp/compiler/decls/jsonnative.d.nupp"
+   local source = readFile(HERE .. "/../" .. path)
+   local module, errors = doc.extract(source, path, "nupp.data.json")
+   assert(module, errors and errors[1] and errors[1].msg)
+
+   -- The boundary declares one record and the surface is its members, so the API is
+   -- read from there rather than from the file's top level.
+   local record
+   for _, item in ipairs(module.items) do
+      if item.name == "json" then record = item end
+   end
+   assert(record, "the host boundary did not declare the json surface")
+
+   local writer
+   for _, member in ipairs(record.members) do
+      local prefix = "nupp.data.json." .. member.name
+      assert(member.text ~= "", prefix .. " has no documentation")
+      for _, param in ipairs(member.params or {}) do
+         assert(param.text ~= "", prefix .. " parameter " .. param.name
+            .. " has no documentation")
+      end
+      if member.name == "Writer" then writer = member end
+   end
+   assert(writer, "the host boundary did not document nupp.data.json.Writer")
+   for _, member in ipairs(writer.members or {}) do
+      local prefix = "nupp.data.json.Writer." .. member.name
+      assert(member.text ~= "", prefix .. " has no documentation")
+      for _, param in ipairs(member.params or {}) do
+         assert(param.text ~= "", prefix .. " parameter " .. param.name
+            .. " has no documentation")
+      end
+   end
+end
+
 function M.standardDataApiHasCompleteDocumentation()
    local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
    local module, errors, extra = doc.extract(source,
@@ -787,43 +824,6 @@ function M.standardDataApiHasCompleteDocumentation()
       end
    end
 
-   -- JSON is a namespace nested inside nupp.data, so it synthesizes a module of
-   -- its own rather than appearing among nupp.data's items.
-   local json
-   for _, candidate in ipairs(extra or {}) do
-      if candidate.name == "nupp.data.json" then json = candidate end
-   end
-   assert(json, "the prelude did not synthesize nupp.data.json")
-   for _, item in ipairs(data.items) do
-      assert(item.name ~= "json", "nupp.data.json stayed an item of nupp.data")
-   end
-
-   local writer
-   for _, item in ipairs(json.items) do
-      assert(item.doc.text ~= "", "nupp.data.json." .. item.name .. " has no documentation")
-      for _, param in ipairs(item.params) do
-         assert(param.text ~= "", "nupp.data.json." .. item.name .. " parameter "
-            .. param.name .. " has no documentation")
-      end
-      for index, result in ipairs(item.returns) do
-         assert(result.text ~= "", "nupp.data.json." .. item.name .. " return "
-            .. index .. " has no documentation")
-      end
-      if item.name == "Writer" then writer = item end
-   end
-   assert(writer, "the prelude did not document nupp.data.json.Writer")
-   for _, member in ipairs(writer.members) do
-      local prefix = "nupp.data.json.Writer." .. member.name
-      assert(member.text ~= "", prefix .. " has no documentation")
-      for _, param in ipairs(member.params) do
-         assert(param.text ~= "", prefix .. " parameter " .. param.name
-            .. " has no documentation")
-      end
-      for index, result in ipairs(member.returns) do
-         assert(result.text ~= "", prefix .. " return " .. index
-            .. " has no documentation")
-      end
-   end
 end
 
 function M.standardIOApiHasCompleteDocumentation()

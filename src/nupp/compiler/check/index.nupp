@@ -18,6 +18,7 @@ local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
 local scalarIntrinsics = require("nupp.compiler.scalarintrinsics")
 local fixedWidth = require("nupp.compiler.fixedwidth")
+local native = require("nupp.compiler.native")
 local indexedViews = require("nupp.compiler.indexedviews")
 
 local isA = relations.isA
@@ -148,6 +149,15 @@ function index.install(c: state.Checker): state.ExprHandlers
                         )
                         return T.any
                     end
+                end
+                -- Selecting a module through a qualified path is how a program reaches
+                -- one that used to be a field of the ambient table, so it has to record
+                -- the same feature effect an explicit require would. Without this the
+                -- native library a module stands on stops being carried.
+                local moduleEffect = native.forModule(candidate)
+                if moduleEffect and c.recordEffect then
+                    (node as any).compilerFeatureEffect = moduleEffect
+                    c.recordEffect(moduleEffect)
                 end
                 node.qualifiedModule = candidate
                 node.qualifiedMembers = suffix

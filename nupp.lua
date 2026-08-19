@@ -99,6 +99,7 @@ local RESOURCES = {
    {source = "src/nupp/data/bitset.nupp", output = "nupp/compiler/nupp/data/bitset.nupp"},
    {source = "src/nupp/data/fnv1a64.nupp", output = "nupp/compiler/nupp/data/fnv1a64.nupp"},
    {source = "src/nupp/data/crc32.nupp", output = "nupp/compiler/nupp/data/crc32.nupp"},
+   {source = "src/nupp/data/json.nupp", output = "nupp/compiler/nupp/data/json.nupp"},
    {source = "src/nupp/log.g.nupp", output = "nupp/compiler/nupp/log.g.nupp"},
    {source = "src/nupp/suspension.nupp", output = "nupp/compiler/nupp/suspension.nupp"},
    {source = "src/nupp/io/process.nupp", output = "nupp/compiler/nupp/io/process.nupp"},

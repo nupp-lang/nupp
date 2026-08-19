@@ -32,7 +32,7 @@ local FEATURES: {[string]: native.Feature} = {
     ["stdlib.lpeg.re"] = {name = "lpeg_re", module = "re", requires = {"native.lpeg"},},
     [
         "native.json"
-    ] = {name = "json", globals = {"nupp.data.json"}, module = "jsonNative", host = "json", binary = true,},
+    ] = {name = "json", module = "jsonNative", modules = {"nupp.data.json"}, host = "json", binary = true,},
     [
         "native.lua_utf8"
     ] = {name = "lua_utf8", globals = {"nupp.data.utf8"}, module = "lua-utf8", host = "lua-utf8", binary = true,},

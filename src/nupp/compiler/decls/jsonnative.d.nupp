@@ -1,32 +1,144 @@
 --[[
-Private declarations for the simdjson-backed native module. Programs use
-`nupp.data.json`; this module name is the host boundary it loads.
+JSON encoding and decoding, and the values a Lua table cannot express by itself.
+
+This is the surface of the simdjson-backed host module. Programs reach it as
+`nupp.data.json`, which loads this boundary and re-exports it, so the shape is
+declared here and nowhere else.
+
+`decodeAs`, `encodeAs` and `encodeRecord` are not the host's. The derive runtime
+installs them onto this table when a program derives JSON for a type, and they raise
+when nothing was derived. They are declared with the rest so a caller sees one API.
 ]]
 
-local interface JsonWriter
-    startArray: function(self: JsonWriter): JsonWriter
-    startObject: function(self: JsonWriter): JsonWriter
-    key: function(self: JsonWriter, name: string): JsonWriter
-    write: function(self: JsonWriter, value: any): JsonWriter
-    null: function(self: JsonWriter): JsonWriter
-    close: function(self: JsonWriter): JsonWriter
-    flush: function(self: JsonWriter): string
-    finish: function(self: JsonWriter): string
-end
+--- Values that can encode themselves as JSON text.
+record json
+    --- Values that can encode themselves as JSON text.
+    interface JSONEncodable
+        toJSON: function(self): string
+    end
 
-local record JsonNative
+    --- A checked incremental JSON writer.
+    interface Writer
+        --- Starts an array value.
+        --- @param self this writer
+        --- @return this writer
+        startArray: function(self: Writer): Writer
+
+        --- Starts an object value.
+        --- @param self this writer
+        --- @return this writer
+        startObject: function(self: Writer): Writer
+
+        --- Selects the next object member.
+        --- @param self this writer
+        --- @param name the next object member name
+        --- @return this writer
+        key: function(self: Writer, name: string): Writer
+
+        --- Appends one complete Lua value.
+        --- @param self this writer
+        --- @param value the next complete JSON value
+        --- @return this writer
+        write: function(self: Writer, value: any): Writer
+
+        --- Appends JSON null.
+        --- @param self this writer
+        --- @return this writer
+        null: function(self: Writer): Writer
+
+        --- Closes the current array or object.
+        --- @param self this writer
+        --- @return this writer
+        close: function(self: Writer): Writer
+
+        --- Returns bytes completed since the previous flush.
+        --- @param self this writer
+        --- @return the completed JSON bytes
+        flush: function(self: Writer): string
+
+        --- Completes the document and returns its final bytes.
+        --- @param self this writer
+        --- @return the final JSON bytes
+        finish: function(self: Writer): string
+    end
+
+    --- Decodes one JSON document. Null members are dropped unless a replacement
+    --- value is supplied.
+    --- @param text the complete JSON document
+    --- @param nullValue the value used for JSON null, or nil to drop nulls
+    --- @return the decoded Lua value
     decode: function(text: string, nullValue: any?): any
+
+    --- Materializes only the fields selected by an On-Demand pull shape.
+    --- @param text the complete JSON document
+    --- @param shape the fields and array members to materialize
+    --- @param nullValue the value used for JSON null, or nil to drop nulls
+    --- @return the selected Lua value
     pull: function(text: string, shape: any, nullValue: any?): any
+
+    --- Applies one pull shape to every member of an array.
+    --- @param shape the selection applied to each member, or every value when
+    ---     omitted
+    --- @return an array pull shape
     arrayOf: function(shape: any?): table
+
+    --- Marks a Lua table as a JSON array, including while it is empty.
+    --- @param value the table to mark
+    --- @return the same table
     asArray: function<T is table>(takes value: T): T preserves value
+
+    --- Marks a Lua table as a JSON object.
+    --- @param value the table to mark
+    --- @return the same table
     asObject: function<T is table>(takes value: T): T preserves value
+
+    --- Serializes one Lua value as JSON.
+    --- @param value the value to serialize
+    --- @param nullValue an additional value treated as JSON null
+    --- @return the JSON document
     encode: function(value: any, nullValue: any?): string
+
+    --- Alias of `encode`.
+    --- @param value the value to serialize
+    --- @param nullValue an additional value treated as JSON null
+    --- @return the JSON document
     serialize: function(value: any, nullValue: any?): string
-    writer: function(nullValue: any?): JsonWriter
+
+    --- Creates an incremental JSON writer.
+    --- @param nullValue an additional value treated as JSON null
+    --- @return a new writer
+    writer: function(nullValue: any?): Writer
+
+    --- Decodes JSON into the nominal record named by its one type witness.
+    --- @param type the record's type witness, naming what to decode into
+    --- @param text the JSON document to decode
+    --- @return the decoded record, or nil when the document does not fit it
+    --- @return why it did not fit, when unsuccessful
+    decodeAs: function<T>(type: Type<T>, text: string): (T?, string?)
+
+    --- Encodes a nominal record after explicitly supplying its type witness.
+    --- @param type the record's type witness
+    --- @param value the record to encode
+    --- @return the encoded JSON document
+    encodeAs: function<T>(type: Type<T>, value: T): string
+
+    --- Encodes a nominal record using the metatable its value already carries.
+    --- @param value the record to encode
+    --- @return the encoded JSON document
+    encodeRecord: function<T>(value: T): string
+
+    --- Sentinel that decodes from and encodes as JSON null.
     NULL: any
+
+    --- An explicit empty JSON array.
     EMPTY_ARRAY: table
+
+    --- An explicit empty JSON object.
     EMPTY_OBJECT: table
+
 end
 
-local json: JsonNative
-return json
+--- @local
+local value: json
+
+return value
