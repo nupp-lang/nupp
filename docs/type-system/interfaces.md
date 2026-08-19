@@ -149,7 +149,8 @@ That is what lets a decoded table answer `is`. It applies to interfaces only: a
 record and a struct already answer exactly, so a derived test beside either
 would be a second answer chosen by whether the fields happened to be literals.
 
-**A `matches` block**, which wins over the tags when both are present.
+**A [`satisfies` declaration](refinements.md)**, which wins over the tags
+when both are present.
 
 With neither, and against an alias, there is nothing to test and that is
 NUPP3001 at code generation.
