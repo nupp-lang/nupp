@@ -67860,7 +67860,6 @@ file
 )
 local remainder = rewriteConfiguredPageLinks ( markdown : sub ( featureEnd + 1 ) , candidate , pages , file )
 body [ # body + 1 ] = markdownHtml ( introduction , links , 0 )
-body [ # body + 1 ] = '<h2 id="nupp-features">Nupp Features</h2>'
 body [ # body + 1 ] = homeFeatures ( candidate , links )
 body [ # body + 1 ] = markdownHtml ( remainder , links , 0 )
 else
@@ -71893,6 +71892,11 @@ end
 codeGroupIndex = codeGroupIndex + 1
 local name = "nuppdoc-code-group-" .. tostring ( codeGroupIndex )
 local out = { '<div class="nuppdoc-code-group" role="radiogroup"' .. ' aria-label="Code examples">' }
+
+
+
+
+out [ # out + 1 ] = '<div class="nuppdoc-code-tabs">'
 for index , block in ipairs ( labeled ) do
 local id = name .. "-" .. tostring ( index )
 out [
@@ -71901,7 +71905,11 @@ out [
 index == 1 and " checked" or ""
 ) .. '><label class="nuppdoc-code-tab" for="' .. id .. '">' .. htmlEscape (
 block . caption
-) .. '</label><figure class="nuppdoc-code-panel">' .. renderedCodeBlockHtml ( block , links ) .. '</figure>'
+) .. "</label>"
+end
+out [ # out + 1 ] = "</div>"
+for index , block in ipairs ( labeled ) do
+out [ # out + 1 ] = '<figure class="nuppdoc-code-panel">' .. renderedCodeBlockHtml ( block , links ) .. "</figure>"
 end
 out [ # out + 1 ] = "</div>"
 
