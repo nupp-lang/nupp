@@ -220,9 +220,16 @@ local function sidebar(modules, current, prefix, pages, currentPath)
     local apiOpen = current and current ~= "" and " open" or ""
     out[
         #out + 1
-    ] = '<li class="nuppdoc-sidebar-section"><details' .. apiOpen .. '><summary>API reference</summary>'
+    ] = '<li class="nuppdoc-sidebar-section"><details'
+        .. apiOpen
+        .. '><summary>API reference</summary>'
         .. '<ul class="nuppdoc-module-tree">'
-        .. moduleTreeHtml(moduleTree(modules), current, prefix, "")
+        .. moduleTreeHtml(
+        moduleTree(modules),
+        current,
+        prefix,
+        ""
+    )
     out[#out + 1] = "</ul></details></li></ul></aside>"
 
     return table.concat(out)
