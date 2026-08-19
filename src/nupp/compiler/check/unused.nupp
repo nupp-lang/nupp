@@ -1,3 +1,5 @@
+module nupp.compiler.check.unused
+
 --[[
 Whether a `local` this file introduces is read anywhere.
 
@@ -118,4 +120,4 @@ function unused.install(c: state.Checker): unused.Ops
     return ops
 end
 
-return unused
+export = unused

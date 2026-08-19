@@ -1,3 +1,5 @@
+module nupp.workers
+
 --[[
 Isolated worker threads.
 
@@ -575,4 +577,4 @@ workers.Worker = workers.Worker
 workers.Self = workers.Self
 workers.Exit = workers.Exit
 
-return workers
+export = workers

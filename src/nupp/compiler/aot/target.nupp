@@ -1,3 +1,5 @@
+module nupp.compiler.aot.target
+
 --[[
 What a target can hold, which decides what a gang can be.
 
@@ -21,12 +23,12 @@ Nothing here probes the machine by running anything. A tier is selected, not
 discovered, because a build that measured the machine in front of it would
 produce an artifact that only runs there.
 
-The triples are `nupp.compiler.target_layout`'s. This does not invent a second
+The triples are `nupp.compiler.targetlayout`'s. This does not invent a second
 vocabulary for the same thing.
 ]]
 
 local lane = require("nupp.compiler.aot.lane")
-local targetLayout = require("nupp.compiler.target_layout")
+local targetLayout = require("nupp.compiler.targetlayout")
 
 local target = {}
 
@@ -64,7 +66,7 @@ const target.DEFAULT_TIERS = {["x86_64"] = "baseline", ["i686"] = "baseline", ["
 
 --- One target the backend may compile for.
 record target.Target
-    --- The triple, from `target_layout`'s vocabulary.
+    --- The triple, from `targetlayout`'s vocabulary.
     triple: string
 
     --- The architecture it names, which is what decides the tiers available.
@@ -190,4 +192,4 @@ function target.noGangReason(selected: target.Target): string
     ):format(selected.tier, target.NARROWEST_GANG, table.concat(wider, " or "))
 end
 
-return target
+export = target

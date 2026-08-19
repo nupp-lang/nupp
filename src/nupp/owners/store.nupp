@@ -1,3 +1,5 @@
+module nupp.owners.store
+
 --[[
 Typed custody for capabilities that must cross heterogeneous or untyped storage.
 
@@ -246,4 +248,4 @@ _G.__nuppDynamicPolicyCount = function(policy: string): integer
     return count
 end
 
-return store
+export = store

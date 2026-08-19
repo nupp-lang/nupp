@@ -79,7 +79,6 @@ export function twice(value: integer): integer
    return value * 2
 end
 
-
 export function box(value: integer): Box
    return new Box(value = value)
 end
@@ -105,6 +104,44 @@ end
       assertEq(mathbox.answer, 42)
       assertEq(mathbox.twice(21), 42)
       assertEq(mathbox.box(42).value, 42)
+   end)
+end
+
+function M.exportAssignmentMigratesAnExistingModuleTable()
+   withProject({
+      ["src/legacy.nupp"] = [[
+module legacy
+
+local legacy = {answer = 40}
+
+type legacy.Count = integer
+
+function legacy.add(value: legacy.Count): number
+   return legacy.answer + value
+end
+
+export = setmetatable(legacy, {__call = function(self, value) return self.add(value) end})
+]],
+   }, function(dir)
+      local path = dir .. "/src/legacy.nupp"
+      local env = projectEnv(dir)
+      local parsed = parser.parse(readFile(path), path)
+      assertEq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+      local diags, moduleType, exports = check.check(parsed, path, env)
+      assertEq(#diags, 0, diags[1] and diags[1].msg)
+      assert(moduleType, "export assignment has a module boundary")
+      assert(exports.values.add, "table members enter the declared interface")
+      assert(exports.types.Count, "qualified table types enter the declared interface")
+
+      package.loaded.legacy = nil
+      local removeLoader = runtime.install(env, compile)
+      local legacy = require("legacy")
+      removeLoader()
+      package.loaded.legacy = nil
+      assertEq(legacy.add(2), 42)
+      assertEq(legacy(2), 42, "the migration boundary preserves the table metatable")
+      legacy.answer = 50
+      assertEq(legacy.add(2), 52, "the migration boundary preserves the module table's identity")
    end)
 end
 

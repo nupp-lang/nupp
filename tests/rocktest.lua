@@ -31,8 +31,8 @@ function M.initCreatesTheTypedRockContract()
    local ok, err = rock.init("sample-rock", dir)
    assert(ok, err)
    assert(exists(dir .. "/nupp.lua"), "the project manifest was written")
-   assert(exists(dir .. "/src/sample_rock.nupp"), "the runtime source was written")
-   assert(exists(dir .. "/nupp/sample_rock.d.nupp"),
+   assert(exists(dir .. "/src/samplerock.nupp"), "the runtime source was written")
+   assert(exists(dir .. "/nupp/samplerock.d.nupp"),
       "the matching declaration was written")
    assert(exists(dir .. "/sample-rock-dev-1.rockspec"), "the rockspec was written")
    local again, againErr = rock.init("sample-rock", dir)

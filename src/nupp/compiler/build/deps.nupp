@@ -1,3 +1,5 @@
+module nupp.compiler.build.deps
+
 --[[
 Building what a project depends on but did not write.
 
@@ -175,6 +177,7 @@ local function generateBinding(root, outDir, name, dep, base, libraryPath, extra
         header = join(base, header)
     end
     local text, warnings, details = importc.import(header, {
+        module = name,
         lib = binding.library or dep.load or libraryPath,
         cc = dep.cc,
         cppflags = extraCppflags or dep.cppflags,
@@ -911,4 +914,4 @@ deps.build = buildDependencies
 deps.rockPaths = rockPaths
 deps.rockModules = rockModules
 
-return deps
+export = deps

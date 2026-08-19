@@ -1,8 +1,10 @@
+module nupp.compiler.cli.initcommand
+
 --[[
 `nupp init`: turn a template into a project.
 
-Named `init_command` because `nupp.compiler.cli.init` is the dispatcher this
-registers with, the same collision `completions_command` already works around.
+Named `initcommand` because `nupp.compiler.cli.init` is the dispatcher this
+registers with, the same collision `completionscommand` already works around.
 
 The scaffolding is all in `nupp.compiler.template`. What is here is the argument
 grammar, the one question this command asks before writing somebody else's tree,
@@ -341,4 +343,4 @@ local function run(parsed: any): integer
     return code
 end
 
-return new spec.Handler(spec = command, run = run)
+export = new spec.Handler(spec = command, run = run)

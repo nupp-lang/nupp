@@ -1,3 +1,5 @@
+module nupp.compiler.check.aot
+
 --[[
 The source subset an `@aot` body is allowed to be.
 
@@ -188,4 +190,4 @@ function aot.install(c: state.Checker): aot.Ops
     return ops
 end
 
-return aot
+export = aot

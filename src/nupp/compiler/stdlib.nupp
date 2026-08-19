@@ -1,3 +1,5 @@
+module nupp.compiler.stdlib
+
 --[[
 Runtime installers for compiler-provided standard facilities.
 
@@ -1005,7 +1007,7 @@ end
 -- program needs is the ambient one, which is why the module it loads is private:
 -- a name a program is never meant to write is not one documentation should show.
 local BITSET = compact([=[
-__nuppLazy(__nuppData,"bitset",function()return require("nupp.data._bitset")end)
+__nuppLazy(__nuppData,"bitset",function()return require("nupp.data.bitsetimpl")end)
 ]=])
 
 local SHA256 = compact(
@@ -1105,4 +1107,4 @@ function stdlib.bootstrap(effects: {[string]: any}?, watch: boolean?): string
     return code:sub(-1) == ";" and code or code .. ";"
 end
 
-return stdlib
+export = stdlib

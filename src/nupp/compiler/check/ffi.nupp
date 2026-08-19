@@ -1,3 +1,5 @@
+module nupp.compiler.check.ffi
+
 --[[
 The calls that mean something to the compiler because they name a C type.
 
@@ -489,4 +491,4 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
     end
 end
 
-return ffi
+export = ffi

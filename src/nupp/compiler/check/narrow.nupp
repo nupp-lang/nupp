@@ -1,3 +1,5 @@
+module nupp.compiler.check.narrow
+
 --[[
 What a condition proves, and where it holds.
 
@@ -709,4 +711,4 @@ function narrow.install(c: state.Checker): narrow.Ops
     return facts
 end
 
-return narrow
+export = narrow

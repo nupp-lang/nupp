@@ -1,3 +1,5 @@
+module nupp.compiler.aot.admit
+
 --[[
 What an `@aot` body may be written out of.
 
@@ -7,13 +9,13 @@ guessed at -- so widening the subset is adding a row, and reading what the
 subset is does not mean reading a lowering pass.
 
 The fixed-width intrinsics are keyed by the canonical identity
-`nupp.compiler.scalar_intrinsics` assigns, not by the path the source wrote.
+`nupp.compiler.scalarintrinsics` assigns, not by the path the source wrote.
 The checker recognises those members by definition rather than by spelling, and
 keying on the identity is what keeps aliasing a standard member from meaning one
 thing to the checker and another to this backend.
 ]]
 
-local scalar = require("nupp.compiler.scalar_intrinsics")
+local scalar = require("nupp.compiler.scalarintrinsics")
 
 local admit = {}
 
@@ -51,7 +53,7 @@ const admit.COMPARISON = {["<"] = "lt", ["<="] = "le", [">"] = "gt", [">="] = "g
 
 --- One admitted fixed-width intrinsic.
 record admit.Fixed
-    --- The canonical identity `scalar_intrinsics` gives this member.
+    --- The canonical identity `scalarintrinsics` gives this member.
     identity: string
 
     --- The IR operation it lowers to.
@@ -170,7 +172,7 @@ end)()
 
 --- The fixed-width intrinsic one dotted path names, if it names one.
 ---
---- The path goes through `scalar_intrinsics` first, so this backend and the
+--- The path goes through `scalarintrinsics` first, so this backend and the
 --- checker agree about which member was written.
 function admit.fixed(path: string): admit.Fixed?
     local identity = scalar.forPath(path)
@@ -186,4 +188,4 @@ function admit.math(path: string): admit.Math?
     return admit.MATH[path]
 end
 
-return admit
+export = admit

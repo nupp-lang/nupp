@@ -1,3 +1,5 @@
+module nupp.compiler.aot.lower
+
 --[[
 Turning admitted source into AOT IR.
 
@@ -3440,4 +3442,4 @@ function lower.program(
     )
 end
 
-return lower
+export = lower

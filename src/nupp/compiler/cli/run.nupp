@@ -1,3 +1,5 @@
+module nupp.compiler.cli.run
+
 --[[
 `nupp run`: compile a program and run it.
 
@@ -174,7 +176,7 @@ local function run(parsed: any): integer
     local entryAcknowledged = false
     if watching then
         hotRuntime = require("nupp.hotreload")
-        watchSession = require("nupp.compiler.hot_session").new(".", {strict = settings.strict})
+        watchSession = require("nupp.compiler.hotsession").new(".", {strict = settings.strict})
         local initialBuild = watchSession:initial({path})
         if initialBuild.kind ~= "initial" then
             require("nupp.compiler.diagnostics").report(initialBuild.diagnostics or {})
@@ -416,4 +418,4 @@ local function run(parsed: any): integer
     return 0
 end
 
-return new spec.Handler(spec = command, run = run)
+export = new spec.Handler(spec = command, run = run)

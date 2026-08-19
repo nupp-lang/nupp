@@ -1,3 +1,5 @@
+module nupp.compiler.doc.extract
+
 --[[
 The CST of one file, read as its documented declarations.
 
@@ -972,12 +974,10 @@ local function buildMembers(
     return members
 end
 
--- What a file hands back by name in a returned table literal, which is the one way a
--- declaration bound to a bare identifier reaches a requirer. `function m.thing()` says
--- where it lands in its own spelling and needs no such list; a `cdef` does not, so
--- `return {labs = labs}` is all that separates a published binding from the plumbing a
--- module happens to call C for. A file returning anything else -- the usual `return m`
--- -- publishes no bare name and gets an empty answer.
+-- What a file publishes by name in a legacy returned table or a declared module's
+-- `export =` table. `function m.thing()` says where it lands in its own spelling and
+-- needs no such list; a `cdef` does not, so the table boundary is all that separates a
+-- published binding from plumbing a module happens to call C for.
 local function returnedNames(root): {[string]: boolean}
     local names: {[string]: boolean} = {}
     local function record(value)
@@ -995,6 +995,10 @@ local function returnedNames(root): {[string]: boolean}
                             record(field.value)
                         end
                     end
+                end
+            elseif stat.kind == "exportStmt" and stat.value and stat.value.kind == "tableExpr" then
+                for _, field in ipairs(stat.value.fields or {}) do
+                    record(field.value)
                 end
             end
         end
@@ -1017,9 +1021,13 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
         end
         stat = stat.stat
     end
+    local explicitlyExported = stat.kind == "exportStmt" and stat.stat ~= nil
+    if explicitlyExported then
+        stat = stat.stat
+    end
     local lines = docLines(documented)
     local info = parseDoc(lines)
-    local public = includeAll or declarationFile or info.tags.export or info.tags.public
+    local public = includeAll or declarationFile or explicitlyExported or info.tags.export or info.tags.public
     local kind, name, signature, itemComptimeKind
     if stat.kind == "funcStmt" or stat.kind == "localFuncStmt" then
         name = stat.kind == "funcStmt" and syntax(stat.name) or stat.name.text
@@ -1134,6 +1142,9 @@ local function declaredTypePath(stat, moduleName: string): string?
     while stat.kind == "pragmaStmt" and stat.stat do
         stat = stat.stat
     end
+    if stat.kind == "exportStmt" and stat.stat then
+        stat = stat.stat
+    end
     local declaresType = stat.kind == "recordDecl" or stat.kind == "typeAlias" or stat.kind == "cdefStruct"
     if not declaresType or not stat.name then
         return nil
@@ -1231,12 +1242,23 @@ local function moduleName(path: string, root: string, includes: {string}?): stri
     return best
 end
 
--- A long comment at the very top of a file is its module documentation: it is the one
--- comment that belongs to the file rather than to whatever declaration happens to
--- follow, and it survives as markdown untouched. An ordinary `--` header stays a plain
--- implementation note, and an explicit `@module` docblock still wins over both.
+-- A long comment at the top of a file, or immediately after its `module` declaration,
+-- is its module documentation. It belongs to the file rather than to the declaration
+-- that follows and survives as markdown untouched. An ordinary `--` header stays a
+-- plain implementation note, and an explicit `@module` docblock still wins over both.
 local function headerDoc(root)
     local token = firstToken(root)
+    local _, moduleNode = cst.declaredModule(root)
+    if moduleNode then
+        for _, block in ipairs(root.blocks or {}) do
+            for index, stat in ipairs(block.stats or {}) do
+                if stat == moduleNode and block.stats[index + 1] then
+                    token = firstToken(block.stats[index + 1])
+                    break
+                end
+            end
+        end
+    end
     for index = 1, token and token.triviaCount or 0 do
         local text = lexer.triviaText(token, index)
         if lexer.triviaKind(token, index) ~= "comment" then
@@ -1425,4 +1447,4 @@ extract.internalModuleName = internalModuleName
 extract.moduleName = moduleName
 extract.splitMembers = splitMembers
 
-return extract
+export = extract

@@ -1,3 +1,5 @@
+module nupp.compiler.aot.verify
+
 --[[
 What makes AOT IR well formed.
 
@@ -1960,4 +1962,4 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     return program
 end
 
-return verify
+export = verify

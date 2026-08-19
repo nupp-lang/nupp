@@ -1,3 +1,5 @@
+module nupp.compiler.doc.syntax
+
 -- The line grammars shared by documentation extraction, rendering, and formatting.
 
 local syntax: {
@@ -54,4 +56,4 @@ function syntax.fenceState(line: string, opened: string?, markdown: boolean?): (
     return opened, marker, rest
 end
 
-return syntax
+export = syntax

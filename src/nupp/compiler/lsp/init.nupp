@@ -1,3 +1,5 @@
+module nupp.compiler.lsp
+
 --[[
 The Language Server Protocol server, over stdio.
 
@@ -1615,4 +1617,4 @@ function lsp.run(rootDir: string?): integer
     return 0
 end
 
-return lsp
+export = lsp

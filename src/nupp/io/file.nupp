@@ -1,3 +1,5 @@
+module nupp.io.file
+
 --[[
 Owning wrappers for Lua's file handles.
 
@@ -74,4 +76,4 @@ function file.temporary(): affine(LuaFile, close_file)
     return handle
 end
 
-return file
+export = file

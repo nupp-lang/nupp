@@ -5,19 +5,17 @@ already a valid Nupp program. What a file is named says how strictly it is
 checked, which puts that decision where the file is rather than in a setting
 that governs everything at once.
 
-```nupp:playground
-local m = {}
+```nupp
+module models
 
-local record Point
+export record Point
     x: number
     y: number
 end
 
-function m.scale(p: Point, k: number): Point
+export function scale(p: Point, k: number): Point
     return new Point(x = p.x * k, y = p.y * k)
 end
-
-return m
 ```
 
 Saved as `.nupp`, that file is held to the strict floor. Saved as `.g.nupp` it
@@ -78,8 +76,8 @@ floor is useful. Required modules may mix these extensions in one project.
 
 The extension chooses the typed layer and strict floor; it does not become part
 of the module name. `require("models")` continues to resolve `models.g.nupp`
-after it becomes `models.nupp`. [Module forms](../modules.md#module-forms) keep
-the same local, returned-table, and global meanings throughout that migration.
+after it becomes `models.nupp`. Its `module models` declaration does not change,
+and declarations remain private or exported exactly as written.
 
 ### Do types exist at runtime?
 

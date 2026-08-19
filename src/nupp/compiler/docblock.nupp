@@ -1,3 +1,5 @@
+module nupp.compiler.docblock
+
 --[[
 The `---` run above a declaration, read as its tags.
 
@@ -200,4 +202,4 @@ function docblock.of(node: cst.Child?): docblock.Doc, boolean
     return docblock.parse(lines), #lines > 0
 end
 
-return docblock
+export = docblock

@@ -1,3 +1,5 @@
+module nupp.mem.span
+
 --[[
 Bounds-carrying borrowed pointer views.
 
@@ -465,4 +467,4 @@ function span.writeFixedCarray<T, const N: integer>(
     ) as span.FixedWriteSpan<T, N>
 end
 
-return span
+export = span

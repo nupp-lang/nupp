@@ -1,3 +1,5 @@
+module nupp.compiler.doc.files
+
 --[[
 Paths and the filesystem.
 
@@ -131,4 +133,4 @@ files.privateSource = privateSource
 files.listFiles = listFiles
 files.copyPublicFiles = copyPublicFiles
 
-return files
+export = files

@@ -1,3 +1,5 @@
+module nupp.compiler.doc.highlight
+
 --[[
 Source code as coloured HTML.
 
@@ -604,4 +606,4 @@ highlight.codeHtml = codeHtml
 highlight.codeLines = codeLines
 highlight.configureScintillua = configureScintillua
 
-return highlight
+export = highlight

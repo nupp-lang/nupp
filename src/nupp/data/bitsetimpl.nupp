@@ -1,3 +1,6 @@
+@!internal
+module nupp.data.bitsetimpl
+
 --[[
 Multi-word bitsets over GC-managed 32-bit words.
 
@@ -14,11 +17,9 @@ maintained through set algebra: union, intersection and difference are word
 loops whose per-word popcount would otherwise cost more than the operation.
 
 Reached as `nupp.data.bitset`, which the prelude declares and the stdlib
-installer loads. That is the only spelling a program has: the leading underscore
-makes this a private module, so it is absent from generated documentation and
-nothing outside this tree should require it by name. It cannot be written at
-`nupp/data/bitset.nupp` either, because a module at the namespace's own path
-would shadow it.
+installer loads. That is the only public spelling a program has. This declared
+implementation module is internal and uses an `impl` suffix because a module at
+`nupp.data.bitset` would shadow the intrinsic member it implements.
 ]]
 
 local bitset = {}
@@ -689,4 +690,4 @@ function bitset.create(capacityBits: integer?): bitset.Bitset
     )
 end
 
-return bitset
+export = bitset

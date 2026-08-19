@@ -1,3 +1,5 @@
+module nupp.compiler.aot.rewrite
+
 --[[
 Rewriting one scalar expression to run several iterations at once.
 
@@ -1873,4 +1875,4 @@ function rewrite.select(program: scalarIR.Program, shapes: {lane.Shape}): {rewri
     return attempts
 end
 
-return rewrite
+export = rewrite

@@ -1,3 +1,5 @@
+module nupp.compiler.fs
+
 --[[
 Paths and the filesystem.
 
@@ -249,4 +251,4 @@ fs.writeFileIfChanged = writeFileIfChanged
 fs.copyFile = copyFile
 fs.listFiles = listFiles
 
-return fs
+export = fs

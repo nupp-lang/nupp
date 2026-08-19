@@ -29,6 +29,34 @@ Legacy files that construct and return a table remain supported during
 migration. They do not gain declared-module cycle behavior or qualified
 namespace access.
 
+An established table-shaped module can adopt a declared identity without a
+large internal rewrite:
+
+```nupp
+module geom.shapes
+
+local shapes = {}
+
+record shapes.Point
+    x: number
+    y: number
+end
+
+function shapes.origin(): shapes.Point
+    return new shapes.Point(x = 0, y = 0)
+end
+
+export = shapes
+```
+
+`export = value` is the migration form. The value is evaluated once and becomes
+the module value itself, preserving table identity, mutable fields, and callable
+metatables. It adds no loader, proxy, field copy, or wrapper to exported calls.
+Prefer individual `export` declarations in new code: their compiler-created
+stable table and written interfaces participate fully in grouped cycle checking,
+while the migration form keeps ordinary Lua initialization and is gradual across
+an active cycle.
+
 ## Canonical names
 
 The declared name must equal the module name derived from the file's configured
@@ -234,9 +262,11 @@ public interface. Changing an exported signature invalidates dependents. Each
 module remains its own cache and build output even when several interfaces are
 checked together.
 
-## Legacy return-table modules
+## Legacy return-table compatibility
 
-Existing Lua-shaped modules continue to work:
+Existing Lua-shaped modules continue to work, but new Nupp modules should use
+`module` and `export`. This form is retained for gradual migration and ordinary
+Lua interoperability:
 
 ```nupp
 local shapes = {}

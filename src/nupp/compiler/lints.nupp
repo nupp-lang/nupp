@@ -1,3 +1,5 @@
+module nupp.compiler.lints
+
 --[[
 The lint registry.
 
@@ -230,4 +232,4 @@ function lints.level(lint: lints.Lint, config: {[string]: string}?): string
     return level
 end
 
-return lints
+export = lints

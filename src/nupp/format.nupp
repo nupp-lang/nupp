@@ -1,3 +1,5 @@
+module nupp.format
+
 -- Public type computation for wrappers around Lua's string.format.
 
 local format = {}
@@ -83,4 +85,4 @@ comptime function format.StringFormatSyntax(Format: type): typepack
     return nupp.types.pack(arguments)
 end
 
-return format
+export = format

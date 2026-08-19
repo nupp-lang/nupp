@@ -1,3 +1,5 @@
+module nupp.compiler.switchplan
+
 --[[
 Backend-aware planning for a checked switch expression.
 
@@ -200,4 +202,4 @@ function switchplan.native(selectorType: string): switchplan.Plan
     return ordered("the native selector is not an established 32-bit integer")
 end
 
-return switchplan
+export = switchplan

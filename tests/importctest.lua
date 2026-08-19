@@ -52,6 +52,18 @@ function M.importEmitsTypedDeclarations()
       "structs pass and return by value")
 end
 
+function M.namedImportEmitsADeclaredModule()
+   local text, warnings = importc.import(HERE .. "/fixtures/mini.h", {
+      module = "native.mini",
+   })
+   assert(text, "named import failed: " .. table.concat(warnings or {}, "; "))
+   assertContains(text, "module native.mini")
+   assertContains(text, "export = { ")
+   assert(not text:find("return { ", 1, true), "a declared binding must not return a second module table")
+   local result = parser.parse(text, "native/mini.nupp")
+   assert(#result.errors == 0, "declared import output must parse")
+end
+
 function M.functionPointerParamsComeFromLuaJITsModel()
    assertContains(imported(),
       "mini_each(fn: function(int32)?, n: int32)",

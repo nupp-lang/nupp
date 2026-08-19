@@ -68,10 +68,12 @@ end
 function M.declaredModulesAndExports()
    local source = "module sample.api\nexport record Thing\nvalue:integer\nend\n"
       .. "export function make(value:integer):Thing\nreturn new Thing(value=value)\nend\n"
-      .. "const {type External as LocalExternal,value as result}=require('other')"
+      .. "const {type External as LocalExternal,value as result}=require('other')\n"
+      .. "export=setmetatable(result,{__call=make})"
    local expected = "module sample.api\nexport record Thing\n    value: integer\nend\n"
       .. "export function make(value: integer): Thing\n    return new Thing(value = value)\nend\n"
       .. "\nconst {type External as LocalExternal, value as result} = require('other')\n"
+      .. "export = setmetatable(result, {__call = make})\n"
    local formatted = fmt1(source)
    assertEq(formatted, expected)
    assertEq(fmt1(formatted), expected, "declared module formatting is idempotent")

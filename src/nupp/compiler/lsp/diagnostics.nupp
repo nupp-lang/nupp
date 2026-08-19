@@ -1,3 +1,5 @@
+module nupp.compiler.lsp.diagnostics
+
 --[[
 Publishing what the checker found.
 
@@ -197,4 +199,4 @@ function diagnostics.install(s: diagnostics.Session): diagnostics.Api
     }
 end
 
-return diagnostics
+export = diagnostics

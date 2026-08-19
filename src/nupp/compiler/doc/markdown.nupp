@@ -1,3 +1,5 @@
+module nupp.compiler.doc.markdown
+
 --[[
 The markdown rendering of a module.
 
@@ -335,4 +337,4 @@ function markdown.render(
     return table.concat(out, "\n") .. "\n"
 end
 
-return markdown
+export = markdown

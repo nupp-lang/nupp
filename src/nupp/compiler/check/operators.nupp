@@ -1,3 +1,5 @@
+module nupp.compiler.check.operators
+
 --[[
 Which operators are which, and what they dispatch to.
 
@@ -107,8 +109,8 @@ local narrowing = require("nupp.compiler.narrowing")
 local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
 local state = require("nupp.compiler.check.state")
-local fixedWidth = require("nupp.compiler.fixed_width")
-local indexedViews = require("nupp.compiler.indexed_views")
+local fixedWidth = require("nupp.compiler.fixedwidth")
+local indexedViews = require("nupp.compiler.indexedviews")
 
 local isA = relations.isA
 local subtract = narrowing.subtract
@@ -560,4 +562,4 @@ function operators.install(c: state.Checker): state.ExprHandlers
     return handlers
 end
 
-return operators
+export = operators

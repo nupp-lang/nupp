@@ -1,3 +1,5 @@
+module nupp.compiler.relations
+
 --[[
 The subtyping relation over interned types.
 
@@ -12,7 +14,7 @@ The doctrine is structural for shape and nominal for provenance. It is gradual:
 
 local T = require("nupp.compiler.types")
 local members = require("nupp.compiler.members")
-local fixedWidth = require("nupp.compiler.fixed_width")
+local fixedWidth = require("nupp.compiler.fixedwidth")
 
 local relations = {}
 
@@ -1340,4 +1342,4 @@ function relations.associatedLookup(head: T.Type, name: string): T.AssociatedLoo
     return found
 end
 
-return relations
+export = relations

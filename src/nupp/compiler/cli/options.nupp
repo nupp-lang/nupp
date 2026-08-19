@@ -1,3 +1,5 @@
+module nupp.compiler.cli.options
+
 --[[
 The options more than one command has.
 
@@ -137,4 +139,4 @@ function options.join(...: any): {any}
     return joined
 end
 
-return options
+export = options

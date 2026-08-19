@@ -1,3 +1,5 @@
+module nupp.compiler.native
+
 --[[
 Compiler-provided native features.
 
@@ -43,7 +45,7 @@ local FEATURES: {[string]: native.Feature} = {
     ["stdlib.bitset"] = {
         name = "bitset",
         globals = {"nupp.data.bitset"},
-        -- Checked Nupp reached through the ambient namespace. The installer loads the
+        -- Checked Nupp reached through the intrinsic namespace. The installer loads the
         -- module, so there is no native host feature and no shared module name.
     },
     [
@@ -188,7 +190,7 @@ end
 
 --- Marks the prelude's exact member types with their runtime effects. The identity
 --- follows aliases, so `local data = nupp.data; data.json.encode(...)` remains as
---- precise as spelling the ambient path directly.
+--- precise as spelling the intrinsic path directly.
 function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: string}}
     local effects = {}
     local function decorate(owner: any, member: string, effect: string): nil
@@ -210,7 +212,7 @@ function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: st
                 decorate(t, parts[index], effect)
                 -- A qualified nominal such as `record nupp.peg` also binds its
                 -- declaration table under the dotted prefix. Source reaches that
-                -- metatable value even when the ambient `nupp` shape describes the
+                -- metatable value even when the intrinsic `nupp` shape describes the
                 -- same path as a nominal instance, so both identities carry the
                 -- member's feature effect.
                 local qualified = globals[table.concat(parts, ".", 1, index - 1)]
@@ -322,4 +324,4 @@ function native.features(effects: {[string]: any}?): {native.Feature}
     return out
 end
 
-return native
+export = native

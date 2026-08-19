@@ -1,3 +1,5 @@
+module nupp.compiler.materialize.typeprovider
+
 --[[
 The worker-side provider for compiler-only type and type-pack handles.
 
@@ -1149,4 +1151,4 @@ function typeprovider.finalize(state, value): any, typeprovider.Failure?
     return finalizeGraph(state, value)
 end
 
-return typeprovider
+export = typeprovider

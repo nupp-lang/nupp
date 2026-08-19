@@ -88,7 +88,7 @@ local RESOURCES = {
    {source = "src/nupp/owners/store.nupp", output = "nupp/compiler/nupp/owners/store.nupp"},
    {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
    {source = "src/nupp/profile/zone.nupp", output = "nupp/compiler/nupp/profile/zone.nupp"},
-   {source = "src/nupp/profile/_trace.nupp", output = "nupp/compiler/nupp/profile/_trace.nupp"},
+   {source = "src/nupp/profile/trace.nupp", output = "nupp/compiler/nupp/profile/trace.nupp"},
    {source = "src/nupp/profile.nupp", output = "nupp/compiler/nupp/profile.nupp"},
    {source = "src/nupp/mem/indexed.nupp", output = "nupp/compiler/nupp/mem/indexed.nupp"},
    {source = "src/nupp/mem/span.nupp", output = "nupp/compiler/nupp/mem/span.nupp"},

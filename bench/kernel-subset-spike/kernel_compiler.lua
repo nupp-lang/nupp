@@ -29,7 +29,7 @@ function compiler.compile(source, filename, checked)
    -- it is about to run on, so a conservative default would only mean the
    -- differentials stopped testing the lane bodies.
    local selected = assert(targets.select(nil, targets.tiers(
-      targets.architecture(assert(require("nupp.compiler.target_layout").hostKey())))[1]))
+      targets.architecture(assert(require("nupp.compiler.targetlayout").hostKey())))[1]))
    local artifacts, diagnostics = aot.artifacts(source, filename, checked, SPIKE_LIBRARY, selected)
    if not artifacts then return nil, diagnostics end
 

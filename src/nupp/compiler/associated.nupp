@@ -1,3 +1,5 @@
+module nupp.compiler.associated
+
 --[[
 Associated type lookup: the one semantic answer about a projection.
 
@@ -380,4 +382,4 @@ function associated.projectable(head: Type, name: string): boolean
     return result.gradual == true or #result.requirements > 0
 end
 
-return associated
+export = associated

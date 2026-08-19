@@ -1,10 +1,10 @@
 # Qualified module namespaces
 
-Status: implemented for the generic registry, resolution, direct-import
-generation, tooling, a compiler-owned Nupp leaf, and a Tecs-shaped validation package.
-The full ambient-standard-library and external Tecs migrations remain. Written
-2026-08-18. This replaces the qualified-namespace and package-migration portions
-of superseded plan 067 and depends on declared modules from plan 069.
+Status: implemented, including generic registry and resolution, direct-import
+generation, tooling, grouped checking, and migration of the compiler and
+Nupp-authored standard-library modules. External Tecs migration remains.
+Written 2026-08-18. This replaces the qualified-namespace and package-migration
+portions of superseded plan 067 and depends on declared modules from plan 069.
 
 ## Decision
 

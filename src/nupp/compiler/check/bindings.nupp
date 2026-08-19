@@ -1,3 +1,5 @@
+module nupp.compiler.check.bindings
+
 --[[
 What a name is bound to, and what a write does to it.
 
@@ -13,8 +15,8 @@ the module's own table, what publishes a member of it.
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.relations")
 local cst = require("nupp.compiler.cst")
-local fixedWidth = require("nupp.compiler.fixed_width")
-local indexedViews = require("nupp.compiler.indexed_views")
+local fixedWidth = require("nupp.compiler.fixedwidth")
+local indexedViews = require("nupp.compiler.indexedviews")
 local state = require("nupp.compiler.check.state")
 
 local isA = relations.isA
@@ -1048,4 +1050,4 @@ function bindings.install(c: state.Checker): state.StatHandlers
     return handlers
 end
 
-return bindings
+export = bindings

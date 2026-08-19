@@ -120,8 +120,6 @@ immutable, target-independent descriptor. It is for generators and validators;
 it does not add a runtime descriptor to the program.
 
 ```nupp:playground
-local m = {}
-
 local record Position
     x: number
     y: number
@@ -131,11 +129,9 @@ const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
     return nupp.reflect.fieldCodec(nupp.reflect(Position))
 end
 
-function m.encode(position: Position): {[string]: any}
+local function encode(position: Position): {[string]: any}
     return PositionCodec:encode(position)
 end
-
-return m
 ```
 
 The descriptor is an acyclic indexed graph so recursive types remain finite:

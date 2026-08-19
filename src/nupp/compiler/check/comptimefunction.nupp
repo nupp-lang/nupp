@@ -1,3 +1,5 @@
+module nupp.compiler.check.comptimefunction
+
 --[[
 A compile-time-only function declaration.
 
@@ -178,4 +180,4 @@ function comptimeFunction.checkQualified(
     check(c, helper, checkOrdinary as any)
 end
 
-return comptimeFunction
+export = comptimeFunction

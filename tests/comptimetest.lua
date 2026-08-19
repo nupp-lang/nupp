@@ -580,7 +580,7 @@ function M.recoversWhenTheWorkerCrashes()
    launcher:write("#!/bin/sh\nkill -9 $$\n")
    launcher:close()
    assertEq(os.execute(("chmod +x %q/bin/nupp"):format(root)), 0)
-   local worker = require("nupp.compiler.comptime_worker")
+   local worker = require("nupp.compiler.comptimeworker")
    local _, failure = worker.evaluate("comptime do return 1 end", root .. "/bin/nupp")
    os.execute(("rm -rf %q"):format(root))
    assertTrue(failure and failure.message:find("crashed", 1, true),
@@ -588,7 +588,7 @@ function M.recoversWhenTheWorkerCrashes()
 end
 
 function M.workerCancellationStopsIsolatedEvaluation()
-   local worker = require("nupp.compiler.comptime_worker")
+   local worker = require("nupp.compiler.comptimeworker")
    local pumped = 0
    local _, failure = worker.evaluate(
       "comptime do while true do end end",
@@ -763,7 +763,7 @@ end
 end
 
 function M.fingerprintsEquivalentOpaqueGraphsIdentically()
-   local worker = require("nupp.compiler.comptime_worker")
+   local worker = require("nupp.compiler.comptimeworker")
    local executable = assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/bin/nupp"
    local first = [[comptime do
        const a = nupp.__materializationTest.node(1)

@@ -1,3 +1,5 @@
+module nupp.compiler.check.derive
+
 -- Declaration derives share one closed provider and recipe pipeline.
 
 local T = require("nupp.compiler.types")
@@ -524,7 +526,7 @@ function derive.install(c: state.Checker): derive.Ops
             local executable = root and root .. "/bin/nupp" or nil
             if executable and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
                 local worker = require(
-                    "nupp.compiler.comptime_worker"
+                    "nupp.compiler.comptimeworker"
                 ) as {evaluateDeriveProvider: function(any, any, any, string?, string, any?): (any, any)}
                 envelope, evaluationFailure = worker.evaluateDeriveProvider(
                     provider.sealedProgram,
@@ -1445,4 +1447,4 @@ function derive.install(c: state.Checker): derive.Ops
     return ops
 end
 
-return derive
+export = derive

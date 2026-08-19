@@ -1,3 +1,5 @@
+module nupp.compiler.aot.text
+
 --[[
 The readable form of an AOT program.
 
@@ -543,4 +545,4 @@ function text.programs(programs: {scalarIR.Program}): string
     return table.concat(parts, "\n")
 end
 
-return text
+export = text

@@ -1,3 +1,5 @@
+module nupp.compiler.build.process
+
 --[[
 Running a subprocess, given its argument vector.
 
@@ -306,4 +308,4 @@ function process.startIsolated(argv: {string}, opts: process.Options?): (affine(
     })
 end
 
-return process
+export = process

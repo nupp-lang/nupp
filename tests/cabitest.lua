@@ -100,7 +100,7 @@ end
 
 function M.hostRuntimeLayoutAgreesWithTheCanonicalRecord()
    local exports, parsed = checked(SOURCE)
-   local host = assert(require("nupp.compiler.target_layout").hostKey())
+   local host = assert(require("nupp.compiler.targetlayout").hostKey())
    local description = assert(cabi.aggregate(exports.types.Motion, host))
    local generated = require("nupp.compiler.gen").generate(parsed, "src/game.nupp")
    local game = assert(loadstring(generated, "@generated-game"))()

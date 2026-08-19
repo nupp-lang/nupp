@@ -1,3 +1,5 @@
+module nupp.compiler.diagnostics
+
 --[[
 Rendering a diagnostic for a person to read.
 
@@ -146,4 +148,4 @@ function diagnostics.report(values: {any}): boolean
     return failed
 end
 
-return diagnostics
+export = diagnostics

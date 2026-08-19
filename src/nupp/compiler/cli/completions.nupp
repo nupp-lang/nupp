@@ -1,3 +1,5 @@
+module nupp.compiler.cli.completions
+
 --[[
 Shell completion generated from the command grammar.
 
@@ -247,4 +249,4 @@ function completions.render(shell: string, commands: {Command}): string
     return fish(commands)
 end
 
-return completions
+export = completions

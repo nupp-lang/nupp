@@ -1,3 +1,5 @@
+module nupp.compiler.analysis
+
 --[[
 Conservative effect and alias facts for optimization.
 
@@ -1269,4 +1271,4 @@ analysis.summary = summary
 analysis.join = join
 analysis.fromContract = fromContract
 
-return analysis
+export = analysis

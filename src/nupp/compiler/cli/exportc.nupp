@@ -1,3 +1,5 @@
+module nupp.compiler.cli.exportc
+
 -- `nupp export-c`: canonical C declarations for ordinary Nupp structs.
 
 local spec = require("nupp.compiler.cli.spec")
@@ -87,7 +89,7 @@ local function run(parsed: any): integer
         return 1
     end
     config._target = target
-    local targetLayout = require("nupp.compiler.target_layout")
+    local targetLayout = require("nupp.compiler.targetlayout")
     local layoutKey = target.layoutTarget or targetLayout.hostKey()
     if not layoutKey then
         io.stderr:write("nupp: the compiler host has no modeled C layout; configure build.layoutTarget\n")
@@ -250,4 +252,4 @@ local function run(parsed: any): integer
     return failed and 1 or 0
 end
 
-return new spec.Handler(spec = command, run = run)
+export = new spec.Handler(spec = command, run = run)

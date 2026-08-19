@@ -1,3 +1,5 @@
+module nupp.compiler.lsp.complete
+
 --[[
 What may be written at a position, and which parameter a call is on.
 
@@ -730,4 +732,4 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
     return {moduleCompletions = moduleCompletions, completionItems = completionItems}
 end
 
-return complete
+export = complete

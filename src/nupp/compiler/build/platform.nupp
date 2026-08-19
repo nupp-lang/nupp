@@ -1,3 +1,5 @@
+module nupp.compiler.build.platform
+
 --[[
 The distribution platforms Nupp can stamp from a compiler-owned stub catalog.
 
@@ -38,8 +40,8 @@ function platform.isPosix(key: string): boolean
 end
 
 function platform.hostKey(): string?
-    local key = require("nupp.compiler.target_layout").hostKey()
+    local key = require("nupp.compiler.targetlayout").hostKey()
     return platform.has(key) and key or nil
 end
 
-return platform
+export = platform

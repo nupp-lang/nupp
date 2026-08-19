@@ -43,16 +43,14 @@ C compiler.
 An ordinary struct may appear behind a pointer or array in a `cdef function`:
 
 ```nupp
-local game = {}
+module game
 
-struct game.Position
+export struct Position
     x: float
     y: float
 end
 
-cdef function integrate(exclusive position: game.Position*, dt: float)
-
-return game
+cdef function integrate(exclusive position: Position*, dt: float)
 ```
 
 The emitted prototype stays typed. Internally LuaJIT receives a compiler-owned
@@ -76,10 +74,11 @@ excluded from runtime module resolution, so the `cdef` statements would never
 execute and no binding would exist. Without `-o`, the output is the header's
 basename with a `.nupp` extension, in the current directory.
 
-The generated file contains `cdef struct` and `cdef function` declarations
-plus a returned module table. It is deliberately hand-editable. Review it,
-remove declarations your program does not use, and add contracts the header
-cannot express.
+The generated file declares the canonical module derived from its output path,
+contains `cdef struct` and `cdef function` declarations, and exports the
+resulting binding table with `export =`. It is deliberately hand-editable.
+Review it, remove declarations your program does not use, and add contracts the
+header cannot express.
 
 Only the header you name is imported. Whatever arrives through its `#include`s
 belongs to those files and is left in them, so the module stays about the API
@@ -132,8 +131,8 @@ pcall(ffi.cdef, "double point_length(struct nativePoint *);")
 const point_length = ffi.load("mini").point_length
 ```
 
-`cdef` bindings are always file-local. Export them by returning them in the
-module table, which is what `import-c` generates.
+`cdef` bindings are always file-local. Export them through a declared module;
+`import-c` collects them into its final `export =` migration boundary.
 
 ### Type mapping
 

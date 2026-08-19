@@ -219,11 +219,11 @@ function M.aDeclaredPatternIsEnforcedInTheTemplatesOwnWords()
    assert(template.values(manifest, "fine", "d"), "and a matching one is not")
 end
 
-function M.moduleNameIsTheProjectNameWithUnderscores()
+function M.moduleNameIsTheProjectNameInLuacase()
    local manifest = assert(template.manifest("return {}", "template.lua"))
    local values = assert(template.values(manifest, "my-lib", "somewhere/my-lib"))
    assertEq(values.name, "my-lib", "the name is as given")
-   assertEq(values.moduleName, "my_lib", "the module name is requirable")
+   assertEq(values.moduleName, "mylib", "the module name is canonical luacase")
    assertEq(values.directory, "somewhere/my-lib", "the directory is the destination")
 end
 

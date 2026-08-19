@@ -1,4 +1,6 @@
 @!internal
+module nupp.compiler
+
 --[[
 Nupp's self-hosted compiler implementation.
 
@@ -7,4 +9,4 @@ inner annotation keeps this module and every `nupp.compiler.*` descendant out of
 API documentation while still allowing private documentation builds to inspect it.
 ]]
 
-return {}
+export = {}

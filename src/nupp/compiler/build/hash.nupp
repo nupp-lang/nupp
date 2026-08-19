@@ -1,3 +1,5 @@
+module nupp.compiler.build.hash
+
 --[[
 The two digests the build uses, which are two because they answer different
 questions.
@@ -301,4 +303,4 @@ hash.DIGEST = "xxh64x2"
 hash.xxh64 = xxh64
 hash.hex64 = hex64
 
-return hash
+export = hash

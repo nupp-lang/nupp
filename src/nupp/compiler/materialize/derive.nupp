@@ -1,3 +1,5 @@
+module nupp.compiler.materialize.derive
+
 -- Closed evaluator surface shared by bundled and package derive recipes.
 -- Provider code can
 -- inspect immutable input handles and assemble forwarding blueprints, but it
@@ -672,4 +674,4 @@ function deriveProvider.finalize(state: any, root: any): any, any
     }
 end
 
-return deriveProvider
+export = deriveProvider

@@ -1,3 +1,5 @@
+module nupp.compiler.build.aot
+
 --[[
 The build's ahead-of-time policy.
 
@@ -693,4 +695,4 @@ function aot.apply(
     ), nil
 end
 
-return aot
+export = aot

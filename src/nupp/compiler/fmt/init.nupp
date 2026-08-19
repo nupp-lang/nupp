@@ -1,3 +1,5 @@
+module nupp.compiler.fmt
+
 --[[
 The canonical formatter.
 
@@ -57,7 +59,7 @@ fixpoint; render.
 local parser = require("nupp.compiler.parser")
 local lexer = require("nupp.compiler.lexer")
 local cst = require("nupp.compiler.cst")
-local displayWidth = require("nupp.compiler.fmt.displaywidth")
+local displayWidth = require("nupp.compiler.fmt.displaywidth").displayWidth
 local docSyntax = require("nupp.compiler.doc.syntax")
 
 local fmt = {}
@@ -1704,4 +1706,4 @@ function fmt.format(source: string, filename: string?, opts: fmt.Options?): stri
     return fmt.new(opts):format(source, filename)
 end
 
-return fmt
+export = fmt

@@ -59,7 +59,6 @@ to the new table graph:
 ```nupp
 local M = {}
 const ... M.settings = {name = "nupp", nested = {count = 0}}
-return M
 ```
 
 The checker rejects later writes through those paths. Plain `const M.field`
@@ -134,7 +133,8 @@ Type syntax:
 ## Keywords are contextual
 
 None of the level-1 introducers is reserved. `type`, `record`, `interface`,
-`struct`, `const`, `cdef`, `from`, `unsafe`, `continue`, `global`, `with`, `as`,
+`struct`, `const`, `cdef`, `from`, `unsafe`, `continue`, `module`, `export`,
+`global`, `with`, `as`,
 `is`, `metamethod`, `takes`, `borrows`, `exclusive`, `retains`, `releases`,
 `out`, `switch`, `case`, and `yield` all keep their Lua meaning wherever a
 declaration cannot start:

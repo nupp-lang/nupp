@@ -1,3 +1,5 @@
+module nupp.compiler.generics
+
 --[[
 Substitution and instantiation over interned types.
 
@@ -2167,4 +2169,4 @@ function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
     )
 end
 
-return generics
+export = generics

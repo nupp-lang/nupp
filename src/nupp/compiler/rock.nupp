@@ -1,3 +1,5 @@
+module nupp.compiler.rock
+
 --[[
 Developer-facing LuaRocks packaging for Nupp libraries.
 
@@ -304,4 +306,4 @@ function rock.test(root: string?, asked: string?): string?, string?
     return packed
 end
 
-return rock
+export = rock

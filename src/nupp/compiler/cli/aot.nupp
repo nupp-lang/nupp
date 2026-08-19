@@ -1,3 +1,5 @@
+module nupp.compiler.cli.aot
+
 --[[
 `nupp aot`: what an `@aot` function compiles to, and whether it vectorised.
 
@@ -323,4 +325,4 @@ local function run(parsed: any): integer
     return 0
 end
 
-return new spec.Handler(spec = command, run = run)
+export = new spec.Handler(spec = command, run = run)

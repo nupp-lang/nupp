@@ -1,3 +1,5 @@
+module nupp.compiler.check.fixits
+
 --[[
 Machine-applicable edits, and the advice that carries them.
 
@@ -181,7 +183,7 @@ function fixits.new(result: state.Parse, env: state.Env?): fixits.Edits
     end
 
     function self.refinementFix(expr: any, target: any): {any}?
-        local fixedWidth = require("nupp.compiler.fixed_width")
+        local fixedWidth = require("nupp.compiler.fixedwidth")
         local first, last = cst.firstToken(expr), cst.lastToken(expr)
         local path = target and fixedWidth.conversionPath(target) or nil
         if not first or not last or not path then
@@ -371,4 +373,4 @@ function fixits.nearest(name: string, candidates: {string}): string?
     return best
 end
 
-return fixits
+export = fixits

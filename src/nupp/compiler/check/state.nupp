@@ -1,3 +1,5 @@
+module nupp.compiler.check.state
+
 --[[
 What one run of the checker carries, named where every pass can reach it.
 
@@ -578,7 +580,7 @@ record state.Checker
     --- Annotations: see nupp.compiler.check.annotate.
     marks: any
 
-    --- Fixed-width establishment facts: see nupp.compiler.check.fixed_width.
+    --- Fixed-width establishment facts: see nupp.compiler.check.fixedwidth.
     fixedWidth: any
 
     -- The walk itself, for the families that recur into it.
@@ -645,4 +647,4 @@ type state.StatHandlers = {[string]: function(stat: Node)}
 --- always has a type, so unlike a statement every kind is answered by someone.
 type state.ExprHandlers = {[string]: function(node: Node): Type}
 
-return state
+export = state

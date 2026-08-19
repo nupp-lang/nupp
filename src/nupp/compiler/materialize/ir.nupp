@@ -1,3 +1,5 @@
+module nupp.compiler.materialize.ir
+
 --[[
 The closed runtime-expression IR used by comptime materializers.
 
@@ -247,4 +249,4 @@ function ir.render(root: any): string?, ir.Failure?
     return rendered, nil
 end
 
-return ir
+export = ir

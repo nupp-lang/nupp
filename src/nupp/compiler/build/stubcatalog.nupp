@@ -1,3 +1,5 @@
+module nupp.compiler.build.stubcatalog
+
 -- Generated release catalogs replace this development catalog before publishing.
 -- A source checkout can select an immutable local catalog with NUPP_STUB_CATALOG.
-return {catalogRelease = "development", hostAbi = 1, stubs = {},}
+export = {catalogRelease = "development", hostAbi = 1, stubs = {},}

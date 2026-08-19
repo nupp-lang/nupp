@@ -1,3 +1,5 @@
+module nupp.compiler.lsp.tree
+
 --[[
 What an editor asks of a parse.
 
@@ -505,4 +507,4 @@ end
 -- checked. That state is one keystroke stale, which is the right staleness: the
 -- receiver is the part the author already finished.
 
-return tree
+export = tree

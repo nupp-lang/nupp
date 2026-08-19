@@ -1,3 +1,5 @@
+module nupp.compiler.check.ownership
+
 --[[
 The affine bookkeeping.
 
@@ -957,4 +959,4 @@ function ownership.install(c: state.Checker): ownership.Ops
     return own
 end
 
-return ownership
+export = ownership

@@ -1,3 +1,5 @@
+module nupp.compiler.check.expr
+
 --[[
 The type an expression has.
 
@@ -32,7 +34,7 @@ local materializeIR = require("nupp.compiler.materialize.ir") as {
     render: function(any): (string?, any)
 }
 local stable = require("nupp.compiler.build.cache").stable
-local fixedWidth = require("nupp.compiler.fixed_width")
+local fixedWidth = require("nupp.compiler.fixedwidth")
 
 local expr = {}
 
@@ -1339,4 +1341,4 @@ function expr.install(c: state.Checker): nil
     end
 end
 
-return expr
+export = expr

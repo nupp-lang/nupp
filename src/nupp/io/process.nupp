@@ -1,3 +1,5 @@
+module nupp.io.process
+
 --[[
 Running a child process.
 
@@ -1617,4 +1619,4 @@ function process.exited(exitCode: integer, killed: boolean, timedOut: boolean): 
     } as process.Exit
 end
 
-return process
+export = process

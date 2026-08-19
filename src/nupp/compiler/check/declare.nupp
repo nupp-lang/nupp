@@ -1,3 +1,5 @@
+module nupp.compiler.check.declare
+
 --[[
 Checking a declaration, and publishing what it declares.
 
@@ -2244,4 +2246,4 @@ function declare.install(
     end
 end
 
-return declare
+export = declare

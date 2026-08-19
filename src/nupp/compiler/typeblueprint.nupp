@@ -1,3 +1,5 @@
+module nupp.compiler.typeblueprint
+
 --[[
 Parent-side validation and interning for worker-produced type blueprints.
 
@@ -423,4 +425,4 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
     return result, nil
 end
 
-return typeblueprint
+export = typeblueprint

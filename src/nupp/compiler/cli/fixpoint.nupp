@@ -1,3 +1,5 @@
+module nupp.compiler.cli.fixpoint
+
 --[[
 `nupp fixpoint`: the claim that the compiler reproduces itself.
 
@@ -73,4 +75,4 @@ local function run(parsed: any): integer
     return code
 end
 
-return new spec.Handler(spec = command, run = run)
+export = new spec.Handler(spec = command, run = run)

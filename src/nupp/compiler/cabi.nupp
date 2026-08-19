@@ -1,3 +1,5 @@
+module nupp.compiler.cabi
+
 --[[
 Canonical C descriptions for ordinary Nupp structs and C functions.
 
@@ -8,7 +10,7 @@ as its public typed prototype or as the physical LuaJIT declaration whose
 ordinary-struct pointer slots are intentionally erased.
 ]]
 
-local targetLayout = require("nupp.compiler.target_layout")
+local targetLayout = require("nupp.compiler.targetlayout")
 local reflection = require("nupp.compiler.reflection")
 local hash = require("nupp.compiler.build.hash")
 
@@ -416,4 +418,4 @@ function cabi.header(aggregates: {any}, functions: {any}, guard: string?): strin
     return table.concat(out, "\n")
 end
 
-return cabi
+export = cabi

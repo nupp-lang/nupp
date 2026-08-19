@@ -1,3 +1,5 @@
+module nupp.profile.trace
+
 --[[
 Stable identities shared by static trace checking and the opt-in runtime collector.
 
@@ -214,4 +216,4 @@ function trace.records(): {trace.Reason}
     return copy
 end
 
-return trace
+export = trace

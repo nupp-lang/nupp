@@ -1,3 +1,5 @@
+module nupp.compiler.doc
+
 --[[
 Fast, CST-native API documentation.
 
@@ -1164,4 +1166,4 @@ doc.theme = THEME
 doc.script = SCRIPT
 doc.highlight = highlightMod.nuppSource
 
-return doc
+export = doc

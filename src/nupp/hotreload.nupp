@@ -1,3 +1,5 @@
+module nupp.hotreload
+
 --[[
 The development-only half of Nupp hot reload.
 
@@ -384,4 +386,4 @@ end
 
 _G[API_KEY] = hotreload
 
-return hotreload
+export = hotreload

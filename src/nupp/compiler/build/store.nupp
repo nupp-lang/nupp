@@ -1,3 +1,5 @@
+module nupp.compiler.build.store
+
 --[[
 A keyed blob of results that survives between commands.
 
@@ -211,4 +213,4 @@ function store.openValue(path: string?, stamp: string): store.Value
     return self
 end
 
-return store
+export = store

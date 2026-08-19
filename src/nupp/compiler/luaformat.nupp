@@ -1,3 +1,5 @@
+module nupp.compiler.luaformat
+
 --[[
 Compiler lowering for the `%?` debug-format extension, parsed by Nupp's own PEG
 implementation. Ordinary comptime Nupp in the prelude decides argument types; this
@@ -90,4 +92,4 @@ function luaFormat.analyze(format: string): (Analysis?, string?)
     return new Analysis(format = table.concat(pieces), debugArguments = debugArguments), nil
 end
 
-return luaFormat
+export = luaFormat

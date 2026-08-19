@@ -1,3 +1,5 @@
+module nupp.compiler.check.loopclosure
+
 --[[
 Whether a function written inside a loop had to be written there.
 
@@ -214,4 +216,4 @@ function loopclosure.install(c: state.Checker): loopclosure.Ops
     return ops
 end
 
-return loopclosure
+export = loopclosure

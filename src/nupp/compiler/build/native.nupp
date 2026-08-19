@@ -1,3 +1,5 @@
+module nupp.compiler.build.native
+
 --[[
 Staging compiler-provided native features.
 
@@ -259,4 +261,4 @@ function stage.build(
     return outputs
 end
 
-return stage
+export = stage

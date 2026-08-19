@@ -1,7 +1,5 @@
-local ${moduleName} = {}
+module ${moduleName}
 
-function ${moduleName}.greet(name: string): string
+export function greet(name: string): string
     return "Hello, " .. name .. "!"
 end
-
-return ${moduleName}

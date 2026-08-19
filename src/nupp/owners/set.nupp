@@ -1,3 +1,5 @@
+module nupp.owners.set
+
 --[[
 A container for as many owners as a program turns out to need.
 
@@ -146,4 +148,4 @@ function set.new(label: string?): affine(set.Set, destroySet)
     return new set.Set(label = label or "resource", _entries = {}, _closed = false)
 end
 
-return set
+export = set

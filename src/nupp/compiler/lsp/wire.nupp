@@ -1,3 +1,5 @@
+module nupp.compiler.lsp.wire
+
 --[[
 The shapes the protocol expects on the wire.
 
@@ -20,4 +22,4 @@ function wire.array<T is table>(takes items: T): T preserves items
     return json.asArray(items)
 end
 
-return wire
+export = wire

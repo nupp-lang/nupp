@@ -1,3 +1,5 @@
+module nupp.compiler.build.cache
+
 --[[
 The build state, on disk.
 
@@ -549,4 +551,4 @@ cache.saveState = saveState
 cache.emptyState = emptyState
 cache.STATE_VERSION = STATE_VERSION
 
-return cache
+export = cache

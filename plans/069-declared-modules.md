@@ -2,8 +2,10 @@
 
 Status: implemented. Recursive interfaces are published through the incremental
 query graph rather than a separate Tarjan cache, and closed constants remain in
-the evaluation tier. Written 2026-08-18. This replaces the declared-module and
-cycle portions of superseded plan 067 and depends on plan 068.
+the evaluation tier. Existing table-shaped implementations may migrate through
+`export = value`; explicit named exports retain the full grouped-cycle contract.
+Written 2026-08-18. This replaces the declared-module and cycle portions of
+superseded plan 067 and depends on plan 068.
 
 ## Decision
 

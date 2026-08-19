@@ -1,3 +1,5 @@
+module nupp.compiler.template
+
 --[[
 Turning a template into a project.
 
@@ -13,7 +15,7 @@ why they exist.
 The first is that scaffolding does not execute what it scaffolds.
 `template.lua` is loaded with no `io`, `os`, `package`, `require` or `load`
 reachable, so a template cannot act while being read. That sandbox is worth
-something only alongside the second rule, in `nupp.compiler.cli.init_command`:
+something only alongside the second rule, in `nupp.compiler.cli.initcommand`:
 a remote template's post-init steps are dropped down to `git`. The generated
 `nupp.lua` is ordinary unrestricted Lua -- `nupp.compiler.build.manifest.load`
 reads it with `loadfile` and a `pcall` -- so a fetched template allowed to ask
@@ -611,7 +613,7 @@ function template.values(
             return nil, key .. " is not a variable of this template" .. hint
         end
     end
-    local values: {[string]: string} = {name = name, moduleName = (name:gsub("%-", "_")), directory = directory,}
+    local values: {[string]: string} = {name = name, moduleName = (name:gsub("[-_]", "")), directory = directory,}
     for key, declared in pairs(manifest.variables) do
         if key ~= "name" then
             local value = given[key] or declared.default
@@ -953,4 +955,4 @@ end
 template.STEPS = STEPS
 template.REMOTE_STEPS = REMOTE_STEPS
 
-return template
+export = template

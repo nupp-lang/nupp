@@ -1,3 +1,5 @@
+module nupp.compiler.cli.reference
+
 --[[
 `nupp reference`: Nupp, small enough to hand to a reader in one piece.
 
@@ -276,4 +278,4 @@ local function run(parsed: any): integer
     return 0
 end
 
-return new spec.Handler(spec = command, run = run)
+export = new spec.Handler(spec = command, run = run)

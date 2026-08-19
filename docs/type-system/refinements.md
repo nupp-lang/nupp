@@ -5,27 +5,23 @@ decides whether a value is one of these. `x is T` compiles to that test, so an
 interface can answer `is` for a value this program never built.
 
 ```nupp:playground
-local m = {}
-
-interface m.Shape
+local interface Shape
     kind: string
 end
 
-interface m.Circle is m.Shape
+local interface Circle is Shape
     kind: string
     radius: number
 
     satisfies |self| -> self.kind == "circle"
 end
 
-function m.area(s: m.Shape): number
-    if s is m.Circle then
+local function area(s: Shape): number
+    if s is Circle then
         return 3 * s.radius * s.radius
     end
     return 0
 end
-
-return m
 ```
 
 `s is m.Circle` becomes `type(s) == "table" and s.kind == "circle"`.
@@ -36,9 +32,7 @@ It is written as one, in either spelling a function takes anywhere else: the
 arrow form above, or a body whose single `return` says the same thing.
 
 ```nupp
-local m = {}
-
-interface m.Circle
+local interface Circle
     kind: string
     radius: number
 
@@ -46,8 +40,6 @@ interface m.Circle
         return self.kind == "circle"
     end
 end
-
-return m
 ```
 
 ## Only interfaces carry refinements

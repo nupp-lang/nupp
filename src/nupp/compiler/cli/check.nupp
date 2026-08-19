@@ -1,3 +1,5 @@
+module nupp.compiler.cli.check
+
 --[[
 `nupp check`: type-check without emitting anything.
 
@@ -248,4 +250,4 @@ local function run(parsed: any): integer
     return failed and 1 or 0
 end
 
-return new spec.Handler(spec = command, run = run)
+export = new spec.Handler(spec = command, run = run)

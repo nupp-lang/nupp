@@ -1,3 +1,5 @@
+module nupp.compiler.fmt.displaywidth
+
 --[[
 How many columns a string occupies.
 
@@ -479,7 +481,7 @@ local function codepointWidth(cp)
     return 1
 end
 
-local function displayWidth(text: string): number
+export function displayWidth(text: string): number
     local width, pos = 0, 1
     while pos <= #text do
         local cp, nextPos = nextCodepoint(text, pos)
@@ -489,5 +491,3 @@ local function displayWidth(text: string): number
 
     return width
 end
-
-return displayWidth

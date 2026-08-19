@@ -1,3 +1,5 @@
+module nupp.compiler.aot.scalar
+
 --[[
 The scalar half of the AOT IR.
 
@@ -1015,4 +1017,4 @@ record scalarIR.Program
     source: scalarIR.Source?
 end
 
-return scalarIR
+export = scalarIR

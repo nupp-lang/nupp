@@ -1,3 +1,5 @@
+module nupp.compiler.check.calls
+
 --[[
 Reaching a member, and checking a call against it.
 
@@ -14,7 +16,7 @@ local lexer = require("nupp.compiler.lexer")
 local members = require("nupp.compiler.members")
 local relations = require("nupp.compiler.relations")
 local generics = require("nupp.compiler.generics")
-local fixedWidth = require("nupp.compiler.fixed_width")
+local fixedWidth = require("nupp.compiler.fixedwidth")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
 
@@ -2412,4 +2414,4 @@ function calls.install(c: state.Checker): calls.Ops
     return ops
 end
 
-return calls
+export = calls

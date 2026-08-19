@@ -1,3 +1,5 @@
+module nupp.compiler.doc.stdlib
+
 --[[
 The LuaJIT standard library: every global and bundled module the checker knows,
 on one page.
@@ -12,7 +14,7 @@ One page rather than one per library, because that is how the library is used:
 a reader looking for `string.format` is as likely to be looking for
 `table.concat` next, and the browser's own find reaches both at once.
 
-The ambient globals come first, then the libraries a program names without
+The compiler-provided globals come first, then the libraries a program names without
 requiring anything, then the modules `require` loads. What `nupp` itself
 provides is not here: it has module pages of its own.
 ]]
@@ -39,7 +41,7 @@ type stdlib.Settings = {
 --- One declaration file the page renders, and how a program reaches what it declares.
 ---
 --- `required` is the name that loads it, and its absence is what says the declarations
---- are ambient: the prelude's globals are there before a program asks for anything.
+--- are intrinsic: the prelude's globals are there before a program asks for anything.
 local record Source
     file: string
     required: string?
@@ -80,7 +82,7 @@ local REFLECTION = "What the compiler hands a program about a reified `struct`'s
 
 -- The reflection surface, by name. A type belongs here when a program reaches it by
 -- asking about a type rather than by calling something. The semantic descriptor graph
--- now belongs to `nupp.reflect`; this page retains only the ambient `Layout` graph a
+-- now belongs to `nupp.reflect`; this page retains only the intrinsic `Layout` graph a
 -- struct's memory is described by. Naming those types is what keeps the list honest --
 -- a prelude type added later stays under Types until someone decides it is reflection.
 local REFLECTION_TYPES: {[string]: boolean} = {Layout = true, LayoutField = true,}
@@ -232,4 +234,4 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
     }
 end
 
-return stdlib
+export = stdlib

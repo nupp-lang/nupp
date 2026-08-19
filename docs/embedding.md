@@ -60,17 +60,14 @@ return {
 }
 ```
 
-Each export is a dotted module member. The module returns the function in the
-same way as any other Nupp module:
+Each export is a dotted member of a declared module:
 
 ```nupp [host/examples/component/src/game.nupp]
-local game = {}
+module game
 
-function game.answer(value: integer): integer
+export function answer(value: integer): integer
     return value + 1
 end
-
-return game
 ```
 
 `nupp build` writes `build/component.nuppc`. A component records its format,

@@ -1,3 +1,5 @@
+module nupp.compiler.build.tasks
+
 --[[
 What a project can be asked to do, and how it is described.
 
@@ -289,4 +291,4 @@ end
 tasks.targetConfig = targetConfig
 tasks.configured = configuredTasks
 
-return tasks
+export = tasks

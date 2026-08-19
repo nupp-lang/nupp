@@ -1,3 +1,5 @@
+module nupp.compiler.targetlayout
+
 --[[
 Compiler-owned C layouts for declared build targets.
 
@@ -219,4 +221,4 @@ function targetLayout.of(t: any, key: string): any?, string?
     }
 end
 
-return targetLayout
+export = targetLayout

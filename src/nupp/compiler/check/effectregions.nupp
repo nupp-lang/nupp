@@ -1,3 +1,5 @@
+module nupp.compiler.check.effectregions
+
 --[[
 Lexical regions which require an allocation- or raising-free operation graph.
 
@@ -301,4 +303,4 @@ function effectregions.install(c: state.Checker): effectregions.Ops
     return ops as effectregions.Ops
 end
 
-return effectregions
+export = effectregions

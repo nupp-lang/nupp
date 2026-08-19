@@ -1,3 +1,5 @@
+module nupp.compiler.doc.strings
+
 --[[
 Escaping and trimming.
 
@@ -84,4 +86,4 @@ strings.headingId = headingId
 strings.summaryText = summaryText
 strings.escapeJs = escapeJs
 
-return strings
+export = strings

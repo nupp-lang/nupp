@@ -1,3 +1,5 @@
+module nupp.compiler.build.syntax
+
 -- The three tiny languages emitted or consumed by native builds.
 
 local GlobTokens = nupp.peg.compile([[
@@ -57,4 +59,4 @@ local function compileGlob(glob: string): function(string): boolean
     end
 end
 
-return {glob = compileGlob, shellWords = ShellWords, depfile = Depfile}
+export = {glob = compileGlob, shellWords = ShellWords, depfile = Depfile}

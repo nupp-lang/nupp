@@ -1,3 +1,5 @@
+module nupp.compiler.cli.importc
+
 --[[
 `nupp import-c`: a C header, as typed Nupp declarations.
 
@@ -63,7 +65,15 @@ local function run(parsed: any): integer
     local asJson = parsed.values.format == "json"
     local reportMod = require("nupp.compiler.cli.report")
     local importc = require("nupp.compiler.importc")
+    local out = parsed.values.out or ((header:match("([^/\\]+)%.h$") or "out") .. ".nupp")
+    local config = require("nupp.compiler.build.manifest").load(".")
+    local envMod = require("nupp.compiler.env")
+    local moduleName = envMod.moduleNameInRoots(envMod.projectRoots(".", config), out)
+    if not parsed.values.inspect and not moduleName then
+        return command:usageError("output must be a .nupp file beneath the project root or an include root")
+    end
     local text, warnings, details = importc.import(header, {
+        module = moduleName,
         lib = parsed.values.lib,
         bridge = parsed.values.bridgeOut ~= nil,
     })
@@ -122,7 +132,6 @@ local function run(parsed: any): integer
         bridgeHandle:write(details.bridgeSource)
         bridgeHandle:close()
     end
-    local out = parsed.values.out or ((header:match("([^/\\]+)%.h$") or "out") .. ".nupp")
     local handle, writeErr = io.open(out, "wb")
     if not handle then
         if asJson then
@@ -152,4 +161,4 @@ local function run(parsed: any): integer
     return 0
 end
 
-return new spec.Handler(spec = command, run = run)
+export = new spec.Handler(spec = command, run = run)

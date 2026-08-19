@@ -1,3 +1,5 @@
+module nupp.compiler.aot.lane
+
 --[[
 The lane-parallel half of the AOT IR, and what makes it valid.
 
@@ -640,4 +642,4 @@ type aotLane.Statement = aotLane.Let
     | aotLane.Break
     | aotLane.Continue
 
-return aotLane
+export = aotLane

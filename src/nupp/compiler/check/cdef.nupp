@@ -1,3 +1,5 @@
+module nupp.compiler.check.cdef
+
 --[[
 Declaring C to the checker.
 
@@ -17,7 +19,7 @@ owning output slot, or `out p: T* borrows (source)` on a borrowed one -- and
 local T = require("nupp.compiler.types")
 local generics = require("nupp.compiler.generics")
 local cabi = require("nupp.compiler.cabi")
-local fixedWidth = require("nupp.compiler.fixed_width")
+local fixedWidth = require("nupp.compiler.fixedwidth")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
 
@@ -544,4 +546,4 @@ function cdef.install(
     return handlers
 end
 
-return cdef
+export = cdef

@@ -141,7 +141,7 @@ return M
 `beforeAll` failure prevents the suite's cases from running and is reported as
 `beforeAll`; `afterAll` still runs. A failing `afterEach` is reported with the
 case failure, if there was one, so cleanup failures do not hide the original
-problem. The same four names work in a Nupp suite.
+problem. The same four names work as exports from a declared Nupp suite.
 
 ### Suites in Nupp
 
@@ -151,18 +151,17 @@ cases run, so it can require project modules the same way the code under test
 does:
 
 ```nupp:playground
-local M = {}
+module tests.arithmetictest
+
 local fixture = require("tests.nuppfixture")
 
-function M.addsNumbers(): nil
+export function addsNumbers(): nil
     assert(20 + 22 == 42)
 end
 
-function M.requiresNuppProjectModules(): nil
+export function requiresNuppProjectModules(): nil
     assert(fixture.answer == 42)
 end
-
-return M
 ```
 
 Cases and lifecycle hooks need a `: nil` return annotation, since a `.nupp`

@@ -1,3 +1,5 @@
+module nupp.compiler.materialize.peg
+
 --[[
 The sealed PEG materializer.
 
@@ -11,7 +13,7 @@ that graph. No live handle, source fragment, or lexical binding crosses the work
 local hash = require("nupp.compiler.build.hash")
 local T = require("nupp.compiler.types")
 local generics = require("nupp.compiler.generics")
-local pegRe = require("nupp.compiler.materialize.peg_re")
+local pegRe = require("nupp.compiler.materialize.pegre")
 
 type peg.Failure = {
     readonly code: string,
@@ -1871,4 +1873,4 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, a
     }, nil, {backend = validated.backend, emitterAbi = 7, helperAbi = 9, runtimeFeatures = {"stdlib.peg"},}
 end
 
-return peg
+export = peg

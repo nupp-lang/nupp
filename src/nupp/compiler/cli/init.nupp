@@ -1,3 +1,5 @@
+module nupp.compiler.cli
+
 --[[
 The command line: which commands exist, and what happens to an argument list.
 
@@ -35,7 +37,7 @@ local REGISTRY: {{
     {
         name = "init",
         load = function(): specMod.Handler
-            return require("nupp.compiler.cli.init_command")
+            return require("nupp.compiler.cli.initcommand")
         end
     },
     {
@@ -95,7 +97,7 @@ local REGISTRY: {{
     {
         name = "ownership-audit",
         load = function(): specMod.Handler
-            return require("nupp.compiler.cli.ownership_audit")
+            return require("nupp.compiler.cli.ownershipaudit")
         end
     },
     {
@@ -113,7 +115,7 @@ local REGISTRY: {{
     {
         name = "completions",
         load = function(): specMod.Handler
-            return require("nupp.compiler.cli.completions_command")
+            return require("nupp.compiler.cli.completionscommand")
         end
     },
     {
@@ -339,15 +341,15 @@ function cli.main(argv: {string}): integer
             rest[#rest + 1] = argv[index]
         end
 
-        local worker = require("nupp.compiler.comptime_worker") as {main: function({string}): integer}
+        local worker = require("nupp.compiler.comptimeworker") as {main: function({string}): integer}
 
         return worker.main(rest)
     elseif name == "__comptime-worker-service" then
-        local worker = require("nupp.compiler.comptime_worker") as {serviceMain: function(): integer}
+        local worker = require("nupp.compiler.comptimeworker") as {serviceMain: function(): integer}
 
         return worker.serviceMain()
     elseif name == "__lsp-reader" then
-        local server = require("nupp.compiler.lsp.init") as {readerMain: function(): integer}
+        local server = require("nupp.compiler.lsp") as {readerMain: function(): integer}
 
         return server.readerMain()
     end
@@ -422,4 +424,4 @@ function cli.commands(): {any}
     return commands
 end
 
-return cli
+export = cli

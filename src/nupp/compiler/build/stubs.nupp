@@ -1,3 +1,5 @@
+module nupp.compiler.build.stubs
+
 --[[
 Verified compiler-owned stub acquisition.
 
@@ -56,7 +58,7 @@ local function catalog(): any?, string?
     if path and path ~= "" then
         value, err = decodeCatalog(path)
     else
-        value = require("nupp.compiler.build.stub_catalog")
+        value = require("nupp.compiler.build.stubcatalog")
     end
     if not value then
         return nil, err
@@ -243,4 +245,4 @@ function stubs.acquire(root: string, record: StubRecord, required: {string}): st
     return cached
 end
 
-return stubs
+export = stubs

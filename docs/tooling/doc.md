@@ -93,7 +93,7 @@ A tag's description continues onto any following indented line. Any other
 `@name` is kept as a tag with its value.
 
 `@namespace` is for a shape with no file of its own to be documented from: an
-ambient global declared once, whose fields are the surface a reader actually
+compiler-provided intrinsic namespace declared once, whose fields are the surface a reader actually
 reaches. On a `local name: {...}` declaration it replaces that one item with a
 module per field, named `prefix.field` (the enclosing module's own name, when
 `prefix` is omitted). A field inside one of those modules may carry `@namespace`
@@ -388,7 +388,7 @@ check, and the declaration files behind `require("ffi")`,
 `require("string.buffer")` and the `jit` submodules. A signature on the page is
 the signature the checker enforces, because the two read the same file.
 
-The ambient globals come first, then one section per library table, `string`,
+The compiler-provided globals come first, then one section per library table, `string`,
 `table`, `math` and the rest, then the modules `require` loads, then the types
 those signatures name, and last the `Layout` graph a reified `struct` is
 measured by. The semantic descriptor graph a `comptime` block walks is

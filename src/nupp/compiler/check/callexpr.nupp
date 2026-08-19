@@ -1,3 +1,5 @@
+module nupp.compiler.check.callexpr
+
 --[[
 Applying something to arguments.
 
@@ -19,11 +21,11 @@ local cst = require("nupp.compiler.cst")
 local ffiMod = require("nupp.compiler.check.ffi")
 local methodslots = require("nupp.compiler.methodslots")
 local native = require("nupp.compiler.native")
-local luaFormat = require("nupp.compiler.LuaFormat") as {analyze: function(string): (any, string?)}
+local luaFormat = require("nupp.compiler.luaformat") as {analyze: function(string): (any, string?)}
 local reflection = require("nupp.compiler.reflection")
-local targetLayout = require("nupp.compiler.target_layout")
-local fixedWidth = require("nupp.compiler.fixed_width")
-local indexedViews = require("nupp.compiler.indexed_views")
+local targetLayout = require("nupp.compiler.targetlayout")
+local fixedWidth = require("nupp.compiler.fixedwidth")
+local indexedViews = require("nupp.compiler.indexedviews")
 local state = require("nupp.compiler.check.state")
 local pegTyping = require(
     "nupp.compiler.materialize.peg"
@@ -2122,4 +2124,4 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
     return handlers
 end
 
-return callexpr
+export = callexpr

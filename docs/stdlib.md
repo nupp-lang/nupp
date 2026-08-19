@@ -1,14 +1,33 @@
 # `nupp` standard library
 
-`nupp` is an ambient global. It is present in every generated module, so
-standard facilities do not need `require`:
+`nupp` is the compiler-provided intrinsic namespace. It is present in checked
+source, so intrinsic facilities do not need `require`:
 
 ```nupp
 local buffer = nupp.io.newBuffer("hello")
 local digest = nupp.data.sha256(buffer:view())
 ```
 
-Its namespaces are deliberately small:
+This is a language surface, not an ambient source module or a package tree
+assembled from declaration files. Its implementations are selected by the
+compiler from the members checked source actually reaches. Nupp-authored
+libraries outside this intrinsic surface are real declared modules on disk:
+
+```nupp
+const {Array as HeapArray} = require("nupp.mem.heap")
+const span = require("nupp.mem.span")
+
+local values = nupp.mem.span.fromCarray(pointer, count)
+```
+
+The explicit bindings use ordinary Lua `require`. The qualified access selects
+the same declared `nupp.mem.span` file and lowers to one hidden `require` in the
+containing module; it does not build a global `nupp.mem` table or inject a load
+check at every call. The same generic rule applies to dependency roots such as
+`tecs`.
+
+The standard surface is deliberately small; these pages cover both intrinsic
+namespaces and declared modules:
 
 - [`nupp.data`](data.md) owns JSON, UTF-8, identifiers, hashes and checksums.
 - [`nupp.io`](io.md) owns byte buffers, readers, writers, and typed scalar
@@ -22,10 +41,10 @@ Its namespaces are deliberately small:
   array views.
 - [`nupp.peg`](peg.md) compiles byte-oriented parsing-expression grammars.
 
-## Availability, detection and lazy loading
+## Availability, detection and selection
 
-The `nupp`, `nupp.data`, `nupp.io` and `nupp.math` tables always exist. A
-member's implementation is emitted only when checked source resolves that
+The `nupp`, `nupp.data`, `nupp.io` and `nupp.math` intrinsic tables always exist.
+A member's implementation is emitted only when checked source resolves that
 member. Aliases remain precise:
 
 ```nupp:playground
@@ -33,10 +52,12 @@ local data = nupp.data
 print(data.sha256("payload")) -- selects SHA-256, but not UUID or JSON
 ```
 
-The generated implementation then loads its provider on first access. This gives
-two levels of omission: an unused facility contributes no generated adapter and
-no native artifact; a selected but unvisited lazy member does not initialize its
-provider. At `-O1` and above, feature effects are recomputed after constant
+The generated intrinsic implementation then loads its native provider on first
+access. This is provider laziness inside a selected intrinsic, distinct from
+declared-module loading. It gives two levels of omission: an unused facility
+contributes no generated adapter and no native artifact; a selected but
+unvisited lazy member does not initialize its provider. At `-O1` and above,
+feature effects are recomputed after constant
 folding, so a facility used only in a branch or loop eliminated by DCE does not
 retain its adapter or provider. Code generation makes the final selection from
 the constructs it actually writes, so comptime erasure, materialization, and

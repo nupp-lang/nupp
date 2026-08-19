@@ -1,3 +1,5 @@
+module nupp.compiler.scalarintrinsics
+
 -- Canonical identities for the released fixed-width scalar surface. Recognition is
 -- definition-guided by the checker; this module owns names and exact integer folding
 -- so later native and vector backends consume the same vocabulary.
@@ -157,4 +159,4 @@ function scalar.fold(identity: string, args: {number}): scalar.Folded?
     return nil
 end
 
-return scalar
+export = scalar

@@ -1,3 +1,5 @@
+module nupp.compiler.cli.explain
+
 --[[
 `nupp explain`: what a diagnostic code means, with an example either way.
 
@@ -68,7 +70,7 @@ local function run(parsed: any): integer
     local positional: {string} = parsed.positional
     if values.list then
         local codes = explain.codes()
-        for _, reason in ipairs(require("nupp.profile._trace").records()) do
+        for _, reason in ipairs(require("nupp.profile.trace").records()) do
             codes[#codes + 1] = reason.id
         end
         table.sort(codes)
@@ -86,7 +88,7 @@ local function run(parsed: any): integer
     -- is the same request typed with less shift.
     local requested = positional[1]
     local code = requested:upper()
-    local reason = require("nupp.profile._trace").reason(requested:lower())
+    local reason = require("nupp.profile.trace").reason(requested:lower())
     local entry = reason and {
         code = reason.id,
         summary = reason.explanation or reason.id,
@@ -119,8 +121,8 @@ local function run(parsed: any): integer
             class = display.class,
             repair = display.repair,
             reasonCatalog = reason and {
-                id = require("nupp.profile._trace").CATALOG_ID,
-                version = require("nupp.profile._trace").CATALOG_VERSION,
+                id = require("nupp.profile.trace").CATALOG_ID,
+                version = require("nupp.profile.trace").CATALOG_VERSION,
             } or nil,
         })
         return 0
@@ -174,4 +176,4 @@ local function run(parsed: any): integer
     return 0
 end
 
-return new spec.Handler(spec = command, run = run)
+export = new spec.Handler(spec = command, run = run)

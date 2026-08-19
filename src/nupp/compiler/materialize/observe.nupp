@@ -1,3 +1,5 @@
+module nupp.compiler.materialize.observe
+
 -- Materialization facts retained by build records and exposed in bounded JSON form.
 
 local cst = require("nupp.compiler.cst")
@@ -59,4 +61,4 @@ function observe.public(entries: {any}?): {any}
     return out
 end
 
-return observe
+export = observe

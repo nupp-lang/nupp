@@ -1,3 +1,5 @@
+module nupp.compiler.lsp.navigate
+
 --[[
 Where a name is declared, and everywhere it is used.
 
@@ -541,4 +543,4 @@ function navigate.install(s: navigate.Session): navigate.Api
     }
 end
 
-return navigate
+export = navigate

@@ -1,3 +1,5 @@
+module nupp.compiler.tracebytecode
+
 --[[
 Trace facts from the exact LuaJIT bytecode a generated module loaded as.
 
@@ -8,7 +10,7 @@ axes separate is what lets a diagnostic say "this path aborts" without claiming 
 different root trace cannot compile.
 ]]
 
-local trace = require("nupp.profile._trace")
+local trace = require("nupp.profile.trace")
 local hash = require("nupp.compiler.build.hash")
 
 local bytecode = {}
@@ -344,4 +346,4 @@ function bytecode.analyze(chunk: function(): any): bytecode.Analysis
     }
 end
 
-return bytecode
+export = bytecode

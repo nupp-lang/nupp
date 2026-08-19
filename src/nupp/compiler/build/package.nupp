@@ -1,3 +1,5 @@
+module nupp.compiler.build.package
+
 --[[
 One file that is the whole program.
 
@@ -665,4 +667,4 @@ package_.stampFile = stampFile
 package_.posixArchive = posixArchive
 package_.hostAbiVersion = hostAbiVersion
 
-return package_
+export = package_

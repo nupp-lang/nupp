@@ -1,3 +1,5 @@
+module nupp.compiler.build.manifest
+
 --[[
 Reading `nupp.lua`, and refusing to build from a bad one.
 
@@ -493,7 +495,7 @@ local function validateTarget(target, label, dependencies)
             return nil, err
         end
         local distribution = require("nupp.compiler.build.platform")
-        local layouts = require("nupp.compiler.target_layout")
+        local layouts = require("nupp.compiler.targetlayout")
         local seen = {}
         for index, name in ipairs(target.platforms) do
             if seen[name] then
@@ -555,7 +557,7 @@ local function validateTarget(target, label, dependencies)
         if not valid then
             return nil, err
         end
-        local layouts = require("nupp.compiler.target_layout")
+        local layouts = require("nupp.compiler.targetlayout")
         if not layouts.has(target.layoutTarget) then
             return nil, label
                 .. ".layoutTarget names unsupported target "
@@ -1165,4 +1167,4 @@ end
 
 manifest.validate = validateManifest
 
-return manifest
+export = manifest

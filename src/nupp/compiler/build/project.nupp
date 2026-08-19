@@ -1,3 +1,5 @@
+module nupp.compiler.build.project
+
 --[[
 Building what the manifest describes.
 
@@ -1183,4 +1185,4 @@ function project.fixpoint(root: string?, opts: project.FixpointOptions?): intege
     return 0
 end
 
-return project
+export = project

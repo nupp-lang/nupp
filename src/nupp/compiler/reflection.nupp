@@ -1,3 +1,5 @@
+module nupp.compiler.reflection
+
 -- Versioned, target-independent semantic type descriptors for comptime and derive.
 
 local hash = require("nupp.compiler.build.hash")
@@ -415,4 +417,4 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
     return descriptor
 end
 
-return reflection
+export = reflection

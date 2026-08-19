@@ -1,3 +1,5 @@
+module nupp.compiler.reference
+
 --[[
 Nupp, small enough to hand to a reader that cannot look anything up.
 
@@ -21,7 +23,7 @@ construct cannot quietly stop working the way this says it does.
 
 local lints = require("nupp.compiler.lints")
 local explain = require("nupp.compiler.explain")
-local trace = require("nupp.profile._trace")
+local trace = require("nupp.profile.trace")
 
 local reference = {}
 
@@ -1738,6 +1740,13 @@ inside one.
 select several values, with `as` for a local alias, and `type Name` selects an
 erased exported type.
 
+An existing table-shaped implementation can migrate incrementally by replacing
+its final `return table` with `export = table`. The value is evaluated once and
+becomes the module value itself, so identity, mutable fields, and callable
+metatables keep working without a copy or per-call wrapper. New modules should
+prefer individual exports; only their written interfaces participate fully in
+grouped cycles.
+
 An unshadowed qualified path resolves its longest registered declared-module
 prefix, so `models.user.find(...)` needs no source binding. Code generation
 creates one hidden direct `require` for that module and reuses the local at
@@ -2857,4 +2866,4 @@ function reference.skill(chapter: reference.Chapter?): string
     return table.concat(out, "\n")
 end
 
-return reference
+export = reference

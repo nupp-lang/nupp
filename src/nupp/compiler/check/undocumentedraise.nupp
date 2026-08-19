@@ -1,3 +1,5 @@
+module nupp.compiler.check.undocumentedraise
+
 --[[
 Whether a function that raises on purpose said so.
 
@@ -145,4 +147,4 @@ function undocumentedraise.install(c: state.Checker): undocumentedraise.Ops
     return ops
 end
 
-return undocumentedraise
+export = undocumentedraise

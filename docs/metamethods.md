@@ -318,14 +318,10 @@ operators are shorthand for. Contracts such as `__band`, `__bor`, `__bxor`,
 be reconsidered when the runtime dispatches them.
 
 ```nupp
-local m = {}
-
-record m.Flags
+local record Flags
     bits: integer
-    metamethod __band: function(self, other: m.Flags): m.Flags
+    metamethod __band: function(self, other: Flags): Flags
 end
-
-return m
 ```
 
 ```text

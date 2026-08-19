@@ -4,7 +4,7 @@ local envMod = require("nupp.compiler.env")
 local gen = require("nupp.compiler.gen")
 local optimize = require("nupp.compiler.optimize")
 local hot = require("nupp.hotreload")
-local hotSession = require("nupp.compiler.hot_session")
+local hotSession = require("nupp.compiler.hotsession")
 
 local function assertEq(got, want, label)
    if got ~= want then

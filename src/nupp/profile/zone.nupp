@@ -1,3 +1,5 @@
+module nupp.profile.zone
+
 --[[
 Gated LuaJIT profiler zones: the stack work is skipped until a profiler asks for
 it.
@@ -195,4 +197,4 @@ function zone.leave(token: integer): nil
     zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
 end
 
-return zone
+export = zone

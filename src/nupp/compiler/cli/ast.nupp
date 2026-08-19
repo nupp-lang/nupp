@@ -1,3 +1,5 @@
+module nupp.compiler.cli.ast
+
 --[[
 `nupp ast`: the parse, as the parser saw it.
 
@@ -142,4 +144,4 @@ local function run(parsed: any): integer
     return require("nupp.compiler.diagnostics").report(result.errors) and 1 or 0
 end
 
-return new spec.Handler(spec = command, run = run)
+export = new spec.Handler(spec = command, run = run)

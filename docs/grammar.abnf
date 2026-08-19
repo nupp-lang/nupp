@@ -315,7 +315,8 @@ modulestat     = %s"module" Name *("." Name)
 exportstat     = %s"export" (typedecl
                               / "function" Name funcbody
                               / %s"comptime" "function" Name funcbody
-                              / %s"const" bindname "=" exp)
+                              / %s"const" bindname "=" exp
+                              / "=" exp)
 stat           =/ typedeclstat
 stat           =/ comptimefuncstat
 comptimefuncstat = %s"comptime" "function" funcname funcbody
@@ -559,9 +560,10 @@ packunion      = typepack 1*("|" typepack)
 ;   contents remain mutable unless its fields are declared const.
 ;   `module` introduces a declaration only at statement position when followed
 ;   on its line by a dotted Name path. It is semantically restricted to the
-;   first declaration in a source file. `export` introduces a declaration only
-;   when followed by an exportable declaration form. Both remain ordinary
-;   identifiers elsewhere.
+;   first declaration in a source file. `export` introduces a declaration when
+;   followed by an exportable declaration form. After a module declaration it
+;   also accepts `export = value`, the migration form for an existing module
+;   table. Both remain ordinary identifiers elsewhere.
 ;
 ; [CS-6] Contextual operators. "as" and "is" act as operators only in binary-
 ;   operator position (after a complete operand) AND only when they appear on

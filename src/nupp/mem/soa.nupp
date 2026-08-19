@@ -1,3 +1,5 @@
+module nupp.mem.soa
+
 --[[
 Structure-of-arrays storage for reified structs.
 
@@ -481,4 +483,4 @@ function soa.layoutof<T>(element: ctype<T>): soa.Layout
     error("soa.layoutof requires compiler lowering", 2)
 end
 
-return soa
+export = soa

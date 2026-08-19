@@ -1,3 +1,5 @@
+module nupp.compiler.runtime
+
 --[[
 Loading a `.nupp` module at run time.
 
@@ -96,4 +98,4 @@ function runtime.install(
     end
 end
 
-return runtime
+export = runtime

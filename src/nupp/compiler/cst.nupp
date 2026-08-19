@@ -1,3 +1,5 @@
+module nupp.compiler.cst
+
 --[[
 The concrete syntax tree.
 
@@ -611,13 +613,16 @@ record cst.ModuleStmt is cst.Hints
     names: {lexer.Token}
 end
 
---- `export` applied to one declaration. The wrapped declaration retains its ordinary
---- CST shape; checking and lowering add only the module boundary behavior.
+--- `export` applied to one declaration, or `export = value` for an existing module
+--- value. The assignment form lets an established Lua-shaped module adopt a declared
+--- identity without changing its runtime identity or allocating wrappers per member.
 record cst.ExportStmt is cst.Hints
     {cst.Node | lexer.Token}
 
     kind: 'exportStmt'
     keyword: lexer.Token?
+    equal: lexer.Token?
+    value: cst.Node?
     stat: cst.Node?
 end
 
@@ -2939,6 +2944,46 @@ function cst.returnedLocal(root: cst.Chunk): string?
     return token.text
 end
 
+--- A declared module's `export = value`, if it has one.
+function cst.exportAssignment(root: cst.Chunk): cst.ExportStmt?
+    for _, block in ipairs(root.blocks) do
+        if block.kind == "block" then
+            for _, stat in ipairs(block.stats) do
+                if stat.kind == "exportStmt" and stat.value then
+                    return stat
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+--- The local named by a declared module's `export = value`, including the conventional
+--- `export = setmetatable(M, mt)` spelling. Like `returnedLocal`, this is intentionally
+--- syntax-only so headers can identify qualified public declarations before checking.
+function cst.exportedLocal(root: cst.Chunk): string?
+    local assignment = cst.exportAssignment(root)
+    local exported = assignment and assignment.value or nil
+    if not exported then
+        return nil
+    end
+    if exported.kind == "call" then
+        local callee = exported.obj
+        if not callee or callee.kind ~= "name" or not callee.token or callee.token.text ~= "setmetatable" then
+            return nil
+        end
+        local argsNode = exported.args
+        local args = argsNode and argsNode.kind == "args" and argsNode.exprs or {}
+        exported = args[1]
+    end
+    if not exported or exported.kind ~= "name" or not exported.token then
+        return nil
+    end
+
+    return exported.token.text
+end
+
 --- The effective visibility of a declaration, given the local its file returns. A
 --- qualified name exports when it attaches to that local, the way `function M.f` does;
 --- attaching to any other table keeps it to the file.
@@ -3028,4 +3073,4 @@ function cst.pretty(x: cst.Child): string
     return table.concat(lines, "\n")
 end
 
-return cst
+export = cst

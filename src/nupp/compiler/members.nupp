@@ -1,3 +1,5 @@
+module nupp.compiler.members
+
 --[[
 The immutable semantic view of ordinary value members.
 
@@ -527,4 +529,4 @@ function members.fingerprint(t: T.Type, typeFingerprint: function(T.Type): strin
     return table.concat(parts, ",")
 end
 
-return members
+export = members

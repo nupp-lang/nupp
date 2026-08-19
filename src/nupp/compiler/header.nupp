@@ -1,3 +1,5 @@
+module nupp.compiler.header
+
 --[[
 What one file exports, read off its parse and nothing else.
 
@@ -184,7 +186,9 @@ function header.of(path: string, moduleName: string?, parsed: parser.ParseResult
     local declaredModuleName, moduleNode = cst.declaredModule(parsed.root)
     produced.declaredModuleName = declaredModuleName
     produced.moduleToken = moduleNode and declarationToken(moduleNode.keyword)
-    local moduleLocal = declaredModuleName and "__nuppExports" or cst.returnedLocal(parsed.root)
+    local moduleLocal = declaredModuleName and (
+        cst.exportedLocal(parsed.root) or "__nuppExports"
+    ) or cst.returnedLocal(parsed.root)
     produced.moduleLocal = moduleLocal
     local dependencySet = {}
     local function dependencies(node)
@@ -268,4 +272,4 @@ function header.of(path: string, moduleName: string?, parsed: parser.ParseResult
     return produced
 end
 
-return header
+export = header

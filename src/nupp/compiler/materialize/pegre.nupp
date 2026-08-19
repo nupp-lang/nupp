@@ -1,3 +1,5 @@
+module nupp.compiler.materialize.pegre
+
 --[[
 The compile-time textual frontend for compiler-owned PEG patterns.
 
@@ -621,4 +623,4 @@ function pegRe.parse(source: string, make: any): any?, pegRe.Failure?
     return pattern
 end
 
-return pegRe
+export = pegRe

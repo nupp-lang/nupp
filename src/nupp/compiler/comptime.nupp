@@ -1,3 +1,5 @@
+module nupp.compiler.comptime
+
 --[[
 Compile-time evaluation, and the quoting of what it produced.
 
@@ -1951,7 +1953,7 @@ function comptime.evaluate(
     ) == "table" and type(arg[0]) == "string" and arg[0] or nil
     if executable and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
         local worker = require(
-            "nupp.compiler.comptime_worker"
+            "nupp.compiler.comptimeworker"
         ) as {evaluate: function(string, string, any, any, any, any?): (string?, any, any)}
         local quoted, failure, envelope = worker.evaluate(
             cst.textOf(node),
@@ -1995,4 +1997,4 @@ function comptime.evaluate(
     return comptime.evaluateDirect(node, block, reflections, layouts, helpers)
 end
 
-return comptime
+export = comptime

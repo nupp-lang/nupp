@@ -441,7 +441,7 @@ return {
 }
 ```
 
-`name`, `moduleName` (the name with hyphens turned to underscores) and
+`name`, `moduleName` (the name in luacase, with hyphens and underscores removed) and
 `directory` are always defined. A template may declare `name` to constrain it,
 but its value comes from `--name` or the directory. Anything else is declared
 here or it cannot be used, and is supplied with `--set KEY=VALUE`.

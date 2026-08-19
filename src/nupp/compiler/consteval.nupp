@@ -1,3 +1,5 @@
+module nupp.compiler.consteval
+
 --[[Closed compile-time value domains used by generic binders and type terms.]]
 
 local T = require("nupp.compiler.types")
@@ -182,4 +184,4 @@ function consteval.reduce(term: T.ConstTerm, bindings: consteval.Bindings?): T.C
     return value and T.constLiteral("integer", value) or term, err
 end
 
-return consteval
+export = consteval

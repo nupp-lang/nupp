@@ -1,3 +1,5 @@
+module nupp.compiler.check.nosuspend
+
 --[[
 Regions in which suspending is refused.
 
@@ -280,4 +282,4 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
     return ops as nosuspend.Ops
 end
 
-return nosuspend
+export = nosuspend

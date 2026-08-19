@@ -1,7 +1,5 @@
-local game = {}
+module game
 
-function game.answer(value: integer): integer
+export function answer(value: integer): integer
     return value + 1
 end
-
-return game

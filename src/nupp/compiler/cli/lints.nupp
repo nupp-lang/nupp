@@ -1,3 +1,5 @@
+module nupp.compiler.cli.lints
+
 --[[
 `nupp lints`: the lints, and the level each one runs at here.
 
@@ -137,4 +139,4 @@ local function run(parsed: any): integer
     return 0
 end
 
-return new spec.Handler(spec = command, run = run)
+export = new spec.Handler(spec = command, run = run)

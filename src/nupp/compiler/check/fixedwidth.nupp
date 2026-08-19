@@ -1,3 +1,5 @@
+module nupp.compiler.check.fixedwidth
+
 --[[
 Establishment facts for fixed-width values.
 
@@ -9,7 +11,7 @@ returns, records, calls, and later AOT work.
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.relations")
-local fixed = require("nupp.compiler.fixed_width")
+local fixed = require("nupp.compiler.fixedwidth")
 local state = require("nupp.compiler.check.state")
 
 local fixedCheck = {}
@@ -242,4 +244,4 @@ function fixedCheck.install(c: state.Checker): Ops
     return ops
 end
 
-return fixedCheck
+export = fixedCheck

@@ -1,3 +1,5 @@
+module nupp.compiler.check
+
 --[[
 The checker: the walk, and the run it happens in.
 
@@ -33,9 +35,9 @@ local nosuspendMod = require("nupp.compiler.check.nosuspend")
 local aotMod = require("nupp.compiler.check.aot")
 local effectregionsMod = require("nupp.compiler.check.effectregions")
 local analysis = require("nupp.compiler.analysis")
-local traceSource = require("nupp.compiler.trace_source")
+local traceSource = require("nupp.compiler.tracesource")
 local narrow = require("nupp.compiler.check.narrow")
-local fixedWidthCheck = require("nupp.compiler.check.fixed_width")
+local fixedWidthCheck = require("nupp.compiler.check.fixedwidth")
 local calls = require("nupp.compiler.check.calls")
 local expr = require("nupp.compiler.check.expr")
 local declare = require("nupp.compiler.check.declare")
@@ -601,10 +603,10 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
                 noAllocate = noAllocate,
                 noRaise = noRaise,
                 traceFindings = traceFindings,
-                traceProfileId = source and source.traceProfileId or require("nupp.profile._trace").profile().id,
-                reasonCatalogId = source and source.reasonCatalogId or require("nupp.profile._trace").CATALOG_ID,
+                traceProfileId = source and source.traceProfileId or require("nupp.profile.trace").profile().id,
+                reasonCatalogId = source and source.reasonCatalogId or require("nupp.profile.trace").CATALOG_ID,
                 reasonCatalogVersion = source and source.reasonCatalogVersion or require(
-                    "nupp.profile._trace"
+                    "nupp.profile.trace"
                 ).CATALOG_VERSION,
             }
         end
@@ -856,7 +858,9 @@ function checkMod.check(
         ) and true or (filename and filename:match("%.d%.nupp$")) and true or false,
         -- The table qualified declarations attach to, so `record M.Point` in a file
         -- that returns M exports Point while `record Other.Point` does not.
-        moduleLocal = declaredModuleName and "__nuppExports" or cst.returnedLocal(result.root),
+        moduleLocal = declaredModuleName and (
+            cst.exportedLocal(result.root) or "__nuppExports"
+        ) or cst.returnedLocal(result.root),
         annotationRegistry = registry,
         annotationDefinitions = {},
         lintConfig = opts and opts.lints or env and env.config and env.config.lints or nil,
@@ -1030,7 +1034,7 @@ function checkMod.check(
         local envelope, evaluationFailure
         if executable and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
             local worker = require(
-                "nupp.compiler.comptime_worker"
+                "nupp.compiler.comptimeworker"
             ) as {evaluateTypeFunction: function(any, {any}, string, any?): (any, any)}
             envelope, evaluationFailure = worker.evaluateTypeFunction(
                 program,
@@ -2126,6 +2130,31 @@ function checkMod.check(
             end
             return
         end
+        if wrapper.value then
+            local exportedLocal = cst.exportedLocal(result.root)
+            local exportedType = c.infer(wrapper.value)
+            c.moduleType = exportedType
+            c.moduleReturnValue = wrapper.value
+            if exportedLocal
+                and exportedType == T.table_
+                and not c.moduleLocalAnnotated
+                and exportedLocal == c.moduleLocal
+            then
+                local fields = {}
+                for name, ft in pairs(c.moduleFields) do
+                    if c.moduleFieldConst[name] then
+                        fields[#fields + 1] = {name = name, read = ft}
+                    else
+                        fields[#fields + 1] = {name = name, type = ft}
+                    end
+                end
+                if #fields > 0 then
+                    c.moduleType = T.shape(fields)
+                    c.moduleTypeFromFields = true
+                end
+            end
+            return
+        end
         local stat = wrapper.stat
         while stat and stat.kind == "pragmaStmt" do
             stat = stat.stat
@@ -2521,15 +2550,28 @@ function checkMod.check(
         auditWithGotos(block)
     end
     if declaredModuleName then
-        local fields = {}
-        for name, t in pairs(c.moduleFields) do
-            fields[#fields + 1] = {name = name, read = t}
+        local assignment = cst.exportAssignment(result.root)
+        if not assignment then
+            local fields = {}
+            for name, t in pairs(c.moduleFields) do
+                fields[#fields + 1] = {name = name, read = t}
+            end
+            table.sort(fields, function(a, b)
+                return a.name < b.name
+            end)
+            c.moduleType = T.shape(fields)
+            c.moduleTypeFromFields = true
+        else
+            for name, t in pairs(c.moduleFields) do
+                c.moduleExports.values[name] = t
+                c.moduleExports.valueDefs[name] = c.moduleFieldDefs[name]
+            end
+            if c.moduleType and c.moduleType.tag == "shape" then
+                for name, t in pairs(c.moduleType.byname or {}) do
+                    c.moduleExports.values[name] = t
+                end
+            end
         end
-        table.sort(fields, function(a, b)
-            return a.name < b.name
-        end)
-        c.moduleType = T.shape(fields)
-        c.moduleTypeFromFields = true
     end
     c.derives.finalize()
     auditScope(c.rootScope)
@@ -2584,8 +2626,8 @@ function checkMod.check(
     end
     if needsTrace and effectQueries then
         traceSource.run(
-            result as nupp.compiler.trace_source.Target,
-            c as nupp.compiler.trace_source.Checker,
+            result as nupp.compiler.tracesource.Target,
+            c as nupp.compiler.tracesource.Checker,
             facts,
             effectQueries
         )
@@ -2741,4 +2783,4 @@ function checkMod.check(
     return c.diags, c.moduleType, c.moduleExports
 end
 
-return checkMod
+export = checkMod

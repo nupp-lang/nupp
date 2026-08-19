@@ -1,3 +1,5 @@
+module nupp.compiler.doc.page
+
 --[[
 The chrome around a page: the module tree in the sidebar, the outline on the
 right, the breadcrumbs, the previous and next links, the hero on the home page,
@@ -617,4 +619,4 @@ end
 page.homeHero = homeHero
 page.homeFeatures = homeFeatures
 
-return page
+export = page

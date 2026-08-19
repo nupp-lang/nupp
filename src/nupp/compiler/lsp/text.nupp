@@ -1,3 +1,5 @@
+module nupp.compiler.lsp.text
+
 --[[
 Positions, ranges, and edits over a document's bytes.
 
@@ -186,4 +188,4 @@ function text.lineHunks(before: {string}, after: {string}): {text.Hunk}
     return hunks
 end
 
-return text
+export = text

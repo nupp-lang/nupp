@@ -1,3 +1,5 @@
+module nupp.compiler.lsp.semantic
+
 --[[
 The token kinds an editor colours by.
 
@@ -568,4 +570,4 @@ function semantic.install(s: semantic.Session): semantic.Api
     }
 end
 
-return semantic
+export = semantic

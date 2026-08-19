@@ -366,14 +366,10 @@ is what lets a rewrite that would otherwise change observable behavior apply
 there.
 
 ```nupp
-local m = {}
-
 @relax("frames", "error-site")
-function m.dispatch(handler: function()): nil
+local function dispatch(handler: function()): nil
     handler()
 end
-
-return m
 ```
 
 That says two things about `dispatch`: a traceback through it need not show the

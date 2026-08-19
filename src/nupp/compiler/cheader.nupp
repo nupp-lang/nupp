@@ -1,3 +1,5 @@
+module nupp.compiler.cheader
+
 --[[
 Typing a C header at compile time, with no import step.
 
@@ -493,4 +495,4 @@ function cheader.load(path: string, opts: cheader.Options?): cheader.Header?, st
     return result
 end
 
-return cheader
+export = cheader

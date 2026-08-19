@@ -1,3 +1,5 @@
+module nupp.compiler.methodslots
+
 --[[
 Stable runtime names for statically selected method overloads.
 
@@ -152,4 +154,4 @@ function methodslots.unlabeledParameters(ft: any): string
     return packFingerprint(ft, false)
 end
 
-return methodslots
+export = methodslots

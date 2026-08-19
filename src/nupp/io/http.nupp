@@ -1,3 +1,5 @@
+module nupp.io.http
+
 --[[
 An optional asynchronous HTTP client whose sockets and TLS run in the native
 Reqwest/Tokio provider. Calls suspend through `nupp.suspension`: a CLI blocks on the
@@ -1046,4 +1048,4 @@ function http.newClient(options: http.Options?): (affine(http.Client?, destroyCl
     return new http.Client(_native = backend, _options = copied, _source = nil, _sourceUsers = 0, _closed = false)
 end
 
-return http
+export = http

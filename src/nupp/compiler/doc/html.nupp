@@ -1,3 +1,5 @@
+module nupp.compiler.doc.html
+
 --[[
 Markdown as HTML.
 
@@ -470,4 +472,4 @@ html.markdownHtml = markdownHtml
 html.inlineHtml = inlineHtml
 html.markdownOutline = markdownOutline
 
-return html
+export = html

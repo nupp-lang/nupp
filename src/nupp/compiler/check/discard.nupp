@@ -1,3 +1,5 @@
+module nupp.compiler.check.discard
+
 --[[
 Whether a call written as a statement had a reason to be written.
 
@@ -280,4 +282,4 @@ function discard.install(c: state.Checker): discard.Ops
     return ops
 end
 
-return discard
+export = discard

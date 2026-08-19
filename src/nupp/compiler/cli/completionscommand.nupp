@@ -1,3 +1,5 @@
+module nupp.compiler.cli.completionscommand
+
 -- `nupp completions`: print shell completion generated from the CLI schema.
 
 local spec = require("nupp.compiler.cli.spec")
@@ -24,4 +26,4 @@ local function run(parsed: any): integer
     return 0
 end
 
-return new spec.Handler(spec = command, run = run)
+export = new spec.Handler(spec = command, run = run)

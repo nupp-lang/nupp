@@ -507,7 +507,7 @@ function M.stringFormatSyntaxIsReusableByUserFormattingWrappers()
 end
 
 function M.luaDebugFormatLoweringUsesThePegRuntime()
-   local luaFormat = require("nupp.compiler.LuaFormat")
+   local luaFormat = require("nupp.compiler.luaformat")
    local parsed, why = luaFormat.analyze("%-+#09.2f %q %% %d %?")
    assertEq(why, nil)
    assertEq(parsed and parsed.format, "%-+#09.2f %q %% %d %s")

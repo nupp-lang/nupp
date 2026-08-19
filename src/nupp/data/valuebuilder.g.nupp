@@ -1,3 +1,5 @@
+module nupp.data.valuebuilder
+
 --[[
 Ordinary Lua values, built straight out of parsed bytes.
 
@@ -831,4 +833,4 @@ function valuebuilder.finish(builder: any): any
     return builder.result
 end
 
-return valuebuilder
+export = valuebuilder

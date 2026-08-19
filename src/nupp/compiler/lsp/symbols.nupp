@@ -1,3 +1,5 @@
+module nupp.compiler.lsp.symbols
+
 --[[
 The outline of a file, and what folds.
 
@@ -197,4 +199,4 @@ function symbols.foldableSpans(result: tree.Parse): {{integer}}
     return spans
 end
 
-return symbols
+export = symbols

@@ -1,3 +1,5 @@
+module nupp.compiler.cli.lsp
+
 --[[
 `nupp lsp`: the language server, and its operations asked one at a time.
 
@@ -1150,4 +1152,4 @@ local function dispatch(args: any): integer
     return 0
 end
 
-return new spec.Handler(spec = command, raw = true, run = dispatch)
+export = new spec.Handler(spec = command, raw = true, run = dispatch)

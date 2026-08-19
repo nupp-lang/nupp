@@ -1,3 +1,5 @@
+module nupp.compiler.build.progress
+
 --[[
 What a build is doing while it does it, and where its time went afterwards.
 
@@ -404,4 +406,4 @@ function progress.new(mode: string?, stream: LuaFile?): progress.Reporter
     )
 end
 
-return progress
+export = progress

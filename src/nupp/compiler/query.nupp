@@ -1,3 +1,5 @@
+module nupp.compiler.query
+
 --[[
 The incremental computation core.
 
@@ -262,4 +264,4 @@ depChangedAt = function(self: query.Q, name: string, key: any): integer
     return entry and entry.changedAt or self.revision
 end
 
-return query
+export = query

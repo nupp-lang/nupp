@@ -1,3 +1,5 @@
+module nupp.compiler.lexer
+
 --[[
 The lossless lexer.
 
@@ -866,4 +868,4 @@ function lexer.textOf(tokens: {lexer.Token}): string
     return table.concat(parts)
 end
 
-return lexer
+export = lexer

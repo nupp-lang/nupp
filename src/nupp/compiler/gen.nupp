@@ -1,3 +1,5 @@
+module nupp.compiler.gen
+
 --[[
 Type erasure: a checked CST, lowered to LuaJIT 2.1 Lua.
 
@@ -622,6 +624,9 @@ function gen.generate(
     end
 
     emitDepth.exportTableName = declaredModuleName and reservedName("__nuppExports") or nil
+    if declaredModuleName and cst.exportAssignment(result.root) then
+        emitDepth.exportAssignmentValueName = reservedName("__nuppExportValue")
+    end
 
     local function compactSource(node): string
         if not node then
@@ -5660,6 +5665,12 @@ function gen.generate(
             return
 
         elseif kind == "exportStmt" then
+            if x.value then
+                e(("const %s="):format(emitDepth.exportAssignmentValueName), sourceLine(x))
+                emit(x.value)
+                e((";%s=%s"):format(emitDepth.exportTableName, emitDepth.exportAssignmentValueName))
+                return
+            end
             local stat = x.stat
             if stat then
                 emit(stat)
@@ -6148,6 +6159,7 @@ function gen.generate(
 
     local code = table.concat(out)
     if declaredModuleName then
+        local migrationAssignment = cst.exportAssignment(result.root) ~= nil
         local exportedFunctions = {}
         for _, block in ipairs(result.root.blocks or {}) do
             for _, statement in ipairs(block.stats or {}) do
@@ -6185,17 +6197,19 @@ function gen.generate(
                 "local %s;%s[%q]=function(...) return %s(...) end;"
             ):format(name, emitDepth.exportTableName, name, name)
         end
-        code = (
-            "local %s={};package.loaded[%q]=%s;local __nuppOk,__nuppWhy=pcall(function()"
-        ):format(
-            emitDepth.exportTableName,
-            declaredModuleName,
-            emitDepth.exportTableName
-        ) .. table.concat(
+        local prefix
+        if migrationAssignment then
+            prefix = ("local %s;local __nuppOk,__nuppWhy=pcall(function()"):format(emitDepth.exportTableName)
+        else
+            prefix = (
+                "local %s={};package.loaded[%q]=%s;local __nuppOk,__nuppWhy=pcall(function()"
+            ):format(emitDepth.exportTableName, declaredModuleName, emitDepth.exportTableName)
+        end
+        code = prefix .. table.concat(
             instantiation
         ) .. code .. (
-            " end);if not __nuppOk then package.loaded[%q]=nil;error(__nuppWhy,0) end;return %s"
-        ):format(declaredModuleName, emitDepth.exportTableName)
+            " end);if not __nuppOk then package.loaded[%q]=nil;error(__nuppWhy,0) end;package.loaded[%q]=%s;return %s"
+        ):format(declaredModuleName, declaredModuleName, emitDepth.exportTableName, emitDepth.exportTableName)
     end
     -- Declared first here so they end up last in the prologue: every block below
     -- prepends
@@ -6259,7 +6273,7 @@ function gen.generate(
         end
         code = table.concat(linked) .. code
     end
-    -- `nupp` is an ambient namespace, not a module the application must require. A
+    -- `nupp` is an intrinsic namespace, not a module the application must require. A
     -- feature only adds its bootstrap in modules that resolved it.
     local runtimeEffects = emittedFeatureEffects
     -- Bound here rather than with the required modules below, because those are
@@ -6608,4 +6622,4 @@ function gen.generate(
     return code, diags, metadata, emittedFeatureEffects, hotMetadata
 end
 
-return gen
+export = gen

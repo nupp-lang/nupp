@@ -1,3 +1,5 @@
+module nupp.compiler.hotsession
+
 --[[
 Persistent compiler-side state for development hot reload.
 
@@ -1056,4 +1058,4 @@ function Session:persist()
     self.inc.persist()
 end
 
-return hotSession
+export = hotSession

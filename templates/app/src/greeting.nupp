@@ -1,9 +1,9 @@
+module greeting
+
 --- Greets someone by name.
 ---
 --- @param name who to greet
 --- @return the greeting
-local function forName(name: string): string
+export function forName(name: string): string
     return "Hello, " .. name .. "!"
 end
-
-return {forName = forName}

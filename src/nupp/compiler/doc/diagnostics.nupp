@@ -1,3 +1,5 @@
+module nupp.compiler.doc.diagnostics
+
 --[[
 The diagnostic index: every code the compiler reports, on one page.
 
@@ -183,4 +185,4 @@ function diagnostics.page(settings: diagnostics.Settings?, published: diagnostic
     return {path = settings.path or "diagnostics", title = title, markdown = table.concat(out, "\n")}
 end
 
-return diagnostics
+export = diagnostics

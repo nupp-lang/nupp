@@ -1,3 +1,5 @@
+module nupp.compiler.aot.emit
+
 --[[
 Rendering verified AOT IR as C.
 
@@ -2941,4 +2943,4 @@ function emit.program(programs: {scalarIR.Program}): string
     return table.concat(lines, "\n") .. "\n"
 end
 
-return emit
+export = emit

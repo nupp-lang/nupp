@@ -1,3 +1,5 @@
+module nupp.compiler.check.annotate
+
 --[[
 Whether an annotation is well formed, and what one defines.
 
@@ -528,4 +530,4 @@ function annotate.install(c: state.Checker): annotate.Ops
     return ops
 end
 
-return annotate
+export = annotate

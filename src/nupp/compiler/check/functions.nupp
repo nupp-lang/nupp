@@ -1,3 +1,5 @@
+module nupp.compiler.check.functions
+
 --[[
 A function statement, named or local.
 
@@ -12,7 +14,7 @@ local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.relations")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
-local comptimeFunction = require("nupp.compiler.check.comptime_function")
+local comptimeFunction = require("nupp.compiler.check.comptimefunction")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
@@ -1460,4 +1462,4 @@ function functions.install(c: state.Checker): state.StatHandlers
     return handlers
 end
 
-return functions
+export = functions

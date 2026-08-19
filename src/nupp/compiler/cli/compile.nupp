@@ -1,3 +1,5 @@
+module nupp.compiler.cli.compile
+
 --[[
 Parse, check, optimize, generate: the sequence `build` and `run` both need.
 
@@ -151,4 +153,4 @@ function compile.module(path: string, env: table, settings: compile.Settings): s
     return code
 end
 
-return compile
+export = compile

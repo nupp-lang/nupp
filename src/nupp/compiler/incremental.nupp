@@ -1,3 +1,5 @@
+module nupp.compiler.incremental
+
 --[[
 The compiler's query graph.
 
@@ -480,7 +482,9 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             end
         end
         local sourceDeclaredModule = cst.declaredModule(result.root)
-        activeModules[path] = {exports = seeded, declared = sourceDeclaredModule ~= nil,}
+        activeModules[
+            path
+        ] = {exports = seeded, declared = sourceDeclaredModule ~= nil and cst.exportAssignment(result.root) == nil,}
 
         -- route require() through the query graph so dependencies record
         result.externalInputs = {}
@@ -950,4 +954,4 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     return inc
 end
 
-return incremental
+export = incremental

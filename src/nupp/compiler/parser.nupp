@@ -1,3 +1,5 @@
+module nupp.compiler.parser
+
 --[[
 The error-tolerant recursive-descent parser.
 
@@ -100,6 +102,7 @@ local EXPR_START = {
 function parser.parse(source: string, filename: string?): parser.ParseResult
     local tokens, errors = lexer.lex(source, filename)
     local i: integer = 1
+    local hasDeclaredModule = false
     -- Depth counter for the ternary second arm: while > 0, a ":" method-call suffix is
     -- not consumed (grammar note [CS-2]). Reset inside any parenthesized/bracketed
     -- context.
@@ -2540,6 +2543,18 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(n, advance())
                 n.names[#n.names + 1] = add(n, expectName("after '.' in module name"))
             end
+            hasDeclaredModule = true
+            return n
+        end
+
+        if kind == "name" and cur().text == "export" and hasDeclaredModule and tokens[
+            i + 1
+        ] and tokens[i + 1].kind == "=" then
+            local n = new cst.ExportStmt(kind = "exportStmt")
+            n.keyword = add(n, advance())
+            n.keyword.contextualOp = true
+            n.equal = add(n, advance())
+            n.value = add(n, parseExp())
             return n
         end
 
@@ -3155,4 +3170,4 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     return {root = root, tokens = tokens, errors = errors}
 end
 
-return parser
+export = parser

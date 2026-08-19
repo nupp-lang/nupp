@@ -1,3 +1,5 @@
+module nupp.compiler.indexedviews
+
 --[[
 The sealed standard indexed-view families, described once for checking, proofs and
 generation. Source metamethod names type the operators; this descriptor is the
@@ -127,4 +129,4 @@ function indexed.methodProducer(receiver: Type, member: string, result: Type): i
     return new indexed.Producer(kind = kind, descriptor = descriptor)
 end
 
-return indexed
+export = indexed

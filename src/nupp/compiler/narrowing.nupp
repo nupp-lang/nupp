@@ -1,3 +1,5 @@
+module nupp.compiler.narrowing
+
 --[[
 The type algebra that narrowing is built from.
 
@@ -175,4 +177,4 @@ function narrowing.truthiness(vt: Type): Type?, Type?
     return truthy, T.union(falsy)
 end
 
-return narrowing
+export = narrowing

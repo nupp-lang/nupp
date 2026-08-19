@@ -1,3 +1,5 @@
+module nupp.compiler.annotations
+
 --[[
 Extensible, typed annotation definitions.
 
@@ -534,4 +536,4 @@ function annotations.bindBuiltinDeclarations(
     end
 end
 
-return annotations
+export = annotations

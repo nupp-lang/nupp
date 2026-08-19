@@ -6,8 +6,6 @@ Both erase to ordinary positional Lua arguments, so neither costs anything at
 run time.
 
 ```nupp:playground
-local m = {}
-
 local record Vec3
     x: number
     y: number
@@ -18,11 +16,9 @@ local function draw(x: number, y: number, color: string?): nil
     print(x, y, color)
 end
 
-function m.render(position: Vec3): nil
+local function render(position: Vec3): nil
     draw({x, y} = position, color = "blue")
 end
-
-return m
 ```
 
 `{x, y} = position` means `x = position.x, y = position.y` and nothing more.
@@ -55,18 +51,14 @@ optional slot skipped before a later named argument is emitted as `nil`, so the
 generated call is the positional one you would have written.
 
 ```nupp
-local m = {}
-
 local function draw(x: number, y: number, color: string?): nil
     print(x, y, color)
 end
 
-function m.render(): nil
+local function render(): nil
     draw(10, 20, color = "blue")
     draw(10, y = 20)
 end
-
-return m
 ```
 
 ## Plucking reads a field, not a contract
@@ -96,8 +88,6 @@ a statement-level call evaluates each dotted path and common prefix a single
 time, while the projected fields stay direct positional arguments.
 
 ```nupp
-local m = {}
-
 local record Vec3
     x: number
     y: number
@@ -112,11 +102,9 @@ local function draw(x: number, y: number, color: string?): nil
     print(x, y, color)
 end
 
-function m.render(entity: Entity): nil
+local function render(entity: Entity): nil
     draw({x, y} = entity.position, color = "blue")
 end
-
-return m
 ```
 
 Plucking never introduces a closure or an upvalue.

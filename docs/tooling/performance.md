@@ -646,20 +646,22 @@ edge is immutable becomes its value.
 ::: code-group
 ```nupp [Nupp]
 -- settings.nupp
-const M = {}
-const M.mixed = {
+module settings
+
+export const mixed = {
     const NAME = "nupp",
     count = 0,
 }
-const... M.deep = {
-    nested = {VERSION = 1},
+export const deep = {
+    const nested = {const VERSION = 1},
 }
-return M
 
 -- app.nupp
+module app
+
 const Settings = require("settings")
 
-function m.show(): nil
+export function show(): nil
     print(Settings.mixed.NAME, Settings.mixed.count, Settings.deep.nested.VERSION)
 end
 ```
@@ -685,8 +687,8 @@ end
 
 `mixed.count` is an ordinary mutable field, so it survives. One mutable parent
 anywhere on the path keeps the whole read intact. `require` is never removed or
-moved, because loading a module may have effects. No `module` keyword or runtime
-freezing is involved: `const` records the checked, shallow guarantee and
+moved, because loading a module may have effects. No runtime freezing is
+involved: `const` records the checked, shallow guarantee and
 `const...` applies it recursively to fresh named fields. See
 [comptime types](../type-system/type-level-computation.md) for the binder.
 
@@ -698,18 +700,20 @@ bound at the first call.
 ::: code-group
 ```nupp [Nupp]
 -- service.nupp
-const S = {}
-const... S.x = {
-    y = function(): nil
+module service
+
+export const x = {
+    const y = function(): nil
         print("call")
     end,
 }
-return S
 
 -- app.nupp
+module app
+
 const service = require("service")
 
-function m.show(): nil
+export function show(): nil
     service.x.y()
     service.x.y()
 end

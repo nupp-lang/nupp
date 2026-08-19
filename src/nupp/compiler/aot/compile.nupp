@@ -1,3 +1,5 @@
+module nupp.compiler.aot.compile
+
 --[[
 Compiling one `@aot` function, end to end.
 
@@ -311,4 +313,4 @@ function compile.artifacts(
     ), diagnostics
 end
 
-return compile
+export = compile

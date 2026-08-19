@@ -1,3 +1,5 @@
+module nupp.compiler.cli.bc
+
 --[[
 `nupp bc`: the bytecode a file compiles to, beside the source that made it.
 
@@ -20,7 +22,7 @@ a gate -- no quiet machine, no threshold, and the same answer every time.
 
 local spec = require("nupp.compiler.cli.spec")
 local optionsMod = require("nupp.compiler.cli.options")
-local traceBytecode = require("nupp.compiler.trace_bytecode")
+local traceBytecode = require("nupp.compiler.tracebytecode")
 local report = require("nupp.compiler.cli.report")
 
 -- The shared `--format` trio, plus the two questions this command answers.
@@ -234,4 +236,4 @@ local function run(parsed: any): integer
     return 0
 end
 
-return new spec.Handler(spec = command, run = run)
+export = new spec.Handler(spec = command, run = run)

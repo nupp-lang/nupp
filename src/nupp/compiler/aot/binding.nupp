@@ -1,3 +1,5 @@
+module nupp.compiler.aot.binding
+
 --[[
 The Nupp module that stands in front of a compiled `@aot` function.
 
@@ -502,4 +504,4 @@ function binding.module(programs: {scalarIR.Program}, library: string): string
     return table.concat(lines, "\n") .. "\n"
 end
 
-return binding
+export = binding

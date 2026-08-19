@@ -340,17 +340,13 @@ are comma-separated in a declaration; only a function *type* needs parentheses
 around a multiple result.
 
 ```nupp
-local m = {}
-
-function m.split(text: string): string, integer
+local function split(text: string): string, integer
     return text, #text
 end
 
-function m.log(message: string): nil
+local function log(message: string): nil
     print(message)
 end
-
-return m
 ```
 
 In a strict file, an exported function whose signature mentions `any` anywhere

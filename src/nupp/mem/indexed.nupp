@@ -1,3 +1,5 @@
+module nupp.mem.indexed
+
 --[[
 One checked inclusive range shared by every compiler-owned indexed view. The public
 checker validates the variadic operands against their trusted descriptors; the
@@ -82,4 +84,4 @@ function indexed._checkedIndex(count: integer, index: integer, message: string):
     return index
 end
 
-return indexed
+export = indexed

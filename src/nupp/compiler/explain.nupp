@@ -1,3 +1,5 @@
+module nupp.compiler.explain
+
 --[[
 What a diagnostic code means, at more length than a diagnostic has room for.
 
@@ -2193,4 +2195,4 @@ end
 --- The entries with examples, for the test that compiles each one.
 explain.entries = ENTRIES
 
-return explain
+export = explain

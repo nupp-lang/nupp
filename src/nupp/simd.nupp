@@ -1,3 +1,5 @@
+module nupp.simd
+
 -- Target-selected packed values that exist only inside an AOT compilation.
 --
 -- The interfaces deliberately have no implementation. The checker gives calls
@@ -156,4 +158,4 @@ function simd.paddedStringU8(source: string): simd.PaddedStringU8
     error("nupp.simd values exist only inside an @aot function", 2)
 end
 
-return simd
+export = simd

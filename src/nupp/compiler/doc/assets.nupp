@@ -1,3 +1,5 @@
+module nupp.compiler.doc.assets
+
 --[[
 The stylesheet, the script, and the icons the generated site ships.
 
@@ -346,4 +348,4 @@ assets.THEME = THEME
 assets.SCRIPT = SCRIPT
 assets.ICONS = ICONS
 
-return assets
+export = assets

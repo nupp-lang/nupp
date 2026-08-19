@@ -1,7 +1,9 @@
+module nupp.compiler.tracesource
+
 -- Checked-source trace facts and the direct-call fixed point used by @jit and editors.
 
 local cst = require("nupp.compiler.cst")
-local trace = require("nupp.profile._trace")
+local trace = require("nupp.profile.trace")
 local analysisMod = require("nupp.compiler.analysis")
 
 local source = {}
@@ -287,4 +289,4 @@ function source.run(
     return analysis
 end
 
-return source
+export = source

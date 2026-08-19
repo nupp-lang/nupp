@@ -1,3 +1,5 @@
+module nupp.profile
+
 --[[
 Profiling, in two channels.
 
@@ -34,7 +36,7 @@ answer.
 local zone = require("nupp.profile.zone")
 local jitProfile = require("jit.profile")
 local jitUtil = require("jit.util")
-local traceRegistry = require("nupp.profile._trace")
+local traceRegistry = require("nupp.profile.trace")
 
 local profile = {}
 
@@ -875,4 +877,4 @@ function profile.TraceSession:stop(filename: string?): profile.TraceReport
     return report
 end
 
-return profile
+export = profile

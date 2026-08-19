@@ -1,3 +1,5 @@
+module nupp.compiler.cdecl
+
 --[[
 The shared, LuaJIT-backed model of C declarations.
 
@@ -610,4 +612,4 @@ function cdecl.abiTag(): string
     return abiCache
 end
 
-return cdecl
+export = cdecl

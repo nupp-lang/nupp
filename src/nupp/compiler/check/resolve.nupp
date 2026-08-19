@@ -1,3 +1,5 @@
+module nupp.compiler.check.resolve
+
 --[[
 The type an annotation names.
 
@@ -16,7 +18,7 @@ local T = require("nupp.compiler.types")
 local generics = require("nupp.compiler.generics")
 local consteval = require("nupp.compiler.consteval")
 local relations = require("nupp.compiler.relations")
-local fixedWidth = require("nupp.compiler.fixed_width")
+local fixedWidth = require("nupp.compiler.fixedwidth")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
 
@@ -1636,4 +1638,4 @@ function resolve.install(c: state.Checker): nil
     end
 end
 
-return resolve
+export = resolve

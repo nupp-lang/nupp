@@ -1,3 +1,5 @@
+module nupp.compiler.cli.spec
+
 --[[
 An option grammar, given once and used twice.
 
@@ -600,4 +602,4 @@ end
 spec.isOption = isOption
 spec.wrap = wrap
 
-return spec
+export = spec

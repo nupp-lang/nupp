@@ -1,3 +1,5 @@
+module nupp.compiler.types
+
 --[[
 Type representation, with content-addressed interning.
 
@@ -3548,4 +3550,4 @@ function types.cName(t: types.Type): string?
     return nil
 end
 
-return types
+export = types

@@ -70,7 +70,7 @@ slower. The module shows as `?`, and the arguments are evaluated:
 | nupp.log.info(format, id) | no | format is not a literal |
 | local f = nupp.log.info | no | a value, not a call |
 | x = nupp.log.info("hi") | no | not statement position |
-| local nupp = ... | no | nupp is not the ambient one |
+| local nupp = ... | no | nupp is not the compiler-provided one |
 | logger:info("id %d", id) | no | a named logger, not the path |
 
 ## Levels
@@ -178,7 +178,7 @@ is the cost of a name chosen at run time.
 ## Destinations
 
 The installer lands only in modules that reach `nupp.log`, like every other
-ambient facility. A module that never logs carries nothing.
+compiler-provided facility. A module that never logs carries nothing.
 
 ## Diagnostics
 

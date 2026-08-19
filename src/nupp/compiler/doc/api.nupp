@@ -1,3 +1,5 @@
+module nupp.compiler.doc.api
+
 --[[
 One documented declaration, as HTML: its signature, its type parameters, its
 arguments and results, its members. The module summary above them is the same
@@ -439,4 +441,4 @@ api.nestedModules = nestedModules
 api.renderHtmlItem = renderHtmlItem
 api.displayKind = displayKind
 
-return api
+export = api

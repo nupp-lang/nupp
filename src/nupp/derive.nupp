@@ -1,3 +1,5 @@
+module nupp.derive
+
 -- The standard derives are ordinary comptime providers.  Their runtime work is
 -- deliberately kept in this module too, so a generated member is just an
 -- ordinary derive.forward call rather than a compiler operation.
@@ -377,4 +379,4 @@ comptime function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.d
     }
 end
 
-return derive
+export = derive

@@ -1,3 +1,5 @@
+module nupp.compiler.check.metatable
+
 --[[
 Checking what a metatable literal puts under its keys.
 
@@ -223,4 +225,4 @@ function metatable.install(c: state.Checker): metatable.Ops
     return ops
 end
 
-return metatable
+export = metatable

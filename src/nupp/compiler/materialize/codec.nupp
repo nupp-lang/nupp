@@ -1,3 +1,5 @@
+module nupp.compiler.materialize.codec
+
 -- Deterministic, bounded serialization for materialized semantic recipes.
 
 local MAX_CANONICAL_BYTES = 1048576
@@ -173,4 +175,4 @@ local codec = {
     render = render,
 }
 
-return codec
+export = codec

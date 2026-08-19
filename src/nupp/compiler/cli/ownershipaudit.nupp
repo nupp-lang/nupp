@@ -1,3 +1,5 @@
+module nupp.compiler.cli.ownershipaudit
+
 --[[ Enumerates the ownership claims that make up a project's trusted FFI surface. ]]
 
 local spec = require("nupp.compiler.cli.spec")
@@ -325,4 +327,4 @@ local function run(parsed: any): integer
     return failed and 1 or 0
 end
 
-return new spec.Handler(spec = command, run = run)
+export = new spec.Handler(spec = command, run = run)

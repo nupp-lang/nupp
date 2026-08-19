@@ -1,3 +1,5 @@
+module nupp.compiler.ansi
+
 --[[
 Colour, and the question of whether anything should be coloured at all.
 
@@ -240,4 +242,4 @@ function ansi.forSeverity(style: ansi.Style, name: string?): function(string): s
     return style.severity[name or "error"] or style.severity.error or PLAIN.strong
 end
 
-return ansi
+export = ansi

@@ -1,3 +1,5 @@
+module nupp.compiler.cli.report
+
 --[[
 Diagnostics as JSON, for the reader that is a program.
 
@@ -249,4 +251,4 @@ report.DIAGNOSTIC = {
 --- that name, so one reader handles all of them.
 report.DIAGNOSTICS = {type = "array", items = report.DIAGNOSTIC}
 
-return report
+export = report

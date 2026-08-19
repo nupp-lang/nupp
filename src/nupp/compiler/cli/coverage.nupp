@@ -1,3 +1,5 @@
+module nupp.compiler.cli.coverage
+
 --[[ Run the configured test command against a separate coverage build. ]]
 
 local spec = require("nupp.compiler.cli.spec")
@@ -80,4 +82,4 @@ local function run(parsed)
     return testCode
 end
 
-return new spec.Handler(spec = command, run = run)
+export = new spec.Handler(spec = command, run = run)

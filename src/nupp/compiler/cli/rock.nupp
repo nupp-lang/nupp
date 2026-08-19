@@ -1,3 +1,5 @@
+module nupp.compiler.cli.rock
+
 -- `nupp rock`: scaffold, package, and clean-install Nupp libraries with LuaRocks.
 
 local spec = require("nupp.compiler.cli.spec")
@@ -108,4 +110,4 @@ local function run(args: {string}): integer
     return 0
 end
 
-return new spec.Handler(spec = command, raw = true, run = run)
+export = new spec.Handler(spec = command, raw = true, run = run)

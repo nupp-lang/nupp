@@ -1,3 +1,5 @@
+module nupp.compiler.check.index
+
 --[[
 Reaching a field.
 
@@ -14,9 +16,9 @@ local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.relations")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
-local scalarIntrinsics = require("nupp.compiler.scalar_intrinsics")
-local fixedWidth = require("nupp.compiler.fixed_width")
-local indexedViews = require("nupp.compiler.indexed_views")
+local scalarIntrinsics = require("nupp.compiler.scalarintrinsics")
+local fixedWidth = require("nupp.compiler.fixedwidth")
+local indexedViews = require("nupp.compiler.indexedviews")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
@@ -25,6 +27,11 @@ local rawType = T.unwrapOwnership
 local type Type = T.Type
 
 local index = {}
+
+-- Compiler intrinsics keep precedence over disk modules with the same dotted spelling.
+-- `nupp.derive` is both the compile-time recipe API and the historical module holding
+-- the standard recipes; the latter remains available through explicit require.
+local INTRINSIC_NAMESPACE = {["nupp.derive"] = true, ["nupp.types"] = true, ["nupp.reflect"] = true,}
 
 -- Modules projected through builtin namespaces. The source path deliberately lives
 -- apart from the prelude table's runtime shape: LuaJIT does not put these modules on
@@ -100,6 +107,11 @@ function index.install(c: state.Checker): state.ExprHandlers
         local written, root, nameTokens = dottedPath(node)
         if not written or not root then
             return nil
+        end
+        for intrinsic in pairs(INTRINSIC_NAMESPACE) do
+            if written == intrinsic or written:sub(1, #intrinsic + 1) == intrinsic .. "." then
+                return nil
+            end
         end
         local lexical = c.lookupEntry(root)
         local builtin = c.env.globals and c.env.globals[root]
@@ -894,4 +906,4 @@ function index.install(c: state.Checker): state.ExprHandlers
     return handlers
 end
 
-return index
+export = index

@@ -1,3 +1,5 @@
+module nupp.compiler.aot.intensity
+
 --[[
 Whether lane lowering is worth doing.
 
@@ -195,4 +197,4 @@ function intensity.estimate(program: scalarIR.Program): intensity.Estimate
     )
 end
 
-return intensity
+export = intensity

@@ -1,3 +1,5 @@
+module nupp.compiler.check.control
+
 --[[
 The statements that branch, repeat, and leave.
 
@@ -1104,4 +1106,4 @@ function control.install(c: state.Checker): state.StatHandlers
     return handlers
 end
 
-return control
+export = control

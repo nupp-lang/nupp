@@ -1560,6 +1560,8 @@ return {
    assertEq(project.build(dir), 0)
    assert(exists(dir .. "/out/lib/" .. libraryName("tiny")), "C shared library emitted")
    local binding = read(dir .. "/out/generated/tiny.nupp")
+   assert(binding:find("module tiny", 1, true), "C binding is a declared module")
+   assert(binding:find("export = {", 1, true), "C binding exports its collected declarations")
    assert(binding:find("cdef function tiny_add", 1, true), "typed binding generated")
    write(dir .. "/native/tiny.h", table.concat({
       "int tiny_add(int a, int b);",
@@ -1849,15 +1851,15 @@ function M.cargoDependencyNamesItsLibraryRelativeToTheModuleThatLoadsIt()
 return {
    include = {"src"},
    dependencies = {
-      tiny_rust = {kind = "cargo", manifest = "native/Cargo.toml",
+      tinyrust = {kind = "cargo", manifest = "native/Cargo.toml",
          library = "tiny_rust", locked = false,
          bindings = {header = "tiny_rust.h"}},
    },
    build = {outDir = "out", entries = {"main"},
-      dependencies = {"tiny_rust"}},
+      dependencies = {"tinyrust"}},
 }
 ]],
-      ["src/main.nupp"] = "local tiny = require('tiny_rust')\n"
+      ["src/main.nupp"] = "local tiny = require('tinyrust')\n"
          .. "return tiny.tiny_double(21)\n",
       ["native/tiny_rust.h"] = "int tiny_double(int value);\n",
       ["native/Cargo.toml"] = [[
@@ -1875,7 +1877,7 @@ pub extern "C" fn tiny_double(value: i32) -> i32 { value * 2 }
    })
    assertEq(project.build(dir), 0)
 
-   local binding = read(dir .. "/out/generated/tiny_rust.nupp")
+   local binding = read(dir .. "/out/generated/tinyrust.nupp")
    assert(binding:find('from "@lib/' .. libraryName("tiny_rust") .. '"', 1, true),
       "the binding names the cdylib relative to the output tree: " .. binding)
    assert(not binding:find(dir, 1, true),

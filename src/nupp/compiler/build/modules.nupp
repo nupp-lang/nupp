@@ -1,3 +1,5 @@
+module nupp.compiler.build.modules
+
 --[[
 Compiling the modules a target reaches, and writing them out.
 
@@ -1099,4 +1101,4 @@ modules.resourceRelative = resourceRelative
 modules.resourceOutput = resourceOutput
 modules.build = buildModules
 
-return modules
+export = modules
