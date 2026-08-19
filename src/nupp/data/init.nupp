@@ -1,0 +1,23 @@
+module nupp.data
+
+--[[
+Bytes in, values out.
+
+Serialization, Unicode, identifiers, byte digests and bitsets. Every member is a
+module of its own, reached by the name it has: `nupp.data.json`, `nupp.data.utf8`,
+`nupp.data.sha256`. Nothing is re-exported here, so there is one name for each
+facility and one place its documentation lives.
+
+```nupp
+const uuid7 = require("nupp.data.uuid7")
+const sha256 = require("nupp.data.sha256")
+
+local eventID = uuid7()
+local digest = sha256("payload")
+```
+
+Which of these is native is not part of the contract. Some are generated Lua, some
+stand on a shared Rust provider, and a program that never reaches one carries
+neither its code nor its library. The build decides that from what the generated
+code actually uses; a caller writes the same thing either way.
+]]

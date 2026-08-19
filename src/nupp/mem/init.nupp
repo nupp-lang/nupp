@@ -1,0 +1,15 @@
+module nupp.mem
+
+--[[
+C storage and the checked views over it.
+
+Allocation, layout, and the bounds-carrying views that make a raw pointer safe to
+index. Every member is a module of its own, reached by the name it has:
+`nupp.mem.span` for borrowed views over a rooted pointer, `nupp.mem.heap` for owned
+malloc-backed arrays, `nupp.mem.soa` for structure-of-arrays storage, and
+`nupp.mem.indexed` for the one inclusive range they all validate against.
+
+Nothing is re-exported here. A view knows its element count, and every index and
+slice is checked against it before the only unsafe pointer arithmetic in the
+standard library.
+]]

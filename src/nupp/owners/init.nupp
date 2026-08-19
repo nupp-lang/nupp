@@ -1,0 +1,16 @@
+module nupp.owners
+
+--[[
+Containers for owners whose count and types are known only while running.
+
+The checker discharges what it can see. These hold what it cannot: owners of types
+a container never learns, each stored beside the cleanup witness its call site
+reified.
+
+`nupp.owners.set` discharges them together, in reverse, at one lexical boundary.
+`nupp.owners.store` adds generation and type-policy checks, so a single owner can be
+erased through untyped Lua and claimed back, and a stale handle fails before the
+value behind it is touched.
+
+Nothing is re-exported here; each is reached by the name it has.
+]]

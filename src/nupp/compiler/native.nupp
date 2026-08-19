@@ -66,7 +66,7 @@ local FEATURES: {[string]: native.Feature} = {
         "native.uuid"
     ] = {
         name = "uuid",
-        globals = {"nupp.data.uuid4", "nupp.data.uuid7"},
+        modules = {"nupp.data.uuid4", "nupp.data.uuid7"},
         cargo = "runtime/native/Cargo.toml",
         cargoFeature = "uuid",
         library = "nupp_native",
@@ -133,7 +133,7 @@ local FEATURES: {[string]: native.Feature} = {
         "native.sha256"
     ] = {
         name = "sha256",
-        globals = {"nupp.data.sha256"},
+        modules = {"nupp.data.sha256"},
         cargo = "runtime/native/Cargo.toml",
         cargoFeature = "sha256",
         library = "nupp_native",
@@ -162,8 +162,10 @@ function native.forGlobal(path: string): string?
 end
 
 --- Marks the prelude's exact member types with their runtime effects. The identity
---- follows aliases, so `local data = nupp.data; data.json.encode(...)` remains as
---- precise as spelling the intrinsic path directly.
+--- follows aliases, so binding an ambient namespace to a local and reaching a member
+--- through it stays as precise as spelling the intrinsic path directly. A facility
+--- that has become a module is reached by requiring it instead, and records its
+--- effect at the require or at the qualified path that selects it.
 function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: string}}
     local effects = {}
     local function decorate(owner: any, member: string, effect: string): nil

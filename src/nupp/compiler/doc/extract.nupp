@@ -1246,17 +1246,31 @@ end
 -- is its module documentation. It belongs to the file rather than to the declaration
 -- that follows and survives as markdown untouched. An ordinary `--` header stays a
 -- plain implementation note, and an explicit `@module` docblock still wins over both.
-local function headerDoc(root)
+local function headerDoc(root, tokens)
     local token = firstToken(root)
     local _, moduleNode = cst.declaredModule(root)
     if moduleNode then
+        local following = nil
+        local found = false
         for _, block in ipairs(root.blocks or {}) do
             for index, stat in ipairs(block.stats or {}) do
-                if stat == moduleNode and block.stats[index + 1] then
-                    token = firstToken(block.stats[index + 1])
+                if stat == moduleNode then
+                    following = block.stats[index + 1]
+                    found = true
                     break
                 end
             end
+            if found then
+                break
+            end
+        end
+        if following then
+            token = firstToken(following)
+        elseif found and tokens and #tokens > 0 then
+            -- A module that declares nothing still documents itself. Its header is the
+            -- last trivia in the file rather than the leading trivia of a statement
+            -- below it, so there is nothing under the module line to read it from.
+            token = tokens[#tokens]
         end
     end
     for index = 1, token and token.triviaCount or 0 do
@@ -1291,7 +1305,7 @@ function extract.extract(
         items = {},
         documentationInternal = parsed.root.documentationInternal,
     }
-    result.text = headerDoc(parsed.root) or ""
+    result.text = headerDoc(parsed.root, parsed.tokens) or ""
     local declarationFile = path ~= nil and path:match("%.d%.nupp$") ~= nil
     local extraModules = {}
     local declaredTypes: {[string]: boolean} = {}

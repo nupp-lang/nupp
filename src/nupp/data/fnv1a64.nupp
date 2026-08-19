@@ -3,6 +3,10 @@ module nupp.data.fnv1a64
 --[[
 FNV-1a over 64 bits, rendered as sixteen lowercase hex digits.
 
+A fast non-cryptographic identity, for keying and bucketing. Use
+[](nupp.data.sha256) where the digest has to stand up to someone choosing the
+input.
+
 LuaJIT numbers cannot hold a 64-bit product exactly, so the state is carried as two
 32-bit halves and the prime is applied to each: 435 is the low half of 0x100000001b3
 and the 256 shift is its high half reaching the high word. `bit.tobit` wraps each

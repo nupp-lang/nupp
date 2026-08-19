@@ -619,12 +619,6 @@ __nuppLazy(__nuppIO,"URI",function()__nuppInstallURI();return rawget(__nuppIO,"U
 ]=]
 )
 
-local UUID = compact(
-    [=[
-local function __nuppUUID(which)local native=__nuppNative();local output=native.ffi.new("char[37]");if not native.C[which](output)then error("nupp: UUID generation failed",2)end;return native.ffi.string(output)end;__nuppLazy(__nuppData,"uuid4",function()return function()return __nuppUUID("nuppUuid4")end end);__nuppLazy(__nuppData,"uuid7",function()return function()return __nuppUUID("nuppUuid7")end end)
-]=]
-)
-
 -- The file reader and writer read and write a `nupp.io.Buffer`'s storage
 -- directly, by the `_data`, `_length` and `_capacity` fields the IO installer
 -- above gives it. That coupling is deliberate: it is what lets a native read
@@ -843,12 +837,6 @@ return backend end
 ]=]
 )
 
-local SHA256 = compact(
-    [=[
-__nuppLazy(__nuppData,"sha256",function()local native=__nuppNative();return function(value)local bytes=type(value)=="string"and value or value:getString();local output=native.ffi.new("char[65]");if not native.C.nuppSha256(bytes,#bytes,output)then error("nupp: SHA-256 input is invalid",2)end;return native.ffi.string(output)end end)
-]=]
-)
-
 --- Installs the private JSON implementation used only by the tracked stage-zero
 --- compiler before it can build jsonNative.
 function stdlib.bootstrapJsonFallback(): string
@@ -909,12 +897,6 @@ function stdlib.bootstrap(effects: {[string]: any}?, watch: boolean?): string
     end
     if effects["native.uri"] then
         out[#out + 1] = URI
-    end
-    if effects["native.uuid"] then
-        out[#out + 1] = UUID
-    end
-    if effects["native.sha256"] then
-        out[#out + 1] = SHA256
     end
 
     local code = table.concat(out, " ")

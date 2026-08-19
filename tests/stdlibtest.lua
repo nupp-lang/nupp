@@ -218,12 +218,14 @@ function M.nativeFeaturesAreResolvedEffects()
       "local uri: nupp.io.URI? = newURI(components)",
    }, "\n"))
 
+   -- A namespace that is entirely modules cannot be bound to a local: there is no
+   -- value at `nupp.data`, only modules beneath it. Requiring one is the spelling,
+   -- and the effect is recorded there.
    local aliased = effectsOf(table.concat({
-      "local data = nupp.data",
-      "local digest = data.sha256",
+      "const digest = require('nupp.data.sha256')",
       "digest('hello')",
    }, "\n"))
-   assert(aliased["native.sha256"], "aliases retain exact feature identity")
+   assert(aliased["native.sha256"], "requiring a facility records its feature")
    assert(not aliased["native.uuid"], "equal function signatures do not share effects")
 
    local namespaceOnly = effectsOf("local data = nupp.data")

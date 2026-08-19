@@ -20,8 +20,6 @@ This file is parsed and checked by `nupp` itself, as is its Lua counterpart.
 ---
 --- @namespace nupp
 local nupp: {
-    --- JSON, UTF-8, UUIDs, hashes and checksums.
-    data: nupp.data,
 
     --- Buffers, byte views, readers, writers, filesystem paths and URIs.
     io: nupp.io,
@@ -1119,23 +1117,6 @@ interface nupp.__DeprecatedAnnotation
 
     --- The API spelling callers should migrate to.
     replacement: string?
-end
-
---- JSON, UTF-8, UUIDs, hashes and checksums.
-record nupp.data
-
-    --- Generates a random version 4 UUID.
-    --- @return the canonical lowercase UUID text
-    uuid4: function(): string
-
-    --- Generates a time-ordered version 7 UUID.
-    --- @return the canonical lowercase UUID text
-    uuid7: function(): string
-
-    --- Computes the SHA-256 digest of bytes.
-    --- @param value the bytes to hash
-    --- @return the lowercase hexadecimal digest
-    sha256: function(value: string | nupp.io.ByteView): string
 end
 
 --- Exact internal cleanup policies for the prelude's resource interfaces.

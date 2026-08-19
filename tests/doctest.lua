@@ -801,29 +801,37 @@ function M.standardJsonApiHasCompleteDocumentation()
    end
 end
 
+-- nupp.data is a namespace of modules now, not a record in the prelude. Each module
+-- is the one place its own surface is documented, so that is where this asks.
 function M.standardDataApiHasCompleteDocumentation()
-   local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
-   local module, errors, extra = doc.extract(source,
-      "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude")
-   assert(module, errors and errors[1] and errors[1].msg)
-
-   local data
-   for _, candidate in ipairs(extra or {}) do
-      if candidate.name == "nupp.data" then data = candidate end
-   end
-   assert(data, "the prelude did not synthesize nupp.data")
-   for _, item in ipairs(data.items) do
-      assert(item.doc.text ~= "", "nupp.data." .. item.name .. " has no documentation")
-      for _, param in ipairs(item.params) do
-         assert(param.text ~= "", "nupp.data." .. item.name .. " parameter "
-            .. param.name .. " has no documentation")
+   local modules = {
+      "src/nupp/data/crc32.nupp",
+      "src/nupp/data/fnv1a64.nupp",
+      "src/nupp/data/sha256.nupp",
+      "src/nupp/data/uuid4.nupp",
+      "src/nupp/data/uuid7.nupp",
+      "src/nupp/data/utf8.nupp",
+      "src/nupp/data/init.nupp",
+   }
+   for _, relative in ipairs(modules) do
+      local source = assert(readFile(HERE .. "/../" .. relative), "no module at " .. relative)
+      local name = relative:match("src/nupp/(.+)%.nupp"):gsub("/", "."):gsub("%.init$", "")
+      local module, errors = doc.extract(source, relative, "nupp." .. name)
+      assert(module, errors and errors[1] and errors[1].msg)
+      assert(module.text ~= "", "nupp." .. name .. " has no module documentation")
+      for _, item in ipairs(module.items) do
+         local prefix = "nupp." .. name .. "." .. item.name
+         assert(item.doc.text ~= "", prefix .. " has no documentation")
+         for _, param in ipairs(item.params) do
+            assert(param.text ~= "", prefix .. " parameter " .. param.name
+               .. " has no documentation")
+         end
+         for index, result in ipairs(item.returns) do
+            assert(result.text ~= "", prefix .. " return " .. index
+               .. " has no documentation")
+         end
       end
-      for index, result in ipairs(item.returns) do
-         assert(result.text ~= "", "nupp.data." .. item.name .. " return "
-            .. index .. " has no documentation")
-      end
    end
-
 end
 
 function M.standardIOApiHasCompleteDocumentation()

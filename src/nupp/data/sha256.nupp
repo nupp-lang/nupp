@@ -1,0 +1,34 @@
+module nupp.data.sha256
+
+--[[
+SHA-256, rendered as sixty-four lowercase hex digits.
+
+A cryptographic digest, unlike [](nupp.data.fnv1a64) and [](nupp.data.crc32), which
+answer faster and promise less.
+
+The digest is the native library's. This declares the one symbol it calls, so a
+program that never hashes never carries the declaration.
+]]
+
+const native = require("nupp.native")
+
+native.ffi.cdef[[
+bool nuppSha256(const uint8_t *, size_t, char *);
+]]
+
+--- Hashes bytes with SHA-256.
+---
+--- @param value the bytes to hash
+--- @return the digest, as sixty-four lowercase hex digits
+--- @raises when the input cannot be hashed
+local function sha256(value: string | nupp.io.ByteView): string
+    local bytes = type(value) == "string" and value as string or (value as nupp.io.ByteView):getString()
+    local output = native.ffi.new("char[65]")
+    if not native.C.nuppSha256(bytes, #bytes, output) then
+        error("nupp: SHA-256 input is invalid", 2)
+    end
+
+    return native.ffi.string(output)
+end
+
+export = sha256
