@@ -9,7 +9,7 @@ declaration. None of this is about types flowing through a program, so it is
 separated from the walk that checks them; it reaches the run through the checker
 it is installed on.
 
-See `docs/annotations.md`.
+See `docs/reference/annotations.md`.
 ]]
 
 local T = require("nupp.compiler.types")

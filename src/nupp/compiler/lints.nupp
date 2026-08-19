@@ -10,7 +10,7 @@ judgement, so it carries a level a project can move and a suppression a statemen
 can apply.
 
 A lint's level lives here and nowhere else, so changing a default is one edit and
-`nupp lints` cannot drift from what the checker does. See `docs/lints.md`.
+`nupp lints` cannot drift from what the checker does. See `docs/reference/lints.md`.
 ]]
 
 local lints = {}

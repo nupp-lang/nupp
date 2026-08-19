@@ -202,7 +202,7 @@ end
 --- the pointer is one a reader cannot follow.
 function M.aDocsPointerNamesItsSection()
    local pipe = assert(io.popen(
-      ('%q reference --section "docs/modules.md#modules"'):format(NUPP)))
+      ('%q reference --section "docs/concepts/declarations.md#modules"'):format(NUPP)))
    local out = pipe:read("*a")
    pipe:close()
    assert(out:find("# Modules", 1, true), "a docs pointer resolves: " .. out:sub(1, 120))

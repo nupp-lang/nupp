@@ -11,7 +11,7 @@ on fallthrough, on error, and on structured control flow alike.
 Holding a runtime number of owners is a separate subject; that is
 [](nupp.owners.set).
 
-See `docs/ownership.md`.
+See `docs/type-system/ownership.md`.
 ]]
 
 local file = {}

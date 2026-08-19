@@ -17,7 +17,7 @@ That lowering is the whole reason the module exists. It is the one construction
 boundary an AOT builder may cross, and it stays a narrow one: no `lua_State`, no
 stack index, no collector object appears in any signature here. Outside `@aot`
 the module still works and still answers the same, but it buys nothing over
-writing the tables directly. See [the AOT guide](../../docs/tooling/aot.md) for
+writing the tables directly. See [the AOT guide](../../docs/guides/ahead-of-time.md) for
 what the generated code is allowed to do.
 
 Two shapes are offered, and a parser picks one.

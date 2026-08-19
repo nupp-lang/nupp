@@ -68,13 +68,13 @@ end
 `type` is an ordinary function and nothing ties its result back to `s`. Write
 `s is string`.
 
-`type` answers from a closed set,
-`"nil" | "boolean" | "number" | "string" | "table" | "function" | "thread" | "userdata" | "cdata"`,
-so the *result* narrows even though the argument does not. A comparison against
-a name LuaJIT never returns is caught where it is written, and a returning
-dispatch over the set reports the [`exhaustiveness`](../lints.md) lint for the
-names it leaves out. A guard chain whose remaining cases are handled by the code
-after it says so with `@allow("exhaustiveness")`.
+`type` answers from a closed set, `"nil" | "boolean" | "number" | "string" |
+"table" | "function" | "thread" | "userdata" | "cdata"`, so the *result* narrows
+even though the argument does not. A comparison against a name LuaJIT never
+returns is caught where it is written, and a returning dispatch over the set
+reports the [`exhaustiveness`](../reference/lints.md) lint for the names it
+leaves out. A guard chain whose remaining cases are handled by the code after it
+says so with `@allow("exhaustiveness")`.
 
 **Only names and dotted paths narrow.** An index like `a[i]`, a call, or any
 computed expression has no stable key to attach a fact to.
@@ -162,8 +162,8 @@ The original selector remains narrowed too. Type cases are ordered, so a broad
 case before a narrower one can make the latter unreachable (`NUPP2139`).
 
 See [switch
-expressions](../switch-expressions.md#type-cases-binding-and-destructuring) for
-runtime-testable types and block arms.
+expressions](../concepts/switch-expressions.md#type-cases-binding-and-destructuring)
+for runtime-testable types and block arms.
 
 ## Returning-branch exhaustiveness
 

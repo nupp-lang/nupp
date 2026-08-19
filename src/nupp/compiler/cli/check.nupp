@@ -12,7 +12,7 @@ no manifest here -- is parsed and checked on its own. Either way what is reporte
 is the named files, not their dependencies.
 
 `--json` reports the same diagnostics in the form meant for a program; see
-`docs/diagnostics.md`.
+`docs/reference/diagnostics.md`.
 ]]
 
 local spec = require("nupp.compiler.cli.spec")
@@ -83,7 +83,7 @@ local command = spec.command{
         },
         required = {"ok", "diagnostics"},
     },
-    detail = "With no files, checks the default target from nupp.lua. Also reports a `timing` object naming how many modules were reused from the cache versus rechecked, and which modules cost the most of the wall-clock time either way -- see docs/diagnostics.md.",
+    detail = "With no files, checks the default target from nupp.lua. Also reports a `timing` object naming how many modules were reused from the cache versus rechecked, and which modules cost the most of the wall-clock time either way -- see docs/reference/diagnostics.md.",
 }
 
 local function run(parsed: any): integer

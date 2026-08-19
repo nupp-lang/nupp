@@ -9,7 +9,7 @@ every range, including the ranges inside fixes and related locations, and a
 diagnostic carries only a byte offset, so each file it mentions is read once and
 walked to turn offsets into positions.
 
-See `docs/diagnostics.md` for what the fields mean.
+See `docs/reference/diagnostics.md` for what the fields mean.
 ]]
 
 local fs = require("nupp.compiler.fs")

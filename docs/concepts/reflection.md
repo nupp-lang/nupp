@@ -110,8 +110,8 @@ assert(restored and restored.id == 7)
 `encode` discovers the record declaration from the value. `encodeAs` and
 `decode` take its `Type<T>` witness explicitly, which is useful at an API
 boundary or before a value exists. The JSON options, wire format, and validation
-rules are documented in [Declaration derives](../derives.md#json); the generic
-JSON API is documented in [JSON](../json.md).
+rules are documented in [Declaration derives](../reference/derives.md#json); the
+generic JSON API is documented in [JSON](../modules/nupp/data/json.md).
 
 ## Comptime reflection
 
@@ -164,7 +164,7 @@ same nominal record and copies its declared present fields with `rawget`.
 ## Next
 
 - [Comptime](comptime.md): evaluation, type functions, and materialization.
-- [Declaration derives](../derives.md): checked generated members and JSON
-  schema options.
+- [Declaration derives](../reference/derives.md): checked generated members and
+  JSON schema options.
 - [Records](../type-system/records.md): nominal record declarations and their
   construction rules.

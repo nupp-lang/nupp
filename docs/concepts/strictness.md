@@ -83,7 +83,7 @@ and declarations remain private or exported exactly as written.
 
 Annotations, generics, interfaces, affine policies, and most other checked
 constructs erase when source lowers to Lua. A `struct` remains FFI cdata because
-its C layout is the feature, and [C declarations](../c-interop.md) remain
+its C layout is the feature, and [C declarations](c-interop.md) remain
 runtime bindings because they load native symbols. Ordinary typed code acquires
 no type registry or runtime checker.
 
@@ -95,7 +95,7 @@ no type registry or runtime checker.
 
 ## Next
 
-- [Declarations and modules](../modules.md): what `local`, `global` and a
+- [Declarations and modules](declarations.md): what `local`, `global` and a
   qualified name each say about where a declaration lives.
 - [Type system](../type-system/overview.md): what the annotations mean once a
   file is being checked.

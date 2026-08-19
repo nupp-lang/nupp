@@ -15,14 +15,14 @@ if not HERE:match("^/") then
    p:close()
 end
 local NUPP = HERE .. "/../bin/nupp"
-local PAGE = HERE .. "/../docs/tooling/cli.md"
+local PAGE = HERE .. "/../docs/reference/cli.md"
 
 local M = {}
 
 -- Every ```text block captioned with a command line, in page order. The caption
 -- is the command, so a block says what produced it and can be reproduced.
 local function captionedBlocks()
-   local file = assert(io.open(PAGE, "rb"), "docs/tooling/cli.md is missing")
+   local file = assert(io.open(PAGE, "rb"), "docs/reference/cli.md is missing")
    local markdown = file:read("*a"):gsub("\r\n?", "\n")
    file:close()
    local blocks, command, body = {}, nil, nil
@@ -68,7 +68,7 @@ function M.everyHelpBlockIsWhatTheCommandPrints()
          checked = checked + 1
          local printed = capture(block.command)
          if printed ~= block.output then
-            error(("docs/tooling/cli.md is stale for `%s`:\n%s")
+            error(("docs/reference/cli.md is stale for `%s`:\n%s")
                :format(block.command, printed), 2)
          end
       end
@@ -83,7 +83,7 @@ function M.everyCommandHasASection()
    end
    for _, name in ipairs(cli.names()) do
       assert(shown["nupp " .. name .. " --help"],
-         ("docs/tooling/cli.md documents no `%s`; add a section carrying its "
+         ("docs/reference/cli.md documents no `%s`; add a section carrying its "
             .. "`nupp %s --help` block"):format(name, name))
    end
    assert(shown["nupp help"], "the page shows the command list")

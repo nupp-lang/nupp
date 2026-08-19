@@ -25,7 +25,7 @@ Three kinds of binding are left alone, each for its own reason. A parameter's
 presence is dictated by the signature it implements rather than by its body,
 and a loop variable's by the iterator, so neither is a mistake its author is
 free to correct. A name beginning with `_` says the binding is deliberate and
-the value is not wanted. See `docs/lints.md`.
+the value is not wanted. See `docs/reference/lints.md`.
 ]]
 
 local state = require("nupp.compiler.check.state")

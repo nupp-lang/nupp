@@ -1247,9 +1247,9 @@ local coroutine: {
 -- The base functions below say `nosuspend`: calling one cannot suspend the caller.
 --
 -- Two of them are a stated trust rather than a proof, in the same category as a
--- metamethod contract (`docs/metamethods.md`). `tostring` reaches `__tostring` and
--- `pairs` reaches `__pairs`, and on this baseline an ordinary metamethod may yield, so
--- a pathological one could. The trade is deliberate: without it a `table.sort`
+-- metamethod contract (`docs/concepts/metamethods.md`). `tostring` reaches `__tostring`
+-- and `pairs` reaches `__pairs`, and on this baseline an ordinary metamethod may yield,
+-- so a pathological one could. The trade is deliberate: without it a `table.sort`
 -- comparator cannot call `tostring`, which is most comparators, and a check nobody can
 -- leave on protects nothing. A metamethod that does yield still fails loudly, because
 -- the C frame underneath raises.

@@ -1896,9 +1896,9 @@ record nupp.io
 
         --- An open file, and the obligation to close it.
         ---
-        --- Readers and writers opened from it satisfy the same [`nupp.io.Reader`
-        --- and `nupp.io.Writer`](../docs/io.md) contracts a buffer's do, so code
-        --- written against those works over a file without knowing one is there.
+        --- Readers and writers opened from it satisfy the same [`nupp.io.Reader` and
+        --- `nupp.io.Writer`](../docs/modules/nupp/io.md) contracts a buffer's do, so
+        --- code written against those works over a file without knowing one is there.
         record File
             --- Opens a forward-only reader at the file's current position.
             --- @param self this file

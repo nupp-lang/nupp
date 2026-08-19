@@ -8,7 +8,7 @@ round, so the loop allocates one per pass to no end. Saying so is a lint rather
 than an optimization on purpose: caching it in the output would cost a stored
 slot, a branch on every evaluation, and the guarantee that two closures from one
 place are two objects, all to avoid moving one line. Lifting it out of the loop
-in the source costs nothing and reads better. See `docs/lints.md`.
+in the source costs nothing and reads better. See `docs/reference/lints.md`.
 
 The judgement is a scope-depth comparison, which is exactly the question being
 asked rather than an approximation of it: a name bound at or inside the loop

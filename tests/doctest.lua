@@ -2626,7 +2626,7 @@ end
 -- searched, and text inside an editor frame is not findable.
 function M.diagnosticSectionsShowBothProgramsAsText()
    local diagnostics = require("nupp.compiler.doc.diagnostics")
-   local page = assert(diagnostics.page({path = "diagnostics"}, {["docs/lints.md"] = true}))
+   local page = assert(diagnostics.page({path = "diagnostics"}, {["docs/reference/lints.md"] = true}))
 
    local at = assert(page.markdown:find("### NUPP2107\n", 1, true))
    local body = page.markdown:sub(at, (page.markdown:find("\n### ", at + 5, true)))
@@ -2635,7 +2635,7 @@ function M.diagnosticSectionsShowBothProgramsAsText()
    assert(reported < accepted)
    assert(not body:find(":playground", 1, true), "an index section embedded an editor")
    assert(body:find("`exhaustiveness` lint", 1, true), body)
-   assert(body:find("](docs/lints.md)", 1, true), body)
+   assert(body:find("](docs/reference/lints.md)", 1, true), body)
    assert(body:find("/playground/#source=", 1, true), body)
 end
 

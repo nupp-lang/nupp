@@ -153,7 +153,7 @@ One page per idea, in the order they build on each other:
 - [Records and structs](records.md): nominal tables and FFI cdata.
 - [Affine types](affine-types.md): compile-time type construction, exact cleanup
   identities, transfer-only values, and capability-preserving generics.
-- [Ownership](../ownership.md): moves, borrows, aggregates, pinning, and lexical
+- [Ownership](ownership.md): moves, borrows, aggregates, pinning, and lexical
   destruction.
 - [Interfaces](interfaces.md): structural satisfaction, `is`, and metamethods.
 - [Property capabilities](properties.md): independent read and write views.
@@ -170,7 +170,7 @@ One page per idea, in the order they build on each other:
 - [Narrowing](narrowing.md): what proves what, and what does not.
 
 For where a declaration lives and how modules see it, read
-[declarations and modules](../modules.md).
+[declarations and modules](../concepts/declarations.md).
 
 ## Diagnostics
 

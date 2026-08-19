@@ -18,7 +18,7 @@ A whole report is built up and written once. stderr is unbuffered, so a line at
 a time was a write syscall per line, five or six per diagnostic, where the
 reader only ever sees the finished report anyway.
 
-See `docs/diagnostics.md` for the shape of what is being rendered, and
+See `docs/reference/diagnostics.md` for the shape of what is being rendered, and
 `nupp check --json` for the form meant for programs.
 ]]
 

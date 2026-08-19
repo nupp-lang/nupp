@@ -12,7 +12,7 @@ kind of erased entry when a program only needs them discharged together, in reve
 at one lexical boundary; the generation and policy checks here are what let a single
 owner be erased through untyped Lua and claimed back.
 
-See `docs/ownership.md`.
+See `docs/type-system/ownership.md`.
 ]]
 
 local store = {}

@@ -9,8 +9,9 @@ so the same file compares equal however it was named, and a write is atomic:
 content goes to a temporary beside the destination and is renamed over it, which
 is the only way a build interrupted halfway leaves no half-written module behind.
 
-Listing a directory goes through [`nupp.io.files`](../../../docs/files.md), which
-is why the compiler is the first program that cannot be built without its native
+Listing a directory goes through
+[`nupp.io.files`](../../../docs/modules/nupp/io/files.md), which is why the
+compiler is the first program that cannot be built without its native
 provider. It used to spawn `find` or `dir` per source tree, which was a process
 per listing and no answer at all on a platform without a shell.
 

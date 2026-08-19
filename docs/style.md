@@ -236,24 +236,24 @@ the prose around it:
 
 Link generously. A page is a node, not a document.
 
-- Link the first mention of any concept that has a page of its own, then use
-  the bare term afterward on that page.
-- Deep-link to the heading that answers the question, not the page top:
-  `[rock dependencies](build.md#rock-dependencies)`.
-- One page owns each concept; the rest link to it and state only what they
-  need. `start/ownership.md` states the annotations a caller writes and links
-  `ownership.md` for the model.
-- Say what is on the other end, as in
-  `See [ownership.md](ownership.md) for the complete contract reference`. Never
-  a bare "see here" or a naked URL.
-- Diagnostic codes link to the reference anchor the compiler already emits, so
-  a code in prose and a code in terminal output land in the same place.
+- Link the first mention of any concept that has a page of its own, then use the
+  bare term afterward on that page.
+- Deep-link to the heading that answers the question, not the page top: `[rock
+  dependencies](build.md#rock-dependencies)`.
+- One page owns each concept; the rest link to it and state only what they need.
+  `concepts/ownership.md` states the annotations a caller writes and links
+  `type-system/ownership.md` for the model.
+- Say what is on the other end, as in `See
+  [ownership.md](type-system/ownership.md) for the complete contract reference`.
+  Never a bare "see here" or a naked URL.
+- Diagnostic codes link to the reference anchor the compiler already emits, so a
+  code in prose and a code in terminal output land in the same place.
 - Doc comments in `src/` link the same way. A `---` block that names a concept
   links to its page; a module blurb links to the page that introduces the
   module's subject. Generated API pages are part of the site, not a separate
   world.
-- End a page with what to read next when there is an obvious next step: a
-  short `## Next` list of two or three links, each with a clause saying why.
+- End a page with what to read next when there is an obvious next step: a short
+  `## Next` list of two or three links, each with a clause saying why.
 
 ## Tables
 
@@ -292,20 +292,19 @@ makes them fire.
 Do not paste the full text of `nupp explain`. The page says which codes belong
 to it; the command says everything else.
 
-A page that does not introduce rules has no such section. `lints.md` and
-`diagnostics.md` are about the diagnostic system itself, so a list of the codes
-they mention would point at themselves, and a command reference showing
-`nupp explain NUPP2119` is quoting a code rather than introducing one.
+A page that does not introduce rules has no such section. `reference/lints.md`
+and `reference/diagnostics.md` are about the diagnostic system itself, so a list
+of the codes they mention would point at themselves, and a command reference
+showing `nupp explain NUPP2119` is quoting a code rather than introducing one.
 
 ## Admonitions
 
 `::: note`, `info`, `tip`, `warning`, `danger`. Use them for exactly two jobs:
 
 - **Scope, at the top of a page**, when a reader is likely to reach for a
-  feature they do not need. The `@effects` note on [effects.md](effects.md)
-  is the model.
-- **A trap**, where the obvious reading is wrong and the consequence is
-  silent.
+  feature they do not need. The `@effects` note on
+  [effects.md](concepts/effects.md) is the model.
+- **A trap**, where the obvious reading is wrong and the consequence is silent.
 
 Two per page is a lot. An admonition that restates the prose above it is
 deleted, not retitled.
@@ -416,7 +415,7 @@ The rest is formatting, and none of it is negotiable per page:
   period is fine when the items form one sentence, as in the ownership
   guarantees list.
 - Relative links between pages, with the `.md` extension, as
-  [ownership.md](ownership.md) does.
+  [ownership.md](type-system/ownership.md) does.
 
 ## Checklist
 
@@ -442,7 +441,7 @@ fixes it rather than rediscovering it.
 
 ## Next
 
-- [docs/tooling/doc.md](tooling/doc.md): the fences, admonitions, code groups,
-  and tags this guide assumes.
-- [docs/diagnostics.md](diagnostics.md): what a diagnostic carries, and the
-  anchors pages link to.
+- [docs/guides/doc.md](guides/doc.md): the fences, admonitions, code groups, and
+  tags this guide assumes.
+- [docs/reference/diagnostics.md](reference/diagnostics.md): what a diagnostic
+  carries, and the anchors pages link to.

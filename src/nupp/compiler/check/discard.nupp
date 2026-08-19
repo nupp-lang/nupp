@@ -25,8 +25,9 @@ round.
 Whether the callee writes is the intra-procedural question, and the summary is
 not authoritative on it. A summary tracks writes through parameter-rooted paths
 and treats a write through any other local as staying local, which is what
-`docs/effects.md` means by scratch. A local that was read out of a parameter, as
-`local top = self.stack[n]` is, is not scratch, and the alias classes only follow
+`docs/concepts/effects.md` means by scratch. A local that was read out of a
+parameter, as `local top = self.stack[n]` is, is not scratch, and the alias
+classes only follow
 direct name copies, so a write through it is recorded nowhere. Declining to
 rest a lint on that, the write check here is syntactic and its own: any
 assignment through an index, and any assignment to a name the body did not
@@ -40,7 +41,7 @@ yielding and raising all are.
 
 Summaries settle only once the file is read, so a statement registers a
 candidate where the walk finds it, which is also where its `@allow` is still
-in scope, and the sweep runs after the fixpoint. See `docs/lints.md`.
+in scope, and the sweep runs after the fixpoint. See `docs/reference/lints.md`.
 ]]
 
 local T = require("nupp.compiler.types")

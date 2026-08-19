@@ -2099,7 +2099,8 @@ final byte.
 `replace` changes the first match and `replaceAll` changes each one, using
 either literal text or a callback returning text. Empty matches advance one byte
 so iteration and replacement cannot stall. None of these operations allocates
-match records or result tuples; see `docs/peg.md` for the complete contracts.
+match records or result tuples; see `docs/modules/nupp/peg.md` for the complete
+contracts.
 
 ### Writing expressions
 
@@ -2194,8 +2195,8 @@ capture packs through ordinary pattern composition.
 comparisons. Runtime textual grammars compile through LPeg's `re` module without
 `loadstring` and are cached by grammar. Runtime definition values use
 `{definitions = values}`; static definitions remain factory inputs. The
-expression syntax is LPeg 1.1 `re`; `docs/peg.md` documents native result packs
-and explicit table captures.
+expression syntax is LPeg 1.1 `re`; `docs/modules/nupp/peg.md` documents native
+result packs and explicit table captures.
 ]=],
         example = [=[
 local m = {}
@@ -2662,9 +2663,10 @@ end
 --- The section a slug names, and the chapter holding it.
 ---
 --- Accepts what a reader actually has in hand rather than only the bare slug: a whole
---- `docs` pointer such as `docs/modules.md#diagnostics`, a bare `#anchor`, or the
---- heading written out. Everything before a `#` is a file name this reference does not
---- have and does not need -- the anchor is what identifies the section.
+--- `docs` pointer such as `docs/concepts/declarations.md#diagnostics`, a bare
+--- `#anchor`, or the heading written out. Everything before a `#` is a file name this
+--- reference does not have and does not need -- the anchor is what identifies the
+--- section.
 function reference.findSection(name: string): (reference.Section?, reference.Chapter?)
     local wanted = reference.slug((name:match("#(.*)$") or name))
     for _, chapter in ipairs(reference.chapters) do

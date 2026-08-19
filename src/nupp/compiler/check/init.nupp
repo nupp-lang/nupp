@@ -16,7 +16,7 @@ answered next door: what an expression's type is by `expr`, what a call means by
 owned value by `ownership`. Each of those is installed on the checker and reaches
 the run through it.
 
-Diagnostics carry stable `NUPP2xxx` codes; `docs/diagnostics.md` is the
+Diagnostics carry stable `NUPP2xxx` codes; `docs/reference/diagnostics.md` is the
 reference for their shape and their families.
 ]]
 

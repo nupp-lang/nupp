@@ -33,7 +33,7 @@ explain a diagnostic code -- which is what a reader holding one actually has.
   nupp reference cli
   nupp reference language
   nupp reference --section affine-resources
-  nupp reference --section docs/modules.md#modules
+  nupp reference --section docs/concepts/declarations.md#modules
   nupp reference --for NUPP2004
   nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
   nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md

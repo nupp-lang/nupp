@@ -17,7 +17,8 @@ not findable, so each carries a link that opens it in the playground instead.
 
 Codes that resolve only through their family are left out. The family answers
 for all of them at once, and a section under a number that adds nothing to it
-would be padding. See [docs/diagnostics.md](../../../../docs/diagnostics.md) for
+would be padding. See
+[docs/reference/diagnostics.md](../../../../docs/reference/diagnostics.md) for
 the families themselves.
 ]]
 

@@ -50,8 +50,8 @@ record explain.Entry
     family: boolean
 end
 
--- The families, from docs/diagnostics.md. Every code falls in one, so every code can be
--- explained at least this far.
+-- The families, from docs/reference/diagnostics.md. Every code falls in one, so every
+-- code can be explained at least this far.
 local FAMILIES = {
     {
         prefix = "NUPP0",
@@ -60,7 +60,7 @@ local FAMILIES = {
         rule = "The compiler was given a path it could not read. This is about "
         .. "the file system rather than the program: the path does not "
         .. "exist, or is not readable.",
-        docs = "docs/diagnostics.md#code-families"
+        docs = "docs/reference/diagnostics.md#code-families"
     },
     {
         prefix = "NUPP1",
@@ -69,7 +69,7 @@ local FAMILIES = {
         rule = "The parser could not read the file as Nupp. Recovery continues "
         .. "past the first error, so several of these often describe one "
         .. "mistake.",
-        docs = "docs/diagnostics.md#code-families"
+        docs = "docs/reference/diagnostics.md#code-families"
     },
     {
         prefix = "NUPP2",
@@ -77,7 +77,7 @@ local FAMILIES = {
         summary = "A type, declaration, lint, FFI or ownership rule",
         rule = "The program parses but does not mean something the checker can "
         .. "accept, or means something its author probably did not intend.",
-        docs = "docs/diagnostics.md#code-families"
+        docs = "docs/reference/diagnostics.md#code-families"
     },
     {
         prefix = "NUPP3",
@@ -86,7 +86,7 @@ local FAMILIES = {
         rule = "The program checked, but the generator cannot lower it to Lua. "
         .. "This is a limit of the backend rather than a mistake in the "
         .. "program's typing.",
-        docs = "docs/diagnostics.md#code-families"
+        docs = "docs/reference/diagnostics.md#code-families"
     },
     {
         prefix = "NUPP4",
@@ -94,7 +94,7 @@ local FAMILIES = {
         summary = "Formatting could not safely produce the result",
         rule = "The formatter declines to rewrite source it cannot prove it "
         .. "would preserve. Formatting is never allowed to change meaning.",
-        docs = "docs/diagnostics.md#code-families"
+        docs = "docs/reference/diagnostics.md#code-families"
     },
     {
         prefix = "NUPP5",
@@ -103,7 +103,7 @@ local FAMILIES = {
         rule = "The running program cannot apply this change without replacing "
         .. "state or callable structure that hot reload promises to preserve. "
         .. "Restart it so the new program can initialize that state normally.",
-        docs = "docs/tooling/hot-reload.md#changes-that-require-restart"
+        docs = "docs/guides/hot-reload.md#changes-that-require-restart"
     },
     {
         prefix = "OPT",
@@ -127,7 +127,7 @@ local ENTRIES: {any} = {
         wrong = "cdef function visit(\n" .. "    borrows values: const int32* countedBy(missing), count: uint64\n)\n",
         right = "cdef function visit(\n" .. "    borrows values: const int32* countedBy(count), count: uint64\n)\n",
         related = {"NUPP2203", "NUPP2602"},
-        docs = "docs/c-interop.md#counted-pointer-adapters",
+        docs = "docs/concepts/c-interop.md#counted-pointer-adapters",
     },
     {
         code = "NUPP2209",
@@ -147,7 +147,7 @@ local ENTRIES: {any} = {
         .. "could not be opened. Check the spelling and that the file is "
         .. "readable from the directory the compiler was run in.",
         related = {},
-        docs = "docs/diagnostics.md#code-families",
+        docs = "docs/reference/diagnostics.md#code-families",
     },
     {
         code = "NUPP1002",
@@ -158,7 +158,7 @@ local ENTRIES: {any} = {
         wrong = "local function f(): integer\n    if true then\n        return 1\n" .. "end\n",
         right = "local function f(): integer\n    if true then\n        return 1\n" .. "    end\n    return 0\nend\n",
         related = {"NUPP1004"},
-        docs = "docs/diagnostics.md#code-families",
+        docs = "docs/reference/diagnostics.md#code-families",
     },
     {
         code = "NUPP1007",
@@ -169,7 +169,7 @@ local ENTRIES: {any} = {
         wrong = "--- @param valeu the value\nlocal function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n",
         right = "--- @param value the value\nlocal function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n",
         related = {"NUPP2506"},
-        docs = "docs/tooling/doc.md#doc-comments",
+        docs = "docs/guides/doc.md#doc-comments",
     },
     {
         code = "NUPP1006",
@@ -180,7 +180,7 @@ local ENTRIES: {any} = {
         .. "nothing. Rename the file `.nupp` to mean it, or `.g.nupp` to keep the "
         .. "gradual layer with the typed syntax available.",
         related = {"NUPP2105", "NUPP2106"},
-        docs = "docs/diagnostics.md#code-families",
+        docs = "docs/reference/diagnostics.md#code-families",
     },
     {
         code = "NUPP2001",
@@ -190,7 +190,7 @@ local ENTRIES: {any} = {
         wrong = "local count: integer = \"twelve\"\nreturn count\n",
         right = "local count: integer = 12\nreturn count\n",
         related = {"NUPP2002", "NUPP2006"},
-        docs = "docs/diagnostics.md#code-families",
+        docs = "docs/reference/diagnostics.md#code-families",
     },
     {
         code = "NUPP2002",
@@ -217,7 +217,7 @@ local ENTRIES: {any} = {
         .. "local function show(p: Point): number\n    return p.x\nend\n\n"
         .. "return show\n",
         related = {"NUPP2005", "NUPP2119"},
-        docs = "docs/modules.md#diagnostics",
+        docs = "docs/concepts/declarations.md#diagnostics",
     },
     {
         code = "NUPP2006",
@@ -271,7 +271,7 @@ local ENTRIES: {any} = {
         wrong = "local input: number = 0.1\nlocal value: float = input as float\nreturn value\n",
         right = "local input: number = 0.1\nlocal value: float = nupp.math.f32.narrow(input)\nreturn value\n",
         related = {"NUPP2001", "NUPP2002", "NUPP2006", "NUPP2012"},
-        docs = "docs/math.md#fixed-width-arithmetic",
+        docs = "docs/modules/nupp/math.md#fixed-width-arithmetic",
     },
     {
         code = "NUPP2012",
@@ -293,7 +293,7 @@ local ENTRIES: {any} = {
         wrong = "local count: Count = 1\nreturn count\n",
         right = "local type Count = integer\nlocal count: Count = 1\nreturn count\n",
         related = {"NUPP2105", "NUPP2120"},
-        docs = "docs/modules.md#diagnostics",
+        docs = "docs/concepts/declarations.md#diagnostics",
     },
     {
         code = "NUPP2106",
@@ -307,7 +307,7 @@ local ENTRIES: {any} = {
         wrong = "local m = {}\n\nfunction m.double(n)\n    return n * 2\nend\n\n" .. "return m\n",
         right = "local m = {}\n\nfunction m.double(n: integer): integer\n" .. "    return n * 2\nend\n\nreturn m\n",
         related = {"NUPP2119"},
-        docs = "docs/modules.md#diagnostics",
+        docs = "docs/concepts/declarations.md#diagnostics",
     },
     {
         code = "NUPP2107",
@@ -327,7 +327,7 @@ local ENTRIES: {any} = {
         .. "    elseif c == 'green' then\n        return \"green\"\n"
         .. "    else\n        return \"blue\"\n    end\nend\n\nreturn name\n",
         related = {"NUPP2004"},
-        docs = "docs/lints.md",
+        docs = "docs/reference/lints.md",
     },
     {
         code = "NUPP2108",
@@ -338,7 +338,7 @@ local ENTRIES: {any} = {
         wrong = "@allow(NUPP2001)\nlocal count: integer = \"one\"\nreturn count\n",
         right = "local count: integer = 1\nreturn count\n",
         related = {"NUPP2001", "NUPP2112"},
-        docs = "docs/lints.md#local-suppressions",
+        docs = "docs/reference/lints.md#local-suppressions",
     },
     {
         code = "NUPP2504",
@@ -349,7 +349,7 @@ local ENTRIES: {any} = {
         wrong = "local ready = true\nlocal pending = !ready\nreturn pending\n",
         right = "local ready = true\nlocal pending = not ready\nreturn pending\n",
         related = {"NUPP2108"},
-        docs = "docs/lints.md#customary-operator",
+        docs = "docs/reference/lints.md#customary-operator",
     },
     {
         code = "NUPP2506",
@@ -367,7 +367,7 @@ local ENTRIES: {any} = {
         .. "    if name == \"\" then error(\"empty name\") end\n"
         .. "    return name\nend\n\nreturn read\n",
         related = {"NUPP2507"},
-        docs = "docs/lints.md#undocumented-raise",
+        docs = "docs/reference/lints.md#undocumented-raise",
     },
     {
         code = "NUPP2507",
@@ -384,7 +384,7 @@ local ENTRIES: {any} = {
         .. "    local prefix = \"> \"\n    return prefix .. text .. \"!\"\nend\n\n"
         .. "return shout\n",
         related = {"NUPP2120", "NUPP2603"},
-        docs = "docs/lints.md",
+        docs = "docs/reference/lints.md",
     },
     {
         code = "NUPP2508",
@@ -399,7 +399,7 @@ local ENTRIES: {any} = {
         .. "    return value * 2\nend\n\nlocal answer = double(21)\n"
         .. "print(answer)\n\nreturn double\n",
         related = {"NUPP2112", "NUPP2603"},
-        docs = "docs/lints.md",
+        docs = "docs/reference/lints.md",
     },
     {
         code = "NUPP2118",
@@ -424,7 +424,7 @@ local ENTRIES: {any} = {
         wrong = "record Loose\n    id: integer\nend\n\nreturn Loose\n",
         right = "local record Loose\n    id: integer\nend\n\nreturn Loose\n",
         related = {"NUPP2106", "NUPP2120"},
-        docs = "docs/modules.md#diagnostics",
+        docs = "docs/concepts/declarations.md#diagnostics",
     },
     {
         code = "NUPP2120",
@@ -436,7 +436,7 @@ local ENTRIES: {any} = {
         right = "local mathutil = require(\"mathutil\")\n"
         .. "local answer: number = mathutil.double(21)\nreturn answer\n",
         related = {"NUPP2101", "NUPP2105"},
-        docs = "docs/modules.md#naming-a-member-from-another-file",
+        docs = "docs/concepts/declarations.md#naming-a-member-from-another-file",
     },
     {
         code = "NUPP2121",
@@ -503,7 +503,7 @@ local ENTRIES: {any} = {
         .. "setmetatable(x, {__add = function(a: I64, b: I64): I64\n"
         .. "    return new I64(v = a.v + b.v)\nend})\n\nreturn x\n",
         related = {"NUPP2118", "NUPP2006"},
-        docs = "docs/metamethods.md",
+        docs = "docs/concepts/metamethods.md",
     },
     {
         code = "NUPP2124",
@@ -767,7 +767,7 @@ local ENTRIES: {any} = {
         wrong = "cdef function process(values: {number}): int32\nreturn process\n",
         right = "cdef function process(values: voidptr): int32\nreturn process\n",
         related = {"NUPP2201", "NUPP2602"},
-        docs = "docs/c-interop.md#hand-write-a-small-binding",
+        docs = "docs/concepts/c-interop.md#hand-write-a-small-binding",
     },
     {
         code = "NUPP2605",
@@ -799,7 +799,7 @@ local ENTRIES: {any} = {
         right = "local function forward<T>(takes value: T): T preserves value\n"
         .. "    return value\nend\nreturn forward\n",
         related = {"NUPP2602", "NUPP2603", "NUPP2605"},
-        docs = "docs/ownership.md#generic-preservation",
+        docs = "docs/type-system/ownership.md#generic-preservation",
     },
     {
         code = "NUPP2607",
@@ -812,7 +812,7 @@ local ENTRIES: {any} = {
         .. "local value = {}\npair(value, value)\n",
         right = "local function pair(exclusive a: table, exclusive b: table): nil end\n" .. "pair({}, {})\n",
         related = {"NUPP2602", "NUPP2608", "NUPP2609"},
-        docs = "docs/ownership.md#regions-and-loop-carried-capabilities",
+        docs = "docs/type-system/ownership.md#regions-and-loop-carried-capabilities",
     },
     {
         code = "NUPP2608",
@@ -824,7 +824,7 @@ local ENTRIES: {any} = {
         right = "local function view(borrows value: table): table borrows (value)\n"
         .. "    return borrow(value)\nend\nreturn view\n",
         related = {"NUPP2603", "NUPP2607", "NUPP2611"},
-        docs = "docs/ownership.md#borrowing-and-pinning",
+        docs = "docs/type-system/ownership.md#borrowing-and-pinning",
     },
     {
         code = "NUPP2609",
@@ -847,7 +847,7 @@ local ENTRIES: {any} = {
         .. "    if again then\n        print('once')\n    end\n"
         .. "    drop(value)\nend\nreturn run\n",
         related = {"NUPP2601", "NUPP2603", "NUPP2607"},
-        docs = "docs/ownership.md#regions-and-loop-carried-capabilities",
+        docs = "docs/type-system/ownership.md#regions-and-loop-carried-capabilities",
     },
     {
         code = "NUPP2610",
@@ -859,7 +859,7 @@ local ENTRIES: {any} = {
         right = "local m = {}\nfunction m.forward<T>(takes value: T): T preserves value\n"
         .. "    return value\nend\nreturn m\n",
         related = {"NUPP2606", "NUPP2611"},
-        docs = "docs/ownership.md#public-capability-contracts",
+        docs = "docs/type-system/ownership.md#public-capability-contracts",
     },
     {
         code = "NUPP2611",
@@ -872,7 +872,7 @@ local ENTRIES: {any} = {
         right = "local function erase(takes value: affine(table)): any\n"
         .. "    return unsafe release value\nend\nreturn erase\n",
         related = {"NUPP2603", "NUPP2608", "NUPP2612"},
-        docs = "docs/ownership.md#dynamic-boundaries",
+        docs = "docs/type-system/ownership.md#dynamic-boundaries",
     },
     {
         code = "NUPP2612",
@@ -892,7 +892,7 @@ local ENTRIES: {any} = {
         .. "local function open(): affine(Resource, close) return new Resource() end\n"
         .. "local store = stores.new()\nstore:put(open())\ndrop(store)\n",
         related = {"NUPP2608", "NUPP2611", "NUPP2614"},
-        docs = "docs/ownership.md#dynamic-boundaries",
+        docs = "docs/type-system/ownership.md#dynamic-boundaries",
     },
     {
         code = "NUPP2613",
@@ -915,7 +915,7 @@ local ENTRIES: {any} = {
         .. "local erased = stores.erase(handle)\n"
         .. "local recovered = stores.recover(erased, File)\n",
         related = {"NUPP2611", "NUPP2614"},
-        docs = "docs/ownership.md#dynamic-boundaries",
+        docs = "docs/type-system/ownership.md#dynamic-boundaries",
     },
     {
         code = "NUPP2614",
@@ -924,7 +924,7 @@ local ENTRIES: {any} = {
         .. "generation. Every older handle fails before the stored value is read or "
         .. "its cleanup policy is selected.",
         related = {"NUPP2612", "NUPP2613"},
-        docs = "docs/ownership.md#dynamic-boundaries",
+        docs = "docs/type-system/ownership.md#dynamic-boundaries",
     },
     {
         code = "NUPP2603",
@@ -938,7 +938,7 @@ local ENTRIES: {any} = {
         .. "cdef function submit_request(takes request: voidptr)\n"
         .. "local request = begin_request()\nsubmit_request(request)\nreturn 0\n",
         related = {"NUPP2601", "NUPP2602", "NUPP2605"},
-        docs = "docs/ownership.md#consumption-and-lexical-destruction",
+        docs = "docs/type-system/ownership.md#consumption-and-lexical-destruction",
     },
     {
         code = "NUPP2615",
@@ -963,7 +963,7 @@ local ENTRIES: {any} = {
         .. "an identity may occur only once across every derive "
         .. "annotation on the record.",
         related = {"NUPP2113", "NUPP2802"},
-        docs = "docs/derives.md",
+        docs = "docs/reference/derives.md",
     },
     {
         code = "NUPP2802",
@@ -971,7 +971,7 @@ local ENTRIES: {any} = {
         rule = "A derive never overrides a written instance or static member. Remove "
         .. "the written member or remove the provider so the behavior has one owner.",
         related = {"NUPP2801", "NUPP2115"},
-        docs = "docs/derives.md",
+        docs = "docs/reference/derives.md",
     },
     {
         code = "NUPP2803",
@@ -980,7 +980,7 @@ local ENTRIES: {any} = {
         .. "another Debug record, an exact nupp.Debug contract, or the dynamic any "
         .. "fallback. A field cannot be both skipped and redacted.",
         related = {"NUPP2802"},
-        docs = "docs/derives.md#debug",
+        docs = "docs/reference/derives.md#debug",
     },
     {
         code = "NUPP2806",
@@ -989,7 +989,7 @@ local ENTRIES: {any} = {
         .. "options. Rename duplicate keys, default omitted fields, avoid erased generic "
         .. "records and unsupported values, and do not use int64 or uint64 as JSON numbers.",
         related = {"NUPP2001"},
-        docs = "docs/derives.md#json",
+        docs = "docs/reference/derives.md#json",
     },
     {
         code = "NUPP2807",
@@ -998,7 +998,7 @@ local ENTRIES: {any} = {
         .. "dependency cycle must still reduce to a closed recipe rather than require "
         .. "another unfinished provider result.",
         related = {"NUPP2803", "NUPP2806", "NUPP2810"},
-        docs = "docs/derives.md",
+        docs = "docs/reference/derives.md",
     },
     {
         code = "NUPP2808",
@@ -1007,7 +1007,7 @@ local ENTRIES: {any} = {
         .. "bounded compiler resources. Reduce the derived declaration or split the "
         .. "schema rather than depending on an unbounded generated function.",
         related = {"NUPP2807"},
-        docs = "docs/derives.md",
+        docs = "docs/reference/derives.md",
     },
     {
         code = "NUPP2809",
@@ -1016,7 +1016,7 @@ local ENTRIES: {any} = {
         .. "with the exact shape function(nupp.derive.Info): nupp.derive.Result<I>, where "
         .. "I is one existing interface. @derive must name that resolved export.",
         related = {"NUPP2411", "NUPP2801"},
-        docs = "docs/derives.md#package-providers",
+        docs = "docs/reference/derives.md#package-providers",
     },
     {
         code = "NUPP2810",
@@ -1025,7 +1025,7 @@ local ENTRIES: {any} = {
         .. "nupp.derive.implement or nupp.derive.error. Closed builders reject foreign, "
         .. "cyclic, malformed, stale, and over-limit recipe graphs.",
         related = {"NUPP2412", "NUPP2808"},
-        docs = "docs/derives.md#package-providers",
+        docs = "docs/reference/derives.md#package-providers",
     },
     {
         code = "NUPP2811",
@@ -1034,7 +1034,7 @@ local ENTRIES: {any} = {
         .. "recipe may instead provide a bounded function signature. Neither form may "
         .. "replace written members or interface defaults.",
         related = {"NUPP2118", "NUPP2802"},
-        docs = "docs/derives.md#closed-forwarding-recipes",
+        docs = "docs/reference/derives.md#closed-forwarding-recipes",
     },
     {
         code = "NUPP2812",
@@ -1043,7 +1043,7 @@ local ENTRIES: {any} = {
         .. "readable stored field, a bounded frozen constant, or a fresh array of those. "
         .. "Every name is resolved against the written owner and interface requirement.",
         related = {"NUPP2004", "NUPP2811"},
-        docs = "docs/derives.md#closed-forwarding-recipes",
+        docs = "docs/reference/derives.md#closed-forwarding-recipes",
     },
     {
         code = "NUPP2813",
@@ -1052,7 +1052,7 @@ local ENTRIES: {any} = {
         .. "types must fit its parameters, its result pack must satisfy the interface "
         .. "requirement, and it may not suspend where the requirement cannot.",
         related = {"NUPP2001", "NUPP2701", "NUPP2812"},
-        docs = "docs/derives.md#runtime-helpers",
+        docs = "docs/reference/derives.md#runtime-helpers",
     },
     {
         code = "NUPP2701",
@@ -1064,7 +1064,7 @@ local ENTRIES: {any} = {
         wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n" .. "nosuspend do\n    wait()\nend\n",
         right = "local function finish(): nil\nend\n\n" .. "nosuspend do\n    finish()\nend\n",
         related = {"NUPP2602", "NUPP2603"},
-        docs = "docs/start/suspension.md#non-suspending-regions",
+        docs = "docs/concepts/suspension.md#non-suspending-regions",
     },
     {
         code = "NUPP2702",
@@ -1074,7 +1074,7 @@ local ENTRIES: {any} = {
         wrong = "table.sort({2, 1}, function(a, b): boolean\n" .. "    coroutine.yield()\n    return a < b\nend)\n",
         right = "table.sort({2, 1}, function(a, b): boolean\n" .. "    return a < b\nend)\n",
         related = {"NUPP2701"},
-        docs = "docs/start/suspension.md#c-call-boundaries",
+        docs = "docs/concepts/suspension.md#c-call-boundaries",
     },
     {
         code = "NUPP2706",
@@ -1085,7 +1085,7 @@ local ENTRIES: {any} = {
         wrong = "goto inside\nhandle suspension with handler do\n" .. "    ::inside::\nend\n",
         right = "handle suspension with handler do\nend\n::outside::\n",
         related = {"NUPP2701", "NUPP2702"},
-        docs = "docs/start/suspension.md#handler-scope-follows-the-coroutine",
+        docs = "docs/concepts/suspension.md#handler-scope-follows-the-coroutine",
     },
     {
         code = "NUPP2206",
@@ -1136,7 +1136,7 @@ local ENTRIES: {any} = {
         right = "local record Point\n    x: integer\n    y: integer\nend\n\n"
         .. "local p = new Point(x = 1, y = 2)\n\nreturn p\n",
         related = {"NUPP2202", "NUPP2208"},
-        docs = "docs/lints.md",
+        docs = "docs/reference/lints.md",
     },
     {
         code = "NUPP2513",
@@ -1152,7 +1152,7 @@ local ENTRIES: {any} = {
         .. "@deprecated(replacement = \"current\")\n"
         .. "local function legacy(): integer return current() end\n\nreturn current()\n",
         related = {"NUPP2115"},
-        docs = "docs/lints.md",
+        docs = "docs/reference/lints.md",
     },
     {
         code = "NUPP2208",
@@ -1183,7 +1183,7 @@ local ENTRIES: {any} = {
         summary = "Generated code that a Lua VM will not load",
         rule = "The generator writes Lua and this is that Lua refusing to parse. Almost always it is one limit: a function may capture at most sixty names from around it, and one that reaches past that cannot be loaded at all. A function reading that many things from its scope is usually reading a record it could take as one argument instead. Pass what varies, or gather what it reads into one value and capture that.\n\nAny other spelling of this is a bug in the compiler rather than in the program, and `nupp bc FILE` shows the code it wrote. It is reported where the file is built rather than where the module is first required, because the line a VM would name belongs to generated text and the line here is the one that was written.",
         related = {"NUPP3004"},
-        docs = "docs/diagnostics.md#code-families",
+        docs = "docs/reference/diagnostics.md#code-families",
     },
     {
         code = "NUPP3001",
@@ -1224,7 +1224,7 @@ ENTRIES[
     wrong = "cdef function printf(format: cstring, ...): int32\n\n@jit\nlocal function hot(): nil\n    printf('%d', 1)\nend\n",
     right = "cdef function printf(format: cstring, ...): int32\n\nlocal function cold(): nil\n    printf('%d', 1)\nend\n\njit.off(cold)\n",
     related = {"NUPP2502", "NUPP2514"},
-    docs = "docs/c-interop.md",
+    docs = "docs/concepts/c-interop.md",
 }
 
 ENTRIES[
@@ -1239,7 +1239,7 @@ ENTRIES[
     wrong = "local function build(): nil\n    local values = {}\nend\n\nnoalloc do\n    build()\nend\n",
     right = "local function update(): nil\n    local n = 1\nend\n\nnoalloc do\n    update()\nend\n",
     related = {"NUPP2112", "NUPP2711"},
-    docs = "docs/effects.md#allocation-and-raising-regions",
+    docs = "docs/concepts/effects.md#allocation-and-raising-regions",
 }
 
 ENTRIES[
@@ -1254,7 +1254,7 @@ ENTRIES[
     wrong = "local function fail(): nil\n    error('failed')\nend\n\nnoraise do\n    fail()\nend\n",
     right = "local function finish(): nil\nend\n\nnoraise do\n    finish()\nend\n",
     related = {"NUPP2112", "NUPP2710"},
-    docs = "docs/effects.md#allocation-and-raising-regions",
+    docs = "docs/concepts/effects.md#allocation-and-raising-regions",
 }
 
 ENTRIES[#ENTRIES + 1] = {
@@ -1275,7 +1275,7 @@ ENTRIES[#ENTRIES + 1] = {
     .. "reported as NUPP2707, and `jit.off` on the enclosing function silences it. "
     .. "`nupp bc --check` finds the same loops in any file without running it.",
     related = {"NUPP2505", "NUPP2707"},
-    docs = "docs/lints.md",
+    docs = "docs/reference/lints.md",
 }
 
 ENTRIES[
@@ -1341,7 +1341,7 @@ ENTRIES[
     wrong = "local s = 'oops\nreturn 1\n",
     right = "local s = 'oops'\nreturn s\n",
     related = {"NUPP1002", "NUPP1005"},
-    docs = "docs/diagnostics.md#code-families",
+    docs = "docs/reference/diagnostics.md#code-families",
 }
 
 ENTRIES[
@@ -1353,7 +1353,7 @@ ENTRIES[
     wrong = "local record Point\n    x: number\nend\n\nlocal function show(p: Point): number\n    return p.\nend\n\nreturn show\n",
     right = "local record Point\n    x: number\nend\n\nlocal function show(p: Point): number\n    return p.x\nend\n\nreturn show\n",
     related = {"NUPP1002", "NUPP1004"},
-    docs = "docs/diagnostics.md#code-families",
+    docs = "docs/reference/diagnostics.md#code-families",
 }
 
 ENTRIES[
@@ -1365,7 +1365,7 @@ ENTRIES[
     wrong = "local record Point\n    x: integer\nend\n\nlocal bare = new Point\n\nreturn bare\n",
     right = "local record Point\n    x: integer\nend\n\nlocal made = new Point(x = 1)\n\nreturn made\n",
     related = {"NUPP1002", "NUPP1003"},
-    docs = "docs/diagnostics.md#code-families",
+    docs = "docs/reference/diagnostics.md#code-families",
 }
 
 ENTRIES[
@@ -1377,7 +1377,7 @@ ENTRIES[
     wrong = "return 1\nlocal x = 2\n",
     right = "local x = 2\nreturn x\n",
     related = {"NUPP1002", "NUPP1004"},
-    docs = "docs/diagnostics.md#code-families",
+    docs = "docs/reference/diagnostics.md#code-families",
 }
 
 ENTRIES[
@@ -1389,7 +1389,7 @@ ENTRIES[
     wrong = "local lpeg = require(\"lpeg\")\nlocal pattern = lpeg.P(\"a\") ^ \"two\"\nreturn pattern\n",
     right = "local lpeg = require(\"lpeg\")\nlocal pattern = lpeg.P(\"a\") ^ 2\nreturn pattern\n",
     related = {"NUPP2005", "NUPP2006"},
-    docs = "docs/metamethods.md#diagnostics",
+    docs = "docs/concepts/metamethods.md#diagnostics",
 }
 
 ENTRIES[
@@ -1401,7 +1401,7 @@ ENTRIES[
     wrong = "local count: integer = 5\nreturn count()\n",
     right = "local function callable(): integer\n    return 5\nend\nreturn callable()\n",
     related = {"NUPP2003", "NUPP2006"},
-    docs = "docs/metamethods.md#diagnostics",
+    docs = "docs/concepts/metamethods.md#diagnostics",
 }
 
 ENTRIES[
@@ -1435,7 +1435,7 @@ ENTRIES[
     summary = "Two project globals declare the same type name",
     rule = "A `global` declaration is reachable project-wide with no `require`, so globals share one flat namespace across every file. When two files each declare a global type of the same name, an unqualified use of that name cannot know which declaration it means, and both declaring locations are reported. This is inherently a whole-project condition: within the file that declares a name, its own declaration is already in scope directly and this check is not reached, so a single isolated file cannot exhibit it on its own.",
     related = {"NUPP2104", "NUPP2101"},
-    docs = "docs/modules.md#diagnostics",
+    docs = "docs/concepts/declarations.md#diagnostics",
 }
 
 ENTRIES[
@@ -1445,7 +1445,7 @@ ENTRIES[
     summary = "Two project globals declare the same value name",
     rule = "A `global record` or `global struct` declaration puts a value in `_G` as well as a type in the project's global type namespace. When two files each declare a global of the same name whose value side collides, an unqualified use of that name as a value cannot know which declaration it means, and both declaring locations are reported. Like NUPP2102, this is a whole-project condition: a file that declares the name resolves its own declaration directly and never reaches this check, so a single isolated file cannot exhibit it on its own.",
     related = {"NUPP2102", "NUPP2120"},
-    docs = "docs/modules.md#diagnostics",
+    docs = "docs/concepts/declarations.md#diagnostics",
 }
 
 ENTRIES[
@@ -1458,7 +1458,7 @@ ENTRIES[
     right = "local function shout(text: string): string\n    return text .. \"!\"\nend\nreturn shout\n",
     strict = true,
     related = {"NUPP2120", "NUPP2101"},
-    docs = "docs/modules.md#diagnostics",
+    docs = "docs/concepts/declarations.md#diagnostics",
 }
 
 ENTRIES[
@@ -1494,7 +1494,7 @@ ENTRIES[
     wrong = "@inline\nlocal function f(): nil\nend\n\nreturn f\n",
     right = "local function f(): nil\nend\n\nreturn f\n",
     related = {"NUPP2112", "NUPP2114"},
-    docs = "docs/annotations.md#defining-an-annotation",
+    docs = "docs/reference/annotations.md#defining-an-annotation",
 }
 
 ENTRIES[
@@ -1506,7 +1506,7 @@ ENTRIES[
     wrong = "@jit\nlocal x = 1\n\nreturn x\n",
     right = "@jit\nlocal function f(): nil\nend\n\nreturn f\n",
     related = {"NUPP2111", "NUPP2115"},
-    docs = "docs/annotations.md#attachment-targets",
+    docs = "docs/reference/annotations.md#attachment-targets",
 }
 
 ENTRIES[#ENTRIES + 1] = {
@@ -1516,7 +1516,7 @@ ENTRIES[#ENTRIES + 1] = {
     -- nothing in the language reaches this code today.
     rule = "A built-in definition may carry a reservation naming the feature it is waiting on, ahead of the feature existing. Applying that name still parses and resolves, since the definition is real, but is refused with what it is reserved for rather than silently accepted and doing nothing. No shipped built-in currently carries a reservation -- the mechanism exists for a name registered ahead of its implementation, as `@jit` itself once was.",
     related = {"NUPP2111", "NUPP2112"},
-    docs = "docs/annotations.md#diagnostics",
+    docs = "docs/reference/annotations.md#diagnostics",
 }
 
 ENTRIES[
@@ -1528,7 +1528,7 @@ ENTRIES[
     wrong = "local record Plain\n    @annotationValue\n    x: string\nend\n",
     right = "@annotation(targets = {\"record\"})\nlocal record Plain\n    @annotationValue\n    x: string\nend\n",
     related = {"NUPP2115", "NUPP2112"},
-    docs = "docs/annotations.md#single-value-applications",
+    docs = "docs/reference/annotations.md#single-value-applications",
 }
 
 ENTRIES[
@@ -1540,7 +1540,7 @@ ENTRIES[
     wrong = "@syntax(42)\nlocal value = 1\n\nreturn value\n",
     right = "@syntax(\"json\")\nlocal value = 1\n\nreturn value\n",
     related = {"NUPP2114", "NUPP2112"},
-    docs = "docs/annotations.md#built-in-annotations",
+    docs = "docs/reference/annotations.md#built-in-annotations",
 }
 
 ENTRIES[
@@ -1648,7 +1648,7 @@ ENTRIES[
     wrong = "local mini = cheader(\"mini\" .. \".h\")\nreturn mini\n",
     right = "local mini = cheader(\"mini.h\")\nreturn mini\n",
     related = {"NUPP2302"},
-    docs = "docs/c-interop.md#type-the-header-in-place",
+    docs = "docs/concepts/c-interop.md#type-the-header-in-place",
 }
 
 ENTRIES[#ENTRIES + 1] = {
@@ -1660,7 +1660,7 @@ ENTRIES[#ENTRIES + 1] = {
     rule = "cheader resolves its literal path relative to the file, then as written, then against each project root, and reads whichever candidate exists first. When none can be opened, the diagnostic reports why, the same way an unreadable source path is reported.",
     wrong = "local mini = cheader(\"missing.h\")\nreturn mini\n",
     related = {"NUPP2301", "NUPP0001"},
-    docs = "docs/c-interop.md#type-the-header-in-place",
+    docs = "docs/concepts/c-interop.md#type-the-header-in-place",
 }
 
 ENTRIES[
@@ -1672,7 +1672,7 @@ ENTRIES[
     wrong = "local ffi = require(\"ffi\")\nffi.cdef[[ this is not C ]]\nreturn 0\n",
     right = "local ffi = require(\"ffi\")\nffi.cdef[[ int mini_add(int a, int b); ]]\nreturn 0\n",
     related = {"NUPP2301", "NUPP2304"},
-    docs = "docs/c-interop.md#hand-write-a-small-binding",
+    docs = "docs/concepts/c-interop.md#hand-write-a-small-binding",
 }
 
 ENTRIES[
@@ -1684,7 +1684,7 @@ ENTRIES[
     wrong = "local ffi = require(\"ffi\")\nffi.cdef[[ struct CstA { int x; }; ]]\nlocal p = ffi.new(\"struct CstNoSuch\")\nreturn p\n",
     right = "local ffi = require(\"ffi\")\nffi.cdef[[ struct CstA { int x; }; ]]\nlocal p = ffi.new(\"struct CstA\")\nreturn p\n",
     related = {"NUPP2303", "NUPP2203"},
-    docs = "docs/c-interop.md#typed-ffi-operations",
+    docs = "docs/concepts/c-interop.md#typed-ffi-operations",
 }
 
 ENTRIES[
@@ -1696,7 +1696,7 @@ ENTRIES[
     wrong = "local record Point\n    x: number\n    y: number\nend\n\nlocal points = carray(Point, 4)\nreturn points\n",
     right = "local struct Point\n    x: float\n    y: float\nend\n\nlocal points = carray(Point, 4)\nreturn points\n",
     related = {"NUPP2402", "NUPP2201"},
-    docs = "docs/c-interop.md#typed-ffi-operations",
+    docs = "docs/concepts/c-interop.md#typed-ffi-operations",
 }
 
 ENTRIES[
@@ -1708,7 +1708,7 @@ ENTRIES[
     wrong = "local record Point\n    x: number\n    y: number\nend\n\nreturn layoutof(Point)\n",
     right = "local struct Point\n    x: float\n    y: float\nend\n\nreturn layoutof(Point)\n",
     related = {"NUPP2401", "NUPP2201"},
-    docs = "docs/c-interop.md#read-a-structs-layout",
+    docs = "docs/concepts/c-interop.md#read-a-structs-layout",
 }
 
 ENTRIES[
@@ -1720,7 +1720,7 @@ ENTRIES[
     wrong = "local soa = require(\"nupp.mem.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal rows = soa.allocate(ffi.typeof<int32>(), 4)\nreturn rows\n",
     right = "local soa = require(\"nupp.mem.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal struct Point\n    x: float\n    y: float\nend\n\nlocal rows = soa.allocate(ffi.typeof<Point>(), 4)\nrows:close()\n",
     related = {"NUPP2402", "NUPP2009"},
-    docs = "docs/soa.md#diagnostics",
+    docs = "docs/concepts/structure-of-arrays.md#diagnostics",
 }
 
 ENTRIES[
@@ -1816,7 +1816,7 @@ ENTRIES[
     wrong = "const Bad: nupp.peg.Peg<integer> = comptime do\n    return nupp.peg.compile(\"('')*\")\nend\nreturn Bad\n",
     right = "const Good: nupp.peg.Peg<integer> = comptime do\n    return nupp.peg.compile(\"('x')*\")\nend\nreturn Good\n",
     related = {"NUPP2415", "NUPP2416"},
-    docs = "docs/peg.md#repetition",
+    docs = "docs/modules/nupp/peg.md#repetition",
 }
 
 ENTRIES[
@@ -1876,7 +1876,7 @@ ENTRIES[
     wrong = "local pointer = ffi.cast<cstring>('a' .. 'b')\nprint(pointer)\n",
     right = "local text = 'a' .. 'b'\nlocal pointer = ffi.cast<cstring>(text)\nprint(pointer)\n",
     related = {"NUPP2608", "NUPP2603"},
-    docs = "docs/lints.md#string-pointer",
+    docs = "docs/reference/lints.md#string-pointer",
 }
 
 ENTRIES[
@@ -1888,7 +1888,7 @@ ENTRIES[
     wrong = "unsafe do\n    local callback = function()\n    end\n    local pointer = ffi.cast<voidptr>(callback)\n    local handle = nupp.pin(pointer, callback)\nend\n",
     right = "unsafe do\n    local pointer = ffi.cast<voidptr>(8)\n    print(pointer)\nend\n",
     related = {"NUPP2604", "NUPP2603"},
-    docs = "docs/lints.md#jit-callback",
+    docs = "docs/reference/lints.md#jit-callback",
 }
 
 ENTRIES[
@@ -1900,7 +1900,7 @@ ENTRIES[
     wrong = "local function register(item: any, callback: function(): boolean): nil\n    print(item, callback())\nend\n\nlocal function run(items: {any}): nil\n    for _, item in ipairs(items) do\n        register(item, function(): boolean\n            return true\n        end)\n    end\nend\n\nreturn run\n",
     right = "local function register(item: any, callback: function(): boolean): nil\n    print(item, callback())\nend\n\nlocal function alwaysTrue(): boolean\n    return true\nend\n\nlocal function run(items: {any}): nil\n    for _, item in ipairs(items) do\n        register(item, alwaysTrue)\n    end\nend\n\nreturn run\n",
     related = {"NUPP2515", "NUPP2707"},
-    docs = "docs/lints.md#loop-invariant-closure",
+    docs = "docs/reference/lints.md#loop-invariant-closure",
 }
 
 ENTRIES[#ENTRIES + 1] = {
@@ -1910,7 +1910,7 @@ ENTRIES[#ENTRIES + 1] = {
     -- that reported nothing would read as one the compiler had stopped reporting.
     rule = "The `reifiable-record` lint reports a `record` declaration whose every member -- fields, constructors, methods -- is one a `struct` would also accept: every field's type reifies, and nothing else in the body (an indexer, a Lua array part, a declaration-only metamethod, a nested declaration, a property capability, generics, or a declared supertype) rules `struct` out. Declaring it `struct` instead moves instances into C memory, off the collector's graph, at the cost of a fixed layout and giving up `pairs`/table-serializer support without an explicit hook. This is a suggestion rather than a correctness rule, so it defaults to `off`; a project turns it on with `lints = {[\"reifiable-record\"] = \"note\"}` or by raising the whole `performance` category.",
     related = {"NUPP2201", "NUPP2012"},
-    docs = "docs/lints.md#reifiable-record",
+    docs = "docs/reference/lints.md#reifiable-record",
 }
 
 ENTRIES[
@@ -1922,7 +1922,7 @@ ENTRIES[
     wrong = "local function classify(primary: boolean, fallback: boolean): nil\n    if primary then\n        print(\"primary\")\n    else\n        if fallback then\n            print(\"fallback\")\n        end\n    end\nend\n\nreturn classify\n",
     right = "local function classify(primary: boolean, fallback: boolean): nil\n    if primary then\n        print(\"primary\")\n    elseif fallback then\n        print(\"fallback\")\n    end\nend\n\nreturn classify\n",
     related = {"NUPP2107"},
-    docs = "docs/lints.md#else-if",
+    docs = "docs/reference/lints.md#else-if",
 }
 
 ENTRIES[
@@ -1934,7 +1934,7 @@ ENTRIES[
     wrong = "cdef function printf(format: cstring, ...): int32\n\nlocal function report(value: int32): nil\n    printf(\"%d\", value)\nend\n\nreturn report\n",
     right = "cdef function printf(format: cstring, ...): int32\n\nlocal function coldReport(value: int32): nil\n    printf(\"%d\", value)\nend\njit.off(coldReport)\n\nlocal function report(value: int32): nil\n    coldReport(value)\nend\n\nreturn report\n",
     related = {"NUPP2707", "NUPP2502"},
-    docs = "docs/lints.md#jit-boundary",
+    docs = "docs/reference/lints.md#jit-boundary",
 }
 
 ENTRIES[
@@ -1946,7 +1946,7 @@ ENTRIES[
     wrong = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal function useTwice(): nil\n    local value = resource_new()\n    drop(value)\n    drop(value)\nend\n\nreturn useTwice\n",
     right = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal function useOnce(): nil\n    local value = resource_new()\n    drop(value)\nend\n\nreturn useOnce\n",
     related = {"NUPP2602", "NUPP2603"},
-    docs = "docs/ownership.md#diagnostics",
+    docs = "docs/type-system/ownership.md#diagnostics",
 }
 
 ENTRIES[
@@ -1958,7 +1958,7 @@ ENTRIES[
     wrong = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal value = resource_new()\ndo\n    local view = borrow(value)\n    resource_free(value)\nend\nresource_free(value)\n",
     right = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal value = resource_new()\ndo\n    local view = borrow(value)\n    print(view.value)\nend\nresource_free(value)\n",
     related = {"NUPP2601", "NUPP2608", "NUPP2615"},
-    docs = "docs/ownership.md#diagnostics",
+    docs = "docs/type-system/ownership.md#diagnostics",
 }
 
 ENTRIES[
@@ -1970,7 +1970,7 @@ ENTRIES[
     wrong = "cdef struct resource\n    value: int32\nend\n\nlocal function advance(borrows base: resource*): resource*\n    return base + 1\nend\n\nreturn advance\n",
     right = "cdef struct resource\n    value: int32\nend\n\nlocal function advance(borrows base: resource*): resource* borrows (base)\n    unsafe do\n        return base + 1\n    end\nend\n\nreturn advance\n",
     related = {"NUPP2001", "NUPP2004", "NUPP2602"},
-    docs = "docs/spans.md#diagnostics",
+    docs = "docs/modules/nupp/mem/span.md#diagnostics",
 }
 
 ENTRIES[
@@ -1982,7 +1982,7 @@ ENTRIES[
     wrong = "local record Buffer\n    value: string\nend\n\nlocal function closeBuffer(takes value: Buffer): nil\nend\n\nlocal function bad(borrows source: Buffer): affine(Buffer, closeBuffer)\n    return source\nend\n\nreturn bad\n",
     right = "local record Buffer\n    value: string\nend\n\nlocal function ok(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nreturn ok\n",
     related = {"NUPP2608", "NUPP2619"},
-    docs = "docs/ownership.md#borrowing-and-pinning",
+    docs = "docs/type-system/ownership.md#borrowing-and-pinning",
 }
 
 ENTRIES[
@@ -1994,7 +1994,7 @@ ENTRIES[
     wrong = "local record Buffer\n    value: string\nend\n\nlocal function bad(takes value: Buffer): Buffer borrows (value)\n    return value\nend\n\nreturn bad\n",
     right = "local record Buffer\n    value: string\nend\n\nlocal function ok(borrows value: Buffer): Buffer borrows (value)\n    return value\nend\n\nreturn ok\n",
     related = {"NUPP2109", "NUPP2616"},
-    docs = "docs/ownership.md#borrowing-and-pinning",
+    docs = "docs/type-system/ownership.md#borrowing-and-pinning",
 }
 
 ENTRIES[
@@ -2006,7 +2006,7 @@ ENTRIES[
     wrong = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal right = new Buffer(value = \"right\")\nlocal cursor = new Cursor(source = left, bytes = view(right))\nprint(cursor.bytes.value)\n",
     right = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal cursor = new Cursor(source = left, bytes = view(left))\nprint(cursor.bytes.value)\n",
     related = {"NUPP2602", "NUPP2203", "NUPP2707"},
-    docs = "docs/ownership.md#borrowing-and-pinning",
+    docs = "docs/type-system/ownership.md#borrowing-and-pinning",
 }
 
 ENTRIES[
@@ -2018,7 +2018,7 @@ ENTRIES[
     wrong = "local record Widget\n    id: integer\nend\n\nlocal struct Holder\n    items: Widget*[3]\nend\n\nreturn Holder\n",
     right = "cdef struct Widget\n    id: integer\nend\n\nlocal struct Holder\n    items: Widget*\n    count: int32\nend\n\nreturn Holder\n",
     related = {"NUPP2201", "NUPP3003", "NUPP3004"},
-    docs = "docs/c-interop.md#type-mapping",
+    docs = "docs/concepts/c-interop.md#type-mapping",
 }
 
 ENTRIES[
@@ -2030,7 +2030,7 @@ ENTRIES[
     wrong = "local record Widget\n    id: integer\nend\n\ncdef function inspect(target: Widget*)\n\nreturn inspect\n",
     right = "cdef struct Widget\n    id: integer\nend\n\ncdef function inspect(target: Widget*)\n\nreturn inspect\n",
     related = {"NUPP2203", "NUPP3002", "NUPP3004"},
-    docs = "docs/c-interop.md#type-mapping",
+    docs = "docs/concepts/c-interop.md#type-mapping",
 }
 
 ENTRIES[
@@ -2042,7 +2042,7 @@ ENTRIES[
     wrong = "local record Widget\n    id: integer\nend\n\nlocal w = ffi.new<Widget>()\nreturn w\n",
     right = "local struct Widget\n    id: integer\nend\n\nlocal w = ffi.new<Widget>()\nreturn w\n",
     related = {"NUPP2203", "NUPP3002", "NUPP3003"},
-    docs = "docs/c-interop.md#type-mapping",
+    docs = "docs/concepts/c-interop.md#type-mapping",
 }
 
 ENTRIES[
@@ -2052,7 +2052,7 @@ ENTRIES[
     summary = "The formatter's own output would change the token stream",
     rule = "Formatting may only move whitespace, reflow comments, add or remove a schema-proven single-value annotation label, and parenthesize a method call's sugar-form arguments. Before writing its result the formatter re-lexes it and compares the token fingerprint against the input; a mismatch means the rewrite it just performed would have changed the program's meaning, so it discards the rewrite and leaves the file untouched instead of risking that change.",
     related = {},
-    docs = "docs/diagnostics.md#code-families",
+    docs = "docs/reference/diagnostics.md#code-families",
 }
 
 ENTRIES[
@@ -2062,7 +2062,7 @@ ENTRIES[
     summary = "A running program cannot apply a change without a restart",
     rule = "Hot reload replaces a watched module's callable bodies in place, but cannot rebind top-level executable statements or initializers, add, remove, rename or move a named declaration, change a callable's signature or capture set, change a record, struct, native or component layout, or repatch a function that took ownership of a cleanup-bearing capture. Loaded FFI declarations, native libraries, and values already built from them are likewise fixed for the life of the process. Any such edit is rejected with NUPP5001 and the previous generation keeps running until the process restarts.",
     related = {},
-    docs = "docs/tooling/hot-reload.md#changes-that-require-restart",
+    docs = "docs/guides/hot-reload.md#changes-that-require-restart",
 }
 
 local byCode: {[string]: any} = {}
@@ -2144,7 +2144,7 @@ function explain.lookup(code: string): explain.Entry?
         right = nil,
         strict = false,
         related = {},
-        docs = lint and "docs/lints.md" or family.docs,
+        docs = lint and "docs/reference/lints.md" or family.docs,
         family = true
     )
 end

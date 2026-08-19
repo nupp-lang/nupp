@@ -14,7 +14,7 @@ a borrow lives as long as the set. [](nupp.owners.store) is the same idea with
 generation and type-policy checks, so an individual owner can cross untyped storage
 and be recovered.
 
-See `docs/ownership.md`.
+See `docs/type-system/ownership.md`.
 ]]
 
 local set = {}

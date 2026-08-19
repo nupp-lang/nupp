@@ -79,12 +79,12 @@ local p: Point = new Point(x = 3, y = 4)
 ```
 
 Neither stands where the other is wanted. `Point` may be written to when a
-[metamethod contract](../metamethods.md) is installed; `p` may not. `p` may be
-read for its fields and passed where a `Point` is wanted; `Point` may not. A
-record name is not implicitly a `metatable<Point>`: that type remains for an
-explicit table passed to Lua's metatable functions.
-`Point is Point` is answered without running, because a declaration's own table
-is never one of the values it stamps.
+[metamethod contract](../concepts/metamethods.md) is installed; `p` may not. `p`
+may be read for its fields and passed where a `Point` is wanted; `Point` may
+not. A record name is not implicitly a `metatable<Point>`: that type remains for
+an explicit table passed to Lua's metatable functions. `Point is Point` is
+answered without running, because a declaration's own table is never one of the
+values it stamps.
 
 Reaching a member through the table reaches the record's, so `Point.length`,
 `Point.make(...)` and a nested `Point.Inner` all resolve as they always did. A
@@ -379,10 +379,11 @@ Reach for a **struct** when the layout matters: interop with C, a large array
 of small values, or a hot field access you want to be an offset instead of a
 hash lookup.
 
-`layoutof(T)` reports how one is laid out. See [C interop](../c-interop.md).
-That is what lets a codec, a snapshot writer or a GPU vertex-attribute
-descriptor be derived from the declaration rather than maintained beside it, and
-it is worth knowing about before writing the second one by hand.
+`layoutof(T)` reports how one is laid out. See [C
+interop](../concepts/c-interop.md). That is what lets a codec, a snapshot writer
+or a GPU vertex-attribute descriptor be derived from the declaration rather than
+maintained beside it, and it is worth knowing about before writing the second
+one by hand.
 
 Both are nominal. Two records with identical fields are different types, and
 neither is assignable to the other. A record does erode into a structural shape
@@ -396,8 +397,8 @@ A record declaration creates the table and metatable pattern ordinary Lua code
 already uses. It adds a nominal type to checking but no class runtime or hidden
 instance wrapper. The [record lowering](#records) uses a table and
 `setmetatable`, while [metamethod
-contracts](../metamethods.md#declaring-a-contract) remain explicit when an API
-needs operator behavior.
+contracts](../concepts/metamethods.md#declaring-a-contract) remain explicit when
+an API needs operator behavior.
 
 ### Do methods require a shared interface?
 
@@ -411,7 +412,7 @@ record and an ownership view of that record.
 
 An affine constructor result adds a checker obligation to the record it already
 builds. The value keeps the record's methods and runtime identity, while
-[lexical destruction](../ownership.md#consumption-and-lexical-destruction)
+[lexical destruction](ownership.md#consumption-and-lexical-destruction)
 discharges its cleanup. [Affine constructor
 policies](affine-types.md#constructors-can-introduce-the-policy) define the
 complete result rule.
@@ -429,5 +430,5 @@ complete result rule.
 
 - [interfaces.md](interfaces.md): the structural contract a record can declare
   it satisfies.
-- [c-interop.md](../c-interop.md): what a struct's layout means at the C
-  boundary.
+- [c-interop.md](../concepts/c-interop.md): what a struct's layout means at the
+  C boundary.

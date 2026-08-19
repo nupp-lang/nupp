@@ -161,8 +161,8 @@ end
 Cases subtract their exact values from the remaining selector union. An `else`
 is required for an open alternative such as `string` or `integer`, but is
 unreachable once a closed union has been consumed. `1`, `1.0`, and `1e0` name
-one numeric value and therefore count as duplicate cases. See
-[switch expressions](../switch-expressions.md#exhaustiveness-and-reachability).
+one numeric value and therefore count as duplicate cases. See [switch
+expressions](../concepts/switch-expressions.md#exhaustiveness-and-reachability).
 
 When a dispatch on a closed set of literals has every branch return, the checker
 reports the members you left out:

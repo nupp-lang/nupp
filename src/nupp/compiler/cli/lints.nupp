@@ -20,7 +20,8 @@ project moves one in nupp.lua by name or by category:
 
   lints = { ["missing-require"] = "warning", style = "off" }
 
-A statement waves one away with @allow("missing-require"). See docs/lints.md.]],
+A statement waves one away with @allow("missing-require"). See
+docs/reference/lints.md.]],
     options = require("nupp.compiler.cli.options").format(),
     schema = {
         type = "object",

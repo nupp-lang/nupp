@@ -29,7 +29,7 @@ It does not propagate through calls. Documenting what a callee raises is a claim
 this checker cannot verify, and enforcing an unverified claim at every
 intermediate frame is the trade that made `throws Exception` ubiquitous. A
 caller gets the same fact by retrieval instead: `nupp lsp inspect` on the call
-returns the callee's `@raises`. See `docs/lints.md`.
+returns the callee's `@raises`. See `docs/reference/lints.md`.
 ]]
 
 local cst = require("nupp.compiler.cst")

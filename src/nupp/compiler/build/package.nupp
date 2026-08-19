@@ -82,7 +82,7 @@ end
 ---
 --- The result runs under a plain `luajit` with nothing beside it. That is what makes it
 --- worth having on its own, and it is also the payload a stub carries; see
---- [distribution.md](../../../docs/distribution.md).
+--- [distribution.md](../../../docs/reference/distribution.md).
 ---
 --- Resources go in rather than beside, keyed by their path relative to the entry
 --- module's directory, the same key `nupp.compiler.env` reads its own declarations
@@ -383,9 +383,9 @@ local function binaryOutput(
     return join(root, target.output or join(outDir, name))
 end
 
--- The trailer a stub reads to find its payload. Specified in docs/distribution.md; the
--- two implementations are this one and the host's, and they are meant to be read side
--- by side.
+-- The trailer a stub reads to find its payload. Specified in
+-- docs/reference/distribution.md; the two implementations are this one and the host's,
+-- and they are meant to be read side by side.
 local PAYLOAD_MAGIC = "NUPPLOAD"
 local PAYLOAD_VERSION = 1
 local TRAILER_LENGTH = 48
@@ -603,7 +603,8 @@ end
 ---
 --- A selected macOS result is deliberately unsigned. On a Mac, `codesign --sign -`
 --- makes a development artifact runnable; release automation uses a Developer ID and
---- notarizes the archive. See [distribution.md](../../../docs/distribution.md).
+--- notarizes the archive. See
+--- [distribution.md](../../../docs/reference/distribution.md).
 local function stampFile(
     output: string,
     stubText: string,

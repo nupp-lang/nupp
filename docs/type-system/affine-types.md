@@ -161,30 +161,30 @@ collector discover and dispatch its cleanup. `luajit bench/ownership.lua`
 compares that path with explicit cleanup around the same `malloc` and `free`.
 On LuaJIT 2.1 for arm64, finalization costs roughly an order of magnitude more
 per resource. Nupp's affine policy exists only during checking, and
-[lexical destruction](../ownership.md#consumption-and-lexical-destruction)
+[lexical destruction](ownership.md#consumption-and-lexical-destruction)
 performs like the equivalent explicit cleanup within measurement noise. It
 adds no per-value wrapper, finalizer registration, or tracing work.
 
 Cleanup timing also controls capacity. The garbage collector sees a small Lua
-wrapper, not the file descriptor, socket, lock, or native allocation behind
-it. A program can exhaust its file-descriptor limit before enough wrappers
-trigger collection, or keep another task waiting on a lock whose unreachable
-guard has not been finalized. An affine terminal runs at the scope boundary;
-a finalizer remains useful only as a last-resort safety net. The
-[C and FFI contracts](../c-interop.md#describe-lifetime-behavior) describe who
+wrapper, not the file descriptor, socket, lock, or native allocation behind it.
+A program can exhaust its file-descriptor limit before enough wrappers trigger
+collection, or keep another task waiting on a lock whose unreachable guard has
+not been finalized. An affine terminal runs at the scope boundary; a finalizer
+remains useful only as a last-resort safety net. The [C and FFI
+contracts](../concepts/c-interop.md#describe-lifetime-behavior) describe who
 owns each native resource, while [borrowing and
-pinning](../ownership.md#borrowing-and-pinning) keep derived pointers attached
-to their backing storage.
+pinning](ownership.md#borrowing-and-pinning) keep derived pointers attached to
+their backing storage.
 
 ### Why not call cleanup manually?
 
 Calling `close`, `unlock`, or `free` directly works only when every return,
 raised error, and transfer follows the protocol. An
-[affine terminal](../ownership.md#terminal-contract) makes that protocol part of
+[affine terminal](ownership.md#terminal-contract) makes that protocol part of
 the type. The checker then rejects a forgotten obligation, a second consumption,
 or a use after the value moved, while
 [automatic lexical
-destruction](../ownership.md#consumption-and-lexical-destruction) handles each
+destruction](ownership.md#consumption-and-lexical-destruction) handles each
 scope exit.
 
 ### Does every Nupp value use ownership?
@@ -192,20 +192,20 @@ scope exit.
 Ownership is opt-in. Strings, numbers, tables, and records without a
 nontrivial capability retain ordinary Lua behavior and need no ownership
 annotation. Explicit
-[public capability contracts](../ownership.md#public-capability-contracts)
+[public capability contracts](ownership.md#public-capability-contracts)
 apply only when an API carries an obligation, root, exclusive access, pin, or
 retention. A record constructor likewise remains ordinary unless its [result
 introduces a
-policy](../type-system/records.md#constructors-and-result-policies).
+policy](records.md#constructors-and-result-policies).
 
 ### Does an affine type change the runtime representation?
 
-An affine type adds no runtime wrapper, cleanup field, tag, or vtable. It
-erases to its representation, so a C pointer remains a C pointer and a struct
-keeps the [layout declared at the boundary](../c-interop.md#type-mapping).
+An affine type adds no runtime wrapper, cleanup field, tag, or vtable. It erases
+to its representation, so a C pointer remains a C pointer and a struct keeps the
+[layout declared at the boundary](../concepts/c-interop.md#type-mapping).
 Imported functions can state their [lifetime
-behavior](../c-interop.md#describe-lifetime-behavior) directly, and the checker
-enforces the contract around the same LuaJIT FFI call.
+behavior](../concepts/c-interop.md#describe-lifetime-behavior) directly, and the
+checker enforces the contract around the same LuaJIT FFI call.
 
 ## Diagnostics
 
@@ -215,7 +215,7 @@ enforces the contract around the same LuaJIT FFI call.
 
 ## Next
 
-- [Ownership](../ownership.md) covers moves, borrows, lexical destruction,
+- [Ownership](ownership.md) covers moves, borrows, lexical destruction,
   aggregates, pinning, and unsafe representation boundaries.
 - [Comptime types](type-level-computation.md) covers user-defined type functions
   and the `nupp.types` construction API.
