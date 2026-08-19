@@ -143139,7 +143139,7 @@ deadline forever, which is precisely the case a deadline is for.
 **A killed child is not immediately reapable.** Terminating takes as long as it
 takes, so closing waits for the exit rather than reaping something still dying.
 
-See `plans/018-suspension.md`, S5.
+See `docs/neps/0019-suspension.md`.
 ]]
 
 local suspension = require("nupp.suspension")
@@ -148371,7 +148371,7 @@ that matters is the *ready* path -- an await whose subscription completes during
 the call, which is most of the cost of waiting even when waiting really happens.
 That path allocates no park and never wakes a handler.
 
-See `plans/018-suspension.md`.
+See `docs/neps/0019-suspension.md`.
 ]]
 
 local suspension = {}
