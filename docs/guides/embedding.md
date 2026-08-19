@@ -376,9 +376,8 @@ The current embedding release has these deliberate limits:
 - the in-process compiler and host-driven hot-reload APIs are not exposed yet;
 - CMake, `pkg-config`, and prebuilt multi-platform SDK packages are not shipped.
 
-The repository roadmap in `plans/054-embedding-nupp.md` tracks the later AOT,
-compiler-service, hot-reload, and packaged-SDK phases. The current C header
-remains the authority for the implemented ABI.
+[NEP 25](../neps/0025-embedding-nupp.md) records why embedding is shaped this
+way. The current C header remains the authority for the implemented ABI.
 
 ## Next
 
