@@ -345,6 +345,7 @@ type gen.Checked = {
 
     --- What the checker resolved this file to, and the native features it recorded.
     readonly moduleName: string?,
+    readonly declaredModuleName: string?,
     readonly effects: {[string]: any}?,
     readonly preludeRuntime: string?
 }
@@ -392,6 +393,7 @@ function gen.generate(
     hot: gen.HotRequest?
 ): string, {any}, gen.Coverage?, {[string]: boolean}, gen.HotMetadata?
     local out = {}
+    local declaredModuleName = result.declaredModuleName
     local curLine = 1
     local atLineStart = true
     local diags = {}
@@ -618,6 +620,8 @@ function gen.generate(
 
         return nextTemp()
     end
+
+    emitDepth.exportTableName = declaredModuleName and reservedName("__nuppExports") or nil
 
     local function compactSource(node): string
         if not node then
@@ -3429,12 +3433,21 @@ function gen.generate(
             return
         end
         if kind == "localStmt" and x.pattern then
+            local values = {}
+            for _, entry in ipairs(x.pattern) do
+                if not entry.typeOnly then
+                    values[#values + 1] = entry
+                end
+            end
+            if #values == 0 then
+                return
+            end
             local sourceName = nextTemp()
             e(("const %s="):format(sourceName), sourceLine(x))
             emit(x.patternSource)
             e(";")
             e(x.isConst and "const " or "local ")
-            for index, entry in ipairs(x.pattern) do
+            for index, entry in ipairs(values) do
                 if index > 1 then
                     e(",")
                 end
@@ -3442,7 +3455,7 @@ function gen.generate(
                 e(name and name.text or "__nuppMissing")
             end
             e("=")
-            for index, entry in ipairs(x.pattern) do
+            for index, entry in ipairs(values) do
                 if index > 1 then
                     e(",")
                 end
@@ -5643,6 +5656,47 @@ function gen.generate(
             end
             emitDepth.fn = emitDepth.fn - 1
 
+        elseif kind == "moduleStmt" then
+            return
+
+        elseif kind == "exportStmt" then
+            local stat = x.stat
+            if stat then
+                emit(stat)
+            end
+            while stat and stat.kind == "pragmaStmt" do
+                stat = stat.stat
+            end
+            if not stat or stat.comptimeFunction or stat.comptimeTok then
+                return
+            end
+            local names = {}
+            if stat.kind == "localFuncStmt" then
+                names[1] = stat.name and stat.name.text
+            elseif stat.kind == "funcStmt" then
+                names[1] = stat.name and stat.name.base and stat.name.base.text
+            elseif stat.kind == "localStmt" then
+                for _, name in ipairs(stat.names or {}) do
+                    names[#names + 1] = name.text
+                end
+            elseif stat.kind == "recordDecl" and (stat.declKind == "record" or stat.declKind == "struct") then
+                names[1] = stat.name and stat.name.text
+            end
+            for _, name in ipairs(names) do
+                if name then
+                    e((";%s[%q]=%s"):format(emitDepth.exportTableName, name, name), sourceLine(stat))
+                end
+            end
+
+        elseif kind == "localFuncStmt" and x.exported then
+            if x.comptimeFunction or x.comptimeTok then
+                return
+            end
+            e((x.name and x.name.text or "__nuppMissing") .. "=function", sourceLine(x))
+            if x.body then
+                emit(x.body)
+            end
+
         elseif kind == "localFuncStmt" then
             if x.comptimeFunction or x.comptimeTok then
                 return
@@ -5657,6 +5711,12 @@ function gen.generate(
             for _, registration in ipairs(x.name and x.name.cleanupRegistrations or {}) do
                 local cleanup = registration.cleanup
                 e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
+            end
+
+        elseif kind == "funcStmt" and x.exported and x.name and x.name.base and #x.name == 1 and not x.name.method then
+            e(x.name.base.text .. "=function", sourceLine(x))
+            if x.body then
+                emit(x.body)
             end
 
         elseif kind == "funcStmt" then
@@ -5973,6 +6033,12 @@ function gen.generate(
             end)
             return
 
+        elseif (kind == "dotIndex" or kind == "name") and x.qualifiedModule then
+            e(compilerModuleName(x.qualifiedModule), sourceLine(x))
+            for _, member in ipairs(x.qualifiedMembers or {}) do
+                e("." .. member)
+            end
+
         elseif kind == "dotIndex" and x.compilerModule then
             -- The module the checker projected through a builtin namespace. OPT-5
             -- shares this binding when the module is string.buffer.
@@ -6081,6 +6147,56 @@ function gen.generate(
     raw("\n")
 
     local code = table.concat(out)
+    if declaredModuleName then
+        local exportedFunctions = {}
+        for _, block in ipairs(result.root.blocks or {}) do
+            for _, statement in ipairs(block.stats or {}) do
+                local actual = statement
+                while actual and (actual.kind == "exportStmt" or actual.kind == "pragmaStmt") do
+                    actual = actual.stat
+                end
+                if actual and actual.exported then
+                    if actual.kind == "localFuncStmt" then
+                        local fn = actual as cst.LocalFuncStmt
+                        if fn.name and not fn.comptimeTok and not fn.comptimeFunction then
+                            exportedFunctions[#exportedFunctions + 1] = fn.name.text
+                        end
+                    elseif actual.kind == "funcStmt" then
+                        local fn = actual as cst.FuncStmt
+                        local fname = fn.name
+                        if fname
+                            and fname.kind == "funcname"
+                            and fname.base
+                            and not fn.comptimeTok
+                            and not fn.comptimeFunction
+                        then
+                            exportedFunctions[#exportedFunctions + 1] = fname.base.text
+                        end
+                    end
+                end
+            end
+        end
+        table.sort(exportedFunctions)
+        local instantiation = {}
+        for _, name in ipairs(exportedFunctions) do
+            instantiation[
+                #instantiation + 1
+            ] = (
+                "local %s;%s[%q]=function(...) return %s(...) end;"
+            ):format(name, emitDepth.exportTableName, name, name)
+        end
+        code = (
+            "local %s={};package.loaded[%q]=%s;local __nuppOk,__nuppWhy=pcall(function()"
+        ):format(
+            emitDepth.exportTableName,
+            declaredModuleName,
+            emitDepth.exportTableName
+        ) .. table.concat(
+            instantiation
+        ) .. code .. (
+            " end);if not __nuppOk then package.loaded[%q]=nil;error(__nuppWhy,0) end;return %s"
+        ):format(declaredModuleName, emitDepth.exportTableName)
+    end
     -- Declared first here so they end up last in the prologue: every block below
     -- prepends
     -- ahead of this one, which leaves these sitting directly on top of the module body

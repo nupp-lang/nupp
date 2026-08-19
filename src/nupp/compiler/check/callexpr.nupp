@@ -902,6 +902,29 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local modname = text:match('^"(.*)"$') or text:match("^'(.*)'$")
                 if modname then
                     node.requiredModule = modname
+                    local modulePath = c.env.findModulePath and c.env.findModulePath(c.env, modname) or nil
+                    local canonical = modulePath and c.env.moduleNameForPath and c.env.moduleNameForPath(
+                        c.env,
+                        modulePath
+                    ) or nil
+                    local projectIndex = canonical and c.env.ensureProjectIndex and c.env.ensureProjectIndex(
+                        c.env
+                    ) or nil
+                    if canonical
+                        and canonical ~= modname
+                        and projectIndex
+                        and projectIndex.declaredModules
+                        and projectIndex.declaredModules[
+                        canonical
+                    ] then
+                        c.diag(
+                            "NUPP1002",
+                            tok,
+                            ("module %q is an alias; require its canonical name %q"):format(modname, canonical)
+                        )
+                        node.requiredModule = canonical
+                        modname = canonical
+                    end
                     local effect = native.forModule(modname)
                     if effect and c.recordEffect then
                         (node as any).compilerFeatureEffect = effect
@@ -927,6 +950,25 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             callee.callCallee = true
         end
         local calleeT = callee and c.infer(callee) or T.any
+        local selectedExport = callee and callee.exactCallExport or nil
+        if selectedExport
+            and #c.functionBodies == 0
+            and c.env
+            and c.env.moduleInitializing
+            and c.env.moduleInitializing(
+            c.env,
+            selectedExport.module
+        ) then
+            c.diag(
+                "NUPP1002",
+                callee,
+                (
+                    "eager module cycle calls %s before module %q has finished initializing"
+                ):format(selectedExport.identity, selectedExport.module),
+                nil,
+                {help = "move this call behind an exported function so it runs after module initialization"}
+            )
+        end
         if callee and callee.fixedWidthCallableUntrusted == true then
             node.fixedWidthUntrustedResult = true
         end

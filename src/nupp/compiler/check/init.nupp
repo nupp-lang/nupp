@@ -826,6 +826,8 @@ function checkMod.check(
         env,
         filename
     ) or nil
+    local declaredModuleName, declaredModuleNode = cst.declaredModule(result.root)
+    result.declaredModuleName = declaredModuleName
     local registry = opts and opts.annotations or env and env.annotations or annotationMod.default()
     annotationMod.hydrateBuiltins(registry, T)
     if env then
@@ -854,7 +856,7 @@ function checkMod.check(
         ) and true or (filename and filename:match("%.d%.nupp$")) and true or false,
         -- The table qualified declarations attach to, so `record M.Point` in a file
         -- that returns M exports Point while `record Other.Point` does not.
-        moduleLocal = cst.returnedLocal(result.root),
+        moduleLocal = declaredModuleName and "__nuppExports" or cst.returnedLocal(result.root),
         annotationRegistry = registry,
         annotationDefinitions = {},
         lintConfig = opts and opts.lints or env and env.config and env.config.lints or nil,
@@ -925,6 +927,7 @@ function checkMod.check(
     c.rootScope = c.scope
     c.moduleExports.valueDefs = c.moduleExports.valueDefs or {}
     c.moduleExports.comptimeFunctions = c.moduleExports.comptimeFunctions or {}
+
     -- What this file has declared to the FFI. Per file, because a cdef binding is
     -- file-local, and because the alternative is process state deciding what a
     -- program means.
@@ -1141,6 +1144,45 @@ function checkMod.check(
             notes = details and details.notes or nil,
             related = details and details.related or nil,
         }
+    end
+
+    if declaredModuleNode then
+        local first = nil
+        local declarations = 0
+        for _, block in ipairs(result.root.blocks or {}) do
+            for _, stat in ipairs(block.stats or {}) do
+                if stat.kind ~= "emptyStmt" then
+                    first = first or stat
+                end
+                if stat.kind == "moduleStmt" then
+                    declarations = declarations + 1
+                end
+            end
+        end
+        if first ~= declaredModuleNode then
+            c.diag("NUPP1002", declaredModuleNode, "the module declaration must be the first declaration in the file")
+        end
+        if declarations > 1 then
+            c.diag("NUPP1002", declaredModuleNode, "a source file declares exactly one module")
+        end
+        if filename and filename:match("%.d%.nupp$") then
+            c.diag("NUPP1002", declaredModuleNode, "declaration files cannot declare source modules")
+        end
+        for segment in declaredModuleName:gmatch("[^.]+") do
+            if not segment:match("^[a-z][a-z0-9]*$") then
+                c.diag("NUPP1002", declaredModuleNode, ("module segment %q must use lowercase luacase"):format(segment))
+                break
+            end
+        end
+        if result.moduleName and declaredModuleName ~= result.moduleName then
+            c.diag(
+                "NUPP1002",
+                declaredModuleNode,
+                (
+                    "module %q does not match this file's canonical module name %q"
+                ):format(declaredModuleName, result.moduleName)
+            )
+        end
     end
 
     -- A cleanup body that resolves a name declared outside itself makes the generated
@@ -2026,8 +2068,118 @@ function checkMod.check(
             statHandlers[kind] = handle
         end
     end
-    statHandlers.recordDecl = c.checkTypedecl
-    statHandlers.typeAlias = c.checkTypedecl
+    local function checkTypeDeclaration(stat)
+        if declaredModuleName and stat.visibility == "global" then
+            c.diag("NUPP1002", stat.modifier or stat, "'global' is not allowed in a declared module; use 'export'")
+            stat.visibility = "local"
+        end
+        c.checkTypedecl(stat)
+    end
+
+    statHandlers.recordDecl = checkTypeDeclaration
+    statHandlers.typeAlias = checkTypeDeclaration
+
+    local function exportValue(nameTok, t, definition, value, constant)
+        if not nameTok then
+            return
+        end
+        local name = nameTok.text
+        c.moduleFields[name] = t or T.any
+        c.moduleFieldTokens[name] = nameTok
+        c.moduleFieldDefs[name] = definition
+        c.moduleFieldValues[name] = value
+        if constant then
+            c.moduleFieldConst[name] = true
+        end
+        c.moduleExports.values[name] = t or T.any
+        c.moduleExports.valueDefs[name] = definition
+        if definition then
+            c.reads[definition] = true
+        end
+    end
+
+    statHandlers.moduleStmt = function(stat)
+        if stat ~= declaredModuleNode then
+            c.diag("NUPP1002", stat, "a module declaration is allowed only once at the top of a source file")
+        end
+        if c.env and c.env.ensureProjectIndex then
+            local projectIndex = c.env.ensureProjectIndex(c.env)
+            local prefix = ""
+            for _, name in ipairs(stat.names or {}) do
+                prefix = prefix == "" and name.text or prefix .. "." .. name.text
+                local definition = projectIndex.moduleDefinitions and projectIndex.moduleDefinitions[prefix] or nil
+                c.markToken(name, definition, nil, "module")
+            end
+        end
+    end
+
+    statHandlers.exportStmt = function(wrapper)
+        if not declaredModuleName then
+            c.diag("NUPP1002", wrapper, "'export' is available only in a declared module")
+            return
+        end
+        if c.scope ~= c.rootScope then
+            c.diag("NUPP1002", wrapper, "an export declaration is allowed only at module top level")
+            local nested = wrapper.stat
+            if nested and statHandlers[nested.kind] then
+                statHandlers[nested.kind](nested)
+            end
+            return
+        end
+        local stat = wrapper.stat
+        while stat and stat.kind == "pragmaStmt" do
+            stat = stat.stat
+        end
+        if not stat then
+            return
+        end
+        stat.exported = true
+        if stat.kind == "recordDecl" or stat.kind == "typeAlias" then
+            if stat.visibility == "global" then
+                c.diag("NUPP1002", stat.modifier or stat, "'global' is not allowed in a declared module")
+            end
+            stat.visibility = "module"
+            statHandlers[stat.kind](stat)
+            local t = stat.resolvedType
+            if stat.kind == "recordDecl" and t then
+                exportValue(stat.name, t, stat.name and stat.name.definition, stat, true)
+            end
+            return
+        end
+        if stat.kind == "localFuncStmt" or stat.kind == "funcStmt" then
+            if stat.kind == "funcStmt" and stat.name and (#stat.name ~= 1 or stat.name.method) then
+                c.diag("NUPP1002", stat.name, "an exported function name cannot be qualified")
+                return
+            end
+            for _, parameter in ipairs(stat.body and stat.body.params or {}) do
+                if parameter.name and not parameter.type and not parameter.vararg then
+                    c.diag("NUPP1002", parameter.name, "an exported function must write every public parameter type")
+                end
+            end
+            if stat.body and not stat.body.rets and not stat.body.returnPack then
+                c.diag("NUPP1002", stat.body, "an exported function must write its public result type")
+            end
+            stat.isConst = true
+            statHandlers[stat.kind](stat)
+            local nameTok = stat.kind == "localFuncStmt" and stat.name or stat.name and stat.name.base
+            local entry = nameTok and c.scope.vars[nameTok.text]
+            exportValue(nameTok, entry and entry.t, entry and entry.definition, stat.body, true)
+            return
+        end
+        if stat.kind == "localStmt" and stat.isConst and not stat.pattern then
+            statHandlers.localStmt(stat)
+            for _, nameTok in ipairs(stat.names or {}) do
+                local entry = c.scope.vars[nameTok.text]
+                exportValue(nameTok, entry and entry.t, entry and entry.definition, nil, true)
+            end
+            return
+        end
+        c.diag(
+            "NUPP1002",
+            wrapper,
+            "'export' must introduce a function, type declaration, record, interface, struct, or const"
+        )
+    end
 
     local function checkStat(stat: Node)
         local handle = statHandlers[stat.kind]
@@ -2067,6 +2219,18 @@ function checkMod.check(
             local decl = stat
             while decl and decl.kind == "pragmaStmt" do
                 decl = decl.stat
+            end
+            if decl and decl.kind == "exportStmt" then
+                decl = decl.stat
+                while decl and decl.kind == "pragmaStmt" do
+                    decl = decl.stat
+                end
+                if decl and (decl.kind == "recordDecl" or decl.kind == "typeAlias") then
+                    decl.visibility = "module"
+                    decl.exported = true
+                elseif decl then
+                    decl.exported = true
+                end
             end
             local k = decl and decl.kind
             if k == "recordDecl" and decl.name then
@@ -2129,6 +2293,27 @@ function checkMod.check(
             local decl = stat
             while decl and decl.kind == "pragmaStmt" do
                 decl = decl.stat
+            end
+            if decl and decl.kind == "exportStmt" then
+                decl = decl.stat
+                while decl and decl.kind == "pragmaStmt" do
+                    decl = decl.stat
+                end
+            end
+            if decl and decl.exported and (decl.kind == "localFuncStmt" or decl.kind == "funcStmt") then
+                local nameTok = decl.kind == "localFuncStmt" and decl.name or decl.name and decl.name.base
+                if nameTok and decl.body then
+                    local signature = c.signatureOf(decl.body, nil)
+                    local definition = nameTok.definition or c.definition(nameTok, "function")
+                    definition.type = signature
+                    c.moduleFields[nameTok.text] = signature
+                    c.moduleFieldTokens[nameTok.text] = nameTok
+                    c.moduleFieldDefs[nameTok.text] = definition
+                    c.moduleFieldValues[nameTok.text] = decl.body
+                    c.moduleFieldConst[nameTok.text] = true
+                    c.moduleExports.values[nameTok.text] = signature
+                    c.moduleExports.valueDefs[nameTok.text] = definition
+                end
             end
             local fname = decl and decl.kind == "funcStmt" and decl.name
             local ownerKey, memberTok = nil, nil
@@ -2334,6 +2519,17 @@ function checkMod.check(
     for _, block in ipairs(result.root.blocks) do
         c.checkBlock(block, true)
         auditWithGotos(block)
+    end
+    if declaredModuleName then
+        local fields = {}
+        for name, t in pairs(c.moduleFields) do
+            fields[#fields + 1] = {name = name, read = t}
+        end
+        table.sort(fields, function(a, b)
+            return a.name < b.name
+        end)
+        c.moduleType = T.shape(fields)
+        c.moduleTypeFromFields = true
     end
     c.derives.finalize()
     auditScope(c.rootScope)

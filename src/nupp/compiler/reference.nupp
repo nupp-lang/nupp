@@ -104,11 +104,12 @@ Generated code targets LuaJIT 2.1.1784535649 or newer.
         title = "Declaring things",
         codes = {"NUPP2119"},
         body = [=[
-A typed declaration says where it lives, the way an ordinary Lua definition
-does: `local` keeps it to the file, a qualified name puts it on that table, and
-`global` publishes it project-wide. Saying none of the three is refused rather
-than defaulted, because plain Lua would have made the name a global and the same
-silence is not reused for a different meaning.
+A typed declaration says where it lives. `local` keeps it to the file, a
+qualified name puts it on that table in a legacy return-table module,
+`global` publishes it project-wide, and `export` publishes it from a declared
+module. Saying none of these is refused rather than defaulted, because plain
+Lua would have made the name a global and the same silence is not reused for a
+different meaning.
 
 Inside its own body a declaration answers to its simple name, so a recursive
 field reads `User?` rather than `models.User?`.
@@ -229,6 +230,9 @@ Patterns are generic field reads, so they work with records, structural tables,
 and modules returned by `require`. They do not move fields out of affine or
 borrowed values. Nested, positional, defaulted, rest, assignment, and function
 parameter patterns are not part of this form.
+
+For a declared module, `type Name` selects an exported type without a runtime
+field read. A statement containing only type selections emits no `require`.
 ]=],
         example = [=[
 local record Point
@@ -1722,40 +1726,57 @@ return m
 
     new reference.Section(
         title = "Modules",
-        codes = {"NUPP2120", "NUPP2101"},
+        codes = {"NUPP1002", "NUPP2004", "NUPP2101"},
         body = [=[
-A module is a Lua file: `require` gets the value it returns. Runtime
-declarations attach to a returned table and determine its type; paths such as
-`models.user.User` may also name types.
+A declared source module begins with its canonical dotted name. Declarations
+are private unless marked `export`; the compiler creates its stable export
+table, publishes it under that one `package.loaded` key, and returns it. A
+declared module has no final module-value `return`, and `global` is not allowed
+inside one.
 
-An annotated `function M.name(...)` signature is visible to sibling bodies in
-either source order. Assignments, local functions and runtime writes remain
-source-ordered.
+`require("models")` remains the explicit Lua-shaped import. A brace pattern may
+select several values, with `as` for a local alias, and `type Name` selects an
+erased exported type.
 
-The returned local names the module; there is no `module` keyword. `const
-M.field = value` makes one export immutable; on a fresh table, `const` marks one
-named slot and `const...` marks them all. Primitive literal types survive in
-consumers.
+An unshadowed qualified path resolves its longest registered declared-module
+prefix, so `models.user.find(...)` needs no source binding. Code generation
+creates one hidden direct `require` for that module and reuses the local at
+every access; it injects no per-call loader or proxy. A lexical root binding
+wins and makes the path ordinary field access.
+
+Mutually dependent modules are checked against their written interfaces as a
+group. Exported function signatures are available before bodies are checked,
+so recursive functions keep their types instead of falling back to `any`.
+Runtime evaluation remains eager: hoisted function exports can participate in
+a benign cycle, but top-level computation cannot read an export that the other
+module has not initialized.
+
+Legacy files that construct and return a table remain valid, but they do not
+gain declared-module cycle or qualified-namespace behavior.
 
 A `.d.nupp` file returns no table; its bare declarations describe an external
 interface.
 ]=],
         context = {
-            ["models.nupp"] = [=[
-local models = {}
+            [
+                "models.nupp"
+            ] = [=[
+module models
 
-record models.User
+export record User
     id: uint32
     name: string
 end
 
-return models
+export function find(id: uint32): User?
+    return nil
+end
 ]=]
         },
         example = [=[
-local models = require("models")
+const {type User, find} = require("models")
 
-local user: models.User = new models.User(id = 1, name = "ada")
+local user: User? = find(1)
 
 return user
 ]=]

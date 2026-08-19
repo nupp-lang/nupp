@@ -689,6 +689,37 @@ function expr.install(c: state.Checker): nil
             end
             local nameText = nameTok.text
             local entry = c.lookupEntry(nameText)
+            if not entry
+                and c.result.declaredModuleName
+                and c.moduleExports
+                and c.moduleExports.values
+                and c.moduleExports.values[
+                nameText
+            ] then
+                local exportedType = c.moduleExports.values[nameText]
+                local definition = c.moduleExports.valueDefs and c.moduleExports.valueDefs[nameText] or nil
+                c.markToken(nameTok, definition, exportedType, definition and definition.kind or "variable")
+                node.immutablePath = true
+                return exportedType
+            end
+            if not entry and c.env and c.env.ensureProjectIndex and c.env.resolveModule then
+                local registry = c.env.ensureProjectIndex(c.env)
+                if registry.declaredModules and registry.declaredModules[nameText] then
+                    local moduleType = c.env.resolveModule(c.env, nameText)
+                    if moduleType then
+                        node.qualifiedModule = nameText
+                        node.qualifiedMembers = {}
+                        node.immutablePath = true
+                        c.markToken(
+                            nameTok,
+                            registry.moduleDefinitions and registry.moduleDefinitions[nameText] or nil,
+                            moduleType,
+                            "module"
+                        )
+                        return moduleType
+                    end
+                end
+            end
             -- Preserve a resolved module identity through ordinary local aliases.
             -- Comptime provider and runtime-helper handles use that identity rather
             -- than making the alias spelling part of their ABI.

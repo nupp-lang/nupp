@@ -24,6 +24,9 @@ local cst = {}
 --- These belong to no one kind, so they are declared once and included by every node
 --- rather than repeated on each.
 interface cst.Hints
+    --- This declaration is wrapped in a declared module's `export` statement.
+    exported: boolean?
+
     --- Checked switch metadata consumed by lowering and editor tooling.
     switchStaticValue: any
 
@@ -164,6 +167,11 @@ interface cst.Hints
     --- A builtin namespace path the checker resolved to a module, which codegen emits
     --- as a private require binding once per generated module.
     compilerModule: string?
+
+    --- A declared module selected through an unshadowed qualified namespace path.
+    qualifiedModule: string?
+
+    qualifiedMembers: {string}?
 
     --- A runtime feature required if this node reaches generated Lua. The checker
     --- records source-level effects separately for diagnostics and packaging; codegen
@@ -594,6 +602,25 @@ record cst.EmptyStmt is cst.Hints
     kind: 'emptyStmt'
 end
 
+--- `module a.b.c`, naming the canonical module implemented by this source file.
+record cst.ModuleStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'moduleStmt'
+    keyword: lexer.Token?
+    names: {lexer.Token}
+end
+
+--- `export` applied to one declaration. The wrapped declaration retains its ordinary
+--- CST shape; checking and lowering add only the module boundary behavior.
+record cst.ExportStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'exportStmt'
+    keyword: lexer.Token?
+    stat: cst.Node?
+end
+
 --- `handle suspension with h do ... end`: a scope in which `h` answers suspensions.
 ---
 --- Installs a suspension handler and additionally marks its body a checked
@@ -932,6 +959,9 @@ record cst.BindingEntry is cst.Hints
 
     --- The field read from the source value.
     sourceName: lexer.Token?
+
+    --- The contextual `type` on an erased declared-module selection.
+    typeOnly: lexer.Token?
 
     --- The local name after `as`, or nil when `sourceName` is also the local.
     alias: lexer.Token?
@@ -2509,6 +2539,8 @@ end
 type cst.Node = cst.Chunk
     | cst.Block
     | cst.EmptyStmt
+    | cst.ModuleStmt
+    | cst.ExportStmt
     | cst.HandleStmt
     | cst.WithStmt
     | cst.WithBinding
@@ -2929,6 +2961,23 @@ function cst.declVisibility(declaration: cst.Declaration, moduleLocal: string?):
     end
 
     return written or "local"
+end
+
+--- The dotted name written by this file's declared-module header, if present.
+function cst.declaredModule(root: cst.Chunk?): string?, cst.ModuleStmt?
+    for _, block in ipairs(root and root.blocks or {}) do
+        for _, stat in ipairs(block.stats or {}) do
+            if stat.kind == "moduleStmt" then
+                local parts = {}
+                for _, name in ipairs(stat.names or {}) do
+                    parts[#parts + 1] = name.text
+                end
+                return table.concat(parts, "."), stat
+            end
+        end
+    end
+
+    return nil, nil
 end
 
 --- Renders a node as a compact s-expression for tests and debugging: tokens print as

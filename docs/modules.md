@@ -1,421 +1,250 @@
-# Declarations and modules
+# Declared modules
 
-A typed declaration says where it lives, the way an ordinary Lua definition
-already does. There is no fourth rule to learn and no
-default to remember.
-
-| form | value side (plain Lua) | type side |
-| --- | --- | --- |
-| local record R | file-local | file-local |
-| record M.R | a member of M | a member of M |
-| global record R | a _G global | a project global |
-
-The parallel is exact: `record M.Point` is to `record` what `function M.f` is
-to `function`. A dot puts the thing on a table; `local` keeps it in the file;
-neither makes it global.
+A declared module is one real source file and one real Lua module. The first
+declaration gives its canonical name, and `export` defines its public surface:
 
 ```nupp
-local models = {}
+module geom.shapes
 
-local type UserId = uint32
+local type Coordinate = number
 
-record models.User
-    id: UserId
+export record Point
+    x: Coordinate
+    y: Coordinate
 end
 
-return models
-```
+export const originName: string = "origin"
 
-## Module forms
-
-```nupp:playground
-local models = {}
-
--- Private to this file. Nothing outside can name it.
-local type UserId = uint32
-
--- A member of models, reached elsewhere as models.User.
-record models.User
-    id: UserId
-    name: string
-end
-
--- Visible project-wide with no import at all. Rare, and deliberately loud.
-global type AppId = uint64
-
-return models
-```
-
-A declaration that names none of the three is refused:
-
-```nupp
-record Loose -- NUPP2119: declaration "Loose" has no visibility;
-    id: uint32 --   write it as models.Loose, or mark it local or global
+export function origin(): Point
+    return new Point(x = 0, y = 0)
 end
 ```
 
-Plain Lua would have made `Loose` a global. Rather than reuse that silence for
-a different meaning, Nupp asks. This is the one place the language declines
-to inherit a Lua default, because the cost of guessing wrong is a name that
-means one thing here and another thing elsewhere.
+The file has its own private lexical scope. It does not create a global
+`geom`, share locals with another file, or need a companion declaration file.
+There is no final module-value `return`; the compiler creates and returns a
+stable export table.
 
-## Naming a member from another file
+Legacy files that construct and return a table remain supported during
+migration. They do not gain declared-module cycle behavior or qualified
+namespace access.
 
-A member is reached through the module it was attached to, so every name in a
-file shows where it came from:
+## Canonical names
 
-```nupp
-local shapes = require("geom.shapes")
+The declared name must equal the module name derived from the file's configured
+source root. For example, `src/geom/shapes.nupp` declares
+`module geom.shapes`. The `.g` marker in `shapes.g.nupp` is not part of the
+name, and a final `/init` is erased.
 
-local p: shapes.Point = new shapes.Point(x = 3, y = 4)
-```
+Only that canonical name may be used by static imports. This prevents one file
+from being initialized twice under different `package.loaded` keys. A
+`.d.nupp` file describes an external interface and cannot declare a source
+module.
 
-A module path also names a type directly, without a runtime `require`:
+Module segments use luacase: lowercase words run together, such as
+`nupp.hotreload` and `nupp.workers.native`.
 
-```nupp
-local p: geom.shapes.Point
-```
+## Exports and privacy
 
-The module itself is a value like any other, so it has to be required before its
-name means anything. A file's basename is not in scope elsewhere:
-
-```nupp
-local doubled = mathutil.double(21) -- `mathutil` is just an unknown name
-local mathutil = require("mathutil") -- this is what puts it in scope
-```
-
-An unknown name is `any`, as it is anywhere else, so the first line would
-otherwise say nothing at all until it ran. Because a project file is named
-after it, the checker knows better, and says so once per name:
-
-```text
-error: NUPP2120: "mathutil" names a project module; require("mathutil") to use it
-```
-
-A build refuses it. The program does not work, because `mathutil` is `nil` when
-it runs, and a compiler that can see why should not hand you a binary that fails
-later. An editor reports the same thing as a warning: a file you are typing into
-is half-written by definition, and the `require` is usually the next thing you
-add.
-
-This is the one diagnostic where a name being merely unknown is not the end of
-it, so it is not `@allow`-able advice. If a project genuinely has an
-undeclared global sharing a file's basename, the file or the global has to be
-renamed.
-
-Only a `global` is reachable without saying where it came from. There is no
-project-wide search for an unqualified name, so adding a `Point`, or a
-`mathutil.nupp`, to one corner of a project cannot change what a name means in
-another.
-
-## Returned module tables
-
-A module's type is whatever the file returned. Nothing is merged in behind it. A
-declaration that carries a runtime value puts itself on its table, which is an
-ordinary assignment in the generated Lua:
+Declarations are private unless marked `export`:
 
 ```nupp
-record shapes.Point -->  shapes.Point = {} shapes.Point.__index = shapes.Point
-    x: number
-    y: number
+module data.counter
+
+local function clamp(value: integer): integer
+    return math.max(0, value)
+end
+
+export type Count = uint32
+
+export interface Reader
+    read: function(self: Reader): Count
+end
+
+export function normalize(value: integer): integer
+    return clamp(value)
 end
 ```
 
-`type` and `interface` have no runtime value and emit nothing; they still name a
-member on the type side. Records and structs are values too, which is what lets
-a dependent construct one:
+Functions, records, interfaces, structs, type aliases, and constants can be
+exported. An exported alias or interface exists only for checking. Records and
+structs also export their runtime constructor value. Exported functions must
+write their parameter and result types so a dependent never learns a public
+contract by inspecting its body.
+
+`global` is not allowed inside a declared module. Use `export` for its public
+surface and `local` or `const` for private names. Exporting a nominal does not
+change the visibility of members inside that declaration.
+
+## Explicit imports
+
+`require` stays the explicit, Lua-shaped import:
 
 ```nupp
-local p = new shapes.Point(x = 1, y = 2) -->  setmetatable({x = 1, y = 2}, shapes.Point)
-```
+module app.main
 
-Which local is the module is read off the `return` statement, so wrapping it
-still works:
+const shapes = require("geom.shapes")
 
-```nupp
-return setmetatable(shapes, {}) -- shapes is still the module
-```
-
-One table deep, so the name a declaration binds under and the field it is
-assigned to stay the same thing. `record m.sub.Deep` is refused. A record body
-is where types nest, and it reaches through the table its owner sits on:
-
-```nupp
-local m = {}
-
-record m.Shapes
-    record Point
-        x: number
-    end
-
-    type Id = uint32
-end
-
-local p: m.Shapes.Point = new m.Shapes.Point(x = 1)
-```
-
-Attaching to any other table is not an export. It is a perfectly good way to
-group types privately:
-
-```nupp
-local shapes = {}
-local internal = {}
-
-record internal.Scratch -- file-private, despite the dot
-    used: integer
-end
-
-return shapes
-```
-
-## Naming itself
-
-Inside its own body a declaration answers to its simple name, so a recursive
-field does not repeat the table it sits on:
-
-```nupp
-record shapes.Path
-    points: {shapes.Point}
-    cutFrom: Path? -- Path, not shapes.Path
-
-    function count(self): integer
-        return #self.points
-    end
+export function makePoint(): shapes.Point
+    return new shapes.Point(x = 1, y = 2)
 end
 ```
 
-The binding lives and dies with the body. Outside it, the member is
-`shapes.Path` like any other.
+A literal call through the unshadowed builtin is a static dependency and is
+checked against the declared interface. A dynamic name or a locally shadowed
+`require` keeps ordinary gradual Lua behavior.
 
-## Methods
-
-Prefer implementing a record's methods inline, as `Path.count` above. Inline
-methods keep behavior beside the fields and contracts it relies on, declare
-`self` first, and are still emitted as ordinary `shapes.Path` methods. Use a
-separate qualified method only when adapting a type outside its declaration.
-
-A qualified method defines a body; it does not add a member. Callers see
-`shapes.Path.trim` only if the record body declares `trim` as a field, and a
-call through a name the record never declared is an untyped call rather than an
-error, so the symptom is a diagnostic somewhere else, such as an argument that
-lost its ownership mode or a result inferred `any`. Declare the member and let
-the qualified function fill it in:
+Brace selection imports several values without repetitive field reads:
 
 ```nupp
-record shapes.Path
-    points: {shapes.Point}
+const {origin, originName as label} = require("geom.shapes")
+```
 
-    trim: function(self: shapes.Path, count: integer): shapes.Path
-end
+`as` changes the local binding name. The syntax is the same generic shallow
+selection accepted by `local` and `const` for records and structural tables;
+it is not a module-only destructuring form.
 
-function shapes.Path.trim(self, count: integer): shapes.Path
-    return self
+An erased type selection is available for declared modules:
+
+```nupp
+const {
+    type Point as ShapePoint,
+    origin as makeOrigin,
+} = require("geom.shapes")
+```
+
+A statement containing only `type` selections emits no runtime `require`.
+Selecting a record without `type` binds both its type and runtime declaration
+value. An erased alias must be selected with `type`.
+
+Binding patterns are shallow. They are not allowed in function parameter
+declarations. Braces at a call site instead pluck named parameters from an
+existing value:
+
+```nupp
+draw({x, y} = point, color = "blue")
+```
+
+## Qualified module paths
+
+A registered package root lets an unshadowed dotted path name a declared
+module directly:
+
+```nupp
+module app.read
+
+export function read(pointer: voidptr, count: integer): nupp.mem.span.Span<uint8>
+    return nupp.mem.span.fromCarray(pointer as uint8*, count)
 end
 ```
 
-Direct function declarations on the table a file returns publish their
-signatures before any function body in that block is checked. Module functions
-may therefore call one another in either source order without predeclaring the
-module table's shape:
+The compiler resolves the longest registered module prefix. The remaining
+segments must be exported members; a miss is diagnosed rather than falling
+back to `any`. The facility is generic, so dependency roots such as
+`tecs.world.query.each(...)` work the same way as `nupp`.
+
+A lexical binding wins:
 
 ```nupp
-local strings = {}
-
-function strings.first(): string
-    return strings.second()
-end
-
-function strings.second(): string
-    return "second"
-end
-
-return strings
+local tecs = makeTestDouble()
+tecs.world.query -- ordinary field access on the test double
 ```
 
-This is declaration behavior, not assignment behavior. A later
-`strings.second = function ... end` becomes visible only after that assignment,
-and a `local function` follows the same lexical flow as Lua. The runtime writes
-also remain in source order, so module initialization must not call
-`strings.first` before `strings.second` has been assigned.
+Language intrinsics such as `nupp.pin`, `nupp.borrow`, `nupp.sizeof`, and
+`nupp.types` keep their compiler meaning and are reserved against module or
+export collisions.
 
+Qualified access is lazy at the module boundary, not at every field access.
+Each selected module becomes one hidden direct import in the containing Lua
+chunk. Repeated source accesses reuse it:
 
-## Conventions
-
-None of this is enforced, and there is no naming lint, but it is what the
-compiler's own sources and the generated documentation assume.
-
-Use camelCase for functions, methods, locals, parameters, and fields. Use
-PascalCase for nominal types: `User`, `HttpClient`, `ReadBuffer`.
-
-```nupp
-local m = {}
-
-record m.ReadBuffer
-    byteCount: integer
-    sourcePath: string
-end
-
-function m.newReadBuffer(sourcePath: string, byteCount: integer): m.ReadBuffer
-    return new m.ReadBuffer(byteCount = byteCount, sourcePath = sourcePath)
-end
-
-return m
+```lua
+local __nuppModule = require("nupp.mem.span")
+return __nuppModule.fromCarray(pointer, count)
 ```
 
-Names imported
-from C keep the spelling of the C API, because those identify ABI symbols; a
-camelCase local holding the module
-(`local miniApi = require("native.mini")`) marks the boundary without
-disguising the foreign name.
+There is no per-call loader, proxy, metatable guard, or injected helper. A
+module removed with dead code is not selected; a live reference loads once
+when its containing module initializes, and Lua's `require` cache owns reuse.
+Use an explicit dynamic `require` when runtime-first-use loading is genuinely
+needed.
 
-Module names are luacase: all lowercase, run together, with no separator of any
-kind and in particular no underscore. `nupp.resources`, `nupp.hotreload`,
-`nupp.workers.native`. A module name is a filesystem path before it is an
-identifier, which is what stops it being spelled like every other name here.
-Case does not survive that round trip: a case-insensitive filesystem resolves
-`nupp.hotReload` to `hotreload.nupp` and a case-sensitive one does not, so a
-mixed-case module name is a `require` that works on the machine it was written
-on and fails on the next one. An underscore does survive, but it
-competes with the dot. In a name like `nupp.resource_set` two separators divide
-one name at two strengths, and nothing says which of them is the namespace. Lua
-settled this long before Nupp: `string`, `table`, `coroutine`, `os`.
+A qualified type path creates no runtime import when it is used only as a
+type.
 
-Where a name wants two words, run them together while they still read as one
-thing (`hotreload`), or make the second word a submodule when it really is
-one (`workers.native`). If neither reads, the length is the symptom rather
-than the problem: the module is holding two subjects and wants splitting, or it
-is named for how it is built instead of what it is for.
+## Grouped checking and cycles
 
-For a module, keep helpers and internal aliases `local`, attach the exported
-records, structs, functions, and values to the module table, and return that
-table once at the end. Reserve `global` for a contract that genuinely belongs
-to the whole project.
+The compiler derives the static dependency graph and checks mutually dependent
+modules as a group. This is generic project behavior, not a special standard
+library mode and not a source keyword. Files keep separate lexical scopes,
+generated chunks, caches, and Lua module identities.
 
-Annotate exported parameters and returns; let obvious locals infer. That keeps
-public contracts stable without making bodies noisy.
-
-Leading underscores mark privacy to the documentation generator: members
-beginning with `_`, source files beginning with `_`, and anything under a
-module named `internal` are omitted unless the docs target opts into private
-output. A hidden member is left out of the rendered declaration as well as the
-member table. Metamethods are exempt, since `__index` names the operation
-rather than claiming privacy.
-
-## Mutual recursion across files
-
-Type resolution runs over declarations, not over loaded modules: a declaration
-is nameable as soon as its header is parsed, before any body is checked. Two
-files may therefore refer to each other's `global` types, neither requiring the
-other, because a global needs no module to reach it.
+Before checking bodies, the group publishes written exported type and function
+signatures. Mutually referring exported types and functions therefore keep
+their real types instead of degrading to `any`:
 
 ::: code-group
 
-```nupp [order.nupp]
-local order = {}
+```nupp [a.nupp]
+module a
+const b = require("b")
 
-global record Order
-    id: integer
-    buyer: Customer
+export function fromA(value: integer): integer
+    return b.fromB(value)
 end
-
-return order
 ```
 
-```nupp [customer.nupp]
-local customer = {}
+```nupp [b.nupp]
+module b
+const a = require("a")
 
-global record Customer
-    name: string
-    latest: Order?
+export function fromB(value: integer): integer
+    return value + 1
 end
 
-return customer
+export function throughA(value: integer): integer
+    return a.fromA(value)
+end
 ```
 
 :::
 
-A module member is different, because reaching `order.Order` means requiring
-`order`. Two modules that each require the other to name a type report
-**NUPP2101**, since neither module's exports are settled while the other is
-being resolved:
+Runtime initialization is still eager. Each module publishes its stable export
+table and hoisted function closures before loading dependencies. That makes the
+cycle above safe: neither function is called until both modules finish loading.
 
-```nupp [customer.nupp]
-local order = require("order")
+A cycle is not safe when top-level evaluation immediately reads or calls an
+export that the other module has not initialized. Moving that work behind an
+exported function breaks the temporal dependency. Grouped checking makes names
+available early; it does not invent results for cyclic top-level computation.
 
-local customer = {}
+An initialization failure clears the partial `package.loaded` entry and
+rethrows the original error rather than leaving a half-loaded module cached.
 
-record customer.Customer
-    name: string
-    latest: order.Order?          -- NUPP2101 when order requires customer
-end
+## Incremental checking
 
-return customer
-```
+The project index first extracts parser-only headers: canonical name, raw
+exports, written signatures, locations, and dependencies. The checker then
+elaborates those headers into typed interfaces. Recursive requests inside an
+active group see the already-published interface rather than an `any`
+placeholder.
 
-One direction is fine. When both need it, make the shared types `global`, or
-move them to a third module that neither requires back.
+Changing a private function body rechecks that module without changing its
+public interface. Changing an exported signature invalidates dependents. Each
+module remains its own cache and build output even when several interfaces are
+checked together.
 
-The runtime `require` is a separate matter and follows ordinary Lua rules, so a
-genuine load-time cycle, meaning two modules constructing each other's records
-while loading, is still a genuine cycle and is reported as one.
+## Legacy return-table modules
 
-This is also what keeps rebuilds cheap: a file's interface is derived from its
-declaration headers, so editing a function body cannot change it, and
-dependents are not rechecked.
-
-## Declaration files
-
-A `.d.nupp` file describes an interface it does not own and returns no table of
-its own, so there is nothing for a declaration to attach to. A bare declaration
-there *is* the interface being described, and is allowed:
-
-```nupp
--- string.buffer, described rather than defined
-record Buffer
-    put: function(b: Buffer, ...: any): Buffer
-end
-
-local new: function(size: integer?): Buffer
-
-return {new = new}
-```
-
-In a declaration file `local` is not privacy either; it marks the bindings the
-described module exports. See the documentation section of the README.
-
-## Annotation definitions
-
-An annotation definition is registered project-wide under its own name, since
-applications spell an unqualified `@name` and there is no table to reach it
-through. It is the other exemption from NUPP2119. See
-[annotations.md](annotations.md).
-
-## Worked example
-
-`src/geom/shapes.nupp`:
+Existing Lua-shaped modules continue to work:
 
 ```nupp
 local shapes = {}
 
---- A point in the plane.
 record shapes.Point
     x: number
     y: number
 end
-
---- A closed path, which may name the shape it was cut from.
-record shapes.Path
-    points: {shapes.Point}
-    cutFrom: Path?
-
-    function count(self): integer
-        return #self.points
-    end
-end
-
-type shapes.Drawable = shapes.Point | shapes.Path
-
-local type Scratch = {integer} -- private to this file
 
 function shapes.origin(): shapes.Point
     return new shapes.Point(x = 0, y = 0)
@@ -424,44 +253,30 @@ end
 return shapes
 ```
 
-`src/app/main.nupp`:
+Use `const shapes = require("geom.shapes")` to import one. Qualified namespace
+paths intentionally resolve only declared modules, so migration is explicit
+and cannot accidentally reinterpret an arbitrary Lua table as a package tree.
 
-```nupp
-local shapes = require("geom.shapes")
+## Tooling
 
-local p: shapes.Point = new shapes.Point(x = 1, y = 2)
-local path: shapes.Path = new shapes.Path(points = {p}, cutFrom = nil)
-local d: shapes.Drawable = p
-
-print(path:count(), shapes.origin().x, d is shapes.Point)
-```
+Formatting, semantic highlighting, definitions, rename, and completion
+understand `module`, `export`, brace selection, and qualified paths. Completion
+on a registered namespace lists child modules and exports. Definition on an
+export reaches its declaration, and an exact module segment reaches the module
+declaration.
 
 ## Diagnostics
 
-- **NUPP2119**: a declaration names no visibility and no table to attach to.
-  Write `local`, `global`, or a qualified name. Also raised when a modifier sits
-  beside a qualified name, which says where it lives twice.
-- **NUPP2101**: unknown type name. An unqualified name that is a member of some
-  module reports this rather than resolving: name the module.
-- **NUPP2102** / **NUPP2104**: two project globals share a type or value name.
-  Globals are one flat namespace, so one of them has to become a member.
-- **NUPP2120**: a project module is used without being required. An error in a
-  build, a warning in an editor. Given once per name, and it replaces NUPP2105
-  for that name.
-- **NUPP2105** (strict files): unknown variable, for names no project file
-  answers to. Reported in a `.nupp` file, and in any file under `--strict`.
-- **NUPP1006**: the typed layer written in a `.lua` file, which is plain Lua.
-
-NUPP2119, NUPP2101 and NUPP2120 carry machine-applicable fixes, which the LSP
-server offers as quick fixes. Each way out a message names is its own fix rather
-than a choice made for the author: NUPP2119 offers `local`, `global`, and, where
-the file returns a table, attaching to it; NUPP2101 offers the qualified
-spelling through each module exporting that name, adding the `require` in the
-same edit when the file has none; NUPP2120 offers one require per candidate
-module. A fix that would bind over a name already in scope is not offered at
-all.
+- **NUPP1002** reports invalid module declarations, non-canonical names,
+  duplicate canonical modules, reserved compiler-name collisions, and
+  parent-export/child-module collisions.
+- **NUPP2004** reports a missing selected field or exported member.
+- **NUPP2101** reports an unknown type.
+- **NUPP2105** reports an unknown value in strict source.
+- **NUPP2119** reports a typed declaration with no visibility in a legacy
+  module. In a declared module, use `local` or `export`.
 
 ## Next
 
 - [strictness.md](concepts/strictness.md): which floor a file is held to.
-- [build.md](tooling/build.md): how a project's files become a build.
+- [build.md](tooling/build.md): how project files become build output.

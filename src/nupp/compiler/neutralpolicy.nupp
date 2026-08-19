@@ -7,23 +7,21 @@ test keeps the inventory complete and prevents a neutral term from silently acqu
 runtime meaning.
 ]]
 
-local policy: {
-    [string]: any
-} = {
-    relations = "reduce at entry; relate identical blocked terms only",
-    substitution = "preserve under rebind; reduce after closed substitution",
-    rendering = "preserve as bounded source-like text",
-    fingerprints = "preserve canonical semantic structure",
-    ownership = "reject as an unclosed boundary type",
-    narrowing = "preserve until a relation requests reduction",
-    methodSlots = "reduce before member enumeration",
-    documentation = "show the written alias and shortened reduced form",
-    lsp = "reduce with the checker-revision memo before semantic answers",
-    optimization = "reject before runtime lowering",
-    codegen = "reject before runtime lowering",
-}
+module nupp.compiler.neutralpolicy
 
-policy.required = {
+export const relations = "reduce at entry; relate identical blocked terms only"
+export const substitution = "preserve under rebind; reduce after closed substitution"
+export const rendering = "preserve as bounded source-like text"
+export const fingerprints = "preserve canonical semantic structure"
+export const ownership = "reject as an unclosed boundary type"
+export const narrowing = "preserve until a relation requests reduction"
+export const methodSlots = "reduce before member enumeration"
+export const documentation = "show the written alias and shortened reduced form"
+export const lsp = "reduce with the checker-revision memo before semantic answers"
+export const optimization = "reject before runtime lowering"
+export const codegen = "reject before runtime lowering"
+
+export const required = {
     "relations",
     "substitution",
     "rendering",
@@ -36,5 +34,3 @@ policy.required = {
     "optimization",
     "codegen",
 }
-
-return policy

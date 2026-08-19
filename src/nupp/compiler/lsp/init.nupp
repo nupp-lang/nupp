@@ -979,10 +979,10 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             return
         end
         local patternEntry, patternSource, patternUri = unaliasedPatternDefinition(tok)
-        local patternRange = patternEntry
-            and patternSource
-            and tokenRange(patternSource, patternEntry.sourceName)
-            or nil
+        local patternRange = patternEntry and patternSource and tokenRange(
+            patternSource,
+            patternEntry.sourceName
+        ) or nil
         local changes = {}
         for _, location in ipairs(references(true)) do
             local edits = changes[location.uri]
@@ -998,9 +998,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 #edits + 1
             ] = {
                 range = location.range,
-                newText = declarationEdit
-                    and (patternEntry.sourceName.text .. " as " .. newName)
-                    or newName,
+                newText = declarationEdit and (patternEntry.sourceName.text .. " as " .. newName) or newName,
             }
         end
         respond(id, {changes = changes})

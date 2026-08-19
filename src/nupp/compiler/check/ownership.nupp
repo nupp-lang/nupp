@@ -261,12 +261,30 @@ function ownership.install(c: state.Checker): ownership.Ops
     -- the declaration without leaking a block-local `File` beyond its scope.
     local function declaredFunctionEntry(name)
         local direct = c.lookupEntry(name) or c.qualifiedFunctionEntries[name]
+        if not direct and not name:find(
+            "%."
+        ) and c.moduleExports and c.moduleExports.values and c.moduleExports.values[name] then
+            direct = {
+                t = c.moduleExports.values[name],
+                definition = c.moduleExports.valueDefs and c.moduleExports.valueDefs[name] or nil,
+            }
+        end
         if direct then
             return direct
         end
         local ownerName, member = name:match("^(.*)%.([^.]*)$")
         local owner = ownerName and c.lookupType(ownerName) or nil
         if not owner or owner.tag ~= "nominal" then
+            local moduleName, exportName = name:match("^(.*)%.([^.]+)$")
+            local exports = moduleName and c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
+                c.env,
+                moduleName
+            ) or nil
+            local exported = exports and exports.values and exports.values[exportName] or nil
+            local exportedDefinition = exports and exports.valueDefs and exports.valueDefs[exportName] or nil
+            if exported and exportedDefinition then
+                return {t = exported, definition = exportedDefinition}
+            end
             return nil
         end
         local functionType = owner.byname and owner.byname[member] or owner.staticByname and owner.staticByname[member]

@@ -45,11 +45,14 @@ type header.Declaration = {
 type header.Header = {
     path: string,
     moduleName: string?,
+    declaredModuleName: string?,
+    moduleToken: any?,
 
     --- The local the file returns, which qualified declarations attach to.
     moduleLocal: string?,
 
-    declarations: {header.Declaration}
+    declarations: {header.Declaration},
+    dependencies: {string}
 }
 
 local function declarationKind(stat): string
@@ -89,9 +92,10 @@ local function syntacticDeprecation(application): any
     return deprecated
 end
 
-local function annotatedDeclaration(stat): any, boolean, any
+local function annotatedDeclaration(stat): any, boolean, any, boolean
     local annotationDefinition = false
     local deprecated = nil
+    local exported = false
     while stat and stat.kind == "pragmaStmt" do
         if stat.name and stat.name.text == "annotation" then
             annotationDefinition = true
@@ -101,14 +105,33 @@ local function annotatedDeclaration(stat): any, boolean, any
         stat = stat.stat
     end
 
-    return stat, annotationDefinition, deprecated
+    if stat and stat.kind == "exportStmt" then
+        exported = true
+        stat = stat.stat
+        while stat and stat.kind == "pragmaStmt" do
+            if stat.name and stat.name.text == "annotation" then
+                annotationDefinition = true
+            elseif stat.name and stat.name.text == "deprecated" then
+                deprecated = syntacticDeprecation(stat)
+            end
+            stat = stat.stat
+        end
+    end
+
+    return stat, annotationDefinition, deprecated, exported
 end
 
 --- A declaration's syntax without trivia. Whitespace and comments do not change a
 --- reflected type or a module interface, so they must not invalidate either reader.
-local function declarationSignature(stat): string
+local function declarationSignature(stat, declaration): string
     local parts = {}
+    local skippedBody = declaration and (
+        declaration.kind == "localFuncStmt" or declaration.kind == "funcStmt"
+    ) and declaration.body and declaration.body.body or nil
     local function walk(value)
+        if value == skippedBody then
+            return
+        end
         if cst.isToken(value) then
             if value.kind ~= "eof" and not value.missing then
                 parts[#parts + 1] = value.kind .. "\1" .. value.text
@@ -154,16 +177,52 @@ end
 --- of the project either way, and saying so is what keeps a syntax error from also
 --- reading as a module that vanished.
 function header.of(path: string, moduleName: string?, parsed: parser.ParseResult?): header.Header
-    local produced: header.Header = {path = path, moduleName = moduleName, declarations = {}}
+    local produced: header.Header = {path = path, moduleName = moduleName, declarations = {}, dependencies = {}}
     if not parsed or #parsed.errors > 0 then
         return produced
     end
-    local moduleLocal = cst.returnedLocal(parsed.root)
+    local declaredModuleName, moduleNode = cst.declaredModule(parsed.root)
+    produced.declaredModuleName = declaredModuleName
+    produced.moduleToken = moduleNode and declarationToken(moduleNode.keyword)
+    local moduleLocal = declaredModuleName and "__nuppExports" or cst.returnedLocal(parsed.root)
     produced.moduleLocal = moduleLocal
+    local dependencySet = {}
+    local function dependencies(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        if node.kind == "call"
+            and node.obj
+            and node.obj.kind == "name"
+            and node.obj.token
+            and node.obj.token.text == "require"
+        then
+            local argument = node.args and node.args.exprs and node.args.exprs[1]
+            local name = argument and annotationString(argument)
+            if name then
+                dependencySet[name] = true
+            end
+        end
+        for _, child in ipairs(node) do
+            dependencies(child)
+        end
+    end
+
+    dependencies(parsed.root)
+    for name in pairs(dependencySet) do
+        produced.dependencies[#produced.dependencies + 1] = name
+    end
+    table.sort(produced.dependencies)
     for _, block in ipairs(parsed.root.blocks or {}) do
         for _, stat in ipairs(block.stats or {}) do
-            local declaration, isAnnotation, deprecated = annotatedDeclaration(stat)
-            local visibility = declaration and cst.declVisibility(declaration, moduleLocal)
+            local declaration, isAnnotation, deprecated, exported = annotatedDeclaration(stat)
+            local visibility = declaration and (
+                exported and "module" or (
+                    (
+                        declaration.kind == "typeAlias" or declaration.kind == "recordDecl"
+                    ) and cst.declVisibility(declaration, moduleLocal) or "local"
+                )
+            )
             if declaration and (
                 declaration.kind == "typeAlias" or declaration.kind == "recordDecl"
             ) and (visibility == "module" or visibility == "global") then
@@ -175,10 +234,33 @@ function header.of(path: string, moduleName: string?, parsed: parser.ParseResult
                     statKind = declaration.kind,
                     visibility = visibility,
                     token = declarationToken(declaration.name),
-                    signature = declarationSignature(stat),
+                    signature = declarationSignature(stat, declaration),
                     isAnnotation = isAnnotation,
                     deprecated = deprecated,
                 }
+            elseif declaration and exported then
+                local names, kind = {}, nil
+                if declaration.kind == "localFuncStmt" then
+                    names[1], kind = declaration.name, "function"
+                elseif declaration.kind == "funcStmt" and declaration.name and #declaration.name == 1 then
+                    names[1], kind = declaration.name.base, "function"
+                elseif declaration.kind == "localStmt" and declaration.isConst then
+                    names, kind = declaration.names or {}, "constant"
+                end
+                for _, name in ipairs(names) do
+                    produced.declarations[
+                        #produced.declarations + 1
+                    ] = {
+                        name = name.text,
+                        kind = kind,
+                        statKind = declaration.kind,
+                        visibility = "module",
+                        token = declarationToken(name),
+                        signature = declarationSignature(stat, declaration),
+                        isAnnotation = isAnnotation,
+                        deprecated = deprecated,
+                    }
+                end
             end
         end
     end

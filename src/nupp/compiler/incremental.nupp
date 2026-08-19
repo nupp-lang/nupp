@@ -17,9 +17,11 @@ declaration site, so a recheck preserves their identity.
 
 local query = require("nupp.compiler.query")
 local parser = require("nupp.compiler.parser")
+local cst = require("nupp.compiler.cst")
 local check = require("nupp.compiler.check")
 local envMod = require("nupp.compiler.env")
 local storeMod = require("nupp.compiler.build.store")
+local T = require("nupp.compiler.types")
 
 local incremental = {}
 
@@ -43,12 +45,15 @@ type incremental.Decl = {
 type incremental.Header = {
     path: string,
     moduleName: string?,
+    declaredModuleName: string?,
+    moduleToken: any?,
 
     --- The local the file returns, which qualified declarations attach to. Part of the
     --- interface: changing it changes what the module exports.
     moduleLocal: string?,
 
-    declarations: {incremental.Decl}
+    declarations: {incremental.Decl},
+    dependencies: {string}
 }
 
 --- The result of checking one module.
@@ -179,6 +184,19 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     local traceInspection = opts.traceInspection == true
     local q = query.new()
     local inc = new incremental.Inc(env = env, q = q)
+    local activeModules = {}
+
+    local function interfaceType(exports)
+        local fields = {}
+        for name, t in pairs(exports and exports.values or {}) do
+            fields[#fields + 1] = {name = name, read = t}
+        end
+        table.sort(fields, function(a, b)
+            return a.name < b.name
+        end)
+
+        return T.shape(fields)
+    end
 
     -- One store per environment, shared with whatever else reaches the same env: a
     -- check of one named file builds the project index through
@@ -276,12 +294,19 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         if not a or not b then
             return false
         end
-        if a.path ~= b.path
-            or a.moduleName ~= b.moduleName
-            or a.moduleLocal ~= b.moduleLocal
-            or #a.declarations ~= #b.declarations
-        then
+        if a.path ~= b.path or a.moduleName ~= b.moduleName or a.declaredModuleName ~= b.declaredModuleName or (
+            a.moduleToken and a.moduleToken.offset
+        ) ~= (
+            b.moduleToken and b.moduleToken.offset
+        ) or a.moduleLocal ~= b.moduleLocal or #a.declarations ~= #b.declarations or #(
+            a.dependencies or {}
+        ) ~= #(b.dependencies or {}) then
             return false
+        end
+        for index, name in ipairs(a.dependencies or {}) do
+            if name ~= b.dependencies[index] then
+                return false
+            end
         end
         for index, left in ipairs(a.declarations) do
             local right = b.declarations[index]
@@ -444,16 +469,42 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         if #result.errors > 0 then
             return {diags = result.errors, moduleType = nil, syntax = true, result = result}
         end
+        local seeded = {types = {}, typeDefs = {}, values = {}, valueDefs = {}, comptimeFunctions = {}}
+        for _, entry in ipairs(self:get("projectPathEntries", path) or {}) do
+            if entry.visibility == "module" and entry.type then
+                seeded.types[entry.name] = entry.type
+                seeded.typeDefs[entry.name] = entry.definition
+                if entry.kind == "struct" then
+                    seeded.values[entry.name] = entry.type
+                end
+            end
+        end
+        local sourceDeclaredModule = cst.declaredModule(result.root)
+        activeModules[path] = {exports = seeded, declared = sourceDeclaredModule ~= nil,}
+
         -- route require() through the query graph so dependencies record
         result.externalInputs = {}
         local qenv = setmetatable(
             {
                 resolveModule = function(_, name)
                     local interface = self:get("moduleInterface", name)
+                    local target = modulePath(self, name)
+                    local active = target and activeModules[target]
+                    if not interface and active then
+                        return active.declared and interfaceType(active.exports) or T.any
+                    end
+
                     return interface and interface.type or nil
                 end,
                 resolveModuleExports = function(_, name)
-                    return self:get("moduleExports", name)
+                    local exports = self:get("moduleExports", name)
+                    local target = modulePath(self, name)
+                    local active = target and activeModules[target]
+                    return exports or active and active.declared and active.exports or nil
+                end,
+                moduleInitializing = function(_, name)
+                    local target = modulePath(self, name)
+                    return target ~= nil and activeModules[target] ~= nil
                 end,
                 observeCallGuarantee = function(_, module, member, identity, guarantee)
                     local key = table.concat({module, member, identity, guarantee}, "\0")
@@ -477,6 +528,9 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                 end,
                 projectAnnotations = function(_, name)
                     return self:get("projectAnnotations", name)
+                end,
+                ensureProjectIndex = function()
+                    return self:get("projectIndex", "root")
                 end,
                 externalFile = function(_, externalPath)
                     return self:get("externalFile", externalPath)
@@ -509,8 +563,32 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                 -- consumer's `--strict` must not reinterpret that foreign contract.
                 strict = external and false or strict,
                 traceInspection = traceInspection,
+                initialExports = seeded,
             }
         )
+
+        activeModules[path] = nil
+
+        if result.declaredModuleName then
+            for _, diagnostic in ipairs(self:get("projectIndex", "root").registrationDiagnostics or {}) do
+                if diagnostic.path == path then
+                    local token = diagnostic.token or {}
+                    diags[
+                        #diags + 1
+                    ] = {
+                        code = "NUPP1002",
+                        msg = diagnostic.msg,
+                        filename = path,
+                        severity = "error",
+                        line = token.line or 0,
+                        col = token.col or 0,
+                        offset = token.offset or 0,
+                        length = token.text and #token.text or 0,
+                        related = diagnostic.related,
+                    }
+                end
+            end
+        end
 
         return {diags = diags, moduleType = moduleType, exports = exports, result = result}
     end

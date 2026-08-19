@@ -605,6 +605,32 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
                 return items
             end
             local t, moduleName = resolveReceiver(doc.checked, context.path)
+            if not t and not moduleName then
+                local prefix = table.concat(context.path, ".")
+                local index = s.inc.projectIndex()
+                local namespace = false
+                if index.declaredModules and index.declaredModules[prefix] then
+                    moduleCompletions(prefix, add)
+                    namespace = true
+                end
+                local childPrefix = prefix .. "."
+                for declared in pairs(index.declaredModules or {}) do
+                    if declared:sub(1, #childPrefix) == childPrefix then
+                        local rest = declared:sub(#childPrefix + 1)
+                        local child = rest:match("^[^.]+")
+                        if child then
+                            add(child, "module", nil, nil, 1)
+                            namespace = true
+                        end
+                    end
+                end
+                if namespace then
+                    table.sort(items, function(a, b)
+                        return a.label < b.label
+                    end)
+                    return items
+                end
+            end
             if inComptime and not t and not moduleName then
                 local global = s.inc.env.globals and s.inc.env.globals[context.path[1]]
                 t = global and global.t or nil
@@ -677,6 +703,13 @@ function complete.install(s: complete.Session, nav: complete.Navigation): comple
                     )
                 end
             end
+        end
+        local roots = {}
+        for moduleName in pairs(s.inc.projectIndex().declaredModules or {}) do
+            roots[moduleName:match("^[^.]+") or moduleName] = true
+        end
+        for root in pairs(roots) do
+            add(root, "module", nil, nil, 2)
         end
         for name, t in pairs(T.builtins) do
             add(name, "type", t, nil, 3)

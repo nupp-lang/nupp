@@ -1125,6 +1125,7 @@ function declare.install(
             and not stat.qualifiers
             and not c.declarationFile
             and not stat.isAnnotationDefinition
+            and not stat.exported
         then
             local suggestion = c.moduleLocal and (
                 "write it as %s.%s, or mark it local or global"

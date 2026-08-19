@@ -48,11 +48,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             local source = stat.patternSource or stat
             local sourceType = c.infer(source)
             if ownershipKind(sourceType) then
-                c.diag(
-                    "NUPP2603",
-                    source,
-                    "an owned or borrowed container cannot be selected by a binding pattern"
-                )
+                c.diag("NUPP2603", source, "an owned or borrowed container cannot be selected by a binding pattern")
             end
             local seenFields, seenLocals = {}, {}
             for index, entry in ipairs(stat.pattern) do
@@ -69,20 +65,41 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 end
                 seenLocals[localName] = true
 
-                local fieldType, definition = c.fieldType(sourceType, fieldName)
+                local fieldType, definition
+                local availableNames = c.fieldNames(sourceType)
+                if entry.typeOnly then
+                    local moduleName = source.requiredModule
+                    local exports = moduleName and c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
+                        c.env,
+                        moduleName
+                    ) or nil
+                    fieldType = exports and exports.types and exports.types[fieldName] or nil
+                    definition = exports and exports.typeDefs and exports.typeDefs[fieldName] or nil
+                    availableNames = {}
+                    for name in pairs(exports and exports.types or {}) do
+                        availableNames[#availableNames + 1] = name
+                    end
+                    if not moduleName then
+                        c.diag("NUPP1002", entry.typeOnly, "'type' may select only from a literal module require")
+                    end
+                else
+                    fieldType, definition = c.fieldType(sourceType, fieldName)
+                end
                 entry.selectedDefinition = definition
                 if not fieldType then
                     c.diag(
                         "NUPP2004",
                         fieldTok or entry,
-                        ("no field %q in %s"):format(fieldName, T.tostring(sourceType)),
-                        c.edits.nameSpellingFix(fieldTok, c.fieldNames(sourceType))
+                        entry.typeOnly and (
+                            "no exported type %q in this module"
+                        ):format(fieldName) or ("no field %q in %s"):format(fieldName, T.tostring(sourceType)),
+                        c.edits.nameSpellingFix(fieldTok, availableNames)
                     )
                     fieldType = T.any
-                elseif fieldTok then
+                elseif fieldTok and (not entry.typeOnly or entry.alias) then
                     c.markToken(fieldTok, definition, fieldType, "property")
                 end
-                if ownershipKind(fieldType) then
+                if not entry.typeOnly and ownershipKind(fieldType) then
                     c.diag(
                         "NUPP2603",
                         fieldTok or entry,
@@ -95,11 +112,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     c.fixedWidth.storageOnly(entry.type, annotation, "a local value")
                     local ok, why, reported = c.fixedWidth.fits(fieldType, annotation, entry)
                     if not ok and not reported then
-                        c.diag(
-                            "NUPP2001",
-                            entry,
-                            ("cannot initialize %s: %s"):format(localName, why)
-                        )
+                        c.diag("NUPP2001", entry, ("cannot initialize %s: %s"):format(localName, why))
                     end
                 end
                 local bound = annotation or fieldType
@@ -111,7 +124,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 elseif not annotation and bound == T.nil_ then
                     bound = T.any
                 end
-                if nameTok then
+                if nameTok and entry.typeOnly then
+                    c.bindType(localName, fieldType, nameTok)
+                elseif nameTok then
                     c.bindVar(localName, bound, annotation ~= nil, nameTok, nil, stat.isConst)
                     local boundEntry = c.scope.vars[localName]
                     if boundEntry then
@@ -131,11 +146,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                                 boundEntry.definition.exactCallExport = boundEntry.exactCallExport
                             end
                         end
-                        c.unused.declared(
-                            nameTok,
-                            boundEntry,
-                            boundEntry.requiredModule and "require" or "variable"
-                        )
+                        c.unused.declared(nameTok, boundEntry, boundEntry.requiredModule and "require" or "variable")
                     end
                 end
             end

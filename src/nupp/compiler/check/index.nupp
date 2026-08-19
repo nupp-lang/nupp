@@ -72,6 +72,101 @@ end
 function index.install(c: state.Checker): state.ExprHandlers
     local handlers = {}
 
+    local function dottedPath(node): string?, string?, {any}?
+        local parts = {}
+        local names = {}
+        local current = node
+        while current and current.kind == "dotIndex" do
+            if not current.name then
+                return nil, nil
+            end
+            table.insert(parts, 1, current.name.text)
+            table.insert(names, 1, current.name)
+            current = current.obj
+        end
+        if not current or current.kind ~= "name" or not current.token then
+            return nil, nil
+        end
+        table.insert(parts, 1, current.token.text)
+        table.insert(names, 1, current.token)
+
+        return table.concat(parts, "."), current.token.text, names
+    end
+
+    local function qualifiedModule(node): Type?
+        if node.kind ~= "dotIndex" or node.writeContext or not c.env or not c.env.ensureProjectIndex then
+            return nil
+        end
+        local written, root, nameTokens = dottedPath(node)
+        if not written or not root then
+            return nil
+        end
+        local lexical = c.lookupEntry(root)
+        local builtin = c.env.globals and c.env.globals[root]
+        if lexical and (not builtin or lexical.definition ~= builtin.definition) then
+            return nil
+        end
+        local registry = c.env.ensureProjectIndex(c.env)
+        local candidate = written
+        local suffix = {}
+        while candidate do
+            if registry.declaredModules and registry.declaredModules[candidate] then
+                local moduleType = c.env.resolveModule and c.env.resolveModule(c.env, candidate) or nil
+                if not moduleType then
+                    return nil
+                end
+                local resolved = moduleType
+                local definition = nil
+                for _, memberName in ipairs(suffix) do
+                    resolved, definition = c.fieldType(resolved, memberName)
+                    if not resolved then
+                        c.diag(
+                            "NUPP2004",
+                            node.name or node,
+                            ("module %q has no exported member %q"):format(candidate, memberName)
+                        )
+                        return T.any
+                    end
+                end
+                node.qualifiedModule = candidate
+                node.qualifiedMembers = suffix
+                if #suffix == 1 then
+                    node.exactCallExport = {
+                        module = candidate,
+                        member = suffix[1],
+                        identity = candidate .. "." .. suffix[1],
+                    }
+                end
+                node.immutablePath = true
+                node.resolvedType = resolved
+                local qualifiedTokens = nameTokens or {}
+                local prefix = ""
+                for tokenIndex = 1, #qualifiedTokens - #suffix do
+                    local token = qualifiedTokens[tokenIndex]
+                    prefix = prefix == "" and token.text or prefix .. "." .. token.text
+                    local moduleDefinition = registry.moduleDefinitions and registry.moduleDefinitions[prefix] or nil
+                    c.markToken(token, moduleDefinition, nil, "module")
+                end
+                if node.name then
+                    local exports = c.env.resolveModuleExports and c.env.resolveModuleExports(c.env, candidate) or nil
+                    local exported = #suffix == 0 and registry.moduleDefinitions and registry.moduleDefinitions[
+                        candidate
+                    ] or #suffix == 1 and exports and exports.valueDefs and exports.valueDefs[suffix[1]] or definition
+                    c.markToken(node.name, exported, resolved, exported and exported.kind or "property")
+                end
+                return resolved
+            end
+            local parent, last = candidate:match("^(.*)%.([^.]+)$")
+            if not parent then
+                break
+            end
+            table.insert(suffix, 1, last)
+            candidate = parent
+        end
+
+        return nil
+    end
+
     handlers.dotIndex = function(node: cst.DotIndex | cst.SafeIndex): Type
         local kind = node.kind
         local member = node.name
@@ -81,6 +176,10 @@ function index.install(c: state.Checker): state.ExprHandlers
         end
         local memberName = member.text
         node.fixedWidthUntrusted = nil
+        local projected = qualifiedModule(node)
+        if projected then
+            return projected
+        end
         -- the name it is dotted off, when the object is a plain name
         local holderName = ""
         if target.kind == "name" then

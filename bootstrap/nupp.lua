@@ -28033,6 +28033,8 @@ result . moduleName = opts and opts . moduleName or env and env . moduleNameForP
 env ,
 filename
 ) or nil
+local declaredModuleName , declaredModuleNode = cst . declaredModule ( result . root )
+result . declaredModuleName = declaredModuleName
 local registry = opts and opts . annotations or env and env . annotations or annotationMod . default ( )
 annotationMod . hydrateBuiltins ( registry , T )
 if env then
@@ -28061,7 +28063,7 @@ opts and ( opts . declarationFile or opts . declareGlobals )
 ) and true or ( filename and filename : match ( "%.d%.nupp$" ) ) and true or false ,  moduleLocal =
 
 
-cst . returnedLocal ( result . root ) ,  annotationRegistry =
+declaredModuleName and "__nuppExports" or cst . returnedLocal ( result . root ) ,  annotationRegistry =
 registry ,  annotationDefinitions =
 { } ,  lintConfig =
 opts and opts . lints or env and env . config and env . config . lints or nil ,  edits =
@@ -28132,6 +28134,7 @@ false }, state.Checker)
 c . rootScope = c . scope
 c . moduleExports . valueDefs = c . moduleExports . valueDefs or { }
 c . moduleExports . comptimeFunctions = c . moduleExports . comptimeFunctions or { }
+
 
 
 
@@ -28348,6 +28351,45 @@ help = details and details . help or nil ,
 notes = details and details . notes or nil ,
 related = details and details . related or nil ,
 }
+end
+
+if declaredModuleNode then
+local first = nil
+local declarations = 0
+for _ , block in ipairs ( result . root . blocks or { } ) do
+for _ , stat in ipairs ( block . stats or { } ) do
+if stat . kind ~= "emptyStmt" then
+first = first or stat
+end
+if stat . kind == "moduleStmt" then
+declarations = declarations + 1
+end
+end
+end
+if first ~= declaredModuleNode then
+c . diag ( "NUPP1002" , declaredModuleNode , "the module declaration must be the first declaration in the file" )
+end
+if declarations > 1 then
+c . diag ( "NUPP1002" , declaredModuleNode , "a source file declares exactly one module" )
+end
+if filename and filename : match ( "%.d%.nupp$" ) then
+c . diag ( "NUPP1002" , declaredModuleNode , "declaration files cannot declare source modules" )
+end
+for segment in declaredModuleName : gmatch ( "[^.]+" ) do
+if not segment : match ( "^[a-z][a-z0-9]*$" ) then
+c . diag ( "NUPP1002" , declaredModuleNode , ( "module segment %q must use lowercase luacase" ) : format ( segment ) )
+break
+end
+end
+if result . moduleName and declaredModuleName ~= result . moduleName then
+c . diag (
+"NUPP1002" ,
+declaredModuleNode ,
+(
+"module %q does not match this file's canonical module name %q"
+) : format ( declaredModuleName , result . moduleName )
+)
+end
 end
 
 
@@ -29233,8 +29275,118 @@ for kind , handle in pairs ( installed ) do
 statHandlers [ kind ] = handle
 end
 end
-statHandlers . recordDecl = c . checkTypedecl
-statHandlers . typeAlias = c . checkTypedecl
+local function checkTypeDeclaration ( stat )
+if declaredModuleName and stat . visibility == "global" then
+c . diag ( "NUPP1002" , stat . modifier or stat , "'global' is not allowed in a declared module; use 'export'" )
+stat . visibility = "local"
+end
+c . checkTypedecl ( stat )
+end
+
+statHandlers . recordDecl = checkTypeDeclaration
+statHandlers . typeAlias = checkTypeDeclaration
+
+local function exportValue ( nameTok , t , definition , value , constant )
+if not nameTok then
+return
+end
+local name = nameTok . text
+c . moduleFields [ name ] = t or T . any
+c . moduleFieldTokens [ name ] = nameTok
+c . moduleFieldDefs [ name ] = definition
+c . moduleFieldValues [ name ] = value
+if constant then
+c . moduleFieldConst [ name ] = true
+end
+c . moduleExports . values [ name ] = t or T . any
+c . moduleExports . valueDefs [ name ] = definition
+if definition then
+c . reads [ definition ] = true
+end
+end
+
+statHandlers . moduleStmt = function ( stat )
+if stat ~= declaredModuleNode then
+c . diag ( "NUPP1002" , stat , "a module declaration is allowed only once at the top of a source file" )
+end
+if c . env and c . env . ensureProjectIndex then
+local projectIndex = c . env . ensureProjectIndex ( c . env )
+local prefix = ""
+for _ , name in ipairs ( stat . names or { } ) do
+prefix = prefix == "" and name . text or prefix .. "." .. name . text
+local definition = projectIndex . moduleDefinitions and projectIndex . moduleDefinitions [ prefix ] or nil
+c . markToken ( name , definition , nil , "module" )
+end
+end
+end
+
+statHandlers . exportStmt = function ( wrapper )
+if not declaredModuleName then
+c . diag ( "NUPP1002" , wrapper , "'export' is available only in a declared module" )
+return
+end
+if c . scope ~= c . rootScope then
+c . diag ( "NUPP1002" , wrapper , "an export declaration is allowed only at module top level" )
+local nested = wrapper . stat
+if nested and statHandlers [ nested . kind ] then
+statHandlers [ nested . kind ] ( nested )
+end
+return
+end
+local stat = wrapper . stat
+while stat and stat . kind == "pragmaStmt" do
+stat = stat . stat
+end
+if not stat then
+return
+end
+stat . exported = true
+if stat . kind == "recordDecl" or stat . kind == "typeAlias" then
+if stat . visibility == "global" then
+c . diag ( "NUPP1002" , stat . modifier or stat , "'global' is not allowed in a declared module" )
+end
+stat . visibility = "module"
+statHandlers [ stat . kind ] ( stat )
+local t = stat . resolvedType
+if stat . kind == "recordDecl" and t then
+exportValue ( stat . name , t , stat . name and stat . name . definition , stat , true )
+end
+return
+end
+if stat . kind == "localFuncStmt" or stat . kind == "funcStmt" then
+if stat . kind == "funcStmt" and stat . name and ( # stat . name ~= 1 or stat . name . method ) then
+c . diag ( "NUPP1002" , stat . name , "an exported function name cannot be qualified" )
+return
+end
+for _ , parameter in ipairs ( stat . body and stat . body . params or { } ) do
+if parameter . name and not parameter . type and not parameter . vararg then
+c . diag ( "NUPP1002" , parameter . name , "an exported function must write every public parameter type" )
+end
+end
+if stat . body and not stat . body . rets and not stat . body . returnPack then
+c . diag ( "NUPP1002" , stat . body , "an exported function must write its public result type" )
+end
+stat . isConst = true
+statHandlers [ stat . kind ] ( stat )
+local nameTok = stat . kind == "localFuncStmt" and stat . name or stat . name and stat . name . base
+local entry = nameTok and c . scope . vars [ nameTok . text ]
+exportValue ( nameTok , entry and entry . t , entry and entry . definition , stat . body , true )
+return
+end
+if stat . kind == "localStmt" and stat . isConst and not stat . pattern then
+statHandlers . localStmt ( stat )
+for _ , nameTok in ipairs ( stat . names or { } ) do
+local entry = c . scope . vars [ nameTok . text ]
+exportValue ( nameTok , entry and entry . t , entry and entry . definition , nil , true )
+end
+return
+end
+c . diag (
+"NUPP1002" ,
+wrapper ,
+"'export' must introduce a function, type declaration, record, interface, struct, or const"
+)
+end
 
 local function checkStat ( stat )
 local handle = statHandlers [ stat . kind ]
@@ -29274,6 +29426,18 @@ for _ , stat in ipairs ( block . stats or { } ) do
 local decl = stat
 while decl and decl . kind == "pragmaStmt" do
 decl = decl . stat
+end
+if decl and decl . kind == "exportStmt" then
+decl = decl . stat
+while decl and decl . kind == "pragmaStmt" do
+decl = decl . stat
+end
+if decl and ( decl . kind == "recordDecl" or decl . kind == "typeAlias" ) then
+decl . visibility = "module"
+decl . exported = true
+elseif decl then
+decl . exported = true
+end
 end
 local k = decl and decl . kind
 if k == "recordDecl" and decl . name then
@@ -29336,6 +29500,27 @@ for _ , stat in ipairs ( block . stats or { } ) do
 local decl = stat
 while decl and decl . kind == "pragmaStmt" do
 decl = decl . stat
+end
+if decl and decl . kind == "exportStmt" then
+decl = decl . stat
+while decl and decl . kind == "pragmaStmt" do
+decl = decl . stat
+end
+end
+if decl and decl . exported and ( decl . kind == "localFuncStmt" or decl . kind == "funcStmt" ) then
+local nameTok = decl . kind == "localFuncStmt" and decl . name or decl . name and decl . name . base
+if nameTok and decl . body then
+local signature = c . signatureOf ( decl . body , nil )
+local definition = nameTok . definition or c . definition ( nameTok , "function" )
+definition . type = signature
+c . moduleFields [ nameTok . text ] = signature
+c . moduleFieldTokens [ nameTok . text ] = nameTok
+c . moduleFieldDefs [ nameTok . text ] = definition
+c . moduleFieldValues [ nameTok . text ] = decl . body
+c . moduleFieldConst [ nameTok . text ] = true
+c . moduleExports . values [ nameTok . text ] = signature
+c . moduleExports . valueDefs [ nameTok . text ] = definition
+end
 end
 local fname = decl and decl . kind == "funcStmt" and decl . name
 local ownerKey , memberTok = nil , nil
@@ -29541,6 +29726,17 @@ end
 for _ , block in ipairs ( result . root . blocks ) do
 c . checkBlock ( block , true )
 auditWithGotos ( block )
+end
+if declaredModuleName then
+local fields = { }
+for name , t in pairs ( c . moduleFields ) do
+fields [ # fields + 1 ] = { name = name , read = t }
+end
+table . sort ( fields , function ( a , b )
+return a . name < b . name
+end )
+c . moduleType = T . shape ( fields )
+c . moduleTypeFromFields = true
 end
 c . derives . finalize ( )
 auditScope ( c . rootScope )
@@ -30530,6 +30726,114 @@ local ownershipKind , ownershipState = c . ownershipKind , c . ownershipState
 local handlers = { }
 
 handlers . localStmt = function ( stat )
+if stat . pattern then
+local source = stat . patternSource or stat
+local sourceType = c . infer ( source )
+if ownershipKind ( sourceType ) then
+c . diag ( "NUPP2603" , source , "an owned or borrowed container cannot be selected by a binding pattern" )
+end
+local seenFields , seenLocals = { } , { }
+for index , entry in ipairs ( stat . pattern ) do
+local fieldTok = entry . sourceName
+local nameTok = entry . alias or fieldTok
+local fieldName = fieldTok and fieldTok . text or ""
+local localName = nameTok and nameTok . text or ""
+if seenFields [ fieldName ] then
+c . diag ( "NUPP2006" , fieldTok or entry , ( "a binding pattern repeats %q" ) : format ( fieldName ) )
+end
+seenFields [ fieldName ] = true
+if seenLocals [ localName ] then
+c . diag ( "NUPP2006" , nameTok or entry , ( "a binding pattern declares %q twice" ) : format ( localName ) )
+end
+seenLocals [ localName ] = true
+
+local fieldType , definition
+local availableNames = c . fieldNames ( sourceType )
+if entry . typeOnly then
+local moduleName = source . requiredModule
+local exports = moduleName and c . env and c . env . resolveModuleExports and c . env . resolveModuleExports (
+c . env ,
+moduleName
+) or nil
+fieldType = exports and exports . types and exports . types [ fieldName ] or nil
+definition = exports and exports . typeDefs and exports . typeDefs [ fieldName ] or nil
+availableNames = { }
+for name in pairs ( exports and exports . types or { } ) do
+availableNames [ # availableNames + 1 ] = name
+end
+if not moduleName then
+c . diag ( "NUPP1002" , entry . typeOnly , "'type' may select only from a literal module require" )
+end
+else
+fieldType , definition = c . fieldType ( sourceType , fieldName )
+end
+entry . selectedDefinition = definition
+if not fieldType then
+c . diag (
+"NUPP2004" ,
+fieldTok or entry ,
+entry . typeOnly and (
+"no exported type %q in this module"
+) : format ( fieldName ) or ( "no field %q in %s" ) : format ( fieldName , T . tostring ( sourceType ) ) ,
+c . edits . nameSpellingFix ( fieldTok , availableNames )
+)
+fieldType = T . any
+elseif fieldTok and ( not entry . typeOnly or entry . alias ) then
+c . markToken ( fieldTok , definition , fieldType , "property" )
+end
+if not entry . typeOnly and ownershipKind ( fieldType ) then
+c . diag (
+"NUPP2603" ,
+fieldTok or entry ,
+"a binding pattern cannot partially move an owned or borrowed field"
+)
+end
+
+local annotation = entry . type and c . resolveType ( entry . type ) or nil
+if annotation then
+c . fixedWidth . storageOnly ( entry . type , annotation , "a local value" )
+local ok , why , reported = c . fixedWidth . fits ( fieldType , annotation , entry )
+if not ok and not reported then
+c . diag ( "NUPP2001" , entry , ( "cannot initialize %s: %s" ) : format ( localName , why ) )
+end
+end
+local bound = annotation or fieldType
+if not annotation and not stat . isConst and bound . tag == "literal" then
+bound = bound . base or T . string
+if bound == T . integer then
+bound = T . number
+end
+elseif not annotation and bound == T . nil_ then
+bound = T . any
+end
+if nameTok and entry . typeOnly then
+c . bindType ( localName , fieldType , nameTok )
+elseif nameTok then
+c . bindVar ( localName , bound , annotation ~= nil , nameTok , nil , stat . isConst )
+local boundEntry = c . scope . vars [ localName ]
+if boundEntry then
+boundEntry . annotationNode = entry . type
+boundEntry . patternFieldDefinition = definition
+boundEntry . jitTarget = definition
+c . fixedWidth . setBinding ( boundEntry , entry , nil )
+if source . requiredModule then
+boundEntry . requiredModule = source . requiredModule
+boundEntry . exactCallExport = {
+module = source . requiredModule ,
+member = fieldName ,
+identity = source . requiredModule .. "." .. fieldName ,
+}
+if boundEntry . definition then
+boundEntry . definition . requiredModule = source . requiredModule
+boundEntry . definition . exactCallExport = boundEntry . exactCallExport
+end
+end
+c . unused . declared ( nameTok , boundEntry , boundEntry . requiredModule and "require" or "variable" )
+end
+end
+end
+return
+end
 local initializers = stat . exprs or { }
 local annotations = { }
 if # stat . names == 1 and stat . types and stat . types [ 1 ] and stat . types [ 1 ] . kind == "tfunc" then
@@ -32334,6 +32638,29 @@ local text = tok . text
 local modname = text : match ( '^"(.*)"$' ) or text : match ( "^'(.*)'$" )
 if modname then
 node . requiredModule = modname
+local modulePath = c . env . findModulePath and c . env . findModulePath ( c . env , modname ) or nil
+local canonical = modulePath and c . env . moduleNameForPath and c . env . moduleNameForPath (
+c . env ,
+modulePath
+) or nil
+local projectIndex = canonical and c . env . ensureProjectIndex and c . env . ensureProjectIndex (
+c . env
+) or nil
+if canonical
+and canonical ~= modname
+and projectIndex
+and projectIndex . declaredModules
+and projectIndex . declaredModules [
+canonical
+] then
+c . diag (
+"NUPP1002" ,
+tok ,
+( "module %q is an alias; require its canonical name %q" ) : format ( modname , canonical )
+)
+node . requiredModule = canonical
+modname = canonical
+end
 local effect = native . forModule ( modname )
 if effect and c . recordEffect then
 ( node ) . compilerFeatureEffect = effect
@@ -32359,6 +32686,25 @@ if callee and callee . kind == "dotIndex" then
 callee . callCallee = true
 end
 local calleeT = callee and c . infer ( callee ) or T . any
+local selectedExport = callee and callee . exactCallExport or nil
+if selectedExport
+and # c . functionBodies == 0
+and c . env
+and c . env . moduleInitializing
+and c . env . moduleInitializing (
+c . env ,
+selectedExport . module
+) then
+c . diag (
+"NUPP1002" ,
+callee ,
+(
+"eager module cycle calls %s before module %q has finished initializing"
+) : format ( selectedExport . identity , selectedExport . module ) ,
+nil ,
+{ help = "move this call behind an exported function so it runs after module initialization" }
+)
+end
 if callee and callee . fixedWidthCallableUntrusted == true then
 node . fixedWidthUntrustedResult = true
 end
@@ -36956,6 +37302,10 @@ c . popScope ( )
 end
 
 handlers . returnStmt = function ( stat )
+if c . result . declaredModuleName and # c . retStack == 0 then
+c . diag ( "NUPP1002" , stat , "a declared module exports declarations and has no top-level return" )
+return
+end
 local annotated = c . retStack [ # c . retStack ]
 local annotatedPack = c . retPackStack [ # c . retPackStack ]
 local wasReturning = c . loops . setReturning ( true )
@@ -38904,6 +39254,7 @@ if visibility == "module"
 and not stat . qualifiers
 and not c . declarationFile
 and not stat . isAnnotationDefinition
+and not stat . exported
 then
 local suggestion = c . moduleLocal and (
 "write it as %s.%s, or mark it local or global"
@@ -42761,6 +43112,37 @@ return T . any
 end
 local nameText = nameTok . text
 local entry = c . lookupEntry ( nameText )
+if not entry
+and c . result . declaredModuleName
+and c . moduleExports
+and c . moduleExports . values
+and c . moduleExports . values [
+nameText
+] then
+local exportedType = c . moduleExports . values [ nameText ]
+local definition = c . moduleExports . valueDefs and c . moduleExports . valueDefs [ nameText ] or nil
+c . markToken ( nameTok , definition , exportedType , definition and definition . kind or "variable" )
+node . immutablePath = true
+return exportedType
+end
+if not entry and c . env and c . env . ensureProjectIndex and c . env . resolveModule then
+local registry = c . env . ensureProjectIndex ( c . env )
+if registry . declaredModules and registry . declaredModules [ nameText ] then
+local moduleType = c . env . resolveModule ( c . env , nameText )
+if moduleType then
+node . qualifiedModule = nameText
+node . qualifiedMembers = { }
+node . immutablePath = true
+c . markToken (
+nameTok ,
+registry . moduleDefinitions and registry . moduleDefinitions [ nameText ] or nil ,
+moduleType ,
+"module"
+)
+return moduleType
+end
+end
+end
 
 
 
@@ -45811,6 +46193,9 @@ fname . method and "method" or "function"
 ) or nil
 body . jitDefinition = earlyMemberDefinition or ( fname . base and fname . base . definition or nil )
 local ft = c . checkFuncbody ( body , selfType )
+if stat . exported and not fname . method and # fname == 1 and fname . base then
+c . bindVar ( fname . base . text , ft , true , nil , "function" , true )
+end
 c . raises . check ( stat , body )
 local memberDefinition = earlyMemberDefinition
 if memberDefinition then
@@ -46041,6 +46426,101 @@ end
 function index . install ( c )
 local handlers = { }
 
+local function dottedPath ( node )
+local parts = { }
+local names = { }
+local current = node
+while current and current . kind == "dotIndex" do
+if not current . name then
+return nil , nil
+end
+table . insert ( parts , 1 , current . name . text )
+table . insert ( names , 1 , current . name )
+current = current . obj
+end
+if not current or current . kind ~= "name" or not current . token then
+return nil , nil
+end
+table . insert ( parts , 1 , current . token . text )
+table . insert ( names , 1 , current . token )
+
+return table . concat ( parts , "." ) , current . token . text , names
+end
+
+local function qualifiedModule ( node )
+if node . kind ~= "dotIndex" or node . writeContext or not c . env or not c . env . ensureProjectIndex then
+return nil
+end
+local written , root , nameTokens = dottedPath ( node )
+if not written or not root then
+return nil
+end
+local lexical = c . lookupEntry ( root )
+local builtin = c . env . globals and c . env . globals [ root ]
+if lexical and ( not builtin or lexical . definition ~= builtin . definition ) then
+return nil
+end
+local registry = c . env . ensureProjectIndex ( c . env )
+local candidate = written
+local suffix = { }
+while candidate do
+if registry . declaredModules and registry . declaredModules [ candidate ] then
+local moduleType = c . env . resolveModule and c . env . resolveModule ( c . env , candidate ) or nil
+if not moduleType then
+return nil
+end
+local resolved = moduleType
+local definition = nil
+for _ , memberName in ipairs ( suffix ) do
+resolved , definition = c . fieldType ( resolved , memberName )
+if not resolved then
+c . diag (
+"NUPP2004" ,
+node . name or node ,
+( "module %q has no exported member %q" ) : format ( candidate , memberName )
+)
+return T . any
+end
+end
+node . qualifiedModule = candidate
+node . qualifiedMembers = suffix
+if # suffix == 1 then
+node . exactCallExport = {
+module = candidate ,
+member = suffix [ 1 ] ,
+identity = candidate .. "." .. suffix [ 1 ] ,
+}
+end
+node . immutablePath = true
+node . resolvedType = resolved
+local qualifiedTokens = nameTokens or { }
+local prefix = ""
+for tokenIndex = 1 , # qualifiedTokens - # suffix do
+local token = qualifiedTokens [ tokenIndex ]
+prefix = prefix == "" and token . text or prefix .. "." .. token . text
+local moduleDefinition = registry . moduleDefinitions and registry . moduleDefinitions [ prefix ] or nil
+c . markToken ( token , moduleDefinition , nil , "module" )
+end
+if node . name then
+local exports = c . env . resolveModuleExports and c . env . resolveModuleExports ( c . env , candidate ) or nil
+local exported = # suffix == 0 and registry . moduleDefinitions and registry . moduleDefinitions [
+candidate
+] or # suffix == 1 and exports and exports . valueDefs and exports . valueDefs [ suffix [ 1 ] ] or definition
+c . markToken ( node . name , exported , resolved , exported and exported . kind or "property" )
+end
+return resolved
+end
+local parent , last = candidate : match ( "^(.*)%.([^.]+)$" )
+if not parent then
+break
+end
+table . insert ( suffix , 1 , last )
+candidate = parent
+end
+
+return nil
+end
+
 handlers . dotIndex = function ( node )
 local kind = node . kind
 local member = node . name
@@ -46050,6 +46530,10 @@ return T . any
 end
 local memberName = member . text
 node . fixedWidthUntrusted = nil
+local projected = qualifiedModule ( node )
+if projected then
+return projected
+end
 
 local holderName = ""
 if target . kind == "name" then
@@ -49047,12 +49531,30 @@ end
 
 local function declaredFunctionEntry ( name )
 local direct = c . lookupEntry ( name ) or c . qualifiedFunctionEntries [ name ]
+if not direct and not name : find (
+"%."
+) and c . moduleExports and c . moduleExports . values and c . moduleExports . values [ name ] then
+direct = {
+t = c . moduleExports . values [ name ] ,
+definition = c . moduleExports . valueDefs and c . moduleExports . valueDefs [ name ] or nil ,
+}
+end
 if direct then
 return direct
 end
 local ownerName , member = name : match ( "^(.*)%.([^.]*)$" )
 local owner = ownerName and c . lookupType ( ownerName ) or nil
 if not owner or owner . tag ~= "nominal" then
+local moduleName , exportName = name : match ( "^(.*)%.([^.]+)$" )
+local exports = moduleName and c . env and c . env . resolveModuleExports and c . env . resolveModuleExports (
+c . env ,
+moduleName
+) or nil
+local exported = exports and exports . values and exports . values [ exportName ] or nil
+local exportedDefinition = exports and exports . valueDefs and exports . valueDefs [ exportName ] or nil
+if exported and exportedDefinition then
+return { t = exported , definition = exportedDefinition }
+end
 return nil
 end
 local functionType = owner . byname and owner . byname [ member ] or owner . staticByname and owner . staticByname [ member ]
@@ -64229,6 +64731,14 @@ local cst = { }
 
 
 
+
+
+
+
+
+
+
+
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -64262,6 +64772,25 @@ cst.Block = {} cst.Block.__index = cst.Block
 
 
 cst.EmptyStmt = {} cst.EmptyStmt.__index = cst.EmptyStmt
+
+
+
+
+
+
+
+cst.ModuleStmt = {} cst.ModuleStmt.__index = cst.ModuleStmt
+
+
+
+
+
+
+
+
+
+cst.ExportStmt = {} cst.ExportStmt.__index = cst.ExportStmt
+
 
 
 
@@ -64573,6 +65102,34 @@ cst.LocalFuncStmt = {} cst.LocalFuncStmt.__index = cst.LocalFuncStmt
 
 
 cst.LocalStmt = {} cst.LocalStmt.__index = cst.LocalStmt
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+cst.BindingEntry = {} cst.BindingEntry.__index = cst.BindingEntry
+
 
 
 
@@ -66305,6 +66862,9 @@ cst.Tpreserves = {} cst.Tpreserves.__index = cst.Tpreserves
 
 
 
+
+
+
 local function isToken ( x )
 return ( x ) . trivia ~= nil
 end
@@ -66577,6 +67137,23 @@ return "local"
 end
 
 return written or "local"
+end
+
+
+function cst . declaredModule ( root )
+for _ , block in ipairs ( root and root . blocks or { } ) do
+for _ , stat in ipairs ( block . stats or { } ) do
+if stat . kind == "moduleStmt" then
+local parts = { }
+for _ , name in ipairs ( stat . names or { } ) do
+parts [ # parts + 1 ] = name . text
+end
+return table . concat ( parts , "." ) , stat
+end
+end
+end
+
+return nil , nil
 end
 
 
@@ -68456,6 +69033,7 @@ local THEME = [[
 .nuppdoc-search-button{display:inline-flex;width:min(190px,18vw);min-width:0;min-height:32px;align-items:center;justify-content:flex-start;gap:.35rem;margin:0;padding:.25rem .5rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:6px;background:var(--nuppdoc-background-alt);box-shadow:none;font-size:.76rem;cursor:pointer}.nuppdoc-search-button:hover{color:var(--nuppdoc-text);border-color:var(--nuppdoc-text-muted)}.nuppdoc-search-button kbd{margin-left:auto;padding:.06rem .28rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:4px;background:transparent;font-size:.62rem}.nuppdoc-search-dialog{width:min(94vw,680px);max-width:none;padding:0;border:1px solid var(--nuppdoc-border);border-radius:12px;background:var(--nuppdoc-background);color:var(--nuppdoc-text);box-shadow:0 24px 80px rgb(0 0 0 / 28%)}.nuppdoc-search-dialog::backdrop{background:rgb(0 0 0 / 46%);backdrop-filter:blur(3px)}.nuppdoc-search-panel{margin:0;padding:0}.nuppdoc-search-panel>header{display:flex;align-items:center;gap:.65rem;margin:0;padding:.8rem;border-bottom:1px solid var(--nuppdoc-border);background:transparent}.nuppdoc-search-panel label{display:flex;flex:1;align-items:center;gap:.5rem;margin:0}.nuppdoc-search-panel input{width:100%;height:42px;margin:0;padding:0 .75rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-accent);border-radius:7px;background:var(--nuppdoc-background);box-shadow:0 0 0 3px var(--nuppdoc-accent-soft)}.nuppdoc-search-panel [data-nuppdoc-search-close]{width:auto;margin:0;padding:.32rem .5rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:5px;background:var(--nuppdoc-background-alt);box-shadow:none;font-size:.72rem;cursor:pointer}.nuppdoc-search-results{display:grid;overflow:auto;max-height:min(60vh,520px);gap:.35rem;padding:.65rem}.nuppdoc-search-results a{display:grid;gap:.15rem;padding:.7rem .8rem;color:var(--nuppdoc-text);border:1px solid transparent;border-radius:7px;text-decoration:none}.nuppdoc-search-results a:hover,.nuppdoc-search-results a:focus{border-color:var(--nuppdoc-border);background:var(--nuppdoc-accent-soft)}.nuppdoc-search-results strong{font-size:.9rem}.nuppdoc-search-results small{overflow:hidden;color:var(--nuppdoc-text-faint);font-size:.72rem;text-overflow:ellipsis;white-space:nowrap}.nuppdoc-search-empty{margin:0;padding:1.5rem;color:var(--nuppdoc-text-muted);text-align:center}
 .nuppdoc-mobile-nav-toggle,.nuppdoc-sidebar-backdrop{display:none}.nuppdoc-page-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--nuppdoc-border)}.nuppdoc-page-nav a{display:flex;flex-direction:column;padding:1rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-border);border-radius:10px;text-decoration:none}.nuppdoc-page-nav a:hover{border-color:var(--nuppdoc-accent);background:var(--nuppdoc-background-alt)}.nuppdoc-page-nav-next{grid-column:2;text-align:right}.nuppdoc-page-nav-label{color:var(--nuppdoc-text-faint);font-size:.68rem;font-weight:650;text-transform:uppercase;letter-spacing:.05em}.nuppdoc-page-nav-title{color:var(--nuppdoc-accent);font-size:.85rem;font-weight:650}
 @media(max-width:760px){.nuppdoc-panel-toggle{display:none}.nuppdoc-mobile-nav-toggle{display:grid}.nuppdoc-search-button span:nth-child(2),.nuppdoc-search-button kbd{display:none}.nuppdoc-search-button{width:34px;justify-content:center}.nuppdoc-home-content{width:auto;padding:3rem 1.25rem 4rem}.nuppdoc-hero-copy h1{font-size:4rem}.nuppdoc-hero-text{font-size:1.2rem}.nuppdoc-hero-main.has-image{grid-template-columns:1fr}.nuppdoc-hero-starburst{width:min(78vw,340px)}.nuppdoc-features{grid-template-columns:1fr}.nuppdoc-sidebar,.nuppdoc-shell.is-sidebar-collapsed>.nuppdoc-sidebar{position:fixed;z-index:42;top:var(--nuppdoc-header-height);bottom:0;left:0;width:min(86vw,var(--nuppdoc-sidebar-width));max-height:none;padding:1.25rem 1rem 2rem;border-right:1px solid var(--nuppdoc-border);border-bottom:0;box-shadow:0 10px 30px rgba(0,0,0,.2);opacity:1;pointer-events:auto;transform:translateX(-105%);transition:transform 180ms ease}.nuppdoc-sidebar>ul{display:block;overflow:visible}.nuppdoc-sidebar-section ul{display:block;overflow:visible}.is-mobile-nav-open .nuppdoc-sidebar{transform:translateX(0)}.nuppdoc-sidebar-backdrop{position:fixed;z-index:41;inset:var(--nuppdoc-header-height) 0 0;display:block;width:100%;height:auto;padding:0;border:0;background:rgba(0,0,0,.38);opacity:0;pointer-events:none;transition:opacity 180ms ease}.is-mobile-nav-open .nuppdoc-sidebar-backdrop{opacity:1;pointer-events:auto}.is-mobile-nav-open{overflow:hidden}.nuppdoc-page-nav{grid-template-columns:1fr}.nuppdoc-page-nav-next{grid-column:1}}
+@media(max-width:760px){.nuppdoc-sidebar a,.nuppdoc-sidebar-section summary{font-size:.77rem}}
 @media(max-width:760px){.nuppdoc-content{font-size:1rem}}
 .nuppdoc-mobile-outline-toggle,.nuppdoc-outline-backdrop{display:none}
 @media(max-width:760px){.nuppdoc-mobile-outline-toggle{display:grid}.nuppdoc-outline,.nuppdoc-shell.is-outline-collapsed>.nuppdoc-outline{position:fixed;z-index:42;top:var(--nuppdoc-header-height);right:0;bottom:0;display:block;width:min(86vw,320px);max-height:none;padding:1.25rem 1rem 2rem;border:0;border-left:1px solid var(--nuppdoc-border);background:var(--nuppdoc-background-alt);box-shadow:0 10px 30px rgba(0,0,0,.2);opacity:1;pointer-events:auto;transform:translateX(105%);transition:transform 180ms ease}.is-mobile-outline-open .nuppdoc-outline{transform:translateX(0)}.nuppdoc-outline-backdrop{position:fixed;z-index:41;inset:var(--nuppdoc-header-height) 0 0;display:block;width:100%;height:auto;padding:0;border:0;background:rgba(0,0,0,.38);opacity:0;pointer-events:none;transition:opacity 180ms ease}.is-mobile-outline-open .nuppdoc-outline-backdrop{opacity:1;pointer-events:auto}}
@@ -72101,9 +72679,16 @@ end
 local apiOpen = current and current ~= "" and " open" or ""
 out [
 # out + 1
-] = '<li class="nuppdoc-sidebar-section"><details' .. apiOpen .. '><summary>API reference</summary>'
+] = '<li class="nuppdoc-sidebar-section"><details'
+.. apiOpen
+.. '><summary>API reference</summary>'
 .. '<ul class="nuppdoc-module-tree">'
-.. moduleTreeHtml ( moduleTree ( modules ) , current , prefix , "" )
+.. moduleTreeHtml (
+moduleTree ( modules ) ,
+current ,
+prefix ,
+""
+)
 out [ # out + 1 ] = "</ul></details></li></ul></aside>"
 
 return table . concat ( out )
@@ -73361,6 +73946,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppD
 
 
 local parser = require ( "nupp.compiler.parser" )
+local cst = require ( "nupp.compiler.cst" )
 local check = require ( "nupp.compiler.check" )
 local diagnostics = require ( "nupp.compiler.diagnostics" )
 local T = require ( "nupp.compiler.types" )
@@ -73371,6 +73957,9 @@ local bundledMod = require ( "nupp.compiler.bundled" )
 local headerMod = require ( "nupp.compiler.header" )
 
 local envMod = { }
+
+
+
 
 
 
@@ -73963,12 +74552,42 @@ annotationsByName = { } ,
 
 
 moduleBasenames = { } ,
+declaredModules = { } ,
+moduleDefinitions = { } ,
+registrationDiagnostics = { } ,
 }
 nominals = nominals or { }
+local declaredHeaders = { }
 for _ , header in ipairs ( headers or { } ) do
 local moduleName = header . moduleName
 if moduleName then
+local previous = declaredHeaders [ moduleName ]
+if previous and type ( header . declaredModuleName ) == "string" then
+index . registrationDiagnostics [
+# index . registrationDiagnostics + 1
+] = {
+path = header . path ,
+token = header . moduleToken ,
+msg = ( "module %q is declared by more than one file" ) : format ( moduleName ) ,
+related = {
+{
+filename = previous . path ,
+line = previous . moduleToken and previous . moduleToken . line or 0 ,
+col = previous . moduleToken and previous . moduleToken . col or 0 ,
+msg = "the first declaration is here" ,
+} ,
+} ,
+}
+elseif type ( header . declaredModuleName ) == "string" then
+declaredHeaders [ moduleName ] = header
+end
 index . modules [ moduleName ] = header . path
+if type ( header . declaredModuleName ) == "string" then
+index . declaredModules [ moduleName ] = true
+index . moduleDefinitions [
+moduleName
+] = { filename = header . path , token = header . moduleToken , name = moduleName , kind = "module" , }
+end
 local short = moduleName : match ( "([^.]+)$" )
 local named = index . moduleBasenames [ short ] or { }
 named [ # named + 1 ] = moduleName
@@ -73994,7 +74613,7 @@ kind = declaration . kind == "record" and "type" or declaration . kind ,
 deprecated = declaration . deprecated ,
 } ,
 }
-if declaration . statKind ~= "typeAlias" then
+if declaration . statKind == "recordDecl" then
 local nominal = nominals [ identityKey ]
 if not nominal then
 nominal = T . nominal ( entry . name , entry . kind )
@@ -74012,6 +74631,73 @@ if declaration . isAnnotation then
 local definitions = index . annotationsByName [ entry . name ] or { }
 definitions [ # definitions + 1 ] = entry
 index . annotationsByName [ entry . name ] = definitions
+end
+end
+end
+local reserved = {
+pin = true ,
+borrow = true ,
+borrowFrom = true ,
+region = true ,
+partition = true ,
+attemptAll = true ,
+sizeof = true ,
+alignof = true ,
+offsetof = true ,
+types = true ,
+reflect = true ,
+}
+for moduleName , header in pairs ( declaredHeaders ) do
+local first = moduleName : match ( "^nupp%.([^.]+)" )
+if first and reserved [ first ] then
+index . registrationDiagnostics [
+# index . registrationDiagnostics + 1
+] = {
+path = header . path ,
+token = header . moduleToken ,
+msg = ( "module %q collides with compiler-owned nupp.%s" ) : format ( moduleName , first ) ,
+}
+end
+local parent = moduleName : match ( "^(.*)%.[^.]+$" )
+while parent do
+local parentHeader = declaredHeaders [ parent ]
+if parentHeader then
+local child = moduleName : sub ( # parent + 2 ) : match ( "^[^.]+" )
+for _ , declaration in ipairs ( parentHeader . declarations or { } ) do
+if declaration . visibility == "module" and declaration . name == child then
+index . registrationDiagnostics [
+# index . registrationDiagnostics + 1
+] = {
+path = header . path ,
+token = header . moduleToken ,
+msg = ( "module %q collides with export %s.%s" ) : format ( moduleName , parent , child ) ,
+related = {
+{
+filename = parentHeader . path ,
+line = declaration . token and declaration . token . line or 0 ,
+col = declaration . token and declaration . token . col or 0 ,
+msg = "the colliding export is here" ,
+} ,
+} ,
+}
+end
+end
+end
+parent = parent : match ( "^(.*)%.[^.]+$" )
+end
+if moduleName == "nupp" then
+for _ , declaration in ipairs ( header . declarations or { } ) do
+if declaration . visibility == "module" and reserved [ declaration . name ] then
+index . registrationDiagnostics [
+# index . registrationDiagnostics + 1
+] = {
+path = header . path ,
+token = declaration . token ,
+msg = (
+"export %q collides with compiler-owned nupp.%s"
+) : format ( declaration . name , declaration . name ) ,
+}
+end
 end
 end
 end
@@ -74341,10 +75027,16 @@ local src = readFile ( path )
 if not src then
 return nil
 end
-local record = { inProgress = true , path = path , exports = seededExports ( env , path ) , }
+local result = parser . parse ( src , path )
+local declaredModuleName = # result . errors == 0 and cst . declaredModule ( result . root ) or nil
+local record = {
+inProgress = true ,
+path = path ,
+exports = seededExports ( env , path ) ,
+declared = declaredModuleName ~= nil ,
+}
 env . loaded [ name ] = record
 env . loadedPaths [ path ] = record
-local result = parser . parse ( src , path )
 if # result . errors == 0 then
 local _ , moduleType , exports = check . check ( result , path , env , {
 moduleName = name ,
@@ -74360,6 +75052,18 @@ record . inProgress = false
 return record
 end
 
+local function interfaceType ( exports )
+local fields = { }
+for name , t in pairs ( exports and exports . values or { } ) do
+fields [ # fields + 1 ] = { name = name , read = t }
+end
+table . sort ( fields , function ( a , b )
+return a . name < b . name
+end )
+
+return T . shape ( fields )
+end
+
 
 
 function envMod . resolveModule ( env , name )
@@ -74368,12 +75072,21 @@ if not record then
 return nil
 end
 
-return record . inProgress and T . any or record . type
+
+
+
+
+return record . inProgress and ( record . declared and interfaceType ( record . exports ) or T . any ) or record . type
 end
 
 function envMod . resolveModuleExports ( env , name )
 local record = loadModule ( env , name )
 return record and record . exports or nil
+end
+
+function envMod . moduleInitializing ( env , name )
+local record = env . loaded and env . loaded [ name ] or nil
+return record and record . inProgress == true or false
 end
 
 function envMod . resolveCallGuarantees ( env , module , member )
@@ -74631,6 +75344,7 @@ loadedPaths = { } ,
 bundled = { } ,
 resolveModule = envMod . resolveModule ,
 resolveModuleExports = envMod . resolveModuleExports ,
+moduleInitializing = envMod . moduleInitializing ,
 observeCallGuarantee = envMod . observeCallGuarantee ,
 resolveCallGuarantees = envMod . resolveCallGuarantees ,
 resolveProjectType = envMod . resolveProjectType ,
@@ -74642,6 +75356,7 @@ modulesNamed = envMod . modulesNamed ,
 modulesExporting = envMod . modulesExporting ,
 declarationType = envMod . declarationType ,
 moduleNameForPath = envMod . moduleNameForPath ,
+findModulePath = envMod . findModulePath ,
 ensureProjectIndex = envMod . ensureProjectIndex ,
 openTypeFunctionStore = envMod . typeFunctionStore ,
 rootDir = rootDir ,
@@ -75178,11 +75893,11 @@ rule = "Named and plucked arguments follow every positional argument, so "
 wrong = "local record Vec3\n    x: number\n    y: number\n    z: number\nend\n\n"
 .. "local function draw(x: number, y: number): nil\n    print(x, y)\nend\n\n"
 .. "local function make(): Vec3\n    return new Vec3(x = 1, y = 2, z = 3)\nend\n\n"
-.. "draw((x, y) = make())\n\nreturn draw\n" ,
+.. "draw({x, y} = make())\n\nreturn draw\n" ,
 right = "local record Vec3\n    x: number\n    y: number\n    z: number\nend\n\n"
 .. "local function draw(x: number, y: number): nil\n    print(x, y)\nend\n\n"
 .. "local function make(): Vec3\n    return new Vec3(x = 1, y = 2, z = 3)\nend\n\n"
-.. "local position = make()\ndraw((x, y) = position)\n\nreturn draw\n" ,
+.. "local position = make()\ndraw({x, y} = position)\n\nreturn draw\n" ,
 related = { "NUPP2004" , "NUPP2125" } ,
 docs = "docs/concepts/calls.md" ,
 } ,
@@ -77511,7 +78226,12 @@ local BRACKET_PAIR = { [ "(" ] = ")" , [ "[" ] = "]" , [ "{" ] = "}" , [ "<" ] =
 
 
 
-local SPREADING_GROUPS = { [ "args" ] = "hug" , [ "tableExpr" ] = "spread" }
+local SPREADING_GROUPS = {
+[ "args" ] = "hug" ,
+[ "tableExpr" ] = "spread" ,
+[ "localStmt" ] = "spread" ,
+[ "pluckArg" ] = "spread" ,
+}
 
 
 
@@ -77780,6 +78500,13 @@ n . switchTok . spacedTok = true
 end
 elseif kind == "switchCase" and n . patternKind == "type" then
 
+for _ , child in ipairs ( n ) do
+if cst . isToken ( child ) and child . kind == "{" then
+child . spaceBeforeTok = true
+break
+end
+end
+elseif kind == "localStmt" and n . pattern then
 for _ , child in ipairs ( n ) do
 if cst . isToken ( child ) and child . kind == "{" then
 child . spaceBeforeTok = true
@@ -80229,6 +80956,7 @@ end
 
 
 
+
 function gen . generate (
 result ,
 filename ,
@@ -80236,6 +80964,7 @@ coverage ,
 hot
 )
 local out = { }
+local declaredModuleName = result . declaredModuleName
 local curLine = 1
 local atLineStart = true
 local diags = { }
@@ -80462,6 +81191,8 @@ end
 
 return nextTemp ( )
 end
+
+emitDepth . exportTableName = declaredModuleName and reservedName ( "__nuppExports" ) or nil
 
 local function compactSource ( node )
 if not node then
@@ -83272,6 +84003,37 @@ emit ( x . args )
 end
 return
 end
+if kind == "localStmt" and x . pattern then
+local values = { }
+for _ , entry in ipairs ( x . pattern ) do
+if not entry . typeOnly then
+values [ # values + 1 ] = entry
+end
+end
+if # values == 0 then
+return
+end
+local sourceName = nextTemp ( )
+e ( ( "const %s=" ) : format ( sourceName ) , sourceLine ( x ) )
+emit ( x . patternSource )
+e ( ";" )
+e ( x . isConst and "const " or "local " )
+for index , entry in ipairs ( values ) do
+if index > 1 then
+e ( "," )
+end
+local name = entry . alias or entry . sourceName
+e ( name and name . text or "__nuppMissing" )
+end
+e ( "=" )
+for index , entry in ipairs ( values ) do
+if index > 1 then
+e ( "," )
+end
+e ( sourceName .. "." .. ( entry . sourceName and entry . sourceName . text or "__nuppMissing" ) )
+end
+return
+end
 if kind == "assignStmt" and x . isConst then
 for i , target in ipairs ( x . targets or { } ) do
 if i > 1 then
@@ -85465,6 +86227,47 @@ end
 end
 emitDepth . fn = emitDepth . fn - 1
 
+elseif kind == "moduleStmt" then
+return
+
+elseif kind == "exportStmt" then
+local stat = x . stat
+if stat then
+emit ( stat )
+end
+while stat and stat . kind == "pragmaStmt" do
+stat = stat . stat
+end
+if not stat or stat . comptimeFunction or stat . comptimeTok then
+return
+end
+local names = { }
+if stat . kind == "localFuncStmt" then
+names [ 1 ] = stat . name and stat . name . text
+elseif stat . kind == "funcStmt" then
+names [ 1 ] = stat . name and stat . name . base and stat . name . base . text
+elseif stat . kind == "localStmt" then
+for _ , name in ipairs ( stat . names or { } ) do
+names [ # names + 1 ] = name . text
+end
+elseif stat . kind == "recordDecl" and ( stat . declKind == "record" or stat . declKind == "struct" ) then
+names [ 1 ] = stat . name and stat . name . text
+end
+for _ , name in ipairs ( names ) do
+if name then
+e ( ( ";%s[%q]=%s" ) : format ( emitDepth . exportTableName , name , name ) , sourceLine ( stat ) )
+end
+end
+
+elseif kind == "localFuncStmt" and x . exported then
+if x . comptimeFunction or x . comptimeTok then
+return
+end
+e ( ( x . name and x . name . text or "__nuppMissing" ) .. "=function" , sourceLine ( x ) )
+if x . body then
+emit ( x . body )
+end
+
 elseif kind == "localFuncStmt" then
 if x . comptimeFunction or x . comptimeTok then
 return
@@ -85479,6 +86282,12 @@ end
 for _ , registration in ipairs ( x . name and x . name . cleanupRegistrations or { } ) do
 local cleanup = registration . cleanup
 e ( ( ";%s[%q]=%s" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . name ) , sourceLine ( x ) )
+end
+
+elseif kind == "funcStmt" and x . exported and x . name and x . name . base and # x . name == 1 and not x . name . method then
+e ( x . name . base . text .. "=function" , sourceLine ( x ) )
+if x . body then
+emit ( x . body )
 end
 
 elseif kind == "funcStmt" then
@@ -85795,6 +86604,12 @@ emit ( x . args and x . args . exprs and x . args . exprs [ 1 ] or x . obj )
 end )
 return
 
+elseif ( kind == "dotIndex" or kind == "name" ) and x . qualifiedModule then
+e ( compilerModuleName ( x . qualifiedModule ) , sourceLine ( x ) )
+for _ , member in ipairs ( x . qualifiedMembers or { } ) do
+e ( "." .. member )
+end
+
 elseif kind == "dotIndex" and x . compilerModule then
 
 
@@ -85903,6 +86718,56 @@ end
 raw ( "\n" )
 
 local code = table . concat ( out )
+if declaredModuleName then
+local exportedFunctions = { }
+for _ , block in ipairs ( result . root . blocks or { } ) do
+for _ , statement in ipairs ( block . stats or { } ) do
+local actual = statement
+while actual and ( actual . kind == "exportStmt" or actual . kind == "pragmaStmt" ) do
+actual = actual . stat
+end
+if actual and actual . exported then
+if actual . kind == "localFuncStmt" then
+local fn = actual
+if fn . name and not fn . comptimeTok and not fn . comptimeFunction then
+exportedFunctions [ # exportedFunctions + 1 ] = fn . name . text
+end
+elseif actual . kind == "funcStmt" then
+local fn = actual
+local fname = fn . name
+if fname
+and fname . kind == "funcname"
+and fname . base
+and not fn . comptimeTok
+and not fn . comptimeFunction
+then
+exportedFunctions [ # exportedFunctions + 1 ] = fname . base . text
+end
+end
+end
+end
+end
+table . sort ( exportedFunctions )
+local instantiation = { }
+for _ , name in ipairs ( exportedFunctions ) do
+instantiation [
+# instantiation + 1
+] = (
+"local %s;%s[%q]=function(...) return %s(...) end;"
+) : format ( name , emitDepth . exportTableName , name , name )
+end
+code = (
+"local %s={};package.loaded[%q]=%s;local __nuppOk,__nuppWhy=pcall(function()"
+) : format (
+emitDepth . exportTableName ,
+declaredModuleName ,
+emitDepth . exportTableName
+) .. table . concat (
+instantiation
+) .. code .. (
+" end);if not __nuppOk then package.loaded[%q]=nil;error(__nuppWhy,0) end;return %s"
+) : format ( declaredModuleName , emitDepth . exportTableName )
+end
 
 
 
@@ -88545,6 +89410,9 @@ local header = { }
 
 
 
+
+
+
 local function declarationKind ( stat )
 if stat . kind == "recordDecl" then
 return stat . declKind
@@ -88585,6 +89453,7 @@ end
 local function annotatedDeclaration ( stat )
 local annotationDefinition = false
 local deprecated = nil
+local exported = false
 while stat and stat . kind == "pragmaStmt" do
 if stat . name and stat . name . text == "annotation" then
 annotationDefinition = true
@@ -88594,14 +89463,33 @@ end
 stat = stat . stat
 end
 
-return stat , annotationDefinition , deprecated
+if stat and stat . kind == "exportStmt" then
+exported = true
+stat = stat . stat
+while stat and stat . kind == "pragmaStmt" do
+if stat . name and stat . name . text == "annotation" then
+annotationDefinition = true
+elseif stat . name and stat . name . text == "deprecated" then
+deprecated = syntacticDeprecation ( stat )
+end
+stat = stat . stat
+end
+end
+
+return stat , annotationDefinition , deprecated , exported
 end
 
 
 
-local function declarationSignature ( stat )
+local function declarationSignature ( stat , declaration )
 local parts = { }
+local skippedBody = declaration and (
+declaration . kind == "localFuncStmt" or declaration . kind == "funcStmt"
+) and declaration . body and declaration . body . body or nil
 local function walk ( value )
+if value == skippedBody then
+return
+end
 if cst . isToken ( value ) then
 if value . kind ~= "eof" and not value . missing then
 parts [ # parts + 1 ] = value . kind .. "\1" .. value . text
@@ -88647,16 +89535,52 @@ end
 
 
 function header . of ( path , moduleName , parsed )
-local produced = { path = path , moduleName = moduleName , declarations = { } }
+local produced = { path = path , moduleName = moduleName , declarations = { } , dependencies = { } }
 if not parsed or # parsed . errors > 0 then
 return produced
 end
-local moduleLocal = cst . returnedLocal ( parsed . root )
+local declaredModuleName , moduleNode = cst . declaredModule ( parsed . root )
+produced . declaredModuleName = declaredModuleName
+produced . moduleToken = moduleNode and declarationToken ( moduleNode . keyword )
+local moduleLocal = declaredModuleName and "__nuppExports" or cst . returnedLocal ( parsed . root )
 produced . moduleLocal = moduleLocal
+local dependencySet = { }
+local function dependencies ( node )
+if not node or cst . isToken ( node ) then
+return
+end
+if node . kind == "call"
+and node . obj
+and node . obj . kind == "name"
+and node . obj . token
+and node . obj . token . text == "require"
+then
+local argument = node . args and node . args . exprs and node . args . exprs [ 1 ]
+local name = argument and annotationString ( argument )
+if name then
+dependencySet [ name ] = true
+end
+end
+for _ , child in ipairs ( node ) do
+dependencies ( child )
+end
+end
+
+dependencies ( parsed . root )
+for name in pairs ( dependencySet ) do
+produced . dependencies [ # produced . dependencies + 1 ] = name
+end
+table . sort ( produced . dependencies )
 for _ , block in ipairs ( parsed . root . blocks or { } ) do
 for _ , stat in ipairs ( block . stats or { } ) do
-local declaration , isAnnotation , deprecated = annotatedDeclaration ( stat )
-local visibility = declaration and cst . declVisibility ( declaration , moduleLocal )
+local declaration , isAnnotation , deprecated , exported = annotatedDeclaration ( stat )
+local visibility = declaration and (
+exported and "module" or (
+(
+declaration . kind == "typeAlias" or declaration . kind == "recordDecl"
+) and cst . declVisibility ( declaration , moduleLocal ) or "local"
+)
+)
 if declaration and (
 declaration . kind == "typeAlias" or declaration . kind == "recordDecl"
 ) and ( visibility == "module" or visibility == "global" ) then
@@ -88668,10 +89592,33 @@ kind = declarationKind ( declaration ) ,
 statKind = declaration . kind ,
 visibility = visibility ,
 token = declarationToken ( declaration . name ) ,
-signature = declarationSignature ( stat ) ,
+signature = declarationSignature ( stat , declaration ) ,
 isAnnotation = isAnnotation ,
 deprecated = deprecated ,
 }
+elseif declaration and exported then
+local names , kind = { } , nil
+if declaration . kind == "localFuncStmt" then
+names [ 1 ] , kind = declaration . name , "function"
+elseif declaration . kind == "funcStmt" and declaration . name and # declaration . name == 1 then
+names [ 1 ] , kind = declaration . name . base , "function"
+elseif declaration . kind == "localStmt" and declaration . isConst then
+names , kind = declaration . names or { } , "constant"
+end
+for _ , name in ipairs ( names ) do
+produced . declarations [
+# produced . declarations + 1
+] = {
+name = name . text ,
+kind = kind ,
+statKind = declaration . kind ,
+visibility = "module" ,
+token = declarationToken ( name ) ,
+signature = declarationSignature ( stat , declaration ) ,
+isAnnotation = isAnnotation ,
+deprecated = deprecated ,
+}
+end
 end
 end
 end
@@ -90660,11 +91607,16 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppD
 
 local query = require ( "nupp.compiler.query" )
 local parser = require ( "nupp.compiler.parser" )
+local cst = require ( "nupp.compiler.cst" )
 local check = require ( "nupp.compiler.check" )
 local envMod = require ( "nupp.compiler.env" )
 local storeMod = require ( "nupp.compiler.build.store" )
+local T = require ( "nupp.compiler.types" )
 
 local incremental = { }
+
+
+
 
 
 
@@ -90822,6 +91774,19 @@ local strict = opts . strict
 local traceInspection = opts . traceInspection == true
 local q = query . new ( )
 local inc = setmetatable({ env =  env ,  q =  q }, incremental.Inc)
+local activeModules = { }
+
+local function interfaceType ( exports )
+local fields = { }
+for name , t in pairs ( exports and exports . values or { } ) do
+fields [ # fields + 1 ] = { name = name , read = t }
+end
+table . sort ( fields , function ( a , b )
+return a . name < b . name
+end )
+
+return T . shape ( fields )
+end
 
 
 
@@ -90919,12 +91884,19 @@ local function sameHeader ( a , b )
 if not a or not b then
 return false
 end
-if a . path ~= b . path
-or a . moduleName ~= b . moduleName
-or a . moduleLocal ~= b . moduleLocal
-or # a . declarations ~= # b . declarations
-then
+if a . path ~= b . path or a . moduleName ~= b . moduleName or a . declaredModuleName ~= b . declaredModuleName or (
+a . moduleToken and a . moduleToken . offset
+) ~= (
+b . moduleToken and b . moduleToken . offset
+) or a . moduleLocal ~= b . moduleLocal or # a . declarations ~= # b . declarations or # (
+a . dependencies or { }
+) ~= # ( b . dependencies or { } ) then
 return false
+end
+for index , name in ipairs ( a . dependencies or { } ) do
+if name ~= b . dependencies [ index ] then
+return false
+end
 end
 for index , left in ipairs ( a . declarations ) do
 local right = b . declarations [ index ]
@@ -91087,16 +92059,42 @@ end
 if # result . errors > 0 then
 return { diags = result . errors , moduleType = nil , syntax = true , result = result }
 end
+local seeded = { types = { } , typeDefs = { } , values = { } , valueDefs = { } , comptimeFunctions = { } }
+for _ , entry in ipairs ( self : get ( "projectPathEntries" , path ) or { } ) do
+if entry . visibility == "module" and entry . type then
+seeded . types [ entry . name ] = entry . type
+seeded . typeDefs [ entry . name ] = entry . definition
+if entry . kind == "struct" then
+seeded . values [ entry . name ] = entry . type
+end
+end
+end
+local sourceDeclaredModule = cst . declaredModule ( result . root )
+activeModules [ path ] = { exports = seeded , declared = sourceDeclaredModule ~= nil , }
+
 
 result . externalInputs = { }
 local qenv = setmetatable (
 {
 resolveModule = function ( _ , name )
 local interface = self : get ( "moduleInterface" , name )
+local target = modulePath ( self , name )
+local active = target and activeModules [ target ]
+if not interface and active then
+return active . declared and interfaceType ( active . exports ) or T . any
+end
+
 return interface and interface . type or nil
 end ,
 resolveModuleExports = function ( _ , name )
-return self : get ( "moduleExports" , name )
+local exports = self : get ( "moduleExports" , name )
+local target = modulePath ( self , name )
+local active = target and activeModules [ target ]
+return exports or active and active . declared and active . exports or nil
+end ,
+moduleInitializing = function ( _ , name )
+local target = modulePath ( self , name )
+return target ~= nil and activeModules [ target ] ~= nil
 end ,
 observeCallGuarantee = function ( _ , module , member , identity , guarantee )
 local key = table . concat ( { module , member , identity , guarantee } , "\0" )
@@ -91120,6 +92118,9 @@ return self : get ( "projectModuleBasenames" , short )
 end ,
 projectAnnotations = function ( _ , name )
 return self : get ( "projectAnnotations" , name )
+end ,
+ensureProjectIndex = function ( )
+return self : get ( "projectIndex" , "root" )
 end ,
 externalFile = function ( _ , externalPath )
 return self : get ( "externalFile" , externalPath )
@@ -91152,8 +92153,32 @@ moduleName = envMod . moduleNameForPath ( env , path ) ,
 
 strict = external and false or strict ,
 traceInspection = traceInspection ,
+initialExports = seeded ,
 }
 )
+
+activeModules [ path ] = nil
+
+if result . declaredModuleName then
+for _ , diagnostic in ipairs ( self : get ( "projectIndex" , "root" ) . registrationDiagnostics or { } ) do
+if diagnostic . path == path then
+local token = diagnostic . token or { }
+diags [
+# diags + 1
+] = {
+code = "NUPP1002" ,
+msg = diagnostic . msg ,
+filename = path ,
+severity = "error" ,
+line = token . line or 0 ,
+col = token . col or 0 ,
+offset = token . offset or 0 ,
+length = token . text and # token . text or 0 ,
+related = diagnostic . related ,
+}
+end
+end
+end
 
 return { diags = diags , moduleType = moduleType , exports = exports , result = result }
 end
@@ -92806,6 +93831,7 @@ local splitLines = text . splitLines
 local symbolKey = tree . symbolKey
 local tokenAt = tree . tokenAt
 local tokenRange = text . tokenRange
+local pathToUri = text . pathToUri
 local QUICKFIX = "quickfix"
 local SYMBOL_KINDS = symbols . SYMBOL_KINDS
 local documentSymbols = symbols . documentSymbols
@@ -93645,6 +94671,42 @@ end
 
 
 
+local function unaliasedPatternDefinition ( tok )
+local definition = tok and tok . definition
+local declaration = definition and definition . token
+local path = definition and definition . filename
+if not declaration or not path then
+return nil
+end
+local source , result
+for uri , open in pairs ( s . documents ) do
+if uriToPath ( uri ) == path then
+source , result = open . text , open . result
+break
+end
+end
+if not result then
+source = s . inc . fileText ( path )
+local checked = source and s . inc . checkFile ( path ) or nil
+result = checked and checked . result or nil
+end
+local entry = nil
+if result then
+tree . walkNodes ( result . root , function ( node )
+if not entry
+and node . kind == "bindingEntry"
+and not node . alias
+and node . sourceName
+and node . sourceName . offset == declaration . offset
+then
+entry = node
+end
+end )
+end
+
+return entry , source , pathToUri ( path )
+end
+
 local function renameSubject ( params )
 local _ , doc , tok , offset = symbolAt ( params )
 if not tok then
@@ -93703,6 +94765,11 @@ respondError ( id , - 32602 , "symbol cannot be renamed" )
 end
 return
 end
+local patternEntry , patternSource , patternUri = unaliasedPatternDefinition ( tok )
+local patternRange = patternEntry and patternSource and tokenRange (
+patternSource ,
+patternEntry . sourceName
+) or nil
 local changes = { }
 for _ , location in ipairs ( references ( true ) ) do
 local edits = changes [ location . uri ]
@@ -93710,7 +94777,16 @@ if not edits then
 edits = wire . array ( { } )
 changes [ location . uri ] = edits
 end
-edits [ # edits + 1 ] = { range = location . range , newText = newName }
+local declarationEdit = patternRange
+and location . uri == patternUri
+and location . range . start . line == patternRange . start . line
+and location . range . start . character == patternRange . start . character
+edits [
+# edits + 1
+] = {
+range = location . range ,
+newText = declarationEdit and ( patternEntry . sourceName . text .. " as " .. newName ) or newName ,
+}
 end
 respond ( id , { changes = changes } )
 end
@@ -94937,6 +96013,32 @@ if inComptime and not COMPTIME_GLOBALS [ context . path [ 1 ] ] and not comptime
 return items
 end
 local t , moduleName = resolveReceiver ( doc . checked , context . path )
+if not t and not moduleName then
+local prefix = table . concat ( context . path , "." )
+local index = s . inc . projectIndex ( )
+local namespace = false
+if index . declaredModules and index . declaredModules [ prefix ] then
+moduleCompletions ( prefix , add )
+namespace = true
+end
+local childPrefix = prefix .. "."
+for declared in pairs ( index . declaredModules or { } ) do
+if declared : sub ( 1 , # childPrefix ) == childPrefix then
+local rest = declared : sub ( # childPrefix + 1 )
+local child = rest : match ( "^[^.]+" )
+if child then
+add ( child , "module" , nil , nil , 1 )
+namespace = true
+end
+end
+end
+if namespace then
+table . sort ( items , function ( a , b )
+return a . label < b . label
+end )
+return items
+end
+end
 if inComptime and not t and not moduleName then
 local global = s . inc . env . globals and s . inc . env . globals [ context . path [ 1 ] ]
 t = global and global . t or nil
@@ -95009,6 +96111,13 @@ entry . definition ,
 )
 end
 end
+end
+local roots = { }
+for moduleName in pairs ( s . inc . projectIndex ( ) . declaredModules or { } ) do
+roots [ moduleName : match ( "^[^.]+" ) or moduleName ] = true
+end
+for root in pairs ( roots ) do
+add ( root , "module" , nil , nil , 2 )
 end
 for name , t in pairs ( T . builtins ) do
 add ( name , "type" , t , nil , 3 )
@@ -95282,6 +96391,7 @@ local splitLines = text . splitLines
 local symbolKey = tree . symbolKey
 local tokenAt = tree . tokenAt
 local tokenRange = text . tokenRange
+local pathToUri = text . pathToUri
 local QUICKFIX = "quickfix"
 local SYMBOL_KINDS = symbols . SYMBOL_KINDS
 local documentSymbols = symbols . documentSymbols
@@ -96121,6 +97231,42 @@ end
 
 
 
+local function unaliasedPatternDefinition ( tok )
+local definition = tok and tok . definition
+local declaration = definition and definition . token
+local path = definition and definition . filename
+if not declaration or not path then
+return nil
+end
+local source , result
+for uri , open in pairs ( s . documents ) do
+if uriToPath ( uri ) == path then
+source , result = open . text , open . result
+break
+end
+end
+if not result then
+source = s . inc . fileText ( path )
+local checked = source and s . inc . checkFile ( path ) or nil
+result = checked and checked . result or nil
+end
+local entry = nil
+if result then
+tree . walkNodes ( result . root , function ( node )
+if not entry
+and node . kind == "bindingEntry"
+and not node . alias
+and node . sourceName
+and node . sourceName . offset == declaration . offset
+then
+entry = node
+end
+end )
+end
+
+return entry , source , pathToUri ( path )
+end
+
 local function renameSubject ( params )
 local _ , doc , tok , offset = symbolAt ( params )
 if not tok then
@@ -96179,6 +97325,11 @@ respondError ( id , - 32602 , "symbol cannot be renamed" )
 end
 return
 end
+local patternEntry , patternSource , patternUri = unaliasedPatternDefinition ( tok )
+local patternRange = patternEntry and patternSource and tokenRange (
+patternSource ,
+patternEntry . sourceName
+) or nil
 local changes = { }
 for _ , location in ipairs ( references ( true ) ) do
 local edits = changes [ location . uri ]
@@ -96186,7 +97337,16 @@ if not edits then
 edits = wire . array ( { } )
 changes [ location . uri ] = edits
 end
-edits [ # edits + 1 ] = { range = location . range , newText = newName }
+local declarationEdit = patternRange
+and location . uri == patternUri
+and location . range . start . line == patternRange . start . line
+and location . range . start . character == patternRange . start . character
+edits [
+# edits + 1
+] = {
+range = location . range ,
+newText = declarationEdit and ( patternEntry . sourceName . text .. " as " .. newName ) or newName ,
+}
 end
 respond ( id , { changes = changes } )
 end
@@ -97601,6 +98761,13 @@ end
 if kind == "tfunc" and node . noSuspend then
 mark ( node [ 1 ] , keywordType )
 end
+elseif kind == "moduleStmt" then
+mark ( node . keyword , keywordType )
+for _ , name in ipairs ( node . names or { } ) do
+mark ( name , "namespace" )
+end
+elseif kind == "exportStmt" then
+mark ( node . keyword , keywordType )
 elseif kind == "pragmaStmt" or kind == "annotationApply" then
 mark ( node . name , "decorator" )
 elseif kind == "dedentString" then
@@ -97611,6 +98778,19 @@ elseif kind == "withStmt" then
 mark ( node . withTok , keywordType )
 for _ , binding in ipairs ( node . bindings or { } ) do
 mark ( binding . name , "variable" )
+end
+elseif kind == "bindingEntry" then
+if node . typeOnly then
+mark ( node . typeOnly , keywordType )
+end
+mark ( node . sourceName , "property" )
+if node . alias then
+mark ( node . alias , "variable" )
+end
+for _ , child in ipairs ( node ) do
+if cst . isToken ( child ) and child . text == "as" then
+mark ( child , keywordType )
+end
 end
 elseif kind == "noSuspendStmt" then
 mark ( node . keywordTok , keywordType )
@@ -105567,7 +106747,7 @@ return native
 
 end
 package.preload["nupp.compiler.neutralpolicy"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports={};package.loaded["nupp.compiler.neutralpolicy"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -105576,23 +106756,21 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppD
 
 
 
-local policy
 
-= {
-relations = "reduce at entry; relate identical blocked terms only" ,
-substitution = "preserve under rebind; reduce after closed substitution" ,
-rendering = "preserve as bounded source-like text" ,
-fingerprints = "preserve canonical semantic structure" ,
-ownership = "reject as an unclosed boundary type" ,
-narrowing = "preserve until a relation requests reduction" ,
-methodSlots = "reduce before member enumeration" ,
-documentation = "show the written alias and shortened reduced form" ,
-lsp = "reduce with the checker-revision memo before semantic answers" ,
-optimization = "reject before runtime lowering" ,
-codegen = "reject before runtime lowering" ,
-}
 
-policy . required = {
+const relations = "reduce at entry; relate identical blocked terms only" ;__nuppExports["relations"]=relations
+const substitution = "preserve under rebind; reduce after closed substitution" ;__nuppExports["substitution"]=substitution
+const rendering = "preserve as bounded source-like text" ;__nuppExports["rendering"]=rendering
+const fingerprints = "preserve canonical semantic structure" ;__nuppExports["fingerprints"]=fingerprints
+const ownership = "reject as an unclosed boundary type" ;__nuppExports["ownership"]=ownership
+const narrowing = "preserve until a relation requests reduction" ;__nuppExports["narrowing"]=narrowing
+const methodSlots = "reduce before member enumeration" ;__nuppExports["methodSlots"]=methodSlots
+const documentation = "show the written alias and shortened reduced form" ;__nuppExports["documentation"]=documentation
+const lsp = "reduce with the checker-revision memo before semantic answers" ;__nuppExports["lsp"]=lsp
+const optimization = "reject before runtime lowering" ;__nuppExports["optimization"]=optimization
+const codegen = "reject before runtime lowering" ;__nuppExports["codegen"]=codegen
+
+const required = {
 "relations" ,
 "substitution" ,
 "rendering" ,
@@ -105604,10 +106782,8 @@ policy . required = {
 "lsp" ,
 "optimization" ,
 "codegen" ,
-}
-
-return policy
-
+} ;__nuppExports["required"]=required
+ end);if not __nuppOk then package.loaded["nupp.compiler.neutralpolicy"]=nil;error(__nuppWhy,0) end;return __nuppExports
 end
 package.preload["nupp.compiler.optimize"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
@@ -107930,7 +109106,7 @@ end
 return ( "%q" ) : format ( tok . text )
 end
 
-local function errAt ( tok , msg , code , help )
+local function errAt ( tok , msg , code , help , fixes )
 if msg : find ( "expected" , 1 , true ) and not msg : find ( "found" , 1 , true ) then
 msg = msg .. "; found " .. found ( tok )
 elseif msg == "unexpected symbol" then
@@ -107946,7 +109122,8 @@ line = tok . line ,
 col = tok . col ,
 msg = msg ,
 filename = filename ,
-help = help
+help = help ,
+fixes = fixes ,
 }
 end
 
@@ -108161,6 +109338,28 @@ return after . kind == "=" or after . kind == "<"
 end
 
 return after . kind ~= "=" and after . kind ~= ","
+end
+
+local function startsExport ( at )
+local nextToken = tokens [ at + 1 ]
+if not nextToken then
+return false
+end
+if nextToken . kind == "function" or startsTypedecl ( at + 1 ) then
+return true
+end
+if nextToken . kind ~= "name" then
+return false
+end
+if nextToken . text == "comptime" then
+return tokens [ at + 2 ] and tokens [ at + 2 ] . kind == "function"
+end
+if nextToken . text == "const" then
+local declared = tokens [ at + 2 ]
+return declared ~= nil and ( declared . kind == "name" or declared . kind == "function" )
+end
+
+return false
 end
 
 
@@ -108892,20 +110091,37 @@ end
 
 
 
-local function pluckGroupAhead ( )
+local function pluckGroupAhead ( open , close )
+if cur ( ) . kind ~= open then
+return false
+end
 local j = i + 1
 if not tokens [ j ] or tokens [ j ] . kind ~= "name" then
 return false
 end
 j = j + 1
+if tokens [
+j
+] and tokens [
+j
+] . kind == "name" and tokens [ j ] . text == "as" and tokens [ j + 1 ] and tokens [ j + 1 ] . kind == "name" then
+j = j + 2
+end
 while tokens [ j ] and tokens [ j ] . kind == "," do
 if not tokens [ j + 1 ] or tokens [ j + 1 ] . kind ~= "name" then
 return false
 end
 j = j + 2
+if tokens [
+j
+] and tokens [
+j
+] . kind == "name" and tokens [ j ] . text == "as" and tokens [ j + 1 ] and tokens [ j + 1 ] . kind == "name" then
+j = j + 2
+end
 end
 
-return tokens [ j ] ~= nil and tokens [ j ] . kind == ")" and tokens [ j + 1 ] ~= nil and tokens [ j + 1 ] . kind == "="
+return tokens [ j ] ~= nil and tokens [ j ] . kind == close and tokens [ j + 1 ] ~= nil and tokens [ j + 1 ] . kind == "="
 end
 
 
@@ -108921,20 +110137,85 @@ local argument
 if typeFirst and # n . exprs == 0 then
 argument = parseType ( )
 n . typeArg = argument
-elseif cur ( ) . kind == "(" and pluckGroupAhead ( ) then
+elseif pluckGroupAhead ( "{" , "}" ) or pluckGroupAhead ( "(" , ")" ) then
 local pluck = setmetatable({ kind =  "pluckArg" ,  names =  { } }, cst.PluckArg)
-add ( pluck , advance ( ) )
+local oldSpelling = cur ( ) . kind == "("
+local closeKind = oldSpelling and ")" or "}"
+local openTok = add ( pluck , advance ( ) )
 pluck . names [ 1 ] = add ( pluck , advance ( ) )
+local invalidAliases = { }
+if cur ( ) . kind == "name" and cur ( ) . text == "as" then
+local asTok = add ( pluck , advance ( ) )
+local alias = add ( pluck , expectName ( "after 'as' in plucked arguments" ) )
+invalidAliases [
+# invalidAliases + 1
+] = { token = asTok , source = pluck . names [ 1 ] , alias = alias , }
+end
 while cur ( ) . kind == "," do
 add ( pluck , advance ( ) )
 pluck . names [ # pluck . names + 1 ] = add ( pluck , advance ( ) )
+if cur ( ) . kind == "name" and cur ( ) . text == "as" then
+local asTok = add ( pluck , advance ( ) )
+local alias = add ( pluck , expectName ( "after 'as' in plucked arguments" ) )
+invalidAliases [
+# invalidAliases + 1
+] = { token = asTok , source = pluck . names [ # pluck . names ] , alias = alias , }
 end
-add ( pluck , expect ( ")" , "to close a plucked parameter group" ) )
+end
+local closeTok = add ( pluck , expect ( closeKind , "to close a plucked parameter group" ) )
 add ( pluck , advance ( ) )
 
 
 
 pluck . value = add ( pluck , resetNoMethod ( parseExp ) )
+for _ , invalid in ipairs ( invalidAliases ) do
+local fixes = nil
+if # pluck . names == 1 and pluck . value then
+local final = cst . lastToken ( pluck . value )
+if final then
+fixes = {
+{
+title = "use a named argument" ,
+edits = {
+{
+offset = openTok . offset ,
+length = final . offset + # final . text - openTok . offset ,
+newText = invalid . alias . text
+.. " = "
+.. cst . textOf ( pluck . value ) : gsub ( "^%s+" , "" )
+.. "."
+.. invalid . source . text ,
+} ,
+} ,
+}
+}
+end
+end
+errAt (
+invalid . token ,
+"'as' aliases bindings, not plucked arguments" ,
+"NUPP1002" ,
+"use an ordinary named argument to map a differently named field" ,
+fixes
+)
+end
+if oldSpelling then
+errAt (
+openTok ,
+"plucked arguments use braces" ,
+"NUPP1002" ,
+"replace the parentheses around the plucked names with braces" ,
+{
+{
+title = "use a braced pluck" ,
+edits = {
+{ offset = openTok . offset , length = # openTok . text , newText = "{" } ,
+{ offset = closeTok . offset , length = # closeTok . text , newText = "}" } ,
+} ,
+}
+}
+)
+end
 argument = pluck
 elseif cur ( ) . kind == "name" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "=" then
 local named = setmetatable({ kind =  "namedArg" }, cst.NamedArg)
@@ -110186,6 +111467,26 @@ end
 parseStatement = function ( )
 local kind = cur ( ) . kind
 
+if kind == "name" and cur ( ) . text == "module" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "name" then
+local n = setmetatable({ kind =  "moduleStmt" ,  names =  { } }, cst.ModuleStmt)
+n . keyword = add ( n , advance ( ) )
+n . keyword . contextualOp = true
+n . names [ 1 ] = add ( n , advance ( ) )
+while cur ( ) . kind == "." do
+add ( n , advance ( ) )
+n . names [ # n . names + 1 ] = add ( n , expectName ( "after '.' in module name" ) )
+end
+return n
+end
+
+if kind == "name" and cur ( ) . text == "export" and startsExport ( i ) then
+local n = setmetatable({ kind =  "exportStmt" }, cst.ExportStmt)
+n . keyword = add ( n , advance ( ) )
+n . keyword . contextualOp = true
+n . stat = add ( n , parseStatement ( ) )
+return n
+end
+
 if kind == "name" and cur ( ) . text == "cdef" and tokens [
 i + 1
 ] and (
@@ -110476,7 +111777,7 @@ return n
 elseif kind == "local" or (
 kind == "name" and cur ( ) . text == "const" and tokens [
 i + 1
-] and ( tokens [ i + 1 ] . kind == "name" or tokens [ i + 1 ] . kind == "function" )
+] and ( tokens [ i + 1 ] . kind == "name" or tokens [ i + 1 ] . kind == "function" or tokens [ i + 1 ] . kind == "{" )
 ) then
 
 
@@ -110516,6 +111817,54 @@ n . isConst = isConst
 add ( n , loctok )
 n . names = { }
 n . types = { }
+if cur ( ) . kind == "{" then
+n . pattern = { }
+add ( n , advance ( ) )
+if cur ( ) . kind == "}" then
+errAt ( cur ( ) , "a binding pattern needs at least one field" , "NUPP1002" )
+else
+while true do
+local entry = setmetatable({ kind =  "bindingEntry" }, cst.BindingEntry)
+if cur ( ) . kind == "name" and cur ( ) . text == "type" then
+entry . typeOnly = add ( entry , advance ( ) )
+entry . typeOnly . contextualOp = true
+end
+entry . sourceName = add ( entry , expectName ( "in binding pattern" ) )
+if cur ( ) . kind == "name" and cur ( ) . text == "as" then
+local asTok = add ( entry , advance ( ) )
+asTok . contextualOp = true
+entry . alias = add ( entry , expectName ( "after 'as' in binding pattern" ) )
+end
+if cur ( ) . kind == ":" then
+if entry . typeOnly then
+errAt ( cur ( ) , "a type selection cannot have a value annotation" , "NUPP1002" )
+end
+annotationColon ( entry , "in binding pattern" )
+entry . type = add ( entry , parseType ( ) )
+end
+n . pattern [ # n . pattern + 1 ] = add ( n , entry )
+local localName = entry . alias or entry . sourceName
+n . names [ # n . names + 1 ] = localName
+if entry . type then
+n . types [ # n . names ] = entry . type
+end
+if cur ( ) . kind ~= "," then
+break
+end
+add ( n , advance ( ) )
+if cur ( ) . kind == "}" then
+break
+end
+end
+end
+add ( n , expect ( "}" , "to close binding pattern" ) )
+add ( n , expect ( "=" , "after binding pattern" ) )
+n . patternSource = add ( n , parseExp ( ) )
+if cur ( ) . kind == "," then
+errAt ( cur ( ) , "a binding pattern has exactly one source value" , "NUPP1002" )
+end
+return n
+end
 local function bind ( )
 n . names [ # n . names + 1 ] = add ( n , expectName ( isConst and "after 'const'" or "after 'local'" ) )
 if cur ( ) . kind == ":" then
@@ -111687,11 +113036,12 @@ Generated code targets LuaJIT 2.1.1784535649 or newer.
 "Declaring things" ,  codes =
 { "NUPP2119" } ,  body =
 [=[
-A typed declaration says where it lives, the way an ordinary Lua definition
-does: `local` keeps it to the file, a qualified name puts it on that table, and
-`global` publishes it project-wide. Saying none of the three is refused rather
-than defaulted, because plain Lua would have made the name a global and the same
-silence is not reused for a different meaning.
+A typed declaration says where it lives. `local` keeps it to the file, a
+qualified name puts it on that table in a legacy return-table module,
+`global` publishes it project-wide, and `export` publishes it from a declared
+module. Saying none of these is refused rather than defaulted, because plain
+Lua would have made the name a global and the same silence is not reused for a
+different meaning.
 
 Inside its own body a declaration answers to its simple name, so a recursive
 field reads `User?` rather than `models.User?`.
@@ -111800,6 +113150,37 @@ return m
 , setmetatable({ title =
 
 
+"Binding patterns" ,  codes =
+{ "NUPP2001" , "NUPP2004" , "NUPP2006" , "NUPP2603" } ,  body =
+[=[
+`local` and `const` may select a shallow set of named fields with braces. The
+source is evaluated once, fields are read once from left to right, and all new
+locals enter scope after the reads. `as` changes the local name without changing
+the field selected.
+
+Patterns are generic field reads, so they work with records, structural tables,
+and modules returned by `require`. They do not move fields out of affine or
+borrowed values. Nested, positional, defaulted, rest, assignment, and function
+parameter patterns are not part of this form.
+
+For a declared module, `type Name` selects an exported type without a runtime
+field read. A statement containing only type selections emits no `require`.
+]=] ,  example =
+[=[
+local record Point
+    x: number
+    y: number
+end
+
+local point = new Point(x = 1, y = 2)
+local {x, y as vertical} = point
+const {x as fixedX: number} = point
+
+return x, vertical, fixedX
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
 "Named and plucked arguments" ,  codes =
 { "NUPP2004" , "NUPP2006" , "NUPP2125" } ,  body =
 [=[
@@ -111808,8 +113189,8 @@ Named arguments follow every positional argument and appear in parameter order.
 They erase to ordinary positional Lua arguments; an omitted optional slot before
 a later named argument is emitted as `nil`.
 
-`(name) = value` fills that parameter from the field of `value` the parameter
-names: it means `name = value.name` and nothing more. `(a, b) = value` fills
+`{name} = value` fills that parameter from the field of `value` the parameter
+names: it means `name = value.name` and nothing more. `{a, b} = value` fills
 several parameters from one operand. Nothing is declared on the operand's type,
 so a plucked name reaches any record with a field of that name, including one
 the caller does not own. A name that is not a field of the operand is
@@ -111817,8 +113198,8 @@ the caller does not own. A name that is not a field of the operand is
 a field whose type does not fit its parameter is an ordinary rejected call.
 
 A group's names are a set rather than a sequence. Every read is a field of one
-path, so no order among them is observable and `(y, x)` binds exactly what
-`(x, y)` does. Ordering is enforced between arguments, not inside a group.
+path, so no order among them is observable and `{y, x}` binds exactly what
+`{x, y}` does. Ordering is enforced between arguments, not inside a group.
 
 A plucked operand is a name or dotted field path, such as `entity.position`.
 Bind calls, computed indexes, and other producing expressions to a local first;
@@ -111852,9 +113233,9 @@ end
 
 local position = new Vec3(x = 1, y = 2, z = 3)
 local entity = new Entity(position = position)
-draw((x) = position, (y) = position, color = "blue")
-draw((x, y) = entity.position, color = "blue")
-draw(10, (y) = position)
+draw({x} = position, {y} = position, color = "blue")
+draw({x, y} = entity.position, color = "blue")
+draw(10, {y} = position)
 
 return position
 ]=] }, reference.Section)
@@ -113277,40 +114658,57 @@ return m
 
 
 "Modules" ,  codes =
-{ "NUPP2120" , "NUPP2101" } ,  body =
+{ "NUPP1002" , "NUPP2004" , "NUPP2101" } ,  body =
 [=[
-A module is a Lua file: `require` gets the value it returns. Runtime
-declarations attach to a returned table and determine its type; paths such as
-`models.user.User` may also name types.
+A declared source module begins with its canonical dotted name. Declarations
+are private unless marked `export`; the compiler creates its stable export
+table, publishes it under that one `package.loaded` key, and returns it. A
+declared module has no final module-value `return`, and `global` is not allowed
+inside one.
 
-An annotated `function M.name(...)` signature is visible to sibling bodies in
-either source order. Assignments, local functions and runtime writes remain
-source-ordered.
+`require("models")` remains the explicit Lua-shaped import. A brace pattern may
+select several values, with `as` for a local alias, and `type Name` selects an
+erased exported type.
 
-The returned local names the module; there is no `module` keyword. `const
-M.field = value` makes one export immutable; on a fresh table, `const` marks one
-named slot and `const...` marks them all. Primitive literal types survive in
-consumers.
+An unshadowed qualified path resolves its longest registered declared-module
+prefix, so `models.user.find(...)` needs no source binding. Code generation
+creates one hidden direct `require` for that module and reuses the local at
+every access; it injects no per-call loader or proxy. A lexical root binding
+wins and makes the path ordinary field access.
+
+Mutually dependent modules are checked against their written interfaces as a
+group. Exported function signatures are available before bodies are checked,
+so recursive functions keep their types instead of falling back to `any`.
+Runtime evaluation remains eager: hoisted function exports can participate in
+a benign cycle, but top-level computation cannot read an export that the other
+module has not initialized.
+
+Legacy files that construct and return a table remain valid, but they do not
+gain declared-module cycle or qualified-namespace behavior.
 
 A `.d.nupp` file returns no table; its bare declarations describe an external
 interface.
 ]=] ,  context =
 {
-[ "models.nupp" ] = [=[
-local models = {}
+[
+"models.nupp"
+] = [=[
+module models
 
-record models.User
+export record User
     id: uint32
     name: string
 end
 
-return models
+export function find(id: uint32): User?
+    return nil
+end
 ]=]
 } ,  example =
 [=[
-local models = require("models")
+const {type User, find} = require("models")
 
-local user: models.User = new models.User(id = 1, name = "ada")
+local user: User? = find(1)
 
 return user
 ]=] }, reference.Section)

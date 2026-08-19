@@ -246,6 +246,13 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
             if kind == "tfunc" and node.noSuspend then
                 mark(node[1], keywordType)
             end
+        elseif kind == "moduleStmt" then
+            mark(node.keyword, keywordType)
+            for _, name in ipairs(node.names or {}) do
+                mark(name, "namespace")
+            end
+        elseif kind == "exportStmt" then
+            mark(node.keyword, keywordType)
         elseif kind == "pragmaStmt" or kind == "annotationApply" then
             mark(node.name, "decorator")
         elseif kind == "dedentString" then
@@ -258,6 +265,9 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
                 mark(binding.name, "variable")
             end
         elseif kind == "bindingEntry" then
+            if node.typeOnly then
+                mark(node.typeOnly, keywordType)
+            end
             mark(node.sourceName, "property")
             if node.alias then
                 mark(node.alias, "variable")

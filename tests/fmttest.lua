@@ -65,6 +65,18 @@ function M.spacingBasics()
    assertEq(fmt1("f{1,2}"), "f{1, 2}\n")
 end
 
+function M.declaredModulesAndExports()
+   local source = "module sample.api\nexport record Thing\nvalue:integer\nend\n"
+      .. "export function make(value:integer):Thing\nreturn new Thing(value=value)\nend\n"
+      .. "const {type External as LocalExternal,value as result}=require('other')"
+   local expected = "module sample.api\nexport record Thing\n    value: integer\nend\n"
+      .. "export function make(value: integer): Thing\n    return new Thing(value = value)\nend\n"
+      .. "\nconst {type External as LocalExternal, value as result} = require('other')\n"
+   local formatted = fmt1(source)
+   assertEq(formatted, expected)
+   assertEq(fmt1(formatted), expected, "declared module formatting is idempotent")
+end
+
 function M.countedCParameters()
    assertEq(fmt1("cdef function visit(borrows values:const int32* countedBy(count),count:uint64)"),
       "cdef function visit(borrows values: const int32* countedBy(count), count: uint64)\n")

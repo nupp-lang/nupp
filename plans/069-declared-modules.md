@@ -1,8 +1,9 @@
 # Declared modules and grouped checking
 
-Status: proposed — nothing below exists. Written 2026-08-18. This replaces the
-declared-module and cycle portions of superseded plan 067 and depends on plan
-068 only for its optional named binding syntax.
+Status: implemented. Recursive interfaces are published through the incremental
+query graph rather than a separate Tarjan cache, and closed constants remain in
+the evaluation tier. Written 2026-08-18. This replaces the declared-module and
+cycle portions of superseded plan 067 and depends on plan 068.
 
 ## Decision
 

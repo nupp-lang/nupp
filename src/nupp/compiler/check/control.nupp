@@ -283,6 +283,10 @@ function control.install(c: state.Checker): state.StatHandlers
     end
 
     handlers.returnStmt = function(stat: cst.ReturnStmt)
+        if c.result.declaredModuleName and #c.retStack == 0 then
+            c.diag("NUPP1002", stat, "a declared module exports declarations and has no top-level return")
+            return
+        end
         local annotated = c.retStack[#c.retStack]
         local annotatedPack = c.retPackStack[#c.retPackStack]
         local wasReturning = c.loops.setReturning(true)
