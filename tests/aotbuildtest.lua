@@ -12,6 +12,11 @@ if not HERE:match("^/") then
    HERE = p:read("*l") .. "/" .. HERE
    p:close()
 end
+-- `pwd` under Git Bash answers `/d/a/...`, which is a path for that shell and
+-- not one the native `luajit.exe` these tests hand a search path to can open.
+-- Anything a Windows interpreter reads takes this spelling; anything the shell
+-- reads keeps HERE.
+local NATIVE_HERE = jit.os == "Windows" and (HERE:gsub("^/([A-Za-z])/", "%1:/")) or HERE
 local NUPP = HERE .. "/../bin/nupp"
 
 local KERNEL = [[
@@ -570,7 +575,7 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
       ]]
       local pipe = assert(io.popen((
          "cd %q && luajit -e %q 2>&1"
-      ):format(dir, ('package.path="build/native/?.lua;%s/../build/?.lua;"..package.path;'):format(HERE)
+      ):format(dir, ('package.path="build/native/?.lua;%s/../build/?.lua;"..package.path;'):format(NATIVE_HERE)
          .. script)))
       local result = pipe:read("*a")
       pipe:close()
@@ -585,7 +590,7 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
    assert(native:find("42\ttrue\t52\t7", 1, true), native)
    local primitives = assert(io.popen((
       "cd %q && luajit -e %q 2>&1"
-   ):format(dir, ('package.path="build/native/?.lua;%s/../build/?.lua;"..package.path;'):format(HERE)
+   ):format(dir, ('package.path="build/native/?.lua;%s/../build/?.lua;"..package.path;'):format(NATIVE_HERE)
       .. 'local b=require("builder");local values,full,tail,classes=b.primitives(string.rep(string.char(7),40),{});print(table.concat(values,","),full+tail,classes)')))
    local primitiveText = primitives:read("*a")
    primitives:close()
@@ -596,7 +601,7 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
       "a builder loads a C closure rather than fabricating lua_State through FFI")
    local failure = assert(io.popen((
       "cd %q && luajit -e %q 2>&1"
-   ):format(dir, ('package.path="build/native/?.lua;%s/../build/?.lua;"..package.path;'):format(HERE)
+   ):format(dir, ('package.path="build/native/?.lua;%s/../build/?.lua;"..package.path;'):format(NATIVE_HERE)
       .. 'local b=require("builder");'
       .. 'local ok,why=pcall(b.rows,-1);print(ok,tostring(why))')))
    local failureText = failure:read("*a")
@@ -907,7 +912,7 @@ function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
          if a[i] ~= b[i] then print(("DIFFERS %%d %%s %%s"):format(i, a[i], b[i])) os.exit(1) end
       end
       print("SAME " .. #a)
-   ]]):format(HERE .. "/../build/?.lua", dir))
+   ]]):format(NATIVE_HERE .. "/../build/?.lua", dir))
    handle:close()
 
    local pipe = assert(io.popen(("cd %q && luajit compare.lua 2>&1"):format(dir)))
@@ -948,7 +953,7 @@ function M.theLibraryTravelsWithWhatWasBuilt()
       local dst = ffi.new("struct { float value; float weight; }[?]", count)
       mod.scale(spans.writeCarray(dst, count), spans.fromCarray(src, count), 1, count, 3.0)
       print("VALUE " .. tostring(dst[7].value))
-   ]]):format(moved, HERE .. "/../build/?.lua"))
+   ]]):format(moved, NATIVE_HERE .. "/../build/?.lua"))
    handle:close()
 
    -- Run from a directory that is neither the project nor the copy, so nothing
@@ -976,7 +981,7 @@ function M.aLibraryLeftBehindIsANamedFailure()
    handle:write(([[
       package.path = %q .. "/?.lua;" .. %q .. ";" .. package.path
       print(select(2, pcall(require, "kernel")))
-   ]]):format(moved, HERE .. "/../build/?.lua"))
+   ]]):format(moved, NATIVE_HERE .. "/../build/?.lua"))
    handle:close()
 
    local pipe = assert(io.popen(("cd / && luajit %q 2>&1"):format(script)))
