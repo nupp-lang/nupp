@@ -16,7 +16,7 @@ end
 -- not one the native `luajit.exe` these tests hand a search path to can open.
 -- Anything a Windows interpreter reads takes this spelling; anything the shell
 -- reads keeps HERE.
-local NATIVE_HERE = jit.os == "Windows" and (HERE:gsub("^/([A-Za-z])/", "%1:/")) or HERE
+local NATIVE_HERE = (HERE:gsub("^/([A-Za-z])/", "%1:/"))
 local NUPP = HERE .. "/../bin/nupp"
 
 local KERNEL = [[
@@ -584,10 +584,19 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
 
    local ordinary = answer("off")
    local native, dir = answer("require")
+
+   -- What goes wrong here is usually the search path rather than the answer,
+   -- and the interpreter's own report names every path it tried except the one
+   -- that was meant to work.
+   local runtime = NATIVE_HERE .. "/../build/nupp/valuebuilder.lua"
+   local handle = io.open(runtime, "rb")
+   if handle then handle:close() end
+   local context = ("\n(runtime searched at %s, present: %s)"):format(runtime, tostring(handle ~= nil))
+
    test.equal(native, ordinary, "the VM-aware ABI preserves the ordinary source answer")
-   assert(native:find("2,4,6,8", 1, true), native)
-   assert(native:find("nupp\ttrue\t1,2,3", 1, true), native)
-   assert(native:find("42\ttrue\t52\t7", 1, true), native)
+   assert(native:find("2,4,6,8", 1, true), native .. context)
+   assert(native:find("nupp\ttrue\t1,2,3", 1, true), native .. context)
+   assert(native:find("42\ttrue\t52\t7", 1, true), native .. context)
    local primitives = assert(io.popen((
       "cd %q && luajit -e %q 2>&1"
    ):format(dir, ('package.path="build/native/?.lua;%s/../build/?.lua;"..package.path;'):format(NATIVE_HERE)
