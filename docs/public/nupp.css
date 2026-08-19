@@ -39,10 +39,10 @@
    * different near-black again (mauve-toned) so all four stay tellable
    * apart. */
   --nuppdoc-dark-background: #000000;
-  --nuppdoc-dark-background-alt: #0e1414;
+  --nuppdoc-dark-background-alt: #172020;
   --nuppdoc-dark-border: color-mix(in srgb, #50676c 65%, black);
   --nuppdoc-dark-code-background: color-mix(in srgb, #2e2f2a 35%, black);
-  --nuppdoc-dark-text: #c8b6aa;
+  --nuppdoc-dark-text: #d4c2b6;
   --nuppdoc-dark-muted: #ad9277;
   --nuppdoc-accent-contrast: #ffffff;
   --nuppdoc-feature-heading: var(--nupp-woodblock-cinnabar-deep);
