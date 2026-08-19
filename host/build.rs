@@ -63,7 +63,7 @@ fn main() {
             .include("../runtime/json")
             .file(simdjson.join("singleheader/simdjson.cpp"))
             .file("../runtime/json/json.cpp")
-            .flag_if_supported("-std=c++17")
+            .std("c++17")
             .define("NDEBUG", None)
             .warnings(true)
             .compile("nupp_json");
