@@ -201,10 +201,10 @@ end
 -- down, and printing it in every `nupp.io` signature says otherwise.
 --
 -- Dropping the argument would be worse than printing it, because `affine(T)` is not
--- `affine(T, cleanup)` with the cleanup left off. It is a different type: transfer-only,
--- with deliberately no terminal at all. So the argument is replaced rather than removed.
--- `_` keeps the type honest -- this value carries a cleanup obligation -- while saying
--- the name behind it is not the reader's to name.
+-- `affine(T, cleanup)` with the cleanup left off. It is a different type:
+-- transfer-only, with deliberately no terminal at all. So the argument is replaced
+-- rather than removed. `_` keeps the type honest -- this value carries a cleanup
+-- obligation -- while saying the name behind it is not the reader's to name.
 local function withoutHiddenTerminals(text: string): string
     local pieces: {string} = {}
     local index = 1
