@@ -209,7 +209,7 @@ function M.aPluckedArgumentKeepsTheOrdinaryCall()
       "    fmt: string",
       "end",
       "local message = new Message(fmt = 'plain')",
-      "nupp.log.error((fmt) = message)",
+      "nupp.log.error({fmt} = message)",
    }, "\n"), "amb")
    assertTrue(not isLowered(code), "a plucked argument keeps its call")
 end

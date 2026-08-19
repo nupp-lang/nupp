@@ -916,6 +916,31 @@ record cst.LocalStmt is cst.Hints
 
     --- The initializers, when there are any.
     exprs: {cst.Node}?
+
+    --- The shallow named entries when this declaration uses `{field as local}`.
+    pattern: {cst.BindingEntry}?
+
+    --- The one value selected by a binding pattern.
+    patternSource: cst.Node?
+end
+
+--- One field selected by a shallow local or const binding pattern.
+record cst.BindingEntry is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'bindingEntry'
+
+    --- The field read from the source value.
+    sourceName: lexer.Token?
+
+    --- The local name after `as`, or nil when `sourceName` is also the local.
+    alias: lexer.Token?
+
+    --- The optional annotation on the resulting local.
+    type: cst.Node?
+
+    --- The field declaration resolved by the checker.
+    selectedDefinition: any
 end
 
 --- `::name::`.
@@ -1864,7 +1889,7 @@ record cst.NamedArg is cst.Hints
     value: cst.Node?
 end
 
---- `(x) = value`, or `(x, y) = value`, in a parenthesized call argument list.
+--- `{x} = value`, or `{x, y} = value`, in a parenthesized call argument list.
 --- Each name is filled from the field of `value` that the name itself selects.
 record cst.PluckArg is cst.Hints
     {cst.Node | lexer.Token}
@@ -2503,6 +2528,7 @@ type cst.Node = cst.Chunk
     | cst.Funcname
     | cst.LocalFuncStmt
     | cst.LocalStmt
+    | cst.BindingEntry
     | cst.LabelStmt
     | cst.GotoStmt
     | cst.BreakStmt

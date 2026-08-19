@@ -116,7 +116,12 @@ local BRACKET_PAIR = {["("] = ")", ["["] = "]", ["{"] = "}", ["<"] = ">"}
 -- are written one per line rather than wherever the width happened to part them.
 -- `hug` is the argument list, where a trailing function or table may keep the line that
 -- opens it; a table constructor has nothing to hug and always spreads.
-local SPREADING_GROUPS = {["args"] = "hug", ["tableExpr"] = "spread"}
+local SPREADING_GROUPS = {
+    ["args"] = "hug",
+    ["tableExpr"] = "spread",
+    ["localStmt"] = "spread",
+    ["pluckArg"] = "spread",
+}
 -- What an element that runs down the page closes with. A function literal and a table
 -- constructor are the two arguments whose tail is a block, and the only two that can
 -- hug the call that takes them.
@@ -385,6 +390,13 @@ local function annotate(root)
             end
         elseif kind == "switchCase" and n.patternKind == "type" then
             -- The destructuring shape is a pattern suffix, not table-call sugar.
+            for _, child in ipairs(n) do
+                if cst.isToken(child) and child.kind == "{" then
+                    child.spaceBeforeTok = true
+                    break
+                end
+            end
+        elseif kind == "localStmt" and n.pattern then
             for _, child in ipairs(n) do
                 if cst.isToken(child) and child.kind == "{" then
                     child.spaceBeforeTok = true

@@ -1,7 +1,7 @@
 # Binding patterns and braced plucking
 
-Status: proposed — nothing below exists. Written 2026-08-18. This is the
-independent binding-pattern part of superseded plan 067.
+Status: implemented. Written 2026-08-18. This is the independent
+binding-pattern part of superseded plan 067.
 
 ## Decision
 

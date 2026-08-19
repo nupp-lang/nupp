@@ -257,6 +257,16 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
             for _, binding in ipairs(node.bindings or {}) do
                 mark(binding.name, "variable")
             end
+        elseif kind == "bindingEntry" then
+            mark(node.sourceName, "property")
+            if node.alias then
+                mark(node.alias, "variable")
+            end
+            for _, child in ipairs(node) do
+                if cst.isToken(child) and child.text == "as" then
+                    mark(child, keywordType)
+                end
+            end
         elseif kind == "noSuspendStmt" then
             mark(node.keywordTok, keywordType)
         elseif kind == "localFuncStmt" and node.isConst then

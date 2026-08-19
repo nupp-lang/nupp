@@ -202,7 +202,7 @@ local type Pair = {a: integer, b: integer}
 local source: Pair = {a = 2, b = 3}
 local function add(a: integer, b: integer): integer return a + b end
 local t = {}
-t.total = add((a, b) = source)
+t.total = add({a, b} = source)
 t.label = "sum"
 return t.total .. ":" .. t.label
 ]], "presize and plucked arguments")

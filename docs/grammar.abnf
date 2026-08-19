@@ -191,9 +191,12 @@ safesuffix     = Name
                / "[" exp "]"
                / callargs
                / methodcall                     ; obj?.:m(...)
-callargs       = "(" [explist] ")"
+callargs       = "(" [callarg *("," callarg)] ")"
                / tableconstructor
                / LiteralString
+callarg        = exp
+               / Name "=" exp
+               / "{" namelist "}" "=" exp
 
 tableconstructor = "{" [fieldlist] "}"
 fieldlist      = field *(fieldsep field) [fieldsep]
@@ -309,11 +312,15 @@ stat           =/ typedeclstat
 stat           =/ comptimefuncstat
 comptimefuncstat = %s"comptime" "function" funcname funcbody
 localstat      = "local" ([%s"comptime"] "function" Name funcbody
+                          / bindingpattern "=" exp
                           / bindlist ["=" explist])
 conststat      = %s"const" ([%s"comptime"] "function" Name funcbody
+                             / bindingpattern "=" exp
                              / bindlist ["=" explist])
 bindlist       = bindname *("," bindname)
 bindname       = Name [":" type]
+bindingpattern = "{" bindingentry *("," bindingentry) [","] "}"
+bindingentry   = Name [%s"as" Name] [":" type]
 
 typedeclstat   = ["local" / "global"] typedecl
 typedecl       = "type" declname [generics] "=" type

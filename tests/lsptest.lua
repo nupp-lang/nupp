@@ -814,6 +814,39 @@ function M.countedByReferencesThePhysicalCountParameter()
       "renaming the count updates its countedBy reference")
 end
 
+function M.renamingAnUnaliasedBindingPatternPreservesItsField()
+   local uri = "file://" .. ROOT .. "/binding-pattern-rename.nupp"
+   local source = table.concat({
+      "local record Point",
+      "   x: number",
+      "   y: number",
+      "end",
+      "local point = new Point(x = 1, y = 2)",
+      "local {x, y as vertical} = point",
+      "print(x, vertical)",
+   }, "\n")
+   local out = runSession({
+      {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+      {jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = {uri = uri, languageId = "nupp", version = 1,
+            text = source}}},
+      {jsonrpc = "2.0", id = 10, method = "textDocument/rename", params = {
+         textDocument = {uri = uri}, position = {line = 5, character = 7},
+         newName = "horizontal"}},
+      {jsonrpc = "2.0", id = 2, method = "shutdown"},
+      {jsonrpc = "2.0", method = "exit"},
+   })
+   local edits = responseWithId(out, 10).result.changes[uri]
+   assert(#edits == 2, "the declaration and use are renamed")
+   local replacements = {}
+   for _, edit in ipairs(edits) do
+      replacements[edit.newText] = true
+   end
+   assert(replacements["x as horizontal"],
+      "the declaration keeps selecting x and introduces an alias")
+   assert(replacements.horizontal, "the local use takes the new name")
+end
+
 function M.languageFeaturesAndCdefTooling()
    local uri = "file://" .. ROOT .. "/tooling-demo.nupp"
    local formatUri = "file://" .. ROOT .. "/format-demo.nupp"

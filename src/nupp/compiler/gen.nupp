@@ -3428,6 +3428,28 @@ function gen.generate(
             end
             return
         end
+        if kind == "localStmt" and x.pattern then
+            local sourceName = nextTemp()
+            e(("const %s="):format(sourceName), sourceLine(x))
+            emit(x.patternSource)
+            e(";")
+            e(x.isConst and "const " or "local ")
+            for index, entry in ipairs(x.pattern) do
+                if index > 1 then
+                    e(",")
+                end
+                local name = entry.alias or entry.sourceName
+                e(name and name.text or "__nuppMissing")
+            end
+            e("=")
+            for index, entry in ipairs(x.pattern) do
+                if index > 1 then
+                    e(",")
+                end
+                e(sourceName .. "." .. (entry.sourceName and entry.sourceName.text or "__nuppMissing"))
+            end
+            return
+        end
         if kind == "assignStmt" and x.isConst then
             for i, target in ipairs(x.targets or {}) do
                 if i > 1 then

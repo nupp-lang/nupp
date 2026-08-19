@@ -170,7 +170,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return ("%q"):format(tok.text)
     end
 
-    local function errAt(tok: Token, msg: string, code: string?, help: string?)
+    local function errAt(tok: Token, msg: string, code: string?, help: string?, fixes: any)
         if msg:find("expected", 1, true) and not msg:find("found", 1, true) then
             msg = msg .. "; found " .. found(tok)
         elseif msg == "unexpected symbol" then
@@ -186,7 +186,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             col = tok.col,
             msg = msg,
             filename = filename,
-            help = help
+            help = help,
+            fixes = fixes,
         }
     end
 
@@ -1129,23 +1130,42 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return exprs
     end
 
-    --- Whether the `(` at the cursor opens a pluck group, `(x, y) = path`. An
-    --- ordinary parenthesized argument starts the same way, so nothing can be
-    --- decided until the names, their close, and the `=` behind it are all in view.
-    local function pluckGroupAhead(): boolean
+    --- Whether the opener at the cursor begins a pluck group. An ordinary
+    --- parenthesized argument or table starts the same way, so the names, matching
+    --- close, and following `=` all participate in the decision.
+    local function pluckGroupAhead(open: string, close: string): boolean
+        if cur().kind ~= open then
+            return false
+        end
         local j = i + 1
         if not tokens[j] or tokens[j].kind ~= "name" then
             return false
         end
         j = j + 1
+        if tokens[j]
+            and tokens[j].kind == "name"
+            and tokens[j].text == "as"
+            and tokens[j + 1]
+            and tokens[j + 1].kind == "name"
+        then
+            j = j + 2
+        end
         while tokens[j] and tokens[j].kind == "," do
             if not tokens[j + 1] or tokens[j + 1].kind ~= "name" then
                 return false
             end
             j = j + 2
+            if tokens[j]
+                and tokens[j].kind == "name"
+                and tokens[j].text == "as"
+                and tokens[j + 1]
+                and tokens[j + 1].kind == "name"
+            then
+                j = j + 2
+            end
         end
 
-        return tokens[j] ~= nil and tokens[j].kind == ")" and tokens[j + 1] ~= nil and tokens[j + 1].kind == "="
+        return tokens[j] ~= nil and tokens[j].kind == close and tokens[j + 1] ~= nil and tokens[j + 1].kind == "="
     end
 
     --- A call's arguments: parenthesized, a string, or a table.
@@ -1161,20 +1181,83 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     if typeFirst and #n.exprs == 0 then
                         argument = parseType()
                         n.typeArg = argument
-                    elseif cur().kind == "(" and pluckGroupAhead() then
+                    elseif pluckGroupAhead("{", "}") or pluckGroupAhead("(", ")") then
                         local pluck = new cst.PluckArg(kind = "pluckArg", names = {})
-                        add(pluck, advance())
+                        local oldSpelling = cur().kind == "("
+                        local closeKind = oldSpelling and ")" or "}"
+                        local openTok = add(pluck, advance())
                         pluck.names[1] = add(pluck, advance())
+                        local invalidAliases = {}
+                        if cur().kind == "name" and cur().text == "as" then
+                            local asTok = add(pluck, advance())
+                            local alias = add(pluck, expectName("after 'as' in plucked arguments"))
+                            invalidAliases[#invalidAliases + 1] = {
+                                token = asTok,
+                                source = pluck.names[1],
+                                alias = alias,
+                            }
+                        end
                         while cur().kind == "," do
                             add(pluck, advance())
                             pluck.names[#pluck.names + 1] = add(pluck, advance())
+                            if cur().kind == "name" and cur().text == "as" then
+                                local asTok = add(pluck, advance())
+                                local alias = add(pluck, expectName("after 'as' in plucked arguments"))
+                                invalidAliases[#invalidAliases + 1] = {
+                                    token = asTok,
+                                    source = pluck.names[#pluck.names],
+                                    alias = alias,
+                                }
+                            end
                         end
-                        add(pluck, expect(")", "to close a plucked parameter group"))
+                        local closeTok = add(pluck, expect(closeKind, "to close a plucked parameter group"))
                         add(pluck, advance()) -- '='
                         -- The operand is parsed as an ordinary expression and held to
                         -- being a name or dotted path by the checker, which can say
                         -- what to do about a producing one instead of failing to parse.
                         pluck.value = add(pluck, resetNoMethod(parseExp))
+                        for _, invalid in ipairs(invalidAliases) do
+                            local fixes = nil
+                            if #pluck.names == 1 and pluck.value then
+                                local final = cst.lastToken(pluck.value)
+                                if final then
+                                    fixes = {{
+                                        title = "use a named argument",
+                                        edits = {{
+                                            offset = openTok.offset,
+                                            length = final.offset + #final.text - openTok.offset,
+                                            newText = invalid.alias.text
+                                                .. " = "
+                                                .. cst.textOf(pluck.value):gsub("^%s+", "")
+                                                .. "."
+                                                .. invalid.source.text,
+                                        },},
+                                    }}
+                                end
+                            end
+                            errAt(
+                                invalid.token,
+                                "'as' aliases bindings, not plucked arguments",
+                                "NUPP1002",
+                                "use an ordinary named argument to map a differently named field",
+                                fixes
+                            )
+                        end
+                        if oldSpelling then
+                            errAt(
+                                openTok,
+                                "plucked arguments use braces",
+                                "NUPP1002",
+                                "replace the parentheses around the plucked names with braces",
+                                {{
+                                    title = "use a braced pluck",
+                                    edits = {
+                                        {offset = openTok.offset, length = #openTok.text, newText = "{"},
+                                        {offset = closeTok.offset, length = #closeTok.text, newText = "}"},
+                                    },
+                                }}
+                            )
+                        end
                         argument = pluck
                     elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "=" then
                         local named = new cst.NamedArg(kind = "namedArg")
@@ -2716,7 +2799,11 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         elseif kind == "local" or (
             kind == "name" and cur().text == "const" and tokens[
                 i + 1
-            ] and (tokens[i + 1].kind == "name" or tokens[i + 1].kind == "function")
+            ] and (
+                tokens[i + 1].kind == "name"
+                or tokens[i + 1].kind == "function"
+                or tokens[i + 1].kind == "{"
+            )
         ) then
             -- LuaJIT's `const` declaration is a soft-keyword form of `local`. Keep it
             -- lexed as a name so `local const`, `const = value`, and `const(...)`
@@ -2756,6 +2843,47 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             add(n, loctok)
             n.names = {}
             n.types = {}
+            if cur().kind == "{" then
+                n.pattern = {}
+                add(n, advance())
+                if cur().kind == "}" then
+                    errAt(cur(), "a binding pattern needs at least one field", "NUPP1002")
+                else
+                    while true do
+                        local entry = new cst.BindingEntry(kind = "bindingEntry")
+                        entry.sourceName = add(entry, expectName("in binding pattern"))
+                        if cur().kind == "name" and cur().text == "as" then
+                            local asTok = add(entry, advance())
+                            asTok.contextualOp = true
+                            entry.alias = add(entry, expectName("after 'as' in binding pattern"))
+                        end
+                        if cur().kind == ":" then
+                            annotationColon(entry, "in binding pattern")
+                            entry.type = add(entry, parseType())
+                        end
+                        n.pattern[#n.pattern + 1] = add(n, entry)
+                        local localName = entry.alias or entry.sourceName
+                        n.names[#n.names + 1] = localName
+                        if entry.type then
+                            n.types[#n.names] = entry.type
+                        end
+                        if cur().kind ~= "," then
+                            break
+                        end
+                        add(n, advance())
+                        if cur().kind == "}" then
+                            break
+                        end
+                    end
+                end
+                add(n, expect("}", "to close binding pattern"))
+                add(n, expect("=", "after binding pattern"))
+                n.patternSource = add(n, parseExp())
+                if cur().kind == "," then
+                    errAt(cur(), "a binding pattern has exactly one source value", "NUPP1002")
+                end
+                return n
+            end
             local function bind()
                 n.names[#n.names + 1] = add(n, expectName(isConst and "after 'const'" or "after 'local'"))
                 if cur().kind == ":" then

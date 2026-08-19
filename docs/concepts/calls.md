@@ -1,7 +1,7 @@
 # Named and plucked arguments
 
 Inside a parenthesized call, `name = value` fills that parameter by name, and
-`(name) = value` fills it from the field of `value` that the parameter names.
+`{name} = value` fills it from the field of `value` that the parameter names.
 Both erase to ordinary positional Lua arguments, so neither costs anything at
 run time.
 
@@ -19,13 +19,34 @@ local function draw(x: number, y: number, color: string?): nil
 end
 
 function m.render(position: Vec3): nil
-    draw((x, y) = position, color = "blue")
+    draw({x, y} = position, color = "blue")
 end
 
 return m
 ```
 
-`(x, y) = position` means `x = position.x, y = position.y` and nothing more.
+`{x, y} = position` means `x = position.x, y = position.y` and nothing more.
+
+## Bind fields into locals
+
+The same braces select fields for `local` and `const` declarations. The source
+may be any expression and is evaluated once. Its fields are read once from left
+to right before any of the new locals enters scope.
+
+```nupp
+local record Point
+    x: number
+    y: number
+end
+
+local point = new Point(x = 1, y = 2)
+local {x, y as vertical} = point
+const {x as fixedX: number} = point
+```
+
+`as` names the local; it does not rename the source field. These are shallow
+field reads rather than moves, so owned or borrowed fields cannot be extracted
+through a pattern. Function parameters remain ordinary named declarations.
 
 ## Named arguments come last
 
@@ -63,7 +84,7 @@ case.
 ## Groups are sets, not sequences
 
 Every read in a group is a field of one path, so no order among them is
-observable and `(y, x)` binds exactly what `(x, y)` does. Ordering is enforced
+observable and `{y, x}` binds exactly what `{x, y}` does. Ordering is enforced
 between arguments, not inside a group.
 
 ## Operands are names or paths
@@ -92,7 +113,7 @@ local function draw(x: number, y: number, color: string?): nil
 end
 
 function m.render(entity: Entity): nil
-    draw((x, y) = entity.position, color = "blue")
+    draw({x, y} = entity.position, color = "blue")
 end
 
 return m

@@ -44,6 +44,7 @@ local splitLines = text.splitLines
 local symbolKey = tree.symbolKey
 local tokenAt = tree.tokenAt
 local tokenRange = text.tokenRange
+local pathToUri = text.pathToUri
 local QUICKFIX = "quickfix"
 local SYMBOL_KINDS = symbols.SYMBOL_KINDS
 local documentSymbols = symbols.documentSymbols
@@ -883,6 +884,42 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     -- A member is declared in the module that carries it, so it is renameable on
     -- exactly the condition every other project symbol is: this session can rewrite the
     -- file the declaration lives in.
+    local function unaliasedPatternDefinition(tok)
+        local definition = tok and tok.definition
+        local declaration = definition and definition.token
+        local path = definition and definition.filename
+        if not declaration or not path then
+            return nil
+        end
+        local source, result
+        for uri, open in pairs(s.documents) do
+            if uriToPath(uri) == path then
+                source, result = open.text, open.result
+                break
+            end
+        end
+        if not result then
+            source = s.inc.fileText(path)
+            local checked = source and s.inc.checkFile(path) or nil
+            result = checked and checked.result or nil
+        end
+        local entry = nil
+        if result then
+            tree.walkNodes(result.root, function(node)
+                if not entry
+                    and node.kind == "bindingEntry"
+                    and not node.alias
+                    and node.sourceName
+                    and node.sourceName.offset == declaration.offset
+                then
+                    entry = node
+                end
+            end)
+        end
+
+        return entry, source, pathToUri(path)
+    end
+
     local function renameSubject(params)
         local _, doc, tok, offset = symbolAt(params)
         if not tok then
@@ -941,6 +978,11 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             end
             return
         end
+        local patternEntry, patternSource, patternUri = unaliasedPatternDefinition(tok)
+        local patternRange = patternEntry
+            and patternSource
+            and tokenRange(patternSource, patternEntry.sourceName)
+            or nil
         local changes = {}
         for _, location in ipairs(references(true)) do
             local edits = changes[location.uri]
@@ -948,7 +990,18 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 edits = wire.array({})
                 changes[location.uri] = edits
             end
-            edits[#edits + 1] = {range = location.range, newText = newName}
+            local declarationEdit = patternRange
+                and location.uri == patternUri
+                and location.range.start.line == patternRange.start.line
+                and location.range.start.character == patternRange.start.character
+            edits[
+                #edits + 1
+            ] = {
+                range = location.range,
+                newText = declarationEdit
+                    and (patternEntry.sourceName.text .. " as " .. newName)
+                    or newName,
+            }
         end
         respond(id, {changes = changes})
     end

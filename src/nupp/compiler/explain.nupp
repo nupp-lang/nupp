@@ -229,11 +229,11 @@ local ENTRIES: {any} = {
         wrong = "local record Vec3\n    x: number\n    y: number\n    z: number\nend\n\n"
         .. "local function draw(x: number, y: number): nil\n    print(x, y)\nend\n\n"
         .. "local function make(): Vec3\n    return new Vec3(x = 1, y = 2, z = 3)\nend\n\n"
-        .. "draw((x, y) = make())\n\nreturn draw\n",
+        .. "draw({x, y} = make())\n\nreturn draw\n",
         right = "local record Vec3\n    x: number\n    y: number\n    z: number\nend\n\n"
         .. "local function draw(x: number, y: number): nil\n    print(x, y)\nend\n\n"
         .. "local function make(): Vec3\n    return new Vec3(x = 1, y = 2, z = 3)\nend\n\n"
-        .. "local position = make()\ndraw((x, y) = position)\n\nreturn draw\n",
+        .. "local position = make()\ndraw({x, y} = position)\n\nreturn draw\n",
         related = {"NUPP2004", "NUPP2125"},
         docs = "docs/concepts/calls.md",
     },

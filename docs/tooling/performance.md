@@ -27,8 +27,8 @@ promise.
 
 ### Typed call projection
 
-`(name) = path` fills a parameter from the field of `path` that the parameter
-names, and `(a, b) = path` fills several from one operand. Because the operand
+`{name} = path` fills a parameter from the field of `path` that the parameter
+names, and `{a, b} = path` fills several from one operand. Because the operand
 is confined to a name or dotted path, the reads are unordered and the shared
 prefix is bound once. There is no argument table, reflection, varargs pack,
 runtime arity choice, generated function, closure, or upvalue.
@@ -51,7 +51,7 @@ local record Body
 end
 
 function m.step(entity: Entity, delta: number): nil
-    update(delta, (x, y) = entity.body.position, (dx, dy) = entity.body.velocity)
+    update(delta, {x, y} = entity.body.position, {dx, dy} = entity.body.velocity)
 end
 ```
 
@@ -79,7 +79,7 @@ closure:
 
 ::: code-group
 ```nupp [Nupp]
-local moved = enabled and update(delta, (x, y) = entity.body.position)
+local moved = enabled and update(delta, {x, y} = entity.body.position)
 ```
 
 ```lua [Generated Lua]

@@ -44,6 +44,103 @@ function bindings.install(c: state.Checker): state.StatHandlers
     local handlers = {}
 
     handlers.localStmt = function(stat: cst.LocalStmt)
+        if stat.pattern then
+            local source = stat.patternSource or stat
+            local sourceType = c.infer(source)
+            if ownershipKind(sourceType) then
+                c.diag(
+                    "NUPP2603",
+                    source,
+                    "an owned or borrowed container cannot be selected by a binding pattern"
+                )
+            end
+            local seenFields, seenLocals = {}, {}
+            for index, entry in ipairs(stat.pattern) do
+                local fieldTok = entry.sourceName
+                local nameTok = entry.alias or fieldTok
+                local fieldName = fieldTok and fieldTok.text or ""
+                local localName = nameTok and nameTok.text or ""
+                if seenFields[fieldName] then
+                    c.diag("NUPP2006", fieldTok or entry, ("a binding pattern repeats %q"):format(fieldName))
+                end
+                seenFields[fieldName] = true
+                if seenLocals[localName] then
+                    c.diag("NUPP2006", nameTok or entry, ("a binding pattern declares %q twice"):format(localName))
+                end
+                seenLocals[localName] = true
+
+                local fieldType, definition = c.fieldType(sourceType, fieldName)
+                entry.selectedDefinition = definition
+                if not fieldType then
+                    c.diag(
+                        "NUPP2004",
+                        fieldTok or entry,
+                        ("no field %q in %s"):format(fieldName, T.tostring(sourceType)),
+                        c.edits.nameSpellingFix(fieldTok, c.fieldNames(sourceType))
+                    )
+                    fieldType = T.any
+                elseif fieldTok then
+                    c.markToken(fieldTok, definition, fieldType, "property")
+                end
+                if ownershipKind(fieldType) then
+                    c.diag(
+                        "NUPP2603",
+                        fieldTok or entry,
+                        "a binding pattern cannot partially move an owned or borrowed field"
+                    )
+                end
+
+                local annotation = entry.type and c.resolveType(entry.type) or nil
+                if annotation then
+                    c.fixedWidth.storageOnly(entry.type, annotation, "a local value")
+                    local ok, why, reported = c.fixedWidth.fits(fieldType, annotation, entry)
+                    if not ok and not reported then
+                        c.diag(
+                            "NUPP2001",
+                            entry,
+                            ("cannot initialize %s: %s"):format(localName, why)
+                        )
+                    end
+                end
+                local bound = annotation or fieldType
+                if not annotation and not stat.isConst and bound.tag == "literal" then
+                    bound = bound.base or T.string
+                    if bound == T.integer then
+                        bound = T.number
+                    end
+                elseif not annotation and bound == T.nil_ then
+                    bound = T.any
+                end
+                if nameTok then
+                    c.bindVar(localName, bound, annotation ~= nil, nameTok, nil, stat.isConst)
+                    local boundEntry = c.scope.vars[localName]
+                    if boundEntry then
+                        boundEntry.annotationNode = entry.type
+                        boundEntry.patternFieldDefinition = definition
+                        boundEntry.jitTarget = definition
+                        c.fixedWidth.setBinding(boundEntry, entry, nil)
+                        if source.requiredModule then
+                            boundEntry.requiredModule = source.requiredModule
+                            boundEntry.exactCallExport = {
+                                module = source.requiredModule,
+                                member = fieldName,
+                                identity = source.requiredModule .. "." .. fieldName,
+                            }
+                            if boundEntry.definition then
+                                boundEntry.definition.requiredModule = source.requiredModule
+                                boundEntry.definition.exactCallExport = boundEntry.exactCallExport
+                            end
+                        end
+                        c.unused.declared(
+                            nameTok,
+                            boundEntry,
+                            boundEntry.requiredModule and "require" or "variable"
+                        )
+                    end
+                end
+            end
+            return
+        end
         local initializers = stat.exprs or {}
         local annotations = {}
         if #stat.names == 1 and stat.types and stat.types[1] and stat.types[1].kind == "tfunc" then
