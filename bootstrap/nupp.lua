@@ -27530,6 +27530,17 @@ c . moduleExports . comptimeFunctions = c . moduleExports . comptimeFunctions or
 
 
 
+if opts and opts . declareGlobals and env and env . preludeComptimeFunctions then
+for name , helper in pairs ( env . preludeComptimeFunctions ) do
+if c . comptimeFunctions [ name ] == nil then
+c . comptimeFunctions [ name ] = helper
+end
+end
+end
+
+
+
+
 c . cDeclared = { }
 c . cDefinedFunctions = { }
 c . recordEffect = function ( effect )
@@ -29189,6 +29200,10 @@ local waiting = c . rootScope . pending [ name ]
 if waiting then
 c . resolvePendingAlias ( name , waiting , c . rootScope )
 end
+end
+env . preludeComptimeFunctions = env . preludeComptimeFunctions or { }
+for name , helper in pairs ( c . comptimeFunctions ) do
+env . preludeComptimeFunctions [ name ] = helper
 end
 env . globals = env . globals or { }
 env . globalTypes = env . globalTypes or { }
@@ -72846,6 +72861,7 @@ const Source = {} Source.__index = Source
 local SOURCES
 
 = { setmetatable({ file =
+"/decls/lua.d.nupp" }, Source) , setmetatable({ file =
 "/decls/prelude.d.nupp" }, Source) , setmetatable({ file =
 "/decls/ffi.d.nupp" ,  required =  "ffi" }, Source) , setmetatable({ file =
 "/decls/stringbuffer.d.nupp" ,  required =  "string.buffer" }, Source) , setmetatable({ file =
@@ -73680,6 +73696,11 @@ local bundledMod = require ( "nupp.compiler.bundled" )
 local headerMod = require ( "nupp.compiler.header" )
 
 local envMod = { }
+
+
+
+
+
 
 
 
@@ -75060,6 +75081,7 @@ rootDir = rootDir or "."
 local env = {
 globals = { } ,
 globalTypes = { } ,
+preludeComptimeFunctions = { } ,
 globalTypeDefs = { } ,
 annotations = annotationMod . new ( ) ,
 loaded = { } ,
@@ -75148,22 +75170,28 @@ end
 end
 
 
-local preludePath = moduleDir ( ) .. "/decls/prelude.d.nupp"
+
+
+
+
+local PRELUDE_FILES = { "/decls/lua.d.nupp" , "/decls/prelude.d.nupp" , }
 local preludeOrigin = "nupp:prelude.d.nupp"
-local src = bundledSource ( "/decls/prelude.d.nupp" )
-
-
-
-
-assert ( src , "internal error: cannot read the prelude at " .. preludePath )
 do
 env . bootstrapping = true
-local result = parser . parse ( src , preludeOrigin )
+for _ , preludeFile in ipairs ( PRELUDE_FILES ) do
+local src = bundledSource ( preludeFile )
+
+
+
+
+assert ( src , "internal error: cannot read the prelude at " .. moduleDir ( ) .. preludeFile )
+local origin = "nupp:" .. ( preludeFile : match ( "([^/]+)$" ) or preludeFile )
+local result = parser . parse ( src , origin )
 assert (
 # result . errors == 0 ,
 "internal error: prelude has syntax errors: " .. ( result . errors [ 1 ] and result . errors [ 1 ] . msg or "?" )
 )
-local diags = check . check ( result , preludeOrigin , env , { declareGlobals = true } )
+local diags = check . check ( result , origin , env , { declareGlobals = true } )
 local fatal = nil
 for _ , diagnostic in ipairs ( diags ) do
 if diagnostics . isFatal ( diagnostic ) then
@@ -75171,7 +75199,15 @@ fatal = diagnostic
 break
 end
 end
-assert ( not fatal , "internal error: prelude has type errors: " .. ( fatal and fatal . msg or "?" ) )
+assert (
+not fatal ,
+"internal error: prelude has type errors: " .. origin .. ":" .. tostring (
+fatal and ( fatal ) . line or "?"
+) .. ":" .. tostring (
+fatal and ( fatal ) . col or "?"
+) .. ": " .. tostring ( fatal and ( fatal ) . code or "?" ) .. " " .. ( fatal and fatal . msg or "?" )
+)
+end
 local implementationSource = bundledSource ( "/decls/prelude_impl.d.nupp" )
 assert ( implementationSource , "internal error: cannot read the prelude implementation" )
 local function checkImplementation ( )
@@ -133980,13 +134016,14 @@ end
 
 return lpeg
 ]=],
-["/decls/prelude.d.nupp"] = [=[
+["/decls/lua.d.nupp"] = [=[
 --[[
-# Nupp standard-library prelude
+# LuaJIT declarations
 
-Declarations for the LuaJIT standard library. `nupp` loads this file into every
-check environment with `declare_globals`, so the top-level bindings below become
-the globals that checked code sees.
+Declarations for the LuaJIT standard library: the globals a chunk starts with, and
+the library tables it reaches through them. `nupp` loads this file into every check
+environment with `declare_globals` before the Nupp prelude, so a Nupp declaration may
+name a Lua type but not the other way round.
 
 ## Conventions
 
@@ -133994,14 +134031,16 @@ the globals that checked code sees.
 - What needs machinery that has not landed yet falls back to `any`.
 - Every declaration carries a `---` docblock.
 
-Closed means the shape lists every member it has, and indexing it with anything
-else is an error rather than a silent `any`. The fallbacks are the surfaces whose
-typing needs more than exists today: `io` handles, the FFI, and coroutines as
-first-class typed values. A docblock's `@param`, `@return` and `@typearg`
-annotations are what the language server shows on hover.
+Closed means the shape lists every member it has, and indexing it with anything else
+is an error rather than a silent `any`. The fallbacks are the surfaces whose typing
+needs more than exists today: `io` handles, the FFI, and coroutines as first-class
+typed values. A docblock's `@param`, `@return` and `@typearg` annotations are what
+the language server shows on hover.
 
-This file is parsed and checked by `nupp` itself: the first dogfooded `.d.nupp`
-declaration file.
+The comptime helpers that give `find`, `match`, `gmatch`, `gsub` and `format` their
+result and argument packs live here rather than beside the Nupp namespaces, because
+the library they type is here. `nupp.Debug` comes with them: `format` names it, and
+it has to be declared before anything that reads a format string.
 ]]
 
 --- Writes every argument to standard output, converted with `tostring`, separated by
@@ -134180,6 +134219,1337 @@ local unpack: function<T>(t: {T}, i: number?, j: number?): ...T
 --- @param name the module name, with `.` separating path components
 --- @return the value the module returned
 local require: function(name: string): any
+
+--- Values with deterministic compiler-generated debug formatting.
+interface nupp.Debug
+    debug: function(self): string
+end
+
+--- Controls the garbage collector. `opt` is "collect" for a full cycle, the default, or
+--- "stop", "restart", "count", "step", "setpause", "setstepmul" or "isrunning".
+---
+--- @param opt the operation to perform
+--- @param arg the step size or parameter that the operation takes
+--- @return what the operation reports: "count" gives the kilobytes in use, while
+---     "step" and "isrunning" answer a boolean
+local collectgarbage: function(): number
+    & function(opt: 'collect' | 'stop' | 'restart' | 'count' | 'setpause' | 'setstepmul', arg: number?): number
+    & function(opt: 'step' | 'isrunning', arg: number?): boolean
+
+--- Compiles a chunk read piecewise from `chunk`, a function returning successive pieces
+--- of source, without running it.
+---
+--- @param chunk the reader function, or the source string
+--- @param name the chunk name to use in error messages
+--- @param mode "b", "t" or "bt", limiting binary or text sources
+--- @param env the environment the chunk sees as its globals
+--- @return the compiled chunk, or nil when it does not compile
+--- @return the compile error, when there was one
+local load: function(chunk: any, name: string?, mode: string?, env: table?): (any, string?)
+
+--- Compiles the string `s` as a chunk, without running it.
+---
+--- @param s the source to compile
+--- @param name the chunk name to use in error messages
+--- @return the compiled chunk, or nil when it does not compile
+--- @return the compile error, when there was one
+local loadstring: function(s: string, name: string?): (any, string?)
+
+--- Compiles the file at `path`, or standard input when it is omitted, without running
+--- it.
+---
+--- @param path the file to compile, or nil for standard input
+--- @param mode "b", "t" or "bt", limiting binary or text sources
+--- @param env the environment the chunk sees as its globals
+--- @return the compiled chunk, or nil when it does not load
+--- @return the load error, when there was one
+local loadfile: function(path: string?, mode: string?, env: table?): (any, string?)
+
+--- Sets the environment a function sees as its globals. `f` is the function itself, or
+--- a stack level: 1 is the caller, 0 the running thread.
+---
+--- @param f the function whose globals are being replaced, or a stack level
+--- @param env the table to use as that function's globals
+--- @return `f`, when it was a function
+local setfenv: function(f: any, env: table): any
+
+--- Returns the environment a function sees as its globals, addressed the way `setfenv`
+--- addresses one.
+---
+--- @param f the function to ask about, or a stack level
+--- @return that function's globals
+local getfenv: function(f: any?): table
+
+--- Loads and runs the file at `path`, or standard input when it is omitted. Errors from
+--- the chunk propagate to the caller.
+---
+--- @param path the file to run, or nil for standard input
+--- @return whatever the chunk returns
+local dofile: function(path: string?): any
+
+--- Returns the amount of memory in use, in kilobytes. Superseded by
+--- `collectgarbage("count")`.
+---
+--- @return the kilobytes currently allocated
+local gcinfo: function(): integer
+
+--- Creates a userdata with a fresh empty metatable, with no metatable, or sharing the
+--- metatable of an existing proxy.
+---
+--- @param mt true for a new metatable, false or nil for none, or a proxy to
+---     share a metatable with
+--- @return the new userdata
+local newproxy: function(mt: any?): userdata
+
+--- The global environment table, in which `_G._G` is `_G` itself.
+local _G: table
+
+--- The language version the interpreter implements, "Lua 5.1" under LuaJIT.
+local _VERSION: string
+
+-- Formatting APIs derive their trailing parameter pack from a literal first
+-- argument. A broad string deliberately retains the ordinary variadic fallback.
+
+--- @local
+local comptime function __NuppFormatArguments(Format: type, Debug: type): typepack
+    local info = nupp.types.describe(Format)
+    local value = info.value
+    if info.kind ~= "literal" then
+        return nupp.types.pack({}, nupp.types.any)
+    end
+    if type(value) ~= "string" then
+        return nupp.types.pack({}, nupp.types.any)
+    end
+    local format = value as string
+    local arguments = {}
+    local index = 1
+    while index <= #format do
+        if format:sub(index, index) ~= "%" then
+            index = index + 1
+        else
+            index = index + 1
+            local seen = ""
+            local current = format:sub(index, index)
+            if current == "%" then
+                index = index + 1
+            else
+                while current ~= "" and string.find("-+ #0", current, 1, true) do
+                    seen = seen .. current
+                    index = index + 1
+                    current = format:sub(index, index)
+                end
+                if current == "%" then
+                    nupp.types.error(
+                        'invalid string.format directive starting at "%' .. seen .. format:sub(index) .. '"'
+                    )
+                end
+
+                local width = 0
+                while current ~= "" and string.find("0123456789", current, 1, true) do
+                    width = width + 1
+                    seen = seen .. current
+                    index = index + 1
+                    current = format:sub(index, index)
+                    if width > 2 then
+                        nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
+                    end
+                end
+
+                if current == "." then
+                    seen = seen .. current
+                    index = index + 1
+                    current = format:sub(index, index)
+                    local precision = 0
+                    while current ~= "" and string.find("0123456789", current, 1, true) do
+                        precision = precision + 1
+                        seen = seen .. current
+                        index = index + 1
+                        current = format:sub(index, index)
+                        if precision > 2 then
+                            nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
+                        end
+                    end
+                end
+
+                if string.find("aAcdiouxXeEfgG", current, 1, true) then
+                    arguments[#arguments + 1] = nupp.types.number
+                elseif current == "?" then
+                    arguments[#arguments + 1] = Debug
+                elseif string.find("pqs", current, 1, true) then
+                    arguments[#arguments + 1] = nupp.types.any
+                else
+                    nupp.types.error(
+                        'invalid string.format directive starting at "%' .. seen .. format:sub(index) .. '"'
+                    )
+                end
+                index = index + 1
+            end
+        end
+    end
+
+    return nupp.types.pack(arguments)
+end
+
+-- Literal Lua patterns carry their capture shape through ordinary prelude type
+-- functions. This scanner is compile-time Nupp code; the type provider contributes
+-- only type inspection and construction.
+
+--- @local
+local comptime function __NuppPatternClassEnd(source: string, opening: number): any
+    local index = opening + 1
+    if source:sub(index, index) == "^" then
+        index = index + 1
+    end
+    if source:sub(index, index) == "]" then
+        index = index + 1
+    end
+    while index <= #source do
+        local current = source:sub(index, index)
+        if current == "%" then
+            if index == #source then
+                return {next = index, error = "malformed pattern"}
+            end
+            index = index + 2
+        elseif current == "]" then
+            return {next = index + 1}
+        else
+            index = index + 1
+        end
+    end
+
+    return {next = index, error = "malformed pattern"}
+end
+
+--- @local
+local comptime function __NuppPatternCaptures(source: string): any
+    local captures = {}
+    local depth = 0
+    local index = 1
+    while index <= #source do
+        local current = source:sub(index, index)
+        if current == "(" then
+            if source:sub(index + 1, index + 1) == ")" then
+                captures[#captures + 1] = "position"
+                index = index + 2
+            else
+                captures[#captures + 1] = "string"
+                depth = depth + 1
+                if depth > 32 then
+                    return {error = "too many captures"}
+                end
+                index = index + 1
+            end
+        elseif current == ")" then
+            if depth == 0 then
+                return {error = "unexpected ')'"}
+            end
+            depth = depth - 1
+            index = index + 1
+        elseif current == "%" then
+            local escaped = source:sub(index + 1, index + 1)
+            if escaped == "" then
+                return {error = "malformed pattern"}
+            elseif escaped == "b" then
+                if index + 3 > #source then
+                    return {error = "malformed pattern"}
+                end
+                index = index + 4
+            elseif escaped == "f" then
+                if source:sub(index + 2, index + 2) ~= "[" then
+                    return {error = "malformed pattern"}
+                end
+                local parsedClass = __NuppPatternClassEnd(source, index + 2)
+                index = parsedClass.next
+                if parsedClass.error then
+                    return {error = parsedClass.error}
+                end
+            else
+                index = index + 2
+            end
+        elseif current == "[" then
+            local parsedClass = __NuppPatternClassEnd(source, index)
+            index = parsedClass.next
+            if parsedClass.error then
+                return {error = parsedClass.error}
+            end
+        else
+            index = index + 1
+        end
+    end
+    if depth ~= 0 then
+        return {error = "unfinished capture"}
+    end
+
+    return {captures = captures}
+end
+
+--- @local
+local comptime function __NuppMatchResults(Pattern: type): typepack
+    local info = nupp.types.describe(Pattern)
+    local value = info.value
+    if info.kind ~= "literal" then
+        return nupp.types.pack({nupp.types.optional(nupp.types.string)})
+    end
+    if type(value) ~= "string" then
+        return nupp.types.pack({nupp.types.optional(nupp.types.string)})
+    end
+    local pattern = value as string
+    local parsed = __NuppPatternCaptures(pattern)
+    if parsed.error then
+        nupp.types.error("invalid Lua pattern: " .. parsed.error)
+    end
+    local results = {}
+    if #parsed.captures == 0 then
+        results[1] = nupp.types.optional(nupp.types.string)
+    else
+        for index, kind in ipairs(parsed.captures) do
+            local capture = nupp.types.string
+            if kind == "position" then
+                capture = nupp.types.integer
+            end
+            if index == 1 then
+                capture = nupp.types.optional(capture)
+            end
+            results[index] = capture
+        end
+    end
+
+    return nupp.types.pack(results)
+end
+
+--- @local
+local comptime function __NuppFindResults(Pattern: type, Plain: type): typepack
+    local plain = nupp.types.describe(Plain)
+    local endpoints = {nupp.types.optional(nupp.types.integer), nupp.types.optional(nupp.types.integer)}
+    if plain.kind == "literal" and plain.value == true then
+        return nupp.types.pack(endpoints)
+    end
+    local info = nupp.types.describe(Pattern)
+    local value = info.value
+    if info.kind ~= "literal" then
+        return nupp.types.pack(endpoints)
+    end
+    if type(value) ~= "string" then
+        return nupp.types.pack(endpoints)
+    end
+    local pattern = value as string
+    local parsed = __NuppPatternCaptures(pattern)
+    if parsed.error then
+        nupp.types.error("invalid Lua pattern: " .. parsed.error)
+    end
+    for _, kind in ipairs(parsed.captures) do
+        if kind == "position" then
+            endpoints[#endpoints + 1] = nupp.types.integer
+        else
+            endpoints[#endpoints + 1] = nupp.types.string
+        end
+    end
+
+    return nupp.types.pack(endpoints)
+end
+
+--- @local
+local comptime function __NuppGmatchResults(Pattern: type): typepack
+    local results = {nupp.types.string}
+    local info = nupp.types.describe(Pattern)
+    local value = info.value
+    if info.kind == "literal" and type(value) == "string" then
+        local pattern = value as string
+        local parsed = __NuppPatternCaptures(pattern)
+        if parsed.error then
+            nupp.types.error("invalid Lua pattern: " .. parsed.error)
+        end
+        if #parsed.captures > 0 then
+            results = {}
+            for index, kind in ipairs(parsed.captures) do
+                if kind == "position" then
+                    results[index] = nupp.types.integer
+                else
+                    results[index] = nupp.types.string
+                end
+            end
+        end
+    end
+    local iterator = nupp.types.function_(nupp.types.pack({}), nupp.types.pack(results))
+
+    return nupp.types.pack({iterator})
+end
+
+--- @local
+local comptime function __NuppGsubResults(Pattern: type): typepack
+    local info = nupp.types.describe(Pattern)
+    local value = info.value
+    if info.kind == "literal" and type(value) == "string" then
+        local pattern = value as string
+        local parsed = __NuppPatternCaptures(pattern)
+        if parsed.error then
+            nupp.types.error("invalid Lua pattern: " .. parsed.error)
+        end
+    end
+
+    return nupp.types.pack({nupp.types.string, nupp.types.integer})
+end
+
+--- String manipulation and pattern matching. Every function here is also reachable as a
+--- method on a string value, so `s:upper()` means `string.upper(s)`.
+local string: {
+    --- Returns the numeric codes of the characters of `s` from `i` to `j`.
+    ---
+    --- @param s the string to read
+    --- @param i the first index, 1 by default; negative counts from the end
+    --- @param j the last index, `i` by default
+    --- @return one code per selected character
+    byte: nosuspend function(s: string, i: number?, j: number?): integer,
+
+    --- Builds a string from the given character codes.
+    ---
+    --- @param ... the character codes, each 0 through 255
+    --- @return the assembled string
+    char: nosuspend function(...: number): string,
+
+    --- Returns a binary representation of a Lua function that has no upvalues, in a
+    --- form `loadstring` accepts.
+    ---
+    --- @param f the function to dump
+    --- @param strip whether to discard debug information
+    --- @return the bytecode string
+    dump: nosuspend function(f: any, strip: boolean?): string,
+
+    --- Finds the first match of pattern `pat` in `s`, at or after `init`. Any captures
+    --- the pattern has follow the two returned indices.
+    ---
+    --- @param s the string to search
+    --- @param pat the pattern to look for
+    --- @param init where to start, 1 by default; negative counts from the end
+    --- @param plain whether to match `pat` literally, ignoring pattern syntax
+    --- @return the index where the match starts, or nil when there is none
+    --- @return the index where the match ends
+    find: nosuspend function<Pattern is string, Plain is boolean?>(
+        s: string,
+        pat: Pattern,
+        init: number?,
+        plain: Plain?
+    ): unpackof __NuppFindResults(Pattern, Plain),
+
+    --- Formats the arguments into `fmt` using LuaJIT's bounded-width `printf` subset,
+    --- plus `%q` quoting, `%p` object identity, and hexadecimal floats with `%a`/`%A`.
+    ---
+    --- @param fmt the format string
+    --- @param ... the values that the directives consume
+    --- @return the formatted string
+    format: nosuspend function<Format is string>(
+        fmt: Format,
+        ...: unpackof __NuppFormatArguments(Format, nupp.Debug)
+    ): string,
+
+    --- Returns an iterator over each successive match of `pat` in `s`, or over that
+    --- match's captures when the pattern has any. Anchors have no special meaning here.
+    ---
+    --- @param s the string to scan
+    --- @param pat the pattern to repeat across `s`
+    --- @return an iterator yielding one match at a time
+    gmatch: nosuspend function<Pattern is string>(s: string, pat: Pattern): unpackof __NuppGmatchResults(Pattern),
+
+    --- Replaces matches of `pat` in `s`. `repl` may be a string, in which `%1` through
+    --- `%9` stand for captures and `%0` for the whole match, a table looked up by the
+    --- first capture, or a function called with the captures.
+    ---
+    --- @param s the subject string
+    --- @param pat the pattern to replace
+    --- @param repl the replacement string, table or function
+    --- @param n how many matches to replace at most, all of them by default
+    --- @return the string with the replacements applied
+    --- @return how many matches were replaced
+    gsub: nosuspend function<Pattern is string>(
+        s: string,
+        pat: Pattern,
+        repl: any,
+        n: number?
+    ): unpackof __NuppGsubResults(Pattern),
+
+    --- Returns the length of `s` in bytes.
+    ---
+    --- @param s the string to measure
+    --- @return the byte count
+    len: nosuspend function(s: string): integer,
+
+    --- Returns `s` with every ASCII letter folded to lower case.
+    ---
+    --- @param s the string to fold
+    --- @return the lowercased string
+    lower: nosuspend function(s: string): string,
+
+    --- Returns the captures of the first match of `pat` in `s`, or the whole match when
+    --- the pattern has no captures.
+    ---
+    --- @param s the string to search
+    --- @param pat the pattern to look for
+    --- @param init where to start, 1 by default; negative counts from the end
+    --- @return the captures or the whole match, or nil when nothing matches
+    match: nosuspend function<Pattern is string>(
+        s: string,
+        pat: Pattern,
+        init: number?
+    ): unpackof __NuppMatchResults(Pattern),
+
+    --- Returns `n` copies of `s`, with `sep` between consecutive copies.
+    ---
+    --- @param s the string to repeat
+    --- @param n how many copies to produce
+    --- @param sep what to place between copies, nothing by default
+    --- @return the repeated string
+    rep: nosuspend function(s: string, n: number, sep: string?): string,
+
+    --- Returns the bytes of `s` in reverse order.
+    ---
+    --- @param s the string to reverse
+    --- @return the reversed string
+    reverse: nosuspend function(s: string): string,
+
+    --- Returns the substring of `s` running from `i` through `j`.
+    ---
+    --- @param s the string to slice
+    --- @param i the first index; negative counts from the end
+    --- @param j the last index, -1 by default
+    --- @return the selected substring
+    sub: nosuspend function(s: string, i: number, j: number?): string,
+
+    --- Returns `s` with every ASCII letter folded to upper case.
+    ---
+    --- @param s the string to fold
+    --- @return the uppercased string
+    upper: nosuspend function(s: string): string
+}
+
+--- Table manipulation. These functions work on the array part of a table: the integer
+--- keys 1 through `#t`.
+const table: {
+    --- Joins the elements `t[i]` through `t[j]`, each of which must be a string or a
+    --- number, into a single string.
+    ---
+    --- @param t the array to join
+    --- @param sep what to place between elements, nothing by default
+    --- @param i the first index, 1 by default
+    --- @param j the last index, `#t` by default
+    --- @return the joined string
+    concat: nosuspend function(t: table, sep: string?, i: number?, j: number?): string,
+
+    --- Inserts `v` at position `pos`, shifting later elements up. Called with two
+    --- arguments, appends that value to the end instead.
+    ---
+    --- @param t the array to insert into
+    --- @param pos the position to insert at, or the value to append
+    --- @param v the value to insert, when a position was given
+    insert: nosuspend function(t: table, pos: any, v: any?),
+
+    --- Removes the element at `pos`, shifting later elements down.
+    ---
+    --- @param t the array to remove from
+    --- @param pos the position to remove, `#t` by default
+    --- @return the element that was removed
+    remove: nosuspend function(t: table, pos: number?): any,
+
+    --- Sorts `t` in place, between indices 1 and `#t`. The sort is not stable, and
+    --- `cmp` must be a strict order or it may raise.
+    ---
+    --- @typearg V the element type
+    --- @param t the array to sort
+    --- @param cmp returns true when its first argument must come first; `<`
+    ---     is used when it is omitted
+    sort: function<V>(t: {V}, scoped cmp: function(V, V): boolean?),
+
+    --- Returns the largest positive numeric key of `t`, or 0 when it has none.
+    --- Deprecated, and unlike `#t` it also sees keys past a hole.
+    ---
+    --- @param t the table to scan
+    --- @return the largest positive numeric key
+    maxn: nosuspend function(t: table): number,
+
+    -- LuaJIT extensions
+
+    --- Creates a table preallocated for `narray` array slots and `nhash` hash slots, so
+    --- filling it in does not have to rehash.
+    ---
+    --- @param narray how many array slots to reserve
+    --- @param nhash how many hash slots to reserve
+    --- @return the new table
+    readonly new: function(narray: number, nhash: number): table,
+
+    --- Removes every key from `t` while keeping the space it has already allocated, so
+    --- it can be refilled without reallocating.
+    ---
+    --- @param t the table to empty
+    readonly clear: function(t: table),
+
+    -- Nupp extensions
+
+    --- Copies `t` one level deep: every key it holds directly, and its metatable, are
+    --- carried over, while a value that is itself a table stays shared between the two.
+    --- Neither `__index` nor `__pairs` is consulted, so what comes back is what `next`
+    --- would have walked.
+    ---
+    --- @typearg T the table type
+    --- @param t the table to copy
+    --- @return a new table holding the same keys, values and metatable
+    readonly clone: nosuspend function<T is table>(t: T): T
+}
+
+--- Mathematical functions and constants, operating on the doubles that plain Lua
+--- numbers are.
+local math: {
+    --- Returns the absolute value of `x`.
+    ---
+    --- @param x the number to take the magnitude of
+    --- @return the absolute value
+    abs: nosuspend function(x: number): number,
+
+    --- Returns the smallest integer that is not less than `x`.
+    ---
+    --- @param x the number to round up
+    --- @return the rounded value
+    ceil: nosuspend function(x: number): integer,
+
+    --- Returns the largest integer that is not greater than `x`.
+    ---
+    --- @param x the number to round down
+    --- @return the rounded value
+    floor: nosuspend function(x: number): integer,
+
+    --- Returns the square root of `x`.
+    ---
+    --- @param x the number to take the root of
+    --- @return the square root
+    sqrt: nosuspend function(x: number): number,
+
+    --- Returns e raised to the power `x`.
+    ---
+    --- @param x the exponent
+    --- @return the result
+    exp: nosuspend function(x: number): number,
+
+    --- Returns the natural logarithm of `x`, or its logarithm in `base`.
+    ---
+    --- @param x the number to take the logarithm of
+    --- @param base the base to use, e by default
+    --- @return the logarithm
+    log: nosuspend function(x: number, base: number?): number,
+
+    --- Returns `x` raised to the power `y`, the same as `x ^ y`.
+    ---
+    --- @param x the base
+    --- @param y the exponent
+    --- @return the result
+    pow: nosuspend function(x: number, y: number): number,
+
+    --- Returns the remainder of `x / y`, keeping the sign of `x`.
+    ---
+    --- @param x the dividend
+    --- @param y the divisor
+    --- @return the remainder
+    fmod: nosuspend function(x: number, y: number): number,
+
+    --- Splits `x` into its integral and fractional parts, both keeping the sign of `x`.
+    ---
+    --- @param x the number to split
+    --- @return the integral part
+    --- @return the fractional part
+    modf: nosuspend function(x: number): (number, number),
+
+    --- Returns the sine of `x`, which is in radians.
+    ---
+    --- @param x the angle in radians
+    --- @return the sine
+    sin: nosuspend function(x: number): number,
+
+    --- Returns the cosine of `x`, which is in radians.
+    ---
+    --- @param x the angle in radians
+    --- @return the cosine
+    cos: nosuspend function(x: number): number,
+
+    --- Returns the tangent of `x`, which is in radians.
+    ---
+    --- @param x the angle in radians
+    --- @return the tangent
+    tan: nosuspend function(x: number): number,
+
+    --- Returns the arc sine of `x`, in radians.
+    ---
+    --- @param x the sine to invert, -1 through 1
+    --- @return the angle in radians
+    asin: nosuspend function(x: number): number,
+
+    --- Returns the arc cosine of `x`, in radians.
+    ---
+    --- @param x the cosine to invert, -1 through 1
+    --- @return the angle in radians
+    acos: nosuspend function(x: number): number,
+
+    --- Returns the arc tangent of `x`, in radians.
+    ---
+    --- @param x the tangent to invert
+    --- @return the angle in radians
+    atan: nosuspend function(x: number): number,
+
+    --- Returns the arc tangent of `y / x`, using the sign of both arguments to place
+    --- the result in the right quadrant.
+    ---
+    --- @param y the numerator
+    --- @param x the denominator
+    --- @return the angle in radians
+    atan2: nosuspend function(y: number, x: number): number,
+
+    --- Returns the hyperbolic sine of `x`.
+    ---
+    --- @param x the argument
+    --- @return the hyperbolic sine
+    sinh: nosuspend function(x: number): number,
+
+    --- Returns the hyperbolic cosine of `x`.
+    ---
+    --- @param x the argument
+    --- @return the hyperbolic cosine
+    cosh: nosuspend function(x: number): number,
+
+    --- Returns the hyperbolic tangent of `x`.
+    ---
+    --- @param x the argument
+    --- @return the hyperbolic tangent
+    tanh: nosuspend function(x: number): number,
+
+    --- Converts the angle `r` from radians to degrees.
+    ---
+    --- @param r the angle in radians
+    --- @return the angle in degrees
+    deg: nosuspend function(r: number): number,
+
+    --- Converts the angle `d` from degrees to radians.
+    ---
+    --- @param d the angle in degrees
+    --- @return the angle in radians
+    rad: nosuspend function(d: number): number,
+
+    --- Returns the smallest of its arguments. Comparing integers gives an integer back,
+    --- so a bound taken this way stays usable as an index.
+    ---
+    --- @param ... the numbers to compare, at least one
+    --- @return the smallest of them
+    min: function<N is number>(...: N): N,
+
+    --- Returns the largest of its arguments. Comparing integers gives an integer back,
+    --- so a bound taken this way stays usable as an index.
+    ---
+    --- @param ... the numbers to compare, at least one
+    --- @return the largest of them
+    max: function<N is number>(...: N): N,
+
+    --- Returns a pseudo-random number: a float in [0,1) with no arguments, a bounded
+    --- number with one, or a number between `m` and `n` with two.
+    ---
+    --- @param m the upper bound, or the lower bound when `n` is given too
+    --- @param n the upper bound
+    --- @return the generated number
+    random: nosuspend function(): number & function(m: number): number & function(m: number, n: number): number,
+
+    --- Seeds the pseudo-random generator, which starts from a fixed state.
+    ---
+    --- @param seed the seed to start from
+    randomseed: nosuspend function(seed: number),
+
+    --- Splits `x` into a fraction in [0.5,1) and an exponent, such that `x` equals the
+    --- fraction times 2 raised to the exponent.
+    ---
+    --- @param x the number to split
+    --- @return the fraction
+    --- @return the exponent
+    frexp: nosuspend function(x: number): (number, number),
+
+    --- Returns `m` times 2 raised to the power `e`.
+    ---
+    --- @param m the mantissa
+    --- @param e the exponent
+    --- @return the result
+    ldexp: nosuspend function(m: number, e: number): number,
+
+    --- The ratio of a circle's circumference to its diameter.
+    pi: number,
+
+    --- Positive infinity, which compares greater than any other number.
+    huge: number
+}
+
+--- Operating-system facilities: clocks and calendars, the environment, processes and
+--- file names.
+local os: {
+    --- Returns the CPU time the program has used, in seconds. It measures intervals of
+    --- work, not wall-clock time.
+    ---
+    --- @return the CPU seconds consumed so far
+    clock: function(): number,
+
+    --- Formats the time `t` as text according to `fmt`. A leading "!" formats in UTC
+    --- rather than local time, and a `fmt` of "*t" returns a table of date fields
+    --- instead of a string.
+    ---
+    --- @param fmt the `strftime` format, "%c" by default
+    --- @param t the time to format, the current time by default
+    --- @return the formatted string, or the field table for "*t"
+    date: function(fmt: string?, t: number?): any,
+
+    --- Returns the number of seconds from `t1` to `t2`.
+    ---
+    --- @param t2 the later time
+    --- @param t1 the earlier time
+    --- @return the difference in seconds
+    difftime: function(t2: number, t1: number): number,
+
+    --- Runs `cmd` with the system shell and waits for it. With no argument it instead
+    --- reports whether a shell is available at all.
+    ---
+    --- @param cmd the command line to run
+    --- @return the command's exit status, or whether a shell exists
+    execute: function(cmd: string?): any,
+
+    --- Ends the process, closing the interpreter state on the way out.
+    ---
+    --- @param code the exit status: true or 0 for success, false or another
+    ---     number for failure
+    exit: function(code: any?),
+
+    --- Returns the value of the environment variable `name`.
+    ---
+    --- @param name the variable to read
+    --- @return its value, or nil when it is not set
+    getenv: function(name: string): string?,
+
+    --- Deletes the file, or the empty directory, at `path`.
+    ---
+    --- @param path what to delete
+    --- @return true on success, or nil on failure
+    --- @return the reason it failed
+    remove: function(path: string): (boolean?, string?),
+
+    --- Renames the file or directory at `from` to `to`.
+    ---
+    --- @param from the existing path
+    --- @param to the new path
+    --- @return true on success, or nil on failure
+    --- @return the reason it failed
+    rename: function(from: string, to: string): (boolean?, string?),
+
+    --- Returns the current time, or the time that `spec` describes.
+    ---
+    --- @param spec a table with `year`, `month` and `day`, and optionally
+    ---     `hour`, `min`, `sec` and `isdst`
+    --- @return the time, in the system's own epoch-based encoding
+    time: function(spec: table?): number,
+
+    --- Returns a file name usable for a temporary file. The file itself is neither
+    --- created nor removed for you.
+    ---
+    --- @return the temporary file name
+    tmpname: function(): string
+}
+
+--- Lua's module-loader configuration.
+local package: {
+    --- Platform path separators and template markers.
+    config: string,
+
+    --- Search templates used by `require` for Lua modules.
+    path: string,
+
+    --- Search templates used by `require` for C modules.
+    cpath: string,
+
+    --- Modules made available without consulting the filesystem.
+    preload: {[string]: function(...: any): any},
+
+    --- Lua 5.1 and Lua 5.2 names for the module-loader chain.
+    loaders: {function(string): any},
+    searchers: {function(string): any}?
+}
+
+--- One field of a reified `struct`, as it is actually laid out in C memory.
+---
+--- `size` is the field's own, from its C type. `padding` is what follows it before the
+--- next field starts, or before the struct ends. They are separate because they answer
+--- different questions: a reader wants the size, and a writer walking bytes has to know
+--- about the gap. An `int8` before a `number` has size 1 and padding 7.
+local interface LayoutField
+    --- The field's name, as the declaration spells it.
+    name: string
+
+    --- Its C type, as the generated `ffi.typeof` spells it.
+    ctype: string
+
+    --- Bytes from the start of the struct.
+    offset: integer
+
+    --- Bytes the field itself occupies.
+    size: integer
+
+    --- Required byte alignment of the field's C type.
+    alignment: integer
+
+    --- Bytes of alignment padding after it.
+    padding: integer
+end
+
+--- How a reified `struct` is laid out, as `layoutof` answers it.
+---
+--- Every number here is this platform's: sizes and offsets come from the FFI at load
+--- rather than being baked in, because padding depends on the target. The fingerprint
+--- therefore describes one platform's layout, which is what makes it usable for
+--- detecting that saved data no longer matches.
+local interface Layout
+    --- The declaration's name.
+    name: string
+
+    --- Bytes one instance occupies, padding included.
+    size: integer
+
+    --- Required byte alignment of the complete struct.
+    alignment: integer
+
+    --- A canonical description of the fields and the size, for detecting drift between
+    --- the layout that wrote data and the layout reading it.
+    fingerprint: string
+
+    --- The fields, in declaration order.
+    fields: {LayoutField}
+end
+
+--- A Lua file handle. Ownership is attached by producers rather than this interface, so
+--- standard streams and borrowed handles use the same type.
+local interface LuaFile
+    close: nosuspend function(self: LuaFile): (boolean?, string?)
+    flush: function(self: LuaFile): (boolean?, string?)
+    lines: function(self: LuaFile, ...: any): function(): any
+    read: function(self: LuaFile, ...: any): any
+    seek: function(self: LuaFile, whence: string?, offset: number?): (number?, string?)
+    setvbuf: function(self: LuaFile, mode: string, size: number?): (boolean?, string?)
+    write: function(self: LuaFile, ...: any): (LuaFile?, string?)
+end
+
+--- File input and output. Producers return borrowed handles here; annotated wrappers in
+--- `nupp.io.file` establish ownership obligations.
+local io: {
+    --- Opens the file at `path`. Modes are "r", "w" and "a", with "+" added for update
+    --- and a trailing "b" for binary.
+    ---
+    --- @param path the file to open
+    --- @param mode the mode to open it in, "r" by default
+    --- @return the file handle, or nil when it cannot be opened
+    --- @return the reason it could not be opened
+    open: function(path: string, mode: string?): (LuaFile?, string?),
+
+    --- Returns an iterator over the lines of the file at `path`, closing it once the
+    --- iterator runs out, or over the default input file when `path` is omitted.
+    ---
+    --- @param path the file to read, or nil for the default input file
+    --- @return an iterator yielding one line at a time
+    lines: function(path: string?): function(): string,
+
+    --- Reads the default input file according to the given formats: "*l" for a line,
+    --- "*n" for a number, "*a" for the rest, or a byte count.
+    ---
+    --- @param ... the formats to read, "*l" by default
+    --- @return one value per format, or nil where the read came up short
+    read: function(...: any): any,
+
+    --- Writes each argument, which must be a string or a number, to the default output
+    --- file.
+    ---
+    --- @param ... the values to write
+    --- @return the file that was written to
+    write: function(...: any): any,
+
+    --- Closes `f`, or the default output file when it is omitted.
+    ---
+    --- @param f the file to close
+    --- @return whether the file closed cleanly
+    close: function(f: LuaFile?): boolean?,
+
+    --- Sets the default input file, opening `f` first when it is a name. With no
+    --- argument it returns the current one instead.
+    ---
+    --- @param f the file handle or name to switch to
+    --- @return the default input file
+    input: function(f: (LuaFile | string)?): LuaFile,
+
+    --- Sets the default output file, opening `f` first when it is a name. With no
+    --- argument it returns the current one instead.
+    ---
+    --- @param f the file handle or name to switch to
+    --- @return the default output file
+    output: function(f: (LuaFile | string)?): LuaFile,
+
+    --- Runs `cmd` in a separate process and returns a handle on one of its streams: its
+    --- standard output for "r", its standard input for "w".
+    ---
+    --- @param cmd the command line to run
+    --- @param mode which stream to connect, "r" by default
+    --- @return the file handle, or nil when the process cannot start
+    --- @return the reason it could not start
+    popen: function(cmd: string, mode: string?): (LuaFile?, string?),
+
+    --- Opens a temporary file in update mode, removed when the program ends.
+    ---
+    --- @return the file handle
+    tmpfile: function(): LuaFile?,
+
+    --- The standard output stream.
+    stdout: LuaFile,
+
+    --- The standard error stream.
+    stderr: LuaFile,
+
+    --- The standard input stream.
+    stdin: LuaFile
+}
+
+--- Cooperative multitasking. A callback with typed start, yield, resume, and return
+--- packs produces a protocol-bearing thread; bare `thread` erases that protocol.
+local coroutine: {
+    --- Creates a coroutine with `f` as its body. The body does not start running until
+    --- the first `resume`.
+    ---
+    --- @param f the function to run inside the coroutine
+    --- @return the new coroutine
+    create: function(f: any): thread,
+
+    --- Starts or continues `co`. The extra arguments go to its body on the first call,
+    --- and become the results of the `yield` that suspended it on later ones.
+    ---
+    --- @param co the coroutine to run
+    --- @param ... the values to pass into it
+    --- @return true when it yielded or returned, false when it raised
+    --- @return the values it yielded or returned, or the error it raised
+    resume: function<A...>(co: thread, A...): ...any,
+
+    --- Suspends the running coroutine. The arguments become the results of the `resume`
+    --- that started it.
+    ---
+    --- @param ... the values to hand back to the resumer
+    --- @return the values passed to the next `resume`
+    yield: function<Y...>(Y...): ...any,
+
+    --- Returns the state of `co`: "running", "suspended", "normal" for one that resumed
+    --- another coroutine, or "dead".
+    ---
+    --- @param co the coroutine to inspect
+    --- @return the state name
+    status: function(co: thread): string,
+
+    --- Creates a coroutine and returns a function that resumes it, passing along its
+    --- own arguments. Errors propagate to the caller instead of being returned as a
+    --- status.
+    ---
+    --- @param f the function to run inside the coroutine
+    --- @return a function that resumes the coroutine
+    wrap: function(f: any): any,
+
+    --- Returns the coroutine that is running.
+    ---
+    --- @return the running coroutine
+    --- @return whether that is the main coroutine
+    running: function(): (thread?, boolean),
+
+    --- Whether the running coroutine is allowed to yield, which is false on the main
+    --- coroutine.
+    ---
+    --- @return whether a `yield` would succeed here
+    isyieldable: function(): boolean
+}
+
+-- The base functions below say `nosuspend`: calling one cannot suspend the caller.
+--
+-- Two of them are a stated trust rather than a proof, in the same category as a
+-- metamethod contract (`docs/metamethods.md`). `tostring` reaches `__tostring` and
+-- `pairs` reaches `__pairs`, and on this baseline an ordinary metamethod may yield, so
+-- a pathological one could. The trade is deliberate: without it a `table.sort`
+-- comparator cannot call `tostring`, which is most comparators, and a check nobody can
+-- leave on protects nothing. A metamethod that does yield still fails loudly, because
+-- the C frame underneath raises.
+
+--- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`, `~`, `<<`,
+--- `>>` and `~>>` operators: arguments are normalized to 32-bit integers and results
+--- come back signed.
+local bit: {
+    --- Normalizes `x` into the signed 32-bit integer range, wrapping around.
+    ---
+    --- @param x the number to normalize
+    --- @return the normalized value
+    tobit: nosuspend function(x: number): integer,
+
+    --- Returns `x` in hexadecimal, using `n` digits.
+    ---
+    --- @param x the number to convert
+    --- @param n how many digits to print, 8 by default; a negative count
+    ---     prints uppercase digits
+    --- @return the hexadecimal text
+    tohex: nosuspend function(x: number, n: number?): string,
+
+    --- Returns the bitwise complement of `x`.
+    ---
+    --- @param x the number to complement
+    --- @return the complement
+    bnot: nosuspend function(x: number): integer,
+
+    --- Returns the bitwise and of every argument.
+    ---
+    --- @param ... the numbers to combine
+    --- @return the combined value
+    band: nosuspend function(...: number): integer,
+
+    --- Returns the bitwise or of every argument.
+    ---
+    --- @param ... the numbers to combine
+    --- @return the combined value
+    bor: nosuspend function(...: number): integer,
+
+    --- Returns the bitwise exclusive or of every argument.
+    ---
+    --- @param ... the numbers to combine
+    --- @return the combined value
+    bxor: nosuspend function(...: number): integer,
+
+    --- Shifts `x` left by `n` bits, filling with zeros.
+    ---
+    --- @param x the number to shift
+    --- @param n how many bits to shift by, taken modulo 32
+    --- @return the shifted value
+    lshift: nosuspend function(x: number, n: number): integer,
+
+    --- Shifts `x` right by `n` bits without sign extension.
+    ---
+    --- @param x the number to shift
+    --- @param n how many bits to shift by, taken modulo 32
+    --- @return the shifted value
+    rshift: nosuspend function(x: number, n: number): integer,
+
+    --- Shifts `x` right by `n` bits, copying the sign bit down.
+    ---
+    --- @param x the number to shift
+    --- @param n how many bits to shift by, taken modulo 32
+    --- @return the shifted value
+    arshift: nosuspend function(x: number, n: number): integer,
+
+    --- Rotates `x` left by `n` bits.
+    ---
+    --- @param x the number to rotate
+    --- @param n how many bits to rotate by, taken modulo 32
+    --- @return the rotated value
+    rol: nosuspend function(x: number, n: number): integer,
+
+    --- Rotates `x` right by `n` bits.
+    ---
+    --- @param x the number to rotate
+    --- @param n how many bits to rotate by, taken modulo 32
+    --- @return the rotated value
+    ror: nosuspend function(x: number, n: number): integer,
+
+    --- Swaps the byte order of `x`, converting between endiannesses.
+    ---
+    --- @param x the number to byte-swap
+    --- @return the swapped value
+    bswap: nosuspend function(x: number): integer
+}
+
+--- Control and introspection for the JIT compiler itself.
+local jit: {
+    --- The LuaJIT version string, such as "LuaJIT 2.1.0".
+    version: string,
+
+    --- The LuaJIT version as a number, where 2.1.0 reads as 20100.
+    version_num: number,
+
+    --- The operating system, such as "Linux", "OSX" or "Windows".
+    os: string,
+
+    --- The target architecture, such as "x64" or "arm64".
+    arch: string,
+
+    --- Reports whether the compiler is enabled.
+    ---
+    --- @return whether compilation is currently on
+    --- @return the optimization flags in force, one per result
+    status: function(): (boolean, any),
+
+    --- Turns compilation on for `f`, or for the whole VM when it is omitted.
+    ---
+    --- @param f the function to enable, or nil for the whole VM
+    --- @param recursive whether to apply the change to nested functions too
+    on: function(f: any?, recursive: boolean?),
+
+    --- Turns compilation off for `f`, or for the whole VM when it is omitted, leaving
+    --- already compiled code in place.
+    ---
+    --- @param f the function to disable, or nil for the whole VM
+    --- @param recursive whether to apply the change to nested functions too
+    off: function(f: any?, recursive: boolean?),
+
+    --- Flushes compiled code, for `f` or for the whole cache when it is omitted, so the
+    --- affected code is traced again from scratch. A trace number flushes that one
+    --- trace.
+    ---
+    --- @param f the function to flush, a trace number, or nil for the whole
+    ---     cache
+    --- @param recursive whether to flush nested functions too
+    flush: function(f: any?, recursive: boolean?),
+
+    --- Adds or removes a handler for a compiler event, so a program can watch the JIT
+    --- as it works. Omitting `event` removes the handler.
+    ---
+    --- The handler's own signature is decided by the event, which is why this one is
+    --- variadic:
+    ---
+    --- * `"bc"`: `(func)`, once per function the VM records bytecode for. * `"trace"`:
+    --- `(what, tr, func, pc, otr, oex)`, where `what` is
+    ---     `"start"`, `"stop"`, `"abort"`, `"flush"` or `"free"`. On
+    ---     `"abort"`, `otr` is an error code to look up in
+    ---     `require("jit.vmdef").traceerr` and `oex` is its argument; on
+    ---     `"start"` for a side trace they are the parent trace and its exit.
+    --- * `"record"`: `(tr, func, pc, depth)`, per bytecode recorded. * `"texit"`:
+    --- `(tr, ex, ngpr, nfpr)`, per trace exit.
+    ---
+    --- A handler runs inside the compiler, so it must not allocate heavily, raise, or
+    --- re-enter the VM in ways that would trigger further compilation. Dropping the
+    --- last reference to a handler does not detach it: hold onto it and pass it back
+    --- with no `event` to remove it.
+    ---
+    --- @param callback the handler to add, or the one to remove
+    --- @param event which event to attach to, or nil to detach
+    attach: function(callback: function(...: any), event: string?),
+
+    --- The optimization submodule. `jit.opt.start` takes flags such as `"hotloop=10"`
+    --- or `"-fold"`, each as its own argument.
+    opt: {start: function(...: any)},
+
+    --- Reports how the VM was built for a security-relevant parameter, such as `"prng"`
+    --- or `"strhash"`.
+    ---
+    --- @param param the parameter to report on
+    --- @return the setting in force
+    security: function(param: string): any
+}
+
+-- `jit.util` is deliberately absent: LuaJIT registers it under package.loaded only, so
+-- `jit.util` is nil at runtime and reaching through it is a nil index rather than
+-- introspection. It is declared as the bundled `jit.util` module instead, alongside
+-- `jit.profile`, `jit.zone` and `jit.vmdef`, which are require()-only for the same
+-- reason.
+
+--- The debug interface: stack inspection, hooks, locals and upvalues. Using it costs
+--- performance and voids assumptions the compiler would rather make.
+local debug: {
+    --- Describes a function, or the activation record at a stack level.
+    ---
+    --- @param f the function to describe, or a stack level counted from here
+    --- @param what which fields to fill in, all of them by default
+    --- @return the description table, or nil when the level is out of range
+    getinfo: function(f: any, what: string?): any,
+
+    --- Returns a traceback of the call stack, with `msg` at the front.
+    ---
+    --- @param msg the message to prepend, returned as-is when not a string
+    --- @param level the stack level to start at, 1 by default
+    --- @return the traceback text
+    traceback: function(msg: any?, level: number?): string,
+
+    --- Installs a debug hook: a function, a mask built from "c", "r" and "l", and an
+    --- optional instruction count.
+    ---
+    --- @param ... the hook function, its mask, and the count
+    sethook: function(...: any),
+
+    --- Returns the hook currently installed.
+    ---
+    --- @return the hook function, its mask and its count
+    gethook: function(): any,
+
+    --- Reads local variable `idx` of the function at a stack level.
+    ---
+    --- @param level the stack level, or a function to inspect
+    --- @param idx the 1-based index of the local
+    --- @return the variable's name, or nil past the last one
+    --- @return its current value
+    getlocal: function(level: any, idx: number): (string?, any),
+
+    --- Assigns `v` to local variable `idx` at a stack level.
+    ---
+    --- @param level the stack level to write into
+    --- @param idx the 1-based index of the local
+    --- @param v the value to store
+    --- @return the variable's name, or nil past the last one
+    setlocal: function(level: any, idx: number, v: any): string?,
+
+    --- Reads upvalue `idx` of the function `f`.
+    ---
+    --- @param f the function to inspect
+    --- @param idx the 1-based index of the upvalue
+    --- @return the upvalue's name, or nil past the last one
+    --- @return its current value
+    getupvalue: function(f: any, idx: number): (string?, any),
+
+    --- Assigns `v` to upvalue `idx` of the function `f`.
+    ---
+    --- @param f the function to modify
+    --- @param idx the 1-based index of the upvalue
+    --- @param v the value to store
+    --- @return the upvalue's name, or nil past the last one
+    setupvalue: function(f: any, idx: number, v: any): string?,
+
+    --- Makes one function's upvalue refer to the same lexical cell as another's.
+    ---
+    --- @param f the function whose upvalue is replaced
+    --- @param idx its 1-based upvalue index
+    --- @param source the function providing the cell
+    --- @param sourceIdx its 1-based upvalue index
+    upvaluejoin: function(f: any, idx: number, source: any, sourceIdx: number),
+
+    --- Returns the metatable of `v`, ignoring any `__metatable` field.
+    ---
+    --- @param v the value to inspect
+    --- @return the metatable, or nil when there is none
+    getmetatable: function(v: any): table?,
+
+    --- Sets `v`'s metatable, ignoring any `__metatable` field.
+    ---
+    --- @param v the value to change
+    --- @param mt the new metatable, or nil to remove the current one
+    --- @return `v`
+    setmetatable: function(v: any, mt: table?): any,
+
+    --- Returns the registry, the table where C code anchors its references.
+    ---
+    --- @return the registry table
+    getregistry: function(): table
+}
+
+--- The command-line arguments of the running script, where `arg[1]` is the first one.
+--- Index 0 holds the script name, and negative indices hold the interpreter and the
+--- options it was given.
+local arg: {string}
+]=],
+["/decls/prelude.d.nupp"] = [=[
+--[[
+# Nupp standard-library prelude
+
+The `nupp` namespace itself: the intrinsics the compiler owns, and the ambient
+library namespaces reached without a `require`. `nupp` loads this file into every
+check environment with `declare_globals`, after `lua.d.nupp`, so the declarations
+below may name Lua types such as `LuaFile`.
+
+## Conventions
+
+- Library tables are closed shapes, so a misspelled member is `NUPP2004`.
+- What needs machinery that has not landed yet falls back to `any`.
+- Every declaration carries a `---` docblock.
+
+This file is parsed and checked by `nupp` itself, as is its Lua counterpart.
+]]
 
 --- Compiler-provided facilities. The namespace is always present; native members are
 --- linked automatically when source reaches them.
@@ -135288,11 +136658,6 @@ interface nupp.__DeprecatedAnnotation
 
     --- The API spelling callers should migrate to.
     replacement: string?
-end
-
---- Values with deterministic compiler-generated debug formatting.
-interface nupp.Debug
-    debug: function(self): string
 end
 
 --- JSON, UTF-8, UUIDs, hashes and checksums.
@@ -136987,371 +138352,6 @@ record nupp.MathLibrary
     deltaAngle: function(from: number, to: number): number
 end
 
---- Controls the garbage collector. `opt` is "collect" for a full cycle, the default, or
---- "stop", "restart", "count", "step", "setpause", "setstepmul" or "isrunning".
----
---- @param opt the operation to perform
---- @param arg the step size or parameter that the operation takes
---- @return what the operation reports: "count" gives the kilobytes in use, while
----     "step" and "isrunning" answer a boolean
-local collectgarbage: function(): number
-    & function(opt: 'collect' | 'stop' | 'restart' | 'count' | 'setpause' | 'setstepmul', arg: number?): number
-    & function(opt: 'step' | 'isrunning', arg: number?): boolean
-
---- Compiles a chunk read piecewise from `chunk`, a function returning successive pieces
---- of source, without running it.
----
---- @param chunk the reader function, or the source string
---- @param name the chunk name to use in error messages
---- @param mode "b", "t" or "bt", limiting binary or text sources
---- @param env the environment the chunk sees as its globals
---- @return the compiled chunk, or nil when it does not compile
---- @return the compile error, when there was one
-local load: function(chunk: any, name: string?, mode: string?, env: table?): (any, string?)
-
---- Compiles the string `s` as a chunk, without running it.
----
---- @param s the source to compile
---- @param name the chunk name to use in error messages
---- @return the compiled chunk, or nil when it does not compile
---- @return the compile error, when there was one
-local loadstring: function(s: string, name: string?): (any, string?)
-
---- Compiles the file at `path`, or standard input when it is omitted, without running
---- it.
----
---- @param path the file to compile, or nil for standard input
---- @param mode "b", "t" or "bt", limiting binary or text sources
---- @param env the environment the chunk sees as its globals
---- @return the compiled chunk, or nil when it does not load
---- @return the load error, when there was one
-local loadfile: function(path: string?, mode: string?, env: table?): (any, string?)
-
---- Sets the environment a function sees as its globals. `f` is the function itself, or
---- a stack level: 1 is the caller, 0 the running thread.
----
---- @param f the function whose globals are being replaced, or a stack level
---- @param env the table to use as that function's globals
---- @return `f`, when it was a function
-local setfenv: function(f: any, env: table): any
-
---- Returns the environment a function sees as its globals, addressed the way `setfenv`
---- addresses one.
----
---- @param f the function to ask about, or a stack level
---- @return that function's globals
-local getfenv: function(f: any?): table
-
---- Loads and runs the file at `path`, or standard input when it is omitted. Errors from
---- the chunk propagate to the caller.
----
---- @param path the file to run, or nil for standard input
---- @return whatever the chunk returns
-local dofile: function(path: string?): any
-
---- Returns the amount of memory in use, in kilobytes. Superseded by
---- `collectgarbage("count")`.
----
---- @return the kilobytes currently allocated
-local gcinfo: function(): integer
-
---- Creates a userdata with a fresh empty metatable, with no metatable, or sharing the
---- metatable of an existing proxy.
----
---- @param mt true for a new metatable, false or nil for none, or a proxy to
----     share a metatable with
---- @return the new userdata
-local newproxy: function(mt: any?): userdata
-
---- The global environment table, in which `_G._G` is `_G` itself.
-local _G: table
-
---- The language version the interpreter implements, "Lua 5.1" under LuaJIT.
-local _VERSION: string
-
--- Formatting APIs derive their trailing parameter pack from a literal first
--- argument. A broad string deliberately retains the ordinary variadic fallback.
-
---- @local
-local comptime function __NuppFormatArguments(Format: type, Debug: type): typepack
-    local info = nupp.types.describe(Format)
-    local value = info.value
-    if info.kind ~= "literal" then
-        return nupp.types.pack({}, nupp.types.any)
-    end
-    if type(value) ~= "string" then
-        return nupp.types.pack({}, nupp.types.any)
-    end
-    local format = value as string
-    local arguments = {}
-    local index = 1
-    while index <= #format do
-        if format:sub(index, index) ~= "%" then
-            index = index + 1
-        else
-            index = index + 1
-            local seen = ""
-            local current = format:sub(index, index)
-            if current == "%" then
-                index = index + 1
-            else
-                while current ~= "" and string.find("-+ #0", current, 1, true) do
-                    seen = seen .. current
-                    index = index + 1
-                    current = format:sub(index, index)
-                end
-                if current == "%" then
-                    nupp.types.error(
-                        'invalid string.format directive starting at "%' .. seen .. format:sub(index) .. '"'
-                    )
-                end
-
-                local width = 0
-                while current ~= "" and string.find("0123456789", current, 1, true) do
-                    width = width + 1
-                    seen = seen .. current
-                    index = index + 1
-                    current = format:sub(index, index)
-                    if width > 2 then
-                        nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
-                    end
-                end
-
-                if current == "." then
-                    seen = seen .. current
-                    index = index + 1
-                    current = format:sub(index, index)
-                    local precision = 0
-                    while current ~= "" and string.find("0123456789", current, 1, true) do
-                        precision = precision + 1
-                        seen = seen .. current
-                        index = index + 1
-                        current = format:sub(index, index)
-                        if precision > 2 then
-                            nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
-                        end
-                    end
-                end
-
-                if string.find("aAcdiouxXeEfgG", current, 1, true) then
-                    arguments[#arguments + 1] = nupp.types.number
-                elseif current == "?" then
-                    arguments[#arguments + 1] = Debug
-                elseif string.find("pqs", current, 1, true) then
-                    arguments[#arguments + 1] = nupp.types.any
-                else
-                    nupp.types.error(
-                        'invalid string.format directive starting at "%' .. seen .. format:sub(index) .. '"'
-                    )
-                end
-                index = index + 1
-            end
-        end
-    end
-
-    return nupp.types.pack(arguments)
-end
-
--- Literal Lua patterns carry their capture shape through ordinary prelude type
--- functions. This scanner is compile-time Nupp code; the type provider contributes
--- only type inspection and construction.
-
---- @local
-local comptime function __NuppPatternClassEnd(source: string, opening: number): any
-    local index = opening + 1
-    if source:sub(index, index) == "^" then
-        index = index + 1
-    end
-    if source:sub(index, index) == "]" then
-        index = index + 1
-    end
-    while index <= #source do
-        local current = source:sub(index, index)
-        if current == "%" then
-            if index == #source then
-                return {next = index, error = "malformed pattern"}
-            end
-            index = index + 2
-        elseif current == "]" then
-            return {next = index + 1}
-        else
-            index = index + 1
-        end
-    end
-
-    return {next = index, error = "malformed pattern"}
-end
-
---- @local
-local comptime function __NuppPatternCaptures(source: string): any
-    local captures = {}
-    local depth = 0
-    local index = 1
-    while index <= #source do
-        local current = source:sub(index, index)
-        if current == "(" then
-            if source:sub(index + 1, index + 1) == ")" then
-                captures[#captures + 1] = "position"
-                index = index + 2
-            else
-                captures[#captures + 1] = "string"
-                depth = depth + 1
-                if depth > 32 then
-                    return {error = "too many captures"}
-                end
-                index = index + 1
-            end
-        elseif current == ")" then
-            if depth == 0 then
-                return {error = "unexpected ')'"}
-            end
-            depth = depth - 1
-            index = index + 1
-        elseif current == "%" then
-            local escaped = source:sub(index + 1, index + 1)
-            if escaped == "" then
-                return {error = "malformed pattern"}
-            elseif escaped == "b" then
-                if index + 3 > #source then
-                    return {error = "malformed pattern"}
-                end
-                index = index + 4
-            elseif escaped == "f" then
-                if source:sub(index + 2, index + 2) ~= "[" then
-                    return {error = "malformed pattern"}
-                end
-                local parsedClass = __NuppPatternClassEnd(source, index + 2)
-                index = parsedClass.next
-                if parsedClass.error then
-                    return {error = parsedClass.error}
-                end
-            else
-                index = index + 2
-            end
-        elseif current == "[" then
-            local parsedClass = __NuppPatternClassEnd(source, index)
-            index = parsedClass.next
-            if parsedClass.error then
-                return {error = parsedClass.error}
-            end
-        else
-            index = index + 1
-        end
-    end
-    if depth ~= 0 then
-        return {error = "unfinished capture"}
-    end
-
-    return {captures = captures}
-end
-
---- @local
-local comptime function __NuppMatchResults(Pattern: type): typepack
-    local info = nupp.types.describe(Pattern)
-    local value = info.value
-    if info.kind ~= "literal" then
-        return nupp.types.pack({nupp.types.optional(nupp.types.string)})
-    end
-    if type(value) ~= "string" then
-        return nupp.types.pack({nupp.types.optional(nupp.types.string)})
-    end
-    local pattern = value as string
-    local parsed = __NuppPatternCaptures(pattern)
-    if parsed.error then
-        nupp.types.error("invalid Lua pattern: " .. parsed.error)
-    end
-    local results = {}
-    if #parsed.captures == 0 then
-        results[1] = nupp.types.optional(nupp.types.string)
-    else
-        for index, kind in ipairs(parsed.captures) do
-            local capture = nupp.types.string
-            if kind == "position" then
-                capture = nupp.types.integer
-            end
-            if index == 1 then
-                capture = nupp.types.optional(capture)
-            end
-            results[index] = capture
-        end
-    end
-
-    return nupp.types.pack(results)
-end
-
---- @local
-local comptime function __NuppFindResults(Pattern: type, Plain: type): typepack
-    local plain = nupp.types.describe(Plain)
-    local endpoints = {nupp.types.optional(nupp.types.integer), nupp.types.optional(nupp.types.integer)}
-    if plain.kind == "literal" and plain.value == true then
-        return nupp.types.pack(endpoints)
-    end
-    local info = nupp.types.describe(Pattern)
-    local value = info.value
-    if info.kind ~= "literal" then
-        return nupp.types.pack(endpoints)
-    end
-    if type(value) ~= "string" then
-        return nupp.types.pack(endpoints)
-    end
-    local pattern = value as string
-    local parsed = __NuppPatternCaptures(pattern)
-    if parsed.error then
-        nupp.types.error("invalid Lua pattern: " .. parsed.error)
-    end
-    for _, kind in ipairs(parsed.captures) do
-        if kind == "position" then
-            endpoints[#endpoints + 1] = nupp.types.integer
-        else
-            endpoints[#endpoints + 1] = nupp.types.string
-        end
-    end
-
-    return nupp.types.pack(endpoints)
-end
-
---- @local
-local comptime function __NuppGmatchResults(Pattern: type): typepack
-    local results = {nupp.types.string}
-    local info = nupp.types.describe(Pattern)
-    local value = info.value
-    if info.kind == "literal" and type(value) == "string" then
-        local pattern = value as string
-        local parsed = __NuppPatternCaptures(pattern)
-        if parsed.error then
-            nupp.types.error("invalid Lua pattern: " .. parsed.error)
-        end
-        if #parsed.captures > 0 then
-            results = {}
-            for index, kind in ipairs(parsed.captures) do
-                if kind == "position" then
-                    results[index] = nupp.types.integer
-                else
-                    results[index] = nupp.types.string
-                end
-            end
-        end
-    end
-    local iterator = nupp.types.function_(nupp.types.pack({}), nupp.types.pack(results))
-
-    return nupp.types.pack({iterator})
-end
-
---- @local
-local comptime function __NuppGsubResults(Pattern: type): typepack
-    local info = nupp.types.describe(Pattern)
-    local value = info.value
-    if info.kind == "literal" and type(value) == "string" then
-        local pattern = value as string
-        local parsed = __NuppPatternCaptures(pattern)
-        if parsed.error then
-            nupp.types.error("invalid Lua pattern: " .. parsed.error)
-        end
-    end
-
-    return nupp.types.pack({nupp.types.string, nupp.types.integer})
-end
-
 --- The severity operations are compiler intrinsics. A call in statement position
 --- whose format is a literal compiles to a level test around a direct emit, so a
 --- filtered call evaluates none of its arguments. Every other spelling stays an
@@ -137463,949 +138463,6 @@ record nupp.log
     --- @return the level's name
     levelName: function(level: Severity): Level
 end
-
---- String manipulation and pattern matching. Every function here is also reachable as a
---- method on a string value, so `s:upper()` means `string.upper(s)`.
-local string: {
-    --- Returns the numeric codes of the characters of `s` from `i` to `j`.
-    ---
-    --- @param s the string to read
-    --- @param i the first index, 1 by default; negative counts from the end
-    --- @param j the last index, `i` by default
-    --- @return one code per selected character
-    byte: nosuspend function(s: string, i: number?, j: number?): integer,
-
-    --- Builds a string from the given character codes.
-    ---
-    --- @param ... the character codes, each 0 through 255
-    --- @return the assembled string
-    char: nosuspend function(...: number): string,
-
-    --- Returns a binary representation of a Lua function that has no upvalues, in a
-    --- form `loadstring` accepts.
-    ---
-    --- @param f the function to dump
-    --- @param strip whether to discard debug information
-    --- @return the bytecode string
-    dump: nosuspend function(f: any, strip: boolean?): string,
-
-    --- Finds the first match of pattern `pat` in `s`, at or after `init`. Any captures
-    --- the pattern has follow the two returned indices.
-    ---
-    --- @param s the string to search
-    --- @param pat the pattern to look for
-    --- @param init where to start, 1 by default; negative counts from the end
-    --- @param plain whether to match `pat` literally, ignoring pattern syntax
-    --- @return the index where the match starts, or nil when there is none
-    --- @return the index where the match ends
-    find: nosuspend function<Pattern is string, Plain is boolean?>(
-        s: string,
-        pat: Pattern,
-        init: number?,
-        plain: Plain?
-    ): unpackof __NuppFindResults(Pattern, Plain),
-
-    --- Formats the arguments into `fmt` using LuaJIT's bounded-width `printf` subset,
-    --- plus `%q` quoting, `%p` object identity, and hexadecimal floats with `%a`/`%A`.
-    ---
-    --- @param fmt the format string
-    --- @param ... the values that the directives consume
-    --- @return the formatted string
-    format: nosuspend function<Format is string>(
-        fmt: Format,
-        ...: unpackof __NuppFormatArguments(Format, nupp.Debug)
-    ): string,
-
-    --- Returns an iterator over each successive match of `pat` in `s`, or over that
-    --- match's captures when the pattern has any. Anchors have no special meaning here.
-    ---
-    --- @param s the string to scan
-    --- @param pat the pattern to repeat across `s`
-    --- @return an iterator yielding one match at a time
-    gmatch: nosuspend function<Pattern is string>(s: string, pat: Pattern): unpackof __NuppGmatchResults(Pattern),
-
-    --- Replaces matches of `pat` in `s`. `repl` may be a string, in which `%1` through
-    --- `%9` stand for captures and `%0` for the whole match, a table looked up by the
-    --- first capture, or a function called with the captures.
-    ---
-    --- @param s the subject string
-    --- @param pat the pattern to replace
-    --- @param repl the replacement string, table or function
-    --- @param n how many matches to replace at most, all of them by default
-    --- @return the string with the replacements applied
-    --- @return how many matches were replaced
-    gsub: nosuspend function<Pattern is string>(
-        s: string,
-        pat: Pattern,
-        repl: any,
-        n: number?
-    ): unpackof __NuppGsubResults(Pattern),
-
-    --- Returns the length of `s` in bytes.
-    ---
-    --- @param s the string to measure
-    --- @return the byte count
-    len: nosuspend function(s: string): integer,
-
-    --- Returns `s` with every ASCII letter folded to lower case.
-    ---
-    --- @param s the string to fold
-    --- @return the lowercased string
-    lower: nosuspend function(s: string): string,
-
-    --- Returns the captures of the first match of `pat` in `s`, or the whole match when
-    --- the pattern has no captures.
-    ---
-    --- @param s the string to search
-    --- @param pat the pattern to look for
-    --- @param init where to start, 1 by default; negative counts from the end
-    --- @return the captures or the whole match, or nil when nothing matches
-    match: nosuspend function<Pattern is string>(
-        s: string,
-        pat: Pattern,
-        init: number?
-    ): unpackof __NuppMatchResults(Pattern),
-
-    --- Returns `n` copies of `s`, with `sep` between consecutive copies.
-    ---
-    --- @param s the string to repeat
-    --- @param n how many copies to produce
-    --- @param sep what to place between copies, nothing by default
-    --- @return the repeated string
-    rep: nosuspend function(s: string, n: number, sep: string?): string,
-
-    --- Returns the bytes of `s` in reverse order.
-    ---
-    --- @param s the string to reverse
-    --- @return the reversed string
-    reverse: nosuspend function(s: string): string,
-
-    --- Returns the substring of `s` running from `i` through `j`.
-    ---
-    --- @param s the string to slice
-    --- @param i the first index; negative counts from the end
-    --- @param j the last index, -1 by default
-    --- @return the selected substring
-    sub: nosuspend function(s: string, i: number, j: number?): string,
-
-    --- Returns `s` with every ASCII letter folded to upper case.
-    ---
-    --- @param s the string to fold
-    --- @return the uppercased string
-    upper: nosuspend function(s: string): string
-}
-
---- Table manipulation. These functions work on the array part of a table: the integer
---- keys 1 through `#t`.
-const table: {
-    --- Joins the elements `t[i]` through `t[j]`, each of which must be a string or a
-    --- number, into a single string.
-    ---
-    --- @param t the array to join
-    --- @param sep what to place between elements, nothing by default
-    --- @param i the first index, 1 by default
-    --- @param j the last index, `#t` by default
-    --- @return the joined string
-    concat: nosuspend function(t: table, sep: string?, i: number?, j: number?): string,
-
-    --- Inserts `v` at position `pos`, shifting later elements up. Called with two
-    --- arguments, appends that value to the end instead.
-    ---
-    --- @param t the array to insert into
-    --- @param pos the position to insert at, or the value to append
-    --- @param v the value to insert, when a position was given
-    insert: nosuspend function(t: table, pos: any, v: any?),
-
-    --- Removes the element at `pos`, shifting later elements down.
-    ---
-    --- @param t the array to remove from
-    --- @param pos the position to remove, `#t` by default
-    --- @return the element that was removed
-    remove: nosuspend function(t: table, pos: number?): any,
-
-    --- Sorts `t` in place, between indices 1 and `#t`. The sort is not stable, and
-    --- `cmp` must be a strict order or it may raise.
-    ---
-    --- @typearg V the element type
-    --- @param t the array to sort
-    --- @param cmp returns true when its first argument must come first; `<`
-    ---     is used when it is omitted
-    sort: function<V>(t: {V}, scoped cmp: function(V, V): boolean?),
-
-    --- Returns the largest positive numeric key of `t`, or 0 when it has none.
-    --- Deprecated, and unlike `#t` it also sees keys past a hole.
-    ---
-    --- @param t the table to scan
-    --- @return the largest positive numeric key
-    maxn: nosuspend function(t: table): number,
-
-    -- LuaJIT extensions
-
-    --- Creates a table preallocated for `narray` array slots and `nhash` hash slots, so
-    --- filling it in does not have to rehash.
-    ---
-    --- @param narray how many array slots to reserve
-    --- @param nhash how many hash slots to reserve
-    --- @return the new table
-    readonly new: function(narray: number, nhash: number): table,
-
-    --- Removes every key from `t` while keeping the space it has already allocated, so
-    --- it can be refilled without reallocating.
-    ---
-    --- @param t the table to empty
-    readonly clear: function(t: table),
-
-    -- Nupp extensions
-
-    --- Copies `t` one level deep: every key it holds directly, and its metatable, are
-    --- carried over, while a value that is itself a table stays shared between the two.
-    --- Neither `__index` nor `__pairs` is consulted, so what comes back is what `next`
-    --- would have walked.
-    ---
-    --- @typearg T the table type
-    --- @param t the table to copy
-    --- @return a new table holding the same keys, values and metatable
-    readonly clone: nosuspend function<T is table>(t: T): T
-}
-
---- Mathematical functions and constants, operating on the doubles that plain Lua
---- numbers are.
-local math: {
-    --- Returns the absolute value of `x`.
-    ---
-    --- @param x the number to take the magnitude of
-    --- @return the absolute value
-    abs: nosuspend function(x: number): number,
-
-    --- Returns the smallest integer that is not less than `x`.
-    ---
-    --- @param x the number to round up
-    --- @return the rounded value
-    ceil: nosuspend function(x: number): integer,
-
-    --- Returns the largest integer that is not greater than `x`.
-    ---
-    --- @param x the number to round down
-    --- @return the rounded value
-    floor: nosuspend function(x: number): integer,
-
-    --- Returns the square root of `x`.
-    ---
-    --- @param x the number to take the root of
-    --- @return the square root
-    sqrt: nosuspend function(x: number): number,
-
-    --- Returns e raised to the power `x`.
-    ---
-    --- @param x the exponent
-    --- @return the result
-    exp: nosuspend function(x: number): number,
-
-    --- Returns the natural logarithm of `x`, or its logarithm in `base`.
-    ---
-    --- @param x the number to take the logarithm of
-    --- @param base the base to use, e by default
-    --- @return the logarithm
-    log: nosuspend function(x: number, base: number?): number,
-
-    --- Returns `x` raised to the power `y`, the same as `x ^ y`.
-    ---
-    --- @param x the base
-    --- @param y the exponent
-    --- @return the result
-    pow: nosuspend function(x: number, y: number): number,
-
-    --- Returns the remainder of `x / y`, keeping the sign of `x`.
-    ---
-    --- @param x the dividend
-    --- @param y the divisor
-    --- @return the remainder
-    fmod: nosuspend function(x: number, y: number): number,
-
-    --- Splits `x` into its integral and fractional parts, both keeping the sign of `x`.
-    ---
-    --- @param x the number to split
-    --- @return the integral part
-    --- @return the fractional part
-    modf: nosuspend function(x: number): (number, number),
-
-    --- Returns the sine of `x`, which is in radians.
-    ---
-    --- @param x the angle in radians
-    --- @return the sine
-    sin: nosuspend function(x: number): number,
-
-    --- Returns the cosine of `x`, which is in radians.
-    ---
-    --- @param x the angle in radians
-    --- @return the cosine
-    cos: nosuspend function(x: number): number,
-
-    --- Returns the tangent of `x`, which is in radians.
-    ---
-    --- @param x the angle in radians
-    --- @return the tangent
-    tan: nosuspend function(x: number): number,
-
-    --- Returns the arc sine of `x`, in radians.
-    ---
-    --- @param x the sine to invert, -1 through 1
-    --- @return the angle in radians
-    asin: nosuspend function(x: number): number,
-
-    --- Returns the arc cosine of `x`, in radians.
-    ---
-    --- @param x the cosine to invert, -1 through 1
-    --- @return the angle in radians
-    acos: nosuspend function(x: number): number,
-
-    --- Returns the arc tangent of `x`, in radians.
-    ---
-    --- @param x the tangent to invert
-    --- @return the angle in radians
-    atan: nosuspend function(x: number): number,
-
-    --- Returns the arc tangent of `y / x`, using the sign of both arguments to place
-    --- the result in the right quadrant.
-    ---
-    --- @param y the numerator
-    --- @param x the denominator
-    --- @return the angle in radians
-    atan2: nosuspend function(y: number, x: number): number,
-
-    --- Returns the hyperbolic sine of `x`.
-    ---
-    --- @param x the argument
-    --- @return the hyperbolic sine
-    sinh: nosuspend function(x: number): number,
-
-    --- Returns the hyperbolic cosine of `x`.
-    ---
-    --- @param x the argument
-    --- @return the hyperbolic cosine
-    cosh: nosuspend function(x: number): number,
-
-    --- Returns the hyperbolic tangent of `x`.
-    ---
-    --- @param x the argument
-    --- @return the hyperbolic tangent
-    tanh: nosuspend function(x: number): number,
-
-    --- Converts the angle `r` from radians to degrees.
-    ---
-    --- @param r the angle in radians
-    --- @return the angle in degrees
-    deg: nosuspend function(r: number): number,
-
-    --- Converts the angle `d` from degrees to radians.
-    ---
-    --- @param d the angle in degrees
-    --- @return the angle in radians
-    rad: nosuspend function(d: number): number,
-
-    --- Returns the smallest of its arguments. Comparing integers gives an integer back,
-    --- so a bound taken this way stays usable as an index.
-    ---
-    --- @param ... the numbers to compare, at least one
-    --- @return the smallest of them
-    min: function<N is number>(...: N): N,
-
-    --- Returns the largest of its arguments. Comparing integers gives an integer back,
-    --- so a bound taken this way stays usable as an index.
-    ---
-    --- @param ... the numbers to compare, at least one
-    --- @return the largest of them
-    max: function<N is number>(...: N): N,
-
-    --- Returns a pseudo-random number: a float in [0,1) with no arguments, a bounded
-    --- number with one, or a number between `m` and `n` with two.
-    ---
-    --- @param m the upper bound, or the lower bound when `n` is given too
-    --- @param n the upper bound
-    --- @return the generated number
-    random: nosuspend function(): number & function(m: number): number & function(m: number, n: number): number,
-
-    --- Seeds the pseudo-random generator, which starts from a fixed state.
-    ---
-    --- @param seed the seed to start from
-    randomseed: nosuspend function(seed: number),
-
-    --- Splits `x` into a fraction in [0.5,1) and an exponent, such that `x` equals the
-    --- fraction times 2 raised to the exponent.
-    ---
-    --- @param x the number to split
-    --- @return the fraction
-    --- @return the exponent
-    frexp: nosuspend function(x: number): (number, number),
-
-    --- Returns `m` times 2 raised to the power `e`.
-    ---
-    --- @param m the mantissa
-    --- @param e the exponent
-    --- @return the result
-    ldexp: nosuspend function(m: number, e: number): number,
-
-    --- The ratio of a circle's circumference to its diameter.
-    pi: number,
-
-    --- Positive infinity, which compares greater than any other number.
-    huge: number
-}
-
---- Operating-system facilities: clocks and calendars, the environment, processes and
---- file names.
-local os: {
-    --- Returns the CPU time the program has used, in seconds. It measures intervals of
-    --- work, not wall-clock time.
-    ---
-    --- @return the CPU seconds consumed so far
-    clock: function(): number,
-
-    --- Formats the time `t` as text according to `fmt`. A leading "!" formats in UTC
-    --- rather than local time, and a `fmt` of "*t" returns a table of date fields
-    --- instead of a string.
-    ---
-    --- @param fmt the `strftime` format, "%c" by default
-    --- @param t the time to format, the current time by default
-    --- @return the formatted string, or the field table for "*t"
-    date: function(fmt: string?, t: number?): any,
-
-    --- Returns the number of seconds from `t1` to `t2`.
-    ---
-    --- @param t2 the later time
-    --- @param t1 the earlier time
-    --- @return the difference in seconds
-    difftime: function(t2: number, t1: number): number,
-
-    --- Runs `cmd` with the system shell and waits for it. With no argument it instead
-    --- reports whether a shell is available at all.
-    ---
-    --- @param cmd the command line to run
-    --- @return the command's exit status, or whether a shell exists
-    execute: function(cmd: string?): any,
-
-    --- Ends the process, closing the interpreter state on the way out.
-    ---
-    --- @param code the exit status: true or 0 for success, false or another
-    ---     number for failure
-    exit: function(code: any?),
-
-    --- Returns the value of the environment variable `name`.
-    ---
-    --- @param name the variable to read
-    --- @return its value, or nil when it is not set
-    getenv: function(name: string): string?,
-
-    --- Deletes the file, or the empty directory, at `path`.
-    ---
-    --- @param path what to delete
-    --- @return true on success, or nil on failure
-    --- @return the reason it failed
-    remove: function(path: string): (boolean?, string?),
-
-    --- Renames the file or directory at `from` to `to`.
-    ---
-    --- @param from the existing path
-    --- @param to the new path
-    --- @return true on success, or nil on failure
-    --- @return the reason it failed
-    rename: function(from: string, to: string): (boolean?, string?),
-
-    --- Returns the current time, or the time that `spec` describes.
-    ---
-    --- @param spec a table with `year`, `month` and `day`, and optionally
-    ---     `hour`, `min`, `sec` and `isdst`
-    --- @return the time, in the system's own epoch-based encoding
-    time: function(spec: table?): number,
-
-    --- Returns a file name usable for a temporary file. The file itself is neither
-    --- created nor removed for you.
-    ---
-    --- @return the temporary file name
-    tmpname: function(): string
-}
-
---- Lua's module-loader configuration.
-local package: {
-    --- Platform path separators and template markers.
-    config: string,
-
-    --- Search templates used by `require` for Lua modules.
-    path: string,
-
-    --- Search templates used by `require` for C modules.
-    cpath: string,
-
-    --- Modules made available without consulting the filesystem.
-    preload: {[string]: function(...: any): any},
-
-    --- Lua 5.1 and Lua 5.2 names for the module-loader chain.
-    loaders: {function(string): any},
-    searchers: {function(string): any}?
-}
-
---- One field of a reified `struct`, as it is actually laid out in C memory.
----
---- `size` is the field's own, from its C type. `padding` is what follows it before the
---- next field starts, or before the struct ends. They are separate because they answer
---- different questions: a reader wants the size, and a writer walking bytes has to know
---- about the gap. An `int8` before a `number` has size 1 and padding 7.
-local interface LayoutField
-    --- The field's name, as the declaration spells it.
-    name: string
-
-    --- Its C type, as the generated `ffi.typeof` spells it.
-    ctype: string
-
-    --- Bytes from the start of the struct.
-    offset: integer
-
-    --- Bytes the field itself occupies.
-    size: integer
-
-    --- Required byte alignment of the field's C type.
-    alignment: integer
-
-    --- Bytes of alignment padding after it.
-    padding: integer
-end
-
---- How a reified `struct` is laid out, as `layoutof` answers it.
----
---- Every number here is this platform's: sizes and offsets come from the FFI at load
---- rather than being baked in, because padding depends on the target. The fingerprint
---- therefore describes one platform's layout, which is what makes it usable for
---- detecting that saved data no longer matches.
-local interface Layout
-    --- The declaration's name.
-    name: string
-
-    --- Bytes one instance occupies, padding included.
-    size: integer
-
-    --- Required byte alignment of the complete struct.
-    alignment: integer
-
-    --- A canonical description of the fields and the size, for detecting drift between
-    --- the layout that wrote data and the layout reading it.
-    fingerprint: string
-
-    --- The fields, in declaration order.
-    fields: {LayoutField}
-end
-
---- A Lua file handle. Ownership is attached by producers rather than this interface, so
---- standard streams and borrowed handles use the same type.
-local interface LuaFile
-    close: nosuspend function(self: LuaFile): (boolean?, string?)
-    flush: function(self: LuaFile): (boolean?, string?)
-    lines: function(self: LuaFile, ...: any): function(): any
-    read: function(self: LuaFile, ...: any): any
-    seek: function(self: LuaFile, whence: string?, offset: number?): (number?, string?)
-    setvbuf: function(self: LuaFile, mode: string, size: number?): (boolean?, string?)
-    write: function(self: LuaFile, ...: any): (LuaFile?, string?)
-end
-
---- File input and output. Producers return borrowed handles here; annotated wrappers in
---- `nupp.io.file` establish ownership obligations.
-local io: {
-    --- Opens the file at `path`. Modes are "r", "w" and "a", with "+" added for update
-    --- and a trailing "b" for binary.
-    ---
-    --- @param path the file to open
-    --- @param mode the mode to open it in, "r" by default
-    --- @return the file handle, or nil when it cannot be opened
-    --- @return the reason it could not be opened
-    open: function(path: string, mode: string?): (LuaFile?, string?),
-
-    --- Returns an iterator over the lines of the file at `path`, closing it once the
-    --- iterator runs out, or over the default input file when `path` is omitted.
-    ---
-    --- @param path the file to read, or nil for the default input file
-    --- @return an iterator yielding one line at a time
-    lines: function(path: string?): function(): string,
-
-    --- Reads the default input file according to the given formats: "*l" for a line,
-    --- "*n" for a number, "*a" for the rest, or a byte count.
-    ---
-    --- @param ... the formats to read, "*l" by default
-    --- @return one value per format, or nil where the read came up short
-    read: function(...: any): any,
-
-    --- Writes each argument, which must be a string or a number, to the default output
-    --- file.
-    ---
-    --- @param ... the values to write
-    --- @return the file that was written to
-    write: function(...: any): any,
-
-    --- Closes `f`, or the default output file when it is omitted.
-    ---
-    --- @param f the file to close
-    --- @return whether the file closed cleanly
-    close: function(f: LuaFile?): boolean?,
-
-    --- Sets the default input file, opening `f` first when it is a name. With no
-    --- argument it returns the current one instead.
-    ---
-    --- @param f the file handle or name to switch to
-    --- @return the default input file
-    input: function(f: (LuaFile | string)?): LuaFile,
-
-    --- Sets the default output file, opening `f` first when it is a name. With no
-    --- argument it returns the current one instead.
-    ---
-    --- @param f the file handle or name to switch to
-    --- @return the default output file
-    output: function(f: (LuaFile | string)?): LuaFile,
-
-    --- Runs `cmd` in a separate process and returns a handle on one of its streams: its
-    --- standard output for "r", its standard input for "w".
-    ---
-    --- @param cmd the command line to run
-    --- @param mode which stream to connect, "r" by default
-    --- @return the file handle, or nil when the process cannot start
-    --- @return the reason it could not start
-    popen: function(cmd: string, mode: string?): (LuaFile?, string?),
-
-    --- Opens a temporary file in update mode, removed when the program ends.
-    ---
-    --- @return the file handle
-    tmpfile: function(): LuaFile?,
-
-    --- The standard output stream.
-    stdout: LuaFile,
-
-    --- The standard error stream.
-    stderr: LuaFile,
-
-    --- The standard input stream.
-    stdin: LuaFile
-}
-
---- Cooperative multitasking. A callback with typed start, yield, resume, and return
---- packs produces a protocol-bearing thread; bare `thread` erases that protocol.
-local coroutine: {
-    --- Creates a coroutine with `f` as its body. The body does not start running until
-    --- the first `resume`.
-    ---
-    --- @param f the function to run inside the coroutine
-    --- @return the new coroutine
-    create: function(f: any): thread,
-
-    --- Starts or continues `co`. The extra arguments go to its body on the first call,
-    --- and become the results of the `yield` that suspended it on later ones.
-    ---
-    --- @param co the coroutine to run
-    --- @param ... the values to pass into it
-    --- @return true when it yielded or returned, false when it raised
-    --- @return the values it yielded or returned, or the error it raised
-    resume: function<A...>(co: thread, A...): ...any,
-
-    --- Suspends the running coroutine. The arguments become the results of the `resume`
-    --- that started it.
-    ---
-    --- @param ... the values to hand back to the resumer
-    --- @return the values passed to the next `resume`
-    yield: function<Y...>(Y...): ...any,
-
-    --- Returns the state of `co`: "running", "suspended", "normal" for one that resumed
-    --- another coroutine, or "dead".
-    ---
-    --- @param co the coroutine to inspect
-    --- @return the state name
-    status: function(co: thread): string,
-
-    --- Creates a coroutine and returns a function that resumes it, passing along its
-    --- own arguments. Errors propagate to the caller instead of being returned as a
-    --- status.
-    ---
-    --- @param f the function to run inside the coroutine
-    --- @return a function that resumes the coroutine
-    wrap: function(f: any): any,
-
-    --- Returns the coroutine that is running.
-    ---
-    --- @return the running coroutine
-    --- @return whether that is the main coroutine
-    running: function(): (thread?, boolean),
-
-    --- Whether the running coroutine is allowed to yield, which is false on the main
-    --- coroutine.
-    ---
-    --- @return whether a `yield` would succeed here
-    isyieldable: function(): boolean
-}
-
--- The base functions below say `nosuspend`: calling one cannot suspend the caller.
---
--- Two of them are a stated trust rather than a proof, in the same category as a
--- metamethod contract (`docs/metamethods.md`). `tostring` reaches `__tostring` and
--- `pairs` reaches `__pairs`, and on this baseline an ordinary metamethod may yield, so
--- a pathological one could. The trade is deliberate: without it a `table.sort`
--- comparator cannot call `tostring`, which is most comparators, and a check nobody can
--- leave on protects nothing. A metamethod that does yield still fails loudly, because
--- the C frame underneath raises.
-
---- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`, `~`, `<<`,
---- `>>` and `~>>` operators: arguments are normalized to 32-bit integers and results
---- come back signed.
-local bit: {
-    --- Normalizes `x` into the signed 32-bit integer range, wrapping around.
-    ---
-    --- @param x the number to normalize
-    --- @return the normalized value
-    tobit: nosuspend function(x: number): integer,
-
-    --- Returns `x` in hexadecimal, using `n` digits.
-    ---
-    --- @param x the number to convert
-    --- @param n how many digits to print, 8 by default; a negative count
-    ---     prints uppercase digits
-    --- @return the hexadecimal text
-    tohex: nosuspend function(x: number, n: number?): string,
-
-    --- Returns the bitwise complement of `x`.
-    ---
-    --- @param x the number to complement
-    --- @return the complement
-    bnot: nosuspend function(x: number): integer,
-
-    --- Returns the bitwise and of every argument.
-    ---
-    --- @param ... the numbers to combine
-    --- @return the combined value
-    band: nosuspend function(...: number): integer,
-
-    --- Returns the bitwise or of every argument.
-    ---
-    --- @param ... the numbers to combine
-    --- @return the combined value
-    bor: nosuspend function(...: number): integer,
-
-    --- Returns the bitwise exclusive or of every argument.
-    ---
-    --- @param ... the numbers to combine
-    --- @return the combined value
-    bxor: nosuspend function(...: number): integer,
-
-    --- Shifts `x` left by `n` bits, filling with zeros.
-    ---
-    --- @param x the number to shift
-    --- @param n how many bits to shift by, taken modulo 32
-    --- @return the shifted value
-    lshift: nosuspend function(x: number, n: number): integer,
-
-    --- Shifts `x` right by `n` bits without sign extension.
-    ---
-    --- @param x the number to shift
-    --- @param n how many bits to shift by, taken modulo 32
-    --- @return the shifted value
-    rshift: nosuspend function(x: number, n: number): integer,
-
-    --- Shifts `x` right by `n` bits, copying the sign bit down.
-    ---
-    --- @param x the number to shift
-    --- @param n how many bits to shift by, taken modulo 32
-    --- @return the shifted value
-    arshift: nosuspend function(x: number, n: number): integer,
-
-    --- Rotates `x` left by `n` bits.
-    ---
-    --- @param x the number to rotate
-    --- @param n how many bits to rotate by, taken modulo 32
-    --- @return the rotated value
-    rol: nosuspend function(x: number, n: number): integer,
-
-    --- Rotates `x` right by `n` bits.
-    ---
-    --- @param x the number to rotate
-    --- @param n how many bits to rotate by, taken modulo 32
-    --- @return the rotated value
-    ror: nosuspend function(x: number, n: number): integer,
-
-    --- Swaps the byte order of `x`, converting between endiannesses.
-    ---
-    --- @param x the number to byte-swap
-    --- @return the swapped value
-    bswap: nosuspend function(x: number): integer
-}
-
---- Control and introspection for the JIT compiler itself.
-local jit: {
-    --- The LuaJIT version string, such as "LuaJIT 2.1.0".
-    version: string,
-
-    --- The LuaJIT version as a number, where 2.1.0 reads as 20100.
-    version_num: number,
-
-    --- The operating system, such as "Linux", "OSX" or "Windows".
-    os: string,
-
-    --- The target architecture, such as "x64" or "arm64".
-    arch: string,
-
-    --- Reports whether the compiler is enabled.
-    ---
-    --- @return whether compilation is currently on
-    --- @return the optimization flags in force, one per result
-    status: function(): (boolean, any),
-
-    --- Turns compilation on for `f`, or for the whole VM when it is omitted.
-    ---
-    --- @param f the function to enable, or nil for the whole VM
-    --- @param recursive whether to apply the change to nested functions too
-    on: function(f: any?, recursive: boolean?),
-
-    --- Turns compilation off for `f`, or for the whole VM when it is omitted, leaving
-    --- already compiled code in place.
-    ---
-    --- @param f the function to disable, or nil for the whole VM
-    --- @param recursive whether to apply the change to nested functions too
-    off: function(f: any?, recursive: boolean?),
-
-    --- Flushes compiled code, for `f` or for the whole cache when it is omitted, so the
-    --- affected code is traced again from scratch. A trace number flushes that one
-    --- trace.
-    ---
-    --- @param f the function to flush, a trace number, or nil for the whole
-    ---     cache
-    --- @param recursive whether to flush nested functions too
-    flush: function(f: any?, recursive: boolean?),
-
-    --- Adds or removes a handler for a compiler event, so a program can watch the JIT
-    --- as it works. Omitting `event` removes the handler.
-    ---
-    --- The handler's own signature is decided by the event, which is why this one is
-    --- variadic:
-    ---
-    --- * `"bc"`: `(func)`, once per function the VM records bytecode for. * `"trace"`:
-    --- `(what, tr, func, pc, otr, oex)`, where `what` is
-    ---     `"start"`, `"stop"`, `"abort"`, `"flush"` or `"free"`. On
-    ---     `"abort"`, `otr` is an error code to look up in
-    ---     `require("jit.vmdef").traceerr` and `oex` is its argument; on
-    ---     `"start"` for a side trace they are the parent trace and its exit.
-    --- * `"record"`: `(tr, func, pc, depth)`, per bytecode recorded. * `"texit"`:
-    --- `(tr, ex, ngpr, nfpr)`, per trace exit.
-    ---
-    --- A handler runs inside the compiler, so it must not allocate heavily, raise, or
-    --- re-enter the VM in ways that would trigger further compilation. Dropping the
-    --- last reference to a handler does not detach it: hold onto it and pass it back
-    --- with no `event` to remove it.
-    ---
-    --- @param callback the handler to add, or the one to remove
-    --- @param event which event to attach to, or nil to detach
-    attach: function(callback: function(...: any), event: string?),
-
-    --- The optimization submodule. `jit.opt.start` takes flags such as `"hotloop=10"`
-    --- or `"-fold"`, each as its own argument.
-    opt: {start: function(...: any)},
-
-    --- Reports how the VM was built for a security-relevant parameter, such as `"prng"`
-    --- or `"strhash"`.
-    ---
-    --- @param param the parameter to report on
-    --- @return the setting in force
-    security: function(param: string): any
-}
-
--- `jit.util` is deliberately absent: LuaJIT registers it under package.loaded only, so
--- `jit.util` is nil at runtime and reaching through it is a nil index rather than
--- introspection. It is declared as the bundled `jit.util` module instead, alongside
--- `jit.profile`, `jit.zone` and `jit.vmdef`, which are require()-only for the same
--- reason.
-
---- The debug interface: stack inspection, hooks, locals and upvalues. Using it costs
---- performance and voids assumptions the compiler would rather make.
-local debug: {
-    --- Describes a function, or the activation record at a stack level.
-    ---
-    --- @param f the function to describe, or a stack level counted from here
-    --- @param what which fields to fill in, all of them by default
-    --- @return the description table, or nil when the level is out of range
-    getinfo: function(f: any, what: string?): any,
-
-    --- Returns a traceback of the call stack, with `msg` at the front.
-    ---
-    --- @param msg the message to prepend, returned as-is when not a string
-    --- @param level the stack level to start at, 1 by default
-    --- @return the traceback text
-    traceback: function(msg: any?, level: number?): string,
-
-    --- Installs a debug hook: a function, a mask built from "c", "r" and "l", and an
-    --- optional instruction count.
-    ---
-    --- @param ... the hook function, its mask, and the count
-    sethook: function(...: any),
-
-    --- Returns the hook currently installed.
-    ---
-    --- @return the hook function, its mask and its count
-    gethook: function(): any,
-
-    --- Reads local variable `idx` of the function at a stack level.
-    ---
-    --- @param level the stack level, or a function to inspect
-    --- @param idx the 1-based index of the local
-    --- @return the variable's name, or nil past the last one
-    --- @return its current value
-    getlocal: function(level: any, idx: number): (string?, any),
-
-    --- Assigns `v` to local variable `idx` at a stack level.
-    ---
-    --- @param level the stack level to write into
-    --- @param idx the 1-based index of the local
-    --- @param v the value to store
-    --- @return the variable's name, or nil past the last one
-    setlocal: function(level: any, idx: number, v: any): string?,
-
-    --- Reads upvalue `idx` of the function `f`.
-    ---
-    --- @param f the function to inspect
-    --- @param idx the 1-based index of the upvalue
-    --- @return the upvalue's name, or nil past the last one
-    --- @return its current value
-    getupvalue: function(f: any, idx: number): (string?, any),
-
-    --- Assigns `v` to upvalue `idx` of the function `f`.
-    ---
-    --- @param f the function to modify
-    --- @param idx the 1-based index of the upvalue
-    --- @param v the value to store
-    --- @return the upvalue's name, or nil past the last one
-    setupvalue: function(f: any, idx: number, v: any): string?,
-
-    --- Makes one function's upvalue refer to the same lexical cell as another's.
-    ---
-    --- @param f the function whose upvalue is replaced
-    --- @param idx its 1-based upvalue index
-    --- @param source the function providing the cell
-    --- @param sourceIdx its 1-based upvalue index
-    upvaluejoin: function(f: any, idx: number, source: any, sourceIdx: number),
-
-    --- Returns the metatable of `v`, ignoring any `__metatable` field.
-    ---
-    --- @param v the value to inspect
-    --- @return the metatable, or nil when there is none
-    getmetatable: function(v: any): table?,
-
-    --- Sets `v`'s metatable, ignoring any `__metatable` field.
-    ---
-    --- @param v the value to change
-    --- @param mt the new metatable, or nil to remove the current one
-    --- @return `v`
-    setmetatable: function(v: any, mt: table?): any,
-
-    --- Returns the registry, the table where C code anchors its references.
-    ---
-    --- @return the registry table
-    getregistry: function(): table
-}
-
---- The command-line arguments of the running script, where `arg[1]` is the first one.
---- Index 0 holds the script name, and negative indices hold the interpreter and the
---- options it was given.
-local arg: {string}
 ]=],
 ["/decls/prelude_impl.d.nupp"] = [[
 -- Ordinary implementation bodies for declarations in prelude.d.nupp. This unit is

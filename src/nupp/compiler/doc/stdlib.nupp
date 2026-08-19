@@ -53,6 +53,7 @@ end
 local SOURCES: {
     Source
 } = {
+    new Source(file = "/decls/lua.d.nupp"),
     new Source(file = "/decls/prelude.d.nupp"),
     new Source(file = "/decls/ffi.d.nupp", required = "ffi"),
     new Source(file = "/decls/stringbuffer.d.nupp", required = "string.buffer"),
