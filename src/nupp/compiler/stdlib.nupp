@@ -194,18 +194,6 @@ function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;loc
 ]=]
 )
 
-local FNV = compact(
-    [=[
-__nuppLazy(__nuppData,"fnv1a64",function()local bit=require("bit");return function(value)local s=type(value)=="string"and value or value:getString();local hi,lo=0xcbf29ce4,0x84222325;for i=1,#s do lo=bit.bxor(lo,s:byte(i));local low=lo<0 and lo+4294967296 or lo;local high=hi<0 and hi+4294967296 or hi;local product=low*435;local carry=math.floor(product/4294967296);lo=bit.tobit(product);hi=bit.tobit(high*435+low*256+carry)end;local high=hi<0 and hi+4294967296 or hi;local low=lo<0 and lo+4294967296 or lo;return string.format("%08x%08x",high,low)end end)
-]=]
-)
-
-local CHECKSUMS = compact(
-    [=[
-__nuppLazy(__nuppData,"crc32",function()local bit=require("bit");local crcTable={};for n=0,255 do local c=n;for _=1,8 do c=bit.bxor(bit.rshift(c,1),bit.band(c,1)~=0 and 0xedb88320 or 0)end;crcTable[n]=c end;return function(value,previous)if previous==nil then previous=0 elseif type(previous)~="number"or previous~=math.floor(previous)or previous<0 or previous>4294967295 then error("nupp: crc32 previous checksum must be an unsigned 32-bit integer",2)end;local c=bit.bnot(previous);local s=type(value)=="string"and value or value:getString();for i=1,#s do c=bit.bxor(bit.rshift(c,8),crcTable[bit.band(bit.bxor(c,s:byte(i)),255)])end;local out=bit.bnot(c);return out<0 and out+4294967296 or out end end)
-]=]
-)
-
 -- Nupp owns the grammar graph, result typing and the few matcher shapes that are
 -- faster as straight-line Lua. Native LPeg owns every general match. This installer
 -- has no general Nupp executor, so generated programs carry only the graph
@@ -898,12 +886,6 @@ function stdlib.bootstrap(effects: {[string]: any}?, watch: boolean?): string
     end
     if effects["stdlib.math"] then
         out[#out + 1] = watch and MATH:gsub("local m=__nuppMath", "local m=_G.nupp.math", 1) or MATH
-    end
-    if effects["stdlib.fnv1a64"] then
-        out[#out + 1] = FNV
-    end
-    if effects["stdlib.checksums"] then
-        out[#out + 1] = CHECKSUMS
     end
     if effects["stdlib.peg"] or effects["stdlib.peg.compile"] then
         out[#out + 1] = PEG_NATIVE

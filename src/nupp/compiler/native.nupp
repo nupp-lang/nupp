@@ -42,8 +42,6 @@ local FEATURES: {[string]: native.Feature} = {
     ["stdlib.derives"] = {name = "derives", globals = {},},
     ["stdlib.io"] = {name = "io", globals = {"nupp.io.newBuffer", "nupp.io.newStringReader"},},
     ["stdlib.math"] = {name = "math", globals = {"nupp.math"},},
-    ["stdlib.fnv1a64"] = {name = "fnv1a64", globals = {"nupp.data.fnv1a64"},},
-    ["stdlib.checksums"] = {name = "checksums", globals = {"nupp.data.crc32"},},
     [
         "native.path"
     ] = {

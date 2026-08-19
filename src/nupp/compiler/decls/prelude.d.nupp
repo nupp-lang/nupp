@@ -1265,21 +1265,10 @@ record nupp.data
     --- @return the canonical lowercase UUID text
     uuid7: function(): string
 
-    --- Computes the 64-bit FNV-1a digest of bytes.
-    --- @param value the bytes to hash
-    --- @return the lowercase hexadecimal digest
-    fnv1a64: function(value: string | nupp.io.ByteView): string
-
     --- Computes the SHA-256 digest of bytes.
     --- @param value the bytes to hash
     --- @return the lowercase hexadecimal digest
     sha256: function(value: string | nupp.io.ByteView): string
-
-    --- Computes or continues a CRC-32 checksum.
-    --- @param value the bytes to checksum
-    --- @param previous a previous CRC-32 value, or 0 to start
-    --- @return the unsigned 32-bit checksum
-    crc32: function(value: string | nupp.io.ByteView, previous: integer?): integer
 end
 
 --- UTF-8 codepoint operations over strings and immutable byte views.

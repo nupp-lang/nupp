@@ -198,8 +198,6 @@ function M.nativeFeaturesAreResolvedEffects()
       ["nupp.io.newBuffer('hello')"] = "stdlib.io",
       ["nupp.math.lerp(10, 20, 0.25)"] = "stdlib.math",
       ["nupp.math.vec2.length(3, 4)"] = "stdlib.math",
-      ["nupp.data.fnv1a64('hello')"] = "stdlib.fnv1a64",
-      ["nupp.data.crc32('hello')"] = "stdlib.checksums",
       ["nupp.io.Path.new('hello')"] = "native.path",
       ["nupp.io.URI.new('https://example.com')"] = "native.uri",
       ["nupp.data.uuid7()"] = "native.uuid",
@@ -324,8 +322,6 @@ function M.compilerProvidedPureLibraries()
    local bootstrap = stdlib.bootstrap({
       ["stdlib.io"] = true,
       ["stdlib.math"] = true,
-      ["stdlib.fnv1a64"] = true,
-      ["stdlib.checksums"] = true,
    })
    local previous = rawget(_G, "nupp")
    _G.nupp = nil
@@ -347,9 +343,13 @@ function M.compilerProvidedPureLibraries()
       assert(nupp.math.lerp(10, 20, 0.25) == 12.5)
       assert(nupp.math.lerp(10, 20, 1) == 20)
       assert(nupp.math.lerp(10, 20, 1.5) == 25)
-      assert(nupp.data.fnv1a64("hello") == "a430d84680aabd0b")
-      assert(nupp.data.crc32("123456789") == 3421780262)
-      assert(not pcall(nupp.data.crc32, "bytes", 4294967296))
+      -- Hashing is two ordinary modules rather than something the bootstrap
+      -- installs, so these are required rather than read off the ambient table.
+      local fnv1a64 = require("nupp.data.fnv1a64")
+      local crc32 = require("nupp.data.crc32")
+      assert(fnv1a64("hello") == "a430d84680aabd0b")
+      assert(crc32("123456789") == 3421780262)
+      assert(not pcall(crc32, "bytes", 4294967296))
    ]]))
    local ok, problem = pcall(chunk)
    _G.nupp = previous

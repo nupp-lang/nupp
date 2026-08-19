@@ -75345,6 +75345,8 @@ local BUNDLED_SOURCE = {
 [ "nupp.mem.heap" ] = "/nupp/mem/heap.nupp" ,
 [ "nupp.mem.soa" ] = "/nupp/mem/soa.nupp" ,
 [ "nupp.data.bitset" ] = "/nupp/data/bitset.nupp" ,
+[ "nupp.data.fnv1a64" ] = "/nupp/data/fnv1a64.nupp" ,
+[ "nupp.data.crc32" ] = "/nupp/data/crc32.nupp" ,
 [ "nupp.log" ] = "/nupp/log.g.nupp" ,
 [ "nupp.suspension" ] = "/nupp/suspension.nupp" ,
 [ "nupp.io.process" ] = "/nupp/io/process.nupp" ,
@@ -104810,8 +104812,6 @@ local FEATURES = {
 [ "stdlib.derives" ] = { name = "derives" , globals = { } , } ,
 [ "stdlib.io" ] = { name = "io" , globals = { "nupp.io.newBuffer" , "nupp.io.newStringReader" } , } ,
 [ "stdlib.math" ] = { name = "math" , globals = { "nupp.math" } , } ,
-[ "stdlib.fnv1a64" ] = { name = "fnv1a64" , globals = { "nupp.data.fnv1a64" } , } ,
-[ "stdlib.checksums" ] = { name = "checksums" , globals = { "nupp.data.crc32" } , } ,
 [
 "native.path"
 ] = {
@@ -116697,18 +116697,6 @@ function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;loc
 ]=]
 )
 
-local FNV = compact (
-[=[
-__nuppLazy(__nuppData,"fnv1a64",function()local bit=require("bit");return function(value)local s=type(value)=="string"and value or value:getString();local hi,lo=0xcbf29ce4,0x84222325;for i=1,#s do lo=bit.bxor(lo,s:byte(i));local low=lo<0 and lo+4294967296 or lo;local high=hi<0 and hi+4294967296 or hi;local product=low*435;local carry=math.floor(product/4294967296);lo=bit.tobit(product);hi=bit.tobit(high*435+low*256+carry)end;local high=hi<0 and hi+4294967296 or hi;local low=lo<0 and lo+4294967296 or lo;return string.format("%08x%08x",high,low)end end)
-]=]
-)
-
-local CHECKSUMS = compact (
-[=[
-__nuppLazy(__nuppData,"crc32",function()local bit=require("bit");local crcTable={};for n=0,255 do local c=n;for _=1,8 do c=bit.bxor(bit.rshift(c,1),bit.band(c,1)~=0 and 0xedb88320 or 0)end;crcTable[n]=c end;return function(value,previous)if previous==nil then previous=0 elseif type(previous)~="number"or previous~=math.floor(previous)or previous<0 or previous>4294967295 then error("nupp: crc32 previous checksum must be an unsigned 32-bit integer",2)end;local c=bit.bnot(previous);local s=type(value)=="string"and value or value:getString();for i=1,#s do c=bit.bxor(bit.rshift(c,8),crcTable[bit.band(bit.bxor(c,s:byte(i)),255)])end;local out=bit.bnot(c);return out<0 and out+4294967296 or out end end)
-]=]
-)
-
 
 
 
@@ -117401,12 +117389,6 @@ out [ # out + 1 ] = UTF8
 end
 if effects [ "stdlib.math" ] then
 out [ # out + 1 ] = watch and MATH : gsub ( "local m=__nuppMath" , "local m=_G.nupp.math" , 1 ) or MATH
-end
-if effects [ "stdlib.fnv1a64" ] then
-out [ # out + 1 ] = FNV
-end
-if effects [ "stdlib.checksums" ] then
-out [ # out + 1 ] = CHECKSUMS
 end
 if effects [ "stdlib.peg" ] or effects [ "stdlib.peg.compile" ] then
 out [ # out + 1 ] = PEG_NATIVE
@@ -124185,6 +124167,90 @@ end
 
 const __nuppExportValue= bitset ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.data.bitset"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.bitset"]=__nuppExports;return __nuppExports
+end
+package.preload["nupp.data.crc32"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+local TABLE = { }
+for entry = 0 , 255 do
+local current = entry
+for _ = 1 , 8 do
+current = bit . bxor ( bit . rshift ( current , 1 ) , bit . band ( current , 1 ) ~= 0 and 0xedb88320 or 0 )
+end
+TABLE [ entry ] = current
+end
+
+
+
+
+
+
+
+local function crc32 ( value , previous )
+local carried = previous
+if carried == nil then
+carried = 0
+elseif carried < 0 or carried > 4294967295 then
+error ( "nupp: crc32 previous checksum must be an unsigned 32-bit integer" , 2 )
+end
+local current = bit . bnot ( carried )
+local bytes = type ( value ) == "string" and value or ( value ) : getString ( )
+for index = 1 , # bytes do
+current = bit . bxor ( bit . rshift ( current , 8 ) , TABLE [ bit . band ( bit . bxor ( current , bytes : byte ( index ) ) , 255 ) ] )
+end
+local answer = bit . bnot ( current )
+
+return answer < 0 and answer + 4294967296 or answer
+end
+
+const __nuppExportValue= crc32 ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.data.crc32"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.crc32"]=__nuppExports;return __nuppExports
+end
+package.preload["nupp.data.fnv1a64"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local function fnv1a64 ( value )
+local bytes = type ( value ) == "string" and value or ( value ) : getString ( )
+local hi = 0xcbf29ce4
+local lo = 0x84222325
+for index = 1 , # bytes do
+lo = bit . bxor ( lo , bytes : byte ( index ) )
+local low = lo < 0 and lo + 4294967296 or lo
+local high = hi < 0 and hi + 4294967296 or hi
+local product = low * 435
+local carry = math . floor ( product / 4294967296 )
+lo = bit . tobit ( product )
+hi = bit . tobit ( high * 435 + low * 256 + carry )
+end
+local high = hi < 0 and hi + 4294967296 or hi
+local low = lo < 0 and lo + 4294967296 or lo
+
+return string . format ( "%08x%08x" , high , low )
+end
+
+const __nuppExportValue= fnv1a64 ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.data.fnv1a64"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.fnv1a64"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.data.valuebuilder"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();const __nuppNew = require("table.new"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end __nuppLazy(__nuppData,"utf8",function()local native=require("lua-utf8");local u={};local function bytes(value)if type(value)=="string"then return value end;return value:getString()end;local function offset(value,at,allowEnd)if type(at)~="number"or at~=math.floor(at)then error("nupp: UTF-8 byte offset must be an integer",3)end;local limit=#value+(allowEnd and 1 or 0);if at<1 or at>limit then error("nupp: UTF-8 byte offset is out of range",3)end;return at end;local function decode(s,at)local first=s:byte(at);if not first then return nil,at end;if first<128 then return first,at+1 end;local need,code,min;if first>=194 and first<=223 then need,code,min=1,first-192,128 elseif first>=224 and first<=239 then need,code,min=2,first-224,2048 elseif first>=240 and first<=244 then need,code,min=3,first-240,65536 else return 65533,at+1 end;for i=1,need do local b=s:byte(at+i);if not b or b<128 or b>191 then return 65533,at+1 end;code=code*64+b-128 end;if code<min or code>1114111 or(code>=55296 and code<=57343)then return 65533,at+1 end;return code,at+need+1 end function u.length(value)local s=bytes(value);local n,at=0,1;while at<=#s do local _,nextAt=decode(s,at);at=nextAt;n=n+1 end;return n end;function u.decodeAt(value,at)local s=bytes(value);at=offset(s,at,true);return decode(s,at)end;function u.decodeBefore(value,at)local s=bytes(value);at=offset(s,at,true);if at==1 then return nil,1 end;local start=at-1;while start>1 and s:byte(start)>=128 and s:byte(start)<=191 do start=start-1 end;local cp,nextAt=decode(s,start);if nextAt~=at then return 65533,at-1 end;return cp,start end;function u.encode(codepoint)return native.char(codepoint)end;function u.isValid(value)return native.isvalid(bytes(value))end;function u.validPrefixLength(value,maxBytes)local s=bytes(value);maxBytes=math.max(0,math.min(#s,maxBytes));while maxBytes>0 and not native.isvalid(s:sub(1,maxBytes))do maxBytes=maxBytes-1 end;return maxBytes end;function u.truncate(text,maxBytes)return text:sub(1,u.validPrefixLength(text,maxBytes))end;return u end) local m=__nuppMath;local pi,tau=math.pi,2*math.pi function m.lerp(from,to,t)if t==0 then return from elseif t==1 then return to end;return from+(to-from)*t end function m.wrapAngle(radians)return(radians+pi)%tau-pi end function m.deltaAngle(from,to)return m.wrapAngle(to-from)end local b=bit;local function ui32(x)x=b.tobit(x);return x<0 and x+4294967296 or x end local function mul32(a,c)local al,cl=a%65536,c%65536;local ah,ch=math.floor(a/65536),math.floor(c/65536);return b.tobit(al*cl+((ah*cl+al*ch)%65536)*65536)end local i32,u32={},{};m.i32=i32;m.u32=u32 function i32.wrap(a)return b.tobit(a)end;function u32.wrap(a)return ui32(a)end function i32.add(a,c)return b.tobit(a+c)end;function i32.sub(a,c)return b.tobit(a-c)end;function i32.mul(a,c)return mul32(ui32(a),ui32(c))end function i32.andBits(a,c)return b.band(a,c)end;function i32.orBits(a,c)return b.bor(a,c)end;function i32.xorBits(a,c)return b.bxor(a,c)end;function i32.notBits(a)return b.bnot(a)end function i32.shiftLeft(a,c)return b.lshift(a,b.band(c,31))end;function i32.shiftRightArithmetic(a,c)return b.arshift(a,b.band(c,31))end function i32.rotateLeft(a,c)return b.rol(a,b.band(c,31))end;function i32.rotateRight(a,c)return b.ror(a,b.band(c,31))end function i32.lessThan(a,c)return b.tobit(a)<b.tobit(c)end;function i32.lessOrEqual(a,c)return b.tobit(a)<=b.tobit(c)end function i32.fromU32(a)return b.tobit(a)end;function i32.toU32(a)return ui32(a)end function u32.add(a,c)return ui32(a+c)end;function u32.sub(a,c)return ui32(a-c)end;function u32.mul(a,c)return ui32(mul32(ui32(a),ui32(c)))end function u32.andBits(a,c)return ui32(b.band(a,c))end;function u32.orBits(a,c)return ui32(b.bor(a,c))end;function u32.xorBits(a,c)return ui32(b.bxor(a,c))end;function u32.notBits(a)return ui32(b.bnot(a))end function u32.shiftLeft(a,c)return ui32(b.lshift(a,b.band(c,31)))end;function u32.shiftRightLogical(a,c)return ui32(b.rshift(a,b.band(c,31)))end function u32.rotateLeft(a,c)return ui32(b.rol(a,b.band(c,31)))end;function u32.rotateRight(a,c)return ui32(b.ror(a,b.band(c,31)))end function u32.lessThan(a,c)return ui32(a)<ui32(c)end;function u32.lessOrEqual(a,c)return ui32(a)<=ui32(c)end function u32.fromI32(a)return ui32(a)end;function u32.toI32(a)return b.tobit(a)end function u32.popcount(a)local n=0;a=ui32(a);while a~=0 do a=ui32(b.band(a,a-1));n=n+1 end;return n end function u32.trailingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;while b.band(a,1)==0 do a=b.rshift(a,1);n=n+1 end;return n end function u32.leadingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;local bit=2147483648;while b.band(a,bit)==0 do bit=b.rshift(bit,1);n=n+1 end;return n end local ffi=require("ffi");local fh=ffi.new("union {float f;uint32_t u;}[1]");local f32={};m.f32=f32 local CANON=2143289344;local PINF=2139095040;local NINF=4286578688;local MAX=2139095039;local NMAX=4286578687 local function nanbits(bits)return b.band(bits,2139095040)==2139095040 and b.band(bits,8388607)~=0 end local function putbits(bits)if nanbits(bits)then bits=CANON end;fh[0].u=bits;return tonumber(fh[0].f)end local function bits32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then bits=CANON;fh[0].u=bits end;return bits end local function round32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then fh[0].u=CANON end;return tonumber(fh[0].f)end local function narrow32(value)fh[0].f=value;return tonumber(fh[0].f)end local function comparedd(hi,lo,value)local d=hi-value;if d>-lo then return 1 elseif d<-lo then return-1 end;return 0 end local function nextup(value,bits)if bits==PINF then return value,bits end;if bits==NINF then return putbits(NMAX),NMAX end;if b.band(bits,2147483648)~=0 then if bits==2147483648 then return putbits(1),1 end;bits=bits-1 else bits=bits+1 end;return putbits(bits),bits end local function nextdown(value,bits)if bits==NINF then return value,bits end;if bits==PINF then return putbits(MAX),MAX end;if b.band(bits,2147483648)~=0 then bits=bits+1 else if bits==0 then return putbits(2147483649),2147483649 end;bits=bits-1 end;return putbits(bits),bits end local function rounddd(hi,lo)local value=round32(hi);local bits=bits32(value);if nanbits(bits)then return putbits(CANON)end;if bits==PINF then local threshold=3.4028235677973366e38;if comparedd(hi,lo,threshold)<0 then return putbits(MAX)end;return value elseif bits==NINF then local threshold=-3.4028235677973366e38;if comparedd(hi,lo,threshold)>0 then return putbits(NMAX)end;return value end;local side=comparedd(hi,lo,value);if side==0 then return value end;local other,otherbits;if side>0 then other,otherbits=nextup(value,bits)else other,otherbits=nextdown(value,bits)end;local midpoint=(value+other)*0.5;local toward=comparedd(hi,lo,midpoint);if side<0 then toward=-toward end;if toward>0 or toward==0 and b.band(bits,1)~=0 then return putbits(otherbits)end;return value end function f32.narrow(a)return narrow32(a)end;function f32.round(a)return round32(a)end;function f32.add(a,c)return round32(round32(a)+round32(c))end;function f32.sub(a,c)return round32(round32(a)-round32(c))end;function f32.mul(a,c)return round32(round32(a)*round32(c))end;function f32.div(a,c)return round32(round32(a)/round32(c))end;function f32.sqrt(a)return round32(math.sqrt(round32(a)))end function f32.min(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and(b.band(ab,2147483648)~=0 or b.band(cb,2147483648)~=0)then return putbits(2147483648)end;return a end;return a<c and a or c end function f32.max(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and b.band(ab,2147483648)~=0 and b.band(cb,2147483648)~=0 then return putbits(2147483648)elseif a==0 then return putbits(0)end;return a end;return a>c and a or c end function f32.fma(a,c,d)a,c,d=round32(a),round32(c),round32(d);local product=a*c;if product~=product or product==math.huge or product==-math.huge then return round32(product+d)end;local sum=product+d;local carry=sum-product;local error=(product-(sum-carry))+(d-carry);return rounddd(sum,error)end function f32.fromBits(bits)return putbits(ui32(bits))end;function f32.toBits(value)return bits32(round32(value))end local v={};m.vec2=v function v.add(ax,ay,bx,by)return ax+bx,ay+by end function v.subtract(ax,ay,bx,by)return ax-bx,ay-by end function v.scale(x,y,f)return x*f,y*f end function v.dot(ax,ay,bx,by)return ax*bx+ay*by end function v.cross(ax,ay,bx,by)return ax*by-ay*bx end function v.lengthSquared(x,y)return x*x+y*y end function v.length(x,y)return math.sqrt(x*x+y*y)end function v.distanceSquared(ax,ay,bx,by)local x,y=bx-ax,by-ay;return x*x+y*y end function v.distance(ax,ay,bx,by)return math.sqrt(v.distanceSquared(ax,ay,bx,by))end function v.normalize(x,y)local length=v.length(x,y);if length==0 then return 0,0 end;return x/length,y/length end function v.lerp(ax,ay,bx,by,t)if t==0 then return ax,ay elseif t==1 then return bx,by end;return ax+(bx-ax)*t,ay+(by-ay)*t end function v.moveTowards(ax,ay,bx,by,d)if d<=0 then return ax,ay end;local x,y=bx-ax,by-ay;local squared=x*x+y*y;if squared==0 or squared<=d*d then return bx,by end;local f=d/math.sqrt(squared);return ax+x*f,ay+y*f end function v.rotate(x,y,r)local c,s=math.cos(r),math.sin(r);return x*c-y*s,x*s+y*c end function v.angle(x,y)if x==0 and y==0 then return 0 end;return math.atan2(y,x)end function v.angleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;return math.atan2(math.abs(v.cross(ax,ay,bx,by)),v.dot(ax,ay,bx,by))end function v.signedAngleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;local a=math.atan2(v.cross(ax,ay,bx,by),v.dot(ax,ay,bx,by));return a==pi and-pi or a end function v.project(x,y,ox,oy)local d=ox*ox+oy*oy;if d==0 then return 0,0 end;local f=(x*ox+y*oy)/d;return ox*f,oy*f end function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;local f=2*(x*nx+y*ny)/d;return x-nx*f,y-ny*f end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
@@ -137067,21 +137133,10 @@ record nupp.data
     --- @return the canonical lowercase UUID text
     uuid7: function(): string
 
-    --- Computes the 64-bit FNV-1a digest of bytes.
-    --- @param value the bytes to hash
-    --- @return the lowercase hexadecimal digest
-    fnv1a64: function(value: string | nupp.io.ByteView): string
-
     --- Computes the SHA-256 digest of bytes.
     --- @param value the bytes to hash
     --- @return the lowercase hexadecimal digest
     sha256: function(value: string | nupp.io.ByteView): string
-
-    --- Computes or continues a CRC-32 checksum.
-    --- @param value the bytes to checksum
-    --- @param previous a previous CRC-32 value, or 0 to start
-    --- @return the unsigned 32-bit checksum
-    crc32: function(value: string | nupp.io.ByteView, previous: integer?): integer
 end
 
 --- UTF-8 codepoint operations over strings and immutable byte views.
@@ -139518,6 +139573,88 @@ function bitset.create(capacityBits: integer?): bitset.Bitset
 end
 
 export = bitset
+]=],
+["/nupp/data/crc32.nupp"] = [=[
+module nupp.data.crc32
+
+--[[
+CRC-32 as zlib and PNG compute it: the reflected 0xedb88320 polynomial over a
+256-entry table, with the running value complemented at both ends.
+
+Passing a previous checksum continues one sum across several buffers, so a caller
+streaming bytes never has to hold them all at once.
+]]
+
+local TABLE = {}
+for entry = 0, 255 do
+    local current = entry
+    for _ = 1, 8 do
+        current = bit.bxor(bit.rshift(current, 1), bit.band(current, 1) ~= 0 and 0xedb88320 or 0)
+    end
+    TABLE[entry] = current
+end
+
+--- Checksums bytes with CRC-32.
+---
+--- @param value the bytes to checksum
+--- @param previous a checksum to continue from, or nil to start one
+--- @return the checksum, as an unsigned 32-bit integer
+--- @raises when previous is not an unsigned 32-bit integer
+local function crc32(value: string | nupp.io.ByteView, previous: integer?): integer
+    local carried = previous
+    if carried == nil then
+        carried = 0
+    elseif carried < 0 or carried > 4294967295 then
+        error("nupp: crc32 previous checksum must be an unsigned 32-bit integer", 2)
+    end
+    local current = bit.bnot(carried)
+    local bytes = type(value) == "string" and value as string or (value as nupp.io.ByteView):getString()
+    for index = 1, #bytes do
+        current = bit.bxor(bit.rshift(current, 8), TABLE[bit.band(bit.bxor(current, bytes:byte(index)), 255)])
+    end
+    local answer = bit.bnot(current)
+
+    return answer < 0 and answer + 4294967296 or answer
+end
+
+export = crc32
+]=],
+["/nupp/data/fnv1a64.nupp"] = [=[
+module nupp.data.fnv1a64
+
+--[[
+FNV-1a over 64 bits, rendered as sixteen lowercase hex digits.
+
+LuaJIT numbers cannot hold a 64-bit product exactly, so the state is carried as two
+32-bit halves and the prime is applied to each: 435 is the low half of 0x100000001b3
+and the 256 shift is its high half reaching the high word. `bit.tobit` wraps each
+half back into 32 bits the way the multiply would have.
+]]
+
+--- Hashes bytes with FNV-1a.
+---
+--- @param value the bytes to hash
+--- @return the hash, as sixteen lowercase hex digits
+local function fnv1a64(value: string | nupp.io.ByteView): string
+    local bytes = type(value) == "string" and value as string or (value as nupp.io.ByteView):getString()
+    local hi = 0xcbf29ce4
+    local lo = 0x84222325
+    for index = 1, #bytes do
+        lo = bit.bxor(lo, bytes:byte(index))
+        local low = lo < 0 and lo + 4294967296 or lo
+        local high = hi < 0 and hi + 4294967296 or hi
+        local product = low * 435
+        local carry = math.floor(product / 4294967296)
+        lo = bit.tobit(product)
+        hi = bit.tobit(high * 435 + low * 256 + carry)
+    end
+    local high = hi < 0 and hi + 4294967296 or hi
+    local low = lo < 0 and lo + 4294967296 or lo
+
+    return string.format("%08x%08x", high, low)
+end
+
+export = fnv1a64
 ]=],
 ["/nupp/data/valuebuilder.g.nupp"] = [=[
 module nupp.data.valuebuilder

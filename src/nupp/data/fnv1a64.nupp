@@ -1,0 +1,35 @@
+module nupp.data.fnv1a64
+
+--[[
+FNV-1a over 64 bits, rendered as sixteen lowercase hex digits.
+
+LuaJIT numbers cannot hold a 64-bit product exactly, so the state is carried as two
+32-bit halves and the prime is applied to each: 435 is the low half of 0x100000001b3
+and the 256 shift is its high half reaching the high word. `bit.tobit` wraps each
+half back into 32 bits the way the multiply would have.
+]]
+
+--- Hashes bytes with FNV-1a.
+---
+--- @param value the bytes to hash
+--- @return the hash, as sixteen lowercase hex digits
+local function fnv1a64(value: string | nupp.io.ByteView): string
+    local bytes = type(value) == "string" and value as string or (value as nupp.io.ByteView):getString()
+    local hi = 0xcbf29ce4
+    local lo = 0x84222325
+    for index = 1, #bytes do
+        lo = bit.bxor(lo, bytes:byte(index))
+        local low = lo < 0 and lo + 4294967296 or lo
+        local high = hi < 0 and hi + 4294967296 or hi
+        local product = low * 435
+        local carry = math.floor(product / 4294967296)
+        lo = bit.tobit(product)
+        hi = bit.tobit(high * 435 + low * 256 + carry)
+    end
+    local high = hi < 0 and hi + 4294967296 or hi
+    local low = lo < 0 and lo + 4294967296 or lo
+
+    return string.format("%08x%08x", high, low)
+end
+
+export = fnv1a64
