@@ -137,7 +137,7 @@ return {
          -- One shell-compatible string keeps the stage-zero compiler able to build
          -- this dependency; the self-hosted builder splits it into the same two
          -- package names before invoking pkg-config without a shell.
-         pkgConfig = JSON_EXPLICIT_ROOTS and nil or "simdjson luajit",
+         pkgConfig = not JSON_EXPLICIT_ROOTS and "simdjson luajit" or nil,
       },
       -- Renders the markdown. Pulls in lpeg, cosmo, alt-getopt and luautf8,
       -- which LuaRocks resolves rather than this file listing them.
