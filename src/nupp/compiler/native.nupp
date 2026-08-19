@@ -48,25 +48,6 @@ local FEATURES: {[string]: native.Feature} = {
         -- Checked Nupp reached through the intrinsic namespace. The installer loads the
         -- module, so there is no native host feature and no shared module name.
     },
-    [
-        "stdlib.log"
-    ] = {
-        name = "log",
-        globals = {
-            "nupp.log.error",
-            "nupp.log.warn",
-            "nupp.log.info",
-            "nupp.log.debug",
-            "nupp.log.level",
-            "nupp.log.enabled",
-            "nupp.log.sink",
-            "nupp.log.formatter",
-            "nupp.log.timestamp",
-            "nupp.log.timestampFormat",
-            "nupp.log.named",
-            "nupp.log.levelName",
-        },
-    },
     ["stdlib.fnv1a64"] = {name = "fnv1a64", globals = {"nupp.data.fnv1a64"},},
     ["stdlib.checksums"] = {name = "checksums", globals = {"nupp.data.crc32"},},
     [

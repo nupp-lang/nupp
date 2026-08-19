@@ -931,11 +931,12 @@ function checkMod.check(
     c.rootScope = c.scope
     c.moduleExports.valueDefs = c.moduleExports.valueDefs or {}
     c.moduleExports.comptimeFunctions = c.moduleExports.comptimeFunctions or {}
-    -- The prelude is one declaration environment split across files, so a comptime
-    -- helper declared in an earlier one stays usable in type position here. Only
-    -- prelude units share this: an ordinary module reaches another's comptime
-    -- functions through its exports, which carry their own identity.
-    if opts and opts.declareGlobals and env and env.preludeComptimeFunctions then
+    -- A comptime helper the prelude declares is usable in type position anywhere, the
+    -- way an ordinary prelude value is usable in value position. That is what lets a
+    -- module type a formatting API the way the standard library types its own, rather
+    -- than the typing machinery being reachable only from the file that declares it.
+    -- A module still reaches another module's comptime functions through its exports.
+    if env and env.preludeComptimeFunctions then
         for name, helper in pairs(env.preludeComptimeFunctions) do
             if c.comptimeFunctions[name] == nil then
                 c.comptimeFunctions[name] = helper

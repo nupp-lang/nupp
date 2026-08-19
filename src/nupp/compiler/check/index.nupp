@@ -122,7 +122,16 @@ function index.install(c: state.Checker): state.ExprHandlers
         local candidate = written
         local suffix = {}
         while candidate do
-            if registry.declaredModules and registry.declaredModules[candidate] then
+            -- A module the compiler ships is not in the project index, but it is still
+            -- a declared module and a qualified path may name it. Only declared ones: a
+            -- legacy return-table module stays unreachable this way, so migration is
+            -- explicit rather than reinterpreting some Lua table as a package tree.
+            local declared = registry.declaredModules and registry.declaredModules[candidate] or false
+            if not declared and c.env.bundled then
+                local shipped = c.env.bundled[candidate]
+                declared = shipped ~= nil and shipped ~= false and shipped.declared == true
+            end
+            if declared then
                 local moduleType = c.env.resolveModule and c.env.resolveModule(c.env, candidate) or nil
                 if not moduleType then
                     return nil

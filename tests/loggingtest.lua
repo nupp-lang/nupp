@@ -40,13 +40,10 @@ local function codesOf(src)
    return table.concat(out, " ")
 end
 
--- The installed runtime, loaded standalone so behaviour can be exercised without
--- generating a module around it. `_G.nupp` is what the bootstrap populates.
+-- The logging module itself, so behaviour can be exercised without generating a
+-- module around it. It is an ordinary module now, not something a bootstrap installs.
 local function runtime()
-   local source = stdlib.bootstrap({["stdlib.log"] = true})
-   local chunk = assert(loadstring(source, "@bootstrap"))
-   chunk()
-   return _G.nupp.log
+   return require("nupp.log")
 end
 
 -- A sink that records what it was handed, so a test can read the parts rather
@@ -83,8 +80,8 @@ end
 function M.levelNamesAreCheckedAtTheCallSite()
    assertEq(codesOf("nupp.log.level('debug')"), "", "a known level is clean")
    assertEq(codesOf("nupp.log.enabled('warn')"), "", "enabled takes the same names")
-   assertTrue(codesOf("nupp.log.level('verbose')"):find("NUPP2125") ~= nil,
-      "an unknown level selects no overload")
+   assertTrue(codesOf("nupp.log.level('verbose')"):find("NUPP2006") ~= nil,
+      "an unknown level is not one of the level names")
 end
 
 -- The lowered site, as severity, line and the expression built for the message. The
@@ -105,7 +102,7 @@ function M.aStatementCallWithALiteralFormatIsLowered()
    assertEq(line, 1, "the line is a constant")
    assertTrue(message:find("string.format", 1, true) ~= nil,
       "the message is built at the site")
-   assertTrue(code:find('_G.nupp.log.forModule("amb")', 1, true) ~= nil,
+   assertTrue(code:find('require("nupp.log").forModule("amb")', 1, true) ~= nil,
       "the module name is named once, in the prologue")
 end
 
@@ -154,19 +151,20 @@ function M.eachSeverityCarriesItsOwnIndex()
    end
 end
 
-function M.theLoggingViewIsBoundAfterTheInstallerThatPublishesIt()
+-- Logging is an ordinary module, so the view is reached through `require` and there
+-- is no installer to be ordered against. What used to be an ordering rule is now
+-- Lua's own module loading.
+function M.theLoggingViewIsBoundThroughRequire()
    local code = compile("nupp.log.warn('m')", "amb")
-   local installed = assert(code:find('rawset(__nupp,"log"', 1, true),
-      "the installer is emitted")
-   local bound = assert(code:find("_G.nupp.log.forModule(", 1, true),
-      "the module view is bound")
-   assertTrue(installed < bound,
-      "a view of the logging table cannot be taken before the table exists")
+   assertTrue(code:find('require("nupp.log").forModule(', 1, true) ~= nil,
+      "the module view is bound through require")
+   assertEq(code:find('rawset(__nupp,"log"', 1, true), nil,
+      "and nothing installs a logging table into the ambient one")
 end
 
 -- The guard is what lowering produces, so its absence is what says a site kept its
--- ordinary call. A module reaching `nupp.log` at all still carries the installer,
--- whether or not any of its sites were lowered.
+-- ordinary call. A module reaching `nupp.log` at all still requires it, whether or
+-- not any of its sites were lowered.
 local function isLowered(code)
    return loweredSite(code) ~= nil
 end
@@ -292,8 +290,12 @@ function M.settersAnswerWhatTheyReplaced()
    assertTrue(previousSink ~= nil, "the sink setter answers the previous target")
    assertEq(log.sink(), sink, "and reading answers the current one")
 
+   -- The module is one process-wide singleton rather than a table a bootstrap
+   -- rebuilds per test, so what a setter replaces is whatever was in force, not nil.
+   local formatterBefore = log.formatter()
    local formatter = function() return "" end
-   assertEq(log.formatter(formatter), nil, "no formatter was installed to begin with")
+   assertEq(log.formatter(formatter), formatterBefore,
+      "the formatter setter answers the previous formatter")
    assertEq(log.formatter(), formatter, "and the new one is in force")
 
    local previousFormat = log.timestampFormat("%H ")
@@ -403,14 +405,14 @@ function M.levelNamesRoundTrip()
    assertEq(log.levelName(0), "off", "and zero is off")
 end
 
-function M.theInstallerLandsOnlyInModulesThatLog()
+function M.theLoggingViewLandsOnlyInModulesThatLog()
    local without = compile("local m = {}\nreturn m", "amb")
    assertEq(without:find("nupp.log", 1, true), nil,
-      "a module that never logs carries no logging runtime")
+      "a module that never logs requires no logging module")
 
    local with = compile("nupp.log.warn('m')", "amb")
-   assertTrue(with:find('rawset(__nupp,"log"', 1, true) ~= nil,
-      "and a module that logs carries it")
+   assertTrue(with:find('require("nupp.log")', 1, true) ~= nil,
+      "and a module that logs requires it once")
 end
 
 return M

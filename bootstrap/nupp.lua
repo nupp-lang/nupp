@@ -27530,7 +27530,8 @@ c . moduleExports . comptimeFunctions = c . moduleExports . comptimeFunctions or
 
 
 
-if opts and opts . declareGlobals and env and env . preludeComptimeFunctions then
+
+if env and env . preludeComptimeFunctions then
 for name , helper in pairs ( env . preludeComptimeFunctions ) do
 if c . comptimeFunctions [ name ] == nil then
 c . comptimeFunctions [ name ] = helper
@@ -31263,6 +31264,11 @@ local severity = LOG_SEVERITY [ callee . name . text ]
 if not severity then
 return nil
 end
+
+
+
+
+
 local path = callee . obj
 if not path or path . kind ~= "dotIndex" or not path . name or path . name . text ~= "log" then
 return nil
@@ -45952,7 +45958,16 @@ local registry = c . env . ensureProjectIndex ( c . env )
 local candidate = written
 local suffix = { }
 while candidate do
-if registry . declaredModules and registry . declaredModules [ candidate ] then
+
+
+
+
+local declared = registry . declaredModules and registry . declaredModules [ candidate ] or false
+if not declared and c . env . bundled then
+local shipped = c . env . bundled [ candidate ]
+declared = shipped ~= nil and shipped ~= false and shipped . declared == true
+end
+if declared then
 local moduleType = c . env . resolveModule and c . env . resolveModule ( c . env , candidate ) or nil
 if not moduleType then
 return nil
@@ -75325,6 +75340,7 @@ local BUNDLED_SOURCE = {
 [ "nupp.simd" ] = "/nupp/simd.nupp" ,
 [ "nupp.mem.heap" ] = "/nupp/mem/heap.nupp" ,
 [ "nupp.mem.soa" ] = "/nupp/mem/soa.nupp" ,
+[ "nupp.log" ] = "/nupp/log.g.nupp" ,
 [ "nupp.suspension" ] = "/nupp/suspension.nupp" ,
 [ "nupp.io.process" ] = "/nupp/io/process.nupp" ,
 [ "nupp.workers" ] = "/nupp/workers.nupp" ,
@@ -75373,7 +75389,7 @@ moduleRecord . lpegLibrary = true
 moduleRecord . lpegPatternOrigin = pattern
 end
 end
-return { type = moduleType , exports = exports }
+return { type = moduleType , exports = exports , declared = cst . declaredModule ( result . root ) ~= nil , }
 end
 
 return false
@@ -81299,12 +81315,6 @@ end
 
 
 local function compilerModuleName ( moduleName )
-if moduleName == "nupp.log" then
-
-
-
-needRuntimeEffect ( "stdlib.log" )
-end
 local name = compilerModules [ moduleName ]
 if not name then
 local preferred = moduleName == "string.buffer" and "__nuppBuffer" or "__nuppModule"
@@ -86621,7 +86631,7 @@ local runtimeEffects = emittedFeatureEffects
 
 if compilerModules [ "nupp.log" ] then
 code = (
-"const %s = _G.nupp.log.forModule(%q); "
+"const %s = require(\"nupp.log\").forModule(%q); "
 ) : format ( compilerModules [ "nupp.log" ] , result . moduleName or filename or "?" ) .. code
 end
 local nativeBootstrap = stdlib . bootstrap ( runtimeEffects , hotState ~= nil )
@@ -104800,25 +104810,6 @@ globals = { "nupp.data.bitset" } ,
 
 
 } ,
-[
-"stdlib.log"
-] = {
-name = "log" ,
-globals = {
-"nupp.log.error" ,
-"nupp.log.warn" ,
-"nupp.log.info" ,
-"nupp.log.debug" ,
-"nupp.log.level" ,
-"nupp.log.enabled" ,
-"nupp.log.sink" ,
-"nupp.log.formatter" ,
-"nupp.log.timestamp" ,
-"nupp.log.timestampFormat" ,
-"nupp.log.named" ,
-"nupp.log.levelName" ,
-} ,
-} ,
 [ "stdlib.fnv1a64" ] = { name = "fnv1a64" , globals = { "nupp.data.fnv1a64" } , } ,
 [ "stdlib.checksums" ] = { name = "checksums" , globals = { "nupp.data.crc32" } , } ,
 [
@@ -117383,139 +117374,6 @@ return backend end
 
 
 
-
-
-
-
-
-
-
-
-local LOG = compact (
-[=[
-local __nuppLog=rawget(__nupp,"log")or{};rawset(__nupp,"log",__nuppLog)
-do
-local NAMES={"error","warn","info","debug"};local INDEX={off=0,error=1,warn=2,info=3,debug=4}
-local ffi=require("ffi");pcall(ffi.cdef,"typedef int64_t nupp_time_t; nupp_time_t time(nupp_time_t *t);")
-local clock=os.time
-do
-local resolved,fn=pcall(function()return ffi.C.time end)
-if resolved and fn then
-local null=ffi.cast("nupp_time_t*",0);local valid,answered=pcall(fn,null)
-local drift=valid and(tonumber(answered)-os.time())or math.huge
-if drift>-2 and drift<2 then clock=function()return tonumber(fn(null))end end
-end
-end
-local threshold=2;local on={false,false,false,false}
-local target=io.stderr;local targetIsSink=false;local formatter=nil
-local dateFormat="%Y-%m-%d %H:%M:%S ";local cachedTick=-1;local cachedStamp="";local cachedFormat=""
-local registry={}
-local function admit(index)for i=1,4 do on[i]=i<=index end;threshold=index end
-admit(threshold)
-local function stamp()
-if dateFormat==""then return""end
-local tick=clock()
-if tick~=cachedTick or dateFormat~=cachedFormat then cachedTick=tick;cachedFormat=dateFormat;cachedStamp=os.date(dateFormat)end
-return cachedStamp
-end
-local function emit(severity,module,line,message)
-if targetIsSink then return target(severity,module,line,message)end
-local at=stamp()
-if formatter then return target:write(formatter(severity,module,line,message,at),"\n")end
-if line>0 then return target:write(at,NAMES[severity]," ",module,":",line,": ",message,"\n")end
-return target:write(at,NAMES[severity]," ",module,": ",message,"\n")
-end
-__nuppLog.on=on;__nuppLog.emit=emit
-function __nuppLog.forModule(module)
-return{on=on,emit=function(severity,line,message)return emit(severity,module,line,message)end}
-end
-local function named(severity)
-local index=INDEX[severity];if index==nil then error("nupp: log has no level named "..tostring(severity),3)end
-return index
-end
-local function render(message,...)
-local count=select("#",...);if count==0 then return message end
-local values={...}
-if message:find("?",1,true)then
-local pieces={};local index=1;local argument=0
-while index<=#message do
-local percent=message:find("%",index,true)
-if not percent then pieces[#pieces+1]=message:sub(index);break end
-pieces[#pieces+1]=message:sub(index,percent-1)
-if message:sub(percent+1,percent+1)=="%"then pieces[#pieces+1]="%%";index=percent+2
-else
-local finish=percent+1;local current=message:sub(finish,finish)
-while current~=""and("-+ #0"):find(current,1,true)do finish=finish+1;current=message:sub(finish,finish)end
-while current:find("[0-9]")do finish=finish+1;current=message:sub(finish,finish)end
-if current=="."then finish=finish+1;current=message:sub(finish,finish);while current:find("[0-9]")do finish=finish+1;current=message:sub(finish,finish)end end
-argument=argument+1
-if current=="?"then values[argument]=values[argument]:debug();current="s"end
-pieces[#pieces+1]=message:sub(percent,finish-1)..current;index=finish+1
-end
-end
-message=table.concat(pieces)
-end
-return string.format(message,unpack(values,1,count))
-end
-local function ambient(severity)
-return function(message,...)
-if not on[severity]then return end
-return emit(severity,"?",0,render(message,...))
-end
-end
-__nuppLog.error=ambient(1);__nuppLog.warn=ambient(2);__nuppLog.info=ambient(3);__nuppLog.debug=ambient(4)
-local NO_OP=function()end
-local function writer(severity)
-return function(self,message,...)
-return emit(severity,self.name,0,render(message,...))
-end
-end
-local WRITE={writer(1),writer(2),writer(3),writer(4)}
-local function loggerEnabled(self,level)local index=named(level);return index>0 and on[index]or false end
-local function stampLogger(logger)
-logger.error=on[1]and WRITE[1]or NO_OP;logger.warn=on[2]and WRITE[2]or NO_OP
-logger.info=on[3]and WRITE[3]or NO_OP;logger.debug=on[4]and WRITE[4]or NO_OP
-end
-local function restamp()for _,logger in pairs(registry)do stampLogger(logger)end end
-function __nuppLog.named(name)
-if type(name)~="string"then error("nupp: log name must be a string",2)end
-local logger=registry[name]
-if not logger then logger={name=name,enabled=loggerEnabled};stampLogger(logger);registry[name]=logger end
-return logger
-end
-function __nuppLog.level(level)
-if level==nil then return NAMES[threshold]or"off"end
-local previous=NAMES[threshold]or"off";admit(named(level));restamp();return previous
-end
-function __nuppLog.enabled(level)local index=named(level);return index>0 and on[index]or false end
-function __nuppLog.sink(next)
-if next==nil then return target end
-local previous=target
-if type(next)=="function"then target=next;targetIsSink=true
-elseif type(next)=="table"or type(next)=="userdata"then target=next;targetIsSink=false
-else error("nupp: log target must be a sink function or a file",2)end
-restamp();return previous
-end
-function __nuppLog.formatter(next)
-if next==nil then return formatter end
-if type(next)~="function"then error("nupp: log formatter must be a function",2)end
-local previous=formatter;formatter=next;return previous
-end
-function __nuppLog.timestamp()return stamp()end
-function __nuppLog.timestampFormat(next)
-if next==nil then return dateFormat end
-if type(next)~="string"then error("nupp: log timestamp format must be a string",2)end
-local previous=dateFormat;dateFormat=next;cachedTick=-1;return previous
-end
-function __nuppLog.levelName(severity)return NAMES[severity]or"off"end
-end
-]=]
-)
-
-
-
-
-
 local BITSET = compact ( [=[
 __nuppLazy(__nuppData,"bitset",function()return require("nupp.data.bitsetimpl")end)
 ]=] )
@@ -117549,9 +117407,6 @@ out [ # out + 1 ] = UTF8
 end
 if effects [ "stdlib.math" ] then
 out [ # out + 1 ] = watch and MATH : gsub ( "local m=__nuppMath" , "local m=_G.nupp.math" , 1 ) or MATH
-end
-if effects [ "stdlib.log" ] then
-out [ # out + 1 ] = LOG
 end
 if effects [ "stdlib.fnv1a64" ] then
 out [ # out + 1 ] = FNV
@@ -128814,6 +128669,432 @@ end
 const __nuppExportValue= process ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.io.process"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.io.process"]=__nuppExports;return __nuppExports
 end
+package.preload["nupp.log"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local log = { }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+log.Logger = {} log.Logger.__index = log.Logger
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local NAMES = { "error" , "warn" , "info" , "debug" , }
+local INDEX = { off = 0 , error = 1 , warn = 2 , info = 3 , debug = 4 , }
+
+local ffi = require ( "ffi" )
+pcall ( ffi . cdef , "typedef int64_t nupp_time_t; nupp_time_t time(nupp_time_t *t);" )
+
+local clock = os . time
+do
+local resolved , fn = pcall ( function ( )
+return ffi . C . time
+end )
+if resolved and fn then
+local null = ffi . cast ( "nupp_time_t*" , 0 )
+local valid , answered = pcall ( fn , null )
+local drift = valid and ( ( tonumber ( answered ) or 0 ) - os . time ( ) ) or math . huge
+if drift > - 2 and drift < 2 then
+clock = function ( )
+return tonumber ( fn ( null ) ) or 0
+end
+end
+end
+end
+
+local threshold = 2
+local on = { false , false , false , false , }
+local target = io . stderr
+local targetIsSink = false
+local formatter = nil
+local dateFormat = "%Y-%m-%d %H:%M:%S "
+local cachedTick = - 1
+local cachedStamp = ""
+local cachedFormat = ""
+local registry = { }
+
+local function admit ( index )
+for i = 1 , 4 do
+on [ i ] = i <= index
+end
+threshold = index
+end
+
+admit ( threshold )
+
+local function stamp ( )
+if dateFormat == "" then
+return ""
+end
+local tick = clock ( )
+if tick ~= cachedTick or dateFormat ~= cachedFormat then
+cachedTick = tick
+cachedFormat = dateFormat
+cachedStamp = os . date ( dateFormat )
+end
+
+return cachedStamp
+end
+
+local function emit ( severity , module , line , message )
+if targetIsSink then
+return target ( severity , module , line , message )
+end
+local at = stamp ( )
+if formatter then
+return target : write ( formatter ( severity , module , line , message , at ) , "\n" )
+end
+if line > 0 then
+return target : write ( at , NAMES [ severity ] , " " , module , ":" , line , ": " , message , "\n" )
+end
+
+return target : write ( at , NAMES [ severity ] , " " , module , ": " , message , "\n" )
+end
+
+log . on = on
+log . emit = emit
+
+
+
+
+
+function log . forModule ( module )
+return {
+on = on ,
+emit = function ( severity , line , message )
+return emit ( severity , module , line , message )
+end ,
+}
+end
+
+local function named ( severity )
+local index = INDEX [ severity ]
+if index == nil then
+error ( "nupp: log has no level named " .. tostring ( severity ) , 3 )
+end
+
+return index
+end
+
+
+
+
+local function render ( message , ... )
+local count = select ( "#" , ... )
+if count == 0 then
+return message
+end
+local values = { ... }
+if message : find ( "?" , 1 , true ) then
+local pieces = { }
+local index = 1
+local argument = 0
+while index <= # message do
+local percent = message : find ( "%" , index , true )
+if not percent then
+pieces [ # pieces + 1 ] = message : sub ( index )
+break
+end
+pieces [ # pieces + 1 ] = message : sub ( index , percent - 1 )
+if message : sub ( percent + 1 , percent + 1 ) == "%" then
+pieces [ # pieces + 1 ] = "%%"
+index = percent + 2
+else
+local finish = percent + 1
+local current = message : sub ( finish , finish )
+while current ~= "" and ( "-+ #0" ) : find ( current , 1 , true ) do
+finish = finish + 1
+current = message : sub ( finish , finish )
+end
+while current : find ( "[0-9]" ) do
+finish = finish + 1
+current = message : sub ( finish , finish )
+end
+if current == "." then
+finish = finish + 1
+current = message : sub ( finish , finish )
+while current : find ( "[0-9]" ) do
+finish = finish + 1
+current = message : sub ( finish , finish )
+end
+end
+argument = argument + 1
+if current == "?" then
+values [ argument ] = values [ argument ] : debug ( )
+current = "s"
+end
+pieces [ # pieces + 1 ] = message : sub ( percent , finish - 1 ) .. current
+index = finish + 1
+end
+end
+message = table . concat ( pieces )
+end
+
+return string . format ( message , unpack ( values , 1 , count ) )
+end
+
+
+
+
+
+
+
+function log . error ( fmt , ... )
+if not on [ 1 ] then
+return
+end
+emit ( 1 , "?" , 0 , render ( fmt , ... ) )
+end
+
+
+
+function log . warn ( fmt , ... )
+if not on [ 2 ] then
+return
+end
+emit ( 2 , "?" , 0 , render ( fmt , ... ) )
+end
+
+
+
+function log . info ( fmt , ... )
+if not on [ 3 ] then
+return
+end
+emit ( 3 , "?" , 0 , render ( fmt , ... ) )
+end
+
+
+
+function log . debug ( fmt , ... )
+if not on [ 4 ] then
+return
+end
+emit ( 4 , "?" , 0 , render ( fmt , ... ) )
+end
+
+local NO_OP = function ( )
+end
+
+local function writer ( severity )
+return function ( self , message , ... )
+return emit ( severity , self . name , 0 , render ( message , ... ) )
+end
+end
+
+local WRITE = { writer ( 1 ) , writer ( 2 ) , writer ( 3 ) , writer ( 4 ) , }
+
+local function loggerEnabled ( self , level )
+local index = named ( level )
+
+return index > 0 and on [ index ] or false
+end
+
+local function stampLogger ( logger )
+logger . error = on [ 1 ] and WRITE [ 1 ] or NO_OP
+logger . warn = on [ 2 ] and WRITE [ 2 ] or NO_OP
+logger . info = on [ 3 ] and WRITE [ 3 ] or NO_OP
+logger . debug = on [ 4 ] and WRITE [ 4 ] or NO_OP
+end
+
+local function restamp ( )
+for _ , logger in pairs ( registry ) do
+stampLogger ( logger )
+end
+end
+
+
+
+
+
+
+function log . named ( name )
+if type ( name ) ~= "string" then
+error ( "nupp: log name must be a string" , 2 )
+end
+local logger = registry [ name ]
+if not logger then
+logger = { name = name , enabled = loggerEnabled , }
+stampLogger ( logger )
+registry [ name ] = logger
+end
+
+return logger
+end
+
+
+
+
+
+function log . level ( level )
+if level == nil then
+return ( NAMES [ threshold ] or "off" )
+end
+local previous = ( NAMES [ threshold ] or "off" )
+admit ( named ( level ) )
+restamp ( )
+
+return previous
+end
+
+
+
+
+
+function log . enabled ( level )
+local index = named ( level )
+
+return index > 0 and on [ index ] or false
+end
+
+
+
+
+
+
+function log . sink ( next )
+if next == nil then
+return target
+end
+local previous = target
+if type ( next ) == "function" then
+target = next
+targetIsSink = true
+elseif type ( next ) == "table" or type ( next ) == "userdata" then
+target = next
+targetIsSink = false
+else
+error ( "nupp: log target must be a sink function or a file" , 2 )
+end
+restamp ( )
+
+return previous
+end
+
+
+
+
+
+
+function log . formatter ( next )
+if next == nil then
+return formatter
+end
+if type ( next ) ~= "function" then
+error ( "nupp: log formatter must be a function" , 2 )
+end
+local previous = formatter
+formatter = next
+
+return previous
+end
+
+
+
+
+function log . timestamp ( )
+return stamp ( )
+end
+
+
+
+
+
+
+function log . timestampFormat ( next )
+if next == nil then
+return dateFormat
+end
+if type ( next ) ~= "string" then
+error ( "nupp: log timestamp format must be a string" , 2 )
+end
+local previous = dateFormat
+dateFormat = next
+cachedTick = - 1
+
+return previous
+end
+
+
+
+
+
+function log . levelName ( severity )
+return ( NAMES [ severity ] or "off" )
+end
+
+const __nuppExportValue= log ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.log"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.log"]=__nuppExports;return __nuppExports
+end
 package.preload["nupp.mem.heap"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.heap#free_nosuspend"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.heap#free_nosuspend") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
@@ -135565,9 +135846,6 @@ local nupp: {
     --- Scalar helpers and two-dimensional vectors.
     math: nupp.MathLibrary,
 
-    --- Leveled logging over a swappable destination.
-    log: nupp.log,
-
     --- Cooperative development hot reload, installed by `nupp run --watch`.
     hotreload: nupp.HotReload,
 
@@ -138350,118 +138628,6 @@ record nupp.MathLibrary
     --- @param to the target angle in radians
     --- @return the signed rotation in `[-pi, pi)`
     deltaAngle: function(from: number, to: number): number
-end
-
---- The severity operations are compiler intrinsics. A call in statement position
---- whose format is a literal compiles to a level test around a direct emit, so a
---- filtered call evaluates none of its arguments. Every other spelling stays an
---- ordinary call meaning the same thing, only slower: a value rather than a call,
---- a computed format, a named argument, or a `nupp` some local has taken.
-record nupp.log
-    --- The threshold, from silent to most verbose. Each level admits itself and
-    --- everything above it, so "warn" emits warnings and errors.
-    type Level = "off" | "error" | "warn" | "info" | "debug"
-
-    --- A level as a sink sees it: 1 error, 2 warn, 3 info, 4 debug.
-    type Severity = integer
-
-    --- Receives one emitted line, already formatted. Replacing this replaces the
-    --- back end, so a host logging through its own facility pays for nothing it
-    --- discards -- no timestamp is passed, because a sink that wants one asks.
-    type Sink = function(level: Severity, module: string, line: integer, message: string): nil
-
-    --- Renders one line for a file-like destination. Only consulted when the
-    --- target is file-like; a sink function formats however it likes.
-    type Formatter = function(level: Severity, module: string, line: integer, message: string, stamp: string): string
-
-    --- Where lines go: a sink function, or anything file-like to write to.
-    type Target = Sink | LuaFile
-
-    --- A logger carrying a fixed name, for subsystems and for call sites the
-    --- intrinsic cannot rewrite. Changing the level or target restamps every
-    --- logger, so a filtered call reaches an empty function rather than a test.
-    record Logger
-        --- The name every line from this logger carries.
-        readonly name: string
-
-        --- Logs at debug. Accepts `string.format` directives.
-        debug: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
-
-        --- Logs at info. Accepts `string.format` directives.
-        info: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
-
-        --- Logs at warn. Accepts `string.format` directives.
-        warn: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
-
-        --- Logs at error. Accepts `string.format` directives.
-        error: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
-
-        --- Whether this logger would emit at `level`.
-        enabled: function(self: Logger, level: Level): boolean
-    end
-
-    --- Logs at error. Accepts `string.format` directives.
-    error: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
-
-    --- Logs at warn. Accepts `string.format` directives.
-    warn: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
-
-    --- Logs at info. Accepts `string.format` directives.
-    info: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
-
-    --- Logs at debug. Accepts `string.format` directives.
-    debug: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
-
-    --- Reads the threshold, or sets it and answers the one it replaced.
-    ---
-    --- @param level the threshold to install
-    --- @return the threshold in force before the call
-    level: function(): Level & function(level: Level): Level
-
-    --- Whether a level would emit. Guards preparation spanning more than one
-    --- call, which no single rewritten site can elide.
-    ---
-    --- @param level the level to ask about
-    --- @return whether a call at that level would reach the sink
-    enabled: function(level: Level): boolean
-
-    --- Reads the destination, or sets it and answers the one it replaced.
-    ---
-    --- @param target the sink function or file-like destination to install
-    --- @return the destination in force before the call
-    sink: function(): Target & function(target: Target): Target
-
-    --- Reads the line format, or sets it and answers the one it replaced. Only
-    --- a file-like target consults it.
-    ---
-    --- @param format the formatter to install
-    --- @return the formatter in force before the call
-    formatter: function(): Formatter & function(format: Formatter): Formatter
-
-    --- The current time formatted, recomputed at most once a second and shared
-    --- by every logger. Empty while timestamps are off.
-    ---
-    --- @return the cached timestamp
-    timestamp: function(): string
-
-    --- Reads the timestamp format, or sets it and answers the one it replaced.
-    --- Setting it drops the cached value; an empty format turns timestamps off.
-    ---
-    --- @param format the `os.date` format to install
-    --- @return the format in force before the call
-    timestampFormat: function(): string & function(format: string): string
-
-    --- A logger with a fixed name. Repeating a name answers the same logger.
-    ---
-    --- @param name the name its lines carry
-    --- @return the logger
-    named: function(name: string): Logger
-
-    --- The name for a sink's numeric level.
-    ---
-    --- @param level the numeric level a sink received
-    --- @return the level's name
-    levelName: function(level: Severity): Level
 end
 ]=],
 ["/decls/prelude_impl.d.nupp"] = [[
@@ -142790,6 +142956,431 @@ function process.exited(exitCode: integer, killed: boolean, timedOut: boolean): 
 end
 
 export = process
+]=],
+["/nupp/log.g.nupp"] = [=[
+module nupp.log
+
+--[[
+Leveled logging over a swappable destination.
+
+Logging is the one facility whose disabled path is its hot path, so the shape here
+answers to what a filtered call costs rather than to what an emitted one does. `on`
+is an array the rewritten call site indexes directly, `emit` is reached only once a
+level has been admitted, and a named logger carries stamped methods so a filtered
+call through one reaches an empty function rather than a test.
+
+Generation lowers `nupp.log.debug("...")` in statement position to a test against
+`on` around a direct `emit`, so a filtered call evaluates none of its arguments. The
+view `forModule` answers is what a generated chunk binds once and every site in it
+indexes; a site carries only its severity and its line.
+
+`os.time` is NYI in LuaJIT and stitches the trace it stands on, so the second is read
+through the FFI. `os.time` stays only to validate the symbol: some Windows CRTs
+inline `time` to `_time64` or give it a 32-bit `time_t`, and a resolved-but-wrong-
+width symbol would answer nonsense rather than fail to resolve.
+]]
+
+local log = {}
+
+--- The threshold, from silent to most verbose. Each level admits itself and
+--- everything above it, so "warn" emits warnings and errors.
+--- @export
+type log.Level = "off" | "error" | "warn" | "info" | "debug"
+
+--- A level as a sink sees it: 1 error, 2 warn, 3 info, 4 debug.
+--- @export
+type log.Severity = integer
+
+--- Receives one emitted line, already formatted. Replacing this replaces the back
+--- end, so a host logging through its own facility pays for nothing it discards --
+--- no timestamp is passed, because a sink that wants one asks.
+--- @export
+type log.Sink = function(level: log.Severity, module: string, line: integer, message: string): nil
+
+--- Renders one line for a file-like destination. Only consulted when the target is
+--- file-like; a sink function formats however it likes.
+--- @export
+type log.Formatter = function(
+    level: log.Severity,
+    module: string,
+    line: integer,
+    message: string,
+    stamp: string
+): string
+
+--- Where lines go: a sink function, or anything file-like to write to.
+--- @export
+type log.Target = log.Sink | LuaFile
+
+--- A logger carrying a fixed name, for subsystems and for call sites the intrinsic
+--- cannot rewrite. Changing the level or target restamps every logger, so a filtered
+--- call reaches an empty function rather than a test.
+--- @export
+record log.Logger
+    --- The name every line from this logger carries.
+    readonly name: string
+
+    --- Logs at debug. Accepts `string.format` directives.
+    debug: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+
+    --- Logs at info. Accepts `string.format` directives.
+    info: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+
+    --- Logs at warn. Accepts `string.format` directives.
+    warn: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+
+    --- Logs at error. Accepts `string.format` directives.
+    error: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+
+    --- Whether this logger would emit at `level`.
+    enabled: function(self: log.Logger, level: log.Level): boolean
+end
+
+local NAMES = {"error", "warn", "info", "debug",}
+local INDEX = {off = 0, error = 1, warn = 2, info = 3, debug = 4,}
+
+local ffi = require("ffi")
+pcall(ffi.cdef, "typedef int64_t nupp_time_t; nupp_time_t time(nupp_time_t *t);")
+
+local clock: any = os.time
+do
+    local resolved, fn = pcall(function(): any
+        return ffi.C.time
+    end)
+    if resolved and fn then
+        local null = ffi.cast("nupp_time_t*", 0)
+        local valid, answered = pcall(fn, null)
+        local drift = valid and ((tonumber(answered) or 0) - os.time()) or math.huge
+        if drift > -2 and drift < 2 then
+            clock = function(): number
+                return tonumber(fn(null)) or 0
+            end
+        end
+    end
+end
+
+local threshold: integer = 2
+local on = {false, false, false, false,}
+local target: any = io.stderr
+local targetIsSink = false
+local formatter: any = nil
+local dateFormat = "%Y-%m-%d %H:%M:%S "
+local cachedTick: any = -1
+local cachedStamp = ""
+local cachedFormat = ""
+local registry: any = {}
+
+local function admit(index: integer): nil
+    for i = 1, 4 do
+        on[i] = i <= index
+    end
+    threshold = index
+end
+
+admit(threshold)
+
+local function stamp(): string
+    if dateFormat == "" then
+        return ""
+    end
+    local tick = clock()
+    if tick ~= cachedTick or dateFormat ~= cachedFormat then
+        cachedTick = tick
+        cachedFormat = dateFormat
+        cachedStamp = os.date(dateFormat) as string
+    end
+
+    return cachedStamp
+end
+
+local function emit(severity: integer, module: string, line: integer, message: string): any
+    if targetIsSink then
+        return target(severity, module, line, message)
+    end
+    local at = stamp()
+    if formatter then
+        return target:write(formatter(severity, module, line, message, at), "\n")
+    end
+    if line > 0 then
+        return target:write(at, NAMES[severity], " ", module, ":", line, ": ", message, "\n")
+    end
+
+    return target:write(at, NAMES[severity], " ", module, ": ", message, "\n")
+end
+
+log.on = on
+log.emit = emit
+
+--- The view a generated chunk binds once, so a site carries only severity and line.
+---
+--- @param module the module name its lines carry
+--- @return the view, whose `on` a site indexes and whose `emit` it calls
+function log.forModule(module: string): any
+    return {
+        on = on,
+        emit = function(severity: integer, line: integer, message: string): any
+            return emit(severity, module, line, message)
+        end,
+    }
+end
+
+local function named(severity: log.Level): integer
+    local index = INDEX[severity]
+    if index == nil then
+        error("nupp: log has no level named " .. tostring(severity), 3)
+    end
+
+    return index
+end
+
+-- `?` is the debug directive: the argument beside it is rendered through its own
+-- `debug` method and the directive becomes an ordinary `%s`. Everything else is
+-- handed to `string.format` unchanged.
+local function render(message: string, ...: any): string
+    local count = select("#", ...)
+    if count == 0 then
+        return message
+    end
+    local values = {...}
+    if message:find("?", 1, true) then
+        local pieces = {}
+        local index = 1
+        local argument: integer = 0
+        while index <= #message do
+            local percent = message:find("%", index, true)
+            if not percent then
+                pieces[#pieces + 1] = message:sub(index)
+                break
+            end
+            pieces[#pieces + 1] = message:sub(index, percent - 1)
+            if message:sub(percent + 1, percent + 1) == "%" then
+                pieces[#pieces + 1] = "%%"
+                index = percent + 2
+            else
+                local finish = percent + 1
+                local current = message:sub(finish, finish)
+                while current ~= "" and ("-+ #0"):find(current, 1, true) do
+                    finish = finish + 1
+                    current = message:sub(finish, finish)
+                end
+                while current:find("[0-9]") do
+                    finish = finish + 1
+                    current = message:sub(finish, finish)
+                end
+                if current == "." then
+                    finish = finish + 1
+                    current = message:sub(finish, finish)
+                    while current:find("[0-9]") do
+                        finish = finish + 1
+                        current = message:sub(finish, finish)
+                    end
+                end
+                argument = argument + 1
+                if current == "?" then
+                    values[argument] = values[argument]:debug()
+                    current = "s"
+                end
+                pieces[#pieces + 1] = message:sub(percent, finish - 1) .. current
+                index = finish + 1
+            end
+        end
+        message = table.concat(pieces)
+    end
+
+    return string.format(message, unpack(values, 1, count))
+end
+
+-- Written out rather than built by a closure factory, because each one carries the
+-- format pack its own directives are checked against. A statement call with a literal
+-- format is rewritten to a test around `emit` and never reaches these.
+
+--- Logs at error. Accepts `string.format` directives.
+--- @export
+function log.error<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+    if not on[1] then
+        return
+    end
+    emit(1, "?", 0, render(fmt as string, ...))
+end
+
+--- Logs at warn. Accepts `string.format` directives.
+--- @export
+function log.warn<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+    if not on[2] then
+        return
+    end
+    emit(2, "?", 0, render(fmt as string, ...))
+end
+
+--- Logs at info. Accepts `string.format` directives.
+--- @export
+function log.info<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+    if not on[3] then
+        return
+    end
+    emit(3, "?", 0, render(fmt as string, ...))
+end
+
+--- Logs at debug. Accepts `string.format` directives.
+--- @export
+function log.debug<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+    if not on[4] then
+        return
+    end
+    emit(4, "?", 0, render(fmt as string, ...))
+end
+
+local NO_OP = function(): nil
+end
+
+local function writer(severity: integer): any
+    return function(self: any, message: string, ...: any): any
+        return emit(severity, self.name, 0, render(message, ...))
+    end
+end
+
+local WRITE = {writer(1), writer(2), writer(3), writer(4),}
+
+local function loggerEnabled(self: any, level: log.Level): boolean
+    local index = named(level)
+
+    return index > 0 and on[index] or false
+end
+
+local function stampLogger(logger: any): nil
+    logger.error = on[1] and WRITE[1] or NO_OP
+    logger.warn = on[2] and WRITE[2] or NO_OP
+    logger.info = on[3] and WRITE[3] or NO_OP
+    logger.debug = on[4] and WRITE[4] or NO_OP
+end
+
+local function restamp(): nil
+    for _, logger in pairs(registry) do
+        stampLogger(logger)
+    end
+end
+
+--- A logger with a fixed name. Repeating a name answers the same logger.
+---
+--- @param name the name its lines carry
+--- @return the logger
+--- @raises when name is not a string
+function log.named(name: string): log.Logger
+    if type(name) ~= "string" then
+        error("nupp: log name must be a string", 2)
+    end
+    local logger = registry[name]
+    if not logger then
+        logger = {name = name, enabled = loggerEnabled,}
+        stampLogger(logger)
+        registry[name] = logger
+    end
+
+    return logger as log.Logger
+end
+
+--- Reads or moves the threshold. Each level admits itself and everything above it.
+---
+--- @param level the new threshold, or nil to read the current one
+--- @return the threshold this call replaced
+function log.level(level: log.Level?): log.Level
+    if level == nil then
+        return (NAMES[threshold] or "off") as log.Level
+    end
+    local previous = (NAMES[threshold] or "off") as log.Level
+    admit(named(level))
+    restamp()
+
+    return previous
+end
+
+--- Whether a level is currently admitted.
+---
+--- @param level the level to test
+--- @return whether a call at that level would emit
+function log.enabled(level: log.Level): boolean
+    local index = named(level)
+
+    return index > 0 and on[index] or false
+end
+
+--- Reads or replaces the destination.
+---
+--- @param next a sink function, a file, or nil to read the current destination
+--- @return the destination this call replaced
+--- @raises when next is neither a sink function nor a file
+function log.sink(next: log.Target?): log.Target
+    if next == nil then
+        return target
+    end
+    local previous = target
+    if type(next) == "function" then
+        target = next
+        targetIsSink = true
+    elseif type(next) == "table" or type(next) == "userdata" then
+        target = next
+        targetIsSink = false
+    else
+        error("nupp: log target must be a sink function or a file", 2)
+    end
+    restamp()
+
+    return previous
+end
+
+--- Reads or replaces the line formatter.
+---
+--- @param next the formatter, or nil to read the current one
+--- @return the formatter this call replaced
+--- @raises when next is not a function
+function log.formatter(next: log.Formatter?): log.Formatter?
+    if next == nil then
+        return formatter
+    end
+    if type(next) ~= "function" then
+        error("nupp: log formatter must be a function", 2)
+    end
+    local previous = formatter
+    formatter = next
+
+    return previous
+end
+
+--- The stamp a line written now would carry.
+---
+--- @return the rendered timestamp, or "" when stamping is off
+function log.timestamp(): string
+    return stamp()
+end
+
+--- Reads or replaces the timestamp format. An empty format stops stamping.
+---
+--- @param next the `os.date` format, or nil to read the current one
+--- @return the format this call replaced
+--- @raises when next is not a string
+function log.timestampFormat(next: string?): string
+    if next == nil then
+        return dateFormat
+    end
+    if type(next) ~= "string" then
+        error("nupp: log timestamp format must be a string", 2)
+    end
+    local previous = dateFormat
+    dateFormat = next
+    cachedTick = -1
+
+    return previous
+end
+
+--- The name for a sink's numeric level.
+---
+--- @param severity the numeric level a sink received
+--- @return the level's name
+function log.levelName(severity: log.Severity): log.Level
+    return (NAMES[severity] or "off") as log.Level
+end
+
+export = log
 ]=],
 ["/nupp/mem/heap.nupp"] = [=[
 module nupp.mem.heap

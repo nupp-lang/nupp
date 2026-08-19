@@ -959,12 +959,6 @@ function gen.generate(
     -- does not collide with it. OPT-5 reaches string.buffer through the same registry.
 
     local function compilerModuleName(moduleName: string): string
-        if moduleName == "nupp.log" then
-            -- Intrinsic logging lowering may consume the original field access before
-            -- it reaches ordinary node emission. Requesting the generated module view
-            -- is the surviving operation that needs the ambient logging installer.
-            needRuntimeEffect("stdlib.log")
-        end
         local name = compilerModules[moduleName]
         if not name then
             local preferred = moduleName == "string.buffer" and "__nuppBuffer" or "__nuppModule"
@@ -6281,7 +6275,7 @@ function gen.generate(
     -- installer publishes, so it has to land after it rather than before.
     if compilerModules["nupp.log"] then
         code = (
-            "const %s = _G.nupp.log.forModule(%q); "
+            "const %s = require(\"nupp.log\").forModule(%q); "
         ):format(compilerModules["nupp.log"], result.moduleName or filename or "?") .. code
     end
     local nativeBootstrap = stdlib.bootstrap(runtimeEffects, hotState ~= nil)
@@ -6482,8 +6476,8 @@ function gen.generate(
         code = ("const %s = require(\"nupp.suspension\"); "):format(suspensionName) .. code
     end
     for _, moduleName in ipairs(compilerModuleOrder) do
-        -- The logging view is not a module to require, and it is bound above, beside
-        -- the bootstrap it depends on.
+        -- The logging view is not the module table: a site indexes a per-module view
+        -- that `forModule` answers, so it is bound above rather than required here.
         if moduleName ~= "nupp.log" then
             code = ("const %s = require(%q); "):format(compilerModules[moduleName], moduleName) .. code
         end

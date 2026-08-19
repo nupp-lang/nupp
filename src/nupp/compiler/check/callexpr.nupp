@@ -76,6 +76,11 @@ local function logIntrinsic(c, callee): integer?
     if not severity then
         return nil
     end
+    -- `nupp.log` is an ordinary declared module now, reached by a qualified path rather
+    -- than as a field of the ambient table. The spelling a site must have is unchanged,
+    -- so what identifies the intrinsic is still the shape of the path and an unshadowed
+    -- `nupp` root: the export the path resolves to is not recorded yet when the call is
+    -- checked, and keying on it would silently stop every site from lowering.
     local path = callee.obj
     if not path or path.kind ~= "dotIndex" or not path.name or path.name.text ~= "log" then
         return nil
