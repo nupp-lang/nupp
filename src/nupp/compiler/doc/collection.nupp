@@ -230,15 +230,9 @@ function collection.index(
         for _, page in ipairs(pages) do
             out[
                 #out + 1
-            ] = "| "
-                .. (page.number or "")
-                .. " | ["
-                .. page.name
-                .. "]("
-                .. (page.source or "")
-                .. ") | "
-                .. (page.status or "—")
-                .. " |"
+            ] = "| " .. (
+                page.number or ""
+            ) .. " | [" .. page.name .. "](" .. (page.source or "") .. ") | " .. (page.status or "—") .. " |"
         end
     end
 

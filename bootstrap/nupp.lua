@@ -43485,6 +43485,7 @@ return T . carray ( elemT , count )
 
 
 
+
 elseif calleeName == "layoutof" then
 local args = argExprs
 local subject = args [ 1 ] and c . infer ( args [ 1 ] ) or nil
@@ -69256,15 +69257,9 @@ out [ # out + 1 ] = "| --- | --- | --- |"
 for _ , page in ipairs ( pages ) do
 out [
 # out + 1
-] = "| "
-.. ( page . number or "" )
-.. " | ["
-.. page . name
-.. "]("
-.. ( page . source or "" )
-.. ") | "
-.. ( page . status or "—" )
-.. " |"
+] = "| " .. (
+page . number or ""
+) .. " | [" .. page . name .. "](" .. ( page . source or "" ) .. ") | " .. ( page . status or "—" ) .. " |"
 end
 end
 
