@@ -62,6 +62,17 @@ local function remove(dir)
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A directory that is neither a project nor one of its output trees, for
+-- proving a tree runs from anywhere. This was spelled `/`, which is a
+-- directory on POSIX and a switch to cmd's `cd`, so on Windows the run never
+-- started and the tests read as though the tree had answered nothing.
+local function elsewhere()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+   return dir
+end
+
 local function libraryName(name)
    if jit.os == "Windows" then return name .. ".dll" end
    if jit.os == "OSX" then return "lib" .. name .. ".dylib" end
@@ -1630,8 +1641,10 @@ function M.cDependencyOutputTreeRunsWhereverItIsCopied()
    assertEq(os.execute(("cp -r %q %q"):format(dir .. "/out", moved)), 0)
    -- Run from a directory that is neither the project nor the copy. Naming the
    -- library the way the build did answered here only from the project root.
-   assertEq(answerFrom(moved, "/"), "5",
+   local away = elsewhere()
+   assertEq(answerFrom(moved, away), "5",
       "a copied output tree runs from anywhere")
+   remove(away)
    remove(dir)
 end
 
@@ -1671,9 +1684,11 @@ return {
       "the library went with the bundle rather than staying in the build directory")
 
    -- A bundle runs with nothing beside it but the library, and from anywhere.
-   local code, out = process.capture({"luajit", dir .. "/dist/app.lua"}, {cwd = "/"})
+   local away = elsewhere()
+   local code, out = process.capture({"luajit", dir .. "/dist/app.lua"}, {cwd = away})
    assertEq(code, 0, out)
    assert(out:find("VALUE 5", 1, true), "the bundle called through its binding: " .. out)
+   remove(away)
    remove(dir)
 end
 
@@ -1870,8 +1885,10 @@ pub extern "C" fn tiny_double(value: i32) -> i32 { value * 2 }
       "a Cargo dependency loads where the build left it")
    local moved = dir .. "/moved"
    assertEq(os.execute(("cp -r %q %q"):format(dir .. "/out", moved)), 0)
-   assertEq(answerFrom(moved, "/"), "42",
+   local away = elsewhere()
+   assertEq(answerFrom(moved, away), "42",
       "and its output tree runs wherever it is copied")
+   remove(away)
    remove(dir)
 end
 

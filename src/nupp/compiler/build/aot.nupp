@@ -290,6 +290,36 @@ end
 --- The host's rather than the selected target's: `require` builds something
 --- this build's own loader will open. Cross-compiling to a target whose objects
 --- this machine cannot load is `emit-c`, which is what it is for.
+--- The Lua import library a Windows link needs, or nothing.
+---
+--- An entry that drives the VM calls `lua_*`. POSIX leaves those undefined in a
+--- shared library and the loader binds them to the host that opened it, so
+--- nothing has to be found. Windows resolves every symbol at link time, so the
+--- same entry needs the import library of the interpreter that will open it --
+--- and one from a different Lua would link and then call into the wrong VM.
+---
+--- Named directly by NUPP_LUA_LIB. Otherwise taken from beside the `luajit` on
+--- PATH, which is the interpreter about to load this, and where LuaJIT's own
+--- MSVC build leaves `lua51.lib`.
+function aot.luaImportLibrary(): string?
+    local named = os.getenv("NUPP_LUA_LIB")
+    if named ~= nil and named ~= "" then
+        return named as string
+    end
+    for entry in (tostring(os.getenv("PATH") or "") .. ";"):gmatch("([^;]*);") do
+        local directory = (entry:gsub("\\", "/"):gsub("/+$", ""))
+        if directory ~= "" then
+            for _, name in ipairs({"lua51.lib", "luajit.lib"}) do
+                if fs.exists(directory .. "/" .. name) then
+                    return directory .. "/" .. name
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
 function aot.linkage(selected: targets.Target, needsLua: boolean?): ({string}, string)
     local system = targets.system(selected.triple)
     if system == "darwin" then
@@ -301,7 +331,13 @@ function aot.linkage(selected: targets.Target, needsLua: boolean?): ({string}, s
         -- No `-lm`: the math functions are in the C runtime there rather than in
         -- a library to link, and asking for one that does not exist is an error
         -- rather than a no-op.
-        return {"-shared"}, ".dll"
+        local flags: {string} = {"-shared"}
+        local library = needsLua and aot.luaImportLibrary() or nil
+        if library ~= nil then
+            flags[#flags + 1] = library as string
+        end
+
+        return flags, ".dll"
     end
 
     -- `-lm` because the emitted C calls `sqrt`, `fabs` and friends, which glibc
@@ -423,6 +459,11 @@ function aot.link(
         -- the compiler's own message for it names a missing header rather than
         -- the missing thing.
         local hint = ""
+        if needsLua and targets.system(selected.triple) == "windows" and aot.luaImportLibrary() == nil then
+            hint = "\nthis entry drives the Lua VM, and a Windows library resolves every "
+                .. "symbol as it links: name the interpreter's import library through "
+                .. "NUPP_LUA_LIB, or put the `luajit` this will run under on PATH"
+        end
         if selected.triple ~= targets.hostTriple() then
             hint = (
                 "\ncompiling for %s on %s needs that target's headers and libraries: "

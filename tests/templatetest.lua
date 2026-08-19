@@ -266,6 +266,20 @@ end
 function M.aSymlinkIsReportedRatherThanFollowed()
    local dir = templateDirectory({["template.lua"] = "return {}", ["real.txt"] = "x"})
    os.execute("ln -s /etc/passwd '" .. dir .. "/link.txt'")
+
+   -- Windows has no unprivileged symbolic link, and `ln -s` there copies the
+   -- target rather than failing. That leaves an ordinary file, which the walk
+   -- is right to carry -- so the case this names cannot be built there, and
+   -- asserting on it would be asserting on the copy.
+   local linked = false
+   for _, entry in ipairs(assert(nupp.io.files.list(dir))) do
+      linked = linked or (entry.name == "link.txt" and entry.kind == "symlink")
+   end
+   if not linked then
+      remove(dir)
+      return require("assert").skip("this platform has no unprivileged symbolic link")
+   end
+
    local into = tempDirectory()
    local plan, err = template.plan({kind = "directory", path = dir}, into)
    assertEq(plan, nil, "a tree holding a link produces no plan")
