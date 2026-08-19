@@ -61417,7 +61417,7 @@ fail (
 "NUPP2411" ,
 node ,
 ( "%s.%s is unavailable at comptime" ) : format ( library , field ) ,
-"the comptime library surface is an allowlist; see plans/003-comptime.md"
+"the comptime library surface is an allowlist; see docs/neps/0011-comptime.md"
 )
 end
 end
