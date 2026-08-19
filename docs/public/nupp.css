@@ -2,57 +2,141 @@
   /* The documentation theme starts at 16px; raise the site-wide rem scale by
    * roughly 15% so prose and supporting UI read comfortably at normal zoom. */
   font-size: 115%;
-  --nupp-woodblock-vermilion: #a74732;
-  --nupp-woodblock-vermilion-hover: #8d3829;
-  /* Headings are drawn in the other theme's paper: cream on the dark ground,
-   * sumi ink on the light one. That keeps color for the sage links and the
-   * vermilion buttons, and lets the heading carry on weight and face alone. */
-  --nupp-woodblock-cream: #d6c49a;
-  --nupp-woodblock-sumi: #12262c;
-  --nuppdoc-light-accent: #55745b;
-  --nuppdoc-light-accent-hover: #3f5946;
-  --nuppdoc-light-accent-soft: #e1eadc;
-  --nuppdoc-light-background: #faf7e8;
-  --nuppdoc-light-background-alt: #f2eed8;
-  --nuppdoc-light-border: #d4cda8;
-  --nuppdoc-light-code-background: #ded7b9;
-  --nuppdoc-light-text: #173333;
-  --nuppdoc-light-muted: #626956;
-  --nuppdoc-dark-accent: #a7c49b;
-  --nuppdoc-dark-accent-hover: #c3d7b9;
-  --nuppdoc-dark-accent-soft: #1e322c;
-  --nuppdoc-dark-background: #071a21;
-  --nuppdoc-dark-background-alt: #0b232a;
-  --nuppdoc-dark-border: #253e39;
-  --nuppdoc-dark-code-background: #091f25;
-  --nuppdoc-dark-text: #f4f3ed;
-  --nuppdoc-dark-muted: #b9c0b8;
+  /* A palette surveyed across woodblock prints — thirty-eight colors: paper
+   * through ink black, the earth/moss/indigo tones between, and (since the
+   * survey ran short of both) three near-whites and three near-blacks, each
+   * an existing surveyed hue pushed to its extreme rather than invented from
+   * scratch. The variables below assign each to a role rather than picking
+   * arbitrarily — small text that needs more contrast than any surveyed
+   * color gives is a color-mix of one of them toward black or white, used
+   * only where the set truly has no direct color for the job. */
+  --nupp-woodblock-vermilion: #b1594f;
+  --nupp-woodblock-vermilion-hover: #843d2f;
+  /* Links run the amber-orange that headings wore last pass — direct on the
+   * dark ground, darkened for the light one, same as before. Headings move
+   * to cinnabar, a redder orange, so the two don't collide: cinnabar red was
+   * an actual woodblock pigment, which makes the rename more than
+   * decoration. */
+  --nupp-woodblock-ember: #c7913d;
+  --nupp-woodblock-ember-deep: color-mix(in srgb, var(--nupp-woodblock-ember) 60%, black);
+  --nupp-woodblock-cinnabar: #d64a3b;
+  --nupp-woodblock-cinnabar-deep: color-mix(in srgb, var(--nupp-woodblock-cinnabar) 65%, black);
+  --nuppdoc-light-accent: #768d93;
+  --nuppdoc-light-accent-hover: color-mix(in srgb, #768d93 80%, black);
+  --nuppdoc-light-accent-soft: #f1e1df;
+  --nuppdoc-light-background: #fcfbfb;
+  --nuppdoc-light-background-alt: #f0ebe7;
+  --nuppdoc-light-border: color-mix(in srgb, #50676c 70%, white);
+  --nuppdoc-light-code-background: #e6eaec;
+  --nuppdoc-light-text: #2e2f2a;
+  --nuppdoc-light-muted: #594a4f;
+  --nuppdoc-dark-accent: #768d93;
+  --nuppdoc-dark-accent-hover: color-mix(in srgb, #768d93 85%, white);
+  --nuppdoc-dark-accent-soft: #161214;
+  /* True black for the page itself; code blocks sit one step up at the
+   * surveyed near-black instead, with the sidebar and header on a
+   * teal-black panel between the two, and the active/soft panel state on a
+   * different near-black again (mauve-toned) so all four stay tellable
+   * apart. */
+  --nuppdoc-dark-background: #000000;
+  --nuppdoc-dark-background-alt: #0e1414;
+  --nuppdoc-dark-border: color-mix(in srgb, #50676c 65%, black);
+  --nuppdoc-dark-code-background: color-mix(in srgb, #2e2f2a 35%, black);
+  --nuppdoc-dark-text: #c8b6aa;
+  --nuppdoc-dark-muted: #ad9277;
   --nuppdoc-accent-contrast: #ffffff;
-  --nuppdoc-feature-heading: var(--nupp-woodblock-sumi);
-  --nuppdoc-playground-border: #9d8e5e;
+  --nuppdoc-feature-heading: var(--nupp-woodblock-cinnabar-deep);
+  --nuppdoc-playground-border: color-mix(in srgb, #50676c 70%, white);
+  --nuppdoc-code-block-radius: 4px;
   --nuppdoc-hero-glow-color: var(--nupp-woodblock-vermilion);
-  --nuppdoc-syntax-boolean: #8c5f22;
-  --nuppdoc-syntax-comment: #7b806a;
-  --nuppdoc-syntax-function: #1b5670;
-  --nuppdoc-syntax-keyword: #765128;
-  --nuppdoc-syntax-meta: #315f58;
-  --nuppdoc-syntax-number: #8c5f22;
-  --nuppdoc-syntax-operator: #315f58;
-  --nuppdoc-syntax-property: #506942;
-  --nuppdoc-syntax-punctuation: #66725d;
-  --nuppdoc-syntax-string: #607331;
-  --nuppdoc-syntax-type: #315f58;
-  --nuppdoc-syntax-variable: #173333;
+  --nuppdoc-syntax-boolean: #6a5c39;
+  --nuppdoc-syntax-comment: #474b45;
+  --nuppdoc-syntax-function: #455c68;
+  --nuppdoc-syntax-keyword: #7a2d20;
+  --nuppdoc-syntax-meta: #385052;
+  --nuppdoc-syntax-number: #6a5c39;
+  --nuppdoc-syntax-operator: #385052;
+  --nuppdoc-syntax-property: #475744;
+  --nuppdoc-syntax-punctuation: #414e51;
+  --nuppdoc-syntax-string: #3a4637;
+  --nuppdoc-syntax-type: #385052;
+  --nuppdoc-syntax-variable: #5f5041;
+}
+
+/* Darken just the line-number gutters, not every use of --nuppdoc-text-faint
+ * (breadcrumbs, sidebar-section chevrons, page-nav labels) — those looked
+ * too dark once a global --nuppdoc-text-faint override was reached for
+ * line numbers specifically. .nuppdoc-line-numbers covers the static
+ * labeled-code examples directly; .nuppdoc-playground re-scopes the same
+ * custom property for the live editor, since its CodeMirror gutter lives in
+ * a shadow root that only sees --nuppdoc-text-faint through the property's
+ * normal inheritance (see editors/playground/src/doc-app.js's --pg-faint). */
+.nuppdoc-line-numbers {
+  color: color-mix(in srgb, var(--nuppdoc-text-muted) 90%, transparent);
+}
+
+.nuppdoc-playground {
+  --nuppdoc-text-faint: color-mix(in srgb, var(--nuppdoc-text-muted) 90%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  .nuppdoc-line-numbers {
+    color: color-mix(in srgb, var(--nuppdoc-text-muted) 45%, transparent);
+  }
+
+  .nuppdoc-playground {
+    --nuppdoc-text-faint: color-mix(in srgb, var(--nuppdoc-text-muted) 45%, transparent);
+  }
+}
+
+:root[data-theme="dark"] .nuppdoc-line-numbers {
+  color: color-mix(in srgb, var(--nuppdoc-text-muted) 45%, transparent);
+}
+
+:root[data-theme="dark"] .nuppdoc-playground {
+  --nuppdoc-text-faint: color-mix(in srgb, var(--nuppdoc-text-muted) 45%, transparent);
+}
+
+:root[data-theme="light"] .nuppdoc-line-numbers {
+  color: color-mix(in srgb, var(--nuppdoc-text-muted) 90%, transparent);
+}
+
+:root[data-theme="light"] .nuppdoc-playground {
+  --nuppdoc-text-faint: color-mix(in srgb, var(--nuppdoc-text-muted) 90%, transparent);
+}
+
+/* The base theme sets nav links to the muted text color; pull them up to
+ * full text strength instead — an eggshell off-white on the dark theme's
+ * near-black, rather than something that reads as dimmed-out. */
+.nuppdoc-sidebar a,
+.nuppdoc-outline a {
+  color: var(--nuppdoc-text);
+}
+
+/* The base theme tints the header off the page background; give it the same
+ * panel color as the left sidebar instead, so the two navs read as one
+ * surface wrapping the content on three sides. */
+.nuppdoc-header {
+  background: var(--nuppdoc-background-alt);
+}
+
+/* The base theme's top-nav hover is the same plain --nuppdoc-background-alt
+ * the header itself now sits on, so hovering barely registered. Blending
+ * toward the text color guarantees a lightness step against whatever the
+ * header's background is — accent-soft was tried first, but that's itself
+ * a near-black tone, so it read as barely-there against another near-black. */
+.nuppdoc-top-nav a:hover {
+  background: color-mix(in srgb, var(--nuppdoc-text) 14%, transparent);
 }
 
 .nuppdoc-hero-action.brand,
 .nuppdoc-hero-action.brand:hover {
   color: #ffffff;
-  background: var(--nupp-woodblock-vermilion);
+  background: #698064;
 }
 
 .nuppdoc-hero-action.brand:hover {
-  background: var(--nupp-woodblock-vermilion-hover);
+  background: color-mix(in srgb, #698064 80%, black);
 }
 
 .nuppdoc-hero-action {
@@ -65,6 +149,7 @@
 }
 
 .nuppdoc-hero-text {
+  color: #698064;
   font-weight: 700;
 }
 
@@ -78,7 +163,17 @@
 /* The playground follows the hero directly, so it does not need the regular
  * section rule or the large gap used by lower-priority homepage sections. */
 .nuppdoc-home-hero {
-  margin-bottom: 3rem;
+  margin-bottom: 3.5rem;
+}
+
+/* The base theme never styles <hr> at all — home.md's markdown now opens
+ * with one instead of a "Try Nupp" heading, so it was falling back to the
+ * browser's default inset-gray rule, which read as a stray UI glitch
+ * against this theme. */
+.nuppdoc-content hr {
+  margin: 4rem 0;
+  border: 0;
+  border-top: 1px solid var(--nuppdoc-border);
 }
 
 .nuppdoc-home-hero + h2 {
@@ -116,8 +211,77 @@
   mask-size: 100% 100%;
 }
 
+.nuppdoc-code-block[data-lang]::before {
+  top: 3px;
+  font-size: 0.55rem;
+}
+
+/* #253133 is a near-black — fine against the dark theme's own near-black
+ * page, but far too heavy a line against the light theme's paper. Scoped to
+ * dark only; light keeps the ordinary --nuppdoc-border it had before. */
+@media (prefers-color-scheme: dark) {
+  .nuppdoc-content pre,
+  .nuppdoc-code-group {
+    border-color: #253133;
+  }
+}
+
+:root[data-theme="dark"] .nuppdoc-content pre,
+:root[data-theme="dark"] .nuppdoc-code-group {
+  border-color: #253133;
+}
+
+/* Tabs live in their own row (.nuppdoc-code-tabs, added in html.nupp's
+ * codeGroupHtml) so a caption too long to fit — a file path, say — scrolls
+ * the tab row horizontally instead of wrapping every tab after it onto a
+ * second line. The group itself reverts to plain block flow: the tab row
+ * and whichever panel is visible just stack, no flex-wrap sizing to fight. */
+.nuppdoc-code-group {
+  display: block;
+  overflow: visible;
+}
+
+.nuppdoc-code-tabs {
+  display: flex;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+}
+
+.nuppdoc-code-tabs .nuppdoc-code-tab {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* The base theme's `input:checked + label + panel` selector assumed the
+ * panel was the input's next sibling; it's now a sibling of .nuppdoc-code-tabs
+ * instead, one level up, so :has() re-pairs each panel with the input at
+ * the same position within the tab row. Fifteen slots covers any code
+ * group on the site today with headroom to spare. */
+.nuppdoc-code-panel {
+  display: none;
+}
+
+.nuppdoc-code-group:has(.nuppdoc-code-tabs > input:nth-of-type(1):checked) .nuppdoc-code-panel:nth-of-type(1),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs > input:nth-of-type(2):checked) .nuppdoc-code-panel:nth-of-type(2),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs > input:nth-of-type(3):checked) .nuppdoc-code-panel:nth-of-type(3),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs > input:nth-of-type(4):checked) .nuppdoc-code-panel:nth-of-type(4),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs > input:nth-of-type(5):checked) .nuppdoc-code-panel:nth-of-type(5),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs > input:nth-of-type(6):checked) .nuppdoc-code-panel:nth-of-type(6),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs > input:nth-of-type(7):checked) .nuppdoc-code-panel:nth-of-type(7),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs > input:nth-of-type(8):checked) .nuppdoc-code-panel:nth-of-type(8),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs > input:nth-of-type(9):checked) .nuppdoc-code-panel:nth-of-type(9),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs > input:nth-of-type(10):checked) .nuppdoc-code-panel:nth-of-type(10),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs > input:nth-of-type(11):checked) .nuppdoc-code-panel:nth-of-type(11),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs > input:nth-of-type(12):checked) .nuppdoc-code-panel:nth-of-type(12),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs > input:nth-of-type(13):checked) .nuppdoc-code-panel:nth-of-type(13),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs > input:nth-of-type(14):checked) .nuppdoc-code-panel:nth-of-type(14),
+.nuppdoc-code-group:has(.nuppdoc-code-tabs > input:nth-of-type(15):checked) .nuppdoc-code-panel:nth-of-type(15) {
+  display: block;
+}
+
 .nuppdoc-content pre {
   padding: 1rem 1.1rem;
+  border-radius: 4px;
 }
 
 /* Headings are the text face throughout; the heading color is what marks
@@ -126,6 +290,10 @@
 .nuppdoc-content h2,
 .nuppdoc-content h3 {
   color: var(--nuppdoc-feature-heading);
+}
+
+.nuppdoc-content h2 {
+  border-top-width: 2px;
 }
 
 /* The hero title lives inside .nuppdoc-content too, but it is a brand mark
@@ -141,7 +309,7 @@
 .nuppdoc-feature-showcase {
   display: grid;
   gap: clamp(3.5rem, 9vw, 7rem);
-  margin: clamp(4rem, 10vw, 8rem) 0;
+  margin: 0 0 clamp(4rem, 10vw, 8rem);
 }
 
 #nupp-features {
@@ -173,7 +341,7 @@
 .nuppdoc-showcase-visual pre {
   margin: 0;
   padding: 1.2rem 1.35rem;
-  border-radius: 14px;
+  border-radius: 6px;
   box-shadow: 0 18px 46px rgb(23 51 51 / 11%);
 }
 
@@ -249,53 +417,53 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --nuppdoc-feature-heading: var(--nupp-woodblock-cream);
-    --nuppdoc-playground-border: #3a7a6f;
-    --nuppdoc-syntax-boolean: #d7a45a;
-    --nuppdoc-syntax-comment: #718c87;
-    --nuppdoc-syntax-function: #79aabe;
-    --nuppdoc-syntax-keyword: #d7bd72;
-    --nuppdoc-syntax-meta: #9fba83;
-    --nuppdoc-syntax-number: #d7a45a;
-    --nuppdoc-syntax-operator: #93b7ac;
-    --nuppdoc-syntax-property: #a5bc7b;
-    --nuppdoc-syntax-punctuation: #9eaa91;
-    --nuppdoc-syntax-string: #bec98c;
-    --nuppdoc-syntax-type: #9fba83;
-    --nuppdoc-syntax-variable: #e5dfb7;
+    --nuppdoc-feature-heading: var(--nupp-woodblock-vermilion);
+    --nuppdoc-playground-border: color-mix(in srgb, #50676c 65%, black);
+    --nuppdoc-syntax-boolean: #cfbb89;
+    --nuppdoc-syntax-comment: #747673;
+    --nuppdoc-syntax-function: #9ba8af;
+    --nuppdoc-syntax-keyword: #cc948a;
+    --nuppdoc-syntax-meta: #788889;
+    --nuppdoc-syntax-number: #cfbb89;
+    --nuppdoc-syntax-operator: #788889;
+    --nuppdoc-syntax-property: #93a48f;
+    --nuppdoc-syntax-punctuation: #8b9ea3;
+    --nuppdoc-syntax-string: #a2b09f;
+    --nuppdoc-syntax-type: #788889;
+    --nuppdoc-syntax-variable: #bda892;
   }
 }
 
 :root[data-theme="dark"] {
-  --nuppdoc-feature-heading: var(--nupp-woodblock-cream);
-  --nuppdoc-playground-border: #3a7a6f;
-  --nuppdoc-syntax-boolean: #d7a45a;
-  --nuppdoc-syntax-comment: #718c87;
-  --nuppdoc-syntax-function: #79aabe;
-  --nuppdoc-syntax-keyword: #d7bd72;
-  --nuppdoc-syntax-meta: #9fba83;
-  --nuppdoc-syntax-number: #d7a45a;
-  --nuppdoc-syntax-operator: #93b7ac;
-  --nuppdoc-syntax-property: #a5bc7b;
-  --nuppdoc-syntax-punctuation: #9eaa91;
-  --nuppdoc-syntax-string: #bec98c;
-  --nuppdoc-syntax-type: #9fba83;
-  --nuppdoc-syntax-variable: #e5dfb7;
+  --nuppdoc-feature-heading: var(--nupp-woodblock-vermilion);
+  --nuppdoc-playground-border: color-mix(in srgb, #50676c 65%, black);
+  --nuppdoc-syntax-boolean: #cfbb89;
+  --nuppdoc-syntax-comment: #747673;
+  --nuppdoc-syntax-function: #9ba8af;
+  --nuppdoc-syntax-keyword: #cc948a;
+  --nuppdoc-syntax-meta: #788889;
+  --nuppdoc-syntax-number: #cfbb89;
+  --nuppdoc-syntax-operator: #788889;
+  --nuppdoc-syntax-property: #93a48f;
+  --nuppdoc-syntax-punctuation: #8b9ea3;
+  --nuppdoc-syntax-string: #a2b09f;
+  --nuppdoc-syntax-type: #788889;
+  --nuppdoc-syntax-variable: #bda892;
 }
 
 :root[data-theme="light"] {
-  --nuppdoc-feature-heading: var(--nupp-woodblock-sumi);
-  --nuppdoc-playground-border: #9d8e5e;
-  --nuppdoc-syntax-boolean: #8c5f22;
-  --nuppdoc-syntax-comment: #7b806a;
-  --nuppdoc-syntax-function: #1b5670;
-  --nuppdoc-syntax-keyword: #765128;
-  --nuppdoc-syntax-meta: #315f58;
-  --nuppdoc-syntax-number: #8c5f22;
-  --nuppdoc-syntax-operator: #315f58;
-  --nuppdoc-syntax-property: #506942;
-  --nuppdoc-syntax-punctuation: #66725d;
-  --nuppdoc-syntax-string: #607331;
-  --nuppdoc-syntax-type: #315f58;
-  --nuppdoc-syntax-variable: #173333;
+  --nuppdoc-feature-heading: var(--nupp-woodblock-cinnabar-deep);
+  --nuppdoc-playground-border: color-mix(in srgb, #50676c 70%, white);
+  --nuppdoc-syntax-boolean: #6a5c39;
+  --nuppdoc-syntax-comment: #474b45;
+  --nuppdoc-syntax-function: #455c68;
+  --nuppdoc-syntax-keyword: #7a2d20;
+  --nuppdoc-syntax-meta: #385052;
+  --nuppdoc-syntax-number: #6a5c39;
+  --nuppdoc-syntax-operator: #385052;
+  --nuppdoc-syntax-property: #475744;
+  --nuppdoc-syntax-punctuation: #414e51;
+  --nuppdoc-syntax-string: #3a4637;
+  --nuppdoc-syntax-type: #385052;
+  --nuppdoc-syntax-variable: #5f5041;
 }
