@@ -183,7 +183,6 @@ const styles = `
   gap: .4rem;
   margin-right: auto;
   color: var(--pg-muted);
-  font-size: .72rem;
 }
 select {
   max-width: 15rem;
@@ -215,6 +214,7 @@ select {
 .editor {
   position: relative;
   overflow: hidden;
+  margin-top: .25rem;
   border: 1px solid var(--pg-border);
   border-radius: var(--pg-code-block-radius);
   background: var(--pg-background);
