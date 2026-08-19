@@ -1,13 +1,14 @@
-## Try Nupp
+
+---
 
 ```playground
 ```
 
+---
+
 <!-- nupp:features -->
 
-## Getting started
-
-Start here and you have run a program by the end of the second page:
+## Learning Nupp
 
 - [Installation](getting-started/installation.md): requirements, a checkout, and
   a first project.
@@ -18,9 +19,7 @@ Start here and you have run a program by the end of the second page:
   communicate through bounded copied messages.
 - [Nupp syntax](concepts/syntax.md): the syntax, and what LuaJIT 2.1 carries.
 
-## API docs
-
-For looking something up rather than learning it:
+**API docs**
 
 - [Type system](type-system/overview.md): gradual typing, records, structs,
   interfaces, generics, and narrowing.
