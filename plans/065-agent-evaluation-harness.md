@@ -1,16 +1,21 @@
 # Agent evaluation harness
 
 Status: delivery steps 1, 2 and 4 implemented as `evals/tier1.py`,
-`evals/batch.py` and `evals/tier2.py`; steps 3 and 5 proposed. The first full
-tier-1 sweep, 125 tasks on Sonnet, is an evidence record of its own: it passed
-125 of 125, at $26.46 and half an hour, which settles that an agent given only
-the compiler's output repairs every diagnostic the catalogue holds an example
-for -- and settles that tier 1's pass rate cannot be the measurement, since it
-is already at its ceiling. Effort is what varies, from 4 tool calls and $0.08
-to 37 and $0.82, so the experiments below should compare cost and tool calls
-rather than success. The plan's guess that codes carrying a machine-applicable
-fix would be the easy ones did not survive: only 7 of the 125 carried one and
-the other 118 passed regardless.
+`evals/batch.py` and `evals/tier2.py`, with experiment 2 (model tier) run;
+steps 3 and 5 proposed. Two full tier-1 sweeps are an evidence record of their
+own, accurate as of 2026-08-18 and not maintained after it. Sonnet passed 125
+of 125 at $26.46; Haiku passed 125 of 126 at $10.40, of which one pass was
+degenerate and caught by the shrink guard, so 124 genuinely. Tier 1's pass
+rate is therefore not the measurement -- it is at its ceiling for both models.
+Effort is what varies, and it varies by three orders of magnitude within one
+model: Haiku's median task cost $0.031 and its worst spent 172 tool calls and
+$1.26 before failing. So the experiments below should compare cost and tool
+calls rather than success, and a sweep needs `--timeout` or one runaway pays
+for an eighth of it. The plan's guess that codes carrying a machine-applicable
+fix would be the easy ones did not survive: 8 of 126 carried one and the rest
+passed regardless. `--bare` is unusable for this: it authenticates strictly
+from `ANTHROPIC_API_KEY`, so under an OAuth login every run fails having done
+nothing.
 
 Divergences worth knowing. The tier-1 workspace needs a manifest with a real
 build target, not the bare `return {include = {"."}}` that

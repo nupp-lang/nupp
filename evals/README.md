@@ -78,6 +78,51 @@ It writes every per-task record as usual, plus a `<label>-scoreboard.json`
 holding the rates, the spreads, and the failures worth reading. `--label` is
 how two conditions are told apart when the point is to compare them.
 
+`--out` defaults inside the checkout, and `results/` is ignored rather than
+committed, so removing a worktree takes a sweep's records with it. Name a
+durable path for a sweep worth keeping; one has already been lost this way.
+
+### What a sweep costs, and how to spend less
+
+Almost all of it is input. On the first sweep, re-sent context was 87% of the
+cost and generated output was 12%, for tasks whose prompt is six lines and
+whose file is four — so the levers are the price of a token and the number of
+turns, not the length of the answer.
+
+The one that works is the model, though by less than a first look suggested.
+On the five most expensive tasks Haiku matched Sonnet 5/5 for $0.31 against
+$3.46, an 11x saving. Across the whole corpus it is smaller:
+
+```
+ model    pass      total    median    max      wall
+ ───────  ────────  ───────  ────────  ───────  ──────
+ sonnet   125/125   $26.46   $0.1611   $0.8166  30 min
+ haiku    125/126   $10.40   $0.0311   $1.2627  31 min
+```
+
+5.2x cheaper at the median but only 2.5x over the sweep, because Haiku's cost
+concentrates in runs that thrash: one task spent 172 tool calls and $1.26 —
+an eighth of the whole sweep — and failed anyway. Sweep on Haiku, cap the
+runaways, and keep Sonnet for confirming a result that matters.
+
+One of Haiku's passes was degenerate: the deprecated-API task was "repaired"
+by deleting the deprecated call and returning a constant. `suspiciousShrink`
+flagged it, so the honest rate is 124/126. This is what that guard is for.
+
+`--timeout` (default 300s) kills a run that will not converge and grades it a
+failure. It is the only lever that touches the tail rather than the median,
+and the tail is where a cheap model's money goes.
+
+`--lean` sends only the tools a repair needs. It measured as no saving at all
+on a cheap task, which says the tool schemas are not what fills the context,
+and it is kept for the harder tasks and for honesty about what was tried.
+A run using it is only comparable with another using it.
+
+`--bare` would trim more and is deliberately unused: it authenticates strictly
+from `ANTHROPIC_API_KEY`, so under an OAuth login every run returns "Not logged
+in" having done nothing, and grades as a failure that says nothing about the
+agent.
+
 Results are sliced by whether the compiler offered a fix for the diagnostic.
 A code whose diagnostic carries an edit is a different task from one that only
 describes the problem, and a single average over both mostly reports how many

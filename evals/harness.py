@@ -32,12 +32,22 @@ def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
     )
 
 
+# What a tier-1 repair actually needs: look at the file, change it, ask the
+# compiler. Naming them keeps every other tool's schema out of the context that
+# is re-sent on every turn, which is where this measurement's money goes --
+# input was 87% of the cost of the first sweep and output was 12%.
+REPAIR_TOOLS = ["Read", "Edit", "Write", "Bash"]
+
+
 def run_agent(
     workspace: Path,
     prompt: str,
     transcript: Path,
     model: str | None = None,
     path_prefix: Path | None = None,
+    tools: list[str] | None = None,
+    bare: bool = False,
+    timeout: float | None = None,
 ) -> tuple[dict, list[dict]]:
     """Run one agent against a workspace, keeping its whole transcript.
 
@@ -45,6 +55,17 @@ def run_agent(
     agent did and not only what it ended with: the tool calls are where the
     cost went, and are the part worth comparing between two runs that both
     passed.
+
+    `tools` trims what is sent every turn, which is where the money goes: input
+    was 87% of the first sweep's cost and output was 12%. It changes what the
+    agent is and not just what it costs, so a run using it is only comparable
+    with another using it -- a tool the task turns out to need is a task made
+    harder rather than cheaper.
+
+    `bare` would trim more, and is left unused: it authenticates strictly from
+    `ANTHROPIC_API_KEY`, so under an OAuth login every run returns "Not logged
+    in" having done nothing, which grades as a failure that says nothing about
+    the agent.
     """
     argv = [
         "claude",
@@ -55,6 +76,10 @@ def run_agent(
         "--permission-mode",
         "bypassPermissions",
     ]
+    if bare:
+        argv.append("--bare")
+    if tools:
+        argv += ["--allowedTools", *tools]
     if model:
         argv += ["--model", model]
     argv.append(prompt)
@@ -66,11 +91,26 @@ def run_agent(
         )
 
     started = time.monotonic()
-    done = run(argv, cwd=workspace, env=environment)
+    timed_out = False
+    try:
+        done = run(argv, cwd=workspace, env=environment, timeout=timeout)
+        output = done.stdout
+        code = done.returncode
+        problem = done.stderr
+    except subprocess.TimeoutExpired as expired:
+        # A run that will not converge is the expensive kind. One task in the
+        # first Haiku sweep spent 172 tool calls and $1.26 failing, which was
+        # an eighth of that sweep's whole cost; capping it turns a runaway into
+        # an ordinary failure without changing what any other run does.
+        timed_out = True
+        output = (expired.stdout or b"").decode("utf-8", "replace") if isinstance(
+            expired.stdout, bytes
+        ) else (expired.stdout or "")
+        code, problem = -1, f"timed out after {timeout}s"
     elapsed = time.monotonic() - started
 
     events = []
-    for line in done.stdout.splitlines():
+    for line in output.splitlines():
         line = line.strip()
         if not line:
             continue
@@ -82,14 +122,14 @@ def run_agent(
 
     if not events:
         raise SystemExit(
-            f"the agent produced no events; exit {done.returncode}:"
-            f" {done.stderr[:400]}"
+            f"the agent produced no events; exit {code}: {problem[:400]}"
         )
     result = next(
         (event for event in reversed(events) if event.get("type") == "result"),
         {},
     )
     result["wallClockSeconds"] = round(elapsed, 1)
+    result["timedOut"] = timed_out
     return result, events
 
 
@@ -131,6 +171,7 @@ def agent_record(result: dict, events: list[dict], model: str | None) -> dict:
         "wallClockSeconds": result.get("wallClockSeconds"),
         "outputTokens": result.get("usage", {}).get("output_tokens"),
         "isError": result.get("is_error"),
+        "timedOut": result.get("timedOut", False),
         "toolCalls": counts,
         "toolCallTotal": sum(counts.values()),
         "nuppInvocations": nupp_runs,

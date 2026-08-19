@@ -246,7 +246,8 @@ def main() -> int:
         "--out",
         type=Path,
         default=Path(__file__).resolve().parent / "results",
-        help="where to write the run record and transcript",
+        help="where to write the run record and transcript. Defaults"
+        " inside the checkout, which a removed worktree takes with it",
     )
     parser.add_argument(
         "--keep", action="store_true", help="keep the worktree after the run"

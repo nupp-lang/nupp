@@ -55,7 +55,14 @@ def runnable(nupp: Path, jobs: int) -> list[str]:
     return [code for code in found if code]
 
 
-def one(nupp: Path, code: str, out: Path, model: str | None) -> dict:
+def one(
+    nupp: Path,
+    code: str,
+    out: Path,
+    model: str | None,
+    lean: bool = False,
+    timeout: float | None = None,
+) -> dict:
     """One task's outcome, with a failure to even pose it kept separate.
 
     A task that could not be set up is not a task the agent failed. It is
@@ -63,7 +70,9 @@ def one(nupp: Path, code: str, out: Path, model: str | None) -> dict:
     """
     started = time.monotonic()
     try:
-        record = tier1.evaluate(nupp, code, out, model)
+        record = tier1.evaluate(
+            nupp, code, out, model, lean=lean, timeout=timeout
+        )
         record["invalid"] = None
         return record
     except SystemExit as error:
@@ -209,7 +218,9 @@ def main() -> int:
         "--out",
         type=Path,
         default=Path(__file__).resolve().parent / "results",
-        help="where the per-task records and the scoreboard are written",
+        help="where the per-task records and the scoreboard are written."
+        " Defaults inside the checkout, which a removed worktree takes with"
+        " it -- name a durable path for a sweep worth keeping",
     )
     parser.add_argument(
         "--codes", nargs="+", help="run only these codes instead of the corpus"
@@ -222,6 +233,19 @@ def main() -> int:
         type=int,
         default=4,
         help="how many agents to run at once (default 4)",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=300,
+        help="seconds before one run is killed and graded a failure"
+        " (default 300)",
+    )
+    parser.add_argument(
+        "--lean",
+        action="store_true",
+        help="send only the tools a repair needs; cheaper per turn, and only"
+        " comparable with another lean run",
     )
     parser.add_argument(
         "--label",
@@ -250,7 +274,9 @@ def main() -> int:
     records: list[dict] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         futures = {
-            pool.submit(one, nupp, code, args.out, args.model): code
+            pool.submit(
+                one, nupp, code, args.out, args.model, args.lean, args.timeout
+            ): code
             for code in codes
         }
         for done in concurrent.futures.as_completed(futures):
@@ -274,6 +300,10 @@ def main() -> int:
     elapsed = time.monotonic() - started
     summary = summarize(records)
     summary["model"] = args.model or "default"
+    summary["lean"] = args.lean
+    summary["timedOut"] = [
+        r["task"]["code"] for r in records if r.get("agent", {}).get("timedOut")
+    ]
     summary["elapsedSeconds"] = round(elapsed, 1)
     summary["codes"] = sorted(codes)
     board = args.out / f"{args.label}-scoreboard.json"

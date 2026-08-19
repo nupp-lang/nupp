@@ -26,7 +26,13 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import agent_record, run, run_agent, spent  # noqa: E402
+from harness import (  # noqa: E402
+    REPAIR_TOOLS,
+    agent_record,
+    run,
+    run_agent,
+    spent,
+)
 
 
 # What the agent is told. It names no code and quotes no rule: the point of the
@@ -183,6 +189,8 @@ def evaluate(
     out: Path,
     model: str | None = None,
     keep: bool = False,
+    lean: bool = False,
+    timeout: float | None = None,
 ) -> dict:
     """Run one task end to end and return its record.
 
@@ -212,6 +220,8 @@ def evaluate(
         result, events = run_agent(
             workspace, PROMPT, transcript, model,
             path_prefix=workspace / "bin",
+            tools=REPAIR_TOOLS if lean else None,
+            timeout=timeout,
         )
 
         sample = workspace / "sample.nupp"
@@ -229,6 +239,7 @@ def evaluate(
                 # only describes the problem, and a sweep that does not
                 # separate them reports the average of two populations.
                 "hadFix": any(d.get("fixes") for d in before),
+                "lean": lean,
             },
             "agent": agent_record(result, events, model),
             "grade": grade(before, after, entry, source),
@@ -259,12 +270,26 @@ def main() -> int:
         "--out",
         type=Path,
         default=Path(__file__).resolve().parent / "results",
-        help="where to write the run record and transcript",
+        help="where to write the run record and transcript. Defaults"
+        " inside the checkout, which a removed worktree takes with it",
     )
     parser.add_argument(
         "--keep",
         action="store_true",
         help="keep the workspace after the run, for inspection",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=300,
+        help="seconds before a run is killed and graded a failure; a run that"
+        " will not converge is the expensive kind (default 300)",
+    )
+    parser.add_argument(
+        "--lean",
+        action="store_true",
+        help="send only the tools a repair needs; cheaper per turn, and only"
+        " comparable with another lean run",
     )
     args = parser.parse_args()
 
@@ -274,7 +299,10 @@ def main() -> int:
     if not shutil.which("claude"):
         raise SystemExit("the `claude` CLI is not on PATH")
 
-    record = evaluate(nupp, args.code, args.out, args.model, args.keep)
+    record = evaluate(
+        nupp, args.code, args.out, args.model, args.keep, args.lean,
+        args.timeout,
+    )
     verdict = "PASS" if record["grade"]["passed"] else "FAIL"
     agent = record["agent"]
     print(f"{verdict}  {record['task']['code']}  {record['task']['summary']}")
