@@ -352,7 +352,7 @@ class NuppDocPlayground extends HTMLElement {
       <style>${styles}</style>
       <div class="reader-source" aria-hidden="true"><slot name="reader-source"></slot></div>
       <div class="toolbar">
-        ${encoded === null ? '<label class="example-picker">Example <select></select></label>' : ""}
+        ${encoded === null ? '<label class="example-picker"><select aria-label="Choose an example"></select></label>' : ""}
         <div class="actions">
           <button class="icon-button run" type="button" title="Run" aria-label="Run">
             ${icon("M4.5 3.2v9.6l8-4.8z", "play")}

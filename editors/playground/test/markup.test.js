@@ -9,6 +9,16 @@ test("playground chrome has no synthetic filename", () => {
   assert.doesNotMatch(embed, />playground\.nupp</);
 });
 
+test("example menus have no visible label", () => {
+  const index = readFileSync(new URL("../static/index.html", import.meta.url), "utf8");
+  const embed = readFileSync(new URL("../static/embed.html", import.meta.url), "utf8");
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  for (const markup of [index, embed, docApp]) {
+    assert.doesNotMatch(markup, /(?:<span>)?Example(?:<\/span>)?\s*<select/);
+    assert.match(markup, /<select[^>]+aria-label="Choose an example"/);
+  }
+});
+
 test("output starts hidden behind the Run control", () => {
   const index = readFileSync(new URL("../static/index.html", import.meta.url), "utf8");
   const embed = readFileSync(new URL("../static/embed.html", import.meta.url), "utf8");
