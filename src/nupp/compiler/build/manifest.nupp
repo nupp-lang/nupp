@@ -241,6 +241,9 @@ local PAGE_KEYS = {
     "path",
     "title",
     "source",
+    -- Names a directory of markdown instead of a single `source`. The entry then
+    -- stands for every document in it, and for the index generated at `path`.
+    "directory",
     "layout",
     "redirects",
     "heroTitle",

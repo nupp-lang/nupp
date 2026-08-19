@@ -102,6 +102,19 @@ local function listFiles(path: string): {string}
     return paths
 end
 
+-- Sorted, because a directory of documents is read in the order its names give. The
+-- listing below it is already sorted; this only narrows it to the markdown.
+local function listMarkdown(path: string): {string}
+    local paths = {}
+    for _, candidate in ipairs(listDirectoryFiles(path)) do
+        if candidate:match("%.md$") then
+            paths[#paths + 1] = candidate
+        end
+    end
+
+    return paths
+end
+
 local function copyPublicFiles(root: string, outDir: string, public: string?): boolean?, string?
     if not public or public == "" then
         return true
@@ -131,6 +144,7 @@ files.exists = exists
 files.writeFile = writeFile
 files.privateSource = privateSource
 files.listFiles = listFiles
+files.listMarkdown = listMarkdown
 files.copyPublicFiles = copyPublicFiles
 
 export = files

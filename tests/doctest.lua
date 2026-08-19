@@ -1968,6 +1968,72 @@ function M.jsonDocumentationExposesTheParseOnlyModel()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.aPageDirectoryPublishesEveryDocumentAndGeneratesItsIndex()
+   local dir = tempProject({
+      ["src/math.nupp"] = SOURCE,
+      ["docs/neps/index.md"] = table.concat({
+         "---",
+         'title: "NEP 0: Index"',
+         "---",
+         "",
+         "# NEP 0: Index",
+         "",
+         "Why things are the way they are.",
+      }, "\n") .. "\n",
+      ["docs/neps/0001-process.md"] = table.concat({
+         "---",
+         "title: Proposal process",
+         "status: Active",
+         "created: 2026-08-19",
+         "---",
+         "",
+         "## Summary",
+         "",
+         "How to write one. See [the other](0002-widgets.md).",
+      }, "\n") .. "\n",
+      -- Written second and numbered second, and never named anywhere but here:
+      -- a document is published by existing, which is the whole point of a
+      -- directory entry over a list of pages.
+      ["docs/neps/0002-widgets.md"] = table.concat({
+         "---",
+         "title: Widgets",
+         "status: Draft",
+         "---",
+         "",
+         "## Summary",
+         "",
+         "Widgets.",
+      }, "\n") .. "\n",
+   })
+   local config = {include = {"src"}}
+   local settings = {sources = {"src"}, pages = {
+      {path = "neps", title = "NEPs", directory = "docs/neps"},
+   }}
+   assert(doc.build(dir, config, settings, {format = "site", output = "site"}) == 0)
+
+   local index = readFile(dir .. "/site/neps/index.html")
+   assert(index:find("Why things are the way they are.", 1, true),
+      "the index lost the prose it was written with")
+   assert(index:find('<a href="../neps/0001-process/index.html">Proposal process</a>',
+      1, true), "the generated index did not list and link a document")
+   assert(index:find(">Widgets</a>", 1, true),
+      "a document nothing named was left out of the index")
+   assert(index:find(">Draft<", 1, true), "the index lost a status")
+   assert(index:find("<summary>NEPs</summary>", 1, true),
+      "the section took its name from the route rather than from the entry")
+
+   local first = readFile(dir .. "/site/neps/0001-process/index.html")
+   assert(first:find(">NEP 1: Proposal process<", 1, true),
+      "the number and title were not generated into the heading")
+   assert(first:find("Status:", 1, true) and first:find("Active", 1, true),
+      "the frontmatter status was not rendered")
+   assert(first:find('href="../../neps/0002-widgets/index.html"', 1, true),
+      "a link between two documents was not rewritten to its route")
+   assert(not first:find("title: Proposal process", 1, true),
+      "the frontmatter block was rendered as prose")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.siteBuildRemovesFilesItNoLongerProduces()
    local dir = tempProject({
       ["src/math.nupp"] = SOURCE,

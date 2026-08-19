@@ -21,6 +21,7 @@ local assetsMod = require("nupp.compiler.doc.assets")
 local urlsMod = require("nupp.compiler.doc.urls")
 local apiMod = require("nupp.compiler.doc.api")
 local pageMod = require("nupp.compiler.doc.page")
+local collectionMod = require("nupp.compiler.doc.collection")
 local diagnosticsMod = require("nupp.compiler.doc.diagnostics")
 local stdlibMod = require("nupp.compiler.doc.stdlib")
 local json = nupp.data.json
@@ -50,7 +51,13 @@ local doc = {}
 --- One page a manifest configured. `path` is the route it is written to; `source` is
 --- the markdown read into it. A hero key is accepted in either spelling, because a
 --- manifest is Lua and both are what people write.
+---
+--- `directory` names a whole directory of markdown instead of one file, and the entry
+--- then stands for every document in it plus a generated index at `path`. A collection
+--- grows by writing a file, which is the point: a manifest that had to name each
+--- document would fail silently the first time someone forgot.
 type doc.Page = {
+    directory: string?,
     features: {pageMod.Feature}?,
     heroActions: {pageMod.HeroAction}?,
     heroContent: string?,
@@ -471,48 +478,69 @@ local function configuredPages(root, settings, title)
         if not route then
             return nil, "invalid documentation page path"
         end
-        if seen[route] then
-            return nil, "duplicate documentation page path: " .. route
-        end
-        seen[route], home = true, home or route == ""
-        local candidate = {}
-        for key, value in pairs(configured) do
-            candidate[key] = value
-        end
-        candidate.heroTitle = candidate.heroTitle or candidate.hero_title
-        candidate.heroText = candidate.heroText or candidate.hero_text
-        candidate.heroContent = candidate.heroContent or candidate.hero_content
-        candidate.heroImage = candidate.heroImage or candidate.hero_image
-        candidate.heroImageAlt = candidate.heroImageAlt or candidate.hero_image_alt
-        candidate.heroActions = candidate.heroActions or candidate.hero_actions
-        candidate.path = route
-        candidate.title = candidate.title or (route == "" and title or route)
-        candidate.markdown = ""
-        if candidate.source then
-            local source, err = readFile(join(root, candidate.source))
-            if not source then
-                return nil, err
+        if configured.directory then
+            local expanded, expandErr = collectionMod.expand(root, configured as collectionMod.Settings)
+            if not expanded then
+                return nil, expandErr
             end
-            if source:sub(1, 4) == "---\n" then
-                local ending = source:find("\n---\n", 5, true)
-                if ending then
-                    source = source:sub(ending + 5)
+            for _, member in ipairs(expanded) do
+                if seen[member.path] then
+                    return nil, "duplicate documentation page path: " .. member.path
                 end
+                seen[member.path] = true
+                local embedded
+                embedded, expandErr = embedFiles(root, member.markdown)
+                if not embedded then
+                    return nil, expandErr
+                end
+                member.markdown = embedded
+                pages[#pages + 1] = member
             end
-            source, err = embedFiles(root, source)
-            if not source then
-                return nil, err
+        elseif seen[route] then
+            return nil, "duplicate documentation page path: " .. route
+        else
+            seen[route], home = true, home or route == ""
+            local candidate = {}
+            for key, value in pairs(configured) do
+                candidate[key] = value
             end
-            candidate.markdown = source
+            candidate.heroTitle = candidate.heroTitle or candidate.hero_title
+            candidate.heroText = candidate.heroText or candidate.hero_text
+            candidate.heroContent = candidate.heroContent or candidate.hero_content
+            candidate.heroImage = candidate.heroImage or candidate.hero_image
+            candidate.heroImageAlt = candidate.heroImageAlt or candidate.hero_image_alt
+            candidate.heroActions = candidate.heroActions or candidate.hero_actions
+            candidate.path = route
+            candidate.title = candidate.title or (route == "" and title or route)
+            candidate.markdown = ""
+            if candidate.source then
+                local source, err = readFile(join(root, candidate.source))
+                if not source then
+                    return nil, err
+                end
+                if source:sub(1, 4) == "---\n" then
+                    local ending = source:find("\n---\n", 5, true)
+                    if ending then
+                        source = source:sub(ending + 5)
+                    end
+                end
+                source, err = embedFiles(root, source)
+                if not source then
+                    return nil, err
+                end
+                candidate.markdown = source
+            end
+            pages[#pages + 1] = candidate
         end
-        pages[#pages + 1] = candidate
     end
     -- Which handwritten files the site actually builds, so a generated page can link
-    -- the ones it can reach and name the ones it cannot.
+    -- the ones it can reach and name the ones it cannot. Read from the assembled pages
+    -- rather than from the manifest, because a collection's documents are files the
+    -- site publishes that the manifest never named.
     local published: {[string]: boolean} = {}
-    for _, configured in ipairs(settings.pages or {}) do
-        if type(configured) == "table" and configured.source then
-            published[configured.source] = true
+    for _, candidate in ipairs(pages) do
+        if candidate.source then
+            published[candidate.source] = true
         end
     end
     -- A generated page is one the compiler writes rather than one the manifest spells

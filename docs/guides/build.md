@@ -285,6 +285,36 @@ starts partway into a file. A label and `:line-numbers` may appear in either
 order, inside a code group or on a lone fence. The numbers sit in their own
 gutter, so selecting the block copies the code without them.
 
+#### Page directories
+
+A page entry may name a `directory` instead of a `source`. The entry then stands
+for every `.md` file under that directory, published at `path` followed by the
+file name without its extension, plus an index generated at `path` itself. A
+document is published by existing, so nothing has to be added to the manifest
+when one is written.
+
+```lua
+{ path = "neps", title = "NEPs", directory = "docs/neps" }
+```
+
+Each document may open with a frontmatter block of `key: value` lines between
+`---` fences. `title` names the document, falling back to its first heading and
+then to its file name. Every other field is rendered under the heading, so a
+`status:` line appears on the page and in the generated index without being
+written into the prose. A value may be quoted, and the quotes are dropped.
+
+A file name beginning with digits and a hyphen, such as `0001-process.md`,
+carries that number as the document's identity. The number is shown without its
+padding and prefixed with the entry's `title` made singular, so a collection
+titled `NEPs` titles its first document `NEP 1`. The entry's title also names
+the navigation section, which is how a section is called `NEPs` rather than
+`Neps`.
+
+`index.md` is the collection's own page rather than a document in it. Its prose
+opens the index and the table of documents is generated below it. Links between
+documents are written as ordinary relative Markdown links and are resolved to
+routes like links in any other handwritten page.
+
 ## Cache and failure behavior
 
 Build state is JSON in `outDir/.nupp-state.json`. Cache keys cover source

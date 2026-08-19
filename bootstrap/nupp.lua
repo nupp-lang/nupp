@@ -19142,6 +19142,9 @@ local PAGE_KEYS = {
 "path" ,
 "title" ,
 "source" ,
+
+
+"directory" ,
 "layout" ,
 "redirects" ,
 "heroTitle" ,
@@ -67043,6 +67046,7 @@ local assetsMod = require ( "nupp.compiler.doc.assets" )
 local urlsMod = require ( "nupp.compiler.doc.urls" )
 local apiMod = require ( "nupp.compiler.doc.api" )
 local pageMod = require ( "nupp.compiler.doc.page" )
+local collectionMod = require ( "nupp.compiler.doc.collection" )
 local diagnosticsMod = require ( "nupp.compiler.doc.diagnostics" )
 local stdlibMod = require ( "nupp.compiler.doc.stdlib" )
 local json = __nuppModule
@@ -67068,6 +67072,12 @@ local nestedModules = apiMod . nestedModules
 local renderPage , homeHero , homeFeatures = pageMod . render , pageMod . homeHero , pageMod . homeFeatures
 
 local doc = { }
+
+
+
+
+
+
 
 
 
@@ -67493,9 +67503,27 @@ local route = cleanRoute ( configured . path )
 if not route then
 return nil , "invalid documentation page path"
 end
-if seen [ route ] then
-return nil , "duplicate documentation page path: " .. route
+if configured . directory then
+local expanded , expandErr = collectionMod . expand ( root , configured )
+if not expanded then
+return nil , expandErr
 end
+for _ , member in ipairs ( expanded ) do
+if seen [ member . path ] then
+return nil , "duplicate documentation page path: " .. member . path
+end
+seen [ member . path ] = true
+local embedded
+embedded , expandErr = embedFiles ( root , member . markdown )
+if not embedded then
+return nil , expandErr
+end
+member . markdown = embedded
+pages [ # pages + 1 ] = member
+end
+elseif seen [ route ] then
+return nil , "duplicate documentation page path: " .. route
+else
 seen [ route ] , home = true , home or route == ""
 local candidate = { }
 for key , value in pairs ( configured ) do
@@ -67529,12 +67557,15 @@ candidate . markdown = source
 end
 pages [ # pages + 1 ] = candidate
 end
+end
+
+
 
 
 local published = { }
-for _ , configured in ipairs ( settings . pages or { } ) do
-if type ( configured ) == "table" and configured . source then
-published [ configured . source ] = true
+for _ , candidate in ipairs ( pages ) do
+if candidate . source then
+published [ candidate . source ] = true
 end
 end
 
@@ -68991,6 +69022,264 @@ assets . ICONS = ICONS
 
 const __nuppExportValue= assets ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.doc.assets"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.doc.assets"]=__nuppExports;return __nuppExports
+end
+package.preload["nupp.compiler.doc.collection"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local filesMod = require ( "nupp.compiler.doc.files" )
+local urlsMod = require ( "nupp.compiler.doc.urls" )
+
+local collection = { }
+
+local join , readFile , listMarkdown = filesMod . join , filesMod . readFile , filesMod . listMarkdown
+local normalize = filesMod . normalize
+local cleanRoute = urlsMod . cleanRoute
+
+
+
+
+
+
+
+
+
+collection.Page = {} collection.Page.__index = collection.Page
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local INDEX = "index.md"
+
+
+
+
+local function frontmatter ( source )
+if source : sub ( 1 , 4 ) ~= "---\n" then
+return { } , source
+end
+local ending = source : find ( "\n---\n" , 5 , true )
+if not ending then
+return { } , source
+end
+local fields = { }
+for line in source : sub ( 5 , ending ) : gmatch ( "[^\n]+" ) do
+local key , value = line : match ( "^([%w_-]+)%s*:%s*(.-)%s*$" )
+if key and value then
+
+
+
+
+local quoted = value : match ( '^"(.*)"$' ) or value : match ( "^'(.*)'$" )
+fields [ key ] = quoted or value
+end
+end
+
+return fields , source : sub ( ending + 5 )
+end
+
+
+
+
+
+local function header ( title , fields )
+local keys = { }
+for key in pairs ( fields ) do
+if key ~= "title" then
+keys [ # keys + 1 ] = key
+end
+end
+table . sort ( keys )
+local meta = { }
+for _ , key in ipairs ( keys ) do
+local label = ( key : gsub ( "[-_]" , " " ) )
+meta [ # meta + 1 ] = "**" .. label : sub ( 1 , 1 ) : upper ( ) .. label : sub ( 2 ) .. ":** " .. ( fields [ key ] or "" )
+end
+if # meta == 0 then
+return "# " .. title .. "\n"
+end
+
+return "# " .. title .. "\n\n" .. table . concat ( meta , " &middot; " ) .. "\n"
+end
+
+
+
+
+local function titleOf ( fields , body , stem )
+local named = fields . title
+if named and named ~= "" then
+return named
+end
+local heading = body : match ( "^#%s+([^\n]+)" ) or body : match ( "\n#%s+([^\n]+)" )
+
+return heading or stem
+end
+
+
+
+
+local function numberOf ( stem )
+local digits = stem : match ( "^(%d+)%-" )
+if not digits then
+return nil
+end
+
+return tostring ( tonumber ( digits ) )
+end
+
+
+
+
+
+local function expandOne ( base , settings , file )
+local source , err = readFile ( file )
+if not source then
+return nil , err
+end
+local relative = normalize ( file ) : sub ( # base + 2 )
+local stem = ( relative : gsub ( "%.md$" , "" ) )
+local route = cleanRoute ( settings . path .. "/" .. stem )
+if not route then
+return nil , "a document does not name a route: " .. relative
+end
+local fields , body = frontmatter ( source )
+local name = titleOf ( fields , body , stem )
+local number = numberOf ( stem )
+local prefix = settings . title and ( settings . title : gsub ( "s$" , "" ) ) or nil
+local title = name
+if number and prefix then
+title = prefix .. " " .. number .. ": " .. name
+end
+
+return setmetatable({ group =
+settings . title ,  markdown =
+header ( title , fields ) .. body ,  name =
+name ,  number =
+number ,  path =
+route ,  source =
+join ( settings . directory , relative ) ,  status =
+fields . status ,  title =
+title }, collection.Page)
+
+end
+
+
+
+
+
+
+function collection . expand ( root , settings )
+local directory = settings . directory
+if not directory or directory == "" then
+return nil , "a documentation page directory must be named"
+end
+local route = cleanRoute ( settings . path )
+if not route then
+return nil , "invalid documentation page path"
+end
+local base = normalize ( join ( root , directory ) )
+local pages = { }
+for _ , file in ipairs ( listMarkdown ( base ) ) do
+if normalize ( file ) ~= join ( base , INDEX ) then
+local page , err = expandOne ( base , settings , file )
+if not page then
+return nil , err
+end
+pages [ # pages + 1 ] = page
+end
+end
+table . insert ( pages , 1 , collection . index ( base , settings , route , pages ) )
+
+return pages
+end
+
+
+
+
+
+
+function collection . index (
+base ,
+settings ,
+route ,
+pages
+)
+local preamble , title = "" , settings . title or route
+local indexFile = join ( base , INDEX )
+local source = readFile ( indexFile )
+if source then
+local fields , body = frontmatter ( source )
+preamble , title = body , titleOf ( fields , body , title )
+end
+local numbered = false
+for _ , page in ipairs ( pages ) do
+numbered = numbered or page . number ~= nil
+end
+local out = { preamble , "" }
+if # pages > 0 then
+out [ # out + 1 ] = "| " .. ( numbered and "#" or "Document" ) .. " | Title | Status |"
+out [ # out + 1 ] = "| --- | --- | --- |"
+for _ , page in ipairs ( pages ) do
+out [
+# out + 1
+] = "| "
+.. ( page . number or "" )
+.. " | ["
+.. page . name
+.. "]("
+.. ( page . source or "" )
+.. ") | "
+.. ( page . status or "—" )
+.. " |"
+end
+end
+
+return setmetatable({ group =
+settings . title ,  markdown =
+table . concat ( out , "\n" ) ,  name =
+title ,  path =
+route ,  source =
+source and join ( settings . directory , INDEX ) or nil ,  title =
+title }, collection.Page)
+
+end
+
+const __nuppExportValue= collection ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.compiler.doc.collection"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.doc.collection"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.compiler.doc.diagnostics"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
@@ -70756,6 +71045,19 @@ end
 return paths
 end
 
+
+
+local function listMarkdown ( path )
+local paths = { }
+for _ , candidate in ipairs ( listDirectoryFiles ( path ) ) do
+if candidate : match ( "%.md$" ) then
+paths [ # paths + 1 ] = candidate
+end
+end
+
+return paths
+end
+
 local function copyPublicFiles ( root , outDir , public )
 if not public or public == "" then
 return true
@@ -70785,6 +71087,7 @@ files . exists = exists
 files . writeFile = writeFile
 files . privateSource = privateSource
 files . listFiles = listFiles
+files . listMarkdown = listMarkdown
 files . copyPublicFiles = copyPublicFiles
 
 const __nuppExportValue= files ;__nuppExports=__nuppExportValue
@@ -72417,6 +72720,10 @@ if not byGroup [ key ] then
 byGroup [ key ] = { key = key , pages = { } , open = false }
 groups [ # groups + 1 ] = byGroup [ key ]
 end
+
+
+
+byGroup [ key ] . label = byGroup [ key ] . label or candidate . group
 byGroup [ key ] . pages [ # byGroup [ key ] . pages + 1 ] = candidate
 
 
@@ -72426,8 +72733,11 @@ end
 end
 end
 for _ , group in ipairs ( groups ) do
-local label = group . key : gsub ( "[-_]" , " " )
+local label = group . label
+if not label then
+label = group . key : gsub ( "[-_]" , " " )
 label = label : sub ( 1 , 1 ) : upper ( ) .. label : sub ( 2 )
+end
 local open = group . open and " open" or ""
 out [
 # out + 1

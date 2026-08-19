@@ -191,6 +191,10 @@ local function sidebar(modules, current, prefix, pages, currentPath)
                 byGroup[key] = {key = key, pages = {}, open = false}
                 groups[#groups + 1] = byGroup[key]
             end
+            -- A section named by the page it holds keeps that name. Titling from the
+            -- route segment is right for a section a reader would spell that way, and
+            -- wrong for one whose name is not a word: `neps` is `NEPs`, not `Neps`.
+            byGroup[key].label = byGroup[key].label or candidate.group
             byGroup[key].pages[#byGroup[key].pages + 1] = candidate
             -- Only the section the reader is inside stands open, so a long sidebar
             -- reads as its sections rather than as every page in all of them.
@@ -200,8 +204,11 @@ local function sidebar(modules, current, prefix, pages, currentPath)
         end
     end
     for _, group in ipairs(groups) do
-        local label = group.key:gsub("[-_]", " ")
-        label = label:sub(1, 1):upper() .. label:sub(2)
+        local label = group.label
+        if not label then
+            label = group.key:gsub("[-_]", " ")
+            label = label:sub(1, 1):upper() .. label:sub(2)
+        end
         local open = group.open and " open" or ""
         out[
             #out + 1
