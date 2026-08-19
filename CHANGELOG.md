@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- Publish the design record on the site as Nupp Enhancement Proposals. `plans/`
+  held 71 dated files outside the documentation, and their statuses had stopped
+  being true: two described `Owned<T, cleanup>` and `@drop` as implemented after
+  both were removed, two disagreed with each other about whether a pluck is
+  written with parentheses or braces, and one carried two status lines. They are
+  now 42 numbered proposals under `docs/neps/`, ordered so each builds on the
+  ones before it, and a proposal records why a design was chosen rather than what
+  the compiler does -- reasoning about a decision made on a date stays true after
+  the code moves, which is the property that made the old files worth keeping and
+  the descriptions in them worth deleting. Three that never built anything are
+  kept as the alternatives sections of the designs that replaced them, because
+  the module design looks arbitrary without the four attempts before it. The
+  backlog that was living in there is `TODO.md`, and the four diagnostic anchors
+  that pointed into `plans/` now point at proposals, so `nupp explain` renders
+  them as links rather than as repository paths.
+
+- Publish a directory of markdown as one documentation section. A page entry in
+  the manifest may name a `directory` instead of a `source`, and then stands for
+  every document under it plus an index generated at its own route from their
+  frontmatter. Listing each document instead fails silently -- the file is
+  written, the site shows one fewer than the repository holds, and nothing
+  reports a problem.
+
 - Let a reader take the part of the reference they need. `nupp reference` had
   three slices -- `language`, `cli`, `performance` -- and the first is over
   thirteen thousand words, so a question about one construct cost the whole
