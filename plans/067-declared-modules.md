@@ -1,8 +1,8 @@
 # Declared modules and qualified namespaces
 
-Status: proposed — nothing below exists. Written 2026-08-18. This supersedes
-plan 066 before any of it was implemented. The problem statement describes the
-tree as of commit `bd1856cd`.
+Status: superseded by plans 068, 069, and 070 before anything below was built.
+Written 2026-08-18. The problem statement describes the tree as of commit
+`bd1856cd`.
 
 ## Decision
 
