@@ -1,7 +1,7 @@
 # Span range lowering benchmark
 
-This benchmark is the evidence gate for `plans/061-counted-indexed-view-lowering.md`
-and `plans/063-root-view-scalar-replacement.md`.
+This benchmark is the evidence gate for the view and span lowering recorded in
+NEP 30.
 It compares the existing handwritten-guard kernel shape, a semantics-preserving
 adoption of `indexed.range` with `OPT-6` disabled and enabled, handwritten direct
 FFI access, and forced-scalar AOT context. The first three are checked Nupp; the
