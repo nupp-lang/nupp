@@ -654,7 +654,7 @@ it for you.
 
 There is no vector type, no mask value, no shuffle, and no way to name a width.
 That is deliberate and it is written down in
-[plans/037-portable-vectors.md](https://github.com/nupp-lang/nupp/blob/main/plans/037-portable-vectors.md):
+[NEP 32](../neps/0032-aot-block-kernels-and-simd.md):
 an earlier design exposed `F32x8`, `I32x8` and mask values, and it was removed.
 Scalar source already gets target-selected width, masks and divergent control
 flow, exact scalar tails, one spelling that works with the backend off, and the
