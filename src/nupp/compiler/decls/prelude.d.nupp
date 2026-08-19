@@ -1291,10 +1291,10 @@ record nupp.reflect
     end
 
     --- Reflects a concrete type for use inside a `comptime` block.
-    metamethod __call: function(self, typeName: any): Info
+    metamethod __call: comptime function(self, typeName: any): Info
 
     --- Builds a keyed field-codec recipe from a reflected record.
-    fieldCodec: function(info: Info): FieldCodecBlueprint
+    fieldCodec: comptime function(info: Info): FieldCodecBlueprint
 end
 
 --- Internal typed schema for the compiler-owned @deprecated annotation.

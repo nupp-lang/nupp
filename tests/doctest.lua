@@ -168,6 +168,74 @@ function M.documentsTypedBindingsAsTheFunctionsTheyDeclare()
    assert(max.returns[1].type == "V" and max.returns[1].text == "The largest of them.")
 end
 
+function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
+   local source = table.concat({
+      "--- Builds a type.",
+      "comptime function newType(T: type): type",
+      "   return T",
+      "end",
+      "",
+      "--- Another type builder.",
+      "local factory: comptime function(T: type): type",
+      "",
+      "--- A type handle.",
+      "local text: comptime type",
+      "",
+      "--- Compiler operations.",
+      "local record Compiler",
+      "   --- Builds through a member.",
+      "   build: comptime function(T: type): type",
+      "",
+      "   --- Holds a type through a member.",
+      "   value: comptime type",
+      "end",
+   }, "\n") .. "\n"
+   local module = assert(doc.extract(source, "src/meta.d.nupp", "meta",
+      {includeAll = true}))
+   local items = {}
+   for _, item in ipairs(module.items) do items[item.name] = item end
+
+   assert(items.newType.kind == "function", items.newType.kind)
+   assert(items.newType.comptimeKind == "function", items.newType.comptimeKind)
+   assert(items.newType.signature == "comptime function newType(T: type): type",
+      items.newType.signature)
+   assert(items.factory.kind == "function" and
+      items.factory.comptimeKind == "function")
+   assert(items.text.kind == "variable" and items.text.comptimeKind == "type")
+
+   local members = {}
+   for _, member in ipairs(items.Compiler.members) do members[member.name] = member end
+   assert(members.build.isFunction and members.build.comptimeKind == "function")
+   assert(not members.value.isFunction and members.value.comptimeKind == "type")
+
+   local api = require("nupp.compiler.doc.api")
+   local summary = api.moduleSummary(module)
+   assert(not summary:find("<h3>Constructors</h3>", 1, true), summary)
+   assert(summary:find("nuppdoc-kind-comptime-function", 1, true), summary)
+   assert(summary:find(">comptime function</span>", 1, true), summary)
+   assert(summary:find("nuppdoc-kind-comptime-type", 1, true), summary)
+
+   local rendered = {}
+   api.renderHtmlItem(rendered, items.Compiler)
+   local html = table.concat(rendered)
+   assert(html:find("nuppdoc-kind-comptime-function", 1, true), html)
+   assert(html:find("nuppdoc-kind-comptime-type", 1, true), html)
+
+   local markdown = doc.markdown({module})
+   assert(markdown:find("### `newType` _comptime function_", 1, true), markdown)
+   assert(markdown:find("comptime function newType(T: type): type", 1, true),
+      markdown)
+   assert(markdown:find("##### `build` _comptime function_", 1, true), markdown)
+   assert(markdown:find("##### `value` _comptime type_", 1, true), markdown)
+
+   local model = require("testjson").decode(doc.json({module}))
+   assert(model.schemaVersion == 2)
+   local modelItems = {}
+   for _, item in ipairs(model.modules[1].items) do modelItems[item.name] = item end
+   assert(modelItems.newType.comptimeKind == "function")
+   assert(modelItems.text.comptimeKind == "type")
+end
+
 function M.documentsFunctionTypedRecordFieldsAsMethods()
    local module = assert(doc.extract(DECLARATIONS, "src/num.d.nupp", "num",
       {includeAll = true}))
@@ -631,6 +699,30 @@ function M.namespaceTagsIgnoreWindowsLineEndings()
       extra and extra[1] and extra[1].name or "namespace missing")
 end
 
+function M.standardTypesApiMarksItsCompilerOnlyValues()
+   local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
+   local module, errors, extra = doc.extract(source,
+      "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude")
+   assert(module, errors and errors[1] and errors[1].msg)
+
+   local types
+   for _, candidate in ipairs(extra or {}) do
+      if candidate.name == "nupp.types" then types = candidate end
+   end
+   assert(types, "the prelude did not synthesize nupp.types")
+
+   local foundType, foundFunction = false, false
+   for _, item in ipairs(types.items) do
+      if item.name == "string" then
+         foundType = item.comptimeKind == "type"
+      elseif item.name == "optional" then
+         foundFunction = item.comptimeKind == "function"
+      end
+   end
+   assert(foundType, "nupp.types.string lost its comptime type kind")
+   assert(foundFunction, "nupp.types.optional lost its comptime function kind")
+end
+
 function M.standardDataApiHasCompleteDocumentation()
    local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
    local module, errors, extra = doc.extract(source,
@@ -862,6 +954,10 @@ function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
          assert(member.text ~= "", "nupp.reflect." .. member.name
             .. " has no documentation")
          expected[member.name] = nil
+      end
+      if member.name == "fieldCodec" then
+         assert(member.comptimeKind == "function",
+            "nupp.reflect.fieldCodec must document its comptime-only phase")
       end
    end
    for name in pairs(expected) do
@@ -1777,7 +1873,7 @@ function M.jsonDocumentationExposesTheParseOnlyModel()
    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}},
       {format = "json", output = "api.json"}) == 0)
    local model = json.decode(readFile(dir .. "/api.json"))
-   assert(model.schemaVersion == 1, "documentation model version missing")
+   assert(model.schemaVersion == 2, "documentation model version missing")
    assert(model.modules[1].name == "math", "module name missing from JSON model")
    assert(model.modules[1].items[1].name == "add", "declaration missing from JSON model")
    assert(model.modules[1].items[1].params[1].name == "left",

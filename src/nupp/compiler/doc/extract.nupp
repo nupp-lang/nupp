@@ -57,6 +57,9 @@ record extract.Member
     isType: boolean?
     members: {Member}?
 
+    --- The compiler-only value kind, when this member exists only during comptime.
+    comptimeKind: string?
+
     --- What it was annotated with, as written, such as `@derive(nupp.derive.JSON)`.
     annotations: {string}?
 end
@@ -76,7 +79,12 @@ type extract.Item = {
     returns: {extract.Result},
     raises: {string},
     typeargs: {extract.TypeArg},
-    annotations: {string}?
+    annotations: {string}?,
+
+    --- The compiler-only value kind, when this declaration exists only during
+    --- comptime. Kept apart from `kind`, so functions retain their ordinary API
+    --- grouping while renderers can distinguish when they are callable.
+    comptimeKind: string?
 }
 
 --- One source file, read as its documented declarations.
@@ -418,7 +426,12 @@ local function functionSignature(stat, name)
     for _, value in ipairs(body and body.rets or {}) do
         returns[#returns + 1] = documentedResultType(value)
     end
-    local prefix = stat.kind == "localFuncStmt" and "local function " or "function "
+    local prefix
+    if stat.kind == "localFuncStmt" then
+        prefix = (stat.isConst and "const " or "local ") .. (stat.comptimeTok and "comptime " or "") .. "function "
+    else
+        prefix = (stat.comptimeTok and "comptime " or "") .. "function "
+    end
     local result = prefix .. name .. genericText(body) .. "(" .. table.concat(params, ", ") .. ")"
     if #returns > 0 then
         result = result .. ": " .. table.concat(returns, ", ")
@@ -504,6 +517,26 @@ local function typeFunction(node)
     return widest
 end
 
+-- Compiler-only function and type handles retain their ordinary declaration kind for
+-- sorting and grouping. This is the phase-qualified kind a renderer puts on the
+-- badge instead.
+local function comptimeKind(node): string?
+    local fn = typeFunction(node)
+    if fn then
+        for _, overload in ipairs(node.kind == "tintersection" and node.types or {node}) do
+            if not overload.comptimeOnly then
+                return nil
+            end
+        end
+        return "function"
+    end
+    if node and node.comptimeOnly then
+        return "type"
+    end
+
+    return nil
+end
+
 local function typeFunctionDetails(node, info)
     local details = {params = {}, returns = {}}
     for _, param in ipairs(node.params or {}) do
@@ -549,6 +582,7 @@ local function fieldItem(field, childModuleName, includePrivate)
         raises = info.raises,
         typeargs = {},
         annotations = annotationsOf(field),
+        comptimeKind = comptimeKind(field.type),
     }
     local fn = typeFunction(field.type)
     if fn then
@@ -820,7 +854,8 @@ local function buildMembers(
                 params = {},
                 returns = {},
                 raises = fieldInfo.raises,
-                annotations = annotationsOf(entry)
+                annotations = annotationsOf(entry),
+                comptimeKind = comptimeKind(entry.type)
             )
             local fieldFunction = typeFunction(entry.type)
             if fieldFunction then
@@ -931,12 +966,13 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
     local lines = docLines(documented)
     local info = parseDoc(lines)
     local public = includeAll or declarationFile or info.tags.export or info.tags.public
-    local kind, name, signature
+    local kind, name, signature, itemComptimeKind
     if stat.kind == "funcStmt" or stat.kind == "localFuncStmt" then
         name = stat.kind == "funcStmt" and syntax(stat.name) or stat.name.text
         public = public or stat.kind == "funcStmt"
         kind = stat.name and stat.name.method and "method" or "function"
         signature = functionSignature(stat, name)
+        itemComptimeKind = stat.comptimeTok and "function" or nil
     elseif stat.kind == "cdefFunc" then
         -- A `cdef` binds a bare name in this file, the way a `local` does. It is
         -- public when a declaration file says the whole file is, when the author
@@ -971,6 +1007,7 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
         if typeFunction(stat.types[1]) then
             kind = "function"
         end
+        itemComptimeKind = comptimeKind(stat.types[1])
     else
         return nil
     end
@@ -1014,6 +1051,7 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
         raises = info.raises,
         typeargs = {},
         annotations = #applied > 0 and applied or nil,
+        comptimeKind = itemComptimeKind,
     }
     local declaredFunction = stat.kind == "localStmt" and typeFunction(stat.types and stat.types[1]) or nil
     local generics = stat.generics or (
@@ -1105,7 +1143,8 @@ local function foldMethods(items: {extract.Item}, declaredTypes: {[string]: bool
                     returns = item.returns,
                     raises = item.raises,
                     isFunction = true,
-                    annotations = item.annotations
+                    annotations = item.annotations,
+                    comptimeKind = item.comptimeKind
                 )
             end
         else

@@ -133,7 +133,11 @@ local function renderMarkdownMembers(out, members, level)
         out[#out + 1] = ""
         for _, method in ipairs(methods) do
             out[#out + 1] = '<a id="' .. method.path .. '"></a>'
-            out[#out + 1] = hName .. " `" .. method.name .. "`"
+            out[
+                #out + 1
+            ] = hName .. " `" .. method.name .. "`" .. (
+                method.comptimeKind and " _comptime " .. method.comptimeKind .. "_" or ""
+            )
             out[#out + 1] = ""
             markdownAnnotations(out, method.annotations)
             if method.text ~= "" then
@@ -169,7 +173,11 @@ local function renderMarkdownMembers(out, members, level)
         out[#out + 1] = ""
         for _, field in ipairs(fields) do
             out[#out + 1] = '<a id="' .. field.path .. '"></a>'
-            out[#out + 1] = hName .. " `" .. field.name .. "`"
+            out[
+                #out + 1
+            ] = hName .. " `" .. field.name .. "`" .. (
+                field.comptimeKind and " _comptime " .. field.comptimeKind .. "_" or ""
+            )
             out[#out + 1] = ""
             markdownAnnotations(out, field.annotations)
             if field.text ~= "" then

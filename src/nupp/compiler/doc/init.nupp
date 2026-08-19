@@ -192,6 +192,7 @@ function doc.json(modules: {extractMod.Module}): string
             isFunction = value.isFunction,
             isMetamethod = value.isMetamethod,
             isType = value.isType,
+            comptimeKind = value.comptimeKind,
             members = value.members and array(value.members, member) or nil,
             annotations = annotations(value.annotations),
         }
@@ -202,6 +203,7 @@ function doc.json(modules: {extractMod.Module}): string
         return {
             name = value.name,
             kind = value.kind,
+            comptimeKind = value.comptimeKind,
             signature = value.signature,
             path = value.path,
             module = value.module,
@@ -240,7 +242,7 @@ function doc.json(modules: {extractMod.Module}): string
         }
     end)
 
-    return json.encode({schemaVersion = 1, modules = model}) .. "\n"
+    return json.encode({schemaVersion = 2, modules = model}) .. "\n"
 end
 
 local function sourceFiles(root, config, settings, requested)

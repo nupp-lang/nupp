@@ -32,8 +32,12 @@ type api.ItemGroup = {
 -- last dotted segment of a name.
 local DEFAULT_CONSTRUCTOR_PATTERN = "^new"
 
+local function kindClass(kind)
+    return htmlEscape((kind:gsub("[^%w_-]+", "-")))
+end
+
 local function kindBadge(kind)
-    return '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape(kind) .. '">' .. htmlEscape(kind) .. '</span>'
+    return '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. kindClass(kind) .. '">' .. htmlEscape(kind) .. '</span>'
 end
 
 -- What a declaration was annotated with, rendered beside its name.
@@ -68,7 +72,7 @@ end
 -- instead, a function returning a type this module declares, files every accessor and
 -- every query under Constructors as well, which is why the name is what answers.
 local function isConstructor(item, pattern)
-    if pattern == "" or item.kind ~= "function" then
+    if pattern == "" or item.kind ~= "function" or item.comptimeKind then
         return false
     end
 
@@ -79,6 +83,9 @@ end
 -- type. The documentation kind is semantic, though, and should agree with the group
 -- the reader found it under rather than exposing that implementation detail.
 local function displayKind(item: extractMod.Item, constructorPattern: string?): string
+    if item.comptimeKind then
+        return "comptime " .. item.comptimeKind
+    end
     if isConstructor(item, constructorPattern or DEFAULT_CONSTRUCTOR_PATTERN) then
         return "constructor"
     end
@@ -190,7 +197,7 @@ local function moduleSummary(module: extractMod.Module, constructorPattern: stri
                 -- A constructor's kind is the word "function" on every row of the
                 -- table, which says nothing the heading has not said already.
                 if group.kinds then
-                    row[#row + 1] = kindBadge(item.kind)
+                    row[#row + 1] = kindBadge(displayKind(item, constructorPattern))
                 end
                 row[#row + 1] = inlineHtml(summaryText(item.doc.text))
                 rows[#rows + 1] = row
@@ -246,7 +253,8 @@ end
 
 -- One member's heading: the anchor the structure's own signature links each entry to,
 -- and the `#` beside it that hands that anchor back. `badge` is the kind a nested type
--- carries; a method or a field is told apart by the group heading above it.
+-- carries or the comptime-only phase of a method or value; ordinary methods and fields
+-- are told apart by the group heading above them.
 local function memberHeading(name: string, path: string, tag: string, extra: string?, badge: string?): string
     return '<div class="nuppdoc-api-member' .. (
         extra or ""
@@ -255,7 +263,7 @@ local function memberHeading(name: string, path: string, tag: string, extra: str
     ) .. '"><' .. tag .. '><code>' .. htmlEscape(
         name
     ) .. "</code>" .. (
-        badge and '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape(
+        badge and '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. kindClass(
             badge
         ) .. '">' .. htmlEscape(badge) .. "</span>" or ""
     ) .. '<a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
@@ -282,7 +290,15 @@ local function renderHtmlMembers(
     if #methods > 0 then
         out[#out + 1] = "<" .. hGroup .. ">Methods</" .. hGroup .. ">"
         for _, method in ipairs(methods) do
-            out[#out + 1] = memberHeading(method.name, method.path, hName)
+            out[
+                #out + 1
+            ] = memberHeading(
+                method.name,
+                method.path,
+                hName,
+                nil,
+                method.comptimeKind and "comptime " .. method.comptimeKind or nil
+            )
             out[#out + 1] = annotationBadges(method.annotations)
             out[#out + 1] = markdownHtml(method.text, links)
             out[
@@ -332,7 +348,15 @@ local function renderHtmlMembers(
     if #fields > 0 then
         out[#out + 1] = "<" .. hGroup .. ">Fields</" .. hGroup .. ">"
         for _, field in ipairs(fields) do
-            out[#out + 1] = memberHeading(field.name, field.path, hName)
+            out[
+                #out + 1
+            ] = memberHeading(
+                field.name,
+                field.path,
+                hName,
+                nil,
+                field.comptimeKind and "comptime " .. field.comptimeKind or nil
+            )
             out[#out + 1] = annotationBadges(field.annotations)
             out[#out + 1] = markdownHtml(field.text, links)
             out[
@@ -361,7 +385,7 @@ local function renderHtmlItem(
         item.path
     ) .. '"><h3><code>' .. htmlEscape(
         item.name
-    ) .. '</code><span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape(
+    ) .. '</code><span class="nuppdoc-kind-badge nuppdoc-kind-' .. kindClass(
         kind
     ) .. '">' .. htmlEscape(
         kind
