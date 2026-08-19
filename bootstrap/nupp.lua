@@ -22052,6 +22052,7 @@ end
 
 
 
+
 local function stampFile (
 output ,
 stubText ,
@@ -41341,6 +41342,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppD
 
 
 
+
 local T = require ( "nupp.compiler.types" )
 local cst = require ( "nupp.compiler.cst" )
 local state = require ( "nupp.compiler.check.state" )
@@ -54322,7 +54324,7 @@ required = { "totalMs" , "compiledModules" , "reusedModules" , "phases" , "slowe
 } ,
 required = { "ok" , "diagnostics" } ,
 } ,
-detail = "With no files, checks the default target from nupp.lua. Also reports a `timing` object naming how many modules were reused from the cache versus rechecked, and which modules cost the most of the wall-clock time either way -- see docs/diagnostics.md." ,
+detail = "With no files, checks the default target from nupp.lua. Also reports a `timing` object naming how many modules were reused from the cache versus rechecked, and which modules cost the most of the wall-clock time either way -- see docs/reference/diagnostics.md." ,
 }
 
 local function run ( parsed )
@@ -55327,7 +55329,7 @@ or reason . class == "risk"
 and "Whether the recorder accepts this operation depends on runtime or target facts."
 or "This is ordinary trace formation rather than a recorder failure." ,
 related = { } ,
-docs = "docs/tooling/performance.md#rewrites-deliberately-not-made" ,
+docs = "docs/guides/performance.md#rewrites-deliberately-not-made" ,
 family = false ,
 class = reason . class ,
 repair = reason . repair ,
@@ -56555,7 +56557,8 @@ project moves one in nupp.lua by name or by category:
 
   lints = { ["missing-require"] = "warning", style = "off" }
 
-A statement waves one away with @allow("missing-require"). See docs/lints.md.]] ,
+A statement waves one away with @allow("missing-require"). See
+docs/reference/lints.md.]] ,
 options = require ( "nupp.compiler.cli.options" ) . format ( ) ,
 schema = {
 type = "object" ,
@@ -58349,7 +58352,7 @@ explain a diagnostic code -- which is what a reader holding one actually has.
   nupp reference cli
   nupp reference language
   nupp reference --section affine-resources
-  nupp reference --section docs/modules.md#modules
+  nupp reference --section docs/concepts/declarations.md#modules
   nupp reference --for NUPP2004
   nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
   nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
@@ -69003,6 +69006,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppD
 
 
 
+
 local explainMod = require ( "nupp.compiler.explain" )
 local htmlMod = require ( "nupp.compiler.doc.html" )
 local lintsMod = require ( "nupp.compiler.lints" )
@@ -75501,7 +75505,7 @@ summary = "Source input could not be read" ,
 rule = "The compiler was given a path it could not read. This is about "
 .. "the file system rather than the program: the path does not "
 .. "exist, or is not readable." ,
-docs = "docs/diagnostics.md#code-families"
+docs = "docs/reference/diagnostics.md#code-families"
 } ,
 {
 prefix = "NUPP1" ,
@@ -75510,7 +75514,7 @@ summary = "The source is not syntactically valid" ,
 rule = "The parser could not read the file as Nupp. Recovery continues "
 .. "past the first error, so several of these often describe one "
 .. "mistake." ,
-docs = "docs/diagnostics.md#code-families"
+docs = "docs/reference/diagnostics.md#code-families"
 } ,
 {
 prefix = "NUPP2" ,
@@ -75518,7 +75522,7 @@ title = "Types, declarations, and rules" ,
 summary = "A type, declaration, lint, FFI or ownership rule" ,
 rule = "The program parses but does not mean something the checker can "
 .. "accept, or means something its author probably did not intend." ,
-docs = "docs/diagnostics.md#code-families"
+docs = "docs/reference/diagnostics.md#code-families"
 } ,
 {
 prefix = "NUPP3" ,
@@ -75527,7 +75531,7 @@ summary = "Code generation cannot represent the construct" ,
 rule = "The program checked, but the generator cannot lower it to Lua. "
 .. "This is a limit of the backend rather than a mistake in the "
 .. "program's typing." ,
-docs = "docs/diagnostics.md#code-families"
+docs = "docs/reference/diagnostics.md#code-families"
 } ,
 {
 prefix = "NUPP4" ,
@@ -75535,7 +75539,7 @@ title = "Formatting" ,
 summary = "Formatting could not safely produce the result" ,
 rule = "The formatter declines to rewrite source it cannot prove it "
 .. "would preserve. Formatting is never allowed to change meaning." ,
-docs = "docs/diagnostics.md#code-families"
+docs = "docs/reference/diagnostics.md#code-families"
 } ,
 {
 prefix = "NUPP5" ,
@@ -75544,7 +75548,7 @@ summary = "A development-time change requires a restart" ,
 rule = "The running program cannot apply this change without replacing "
 .. "state or callable structure that hot reload promises to preserve. "
 .. "Restart it so the new program can initialize that state normally." ,
-docs = "docs/tooling/hot-reload.md#changes-that-require-restart"
+docs = "docs/guides/hot-reload.md#changes-that-require-restart"
 } ,
 {
 prefix = "OPT" ,
@@ -75568,7 +75572,7 @@ rule = "countedBy(count) replaces a call-duration borrowed pointer/count pair "
 wrong = "cdef function visit(\n" .. "    borrows values: const int32* countedBy(missing), count: uint64\n)\n" ,
 right = "cdef function visit(\n" .. "    borrows values: const int32* countedBy(count), count: uint64\n)\n" ,
 related = { "NUPP2203" , "NUPP2602" } ,
-docs = "docs/c-interop.md#counted-pointer-adapters" ,
+docs = "docs/concepts/c-interop.md#counted-pointer-adapters" ,
 } ,
 {
 code = "NUPP2209" ,
@@ -75588,7 +75592,7 @@ rule = "The path named on the command line, or reached from a require, "
 .. "could not be opened. Check the spelling and that the file is "
 .. "readable from the directory the compiler was run in." ,
 related = { } ,
-docs = "docs/diagnostics.md#code-families" ,
+docs = "docs/reference/diagnostics.md#code-families" ,
 } ,
 {
 code = "NUPP1002" ,
@@ -75599,7 +75603,7 @@ rule = "A construct was opened and not closed. The position reported is "
 wrong = "local function f(): integer\n    if true then\n        return 1\n" .. "end\n" ,
 right = "local function f(): integer\n    if true then\n        return 1\n" .. "    end\n    return 0\nend\n" ,
 related = { "NUPP1004" } ,
-docs = "docs/diagnostics.md#code-families" ,
+docs = "docs/reference/diagnostics.md#code-families" ,
 } ,
 {
 code = "NUPP1007" ,
@@ -75610,7 +75614,7 @@ rule = "An @param line documents one parameter of the declaration below it. "
 wrong = "--- @param valeu the value\nlocal function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n" ,
 right = "--- @param value the value\nlocal function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n" ,
 related = { "NUPP2506" } ,
-docs = "docs/tooling/doc.md#doc-comments" ,
+docs = "docs/guides/doc.md#doc-comments" ,
 } ,
 {
 code = "NUPP1006" ,
@@ -75621,7 +75625,7 @@ rule = "A `.lua` file is Lua. The toolchain will require, build and run "
 .. "nothing. Rename the file `.nupp` to mean it, or `.g.nupp` to keep the "
 .. "gradual layer with the typed syntax available." ,
 related = { "NUPP2105" , "NUPP2106" } ,
-docs = "docs/diagnostics.md#code-families" ,
+docs = "docs/reference/diagnostics.md#code-families" ,
 } ,
 {
 code = "NUPP2001" ,
@@ -75631,7 +75635,7 @@ rule = "An annotated binding accepts only values of that type. The "
 wrong = "local count: integer = \"twelve\"\nreturn count\n" ,
 right = "local count: integer = 12\nreturn count\n" ,
 related = { "NUPP2002" , "NUPP2006" } ,
-docs = "docs/diagnostics.md#code-families" ,
+docs = "docs/reference/diagnostics.md#code-families" ,
 } ,
 {
 code = "NUPP2002" ,
@@ -75658,7 +75662,7 @@ right = "local record Point\n    x: number\n    y: number\nend\n\n"
 .. "local function show(p: Point): number\n    return p.x\nend\n\n"
 .. "return show\n" ,
 related = { "NUPP2005" , "NUPP2119" } ,
-docs = "docs/modules.md#diagnostics" ,
+docs = "docs/concepts/declarations.md#diagnostics" ,
 } ,
 {
 code = "NUPP2006" ,
@@ -75712,7 +75716,7 @@ rule = "`float`, `int32`, and `uint32` are checked refinements of Lua "
 wrong = "local input: number = 0.1\nlocal value: float = input as float\nreturn value\n" ,
 right = "local input: number = 0.1\nlocal value: float = nupp.math.f32.narrow(input)\nreturn value\n" ,
 related = { "NUPP2001" , "NUPP2002" , "NUPP2006" , "NUPP2012" } ,
-docs = "docs/math.md#fixed-width-arithmetic" ,
+docs = "docs/modules/nupp/math.md#fixed-width-arithmetic" ,
 } ,
 {
 code = "NUPP2012" ,
@@ -75734,7 +75738,7 @@ rule = "A type name must be a built-in, a declaration visible in this "
 wrong = "local count: Count = 1\nreturn count\n" ,
 right = "local type Count = integer\nlocal count: Count = 1\nreturn count\n" ,
 related = { "NUPP2105" , "NUPP2120" } ,
-docs = "docs/modules.md#diagnostics" ,
+docs = "docs/concepts/declarations.md#diagnostics" ,
 } ,
 {
 code = "NUPP2106" ,
@@ -75748,7 +75752,7 @@ rule = "What a module returns is its interface, and an interface is "
 wrong = "local m = {}\n\nfunction m.double(n)\n    return n * 2\nend\n\n" .. "return m\n" ,
 right = "local m = {}\n\nfunction m.double(n: integer): integer\n" .. "    return n * 2\nend\n\nreturn m\n" ,
 related = { "NUPP2119" } ,
-docs = "docs/modules.md#diagnostics" ,
+docs = "docs/concepts/declarations.md#diagnostics" ,
 } ,
 {
 code = "NUPP2107" ,
@@ -75768,7 +75772,7 @@ right = "local type Color = 'red' | 'green' | 'blue'\n\n"
 .. "    elseif c == 'green' then\n        return \"green\"\n"
 .. "    else\n        return \"blue\"\n    end\nend\n\nreturn name\n" ,
 related = { "NUPP2004" } ,
-docs = "docs/lints.md" ,
+docs = "docs/reference/lints.md" ,
 } ,
 {
 code = "NUPP2108" ,
@@ -75779,7 +75783,7 @@ rule = "`@allow` suppresses lint judgements, by lint name or code. A "
 wrong = "@allow(NUPP2001)\nlocal count: integer = \"one\"\nreturn count\n" ,
 right = "local count: integer = 1\nreturn count\n" ,
 related = { "NUPP2001" , "NUPP2112" } ,
-docs = "docs/lints.md#local-suppressions" ,
+docs = "docs/reference/lints.md#local-suppressions" ,
 } ,
 {
 code = "NUPP2504" ,
@@ -75790,7 +75794,7 @@ rule = "The C-style spellings `!`, `&&`, `||`, and `!=` are accepted, "
 wrong = "local ready = true\nlocal pending = !ready\nreturn pending\n" ,
 right = "local ready = true\nlocal pending = not ready\nreturn pending\n" ,
 related = { "NUPP2108" } ,
-docs = "docs/lints.md#customary-operator" ,
+docs = "docs/reference/lints.md#customary-operator" ,
 } ,
 {
 code = "NUPP2506" ,
@@ -75808,7 +75812,7 @@ right = "--- Reads a name.\n--- @param name the name to read\n"
 .. "    if name == \"\" then error(\"empty name\") end\n"
 .. "    return name\nend\n\nreturn read\n" ,
 related = { "NUPP2507" } ,
-docs = "docs/lints.md#undocumented-raise" ,
+docs = "docs/reference/lints.md#undocumented-raise" ,
 } ,
 {
 code = "NUPP2507" ,
@@ -75825,7 +75829,7 @@ right = "local function shout(text: string): string\n"
 .. "    local prefix = \"> \"\n    return prefix .. text .. \"!\"\nend\n\n"
 .. "return shout\n" ,
 related = { "NUPP2120" , "NUPP2603" } ,
-docs = "docs/lints.md" ,
+docs = "docs/reference/lints.md" ,
 } ,
 {
 code = "NUPP2508" ,
@@ -75840,7 +75844,7 @@ right = "local function double(value: number): number\n"
 .. "    return value * 2\nend\n\nlocal answer = double(21)\n"
 .. "print(answer)\n\nreturn double\n" ,
 related = { "NUPP2112" , "NUPP2603" } ,
-docs = "docs/lints.md" ,
+docs = "docs/reference/lints.md" ,
 } ,
 {
 code = "NUPP2118" ,
@@ -75865,7 +75869,7 @@ rule = "A declaration is file-local (`local`), a member of a table "
 wrong = "record Loose\n    id: integer\nend\n\nreturn Loose\n" ,
 right = "local record Loose\n    id: integer\nend\n\nreturn Loose\n" ,
 related = { "NUPP2106" , "NUPP2120" } ,
-docs = "docs/modules.md#diagnostics" ,
+docs = "docs/concepts/declarations.md#diagnostics" ,
 } ,
 {
 code = "NUPP2120" ,
@@ -75877,7 +75881,7 @@ wrong = "local answer: number = mathutil.double(21)\nreturn answer\n" ,
 right = "local mathutil = require(\"mathutil\")\n"
 .. "local answer: number = mathutil.double(21)\nreturn answer\n" ,
 related = { "NUPP2101" , "NUPP2105" } ,
-docs = "docs/modules.md#naming-a-member-from-another-file" ,
+docs = "docs/concepts/declarations.md#naming-a-member-from-another-file" ,
 } ,
 {
 code = "NUPP2121" ,
@@ -75944,7 +75948,7 @@ right = "local record I64\n    v: integer\n"
 .. "setmetatable(x, {__add = function(a: I64, b: I64): I64\n"
 .. "    return new I64(v = a.v + b.v)\nend})\n\nreturn x\n" ,
 related = { "NUPP2118" , "NUPP2006" } ,
-docs = "docs/metamethods.md" ,
+docs = "docs/concepts/metamethods.md" ,
 } ,
 {
 code = "NUPP2124" ,
@@ -76208,7 +76212,7 @@ rule = "A `cdef` signature and struct layout cross the C ABI, so their "
 wrong = "cdef function process(values: {number}): int32\nreturn process\n" ,
 right = "cdef function process(values: voidptr): int32\nreturn process\n" ,
 related = { "NUPP2201" , "NUPP2602" } ,
-docs = "docs/c-interop.md#hand-write-a-small-binding" ,
+docs = "docs/concepts/c-interop.md#hand-write-a-small-binding" ,
 } ,
 {
 code = "NUPP2605" ,
@@ -76240,7 +76244,7 @@ wrong = "local function forward<T>(borrows value: T): T preserves value\n"
 right = "local function forward<T>(takes value: T): T preserves value\n"
 .. "    return value\nend\nreturn forward\n" ,
 related = { "NUPP2602" , "NUPP2603" , "NUPP2605" } ,
-docs = "docs/ownership.md#generic-preservation" ,
+docs = "docs/type-system/ownership.md#generic-preservation" ,
 } ,
 {
 code = "NUPP2607" ,
@@ -76253,7 +76257,7 @@ wrong = "local function pair(exclusive a: table, exclusive b: table): nil end\n"
 .. "local value = {}\npair(value, value)\n" ,
 right = "local function pair(exclusive a: table, exclusive b: table): nil end\n" .. "pair({}, {})\n" ,
 related = { "NUPP2602" , "NUPP2608" , "NUPP2609" } ,
-docs = "docs/ownership.md#regions-and-loop-carried-capabilities" ,
+docs = "docs/type-system/ownership.md#regions-and-loop-carried-capabilities" ,
 } ,
 {
 code = "NUPP2608" ,
@@ -76265,7 +76269,7 @@ wrong = "local function leak(borrows value: table): table\n" .. "    return borr
 right = "local function view(borrows value: table): table borrows (value)\n"
 .. "    return borrow(value)\nend\nreturn view\n" ,
 related = { "NUPP2603" , "NUPP2607" , "NUPP2611" } ,
-docs = "docs/ownership.md#borrowing-and-pinning" ,
+docs = "docs/type-system/ownership.md#borrowing-and-pinning" ,
 } ,
 {
 code = "NUPP2609" ,
@@ -76288,7 +76292,7 @@ right = "local record Resource\nend\n"
 .. "    if again then\n        print('once')\n    end\n"
 .. "    drop(value)\nend\nreturn run\n" ,
 related = { "NUPP2601" , "NUPP2603" , "NUPP2607" } ,
-docs = "docs/ownership.md#regions-and-loop-carried-capabilities" ,
+docs = "docs/type-system/ownership.md#regions-and-loop-carried-capabilities" ,
 } ,
 {
 code = "NUPP2610" ,
@@ -76300,7 +76304,7 @@ wrong = "local m = {}\nfunction m.forward<T>(value: T): T\n" .. "    return valu
 right = "local m = {}\nfunction m.forward<T>(takes value: T): T preserves value\n"
 .. "    return value\nend\nreturn m\n" ,
 related = { "NUPP2606" , "NUPP2611" } ,
-docs = "docs/ownership.md#public-capability-contracts" ,
+docs = "docs/type-system/ownership.md#public-capability-contracts" ,
 } ,
 {
 code = "NUPP2611" ,
@@ -76313,7 +76317,7 @@ wrong = "local function erase(value: affine(table)): any\n    return value\nend\
 right = "local function erase(takes value: affine(table)): any\n"
 .. "    return unsafe release value\nend\nreturn erase\n" ,
 related = { "NUPP2603" , "NUPP2608" , "NUPP2612" } ,
-docs = "docs/ownership.md#dynamic-boundaries" ,
+docs = "docs/type-system/ownership.md#dynamic-boundaries" ,
 } ,
 {
 code = "NUPP2612" ,
@@ -76333,7 +76337,7 @@ right = "local stores = require('nupp.owners.store')\n"
 .. "local function open(): affine(Resource, close) return new Resource() end\n"
 .. "local store = stores.new()\nstore:put(open())\ndrop(store)\n" ,
 related = { "NUPP2608" , "NUPP2611" , "NUPP2614" } ,
-docs = "docs/ownership.md#dynamic-boundaries" ,
+docs = "docs/type-system/ownership.md#dynamic-boundaries" ,
 } ,
 {
 code = "NUPP2613" ,
@@ -76356,7 +76360,7 @@ right = "local stores = require('nupp.owners.store')\n"
 .. "local erased = stores.erase(handle)\n"
 .. "local recovered = stores.recover(erased, File)\n" ,
 related = { "NUPP2611" , "NUPP2614" } ,
-docs = "docs/ownership.md#dynamic-boundaries" ,
+docs = "docs/type-system/ownership.md#dynamic-boundaries" ,
 } ,
 {
 code = "NUPP2614" ,
@@ -76365,7 +76369,7 @@ rule = "Taking, removing, or destroying a dynamic-store slot increments its "
 .. "generation. Every older handle fails before the stored value is read or "
 .. "its cleanup policy is selected." ,
 related = { "NUPP2612" , "NUPP2613" } ,
-docs = "docs/ownership.md#dynamic-boundaries" ,
+docs = "docs/type-system/ownership.md#dynamic-boundaries" ,
 } ,
 {
 code = "NUPP2603" ,
@@ -76379,7 +76383,7 @@ right = "cdef function begin_request(): affine(voidptr)\n"
 .. "cdef function submit_request(takes request: voidptr)\n"
 .. "local request = begin_request()\nsubmit_request(request)\nreturn 0\n" ,
 related = { "NUPP2601" , "NUPP2602" , "NUPP2605" } ,
-docs = "docs/ownership.md#consumption-and-lexical-destruction" ,
+docs = "docs/type-system/ownership.md#consumption-and-lexical-destruction" ,
 } ,
 {
 code = "NUPP2615" ,
@@ -76404,7 +76408,7 @@ rule = "Each @derive argument names one resolved exported comptime provider, and
 .. "an identity may occur only once across every derive "
 .. "annotation on the record." ,
 related = { "NUPP2113" , "NUPP2802" } ,
-docs = "docs/derives.md" ,
+docs = "docs/reference/derives.md" ,
 } ,
 {
 code = "NUPP2802" ,
@@ -76412,7 +76416,7 @@ summary = "A generated derive member conflicts with the declaration" ,
 rule = "A derive never overrides a written instance or static member. Remove "
 .. "the written member or remove the provider so the behavior has one owner." ,
 related = { "NUPP2801" , "NUPP2115" } ,
-docs = "docs/derives.md" ,
+docs = "docs/reference/derives.md" ,
 } ,
 {
 code = "NUPP2803" ,
@@ -76421,7 +76425,7 @@ rule = "Every visible Debug field needs a supported scalar or container type, "
 .. "another Debug record, an exact nupp.Debug contract, or the dynamic any "
 .. "fallback. A field cannot be both skipped and redacted." ,
 related = { "NUPP2802" } ,
-docs = "docs/derives.md#debug" ,
+docs = "docs/reference/derives.md#debug" ,
 } ,
 {
 code = "NUPP2806" ,
@@ -76430,7 +76434,7 @@ rule = "Derived JSON needs a closed supported field graph and consistent JSON "
 .. "options. Rename duplicate keys, default omitted fields, avoid erased generic "
 .. "records and unsupported values, and do not use int64 or uint64 as JSON numbers." ,
 related = { "NUPP2001" } ,
-docs = "docs/derives.md#json" ,
+docs = "docs/reference/derives.md#json" ,
 } ,
 {
 code = "NUPP2807" ,
@@ -76439,7 +76443,7 @@ rule = "Recursive Debug and JSON graphs are supported. A package provider "
 .. "dependency cycle must still reduce to a closed recipe rather than require "
 .. "another unfinished provider result." ,
 related = { "NUPP2803" , "NUPP2806" , "NUPP2810" } ,
-docs = "docs/derives.md" ,
+docs = "docs/reference/derives.md" ,
 } ,
 {
 code = "NUPP2808" ,
@@ -76448,7 +76452,7 @@ rule = "Generated recipes, expressions, locals, upvalues, and emitted output are
 .. "bounded compiler resources. Reduce the derived declaration or split the "
 .. "schema rather than depending on an unbounded generated function." ,
 related = { "NUPP2807" } ,
-docs = "docs/derives.md" ,
+docs = "docs/reference/derives.md" ,
 } ,
 {
 code = "NUPP2809" ,
@@ -76457,7 +76461,7 @@ rule = "A public derive provider is an exported, nongeneric comptime function "
 .. "with the exact shape function(nupp.derive.Info): nupp.derive.Result<I>, where "
 .. "I is one existing interface. @derive must name that resolved export." ,
 related = { "NUPP2411" , "NUPP2801" } ,
-docs = "docs/derives.md#package-providers" ,
+docs = "docs/reference/derives.md#package-providers" ,
 } ,
 {
 code = "NUPP2810" ,
@@ -76466,7 +76470,7 @@ rule = "Providers execute in the bounded comptime worker and must return only "
 .. "nupp.derive.implement or nupp.derive.error. Closed builders reject foreign, "
 .. "cyclic, malformed, stale, and over-limit recipe graphs." ,
 related = { "NUPP2412" , "NUPP2808" } ,
-docs = "docs/derives.md#package-providers" ,
+docs = "docs/reference/derives.md#package-providers" ,
 } ,
 {
 code = "NUPP2811" ,
@@ -76475,7 +76479,7 @@ rule = "A bare forward fills a bodyless callable requirement of Result<I>. A mem
 .. "recipe may instead provide a bounded function signature. Neither form may "
 .. "replace written members or interface defaults." ,
 related = { "NUPP2118" , "NUPP2802" } ,
-docs = "docs/derives.md#closed-forwarding-recipes" ,
+docs = "docs/reference/derives.md#closed-forwarding-recipes" ,
 } ,
 {
 code = "NUPP2812" ,
@@ -76484,7 +76488,7 @@ rule = "A forwarding recipe may pass its receiver, a named method parameter, a "
 .. "readable stored field, a bounded frozen constant, or a fresh array of those. "
 .. "Every name is resolved against the written owner and interface requirement." ,
 related = { "NUPP2004" , "NUPP2811" } ,
-docs = "docs/derives.md#closed-forwarding-recipes" ,
+docs = "docs/reference/derives.md#closed-forwarding-recipes" ,
 } ,
 {
 code = "NUPP2813" ,
@@ -76493,7 +76497,7 @@ rule = "The helper must be an ordinary exported Nupp function. Forwarded argumen
 .. "types must fit its parameters, its result pack must satisfy the interface "
 .. "requirement, and it may not suspend where the requirement cannot." ,
 related = { "NUPP2001" , "NUPP2701" , "NUPP2812" } ,
-docs = "docs/derives.md#runtime-helpers" ,
+docs = "docs/reference/derives.md#runtime-helpers" ,
 } ,
 {
 code = "NUPP2701" ,
@@ -76505,7 +76509,7 @@ rule = "A `nosuspend` region and every cleanup contract must finish without "
 wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n" .. "nosuspend do\n    wait()\nend\n" ,
 right = "local function finish(): nil\nend\n\n" .. "nosuspend do\n    finish()\nend\n" ,
 related = { "NUPP2602" , "NUPP2603" } ,
-docs = "docs/start/suspension.md#non-suspending-regions" ,
+docs = "docs/concepts/suspension.md#non-suspending-regions" ,
 } ,
 {
 code = "NUPP2702" ,
@@ -76515,7 +76519,7 @@ rule = "LuaJIT cannot yield through every C frame. Make the callback and every "
 wrong = "table.sort({2, 1}, function(a, b): boolean\n" .. "    coroutine.yield()\n    return a < b\nend)\n" ,
 right = "table.sort({2, 1}, function(a, b): boolean\n" .. "    return a < b\nend)\n" ,
 related = { "NUPP2701" } ,
-docs = "docs/start/suspension.md#c-call-boundaries" ,
+docs = "docs/concepts/suspension.md#c-call-boundaries" ,
 } ,
 {
 code = "NUPP2706" ,
@@ -76526,7 +76530,7 @@ rule = "Entering a `handle suspension` body from outside would bypass handler "
 wrong = "goto inside\nhandle suspension with handler do\n" .. "    ::inside::\nend\n" ,
 right = "handle suspension with handler do\nend\n::outside::\n" ,
 related = { "NUPP2701" , "NUPP2702" } ,
-docs = "docs/start/suspension.md#handler-scope-follows-the-coroutine" ,
+docs = "docs/concepts/suspension.md#handler-scope-follows-the-coroutine" ,
 } ,
 {
 code = "NUPP2206" ,
@@ -76577,7 +76581,7 @@ wrong = "local record Point\n    x: integer\n    y: integer\nend\n\n"
 right = "local record Point\n    x: integer\n    y: integer\nend\n\n"
 .. "local p = new Point(x = 1, y = 2)\n\nreturn p\n" ,
 related = { "NUPP2202" , "NUPP2208" } ,
-docs = "docs/lints.md" ,
+docs = "docs/reference/lints.md" ,
 } ,
 {
 code = "NUPP2513" ,
@@ -76593,7 +76597,7 @@ right = "local function current(): integer return 1 end\n\n"
 .. "@deprecated(replacement = \"current\")\n"
 .. "local function legacy(): integer return current() end\n\nreturn current()\n" ,
 related = { "NUPP2115" } ,
-docs = "docs/lints.md" ,
+docs = "docs/reference/lints.md" ,
 } ,
 {
 code = "NUPP2208" ,
@@ -76624,7 +76628,7 @@ code = "NUPP3005" ,
 summary = "Generated code that a Lua VM will not load" ,
 rule = "The generator writes Lua and this is that Lua refusing to parse. Almost always it is one limit: a function may capture at most sixty names from around it, and one that reaches past that cannot be loaded at all. A function reading that many things from its scope is usually reading a record it could take as one argument instead. Pass what varies, or gather what it reads into one value and capture that.\n\nAny other spelling of this is a bug in the compiler rather than in the program, and `nupp bc FILE` shows the code it wrote. It is reported where the file is built rather than where the module is first required, because the line a VM would name belongs to generated text and the line here is the one that was written." ,
 related = { "NUPP3004" } ,
-docs = "docs/diagnostics.md#code-families" ,
+docs = "docs/reference/diagnostics.md#code-families" ,
 } ,
 {
 code = "NUPP3001" ,
@@ -76665,7 +76669,7 @@ rule = "`@jit` promises that a function contains no variadic FFI call and "
 wrong = "cdef function printf(format: cstring, ...): int32\n\n@jit\nlocal function hot(): nil\n    printf('%d', 1)\nend\n" ,
 right = "cdef function printf(format: cstring, ...): int32\n\nlocal function cold(): nil\n    printf('%d', 1)\nend\n\njit.off(cold)\n" ,
 related = { "NUPP2502" , "NUPP2514" } ,
-docs = "docs/c-interop.md" ,
+docs = "docs/concepts/c-interop.md" ,
 }
 
 ENTRIES [
@@ -76680,7 +76684,7 @@ rule = "A `noalloc` region may only call operations whose visible bodies or "
 wrong = "local function build(): nil\n    local values = {}\nend\n\nnoalloc do\n    build()\nend\n" ,
 right = "local function update(): nil\n    local n = 1\nend\n\nnoalloc do\n    update()\nend\n" ,
 related = { "NUPP2112" , "NUPP2711" } ,
-docs = "docs/effects.md#allocation-and-raising-regions" ,
+docs = "docs/concepts/effects.md#allocation-and-raising-regions" ,
 }
 
 ENTRIES [
@@ -76695,7 +76699,7 @@ rule = "A `noraise` region may only call operations whose visible bodies or "
 wrong = "local function fail(): nil\n    error('failed')\nend\n\nnoraise do\n    fail()\nend\n" ,
 right = "local function finish(): nil\nend\n\nnoraise do\n    finish()\nend\n" ,
 related = { "NUPP2112" , "NUPP2710" } ,
-docs = "docs/effects.md#allocation-and-raising-regions" ,
+docs = "docs/concepts/effects.md#allocation-and-raising-regions" ,
 }
 
 ENTRIES [ # ENTRIES + 1 ] = {
@@ -76716,7 +76720,7 @@ rule = "LuaJIT has no recording for the bytecode that builds a function, so a "
 .. "reported as NUPP2707, and `jit.off` on the enclosing function silences it. "
 .. "`nupp bc --check` finds the same loops in any file without running it." ,
 related = { "NUPP2505" , "NUPP2707" } ,
-docs = "docs/lints.md" ,
+docs = "docs/reference/lints.md" ,
 }
 
 ENTRIES [
@@ -76782,7 +76786,7 @@ rule = "A string, long string, long comment, interpolation, or number must close
 wrong = "local s = 'oops\nreturn 1\n" ,
 right = "local s = 'oops'\nreturn s\n" ,
 related = { "NUPP1002" , "NUPP1005" } ,
-docs = "docs/diagnostics.md#code-families" ,
+docs = "docs/reference/diagnostics.md#code-families" ,
 }
 
 ENTRIES [
@@ -76794,7 +76798,7 @@ rule = "Certain tokens are always followed by a name: '.', 'function', 'for', 'a
 wrong = "local record Point\n    x: number\nend\n\nlocal function show(p: Point): number\n    return p.\nend\n\nreturn show\n" ,
 right = "local record Point\n    x: number\nend\n\nlocal function show(p: Point): number\n    return p.x\nend\n\nreturn show\n" ,
 related = { "NUPP1002" , "NUPP1004" } ,
-docs = "docs/diagnostics.md#code-families" ,
+docs = "docs/reference/diagnostics.md#code-families" ,
 }
 
 ENTRIES [
@@ -76806,7 +76810,7 @@ rule = "An expression position, whether a parenthesized operand, a call argument
 wrong = "local record Point\n    x: integer\nend\n\nlocal bare = new Point\n\nreturn bare\n" ,
 right = "local record Point\n    x: integer\nend\n\nlocal made = new Point(x = 1)\n\nreturn made\n" ,
 related = { "NUPP1002" , "NUPP1003" } ,
-docs = "docs/diagnostics.md#code-families" ,
+docs = "docs/reference/diagnostics.md#code-families" ,
 }
 
 ENTRIES [
@@ -76818,7 +76822,7 @@ rule = "The catch-all syntax code, used for a structural violation that is not a
 wrong = "return 1\nlocal x = 2\n" ,
 right = "local x = 2\nreturn x\n" ,
 related = { "NUPP1002" , "NUPP1004" } ,
-docs = "docs/diagnostics.md#code-families" ,
+docs = "docs/reference/diagnostics.md#code-families" ,
 }
 
 ENTRIES [
@@ -76830,7 +76834,7 @@ rule = "Arithmetic, comparison, concatenation, length, and LPeg's pattern algebr
 wrong = "local lpeg = require(\"lpeg\")\nlocal pattern = lpeg.P(\"a\") ^ \"two\"\nreturn pattern\n" ,
 right = "local lpeg = require(\"lpeg\")\nlocal pattern = lpeg.P(\"a\") ^ 2\nreturn pattern\n" ,
 related = { "NUPP2005" , "NUPP2006" } ,
-docs = "docs/metamethods.md#diagnostics" ,
+docs = "docs/concepts/metamethods.md#diagnostics" ,
 }
 
 ENTRIES [
@@ -76842,7 +76846,7 @@ rule = "A call needs a function type, an intersection with at least one function
 wrong = "local count: integer = 5\nreturn count()\n" ,
 right = "local function callable(): integer\n    return 5\nend\nreturn callable()\n" ,
 related = { "NUPP2003" , "NUPP2006" } ,
-docs = "docs/metamethods.md#diagnostics" ,
+docs = "docs/concepts/metamethods.md#diagnostics" ,
 }
 
 ENTRIES [
@@ -76876,7 +76880,7 @@ code = "NUPP2102" ,
 summary = "Two project globals declare the same type name" ,
 rule = "A `global` declaration is reachable project-wide with no `require`, so globals share one flat namespace across every file. When two files each declare a global type of the same name, an unqualified use of that name cannot know which declaration it means, and both declaring locations are reported. This is inherently a whole-project condition: within the file that declares a name, its own declaration is already in scope directly and this check is not reached, so a single isolated file cannot exhibit it on its own." ,
 related = { "NUPP2104" , "NUPP2101" } ,
-docs = "docs/modules.md#diagnostics" ,
+docs = "docs/concepts/declarations.md#diagnostics" ,
 }
 
 ENTRIES [
@@ -76886,7 +76890,7 @@ code = "NUPP2104" ,
 summary = "Two project globals declare the same value name" ,
 rule = "A `global record` or `global struct` declaration puts a value in `_G` as well as a type in the project's global type namespace. When two files each declare a global of the same name whose value side collides, an unqualified use of that name as a value cannot know which declaration it means, and both declaring locations are reported. Like NUPP2102, this is a whole-project condition: a file that declares the name resolves its own declaration directly and never reaches this check, so a single isolated file cannot exhibit it on its own." ,
 related = { "NUPP2102" , "NUPP2120" } ,
-docs = "docs/modules.md#diagnostics" ,
+docs = "docs/concepts/declarations.md#diagnostics" ,
 }
 
 ENTRIES [
@@ -76899,7 +76903,7 @@ wrong = "local function shout(text: string): string\n    return txet .. \"!\"\ne
 right = "local function shout(text: string): string\n    return text .. \"!\"\nend\nreturn shout\n" ,
 strict = true ,
 related = { "NUPP2120" , "NUPP2101" } ,
-docs = "docs/modules.md#diagnostics" ,
+docs = "docs/concepts/declarations.md#diagnostics" ,
 }
 
 ENTRIES [
@@ -76935,7 +76939,7 @@ rule = "An `@name` application resolves `name` against a definition: a compiler 
 wrong = "@inline\nlocal function f(): nil\nend\n\nreturn f\n" ,
 right = "local function f(): nil\nend\n\nreturn f\n" ,
 related = { "NUPP2112" , "NUPP2114" } ,
-docs = "docs/annotations.md#defining-an-annotation" ,
+docs = "docs/reference/annotations.md#defining-an-annotation" ,
 }
 
 ENTRIES [
@@ -76947,7 +76951,7 @@ rule = "A definition's `targets` set is the complete list of constructs an appli
 wrong = "@jit\nlocal x = 1\n\nreturn x\n" ,
 right = "@jit\nlocal function f(): nil\nend\n\nreturn f\n" ,
 related = { "NUPP2111" , "NUPP2115" } ,
-docs = "docs/annotations.md#attachment-targets" ,
+docs = "docs/reference/annotations.md#attachment-targets" ,
 }
 
 ENTRIES [ # ENTRIES + 1 ] = {
@@ -76957,7 +76961,7 @@ summary = "A reserved built-in annotation is applied before its behavior is impl
 
 rule = "A built-in definition may carry a reservation naming the feature it is waiting on, ahead of the feature existing. Applying that name still parses and resolves, since the definition is real, but is refused with what it is reserved for rather than silently accepted and doing nothing. No shipped built-in currently carries a reservation -- the mechanism exists for a name registered ahead of its implementation, as `@jit` itself once was." ,
 related = { "NUPP2111" , "NUPP2112" } ,
-docs = "docs/annotations.md#diagnostics" ,
+docs = "docs/reference/annotations.md#diagnostics" ,
 }
 
 ENTRIES [
@@ -76969,7 +76973,7 @@ rule = "@annotationValue and @ref are meaningful only on a field inside a record
 wrong = "local record Plain\n    @annotationValue\n    x: string\nend\n" ,
 right = "@annotation(targets = {\"record\"})\nlocal record Plain\n    @annotationValue\n    x: string\nend\n" ,
 related = { "NUPP2115" , "NUPP2112" } ,
-docs = "docs/annotations.md#single-value-applications" ,
+docs = "docs/reference/annotations.md#single-value-applications" ,
 }
 
 ENTRIES [
@@ -76981,7 +76985,7 @@ rule = "A `typed`-argument annotation checks each supplied argument against the 
 wrong = "@syntax(42)\nlocal value = 1\n\nreturn value\n" ,
 right = "@syntax(\"json\")\nlocal value = 1\n\nreturn value\n" ,
 related = { "NUPP2114" , "NUPP2112" } ,
-docs = "docs/annotations.md#built-in-annotations" ,
+docs = "docs/reference/annotations.md#built-in-annotations" ,
 }
 
 ENTRIES [
@@ -77089,7 +77093,7 @@ rule = "cheader reads the named header at compile time, so its path has to be kn
 wrong = "local mini = cheader(\"mini\" .. \".h\")\nreturn mini\n" ,
 right = "local mini = cheader(\"mini.h\")\nreturn mini\n" ,
 related = { "NUPP2302" } ,
-docs = "docs/c-interop.md#type-the-header-in-place" ,
+docs = "docs/concepts/c-interop.md#type-the-header-in-place" ,
 }
 
 ENTRIES [ # ENTRIES + 1 ] = {
@@ -77101,7 +77105,7 @@ summary = "A cheader path cannot be read" ,
 rule = "cheader resolves its literal path relative to the file, then as written, then against each project root, and reads whichever candidate exists first. When none can be opened, the diagnostic reports why, the same way an unreadable source path is reported." ,
 wrong = "local mini = cheader(\"missing.h\")\nreturn mini\n" ,
 related = { "NUPP2301" , "NUPP0001" } ,
-docs = "docs/c-interop.md#type-the-header-in-place" ,
+docs = "docs/concepts/c-interop.md#type-the-header-in-place" ,
 }
 
 ENTRIES [
@@ -77113,7 +77117,7 @@ rule = "A literal string given directly to ffi.cdef declares to the checker as w
 wrong = "local ffi = require(\"ffi\")\nffi.cdef[[ this is not C ]]\nreturn 0\n" ,
 right = "local ffi = require(\"ffi\")\nffi.cdef[[ int mini_add(int a, int b); ]]\nreturn 0\n" ,
 related = { "NUPP2301" , "NUPP2304" } ,
-docs = "docs/c-interop.md#hand-write-a-small-binding" ,
+docs = "docs/concepts/c-interop.md#hand-write-a-small-binding" ,
 }
 
 ENTRIES [
@@ -77125,7 +77129,7 @@ rule = "ffi.new, ffi.cast, ffi.typeof, ffi.istype, ffi.sizeof, and ffi.alignof r
 wrong = "local ffi = require(\"ffi\")\nffi.cdef[[ struct CstA { int x; }; ]]\nlocal p = ffi.new(\"struct CstNoSuch\")\nreturn p\n" ,
 right = "local ffi = require(\"ffi\")\nffi.cdef[[ struct CstA { int x; }; ]]\nlocal p = ffi.new(\"struct CstA\")\nreturn p\n" ,
 related = { "NUPP2303" , "NUPP2203" } ,
-docs = "docs/c-interop.md#typed-ffi-operations" ,
+docs = "docs/concepts/c-interop.md#typed-ffi-operations" ,
 }
 
 ENTRIES [
@@ -77137,7 +77141,7 @@ rule = "carray(T, n) allocates a zero-based C array of n elements of T. T must r
 wrong = "local record Point\n    x: number\n    y: number\nend\n\nlocal points = carray(Point, 4)\nreturn points\n" ,
 right = "local struct Point\n    x: float\n    y: float\nend\n\nlocal points = carray(Point, 4)\nreturn points\n" ,
 related = { "NUPP2402" , "NUPP2201" } ,
-docs = "docs/c-interop.md#typed-ffi-operations" ,
+docs = "docs/concepts/c-interop.md#typed-ffi-operations" ,
 }
 
 ENTRIES [
@@ -77149,7 +77153,7 @@ rule = "layoutof(T) answers how a reified struct sits in memory: its fields in d
 wrong = "local record Point\n    x: number\n    y: number\nend\n\nreturn layoutof(Point)\n" ,
 right = "local struct Point\n    x: float\n    y: float\nend\n\nreturn layoutof(Point)\n" ,
 related = { "NUPP2401" , "NUPP2201" } ,
-docs = "docs/c-interop.md#read-a-structs-layout" ,
+docs = "docs/concepts/c-interop.md#read-a-structs-layout" ,
 }
 
 ENTRIES [
@@ -77161,7 +77165,7 @@ rule = "Structure-of-arrays storage accepts only a reified struct whose top-leve
 wrong = "local soa = require(\"nupp.mem.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal rows = soa.allocate(ffi.typeof<int32>(), 4)\nreturn rows\n" ,
 right = "local soa = require(\"nupp.mem.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal struct Point\n    x: float\n    y: float\nend\n\nlocal rows = soa.allocate(ffi.typeof<Point>(), 4)\nrows:close()\n" ,
 related = { "NUPP2402" , "NUPP2009" } ,
-docs = "docs/soa.md#diagnostics" ,
+docs = "docs/concepts/structure-of-arrays.md#diagnostics" ,
 }
 
 ENTRIES [
@@ -77257,7 +77261,7 @@ rule = "Every nupp.peg intrinsic is checked against the pattern arguments it nee
 wrong = "const Bad: nupp.peg.Peg<integer> = comptime do\n    return nupp.peg.compile(\"('')*\")\nend\nreturn Bad\n" ,
 right = "const Good: nupp.peg.Peg<integer> = comptime do\n    return nupp.peg.compile(\"('x')*\")\nend\nreturn Good\n" ,
 related = { "NUPP2415" , "NUPP2416" } ,
-docs = "docs/peg.md#repetition" ,
+docs = "docs/modules/nupp/peg.md#repetition" ,
 }
 
 ENTRIES [
@@ -77317,7 +77321,7 @@ rule = "The `string-pointer` lint reports a `ffi.cast<T>(value)` to a pointer ty
 wrong = "local pointer = ffi.cast<cstring>('a' .. 'b')\nprint(pointer)\n" ,
 right = "local text = 'a' .. 'b'\nlocal pointer = ffi.cast<cstring>(text)\nprint(pointer)\n" ,
 related = { "NUPP2608" , "NUPP2603" } ,
-docs = "docs/lints.md#string-pointer" ,
+docs = "docs/reference/lints.md#string-pointer" ,
 }
 
 ENTRIES [
@@ -77329,7 +77333,7 @@ rule = "The `jit-callback` lint reports an `unsafe` cast of a Lua function to a 
 wrong = "unsafe do\n    local callback = function()\n    end\n    local pointer = ffi.cast<voidptr>(callback)\n    local handle = nupp.pin(pointer, callback)\nend\n" ,
 right = "unsafe do\n    local pointer = ffi.cast<voidptr>(8)\n    print(pointer)\nend\n" ,
 related = { "NUPP2604" , "NUPP2603" } ,
-docs = "docs/lints.md#jit-callback" ,
+docs = "docs/reference/lints.md#jit-callback" ,
 }
 
 ENTRIES [
@@ -77341,7 +77345,7 @@ rule = "The `loop-invariant-closure` lint reports a function literal built insid
 wrong = "local function register(item: any, callback: function(): boolean): nil\n    print(item, callback())\nend\n\nlocal function run(items: {any}): nil\n    for _, item in ipairs(items) do\n        register(item, function(): boolean\n            return true\n        end)\n    end\nend\n\nreturn run\n" ,
 right = "local function register(item: any, callback: function(): boolean): nil\n    print(item, callback())\nend\n\nlocal function alwaysTrue(): boolean\n    return true\nend\n\nlocal function run(items: {any}): nil\n    for _, item in ipairs(items) do\n        register(item, alwaysTrue)\n    end\nend\n\nreturn run\n" ,
 related = { "NUPP2515" , "NUPP2707" } ,
-docs = "docs/lints.md#loop-invariant-closure" ,
+docs = "docs/reference/lints.md#loop-invariant-closure" ,
 }
 
 ENTRIES [ # ENTRIES + 1 ] = {
@@ -77351,7 +77355,7 @@ summary = "A record's fields would all fit in C memory" ,
 
 rule = "The `reifiable-record` lint reports a `record` declaration whose every member -- fields, constructors, methods -- is one a `struct` would also accept: every field's type reifies, and nothing else in the body (an indexer, a Lua array part, a declaration-only metamethod, a nested declaration, a property capability, generics, or a declared supertype) rules `struct` out. Declaring it `struct` instead moves instances into C memory, off the collector's graph, at the cost of a fixed layout and giving up `pairs`/table-serializer support without an explicit hook. This is a suggestion rather than a correctness rule, so it defaults to `off`; a project turns it on with `lints = {[\"reifiable-record\"] = \"note\"}` or by raising the whole `performance` category." ,
 related = { "NUPP2201" , "NUPP2012" } ,
-docs = "docs/lints.md#reifiable-record" ,
+docs = "docs/reference/lints.md#reifiable-record" ,
 }
 
 ENTRIES [
@@ -77363,7 +77367,7 @@ rule = "The `else-if` lint reports an `else` block whose only statement is an un
 wrong = "local function classify(primary: boolean, fallback: boolean): nil\n    if primary then\n        print(\"primary\")\n    else\n        if fallback then\n            print(\"fallback\")\n        end\n    end\nend\n\nreturn classify\n" ,
 right = "local function classify(primary: boolean, fallback: boolean): nil\n    if primary then\n        print(\"primary\")\n    elseif fallback then\n        print(\"fallback\")\n    end\nend\n\nreturn classify\n" ,
 related = { "NUPP2107" } ,
-docs = "docs/lints.md#else-if" ,
+docs = "docs/reference/lints.md#else-if" ,
 }
 
 ENTRIES [
@@ -77375,7 +77379,7 @@ rule = "The `jit-boundary` lint reports a call to a `cdef` function declared wit
 wrong = "cdef function printf(format: cstring, ...): int32\n\nlocal function report(value: int32): nil\n    printf(\"%d\", value)\nend\n\nreturn report\n" ,
 right = "cdef function printf(format: cstring, ...): int32\n\nlocal function coldReport(value: int32): nil\n    printf(\"%d\", value)\nend\njit.off(coldReport)\n\nlocal function report(value: int32): nil\n    coldReport(value)\nend\n\nreturn report\n" ,
 related = { "NUPP2707" , "NUPP2502" } ,
-docs = "docs/lints.md#jit-boundary" ,
+docs = "docs/reference/lints.md#jit-boundary" ,
 }
 
 ENTRIES [
@@ -77387,7 +77391,7 @@ rule = "An affine binding or affine field is discharged by exactly one move, dro
 wrong = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal function useTwice(): nil\n    local value = resource_new()\n    drop(value)\n    drop(value)\nend\n\nreturn useTwice\n" ,
 right = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal function useOnce(): nil\n    local value = resource_new()\n    drop(value)\nend\n\nreturn useOnce\n" ,
 related = { "NUPP2602" , "NUPP2603" } ,
-docs = "docs/ownership.md#diagnostics" ,
+docs = "docs/type-system/ownership.md#diagnostics" ,
 }
 
 ENTRIES [
@@ -77399,7 +77403,7 @@ rule = "A capability-qualified value only accepts the operations its current sta
 wrong = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal value = resource_new()\ndo\n    local view = borrow(value)\n    resource_free(value)\nend\nresource_free(value)\n" ,
 right = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal value = resource_new()\ndo\n    local view = borrow(value)\n    print(view.value)\nend\nresource_free(value)\n" ,
 related = { "NUPP2601" , "NUPP2608" , "NUPP2615" } ,
-docs = "docs/ownership.md#diagnostics" ,
+docs = "docs/type-system/ownership.md#diagnostics" ,
 }
 
 ENTRIES [
@@ -77411,7 +77415,7 @@ rule = "Offsetting a raw C pointer with `+` or `-` needs a borrowed, rooted poin
 wrong = "cdef struct resource\n    value: int32\nend\n\nlocal function advance(borrows base: resource*): resource*\n    return base + 1\nend\n\nreturn advance\n" ,
 right = "cdef struct resource\n    value: int32\nend\n\nlocal function advance(borrows base: resource*): resource* borrows (base)\n    unsafe do\n        return base + 1\n    end\nend\n\nreturn advance\n" ,
 related = { "NUPP2001" , "NUPP2004" , "NUPP2602" } ,
-docs = "docs/spans.md#diagnostics" ,
+docs = "docs/modules/nupp/mem/span.md#diagnostics" ,
 }
 
 ENTRIES [
@@ -77423,7 +77427,7 @@ rule = "A result annotated with an owning (affine) type promises every caller a 
 wrong = "local record Buffer\n    value: string\nend\n\nlocal function closeBuffer(takes value: Buffer): nil\nend\n\nlocal function bad(borrows source: Buffer): affine(Buffer, closeBuffer)\n    return source\nend\n\nreturn bad\n" ,
 right = "local record Buffer\n    value: string\nend\n\nlocal function ok(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nreturn ok\n" ,
 related = { "NUPP2608" , "NUPP2619" } ,
-docs = "docs/ownership.md#borrowing-and-pinning" ,
+docs = "docs/type-system/ownership.md#borrowing-and-pinning" ,
 }
 
 ENTRIES [
@@ -77435,7 +77439,7 @@ rule = "`borrows (param)` on a result ties the result's lifetime to a live argum
 wrong = "local record Buffer\n    value: string\nend\n\nlocal function bad(takes value: Buffer): Buffer borrows (value)\n    return value\nend\n\nreturn bad\n" ,
 right = "local record Buffer\n    value: string\nend\n\nlocal function ok(borrows value: Buffer): Buffer borrows (value)\n    return value\nend\n\nreturn ok\n" ,
 related = { "NUPP2109" , "NUPP2616" } ,
-docs = "docs/ownership.md#borrowing-and-pinning" ,
+docs = "docs/type-system/ownership.md#borrowing-and-pinning" ,
 }
 
 ENTRIES [
@@ -77447,7 +77451,7 @@ rule = "A field declared `T borrows (source)` must be provably derived from the 
 wrong = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal right = new Buffer(value = \"right\")\nlocal cursor = new Cursor(source = left, bytes = view(right))\nprint(cursor.bytes.value)\n" ,
 right = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal cursor = new Cursor(source = left, bytes = view(left))\nprint(cursor.bytes.value)\n" ,
 related = { "NUPP2602" , "NUPP2203" , "NUPP2707" } ,
-docs = "docs/ownership.md#borrowing-and-pinning" ,
+docs = "docs/type-system/ownership.md#borrowing-and-pinning" ,
 }
 
 ENTRIES [
@@ -77459,7 +77463,7 @@ rule = "Every field of a reified `struct` lowers to a literal C declarator insid
 wrong = "local record Widget\n    id: integer\nend\n\nlocal struct Holder\n    items: Widget*[3]\nend\n\nreturn Holder\n" ,
 right = "cdef struct Widget\n    id: integer\nend\n\nlocal struct Holder\n    items: Widget*\n    count: int32\nend\n\nreturn Holder\n" ,
 related = { "NUPP2201" , "NUPP3003" , "NUPP3004" } ,
-docs = "docs/c-interop.md#type-mapping" ,
+docs = "docs/concepts/c-interop.md#type-mapping" ,
 }
 
 ENTRIES [
@@ -77471,7 +77475,7 @@ rule = "`cdef struct` and `cdef function` declare literal C, and every field and
 wrong = "local record Widget\n    id: integer\nend\n\ncdef function inspect(target: Widget*)\n\nreturn inspect\n" ,
 right = "cdef struct Widget\n    id: integer\nend\n\ncdef function inspect(target: Widget*)\n\nreturn inspect\n" ,
 related = { "NUPP2203" , "NUPP3002" , "NUPP3004" } ,
-docs = "docs/c-interop.md#type-mapping" ,
+docs = "docs/concepts/c-interop.md#type-mapping" ,
 }
 
 ENTRIES [
@@ -77483,7 +77487,7 @@ rule = "`ffi.new<T>`, `ffi.cast<T>`, `ffi.typeof<T>` and their siblings take T a
 wrong = "local record Widget\n    id: integer\nend\n\nlocal w = ffi.new<Widget>()\nreturn w\n" ,
 right = "local struct Widget\n    id: integer\nend\n\nlocal w = ffi.new<Widget>()\nreturn w\n" ,
 related = { "NUPP2203" , "NUPP3002" , "NUPP3003" } ,
-docs = "docs/c-interop.md#type-mapping" ,
+docs = "docs/concepts/c-interop.md#type-mapping" ,
 }
 
 ENTRIES [
@@ -77493,7 +77497,7 @@ code = "NUPP4001" ,
 summary = "The formatter's own output would change the token stream" ,
 rule = "Formatting may only move whitespace, reflow comments, add or remove a schema-proven single-value annotation label, and parenthesize a method call's sugar-form arguments. Before writing its result the formatter re-lexes it and compares the token fingerprint against the input; a mismatch means the rewrite it just performed would have changed the program's meaning, so it discards the rewrite and leaves the file untouched instead of risking that change." ,
 related = { } ,
-docs = "docs/diagnostics.md#code-families" ,
+docs = "docs/reference/diagnostics.md#code-families" ,
 }
 
 ENTRIES [
@@ -77503,7 +77507,7 @@ code = "NUPP5001" ,
 summary = "A running program cannot apply a change without a restart" ,
 rule = "Hot reload replaces a watched module's callable bodies in place, but cannot rebind top-level executable statements or initializers, add, remove, rename or move a named declaration, change a callable's signature or capture set, change a record, struct, native or component layout, or repatch a function that took ownership of a cleanup-bearing capture. Loaded FFI declarations, native libraries, and values already built from them are likewise fixed for the life of the process. Any such edit is rejected with NUPP5001 and the previous generation keeps running until the process restarts." ,
 related = { } ,
-docs = "docs/tooling/hot-reload.md#changes-that-require-restart" ,
+docs = "docs/guides/hot-reload.md#changes-that-require-restart" ,
 }
 
 local byCode = { }
@@ -77585,7 +77589,7 @@ nil ,  right =
 nil ,  strict =
 false ,  related =
 { } ,  docs =
-lint and "docs/lints.md" or family . docs ,  family =
+lint and "docs/reference/lints.md" or family . docs ,  family =
 true }, explain.Entry)
 
 end
@@ -80098,6 +80102,7 @@ end ;__nuppExports["displayWidth"]=displayWidth
 end
 package.preload["nupp.compiler.fs"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppBytes NuppBytes;const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);typedef struct{uint32_t kind;bool readOnly;uint64_t size;double modified;}NuppFileInfo;bool nuppFilesInfo(const uint8_t*,size_t,bool,NuppFileInfo*);NuppBytes*nuppFilesReadLink(const uint8_t*,size_t);bool nuppFilesCreateSymlink(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppFilesSetReadOnly(const uint8_t*,size_t,bool);bool nuppFilesCreateDirectory(const uint8_t*,size_t);bool nuppFilesRemove(const uint8_t*,size_t,bool);bool nuppFilesRename(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppFilesList(const uint8_t*,size_t);NuppBytes*nuppFilesCreateTemporary(const uint8_t*,size_t,const uint8_t*,size_t,const uint8_t*,size_t,bool);NuppBytes*nuppFilesCurrentDirectory(void);NuppBytes*nuppFilesUserFolder(uint32_t);typedef struct NuppFile NuppFile;NuppFile*nuppFileOpen(const uint8_t*,size_t,uint32_t);int64_t nuppFileRead(NuppFile*,uint8_t*,size_t);int64_t nuppFileWrite(NuppFile*,const uint8_t*,size_t);int64_t nuppFileSeek(NuppFile*,int64_t,uint32_t);int64_t nuppFileSize(NuppFile*);bool nuppFileFlush(NuppFile*);bool nuppFileClose(NuppFile*);typedef struct NuppRequest NuppRequest;NuppRequest*nuppFsSubmitRead(const uint8_t*,size_t);NuppRequest*nuppFsSubmitWrite(const uint8_t*,size_t,const uint8_t*,size_t,uint32_t);NuppRequest*nuppFsSubmitCopy(const uint8_t*,size_t,const uint8_t*,size_t);int32_t nuppFsStatus(const NuppRequest*);const uint8_t*nuppFsData(const NuppRequest*);size_t nuppFsLength(const NuppRequest*);const char*nuppFsError(const NuppRequest*);bool nuppFsCancel(NuppRequest*);void nuppFsDestroy(NuppRequest*);size_t nuppFsPoll(void);size_t nuppFsWait(uint64_t);size_t nuppFsPending(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end __nuppLazy(__nuppIO,"files",function() local native=__nuppNative();local ffi,C=native.ffi,native.C;ffi.cdef[[NuppBytes*nuppFilesGlob(const uint8_t*,size_t);]];local files={};local record=ffi.new("NuppFileInfo[1]") local KINDS={[1]="file",[2]="directory",[3]="other",[4]="symlink"} local ENTRIES={f="file",d="directory",l="symlink",o="other"} local FOLDERS={home=0,documents=1,downloads=2,desktop=3,pictures=4,music=5,videos=6} local MODES={r=0,w=1,a=2,["r+"]=3,["w+"]=4,["a+"]=5} local ORIGINS={set=0,current=1,["end"]=2} local READ_SIZE=65536 local PENDING,READY=0,1 local SOURCE,PRIORITY="nupp-files",20 local waits={};local suspending local File={};File.__index=File;local Reader={};Reader.__index=Reader;local Writer={};Writer.__index=Writer local function named(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.toString then return value:toString()end;error("nupp: io.files "..what.." must be a path or a string",level)end local function done(answered)if answered then return true end;return false,native.error()end local function answer(handle)if handle==nil then return nil,native.error()end;return native.bytes(handle)end local function described(path,follow,level)local text=named(path,"path",level+1);if not C.nuppFilesInfo(text,#text,follow,record)then return nil end;return record[0]end local function optional(options,field,level)local value=options and options[field];if value==nil then return""end;if type(value)~="string"then error("nupp: io.files temporary "..field.." must be a string",level)end;return value end local function temporary(options,directory,level)local root=options and options.directory and named(options.directory,"temporary directory",level+1)or"";local prefix=optional(options,"prefix",level+1);local suffix=optional(options,"suffix",level+1);return answer(C.nuppFilesCreateTemporary(root,#root,prefix,#prefix,suffix,#suffix,directory))end local function payload(value,what,level)if type(value)=="string"then return value end;if type(value)=="table"and value.getString then return value:getString()end;error("nupp: io.files "..what.." must be bytes or a byte view",level)end local function harvest()local moved=0;local index=#waits;while index>0 do local entry=waits[index];if C.nuppFsStatus(entry.handle)~=PENDING then waits[index]=waits[#waits];waits[#waits]=nil;moved=moved+1;entry.resume(true)end;index=index-1 end;return moved end local function polled()C.nuppFsPoll();return harvest()end local function slept(waitMs)C.nuppFsWait(waitMs);return harvest()end local function forget(entry)for index=1,#waits do if waits[index]==entry then waits[index]=waits[#waits];waits[#waits]=nil;return end end end local function runtime()if suspending==nil then suspending=require("nupp.suspension")end;return suspending end local function await(handle)if C.nuppFsStatus(handle)~=PENDING then return end;local suspension=runtime();suspension.suspend("file transfer",function(resume,context)local entry={handle=handle,resume=resume};context:source(SOURCE,PRIORITY,polled,slept);waits[#waits+1]=entry;if C.nuppFsStatus(handle)~=PENDING then forget(entry);resume(true);return nil end;return function()forget(entry);C.nuppFsCancel(handle)end end)end local function settled(handle)if handle==nil then return nil,native.error()end;await(handle);if C.nuppFsStatus(handle)~=READY then local reason=ffi.string(C.nuppFsError(handle));C.nuppFsDestroy(handle);return nil,reason end;return handle end local function transferred(handle)local done,reason=settled(handle);if not done then return false,reason end;C.nuppFsDestroy(done);return true end local function fetched(handle)local done,reason=settled(handle);if not done then return nil,reason end;local out=ffi.string(C.nuppFsData(done),tonumber(C.nuppFsLength(done)));C.nuppFsDestroy(done);return out end local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: io.files "..what.." must be an integer",level)end;return value end local function counted(value,what,level)if whole(value,what,level)<0 then error("nupp: io.files "..what.." must not be negative",level)end;return value end local function live(self,what,level)if self._closed then error("nupp: io.files "..what.." is closed",level)end;return self end function File:isReleased()return self._closed end function File:close()if self._closed then return true end;self._closed=true;local handle=self._handle;self._handle=nil;C.nuppFileClose(handle);return true end function File:size()live(self,"File",2);local size=tonumber(C.nuppFileSize(self._handle));if size<0 then return nil,native.error()end;return size end function File:seek(offset,origin)live(self,"File",2);local whence=ORIGINS[origin or"set"];if whence==nil then error("nupp: io.files has no seek origin named "..tostring(origin),2)end;local at=tonumber(C.nuppFileSeek(self._handle,whole(offset or 0,"seek offset",2),whence));if at<0 then return nil,native.error()end;return at end function File:position()live(self,"File",2);return self:seek(0,"current")end function File:flush()live(self,"File",2);if C.nuppFileFlush(self._handle)then return true end;return false,native.error()end function File:newReader()live(self,"File",2);return setmetatable({_file=self,_scratch=nil,_capacity=0,_closed=false},Reader)end function File:newWriter()live(self,"File",2);return setmetatable({_file=self,_closed=false},Writer)end local function scratch(self,count)if count>self._capacity then local size=self._capacity*2;if size<count then size=count end;if size<READ_SIZE then size=READ_SIZE end;self._scratch=ffi.new("uint8_t[?]",size);self._capacity=size end;return self._scratch end local function usable(self)if self._closed then return nil,"the reader is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Reader:read(count)local file,reason=usable(self);if not file then return nil,reason end;count=whole(count,"Reader:read count",2);if count<1 then count=1 end;local into=scratch(self,count);local got=tonumber(C.nuppFileRead(file._handle,into,count));if got<0 then return nil,native.error()end;if got==0 then return""end;return ffi.string(into,got)end function Reader:readInto(destination,offset,count)local file,reason=usable(self);if not file then return nil,reason end;offset=counted(offset or 0,"Reader:readInto offset",2);count=counted(count or READ_SIZE,"Reader:readInto count",2);if count==0 then return 0 end;local data=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if data==nil and capacity==nil then local chunk,why=self:read(count);if chunk==nil then return nil,why end;if #chunk==0 then return 0 end;destination:setString(chunk,offset);return #chunk end;destination:ensureCapacity(offset+count);data=rawget(destination,"_data");local length=rawget(destination,"_length");if offset>length then ffi.fill(data+length,offset-length,0)end;local got=tonumber(C.nuppFileRead(file._handle,data+offset,count));if got<0 then return nil,native.error()end;if offset+got>length then rawset(destination,"_length",offset+got)end;return got end function Reader:transferTo(destination)local file,reason=usable(self);if not file then return nil,reason end;local total=0;while true do local chunk,why=self:read(READ_SIZE);if chunk==nil then return nil,why end;if chunk==""then return total end;local wrote,failure=destination:write(chunk);if not wrote then return nil,failure end;total=total+#chunk end end function Reader:close()self._closed=true;self._scratch=nil;self._capacity=0;return true end local function writable(self)if self._closed then return nil,"the writer is closed"end;if self._file._closed then return nil,"the file is closed"end;return self._file end function Writer:write(bytes)local file,reason=writable(self);if not file then return false,reason end;if type(bytes)~="string"then error("nupp: io.files Writer:write needs a string",2)end;if C.nuppFileWrite(file._handle,bytes,#bytes)<0 then return false,native.error()end;return true end function Writer:writeFrom(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeFrom offset",2);count=counted(count==nil and length-offset or count,"Writer:writeFrom count",2);if offset+count>length then error("nupp: io.files Writer:writeFrom range is past the end",2)end;if count==0 then return 0 end;local data=rawget(source,"_data");if data==nil then local wrote,failure=self:write(source:getString(offset,count));if not wrote then return nil,failure end;return count end;if C.nuppFileWrite(file._handle,data+offset,count)<0 then return nil,native.error()end;return count end function Writer:writeView(source,offset,count)local file,reason=writable(self);if not file then return nil,reason end;local length=source:length();offset=counted(offset or 0,"Writer:writeView offset",2);count=counted(count==nil and length-offset or count,"Writer:writeView count",2);if offset+count>length then error("nupp: io.files Writer:writeView range is past the end",2)end;local wrote,failure=self:write(source:getString():sub(offset+1,offset+count));if not wrote then return nil,failure end;return count end function Writer:flush()local file,reason=writable(self);if not file then return false,reason end;return file:flush()end function Writer:close()self._closed=true;return true end function files.info(path)local found=described(path,true,2);if not found then return nil,native.error()end;return{kind=KINDS[tonumber(found.kind)]or"other",size=tonumber(found.size),modified=found.modified,readOnly=found.readOnly}end function files.exists(path)return described(path,true,2)~=nil end function files.isFile(path)local found=described(path,true,2);return found~=nil and found.kind==1 end function files.isDirectory(path)local found=described(path,true,2);return found~=nil and found.kind==2 end function files.isSymlink(path)local found=described(path,false,2);return found~=nil and found.kind==4 end function files.readLink(path)local text=named(path,"path",2);return answer(C.nuppFilesReadLink(text,#text))end function files.createSymlink(target,link,kind)local to=named(target,"symlink target",2);local at=named(link,"symlink path",2);if kind~=nil and kind~="file"and kind~="directory"then error("nupp: io.files symlink kind must be 'file' or 'directory'",2)end;return done(C.nuppFilesCreateSymlink(to,#to,at,#at,kind=="directory"))end function files.setReadOnly(path,readOnly)local text=named(path,"path",2);return done(C.nuppFilesSetReadOnly(text,#text,readOnly and true or false))end function files.createDirectory(path)local text=named(path,"path",2);return done(C.nuppFilesCreateDirectory(text,#text))end function files.remove(path,recursive)local text=named(path,"path",2);return done(C.nuppFilesRemove(text,#text,recursive and true or false))end function files.rename(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return done(C.nuppFilesRename(source,#source,destination,#destination))end function files.list(path)local text=named(path,"path",2);local handle=C.nuppFilesList(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local entries,at={},1;while at<=#blob do local stop=blob:find("\0",at+1,true);entries[#entries+1]={kind=ENTRIES[blob:sub(at,at)]or"other",name=blob:sub(at+1,stop-1)};at=stop+1 end;return entries end function files.glob(pattern)local text=named(pattern,"glob pattern",2);local handle=C.nuppFilesGlob(text,#text);if handle==nil then return nil,native.error()end;local blob=native.bytes(handle);local matches,at={},1;while at<=#blob do local stop=blob:find("\0",at,true);if not stop then matches[#matches+1]=blob:sub(at);break end;matches[#matches+1]=blob:sub(at,stop-1);at=stop+1 end;return matches end local Temporary={};Temporary.__index=Temporary;Temporary.__tostring=function(self)return self._text end function Temporary:toString()return self._text end function Temporary:isReleased()return self._closed end function Temporary:persist(destination)if self._closed then return false,"the temporary path is released"end;local to=named(destination,"destination path",2);local moved,reason=done(C.nuppFilesRename(self._text,#self._text,to,#to));if not moved then return false,reason end;self._closed=true;return true end function Temporary:close()if self._closed then return true end;self._closed=true;return done(C.nuppFilesRemove(self._text,#self._text,self._directory))end File.drop=File.close;Reader.drop=Reader.close;Writer.drop=Writer.close;Temporary.drop=Temporary.close function files.createTemporaryFile(options)local text,reason=temporary(options,false,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=false,_closed=false},Temporary)end function files.createTemporaryDirectory(options)local text,reason=temporary(options,true,2);if not text then return nil,reason end;return setmetatable({_text=text,_directory=true,_closed=false},Temporary)end function files.read(path)local text=named(path,"path",2);return fetched(C.nuppFsSubmitRead(text,#text))end function files.write(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,0))end function files.append(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,1))end function files.writeAtomic(path,bytes)local text=named(path,"path",2);local out=payload(bytes,"contents",2);return transferred(C.nuppFsSubmitWrite(text,#text,out,#out,2))end function files.copy(from,to)local source=named(from,"source path",2);local destination=named(to,"destination path",2);return transferred(C.nuppFsSubmitCopy(source,#source,destination,#destination))end function files.pendingTransfers()return tonumber(C.nuppFsPending())end function files.open(path,mode)local text=named(path,"path",2);local selected=MODES[mode or"r"];if selected==nil then error("nupp: io.files has no mode named "..tostring(mode),2)end;local handle=C.nuppFileOpen(text,#text,selected);if handle==nil then return nil,native.error()end;return setmetatable({_handle=handle,_closed=false},File)end function files.lines(path)local file,reason=files.open(path,"r");if not file then return nil,reason end;local reader=file:newReader();local held,finished="",false;local function trimmed(line)if line:sub(-1)=="\r"then return line:sub(1,-2)end;return line end;return function()if finished then return nil end;while true do local stop=held:find("\n",1,true);if stop then local line=held:sub(1,stop-1);held=held:sub(stop+1);return trimmed(line)end;local chunk=reader:read(READ_SIZE);if chunk==nil or chunk==""then finished=true;file:close();if #held>0 then local line=held;held="";return trimmed(line)end;return nil end;held=held..chunk end end end function files.currentDirectory()return answer(C.nuppFilesCurrentDirectory())end function files.userFolder(which)local index=FOLDERS[which];if index==nil then error("nupp: io.files has no user folder named "..tostring(which),2)end;return answer(C.nuppFilesUserFolder(index))end return files end);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
 
 
 
@@ -113376,7 +113381,8 @@ final byte.
 `replace` changes the first match and `replaceAll` changes each one, using
 either literal text or a callback returning text. Empty matches advance one byte
 so iteration and replacement cannot stall. None of these operations allocates
-match records or result tuples; see `docs/peg.md` for the complete contracts.
+match records or result tuples; see `docs/modules/nupp/peg.md` for the complete
+contracts.
 
 ### Writing expressions
 
@@ -113471,8 +113477,8 @@ capture packs through ordinary pattern composition.
 comparisons. Runtime textual grammars compile through LPeg's `re` module without
 `loadstring` and are cached by grammar. Runtime definition values use
 `{definitions = values}`; static definitions remain factory inputs. The
-expression syntax is LPeg 1.1 `re`; `docs/peg.md` documents native result packs
-and explicit table captures.
+expression syntax is LPeg 1.1 `re`; `docs/modules/nupp/peg.md` documents native
+result packs and explicit table captures.
 ]=] ,  example =
 [=[
 local m = {}
@@ -113935,6 +113941,7 @@ local text = title : lower ( ) : gsub ( "[^%w]+" , "-" )
 
 return ( text : gsub ( "^%-+" , "" ) : gsub ( "%-+$" , "" ) )
 end
+
 
 
 
@@ -135547,9 +135554,9 @@ local coroutine: {
 -- The base functions below say `nosuspend`: calling one cannot suspend the caller.
 --
 -- Two of them are a stated trust rather than a proof, in the same category as a
--- metamethod contract (`docs/metamethods.md`). `tostring` reaches `__tostring` and
--- `pairs` reaches `__pairs`, and on this baseline an ordinary metamethod may yield, so
--- a pathological one could. The trade is deliberate: without it a `table.sort`
+-- metamethod contract (`docs/concepts/metamethods.md`). `tostring` reaches `__tostring`
+-- and `pairs` reaches `__pairs`, and on this baseline an ordinary metamethod may yield,
+-- so a pathological one could. The trade is deliberate: without it a `table.sort`
 -- comparator cannot call `tostring`, which is most comparators, and a check nobody can
 -- leave on protects nothing. A metamethod that does yield still fails loudly, because
 -- the C frame underneath raises.
@@ -137710,9 +137717,9 @@ record nupp.io
 
         --- An open file, and the obligation to close it.
         ---
-        --- Readers and writers opened from it satisfy the same [`nupp.io.Reader`
-        --- and `nupp.io.Writer`](../docs/io.md) contracts a buffer's do, so code
-        --- written against those works over a file without knowing one is there.
+        --- Readers and writers opened from it satisfy the same [`nupp.io.Reader` and
+        --- `nupp.io.Writer`](../docs/modules/nupp/io.md) contracts a buffer's do, so
+        --- code written against those works over a file without knowing one is there.
         record File
             --- Opens a forward-only reader at the file's current position.
             --- @param self this file
@@ -138997,7 +139004,7 @@ That lowering is the whole reason the module exists. It is the one construction
 boundary an AOT builder may cross, and it stays a narrow one: no `lua_State`, no
 stack index, no collector object appears in any signature here. Outside `@aot`
 the module still works and still answers the same, but it buys nothing over
-writing the tables directly. See [the AOT guide](../../docs/tooling/aot.md) for
+writing the tables directly. See [the AOT guide](../../docs/guides/ahead-of-time.md) for
 what the generated code is allowed to do.
 
 Two shapes are offered, and a parser picks one.
@@ -140213,7 +140220,7 @@ on fallthrough, on error, and on structured control flow alike.
 Holding a runtime number of owners is a separate subject; that is
 [](nupp.owners.set).
 
-See `docs/ownership.md`.
+See `docs/type-system/ownership.md`.
 ]]
 
 local file = {}
@@ -144568,7 +144575,7 @@ a borrow lives as long as the set. [](nupp.owners.store) is the same idea with
 generation and type-policy checks, so an individual owner can cross untyped storage
 and be recovered.
 
-See `docs/ownership.md`.
+See `docs/type-system/ownership.md`.
 ]]
 
 local set = {}
@@ -144719,7 +144726,7 @@ kind of erased entry when a program only needs them discharged together, in reve
 at one lexical boundary; the generation and policy checks here are what let a single
 owner be erased through untyped Lua and claimed back.
 
-See `docs/ownership.md`.
+See `docs/type-system/ownership.md`.
 ]]
 
 local store = {}
@@ -145669,7 +145676,7 @@ end
 
 -- A record's namespace table is the metatable its instances are stamped with, so
 -- installing a declared contract is an ordinary assignment to it. The cast is because
--- the contract is not a field: see docs/metamethods.md.
+-- the contract is not a field: see docs/concepts/metamethods.md.
 (profile.TraceReport as {[string]: any}).__tostring = serializeTraceReport;
 
 (profile.SampleReport as {[string]: any}).__tostring = function(report: profile.SampleReport): string
