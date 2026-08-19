@@ -42,12 +42,6 @@ local FEATURES: {[string]: native.Feature} = {
     ["stdlib.derives"] = {name = "derives", globals = {},},
     ["stdlib.io"] = {name = "io", globals = {"nupp.io.newBuffer", "nupp.io.newStringReader"},},
     ["stdlib.math"] = {name = "math", globals = {"nupp.math"},},
-    ["stdlib.bitset"] = {
-        name = "bitset",
-        globals = {"nupp.data.bitset"},
-        -- Checked Nupp reached through the intrinsic namespace. The installer loads the
-        -- module, so there is no native host feature and no shared module name.
-    },
     ["stdlib.fnv1a64"] = {name = "fnv1a64", globals = {"nupp.data.fnv1a64"},},
     ["stdlib.checksums"] = {name = "checksums", globals = {"nupp.data.crc32"},},
     [

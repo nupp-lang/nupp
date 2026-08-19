@@ -204,7 +204,6 @@ function M.nativeFeaturesAreResolvedEffects()
       ["nupp.io.URI.new('https://example.com')"] = "native.uri",
       ["nupp.data.uuid7()"] = "native.uuid",
       ["nupp.data.sha256('hello')"] = "native.sha256",
-      ["nupp.data.bitset.create(64)"] = "stdlib.bitset",
    }
    for source, effect in pairs(expected) do
       local found = effectsOf(source)
@@ -357,21 +356,20 @@ function M.compilerProvidedPureLibraries()
    assert(ok, problem)
 end
 
-function M.bitsetsReachTheCheckedModuleThroughTheNamespace()
-   -- The installer loads an ordinary checked Nupp module rather than carrying a
-   -- second implementation, so this is the only place the two meet.
-   local bootstrap = stdlib.bootstrap({["stdlib.bitset"] = true})
-   local previous = rawget(_G, "nupp")
-   _G.nupp = nil
-   local chunk = assert(loadstring(bootstrap .. [[
-      local set = nupp.data.bitset.create(64)
+-- Bitsets are an ordinary module, so `nupp.data.bitset` in source is a qualified
+-- module path rather than a field an installer publishes. Nothing is installed to
+-- reach, and the module is what both spellings arrive at.
+function M.bitsetsReachTheCheckedModule()
+   local chunk = assert(loadstring([[
+      local bitset = require("nupp.data.bitset")
+      local set = bitset.create(64)
       assert(set:count() == 0)
       set:set(5)
       set:setRange(40, 70)
       assert(set:count() == 32)
       assert(set:get(5) and set:get(70) and not set:get(71))
 
-      local other = nupp.data.bitset.create(64)
+      local other = bitset.create(64)
       other:setRange(0, 50)
       set:andWith(other)
       assert(set:count() == 12)
@@ -384,12 +382,11 @@ function M.bitsetsReachTheCheckedModuleThroughTheNamespace()
       assert(target[0] == 5, "first position")
       assert(resume == 43, "and reported where to carry on")
 
-      assert(nupp.data.bitset.WORD_BITS == 32)
+      assert(bitset.WORD_BITS == 32)
       assert(set:wordAt(0) == 32)
-      assert(nupp.data.bitset.create(8) ~= nupp.data.bitset.create(8))
+      assert(bitset.create(8) ~= bitset.create(8))
    ]]))
    local ok, problem = pcall(chunk)
-   _G.nupp = previous
    assert(ok, problem)
 end
 

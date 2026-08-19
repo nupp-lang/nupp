@@ -1,5 +1,4 @@
-@!internal
-module nupp.data.bitsetimpl
+module nupp.data.bitset
 
 --[[
 Multi-word bitsets over GC-managed 32-bit words.
@@ -109,11 +108,6 @@ end
 --- Reading, clearing and testing a position past the end are defined and cheap.
 --- Setting one grows, which reallocates private storage; nothing observable
 --- survives that, because the storage is never handed out.
---- The prelude declares the same shape as `nupp.data.bitset.Bitset`. This does not
---- state conformance to it: stage-0 builds this file with the previous prelude, so a
---- compiler source cannot depend on a declaration added in the same commit. The
---- ambient surface is held to this one by `stdlibtest`, which runs the installed
---- namespace against this module.
 --- @export
 record bitset.Bitset
     --- Zero-based words, lowest bit first. Every word from `used` up to

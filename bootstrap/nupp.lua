@@ -75344,6 +75344,7 @@ local BUNDLED_SOURCE = {
 [ "nupp.simd" ] = "/nupp/simd.nupp" ,
 [ "nupp.mem.heap" ] = "/nupp/mem/heap.nupp" ,
 [ "nupp.mem.soa" ] = "/nupp/mem/soa.nupp" ,
+[ "nupp.data.bitset" ] = "/nupp/data/bitset.nupp" ,
 [ "nupp.log" ] = "/nupp/log.g.nupp" ,
 [ "nupp.suspension" ] = "/nupp/suspension.nupp" ,
 [ "nupp.io.process" ] = "/nupp/io/process.nupp" ,
@@ -104809,12 +104810,6 @@ local FEATURES = {
 [ "stdlib.derives" ] = { name = "derives" , globals = { } , } ,
 [ "stdlib.io" ] = { name = "io" , globals = { "nupp.io.newBuffer" , "nupp.io.newStringReader" } , } ,
 [ "stdlib.math" ] = { name = "math" , globals = { "nupp.math" } , } ,
-[ "stdlib.bitset" ] = {
-name = "bitset" ,
-globals = { "nupp.data.bitset" } ,
-
-
-} ,
 [ "stdlib.fnv1a64" ] = { name = "fnv1a64" , globals = { "nupp.data.fnv1a64" } , } ,
 [ "stdlib.checksums" ] = { name = "checksums" , globals = { "nupp.data.crc32" } , } ,
 [
@@ -117377,14 +117372,6 @@ return backend end
 ]=]
 )
 
-
-
-
-
-local BITSET = compact ( [=[
-__nuppLazy(__nuppData,"bitset",function()return require("nupp.data.bitsetimpl")end)
-]=] )
-
 local SHA256 = compact (
 [=[
 __nuppLazy(__nuppData,"sha256",function()local native=__nuppNative();return function(value)local bytes=type(value)=="string"and value or value:getString();local output=native.ffi.new("char[65]");if not native.C.nuppSha256(bytes,#bytes,output)then error("nupp: SHA-256 input is invalid",2)end;return native.ffi.string(output)end end)
@@ -117438,9 +117425,6 @@ out [ # out + 1 ] = REFLECTION
 end
 if effects [ "stdlib.derives" ] then
 out [ # out + 1 ] = DERIVES
-end
-if effects [ "stdlib.bitset" ] then
-out [ # out + 1 ] = BITSET
 end
 local hasNative = effects [
 "native.path"
@@ -123512,9 +123496,8 @@ end
 const __nuppExportValue= types ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.types"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.types"]=__nuppExports;return __nuppExports
 end
-package.preload["nupp.data.bitsetimpl"] = function(...)
+package.preload["nupp.data.bitset"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
-
 
 
 
@@ -123618,11 +123601,6 @@ local function wordsFor ( bits )
 local words = rshift ( bits + BIT_MASK , WORD_SHIFT )
 return words < 1 ? 1 : words
 end
-
-
-
-
-
 
 
 
@@ -124206,7 +124184,7 @@ false }, bitset.Bitset)
 end
 
 const __nuppExportValue= bitset ;__nuppExports=__nuppExportValue
- end);if not __nuppOk then package.loaded["nupp.data.bitsetimpl"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.bitsetimpl"]=__nuppExports;return __nuppExports
+ end);if not __nuppOk then package.loaded["nupp.data.bitset"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.bitset"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.data.valuebuilder"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();const __nuppNew = require("table.new"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end __nuppLazy(__nuppData,"utf8",function()local native=require("lua-utf8");local u={};local function bytes(value)if type(value)=="string"then return value end;return value:getString()end;local function offset(value,at,allowEnd)if type(at)~="number"or at~=math.floor(at)then error("nupp: UTF-8 byte offset must be an integer",3)end;local limit=#value+(allowEnd and 1 or 0);if at<1 or at>limit then error("nupp: UTF-8 byte offset is out of range",3)end;return at end;local function decode(s,at)local first=s:byte(at);if not first then return nil,at end;if first<128 then return first,at+1 end;local need,code,min;if first>=194 and first<=223 then need,code,min=1,first-192,128 elseif first>=224 and first<=239 then need,code,min=2,first-224,2048 elseif first>=240 and first<=244 then need,code,min=3,first-240,65536 else return 65533,at+1 end;for i=1,need do local b=s:byte(at+i);if not b or b<128 or b>191 then return 65533,at+1 end;code=code*64+b-128 end;if code<min or code>1114111 or(code>=55296 and code<=57343)then return 65533,at+1 end;return code,at+need+1 end function u.length(value)local s=bytes(value);local n,at=0,1;while at<=#s do local _,nextAt=decode(s,at);at=nextAt;n=n+1 end;return n end;function u.decodeAt(value,at)local s=bytes(value);at=offset(s,at,true);return decode(s,at)end;function u.decodeBefore(value,at)local s=bytes(value);at=offset(s,at,true);if at==1 then return nil,1 end;local start=at-1;while start>1 and s:byte(start)>=128 and s:byte(start)<=191 do start=start-1 end;local cp,nextAt=decode(s,start);if nextAt~=at then return 65533,at-1 end;return cp,start end;function u.encode(codepoint)return native.char(codepoint)end;function u.isValid(value)return native.isvalid(bytes(value))end;function u.validPrefixLength(value,maxBytes)local s=bytes(value);maxBytes=math.max(0,math.min(#s,maxBytes));while maxBytes>0 and not native.isvalid(s:sub(1,maxBytes))do maxBytes=maxBytes-1 end;return maxBytes end;function u.truncate(text,maxBytes)return text:sub(1,u.validPrefixLength(text,maxBytes))end;return u end) local m=__nuppMath;local pi,tau=math.pi,2*math.pi function m.lerp(from,to,t)if t==0 then return from elseif t==1 then return to end;return from+(to-from)*t end function m.wrapAngle(radians)return(radians+pi)%tau-pi end function m.deltaAngle(from,to)return m.wrapAngle(to-from)end local b=bit;local function ui32(x)x=b.tobit(x);return x<0 and x+4294967296 or x end local function mul32(a,c)local al,cl=a%65536,c%65536;local ah,ch=math.floor(a/65536),math.floor(c/65536);return b.tobit(al*cl+((ah*cl+al*ch)%65536)*65536)end local i32,u32={},{};m.i32=i32;m.u32=u32 function i32.wrap(a)return b.tobit(a)end;function u32.wrap(a)return ui32(a)end function i32.add(a,c)return b.tobit(a+c)end;function i32.sub(a,c)return b.tobit(a-c)end;function i32.mul(a,c)return mul32(ui32(a),ui32(c))end function i32.andBits(a,c)return b.band(a,c)end;function i32.orBits(a,c)return b.bor(a,c)end;function i32.xorBits(a,c)return b.bxor(a,c)end;function i32.notBits(a)return b.bnot(a)end function i32.shiftLeft(a,c)return b.lshift(a,b.band(c,31))end;function i32.shiftRightArithmetic(a,c)return b.arshift(a,b.band(c,31))end function i32.rotateLeft(a,c)return b.rol(a,b.band(c,31))end;function i32.rotateRight(a,c)return b.ror(a,b.band(c,31))end function i32.lessThan(a,c)return b.tobit(a)<b.tobit(c)end;function i32.lessOrEqual(a,c)return b.tobit(a)<=b.tobit(c)end function i32.fromU32(a)return b.tobit(a)end;function i32.toU32(a)return ui32(a)end function u32.add(a,c)return ui32(a+c)end;function u32.sub(a,c)return ui32(a-c)end;function u32.mul(a,c)return ui32(mul32(ui32(a),ui32(c)))end function u32.andBits(a,c)return ui32(b.band(a,c))end;function u32.orBits(a,c)return ui32(b.bor(a,c))end;function u32.xorBits(a,c)return ui32(b.bxor(a,c))end;function u32.notBits(a)return ui32(b.bnot(a))end function u32.shiftLeft(a,c)return ui32(b.lshift(a,b.band(c,31)))end;function u32.shiftRightLogical(a,c)return ui32(b.rshift(a,b.band(c,31)))end function u32.rotateLeft(a,c)return ui32(b.rol(a,b.band(c,31)))end;function u32.rotateRight(a,c)return ui32(b.ror(a,b.band(c,31)))end function u32.lessThan(a,c)return ui32(a)<ui32(c)end;function u32.lessOrEqual(a,c)return ui32(a)<=ui32(c)end function u32.fromI32(a)return ui32(a)end;function u32.toI32(a)return b.tobit(a)end function u32.popcount(a)local n=0;a=ui32(a);while a~=0 do a=ui32(b.band(a,a-1));n=n+1 end;return n end function u32.trailingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;while b.band(a,1)==0 do a=b.rshift(a,1);n=n+1 end;return n end function u32.leadingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;local bit=2147483648;while b.band(a,bit)==0 do bit=b.rshift(bit,1);n=n+1 end;return n end local ffi=require("ffi");local fh=ffi.new("union {float f;uint32_t u;}[1]");local f32={};m.f32=f32 local CANON=2143289344;local PINF=2139095040;local NINF=4286578688;local MAX=2139095039;local NMAX=4286578687 local function nanbits(bits)return b.band(bits,2139095040)==2139095040 and b.band(bits,8388607)~=0 end local function putbits(bits)if nanbits(bits)then bits=CANON end;fh[0].u=bits;return tonumber(fh[0].f)end local function bits32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then bits=CANON;fh[0].u=bits end;return bits end local function round32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then fh[0].u=CANON end;return tonumber(fh[0].f)end local function narrow32(value)fh[0].f=value;return tonumber(fh[0].f)end local function comparedd(hi,lo,value)local d=hi-value;if d>-lo then return 1 elseif d<-lo then return-1 end;return 0 end local function nextup(value,bits)if bits==PINF then return value,bits end;if bits==NINF then return putbits(NMAX),NMAX end;if b.band(bits,2147483648)~=0 then if bits==2147483648 then return putbits(1),1 end;bits=bits-1 else bits=bits+1 end;return putbits(bits),bits end local function nextdown(value,bits)if bits==NINF then return value,bits end;if bits==PINF then return putbits(MAX),MAX end;if b.band(bits,2147483648)~=0 then bits=bits+1 else if bits==0 then return putbits(2147483649),2147483649 end;bits=bits-1 end;return putbits(bits),bits end local function rounddd(hi,lo)local value=round32(hi);local bits=bits32(value);if nanbits(bits)then return putbits(CANON)end;if bits==PINF then local threshold=3.4028235677973366e38;if comparedd(hi,lo,threshold)<0 then return putbits(MAX)end;return value elseif bits==NINF then local threshold=-3.4028235677973366e38;if comparedd(hi,lo,threshold)>0 then return putbits(NMAX)end;return value end;local side=comparedd(hi,lo,value);if side==0 then return value end;local other,otherbits;if side>0 then other,otherbits=nextup(value,bits)else other,otherbits=nextdown(value,bits)end;local midpoint=(value+other)*0.5;local toward=comparedd(hi,lo,midpoint);if side<0 then toward=-toward end;if toward>0 or toward==0 and b.band(bits,1)~=0 then return putbits(otherbits)end;return value end function f32.narrow(a)return narrow32(a)end;function f32.round(a)return round32(a)end;function f32.add(a,c)return round32(round32(a)+round32(c))end;function f32.sub(a,c)return round32(round32(a)-round32(c))end;function f32.mul(a,c)return round32(round32(a)*round32(c))end;function f32.div(a,c)return round32(round32(a)/round32(c))end;function f32.sqrt(a)return round32(math.sqrt(round32(a)))end function f32.min(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and(b.band(ab,2147483648)~=0 or b.band(cb,2147483648)~=0)then return putbits(2147483648)end;return a end;return a<c and a or c end function f32.max(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and b.band(ab,2147483648)~=0 and b.band(cb,2147483648)~=0 then return putbits(2147483648)elseif a==0 then return putbits(0)end;return a end;return a>c and a or c end function f32.fma(a,c,d)a,c,d=round32(a),round32(c),round32(d);local product=a*c;if product~=product or product==math.huge or product==-math.huge then return round32(product+d)end;local sum=product+d;local carry=sum-product;local error=(product-(sum-carry))+(d-carry);return rounddd(sum,error)end function f32.fromBits(bits)return putbits(ui32(bits))end;function f32.toBits(value)return bits32(round32(value))end local v={};m.vec2=v function v.add(ax,ay,bx,by)return ax+bx,ay+by end function v.subtract(ax,ay,bx,by)return ax-bx,ay-by end function v.scale(x,y,f)return x*f,y*f end function v.dot(ax,ay,bx,by)return ax*bx+ay*by end function v.cross(ax,ay,bx,by)return ax*by-ay*bx end function v.lengthSquared(x,y)return x*x+y*y end function v.length(x,y)return math.sqrt(x*x+y*y)end function v.distanceSquared(ax,ay,bx,by)local x,y=bx-ax,by-ay;return x*x+y*y end function v.distance(ax,ay,bx,by)return math.sqrt(v.distanceSquared(ax,ay,bx,by))end function v.normalize(x,y)local length=v.length(x,y);if length==0 then return 0,0 end;return x/length,y/length end function v.lerp(ax,ay,bx,by,t)if t==0 then return ax,ay elseif t==1 then return bx,by end;return ax+(bx-ax)*t,ay+(by-ay)*t end function v.moveTowards(ax,ay,bx,by,d)if d<=0 then return ax,ay end;local x,y=bx-ax,by-ay;local squared=x*x+y*y;if squared==0 or squared<=d*d then return bx,by end;local f=d/math.sqrt(squared);return ax+x*f,ay+y*f end function v.rotate(x,y,r)local c,s=math.cos(r),math.sin(r);return x*c-y*s,x*s+y*c end function v.angle(x,y)if x==0 and y==0 then return 0 end;return math.atan2(y,x)end function v.angleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;return math.atan2(math.abs(v.cross(ax,ay,bx,by)),v.dot(ax,ay,bx,by))end function v.signedAngleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;local a=math.atan2(v.cross(ax,ay,bx,by),v.dot(ax,ay,bx,by));return a==pi and-pi or a end function v.project(x,y,ox,oy)local d=ox*ox+oy*oy;if d==0 then return 0,0 end;local f=(x*ox+y*oy)/d;return ox*f,oy*f end function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;local f=2*(x*nx+y*ny)/d;return x-nx*f,y-ny*f end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
@@ -137104,138 +137082,6 @@ record nupp.data
     --- @param previous a previous CRC-32 value, or 0 to start
     --- @return the unsigned 32-bit checksum
     crc32: function(value: string | nupp.io.ByteView, previous: integer?): integer
-
-    --- Multi-word bitsets over 32-bit words.
-    --- @namespace
-    record bitset
-        --- How many bits one stored word holds. Derive word arithmetic from this
-        --- rather than assuming a width.
-        WORD_BITS: integer
-
-        --- A growable set of bit positions counting from 0.
-        ---
-        --- Reading, clearing and testing a position past the end are defined and
-        --- cheap. Setting one grows. Storage is private, so no caller can hold a
-        --- pointer across the growth that replaces it.
-        interface Bitset
-            --- Grows storage so at least `bits` bits fit. Only grows, and never
-            --- returns storage.
-            --- @param bits how many bits must fit
-            reserve: function(self, bits: integer): nil
-
-            --- Adds a bit, growing when it is past the end.
-            --- @param index the bit position, counting from 0
-            --- @raises when index is negative
-            set: function(self, index: integer): nil
-
-            --- Removes a bit. Constant-time whichever bit it was.
-            --- @param index the bit position, counting from 0. One past the end,
-            ---     a negative one included, does nothing.
-            clear: function(self, index: integer): nil
-
-            --- Whether a bit is set.
-            --- @param index the bit position, counting from 0
-            --- @return false for any position past the end
-            get: function(self, index: integer): boolean
-
-            --- Adds every bit in the inclusive range, one word-mask write per
-            --- word rather than one operation per bit.
-            --- @param low the first position added, counting from 0
-            --- @param high the last position added. Below `low` adds nothing.
-            --- @raises when low is negative
-            setRange: function(self, low: integer, high: integer): nil
-
-            --- How many bits are set. Resolves a pending recount, so a caller
-            --- that never reads it never pays for one.
-            --- @return the number of set bits
-            count: function(self): integer
-
-            --- Whether nothing is set. Says nothing about capacity.
-            --- @return true when no bit is set
-            isEmpty: function(self): boolean
-
-            --- Removes every bit, keeping capacity.
-            clearAll: function(self): nil
-
-            --- Removes every bit, then adds exactly one.
-            --- @param index the one position left set, counting from 0
-            --- @raises when index is negative
-            setOnly: function(self, index: integer): nil
-
-            --- An upper bound on the words that may hold a set bit. Every word
-            --- at or above it is zero, and it may exceed the exact high-water
-            --- mark.
-            --- @return the number of words a word-at-a-time walk must visit
-            wordCount: function(self): integer
-
-            --- One stored word, lowest position first.
-            --- @param index a word index counting from 0, bounded by `wordCount`
-            --- @return the word as a signed value, and 0 for any index outside
-            ---     the bound
-            wordAt: function(self, index: integer): integer
-
-            --- The lowest set position at or after `from`. Stateless, so nested
-            --- walks do not interfere.
-            --- @param from the lowest position that may be returned
-            --- @return that position, or -1 when there is none
-            nextSetBit: function(self, from: integer): integer
-
-            --- Writes every set position at or after `from` into `target`, lowest
-            --- first. One call rather than one per position, which is most of what
-            --- a walk over a few thousand of them costs. `target` is a pointer and
-            --- a count because that is what a native kernel takes.
-            --- @param target where positions are written, indexed from 0
-            --- @param capacity how many positions `target` holds
-            --- @param from the lowest position that may be written
-            --- @return how many were written, and the position to resume from when
-            ---     `target` filled first, or -1 when the set is exhausted
-            --- @raises when capacity is negative
-            positionsInto: function(self, target: int32[?], capacity: integer, from: integer): (integer, integer)
-
-            --- Whether every bit set in `other` is also set here.
-            --- @param other read and not modified
-            --- @return true when `other` is a subset
-            containsAll: function(self, other: Bitset): boolean
-
-            --- Whether at least one bit is set in both. Early-exiting.
-            --- @param other read and not modified, as is the receiver
-            --- @return true when the two share a set bit
-            overlaps: function(self, other: Bitset): boolean
-
-            --- Whether the two share no set bit.
-            --- @param other read and not modified, as is the receiver
-            --- @return the negation of `overlaps`
-            disjoint: function(self, other: Bitset): boolean
-
-            --- Replaces these bits with a copy of `other`'s.
-            --- @param other read and not modified
-            copyFrom: function(self, other: Bitset): nil
-
-            --- Adds every bit set in `other`.
-            --- @param other read and not modified
-            orWith: function(self, other: Bitset): nil
-
-            --- Keeps only the bits also set in `other`.
-            --- @param other read and not modified. Words beyond the ones it uses
-            ---     are cleared, so an empty `other` empties the receiver.
-            andWith: function(self, other: Bitset): nil
-
-            --- Removes every bit set in `other`.
-            --- @param other read and not modified. An empty `other` changes
-            ---     nothing.
-            andNotWith: function(self, other: Bitset): nil
-
-            --- Keeps only the bits set in exactly one of the two.
-            --- @param other read and not modified
-            xorWith: function(self, other: Bitset): nil
-        end
-
-        --- Creates an empty set.
-        --- @param capacityBits how many bits to allocate for. A starting size
-        ---     only: setting a position past it grows rather than failing.
-        --- @return a set with nothing in it
-        create: function(capacityBits: integer?): Bitset
-    end
 end
 
 --- UTF-8 codepoint operations over strings and immutable byte views.
@@ -138984,6 +138830,695 @@ end
 
 return native
 ]],
+["/nupp/data/bitset.nupp"] = [=[
+module nupp.data.bitset
+
+--[[
+Multi-word bitsets over GC-managed 32-bit words.
+
+LuaJIT gives one 32-bit word at a time and no population count or trailing-zero
+operation -- those are table lookups here, which is the floor Lua can reach --
+so everything that makes a bitset a bitset lives here: the word loop,
+range masks that span word boundaries, the used-word bound, and counting across
+words. Storage is FFI cdata; the pointer is private, so no caller can hold one
+across a growth that replaces it.
+
+Bit indexes count from 0, because bit `i` lives in word `i / WORD_BITS` and
+fighting that costs correctness. `count` is resolved on demand rather than
+maintained through set algebra: union, intersection and difference are word
+loops whose per-word popcount would otherwise cost more than the operation.
+
+Reached as `nupp.data.bitset`, which the prelude declares and the stdlib
+installer loads. That is the only public spelling a program has. This declared
+implementation module is internal and uses an `impl` suffix because a module at
+`nupp.data.bitset` would shadow the intrinsic member it implements.
+]]
+
+local bitset = {}
+local ffi = require("ffi")
+
+const band = bit.band
+const bnot = bit.bnot
+const bor = bit.bor
+const bxor = bit.bxor
+const lshift = bit.lshift
+const rshift = bit.rshift
+const tobit = bit.tobit
+
+--- How many bits one stored word holds. Derive word arithmetic from this rather
+--- than assuming a width.
+--- @export
+const bitset.WORD_BITS = 32
+
+-- 5 and 31 are WORD_BITS as a shift and a mask. They are spelled as literals
+-- because LuaJIT folds a literal shift and would not fold a table read.
+const BITS_PER_WORD = 32
+const WORD_SHIFT = 5
+const BIT_MASK = 31
+const ALL_ONES = -1
+const DEFAULT_BITS = 64
+
+const HALF_MASK = 0xFFFF
+const HALF_SHIFT = 16
+
+-- Half-word rather than byte tables: two probes per word instead of four. That
+-- measured 1.58 times faster for the population count and 1.20 for the lowest
+-- bit, against 128KB of static tables and the loop below that fills them. The
+-- multiply-free SWAR population count was a wash, and the usual multiply form
+-- cannot be spelled here because a Lua multiply goes through a double and loses
+-- the low bits it depends on.
+--
+-- Nothing in Lua closes the rest of the gap: the machine has one instruction for
+-- each of these and the bit library exposes neither.
+local POPCOUNT_HALF = ffi.new("uint8_t[65536]") as uint8[?]
+local CTZ_HALF = ffi.new("uint8_t[65536]") as uint8[?]
+
+unsafe do
+    -- Each half is built from the one below it: the population of a value is the
+    -- population of the value without its lowest bit, plus one.
+    POPCOUNT_HALF[0] = 0
+    for value = 1, 65535 do
+        POPCOUNT_HALF[value] = POPCOUNT_HALF[band(value, value - 1)] + 1
+    end
+
+    -- A half with nothing set has no trailing-zero answer; 16 makes a caller that
+    -- probes the other half land on the right offset without a separate test.
+    CTZ_HALF[0] = 16
+    for value = 1, 65535 do
+        CTZ_HALF[value] = band(value, 1) == 1 ? 0 : CTZ_HALF[rshift(value, 1)] + 1
+    end
+end
+
+--- Set bits in one word.
+local function popcount(word: integer): integer
+    unsafe do
+        return (
+            POPCOUNT_HALF[band(word, HALF_MASK)] + POPCOUNT_HALF[band(rshift(word, HALF_SHIFT), HALF_MASK)]
+        ) as integer
+    end
+end
+
+--- The position of the lowest set bit of a non-zero word.
+local function lowestBit(word: integer): integer
+    unsafe do
+        local half = band(word, HALF_MASK)
+        if half ~= 0 then
+            return CTZ_HALF[half]
+        end
+
+        return (HALF_SHIFT + CTZ_HALF[band(rshift(word, HALF_SHIFT), HALF_MASK)]) as integer
+    end
+end
+
+--- The number of words needed to hold `bits` bits, at least one.
+local function wordsFor(bits: integer): integer
+    local words = rshift(bits + BIT_MASK, WORD_SHIFT)
+    return words < 1 ? 1 : words
+end
+
+--- A growable set of bit positions counting from 0.
+---
+--- Reading, clearing and testing a position past the end are defined and cheap.
+--- Setting one grows, which reallocates private storage; nothing observable
+--- survives that, because the storage is never handed out.
+--- @export
+record bitset.Bitset
+    --- Zero-based words, lowest bit first. Every word from `used` up to
+    --- `capacity` is zero, which is the invariant every word loop relies on.
+    private words: uint32[?]
+
+    --- Words allocated.
+    private capacity: integer
+
+    --- An upper bound on the words that may hold a set bit: every word at or
+    --- above it is zero. Deliberately not the exact high-water mark, because
+    --- keeping that exact costs a backwards scan on every clear and every
+    --- intersection.
+    private used: integer
+
+    --- The last resolved population, meaningful only when `stale` is false.
+    private population: integer
+
+    --- Whether `population` needs recomputing. Set algebra marks it rather than
+    --- paying two popcounts per word to keep a number most callers never read.
+    private stale: boolean
+
+    --- Grows storage so at least `bits` bits fit. Only grows, and never returns
+    --- storage. A growth at least doubles, so repeated small growths stay
+    --- amortised.
+    --- @param bits how many bits must fit
+    function reserve(self, bits: integer): nil
+        local needed = wordsFor(bits)
+        if needed <= self.capacity then
+            return
+        end
+
+        local doubled = self.capacity * 2
+        local grown = needed > doubled ? needed : doubled
+        local fresh = ffi.new("uint32_t[?]", grown) as uint32[?]
+        ffi.copy(fresh as any, self.words as any, self.capacity * 4)
+        self.words = fresh
+        self.capacity = grown
+    end
+
+    --- Adds a bit, growing when it is past the end.
+    --- @param index the bit position, counting from 0
+    --- @raises when index is negative
+    function set(self, index: integer): nil
+        -- `rshift` is unsigned, so a negative index names a word near 2^27 and
+        -- the store below would land far outside the array. `get` and `clear`
+        -- read such an index as past the end and answer with nothing; a write
+        -- has no such reading, so it is refused here.
+        if index < 0 then
+            error("bitset index cannot be negative", 2)
+        end
+
+        local word = rshift(index, WORD_SHIFT)
+        if word >= self.capacity then
+            self:reserve(index + 1)
+        end
+
+        unsafe do
+            local previous = tobit(self.words[word])
+            local mask = lshift(1, band(index, BIT_MASK))
+            if band(previous, mask) == 0 then
+                self.words[word] = bor(previous, mask)
+                if not self.stale then
+                    self.population = self.population + 1
+                end
+                if word >= self.used then
+                    self.used = word + 1
+                end
+            end
+        end
+    end
+
+    --- Removes a bit. Never allocates, and never narrows the used-word bound,
+    --- so it stays constant-time whichever bit it was.
+    --- @param index the bit position, counting from 0. One past the end, a
+    ---     negative one included, does nothing.
+    function clear(self, index: integer): nil
+        local word = rshift(index, WORD_SHIFT)
+        if word >= self.used then
+            return
+        end
+
+        unsafe do
+            local previous = tobit(self.words[word])
+            local mask = lshift(1, band(index, BIT_MASK))
+            if band(previous, mask) ~= 0 then
+                self.words[word] = band(previous, bnot(mask))
+                if not self.stale then
+                    self.population = self.population - 1
+                end
+            end
+        end
+    end
+
+    --- Whether a bit is set.
+    --- @param index the bit position, counting from 0
+    --- @return false for any position past the end, so no bound check is needed
+    ---     at the call site
+    function get(self, index: integer): boolean
+        local word = rshift(index, WORD_SHIFT)
+        if word >= self.used then
+            return false
+        end
+
+        unsafe do
+            return band(tobit(self.words[word]), lshift(1, band(index, BIT_MASK))) ~= 0
+        end
+    end
+
+    --- Adds every bit in the inclusive range, one word-mask write per word
+    --- rather than one operation per bit.
+    --- @param low the first position added, counting from 0
+    --- @param high the last position added. Below `low` adds nothing, so an
+    ---     empty range needs no guard at the call site.
+    --- @raises when low is negative
+    function setRange(self, low: integer, high: integer): nil
+        if high < low then
+            return
+        end
+        if low < 0 then
+            error("bitset range cannot start below zero", 2)
+        end
+
+        self:reserve(high + 1)
+
+        local firstWord = rshift(low, WORD_SHIFT)
+        local lastWord = rshift(high, WORD_SHIFT)
+        local lowBit = band(low, BIT_MASK)
+        local highBit = band(high, BIT_MASK)
+        local head = bnot(lshift(1, lowBit) - 1)
+        local tail = highBit == BIT_MASK ? ALL_ONES : lshift(1, highBit + 1) - 1
+
+        -- Whole words are written at a time, so the population moves by the
+        -- difference across the touched words rather than by one per bit. That
+        -- difference is taken in the same pass as the writes: a separate pass
+        -- before and after measured twice as slow at every width.
+        --
+        -- Two things keep the count off the per-word path where it can be. A
+        -- full middle word ends as all ones, so its new population is known and
+        -- only the old one is read. A word at or above `used` is zero, so it
+        -- needs no read at all.
+        local exact = not self.stale
+        local added = 0
+        -- Hoisted after `reserve`, which is the only thing here that can replace
+        -- the array. Every loop below is then one field read shorter per word.
+        local words = self.words
+        local used = self.used
+        unsafe do
+            if firstWord == lastWord then
+                local old = tobit(words[firstWord])
+                local new = bor(old, band(head, tail))
+                words[firstWord] = new
+                if exact then
+                    added = popcount(new) - popcount(old)
+                end
+            else
+                local old = tobit(words[firstWord])
+                local new = bor(old, head)
+                words[firstWord] = new
+                if exact then
+                    added = popcount(new) - popcount(old)
+                end
+
+                -- Middle words that already hold bits, and then the ones known
+                -- to be zero, which are counted without being read.
+                local lastMiddle = lastWord - 1
+                local reached = used - 1 < lastMiddle ? used - 1 : lastMiddle
+                local counted = reached < firstWord ? firstWord : reached
+                if exact then
+                    for word = firstWord + 1, counted do
+                        added = added + BITS_PER_WORD - popcount(tobit(words[word]))
+                        words[word] = ALL_ONES
+                    end
+                    if counted < lastMiddle then
+                        added = added + BITS_PER_WORD * (lastMiddle - counted)
+                    end
+                    for word = counted + 1, lastMiddle do
+                        words[word] = ALL_ONES
+                    end
+                else
+                    for word = firstWord + 1, lastMiddle do
+                        words[word] = ALL_ONES
+                    end
+                end
+
+                old = tobit(words[lastWord])
+                new = bor(old, tail)
+                words[lastWord] = new
+                if exact then
+                    added = added + popcount(new) - popcount(old)
+                end
+            end
+
+            if exact then
+                self.population = (self.population + added) as integer
+            end
+        end
+
+        if lastWord >= self.used then
+            self.used = lastWord + 1
+        end
+    end
+
+    --- How many bits are set. Resolves a pending recount, so a caller that
+    --- reads it every frame pays for the set algebra it skipped; one that never
+    --- reads it never pays.
+    --- @return the number of set bits
+    function count(self): integer
+        if not self.stale then
+            return self.population
+        end
+
+        -- Hoisted: nothing here grows, so the field read is loop-invariant and
+        -- the loop should not repeat it per word.
+        local words = self.words
+        local total = 0
+        unsafe do
+            for word = 0, self.used - 1 do
+                total = total + popcount(tobit(words[word]))
+            end
+        end
+        local resolved = total as integer
+        self.population = resolved
+        self.stale = false
+
+        return resolved
+    end
+
+    --- Whether nothing is set. Says nothing about capacity.
+    --- @return true when no bit is set
+    function isEmpty(self): boolean
+        return self:count() == 0
+    end
+
+    --- Removes every bit, keeping capacity so a set reused each frame stops
+    --- allocating once it has reached its peak.
+    function clearAll(self): nil
+        if self.used > 0 then
+            ffi.fill(self.words as any, self.used * 4, 0)
+            self.used = 0
+        end
+        self.population = 0
+        self.stale = false
+    end
+
+    --- Removes every bit, then adds exactly one.
+    --- @param index the one position left set, counting from 0
+    --- @raises when index is negative
+    function setOnly(self, index: integer): nil
+        self:clearAll()
+        self:set(index)
+    end
+
+    --- An upper bound on the words that may hold a set bit. Every word at or
+    --- above it is zero, and it is not narrowed by `clear` or by intersection,
+    --- so it may exceed the exact high-water mark.
+    --- @return the number of words a word-at-a-time walk must visit
+    function wordCount(self): integer
+        return self.used
+    end
+
+    --- One stored word. Word `w` holds positions `w * WORD_BITS` through
+    --- `w * WORD_BITS + WORD_BITS - 1`, lowest position first.
+    --- @param index a word index counting from 0, bounded by `wordCount`
+    --- @return the word as a signed value, so one with its top bit set reads
+    ---     negative, and 0 for any index outside the bound
+    function wordAt(self, index: integer): integer
+        if index < 0 or index >= self.used then
+            return 0
+        end
+
+        unsafe do
+            return tobit(self.words[index])
+        end
+    end
+
+    --- The lowest set position at or after `from`.
+    ---
+    --- Stateless, so nested walks do not interfere and a mutation between calls
+    --- cannot invalidate a walk in progress.
+    --- @param from the lowest position that may be returned, counting from 0
+    --- @return that position, or -1 when there is none
+    function nextSetBit(self, from: integer): integer
+        local start = from < 0 ? 0 : from
+        local first = rshift(start, WORD_SHIFT)
+        local used = self.used
+        if first >= used then
+            return -1
+        end
+
+        local words = self.words
+        -- A bounded `for` rather than an unbounded loop over the words. An
+        -- unbounded one is an inner loop LuaJIT re-detects on every pass of
+        -- whatever loop the walk sits in, and the thrash costs far more than the
+        -- scan: the first shape of this measured nine times slower than the
+        -- stateful scan it replaced.
+        unsafe do
+            local partial = tobit(words[first])
+            local offset = band(start, BIT_MASK)
+            if offset ~= 0 then
+                partial = band(partial, bnot(lshift(1, offset) - 1))
+            end
+            if partial ~= 0 then
+                return lshift(first, WORD_SHIFT) + lowestBit(partial)
+            end
+
+            for word = first + 1, used - 1 do
+                local bits = tobit(words[word])
+                if bits ~= 0 then
+                    return lshift(word, WORD_SHIFT) + lowestBit(bits)
+                end
+            end
+        end
+
+        return -1
+    end
+
+    --- Writes every set position at or after `from` into `target`, lowest first.
+    ---
+    --- One call rather than one per position. A walk pays a call and a word read
+    --- for every position it returns, which for a few thousand positions is most
+    --- of what it costs; this reads each word once and clears the position it
+    --- just reported out of a register.
+    ---
+    --- `target` is a pointer and a count because that is what a native kernel
+    --- takes. Filling it here rather than allocating keeps a per-frame extraction
+    --- allocation-free, and leaves the boundary where a native one would sit.
+    ---
+    --- @param target where positions are written, indexed from 0
+    --- @param capacity how many positions `target` holds
+    --- @param from the lowest position that may be written, counting from 0
+    --- @return how many positions were written, and the position to resume from
+    ---     when `target` filled first, or -1 when the set is exhausted
+    --- @raises when capacity is negative
+    function positionsInto(self, target: int32[?], capacity: integer, from: integer): (integer, integer)
+        if capacity < 0 then
+            error("bitset target capacity cannot be negative", 2)
+        end
+
+        local start = from < 0 ? 0 : from
+        local first = rshift(start, WORD_SHIFT)
+        local used = self.used
+        if first >= used then
+            return 0, -1
+        end
+        if capacity == 0 then
+            return 0, start
+        end
+
+        local words = self.words
+        local offset = band(start, BIT_MASK)
+        local written = 0
+        -- Both loops are bounded. The inner one cannot run past a word's width,
+        -- and an unbounded loop here would be an inner loop LuaJIT re-detects on
+        -- every pass of whatever loop the extraction sits in.
+        unsafe do
+            for word = first, used - 1 do
+                local bits = tobit(words[word])
+                if word == first and offset ~= 0 then
+                    bits = band(bits, bnot(lshift(1, offset) - 1))
+                end
+
+                local base = lshift(word, WORD_SHIFT)
+                for _ = 1, BITS_PER_WORD do
+                    if bits == 0 then
+                        break
+                    end
+
+                    local position = base + lowestBit(bits)
+                    if written >= capacity then
+                        return written as integer, position
+                    end
+                    target[written] = position
+                    written = (written + 1) as integer
+                    -- Clearing the lowest set bit is cheaper than masking the
+                    -- word again from the position just reported.
+                    bits = band(bits, bits - 1)
+                end
+            end
+        end
+
+        return written as integer, -1
+    end
+
+    --- Whether every bit set in `other` is also set here.
+    --- @param other read and not modified
+    --- @return true when `other` is a subset. An empty `other` is contained by
+    ---     anything.
+    function containsAll(self, other: Bitset): boolean
+        local otherUsed = other.used
+        if otherUsed == 0 then
+            return true
+        end
+        if self.used < otherUsed then
+            return false
+        end
+
+        local words, theirWords = self.words, other.words
+        unsafe do
+            for word = 0, otherUsed - 1 do
+                local theirs = tobit(theirWords[word])
+                if band(tobit(words[word]), theirs) ~= theirs then
+                    return false
+                end
+            end
+        end
+
+        return true
+    end
+
+    --- Whether at least one bit is set in both. Early-exiting, and deliberately
+    --- not an intersection followed by a count.
+    --- @param other read and not modified, as is the receiver
+    --- @return true when the two share a set bit
+    function overlaps(self, other: Bitset): boolean
+        local limit = self.used < other.used ? self.used : other.used
+
+        local words, theirWords = self.words, other.words
+        unsafe do
+            for word = 0, limit - 1 do
+                if band(tobit(words[word]), tobit(theirWords[word])) ~= 0 then
+                    return true
+                end
+            end
+        end
+
+        return false
+    end
+
+    --- Whether the two share no set bit.
+    --- @param other read and not modified, as is the receiver
+    --- @return the negation of `overlaps`
+    function disjoint(self, other: Bitset): boolean
+        return not self:overlaps(other)
+    end
+
+    --- Replaces these bits with a copy of `other`'s. The two are independent
+    --- afterwards, and this keeps its own capacity when that is the larger.
+    --- @param other read and not modified
+    function copyFrom(self, other: Bitset): nil
+        local otherUsed = other.used
+        if otherUsed > self.capacity then
+            self:reserve(lshift(otherUsed, WORD_SHIFT))
+        end
+
+        if otherUsed > 0 then
+            ffi.copy(self.words as any, other.words as any, otherUsed * 4)
+        end
+        local words = self.words
+        unsafe do
+            for word = otherUsed, self.used - 1 do
+                words[word] = 0
+            end
+        end
+
+        self.used = otherUsed
+        self.population = other.population
+        self.stale = other.stale
+    end
+
+    --- Adds every bit set in `other`.
+    ---
+    --- One bitwise operation per word: the population is marked for recount
+    --- rather than tracked, and there is no per-word test for whether the word
+    --- changed, because that branch costs more than the write it saves.
+    --- @param other read and not modified
+    function orWith(self, other: Bitset): nil
+        local otherUsed = other.used
+        if otherUsed == 0 then
+            return
+        end
+        if otherUsed > self.capacity then
+            self:reserve(lshift(otherUsed, WORD_SHIFT))
+        end
+
+        -- Hoisted after `reserve`, the only call above that can replace the array.
+        local words, theirWords = self.words, other.words
+        unsafe do
+            for word = 0, otherUsed - 1 do
+                words[word] = bor(tobit(words[word]), tobit(theirWords[word]))
+            end
+        end
+
+        if otherUsed > self.used then
+            self.used = otherUsed
+        end
+        self.stale = true
+    end
+
+    --- Keeps only the bits also set in `other`.
+    --- @param other read and not modified. Words beyond the ones it uses are
+    ---     cleared, so an empty `other` empties the receiver.
+    function andWith(self, other: Bitset): nil
+        local used = self.used
+        if used == 0 then
+            return
+        end
+
+        local shared = used < other.used ? used : other.used
+        local words, theirWords = self.words, other.words
+        unsafe do
+            for word = 0, shared - 1 do
+                words[word] = band(tobit(words[word]), tobit(theirWords[word]))
+            end
+            for word = shared, used - 1 do
+                words[word] = 0
+            end
+        end
+
+        -- Words at or above `shared` are now zero, so the bound narrows here for
+        -- free. It is not otherwise scanned back.
+        self.used = shared
+        self.stale = true
+    end
+
+    --- Removes every bit set in `other`.
+    --- @param other read and not modified. Words beyond the ones it uses keep
+    ---     their bits, so an empty `other` changes nothing.
+    function andNotWith(self, other: Bitset): nil
+        local limit = self.used < other.used ? self.used : other.used
+        if limit == 0 then
+            return
+        end
+
+        local words, theirWords = self.words, other.words
+        unsafe do
+            for word = 0, limit - 1 do
+                words[word] = band(tobit(words[word]), bnot(tobit(theirWords[word])))
+            end
+        end
+
+        self.stale = true
+    end
+
+    --- Keeps only the bits set in exactly one of the two.
+    --- @param other read and not modified
+    function xorWith(self, other: Bitset): nil
+        local otherUsed = other.used
+        if otherUsed == 0 then
+            return
+        end
+        if otherUsed > self.capacity then
+            self:reserve(lshift(otherUsed, WORD_SHIFT))
+        end
+
+        local words, theirWords = self.words, other.words
+        unsafe do
+            for word = 0, otherUsed - 1 do
+                words[word] = bxor(tobit(words[word]), tobit(theirWords[word]))
+            end
+        end
+
+        if otherUsed > self.used then
+            self.used = otherUsed
+        end
+        self.stale = true
+    end
+end
+
+--- Creates an empty set.
+--- @param capacityBits how many bits to allocate for. A starting size only:
+---     setting a position past it grows rather than failing.
+--- @return a set with nothing in it, whatever capacity was asked for
+--- @export
+function bitset.create(capacityBits: integer?): bitset.Bitset
+    local words = wordsFor(capacityBits ?? DEFAULT_BITS)
+
+    return new bitset.Bitset(
+        words = ffi.new("uint32_t[?]", words) as uint32[?],
+        capacity = words,
+        used = 0,
+        population = 0,
+        stale = false
+    )
+end
+
+export = bitset
+]=],
 ["/nupp/data/valuebuilder.g.nupp"] = [=[
 module nupp.data.valuebuilder
 

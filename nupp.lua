@@ -96,6 +96,7 @@ local RESOURCES = {
    {source = "src/nupp/data/valuebuilder.g.nupp", output = "nupp/compiler/nupp/data/valuebuilder.g.nupp"},
    {source = "src/nupp/mem/heap.nupp", output = "nupp/compiler/nupp/mem/heap.nupp"},
    {source = "src/nupp/mem/soa.nupp", output = "nupp/compiler/nupp/mem/soa.nupp"},
+   {source = "src/nupp/data/bitset.nupp", output = "nupp/compiler/nupp/data/bitset.nupp"},
    {source = "src/nupp/log.g.nupp", output = "nupp/compiler/nupp/log.g.nupp"},
    {source = "src/nupp/suspension.nupp", output = "nupp/compiler/nupp/suspension.nupp"},
    {source = "src/nupp/io/process.nupp", output = "nupp/compiler/nupp/io/process.nupp"},
