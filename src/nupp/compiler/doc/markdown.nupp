@@ -269,7 +269,7 @@ function markdown.render(
     end
     for moduleIndex, module in ipairs(modules) do
         out[#out + 1] = '<a id="' .. module.name .. '"></a>'
-        out[#out + 1] = (module.namespace and "# Namespace: `" or "# Module: `") .. module.name .. "`"
+        out[#out + 1] = "# `" .. module.name .. "`"
         out[#out + 1] = ""
         -- An overview is what the author wanted said here, so it replaces the line that
         -- stands in for one rather than repeating the subject above it.

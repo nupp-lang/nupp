@@ -697,7 +697,7 @@ local function renderSite(root, outDir, modules, title, settings)
         local overview = configured[route]
         ordered[#ordered + 1] = {
             path = route,
-            title = overview and overview.title or (module.namespace and "Namespace: " or "Module: ") .. module.name,
+            title = overview and overview.title or module.name,
             module = module,
             overview = overview and overview.markdown or nil,
             source = overview and overview.source or nil,
@@ -737,11 +737,7 @@ local function renderSite(root, outDir, modules, title, settings)
             local overview = candidate.overview or ""
             markdown = doc.markdown({module}, nil, modules, overview, settings.constructorPattern)
             local links = symbolLinks(linkIndex, module, relativePrefix(file))
-            body[
-                #body + 1
-            ] = '<h1>' .. (
-                module.namespace and "Namespace: " or "Module: "
-            ) .. '<code>' .. htmlEscape(module.name) .. '</code></h1>'
+            body[#body + 1] = '<h1><code>' .. htmlEscape(module.name) .. '</code></h1>'
             -- An overview is what the author wanted said here, so it replaces the line
             -- that stands in for one rather than repeating the subject above it.
             if overview ~= "" then

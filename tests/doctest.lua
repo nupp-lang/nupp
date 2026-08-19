@@ -1209,15 +1209,15 @@ function M.hidesModulesNamedInternal()
    assert(doc.build(dir, config, {sources = {"src"}},
       {format = "markdown", output = "public.md"}) == 0)
    local public = readFile(dir .. "/public.md")
-   assert(public:find("Module: `visible`", 1, true), public)
-   assert(not public:find("Module: `internal`", 1, true), public)
-   assert(not public:find("Module: `lib.internal.cache`", 1, true), public)
+   assert(public:find("# `visible`", 1, true), public)
+   assert(not public:find("# `internal`", 1, true), public)
+   assert(not public:find("# `lib.internal.cache`", 1, true), public)
 
    assert(doc.build(dir, config, {sources = {"src"}, includePrivate = true},
       {format = "markdown", output = "complete.md"}) == 0)
    local complete = readFile(dir .. "/complete.md")
-   assert(complete:find("Module: `internal`", 1, true), complete)
-   assert(complete:find("Module: `lib.internal.cache`", 1, true), complete)
+   assert(complete:find("# `internal`", 1, true), complete)
+   assert(complete:find("# `lib.internal.cache`", 1, true), complete)
    os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -1269,7 +1269,7 @@ end
 function M.markdownMatchesTheNuppdocShape()
    local module = assert(doc.extract(SOURCE, "src/math.nupp", "math"))
    local markdown = doc.markdown({module}, "Example API")
-   assert(markdown:find("# Module: `math`", 1, true))
+   assert(markdown:find("# `math`", 1, true))
    assert(markdown:find("```nupp\nfunction add", 1, true))
    -- the prose introduces the declaration, the signature follows it
    assert(markdown:find("Adds two values.\n\n```nupp\nfunction add", 1, true),
@@ -1452,7 +1452,7 @@ function M.documentsTheProjectSourcesRatherThanTheWholeTree()
    local output = capture(("cd '%s' && '%s' doc markdown -o api.md"):format(dir, NUPP))
    assert(output == "", output)
    local api = readFile(dir .. "/api.md")
-   assert(api:find("# Module: `math`", 1, true), api)
+   assert(api:find("# `math`", 1, true), api)
    assert(not api:find("copied", 1, true), "documented a hidden directory")
    assert(not api:find("extra", 1, true), "documented outside the include list")
    os.execute("rm -rf '" .. dir .. "'")
@@ -1468,15 +1468,15 @@ function M.hidesPrivateSourcePathsUnlessExplicitlyIncluded()
    assert(doc.build(dir, config, {sources = {"src"}},
       {format = "markdown", output = "public.md"}) == 0)
    local public = readFile(dir .. "/public.md")
-   assert(public:find("Module: `visible`", 1, true), public)
-   assert(not public:find("Module: `_hidden`", 1, true), public)
-   assert(not public:find("Module: `internal.secret`", 1, true), public)
+   assert(public:find("# `visible`", 1, true), public)
+   assert(not public:find("# `_hidden`", 1, true), public)
+   assert(not public:find("# `internal.secret`", 1, true), public)
 
    assert(doc.build(dir, config, {sources = {"src"}, includePrivate = true},
       {format = "markdown", output = "complete.md"}) == 0)
    local complete = readFile(dir .. "/complete.md")
-   assert(complete:find("Module: `_hidden`", 1, true), complete)
-   assert(complete:find("Module: `internal.secret`", 1, true), complete)
+   assert(complete:find("# `_hidden`", 1, true), complete)
+   assert(complete:find("# `internal.secret`", 1, true), complete)
    os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -1490,15 +1490,15 @@ function M.internalInitHidesItsDocumentationTree()
    assert(doc.build(dir, config, {sources = {"src"}},
       {format = "markdown", output = "public.md"}) == 0)
    local public = readFile(dir .. "/public.md")
-   assert(public:find("Module: `public`", 1, true), public)
-   assert(not public:find("Module: `nupp.compiler`", 1, true), public)
-   assert(not public:find("Module: `nupp.compiler.parser`", 1, true), public)
+   assert(public:find("# `public`", 1, true), public)
+   assert(not public:find("# `nupp.compiler`", 1, true), public)
+   assert(not public:find("# `nupp.compiler.parser`", 1, true), public)
 
    assert(doc.build(dir, config, {sources = {"src"}, includePrivate = true},
       {format = "markdown", output = "complete.md"}) == 0)
    local complete = readFile(dir .. "/complete.md")
-   assert(complete:find("Module: `nupp.compiler`", 1, true), complete)
-   assert(complete:find("Module: `nupp.compiler.parser`", 1, true), complete)
+   assert(complete:find("# `nupp.compiler`", 1, true), complete)
+   assert(complete:find("# `nupp.compiler.parser`", 1, true), complete)
    os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -1765,7 +1765,7 @@ function M.docsBuildTargetWritesSiteAndMarkdown()
       "Markdown link missing")
    assert(html:find("nuppdoc-token-keyword", 1, true),
       "NUPP syntax highlighting missing")
-   assert(readFile(dir .. "/site/api.md"):find("# Module: `math`", 1, true))
+   assert(readFile(dir .. "/site/api.md"):find("# `math`", 1, true))
    assert(readFile(dir .. "/site/assets/style.css"):find(
       "%-%-nuppdoc%-dark%-accent"), "Nuppdoc theme tokens missing")
    os.execute("rm -rf '" .. dir .. "'")
@@ -2138,7 +2138,7 @@ function M.siteMatchesTheNuppdocPageModel()
 
    -- a configured page whose path is a module's route is that module's
    -- overview: prose above the generated API rather than a second page beside it
-   assert(module:find("<h1>Module: <code>math</code></h1>", 1, true), module)
+   assert(module:find("<h1><code>math</code></h1>", 1, true), module)
    assert(module:find("Hand-written prose above the generated API.", 1, true),
       module)
    assert(module:find('<h2 id="where-to-start">Where to start', 1, true), module)
@@ -2194,7 +2194,7 @@ function M.siteMatchesTheNuppdocPageModel()
       "a module with nothing nested under it still rendered a Modules table")
 
    local namespace = readFile(dir .. "/site/modules/engine/gpu/index.html")
-   assert(namespace:find("<h1>Namespace: <code>engine.gpu</code></h1>", 1, true),
+   assert(namespace:find("<h1><code>engine.gpu</code></h1>", 1, true),
       namespace)
    assert(namespace:find("Nothing is required by this name itself", 1, true),
       namespace)
@@ -2251,13 +2251,13 @@ function M.siteMatchesTheNuppdocPageModel()
       "the four-backtick fence swallowed the rest of the page")
 
    assert(readFile(dir .. "/site/modules/math/llms.txt"):find(
-      "# Module: `math`", 1, true))
+      "# `math`", 1, true))
    local engineMarkdown = readFile(dir .. "/site/modules/engine/llms.txt")
    assert(engineMarkdown:find("## Submodules", 1, true), engineMarkdown)
    assert(engineMarkdown:find("| `engine.gpu` | 1 module |", 1, true),
       engineMarkdown)
    assert(readFile(dir .. "/site/modules/engine/gpu/llms.txt")
-      :find("# Namespace: `engine.gpu`", 1, true))
+      :find("# `engine.gpu`", 1, true))
    -- the same references in markdown: an anchor when the document holds what it
    -- names, and the bare name when it does not
    assert(engineMarkdown:find("[`engine.Engine`](#engine.Engine)", 1, true),

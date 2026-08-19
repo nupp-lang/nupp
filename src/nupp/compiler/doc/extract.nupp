@@ -980,7 +980,11 @@ declarationItem = function(stat, moduleName, includeAll, declarationFile, includ
     if info.tags.internal and not includePrivate then
         public = false
     end
-    if kind == "method" and privateName(name) and not includePrivate then
+    -- The leading underscore means private wherever it appears, not only on a
+    -- method: a module function, type, or variable named `_thing` is as much an
+    -- implementation detail as `Record._thing`, and the generated runtime helpers
+    -- the compiler calls by name are exactly that.
+    if privateName(name) and not includePrivate then
         public = false
     end
     if not public then
