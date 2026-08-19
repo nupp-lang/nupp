@@ -684,7 +684,7 @@ Manifest target options cannot be combined with explicit source files.
 Use 'nupp tasks' to discover target names and configuration.
 
 The level is part of the build key, so changing it rebuilds rather than
-mixing artifacts compiled at two different levels. See plans/014-optimizations.md.
+mixing artifacts compiled at two different levels. See docs/neps/0026-compiler-optimizations.md.
 
 --json reports the same diagnostics as 'nupp check --json' alongside what the
 build wrote, so one call answers both what went wrong and what landed. It also

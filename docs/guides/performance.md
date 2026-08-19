@@ -9,7 +9,7 @@ forms at all. A pass lands only with a LuaJIT-enabled benchmark and a static
 proof that it preserves behavior. Nothing is a promise about timing: thresholds
 are measured implementation details, and every rewrite preserves answers. The
 design catalog is
-[`plans/014-optimizations.md`](../../plans/014-optimizations.md).
+[NEP 26](../neps/0026-compiler-optimizations.md).
 
 ```bash
 nupp build -O1
