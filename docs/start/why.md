@@ -96,7 +96,9 @@ one C is holding, and one already freed. The convention lives in a comment.
 Nupp puts the obligation in the type:
 
 ```nupp
-local file = resources.openFile("in.txt", "r")
+local files = require("nupp.io.file")
+
+local file = files.open("in.txt", "r")
 print(file:read("*a"))
 -- file is destroyed automatically here, including when read raises
 ```
@@ -106,7 +108,7 @@ whose result is `affine(T, cleanup)` when automatic lexical destruction is not
 the desired end:
 
 ```nupp
-local file = resources.openFile("in.txt", "r")
+local file = files.open("in.txt", "r")
 submit(file) -- takes file; automatic destruction is deactivated
 ```
 

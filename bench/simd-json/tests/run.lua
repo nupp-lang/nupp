@@ -6,7 +6,7 @@ local parser = require("simd_json.parser")
 local scanner = require("simd_json.scanner")
 local simdjsonBench = require("simdjson_bench")
 local span = require("nupp.mem.span")
-local valueBuilder = require("nupp.valuebuilder")
+local valueBuilder = require("nupp.data.valuebuilder")
 
 ffi.cdef[[
    typedef struct { uint32_t v1; uint32_t v2; uint32_t v3; } SimdJsonIndexResult;

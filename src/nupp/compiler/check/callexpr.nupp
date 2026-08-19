@@ -1523,8 +1523,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             and callee.name
         then
             local holder = c.lookupEntry(callee.obj.token.text)
-            if holder and holder.requiredModule == "nupp.dynamic" then
-                dynamicExport = {module = "nupp.dynamic", member = callee.name.text,}
+            if holder and holder.requiredModule == "nupp.owners.store" then
+                dynamicExport = {module = "nupp.owners.store", member = callee.name.text,}
             end
         end
         local soaExport = node.kind == "call" and callee and callee.exactCallExport or nil
@@ -1584,7 +1584,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if indexedProducer then
             node.indexedViewProducer = {producer = indexedProducer, source = argExprs[1], count = argExprs[2],}
         end
-        if dynamicExport and dynamicExport.module == "nupp.dynamic" then
+        if dynamicExport and dynamicExport.module == "nupp.owners.store" then
             local source = argExprs[1]
             local entry = source and c.ownershipEntry(source) or nil
             entry = c.ownershipState(entry)
@@ -1623,14 +1623,15 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
         end
-        -- `ErasedHandle` is private and constructible only by nupp.dynamic. Preserve
-        -- custody metadata from its typed source even when an imported-call sidecar
-        -- was unavailable (for example while checking the bundled module graph).
+        -- `ErasedHandle` is private and constructible only by nupp.owners.store.
+        -- Preserve custody metadata from its typed source even when an imported-call
+        -- sidecar was unavailable (for example while checking the bundled module
+        -- graph).
         local erasedResult = rawType(first)
         local erasedOrigin = erasedResult.tag == "nominal" and (erasedResult.origin or erasedResult) or nil
         if erasedOrigin
             and erasedOrigin.tag == "nominal"
-            and erasedOrigin.moduleName == "nupp.dynamic"
+            and erasedOrigin.moduleName == "nupp.owners.store"
             and erasedOrigin.name == "ErasedHandle"
             and not node.resourceCapability
         then
@@ -1932,18 +1933,14 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     end
                     node.resourceCapability = adopted
                 else
-                    c.diag("NUPP2602", actualArgs[1] or node, "resources.Set.adopt requires an owned value")
+                    c.diag("NUPP2602", actualArgs[1] or node, "Set.adopt requires an owned value")
                 end
             elseif owner.tag == "nominal" and owner.resourceSet and member.text == "remove" then
                 local actualArgs = node.args and node.args.kind == "args" and node.args.exprs or {}
                 local entry, nameNode = actualArgs[1] and c.ownershipEntry(actualArgs[1]) or nil
                 entry = c.ownershipState(entry)
                 if not entry or not entry.resourceCapability or entry.moved then
-                    c.diag(
-                        "NUPP2602",
-                        actualArgs[1] or node,
-                        "resources.Set.remove needs a live value returned by adopt"
-                    )
+                    c.diag("NUPP2602", actualArgs[1] or node, "Set.remove needs a live value returned by adopt")
                 else
                     local capability = entry.resourceCapability
                     entry.moved = true

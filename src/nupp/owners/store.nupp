@@ -4,9 +4,16 @@ Typed custody for capabilities that must cross heterogeneous or untyped storage.
 The store owns erased representations together with the exact cleanup witness the
 checker injects at `put`. Handles are ordinary copyable tokens; store identity, slot,
 generation, and policy are checked before a value or cleanup is touched.
+
+This is the recoverable half of owner custody. [](nupp.owners.set) holds the same
+kind of erased entry when a program only needs them discharged together, in reverse,
+at one lexical boundary; the generation and policy checks here are what let a single
+owner be erased through untyped Lua and claimed back.
+
+See `docs/ownership.md`.
 ]]
 
-local dynamic = {}
+local store = {}
 
 local STORE_REGISTRY_KEY = "__nuppDynamicStores"
 local stores: any = _G[STORE_REGISTRY_KEY]
@@ -16,7 +23,7 @@ if not stores then
 end
 
 --- A structured static or runtime dynamic-custody failure.
-record dynamic.Error
+record store.Error
     code: string
     message: string
 end
@@ -30,32 +37,32 @@ end
 
 --- A copyable typed token. Its representation is private and cannot be forged by
 --- checked code.
-record dynamic.Handle<T>
-    private store: dynamic.StoreState
+record store.Handle<T>
+    private store: store.StoreState
     private slot: integer
     private generation: integer
     private policy: string
 end
 
 --- The intentionally type-erased token accepted by untyped adapters.
-record dynamic.ErasedHandle
-    private store: dynamic.StoreState
+record store.ErasedHandle
+    private store: store.StoreState
     private slot: integer
     private generation: integer
     private policy: string
 end
 
---- Runtime state owned by `dynamic.Store`.
-record dynamic.StoreState
+--- Runtime state owned by `store.Store`.
+record store.StoreState
     private entries: {[integer]: Entry}
     private generations: {[integer]: integer}
     private nextSlot: integer
     private destroyed: boolean
 
-    drop: nosuspend function(takes self: dynamic.StoreState): nil
+    drop: nosuspend function(takes self: store.StoreState): nil
 
     --- Compiler-lowered implementation of `put`; callers use `put` below.
-    function _put<T>(exclusive self, takes value: T, cleanup: any, policy: string): dynamic.Handle<T>
+    function _put<T>(exclusive self, takes value: T, cleanup: any, policy: string): store.Handle<T>
         assert(not self.destroyed, "dynamic store is destroyed")
         local slot = self.nextSlot
         self.nextSlot = slot + 1
@@ -64,12 +71,7 @@ record dynamic.StoreState
             slot
         ] = new Entry(value = unsafe release value, cleanup = cleanup, policy = policy, generation = generation)
 
-        return new dynamic.Handle(
-            store = self,
-            slot = slot,
-            generation = generation,
-            policy = policy
-        ) as dynamic.Handle<T>
+        return new store.Handle(store = self, slot = slot, generation = generation, policy = policy) as store.Handle<T>
     end
 
     --- Enrolls one self-contained, droppable capability.
@@ -77,16 +79,16 @@ record dynamic.StoreState
     --- This body is replaced at the call site so the cleanup witness and stable type
     --- policy remain erased from direct checked values.
     --- @raises if compiler lowering is unavailable
-    function put<T>(exclusive self, takes value: T): dynamic.Handle<T>
+    function put<T>(exclusive self, takes value: T): store.Handle<T>
         local _raw = unsafe release value
-        error("dynamic.Store.put must be lowered by the compiler", 2)
+        error("store.Store.put must be lowered by the compiler", 2)
     end
 
     function with<T, R>(
         exclusive self,
-        handle: dynamic.Handle<T>,
+        handle: store.Handle<T>,
         scoped callback: function(borrows value: T): R
-    ): (R?, dynamic.Error?)
+    ): (R?, store.Error?)
         local entry, problem = self:_entry(handle)
         if not entry then
             return nil, problem
@@ -97,9 +99,9 @@ record dynamic.StoreState
 
     function withExclusive<T, R>(
         exclusive self,
-        handle: dynamic.Handle<T>,
+        handle: store.Handle<T>,
         scoped callback: function(exclusive value: T): R
-    ): (R?, dynamic.Error?)
+    ): (R?, store.Error?)
         local entry, problem = self:_entry(handle)
         if not entry then
             return nil, problem
@@ -108,7 +110,7 @@ record dynamic.StoreState
         return callback(entry.value as T), nil
     end
 
-    function take<T>(exclusive self, handle: dynamic.Handle<T>): (T?, dynamic.Error?)
+    function take<T>(exclusive self, handle: store.Handle<T>): (T?, store.Error?)
         local entry, problem = self:_entry(handle)
         if not entry then
             return nil, problem
@@ -119,7 +121,7 @@ record dynamic.StoreState
         return entry.value as T, nil
     end
 
-    function remove<T>(exclusive self, handle: dynamic.Handle<T>): dynamic.Error?
+    function remove<T>(exclusive self, handle: store.Handle<T>): store.Error?
         local entry, problem = self:_entry(handle)
         if not entry then
             return problem
@@ -131,26 +133,26 @@ record dynamic.StoreState
         return nil
     end
 
-    function _entry<T>(borrows self, handle: dynamic.Handle<T>): (Entry?, dynamic.Error?)
+    function _entry<T>(borrows self, handle: store.Handle<T>): (Entry?, store.Error?)
         if self.destroyed or handle.store ~= self then
-            return nil, new dynamic.Error(
+            return nil, new store.Error(
                 code = "NUPP2614",
                 message = "dynamic handle names a destroyed or different store"
             )
         end
         local entry = self.entries[handle.slot]
         if not entry or entry.generation ~= handle.generation then
-            return nil, new dynamic.Error(code = "NUPP2614", message = "dynamic handle is stale")
+            return nil, new store.Error(code = "NUPP2614", message = "dynamic handle is stale")
         end
         if entry.policy ~= handle.policy then
-            return nil, new dynamic.Error(code = "NUPP2613", message = "dynamic handle has the wrong type policy")
+            return nil, new store.Error(code = "NUPP2613", message = "dynamic handle has the wrong type policy")
         end
 
         return entry, nil
     end
 end
 
-function dynamic.StoreState.drop(takes self)
+function store.StoreState.drop(takes self)
     if self.destroyed then
         return
     end
@@ -179,21 +181,21 @@ function dynamic.StoreState.drop(takes self)
     end
 end
 
-local function destroyStore(takes self: dynamic.StoreState): nil
+local function destroyStore(takes self: store.StoreState): nil
     self:drop()
 end
 
-type dynamic.Store = affine(dynamic.StoreState, destroyStore)
+type store.Store = affine(store.StoreState, destroyStore)
 
-function dynamic.newStore(): dynamic.Store
-    local store = new dynamic.StoreState(entries = {}, generations = {}, nextSlot = 1, destroyed = false)
+function store.new(): store.Store
+    local store = new store.StoreState(entries = {}, generations = {}, nextSlot = 1, destroyed = false)
     stores[store] = true
 
     return store
 end
 
-function dynamic.erase<T>(handle: dynamic.Handle<T>): dynamic.ErasedHandle
-    return new dynamic.ErasedHandle(
+function store.erase<T>(handle: store.Handle<T>): store.ErasedHandle
+    return new store.ErasedHandle(
         store = handle.store,
         slot = handle.slot,
         generation = handle.generation,
@@ -204,17 +206,17 @@ end
 --- Runtime half of checked recovery. The compiler supplies the stable policy key and
 --- lowers the public `recover` call here; this function is not a source-level escape
 --- hatch because constructing either handle remains private to this module.
-function dynamic._recover<T>(handle: dynamic.ErasedHandle, policy: string): (dynamic.Handle<T>?, dynamic.Error?)
+function store._recover<T>(handle: store.ErasedHandle, policy: string): (store.Handle<T>?, store.Error?)
     if handle.policy ~= policy then
-        return nil, new dynamic.Error(code = "NUPP2613", message = "dynamic handle has the wrong type policy")
+        return nil, new store.Error(code = "NUPP2613", message = "dynamic handle has the wrong type policy")
     end
     return (
-        new dynamic.Handle(
+        new store.Handle(
             store = handle.store,
             slot = handle.slot,
             generation = handle.generation,
             policy = handle.policy
-        ) as dynamic.Handle<T>
+        ) as store.Handle<T>
     ), nil
 end
 
@@ -223,8 +225,8 @@ end
 --- restores that exact capability rather than inventing one from the witness. This
 --- body is replaced by compiler lowering; `expected` is compile-time.
 --- @raises only if this standard-library intrinsic is invoked without compiler lowering
-function dynamic.recover<T>(handle: dynamic.ErasedHandle, expected: Type<T>): (dynamic.Handle<T>?, dynamic.Error?)
-    error("dynamic.recover must be lowered by the compiler", 2)
+function store.recover<T>(handle: store.ErasedHandle, expected: Type<T>): (store.Handle<T>?, store.Error?)
+    error("store.recover must be lowered by the compiler", 2)
 end
 
 -- The hot-reload runtime asks only whether a stable policy has live custody. Values,
@@ -244,4 +246,4 @@ _G.__nuppDynamicPolicyCount = function(policy: string): integer
     return count
 end
 
-return dynamic
+return store

@@ -472,9 +472,9 @@ end
 function M.resourceSetsReifyCleanupOwnersAtOneAuditedBoundary()
    local source = table.concat({
       RESOURCE,
-      "local resources = require('nupp.resources')",
+      "local set = require('nupp.owners.set')",
       "do",
-      "   local group = resources.set('requests')",
+      "   local group = set.new('requests')",
       "   local value = group:adopt(resource_new())",
       "   print(value.value)",
       "end",
@@ -493,13 +493,13 @@ end
 
 function M.resourceSetsRequireAWitnessForOpaqueOwners()
    assertEq(codes(table.concat({
-      "local resources = require('nupp.resources')",
+      "local set = require('nupp.owners.set')",
       "local record Request",
       "   value: integer",
       "end",
       "local function beginRequest(): affine(Request) return new Request(value = 1) end",
       "do",
-      "   local group = resources.set('requests')",
+      "   local group = set.new('requests')",
       "   local request = group:adopt(beginRequest())",
       "end",
    }, "\n")), "NUPP2602")
@@ -508,9 +508,9 @@ end
 function M.resourceSetsCanTransferARegistrationBackOutExactlyOnce()
    assertClean(table.concat({
       RESOURCE,
-      "local resources = require('nupp.resources')",
+      "local set = require('nupp.owners.set')",
       "do",
-      "   local group = resources.set('requests')",
+      "   local group = set.new('requests')",
       "   local borrowed = group:adopt(resource_new())",
       "   local returned = group:remove(borrowed)",
       "   drop(returned)",
@@ -521,9 +521,9 @@ end
 function M.dynamicStoresCarryExactCleanupPoliciesBehindTypedHandles()
    local source = table.concat({
       RESOURCE,
-      "local dynamic = require('nupp.dynamic')",
+      "local stores = require('nupp.owners.store')",
       "do",
-      "   local store = dynamic.newStore()",
+      "   local store = stores.new()",
       "   local handle = store:put(resource_new())",
       "   local returned, problem = store:take(handle)",
       "   assert(problem == nil)",
@@ -542,7 +542,7 @@ end
 
 function M.dynamicStoresEnforceCustodyAtRuntime()
    local source = table.concat({
-      "local dynamic = require('nupp.dynamic')",
+      "local stores = require('nupp.owners.store')",
       "local cleaned = 0",
       "local record FileState value: integer end",
       "local function closeFile(takes file: FileState): nil",
@@ -551,11 +551,11 @@ function M.dynamicStoresEnforceCustodyAtRuntime()
       "local function openFile(value: integer): affine(FileState, closeFile)",
       "   return new FileState(value = value)",
       "end",
-      "local store = dynamic.newStore()",
+      "local store = stores.new()",
       "local handle = store:put(openFile(1))",
       "local stale = handle",
-      "local erased = dynamic.erase(handle)",
-      "local recovered, recoveryProblem = dynamic.recover(erased, FileState)",
+      "local erased = stores.erase(handle)",
+      "local recovered, recoveryProblem = stores.recover(erased, FileState)",
       "assert(recoveryProblem == nil)",
       "if not recovered then error('recovery failed') end",
       "local file, takeProblem = store:take(recovered)",
@@ -582,10 +582,10 @@ end
 
 function M.dynamicStoresRejectCapabilitiesTheyCannotDischarge()
    assertEq(codes(table.concat({
-      "local dynamic = require('nupp.dynamic')",
+      "local stores = require('nupp.owners.store')",
       "local record Request value: integer end",
       "local function begin(): affine(Request) return new Request(value = 1) end",
-      "local store = dynamic.newStore()",
+      "local store = stores.new()",
       "local handle = store:put(begin())",
       "drop(store)",
       "return handle",
@@ -693,7 +693,7 @@ end
 
 function M.dynamicRecoveryKeepsAndChecksTheStoredCapabilityPolicy()
    local prelude = table.concat({
-      "local dynamic = require('nupp.dynamic')",
+      "local stores = require('nupp.owners.store')",
       "local record FileState end",
       "local function closeFile(takes value: FileState): nil end",
       "local type File = affine(FileState, closeFile)",
@@ -701,19 +701,19 @@ function M.dynamicRecoveryKeepsAndChecksTheStoredCapabilityPolicy()
       "local record SocketState end",
       "local function closeSocket(takes value: SocketState): nil end",
       "local type Socket = affine(SocketState, closeSocket)",
-      "local store = dynamic.newStore()",
+      "local store = stores.new()",
       "local handle = store:put(openFile())",
-      "local erased = dynamic.erase(handle)",
+      "local erased = stores.erase(handle)",
    }, "\n")
    assertClean(prelude .. table.concat({
       "",
-      "local recovered, problem = dynamic.recover(erased, FileState)",
+      "local recovered, problem = stores.recover(erased, FileState)",
       "if recovered then",
       "   local value = store:take(recovered)",
       "   if value then drop(value) end",
       "end",
    }, "\n"))
-   local _, mismatch = checked(prelude .. "\nlocal recovered = dynamic.recover(erased, SocketState)")
+   local _, mismatch = checked(prelude .. "\nlocal recovered = stores.recover(erased, SocketState)")
    assertEq(mismatch[1] and mismatch[1].code, "NUPP2613")
    assertEq(mismatch[1].fixes[1].title, "change the type to `FileState`")
    assertEq(#(mismatch[1].related or {}), 1, "policy mismatch names the enrolled handle")

@@ -83,8 +83,9 @@ local TEMPLATE_FILES = {
 local RESOURCES = {
    "src/nupp/compiler/decls/*.d.nupp",
    "src/nupp/compiler/decls/jit/*.d.nupp",
-   {source = "src/nupp/resources.nupp", output = "nupp/compiler/nupp/resources.nupp"},
-   {source = "src/nupp/dynamic.nupp", output = "nupp/compiler/nupp/dynamic.nupp"},
+   {source = "src/nupp/owners/set.nupp", output = "nupp/compiler/nupp/owners/set.nupp"},
+   {source = "src/nupp/io/file.nupp", output = "nupp/compiler/nupp/io/file.nupp"},
+   {source = "src/nupp/owners/store.nupp", output = "nupp/compiler/nupp/owners/store.nupp"},
    {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
    {source = "src/nupp/profile/zone.nupp", output = "nupp/compiler/nupp/profile/zone.nupp"},
    {source = "src/nupp/profile/_trace.nupp", output = "nupp/compiler/nupp/profile/_trace.nupp"},
@@ -92,7 +93,7 @@ local RESOURCES = {
    {source = "src/nupp/mem/indexed.nupp", output = "nupp/compiler/nupp/mem/indexed.nupp"},
    {source = "src/nupp/mem/span.nupp", output = "nupp/compiler/nupp/mem/span.nupp"},
    {source = "src/nupp/simd.nupp", output = "nupp/compiler/nupp/simd.nupp"},
-   {source = "src/nupp/valuebuilder.g.nupp", output = "nupp/compiler/nupp/valuebuilder.g.nupp"},
+   {source = "src/nupp/data/valuebuilder.g.nupp", output = "nupp/compiler/nupp/data/valuebuilder.g.nupp"},
    {source = "src/nupp/mem/heap.nupp", output = "nupp/compiler/nupp/mem/heap.nupp"},
    {source = "src/nupp/mem/soa.nupp", output = "nupp/compiler/nupp/mem/soa.nupp"},
    {source = "src/nupp/suspension.nupp", output = "nupp/compiler/nupp/suspension.nupp"},
@@ -293,8 +294,10 @@ value = "ready"]],
                         details = "Ownership, borrowing, pinning, and deterministic cleanup make "
                            .. "the important rules at a C boundary explicit—and make leaks and "
                            .. "use-after-move errors reportable.",
-                        code = [[do
-    local file = resources.openFile("report.txt", "r")
+                        code = [[local files = require("nupp.io.file")
+
+do
+    local file = files.open("report.txt", "r")
     local contents = file:read("*a")
     send(borrows contents)
 end -- the file is closed on every structured exit]],

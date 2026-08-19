@@ -140,7 +140,7 @@ return m
 ]]
 
 local BUILDER = [[
-local valueBuilder = require("nupp.valuebuilder")
+local valueBuilder = require("nupp.data.valuebuilder")
 local simd = require("nupp.simd")
 
 @aot

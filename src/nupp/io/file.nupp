@@ -1,0 +1,77 @@
+--[[
+Owning wrappers for Lua's file handles.
+
+`io.open` hands back a borrowed handle, which means nothing has to close it and
+nothing complains when nobody does. These are the same calls annotated as owners,
+so the checker knows a handle must be discharged and lexical cleanup can do it,
+on fallthrough, on error, and on structured control flow alike.
+
+Holding a runtime number of owners is a separate subject; that is
+[](nupp.owners.set).
+
+See `docs/ownership.md`.
+]]
+
+local file = {}
+
+local function close_file(takes handle: LuaFile): nil
+    local ok, reason = handle:close()
+    if not ok then
+        error(reason or "file close failed")
+    end
+end
+
+--- Opens a file and transfers responsibility for closing it to the caller.
+---
+--- The returned handle closes automatically at its lexical boundary.
+---
+--- @export
+--- @param path the path of the file to open
+--- @param mode the Lua file mode; omitted uses the Lua default
+--- @return the open file handle, owned by the caller
+--- @raises when the file cannot be opened
+function file.open(path: string, mode: string?): affine(LuaFile, close_file)
+    local handle, reason = io.open(path, mode)
+    if not handle then
+        error(reason or "file open failed")
+    end
+
+    return handle
+end
+
+--- Starts a process and transfers responsibility for closing its pipe to the caller.
+---
+--- The returned handle closes automatically at its lexical boundary. This is Lua's
+--- `io.popen` as an owner; [](nupp.io.process) is the full process API.
+---
+--- @export
+--- @param command the shell command to run
+--- @param mode the Lua pipe mode; omitted uses the Lua default
+--- @return the process pipe, owned by the caller
+--- @raises when the process pipe cannot be opened
+function file.popen(command: string, mode: string?): affine(LuaFile, close_file)
+    local handle, reason = io.popen(command, mode)
+    if not handle then
+        error(reason or "process open failed")
+    end
+
+    return handle
+end
+
+--- Creates a temporary file owned by the caller.
+---
+--- The returned handle closes automatically at its lexical boundary.
+---
+--- @export
+--- @return the open temporary file handle, owned by the caller
+--- @raises when the temporary file cannot be created
+function file.temporary(): affine(LuaFile, close_file)
+    local handle = io.tmpfile()
+    if not handle then
+        error("temporary file creation failed")
+    end
+
+    return handle
+end
+
+return file

@@ -1,4 +1,4 @@
-local _valueBuilder = require("nupp.valuebuilder")
+local _valueBuilder = require("nupp.data.valuebuilder")
 local _simd = require("nupp.simd")
 local _preferredU8 = _simd.preferredU8
 

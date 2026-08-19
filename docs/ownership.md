@@ -263,15 +263,15 @@ newly exclusive child into the next iteration, reports `NUPP2609`.
 
 A nontrivial capability cannot disappear into `any` or an untyped call. Prefer a
 typed wrapper for a closed backend set. Truly heterogeneous storage uses
-`nupp.dynamic`:
+`nupp.owners.store`:
 
 ```nupp
-local dynamic = require("nupp.dynamic")
+local stores = require("nupp.owners.store")
 
-local store = dynamic.newStore()
+local store = stores.new()
 local handle = store:put(openFile()) -- Moves the exact cleanup policy into the store.
-local token = dynamic.erase(handle)  -- Safe to pass through untyped Lua.
-local restored, problem = dynamic.recover(token, FileState)
+local token = stores.erase(handle)  -- Safe to pass through untyped Lua.
+local restored, problem = stores.recover(token, FileState)
 if restored then
     local file = store:take(restored)
     if file then use(file) end

@@ -1272,9 +1272,9 @@ function declare.install(
             if n.declKind == "interface" and stat.sealedTok then
                 n.sealedModule = n.moduleName or c.filename
             end
-            if c.result.moduleName == "nupp.resources" and n.name == "Set" then
+            if c.result.moduleName == "nupp.owners.set" and n.name == "Set" then
                 n.resourceSet = true
-            elseif c.result.moduleName == "nupp.dynamic" and n.name == "StoreState" then
+            elseif c.result.moduleName == "nupp.owners.store" and n.name == "StoreState" then
                 n.dynamicStore = true
             end
 

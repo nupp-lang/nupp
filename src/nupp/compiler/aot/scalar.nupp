@@ -139,7 +139,7 @@ record scalarIR.LuaNewTable
 end
 
 --- Builds one ordinary Lua value graph from a bounds-checked, pointer-free
---- preorder tree representation. The format belongs to `nupp.valuebuilder`;
+--- preorder tree representation. The format belongs to `nupp.data.valuebuilder`;
 --- codecs produce it without receiving VM authority, and this operation is the
 --- single VM-aware consumption boundary.
 record scalarIR.LuaTree

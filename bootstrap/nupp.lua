@@ -39,703 +39,9 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppD
 
 
 
+
 const nupp = { }
 return nupp
-
-end
-package.preload["nupp._bitset"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-local bitset = { }
-local ffi = require ( "ffi" )
-
-const band = bit . band
-const bnot = bit . bnot
-const bor = bit . bor
-const bxor = bit . bxor
-const lshift = bit . lshift
-const rshift = bit . rshift
-const tobit = bit . tobit
-
-
-
-
-bitset . WORD_BITS = 32
-
-
-
-const BITS_PER_WORD = 32
-const WORD_SHIFT = 5
-const BIT_MASK = 31
-const ALL_ONES = - 1
-const DEFAULT_BITS = 64
-
-const HALF_MASK = 0xFFFF
-const HALF_SHIFT = 16
-
-
-
-
-
-
-
-
-
-
-local POPCOUNT_HALF = ffi . new ( "uint8_t[65536]" )
-local CTZ_HALF = ffi . new ( "uint8_t[65536]" )
-
-do
-
-
-POPCOUNT_HALF [ 0 ] = 0
-for value = 1 , 65535 do
-POPCOUNT_HALF [ value ] = POPCOUNT_HALF [ band ( value , value - 1 ) ] + 1
-end
-
-
-
-CTZ_HALF [ 0 ] = 16
-for value = 1 , 65535 do
-CTZ_HALF [ value ] = band ( value , 1 ) == 1 ? 0 : CTZ_HALF [ rshift ( value , 1 ) ] + 1
-end
-end
-
-
-local function popcount ( word )
-do
-return (
-POPCOUNT_HALF [ band ( word , HALF_MASK ) ] + POPCOUNT_HALF [ band ( rshift ( word , HALF_SHIFT ) , HALF_MASK ) ]
-)
-end
-end
-
-
-local function lowestBit ( word )
-do
-local half = band ( word , HALF_MASK )
-if half ~= 0 then
-return CTZ_HALF [ half ]
-end
-
-return ( HALF_SHIFT + CTZ_HALF [ band ( rshift ( word , HALF_SHIFT ) , HALF_MASK ) ] )
-end
-end
-
-
-local function wordsFor ( bits )
-local words = rshift ( bits + BIT_MASK , WORD_SHIFT )
-return words < 1 ? 1 : words
-end
-
-
-
-
-
-
-
-
-
-
-
-
-bitset.Bitset = {} bitset.Bitset.__index = bitset.Bitset
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function bitset.Bitset:reserve(bits)
-local needed = wordsFor ( bits )
-if needed <= self . capacity then
-return
-end
-
-local doubled = self . capacity * 2
-local grown = needed > doubled ? needed : doubled
-local fresh = ffi . new ( "uint32_t[?]" , grown )
-ffi . copy ( fresh , self . words , self . capacity * 4 )
-self . words = fresh
-self . capacity = grown
-end
-
-
-
-
-function bitset.Bitset:set(index)
-
-
-
-
-if index < 0 then
-error ( "bitset index cannot be negative" , 2 )
-end
-
-local word = rshift ( index , WORD_SHIFT )
-if word >= self . capacity then
-self : reserve ( index + 1 )
-end
-
-do
-local previous = tobit ( self . words [ word ] )
-local mask = lshift ( 1 , band ( index , BIT_MASK ) )
-if band ( previous , mask ) == 0 then
-self . words [ word ] = bor ( previous , mask )
-if not self . stale then
-self . population = self . population + 1
-end
-if word >= self . used then
-self . used = word + 1
-end
-end
-end
-end
-
-
-
-
-
-function bitset.Bitset:clear(index)
-local word = rshift ( index , WORD_SHIFT )
-if word >= self . used then
-return
-end
-
-do
-local previous = tobit ( self . words [ word ] )
-local mask = lshift ( 1 , band ( index , BIT_MASK ) )
-if band ( previous , mask ) ~= 0 then
-self . words [ word ] = band ( previous , bnot ( mask ) )
-if not self . stale then
-self . population = self . population - 1
-end
-end
-end
-end
-
-
-
-
-
-function bitset.Bitset:get(index)
-local word = rshift ( index , WORD_SHIFT )
-if word >= self . used then
-return false
-end
-
-do
-return band ( tobit ( self . words [ word ] ) , lshift ( 1 , band ( index , BIT_MASK ) ) ) ~= 0
-end
-end
-
-
-
-
-
-
-
-function bitset.Bitset:setRange(low, high)
-if high < low then
-return
-end
-if low < 0 then
-error ( "bitset range cannot start below zero" , 2 )
-end
-
-self : reserve ( high + 1 )
-
-local firstWord = rshift ( low , WORD_SHIFT )
-local lastWord = rshift ( high , WORD_SHIFT )
-local lowBit = band ( low , BIT_MASK )
-local highBit = band ( high , BIT_MASK )
-local head = bnot ( lshift ( 1 , lowBit ) - 1 )
-local tail = highBit == BIT_MASK ? ALL_ONES : lshift ( 1 , highBit + 1 ) - 1
-
-
-
-
-
-
-
-
-
-
-local exact = not self . stale
-local added = 0
-
-
-local words = self . words
-local used = self . used
-do
-if firstWord == lastWord then
-local old = tobit ( words [ firstWord ] )
-local new = bor ( old , band ( head , tail ) )
-words [ firstWord ] = new
-if exact then
-added = popcount ( new ) - popcount ( old )
-end
-else
-local old = tobit ( words [ firstWord ] )
-local new = bor ( old , head )
-words [ firstWord ] = new
-if exact then
-added = popcount ( new ) - popcount ( old )
-end
-
-
-
-local lastMiddle = lastWord - 1
-local reached = used - 1 < lastMiddle ? used - 1 : lastMiddle
-local counted = reached < firstWord ? firstWord : reached
-if exact then
-for word = firstWord + 1 , counted do
-added = added + BITS_PER_WORD - popcount ( tobit ( words [ word ] ) )
-words [ word ] = ALL_ONES
-end
-if counted < lastMiddle then
-added = added + BITS_PER_WORD * ( lastMiddle - counted )
-end
-for word = counted + 1 , lastMiddle do
-words [ word ] = ALL_ONES
-end
-else
-for word = firstWord + 1 , lastMiddle do
-words [ word ] = ALL_ONES
-end
-end
-
-old = tobit ( words [ lastWord ] )
-new = bor ( old , tail )
-words [ lastWord ] = new
-if exact then
-added = added + popcount ( new ) - popcount ( old )
-end
-end
-
-if exact then
-self . population = ( self . population + added )
-end
-end
-
-if lastWord >= self . used then
-self . used = lastWord + 1
-end
-end
-
-
-
-
-
-function bitset.Bitset:count()
-if not self . stale then
-return self . population
-end
-
-
-
-local words = self . words
-local total = 0
-do
-for word = 0 , self . used - 1 do
-total = total + popcount ( tobit ( words [ word ] ) )
-end
-end
-local resolved = total
-self . population = resolved
-self . stale = false
-
-return resolved
-end
-
-
-
-function bitset.Bitset:isEmpty()
-return self : count ( ) == 0
-end
-
-
-
-function bitset.Bitset:clearAll()
-if self . used > 0 then
-ffi . fill ( self . words , self . used * 4 , 0 )
-self . used = 0
-end
-self . population = 0
-self . stale = false
-end
-
-
-
-
-function bitset.Bitset:setOnly(index)
-self : clearAll ( )
-self : set ( index )
-end
-
-
-
-
-
-function bitset.Bitset:wordCount()
-return self . used
-end
-
-
-
-
-
-
-function bitset.Bitset:wordAt(index)
-if index < 0 or index >= self . used then
-return 0
-end
-
-do
-return tobit ( self . words [ index ] )
-end
-end
-
-
-
-
-
-
-
-function bitset.Bitset:nextSetBit(from)
-local start = from < 0 ? 0 : from
-local first = rshift ( start , WORD_SHIFT )
-local used = self . used
-if first >= used then
-return - 1
-end
-
-local words = self . words
-
-
-
-
-
-do
-local partial = tobit ( words [ first ] )
-local offset = band ( start , BIT_MASK )
-if offset ~= 0 then
-partial = band ( partial , bnot ( lshift ( 1 , offset ) - 1 ) )
-end
-if partial ~= 0 then
-return lshift ( first , WORD_SHIFT ) + lowestBit ( partial )
-end
-
-for word = first + 1 , used - 1 do
-local bits = tobit ( words [ word ] )
-if bits ~= 0 then
-return lshift ( word , WORD_SHIFT ) + lowestBit ( bits )
-end
-end
-end
-
-return - 1
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function bitset.Bitset:positionsInto(target, capacity, from)
-if capacity < 0 then
-error ( "bitset target capacity cannot be negative" , 2 )
-end
-
-local start = from < 0 ? 0 : from
-local first = rshift ( start , WORD_SHIFT )
-local used = self . used
-if first >= used then
-return 0 , - 1
-end
-if capacity == 0 then
-return 0 , start
-end
-
-local words = self . words
-local offset = band ( start , BIT_MASK )
-local written = 0
-
-
-
-do
-for word = first , used - 1 do
-local bits = tobit ( words [ word ] )
-if word == first and offset ~= 0 then
-bits = band ( bits , bnot ( lshift ( 1 , offset ) - 1 ) )
-end
-
-local base = lshift ( word , WORD_SHIFT )
-for _ = 1 , BITS_PER_WORD do
-if bits == 0 then
-break
-end
-
-local position = base + lowestBit ( bits )
-if written >= capacity then
-return written , position
-end
-target [ written ] = position
-written = ( written + 1 )
-
-
-bits = band ( bits , bits - 1 )
-end
-end
-end
-
-return written , - 1
-end
-
-
-
-
-
-function bitset.Bitset:containsAll(other)
-local otherUsed = other . used
-if otherUsed == 0 then
-return true
-end
-if self . used < otherUsed then
-return false
-end
-
-local words , theirWords = self . words , other . words
-do
-for word = 0 , otherUsed - 1 do
-local theirs = tobit ( theirWords [ word ] )
-if band ( tobit ( words [ word ] ) , theirs ) ~= theirs then
-return false
-end
-end
-end
-
-return true
-end
-
-
-
-
-
-function bitset.Bitset:overlaps(other)
-local limit = self . used < other . used ? self . used : other . used
-
-local words , theirWords = self . words , other . words
-do
-for word = 0 , limit - 1 do
-if band ( tobit ( words [ word ] ) , tobit ( theirWords [ word ] ) ) ~= 0 then
-return true
-end
-end
-end
-
-return false
-end
-
-
-
-
-function bitset.Bitset:disjoint(other)
-return not self : overlaps ( other )
-end
-
-
-
-
-function bitset.Bitset:copyFrom(other)
-local otherUsed = other . used
-if otherUsed > self . capacity then
-self : reserve ( lshift ( otherUsed , WORD_SHIFT ) )
-end
-
-if otherUsed > 0 then
-ffi . copy ( self . words , other . words , otherUsed * 4 )
-end
-local words = self . words
-do
-for word = otherUsed , self . used - 1 do
-words [ word ] = 0
-end
-end
-
-self . used = otherUsed
-self . population = other . population
-self . stale = other . stale
-end
-
-
-
-
-
-
-
-function bitset.Bitset:orWith(other)
-local otherUsed = other . used
-if otherUsed == 0 then
-return
-end
-if otherUsed > self . capacity then
-self : reserve ( lshift ( otherUsed , WORD_SHIFT ) )
-end
-
-
-local words , theirWords = self . words , other . words
-do
-for word = 0 , otherUsed - 1 do
-words [ word ] = bor ( tobit ( words [ word ] ) , tobit ( theirWords [ word ] ) )
-end
-end
-
-if otherUsed > self . used then
-self . used = otherUsed
-end
-self . stale = true
-end
-
-
-
-
-function bitset.Bitset:andWith(other)
-local used = self . used
-if used == 0 then
-return
-end
-
-local shared = used < other . used ? used : other . used
-local words , theirWords = self . words , other . words
-do
-for word = 0 , shared - 1 do
-words [ word ] = band ( tobit ( words [ word ] ) , tobit ( theirWords [ word ] ) )
-end
-for word = shared , used - 1 do
-words [ word ] = 0
-end
-end
-
-
-
-self . used = shared
-self . stale = true
-end
-
-
-
-
-function bitset.Bitset:andNotWith(other)
-local limit = self . used < other . used ? self . used : other . used
-if limit == 0 then
-return
-end
-
-local words , theirWords = self . words , other . words
-do
-for word = 0 , limit - 1 do
-words [ word ] = band ( tobit ( words [ word ] ) , bnot ( tobit ( theirWords [ word ] ) ) )
-end
-end
-
-self . stale = true
-end
-
-
-
-function bitset.Bitset:xorWith(other)
-local otherUsed = other . used
-if otherUsed == 0 then
-return
-end
-if otherUsed > self . capacity then
-self : reserve ( lshift ( otherUsed , WORD_SHIFT ) )
-end
-
-local words , theirWords = self . words , other . words
-do
-for word = 0 , otherUsed - 1 do
-words [ word ] = bxor ( tobit ( words [ word ] ) , tobit ( theirWords [ word ] ) )
-end
-end
-
-if otherUsed > self . used then
-self . used = otherUsed
-end
-self . stale = true
-end
-
-
-
-
-
-
-
-function bitset . create ( capacityBits )
-local words = wordsFor ( capacityBits ?? DEFAULT_BITS )
-
-return setmetatable({ words =
-ffi . new ( "uint32_t[?]" , words ) ,  capacity =
-words ,  used =
-0 ,  population =
-0 ,  stale =
-false }, bitset.Bitset)
-
-end
-
-return bitset
 
 end
 package.preload["nupp.compiler"] = function(...)
@@ -4933,10 +4239,32 @@ return {
 "#else" ,
 "#define KS_API" ,
 "#endif" ,
-"#if defined(__GNUC__)" ,
+"/* Clang targeting MSVC defines neither __GNUC__ nor the MSVC warning set," ,
+" * so keying this on __GNUC__ alone left the attribute empty on the one" ,
+" * compiler that still warns about an unused static function. */" ,
+"#if defined(__GNUC__) || defined(__clang__)" ,
 "#define KS_UNUSED __attribute__((unused))" ,
 "#else" ,
 "#define KS_UNUSED" ,
+"#endif" ,
+"/* The test-only scalar oracle must not be vectorized back into the thing" ,
+" * it exists to be compared against. Clang spells that `optnone`; GCC has" ,
+" * no such attribute and warns about the one it does not know, so it gets" ,
+" * the equivalent it does have. */" ,
+"#if defined(__clang__)" ,
+"#define KS_OPTNONE __attribute__((optnone))" ,
+"#elif defined(__GNUC__)" ,
+"#define KS_OPTNONE __attribute__((optimize(\"O0\")))" ,
+"#else" ,
+"#define KS_OPTNONE" ,
+"#endif" ,
+"/* A count that came in as a uint32_t can only overflow the byte product" ,
+" * where size_t is no wider than it is. On a 64-bit size_t the comparison" ,
+" * is provably false, which is a -Wtype-limits error rather than a guard. */" ,
+"#if SIZE_MAX <= 0xFFFFFFFFu" ,
+"#define KS_COUNT_OVERFLOWS(n, size) ((size_t)(n) > SIZE_MAX / (size))" ,
+"#else" ,
+"#define KS_COUNT_OVERFLOWS(n, size) (0)" ,
 "#endif" ,
 "#ifndef M_PI" ,
 "#define M_PI 3.14159265358979323846264338327950288" ,
@@ -5153,13 +4481,13 @@ return {
 "    return (uint32_t)bytes[offset];" ,
 "}" ,
 "static KS_UNUSED uint32_t ks_lua_string_u32(lua_State *L, const unsigned char *bytes, size_t length, uint32_t index) {" ,
-"    if ((size_t)index > SIZE_MAX / sizeof(uint32_t)) { luaL_error(L, \"AOT builder word index overflows\"); return 0u; }" ,
+"    if (KS_COUNT_OVERFLOWS(index, sizeof(uint32_t))) { luaL_error(L, \"AOT builder word index overflows\"); return 0u; }" ,
 "    size_t offset = (size_t)index * sizeof(uint32_t); uint32_t value = 0u;" ,
 "    if (offset > length || sizeof(uint32_t) > length - offset) { luaL_error(L, \"AOT builder word is out of bounds\"); return 0u; }" ,
 "    memcpy(&value, bytes + offset, sizeof(value)); return value;" ,
 "}" ,
 "static KS_UNUSED KsLuaScratchU32 ks_lua_scratch_u32(lua_State *L, uint32_t capacity) {" ,
-"    if ((size_t)capacity > SIZE_MAX / sizeof(uint32_t)) { luaL_error(L, \"AOT scratch capacity overflows\"); capacity = 0u; }" ,
+"    if (KS_COUNT_OVERFLOWS(capacity, sizeof(uint32_t))) { luaL_error(L, \"AOT scratch capacity overflows\"); capacity = 0u; }" ,
 "    size_t bytes = (size_t)capacity * sizeof(uint32_t);" ,
 "    uint32_t *words = (uint32_t *)lua_newuserdata(L, bytes == 0u ? 1u : bytes);" ,
 "    KsLuaScratchU32 scratch = {words, capacity, 0u, lua_gettop(L)}; return scratch;" ,
@@ -5170,7 +4498,7 @@ return {
 "}" ,
 "static KS_UNUSED void ks_lua_scratch_u32_set(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t value) {" ,
 "    if (index > scratch->length || index >= scratch->capacity) { luaL_error(L, \"AOT scratch write is out of bounds\"); return; }" ,
-"    if (index == scratch->length) scratch->length += 1u; scratch->words[index] = value;" ,
+"    if (index == scratch->length) { scratch->length += 1u; } scratch->words[index] = value;" ,
 "}" ,
 "static KS_UNUSED uint32_t ks_reverse_u32(uint32_t value) {" ,
 "    value = ((value >> 1u) & UINT32_C(0x55555555)) | ((value & UINT32_C(0x55555555)) << 1u);" ,
@@ -5201,14 +4529,14 @@ return {
 "}" ,
 "static KS_UNUSED void ks_lua_scratch_u8_set(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index, uint32_t value) {" ,
 "    if (index > scratch->length || index >= scratch->capacity || value > 255u) { luaL_error(L, \"AOT byte scratch write is out of bounds\"); return; }" ,
-"    if (index == scratch->length) scratch->length += 1u; scratch->bytes[index] = (unsigned char)value;" ,
+"    if (index == scratch->length) { scratch->length += 1u; } scratch->bytes[index] = (unsigned char)value;" ,
 "}" ,
 "static KS_UNUSED int ks_lua_scratch_u8_push(lua_State *L, KsLuaScratchU8 *scratch, uint32_t start, uint32_t length) {" ,
 "    if (start > scratch->length || length > scratch->length - start) return luaL_error(L, \"AOT byte scratch string range is out of bounds\");" ,
 "    lua_pushlstring(L, (const char *)(scratch->bytes + start), (size_t)length); return 1;" ,
 "}" ,
 "static KS_UNUSED KsLuaBuilder ks_lua_builder_new(lua_State *L, int null_index, uint32_t max_depth, uint32_t byte_capacity) {" ,
-"    if ((size_t)max_depth > SIZE_MAX / sizeof(KsLuaBuildFrame)) { luaL_error(L, \"AOT value stream depth capacity overflows\"); max_depth = 0u; }" ,
+"    if (KS_COUNT_OVERFLOWS(max_depth, sizeof(KsLuaBuildFrame))) { luaL_error(L, \"AOT value stream depth capacity overflows\"); max_depth = 0u; }" ,
 "    KsLuaBuilder builder = {null_index, 0, lua_gettop(L), 0, 0u, max_depth, NULL, {{0}}, NULL, byte_capacity}; return builder;" ,
 "}" ,
 "static KS_UNUSED KsLuaBuildFrame *ks_lua_builder_frame(KsLuaBuilder *builder, uint32_t index) {" ,
@@ -6663,15 +5991,23 @@ end
 
 
 
+
+
+
+
+
+
 local emitted = { }
 for _ , program in ipairs ( programs ) do
 local lanes = program . lanes
-local shape = lanes ~= nil and lane . SHAPE_BY_NAME [ ( lanes ) . shape ] or lane . SHAPES [ 1 ]
+local shape = lanes ~= nil and lane . SHAPE_BY_NAME [ ( lanes ) . shape ] or nil
+if shape ~= nil then
 local named = ( shape ) . name
 if not emitted [ named ] then
 emitted [ named ] = true
 for _ , line in ipairs ( emit . prelude ( shape ) ) do
 lines [ # lines + 1 ] = line
+end
 end
 end
 end
@@ -6758,7 +6094,7 @@ if forced and general then
 
 
 
-lines [ # lines + 1 ] = "__attribute__((optnone))"
+lines [ # lines + 1 ] = "KS_OPTNONE"
 end
 lines [ # lines + 1 ] = "__attribute__((noinline))"
 lines [ # lines + 1 ] = "KS_API " .. cResult .. " " .. symbol .. "(" .. params .. ") {"
@@ -8542,7 +7878,7 @@ args ,  type =
 "simd_padded_string_u8" ,  source =
 lower . site ( node ) }, scalarIR.Simd)
 
-elseif identity == "nupp.valuebuilder.materializeTree" then
+elseif identity == "nupp.data.valuebuilder.materializeTree" then
 if # args ~= 5 then
 context . reject (
 lower . site ( node ) ,
@@ -8576,8 +7912,8 @@ args [ 5 ] ,  type =
 "lua_value" ,  source =
 lower . site ( node ) }, scalarIR.LuaTree)
 
-elseif identity == "nupp.valuebuilder.new" or identity == "nupp.valuebuilder.newSized" then
-local sized = identity == "nupp.valuebuilder.newSized"
+elseif identity == "nupp.data.valuebuilder.new" or identity == "nupp.data.valuebuilder.newSized" then
+local sized = identity == "nupp.data.valuebuilder.newSized"
 if # args ~= (
 sized and 3 or 1
 ) or args [
@@ -8601,7 +7937,7 @@ sized and args [ 3 ] or nil ,  type =
 "lua_builder" ,  source =
 lower . site ( node ) }, scalarIR.LuaBuilder)
 
-elseif identity == "nupp.valuebuilder.newWordScratch" then
+elseif identity == "nupp.data.valuebuilder.newWordScratch" then
 if # args ~= 1 or args [ 1 ] . type ~= "u32" then
 context . reject ( lower . site ( node ) , "valuebuilder.newWordScratch takes one uint32 capacity" )
 end
@@ -8612,7 +7948,7 @@ args [ 1 ] ,  type =
 "lua_scratch_u32" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU32)
 
-elseif identity == "nupp.valuebuilder.scratchWord" then
+elseif identity == "nupp.data.valuebuilder.scratchWord" then
 if # args ~= 2 or args [ 1 ] . type ~= "lua_scratch_u32" or args [ 1 ] . op ~= "local" or args [ 2 ] . type ~= "u32" then
 context . reject ( lower . site ( node ) , "valuebuilder.scratchWord takes a local scratch buffer and uint32 index" )
 end
@@ -8624,7 +7960,7 @@ args [ 2 ] ,  type =
 "u32" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU32Get)
 
-elseif identity == "nupp.valuebuilder.setScratchWord" then
+elseif identity == "nupp.data.valuebuilder.setScratchWord" then
 if # args ~= 3 or args [
 1
 ] . type ~= "lua_scratch_u32" or args [ 1 ] . op ~= "local" or args [ 2 ] . type ~= "u32" or args [ 3 ] . type ~= "u32" then
@@ -8642,7 +7978,7 @@ args [ 3 ] ,  type =
 "lua_effect" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU32Set)
 
-elseif identity == "nupp.valuebuilder.appendSetBits" then
+elseif identity == "nupp.data.valuebuilder.appendSetBits" then
 if # args ~= 4 or args [
 1
 ] . type ~= "lua_scratch_u32" or args [
@@ -8663,7 +7999,7 @@ args [ 4 ] ,  type =
 "u32" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU32AppendBits)
 
-elseif identity == "nupp.valuebuilder.newByteScratch" then
+elseif identity == "nupp.data.valuebuilder.newByteScratch" then
 if # args ~= 1 or args [ 1 ] . type ~= "u32" then
 context . reject ( lower . site ( node ) , "valuebuilder.newByteScratch takes one uint32 capacity" )
 end
@@ -8674,7 +8010,7 @@ args [ 1 ] ,  type =
 "lua_scratch_u8" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU8)
 
-elseif identity == "nupp.valuebuilder.scratchByte" then
+elseif identity == "nupp.data.valuebuilder.scratchByte" then
 if # args ~= 2 or args [ 1 ] . type ~= "lua_scratch_u8" or args [ 1 ] . op ~= "local" or args [ 2 ] . type ~= "u32" then
 context . reject ( lower . site ( node ) , "valuebuilder.scratchByte takes a local byte scratch and uint32 index" )
 end
@@ -8686,7 +8022,7 @@ args [ 2 ] ,  type =
 "u32" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU8Get)
 
-elseif identity == "nupp.valuebuilder.setScratchByte" then
+elseif identity == "nupp.data.valuebuilder.setScratchByte" then
 if # args ~= 3 or args [
 1
 ] . type ~= "lua_scratch_u8" or args [ 1 ] . op ~= "local" or args [ 2 ] . type ~= "u32" or args [ 3 ] . type ~= "u32" then
@@ -8701,7 +8037,7 @@ args [ 3 ] ,  type =
 "lua_effect" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU8Set)
 
-elseif identity == "nupp.valuebuilder.resetByteScratch" then
+elseif identity == "nupp.data.valuebuilder.resetByteScratch" then
 if # args ~= 1 or args [ 1 ] . type ~= "lua_scratch_u8" or args [ 1 ] . op ~= "local" then
 context . reject ( lower . site ( node ) , "valuebuilder.resetByteScratch takes one local byte scratch" )
 end
@@ -8712,11 +8048,11 @@ args [ 1 ] ,  type =
 "lua_effect" ,  source =
 lower . site ( node ) }, scalarIR.LuaScratchU8Set)
 
-elseif identity == "nupp.valuebuilder.byte"
-or identity == "nupp.valuebuilder.word"
-or identity == "nupp.valuebuilder.length"
+elseif identity == "nupp.data.valuebuilder.byte"
+or identity == "nupp.data.valuebuilder.word"
+or identity == "nupp.data.valuebuilder.length"
 then
-local takesIndex = identity ~= "nupp.valuebuilder.length"
+local takesIndex = identity ~= "nupp.data.valuebuilder.length"
 if # args ~= (
 takesIndex and 2 or 1
 ) or args [ 1 ] . type ~= "lua_string" or args [ 1 ] . op ~= "local" or takesIndex and args [ 2 ] . type ~= "u32" then
@@ -8724,9 +8060,9 @@ context . reject ( lower . site ( node ) , "valuebuilder rooted byte access has 
 end
 kernel . usesLua = true
 return setmetatable({ op =
-identity == "nupp.valuebuilder.byte"
+identity == "nupp.data.valuebuilder.byte"
 and "lua_string_byte"
-or identity == "nupp.valuebuilder.word"
+or identity == "nupp.data.valuebuilder.word"
 and "lua_string_u32"
 or "lua_string_length" ,  bytes =
 args [ 1 ] ,  index =
@@ -8734,7 +8070,7 @@ takesIndex and args [ 2 ] or nil ,  type =
 "u32" ,  source =
 lower . site ( node ) }, scalarIR.LuaBytes)
 
-elseif identity == "nupp.valuebuilder.finish" then
+elseif identity == "nupp.data.valuebuilder.finish" then
 if # args ~= 1 or args [ 1 ] . type ~= "lua_builder" or args [ 1 ] . op ~= "local" then
 context . reject ( lower . site ( node ) , "valuebuilder.finish takes one local builder" )
 end
@@ -8745,26 +8081,26 @@ args [ 1 ] ,  type =
 "lua_value" ,  source =
 lower . site ( node ) }, scalarIR.LuaBuilderFinish)
 
-elseif identity == "nupp.valuebuilder.depth"
-or identity == "nupp.valuebuilder.kind"
-or identity == "nupp.valuebuilder.count"
+elseif identity == "nupp.data.valuebuilder.depth"
+or identity == "nupp.data.valuebuilder.kind"
+or identity == "nupp.data.valuebuilder.count"
 then
 if # args ~= 1 or args [ 1 ] . type ~= "lua_builder" or args [ 1 ] . op ~= "local" then
 context . reject ( lower . site ( node ) , "valuebuilder stream query takes one local builder" )
 end
 kernel . usesLua = true
 return setmetatable({ op =
-identity == "nupp.valuebuilder.depth"
+identity == "nupp.data.valuebuilder.depth"
 and "lua_builder_depth"
-or identity == "nupp.valuebuilder.kind"
+or identity == "nupp.data.valuebuilder.kind"
 and "lua_builder_kind"
 or "lua_builder_count" ,  builder =
 args [ 1 ] ,  type =
 "u32" ,  source =
 lower . site ( node ) }, scalarIR.LuaBuilderQuery)
 
-elseif identity ~= nil and identity : match ( "^nupp%.valuebuilder%." ) ~= nil then
-local action = tostring ( identity ) : match ( "^nupp%.valuebuilder%.(.+)$" )
+elseif identity ~= nil and identity : match ( "^nupp%.data%.valuebuilder%." ) ~= nil then
+local action = tostring ( identity ) : match ( "^nupp%.data%.valuebuilder%.(.+)$" )
 local operations
 
 = {
@@ -26554,6 +25890,31 @@ end
 
 
 
+
+
+
+
+
+local preludeNames = { }
+for _ , declaration in ipairs ( declarations ) do
+for word in declaration : gmatch ( "[%a_][%w_]*" ) do
+preludeNames [ word ] = true
+end
+end
+local spelled = { }
+for _ , unit in ipairs ( units ) do
+for word in unit : gmatch ( "[%a_][%w_]*" ) do
+if not preludeNames [ word ] then
+spelled [ word ] = true
+end
+end
+end
+
+
+
+
+
+
 local rejected = { }
 for _ , unit in ipairs ( units ) do
 local ok , err = pcall ( ffi . cdef , unit )
@@ -26573,7 +25934,7 @@ local structs , functions , enums = { } , { } , { }
 local anonymousStructs = { }
 for id = 1 , MAX_CTYPE_ID do
 local entry = info ( id )
-if entry and not before [ id ] then
+if entry and ( not before [ id ] or ( entry . name ~= nil and spelled [ entry . name ] ) ) then
 local kind = kindOf ( entry . info )
 
 
@@ -33259,8 +32620,8 @@ and callee . obj . token
 and callee . name
 then
 local holder = c . lookupEntry ( callee . obj . token . text )
-if holder and holder . requiredModule == "nupp.dynamic" then
-dynamicExport = { module = "nupp.dynamic" , member = callee . name . text , }
+if holder and holder . requiredModule == "nupp.owners.store" then
+dynamicExport = { module = "nupp.owners.store" , member = callee . name . text , }
 end
 end
 local soaExport = node . kind == "call" and callee and callee . exactCallExport or nil
@@ -33320,7 +32681,7 @@ first
 if indexedProducer then
 node . indexedViewProducer = { producer = indexedProducer , source = argExprs [ 1 ] , count = argExprs [ 2 ] , }
 end
-if dynamicExport and dynamicExport . module == "nupp.dynamic" then
+if dynamicExport and dynamicExport . module == "nupp.owners.store" then
 local source = argExprs [ 1 ]
 local entry = source and c . ownershipEntry ( source ) or nil
 entry = c . ownershipState ( entry )
@@ -33362,11 +32723,12 @@ end
 
 
 
+
 local erasedResult = rawType ( first )
 local erasedOrigin = erasedResult . tag == "nominal" and ( erasedResult . origin or erasedResult ) or nil
 if erasedOrigin
 and erasedOrigin . tag == "nominal"
-and erasedOrigin . moduleName == "nupp.dynamic"
+and erasedOrigin . moduleName == "nupp.owners.store"
 and erasedOrigin . name == "ErasedHandle"
 and not node . resourceCapability
 then
@@ -33668,18 +33030,14 @@ c . diag ( "NUPP2602" , node , "an opaque owner needs an explicit terminal consu
 end
 node . resourceCapability = adopted
 else
-c . diag ( "NUPP2602" , actualArgs [ 1 ] or node , "resources.Set.adopt requires an owned value" )
+c . diag ( "NUPP2602" , actualArgs [ 1 ] or node , "Set.adopt requires an owned value" )
 end
 elseif owner . tag == "nominal" and owner . resourceSet and member . text == "remove" then
 local actualArgs = node . args and node . args . kind == "args" and node . args . exprs or { }
 local entry , nameNode = actualArgs [ 1 ] and c . ownershipEntry ( actualArgs [ 1 ] ) or nil
 entry = c . ownershipState ( entry )
 if not entry or not entry . resourceCapability or entry . moved then
-c . diag (
-"NUPP2602" ,
-actualArgs [ 1 ] or node ,
-"resources.Set.remove needs a live value returned by adopt"
-)
+c . diag ( "NUPP2602" , actualArgs [ 1 ] or node , "Set.remove needs a live value returned by adopt" )
 else
 local capability = entry . resourceCapability
 entry . moved = true
@@ -39401,9 +38759,9 @@ n . moduleName = c . result . moduleName
 if n . declKind == "interface" and stat . sealedTok then
 n . sealedModule = n . moduleName or c . filename
 end
-if c . result . moduleName == "nupp.resources" and n . name == "Set" then
+if c . result . moduleName == "nupp.owners.set" and n . name == "Set" then
 n . resourceSet = true
-elseif c . result . moduleName == "nupp.dynamic" and n . name == "StoreState" then
+elseif c . result . moduleName == "nupp.owners.store" and n . name == "StoreState" then
 n . dynamicStore = true
 end
 
@@ -69681,10 +69039,6 @@ end
 return ( text : gsub ( "\n" .. margin , "\n" ) )
 end
 
-local function syntax ( node )
-return dedent ( trim ( cst . textOf ( node ) ) )
-end
-
 
 
 
@@ -69715,6 +69069,64 @@ local function privateName ( name )
 local tail = tostring ( name or "" ) : match ( "([^%.:]+)$" ) or ""
 tail = tail : gsub ( "^[\"']" , "" )
 return tail : sub ( 1 , 1 ) == "_"
+end
+
+
+
+
+
+
+
+
+
+
+
+local function withoutHiddenTerminals ( text )
+local pieces = { }
+local index = 1
+while true do
+local start , open = text : find ( "affine[ \t\n]*%(" , index )
+if start == nil or open == nil then
+break
+end
+
+
+local before = start > 1 and text : sub ( start - 1 , start - 1 ) or ""
+if before : match ( "[%w_%.:]" ) ~= nil then
+pieces [ # pieces + 1 ] = text : sub ( index , open )
+index = open + 1
+else
+local depth , cursor , comma = 1 , open + 1 , nil
+while cursor <= # text and depth > 0 do
+local char = text : sub ( cursor , cursor )
+if char == "(" or char == "[" or char == "{" then
+depth = depth + 1
+elseif char == ")" or char == "]" or char == "}" then
+depth = depth - 1
+elseif char == "," and depth == 1 and comma == nil then
+comma = cursor
+end
+cursor = cursor + 1
+end
+local closeAt = cursor - 1
+local cleanup = comma ~= nil and depth == 0 and trim ( text : sub ( comma + 1 , closeAt - 1 ) ) or ""
+if cleanup ~= "" and cleanup : match ( "^[%w_%.:]+$" ) ~= nil and privateName ( cleanup ) then
+pieces [ # pieces + 1 ] = text : sub ( index , comma )
+pieces [ # pieces + 1 ] = " _"
+index = closeAt
+else
+pieces [ # pieces + 1 ] = text : sub ( index , open )
+index = open + 1
+end
+end
+end
+pieces [ # pieces + 1 ] = text : sub ( index )
+
+return table . concat ( pieces )
+end
+
+local function syntax ( node )
+return withoutHiddenTerminals ( dedent ( trim ( cst . textOf ( node ) ) ) )
 end
 
 
@@ -69834,10 +69246,10 @@ walk ( node )
 local source = trim ( table . concat ( parts ) )
 local formatted , errors = formatter . format ( source , "documentation-signature.nupp" )
 if # errors > 0 then
-return source
+return withoutHiddenTerminals ( source )
 end
 
-return trim ( formatted )
+return withoutHiddenTerminals ( trim ( formatted ) )
 end
 
 
@@ -75554,8 +74966,9 @@ local BUNDLED = {
 
 
 local BUNDLED_SOURCE = {
-[ "nupp.resources" ] = "/nupp/resources.nupp" ,
-[ "nupp.dynamic" ] = "/nupp/dynamic.nupp" ,
+[ "nupp.owners.set" ] = "/nupp/owners/set.nupp" ,
+[ "nupp.io.file" ] = "/nupp/io/file.nupp" ,
+[ "nupp.owners.store" ] = "/nupp/owners/store.nupp" ,
 [ "nupp.derive" ] = "/nupp/derive.nupp" ,
 [ "nupp.profile.zone" ] = "/nupp/profile/zone.nupp" ,
 [ "nupp.profile" ] = "/nupp/profile.nupp" ,
@@ -75568,7 +74981,7 @@ local BUNDLED_SOURCE = {
 [ "nupp.io.process" ] = "/nupp/io/process.nupp" ,
 [ "nupp.workers" ] = "/nupp/workers.nupp" ,
 [ "nupp.io.http" ] = "/nupp/io/http.nupp" ,
-[ "nupp.valuebuilder" ] = "/nupp/valuebuilder.g.nupp" ,
+[ "nupp.data.valuebuilder" ] = "/nupp/data/valuebuilder.g.nupp" ,
 }
 
 
@@ -76529,7 +75942,7 @@ summary = "A dynamic boundary would erase a live capability" ,
 rule = "A value carrying an obligation, root, exclusive loan, pin, or "
 .. "foreign retention cannot be converted to any or passed to untyped Lua. "
 .. "Keep the boundary typed, enroll a self-contained value in "
-.. "nupp.dynamic, or use an explicit unsafe release." ,
+.. "nupp.owners.store, or use an explicit unsafe release." ,
 wrong = "local function erase(value: affine(table)): any\n    return value\nend\nreturn erase\n" ,
 right = "local function erase(takes value: affine(table)): any\n"
 .. "    return unsafe release value\nend\nreturn erase\n" ,
@@ -76539,20 +75952,20 @@ docs = "docs/ownership.md#dynamic-boundaries" ,
 {
 code = "NUPP2612" ,
 summary = "A dynamic-store value is not self-contained" ,
-rule = "nupp.dynamic accepts only capabilities it can discharge without "
+rule = "nupp.owners.store accepts only capabilities it can discharge without "
 .. "outside state. Transfer-only obligations, external roots, outstanding "
 .. "exclusive loans, and unmatched foreign retentions cannot be enrolled." ,
-wrong = "local dynamic = require('nupp.dynamic')\n"
+wrong = "local stores = require('nupp.owners.store')\n"
 .. "local record Resource\n    value: integer\nend\n"
 .. "local function begin(): affine(Resource) "
 .. "return new Resource(value = 1) end\n"
-.. "local store = dynamic.newStore()\n"
+.. "local store = stores.new()\n"
 .. "local handle = store:put(begin())\ndrop(store)\nreturn handle\n" ,
-right = "local dynamic = require('nupp.dynamic')\n"
+right = "local stores = require('nupp.owners.store')\n"
 .. "local record Resource\nend\n"
 .. "local function close(takes value: Resource): nil\nend\n"
 .. "local function open(): affine(Resource, close) return new Resource() end\n"
-.. "local store = dynamic.newStore()\nstore:put(open())\ndrop(store)\n" ,
+.. "local store = stores.new()\nstore:put(open())\ndrop(store)\n" ,
 related = { "NUPP2608" , "NUPP2611" , "NUPP2614" } ,
 docs = "docs/ownership.md#dynamic-boundaries" ,
 } ,
@@ -76562,20 +75975,20 @@ summary = "A dynamic handle has the wrong type policy" ,
 rule = "Recovering an erased dynamic handle requires the same canonical "
 .. "representation and cleanup policy that were recorded by put. A name or "
 .. "cast cannot substitute for that runtime check." ,
-wrong = "local dynamic = require('nupp.dynamic')\n"
+wrong = "local stores = require('nupp.owners.store')\n"
 .. "local record File\nend\nlocal record Socket\nend\n"
 .. "local function close(takes value: File): nil\nend\n"
 .. "local function open(): affine(File, close) return new File() end\n"
-.. "local store = dynamic.newStore()\nlocal handle = store:put(open())\n"
-.. "local erased = dynamic.erase(handle)\n"
-.. "local recovered = dynamic.recover(erased, Socket)\n" ,
-right = "local dynamic = require('nupp.dynamic')\n"
+.. "local store = stores.new()\nlocal handle = store:put(open())\n"
+.. "local erased = stores.erase(handle)\n"
+.. "local recovered = stores.recover(erased, Socket)\n" ,
+right = "local stores = require('nupp.owners.store')\n"
 .. "local record File\nend\n"
 .. "local function close(takes value: File): nil\nend\n"
 .. "local function open(): affine(File, close) return new File() end\n"
-.. "local store = dynamic.newStore()\nlocal handle = store:put(open())\n"
-.. "local erased = dynamic.erase(handle)\n"
-.. "local recovered = dynamic.recover(erased, File)\n" ,
+.. "local store = stores.new()\nlocal handle = store:put(open())\n"
+.. "local erased = stores.erase(handle)\n"
+.. "local recovered = stores.recover(erased, File)\n" ,
 related = { "NUPP2611" , "NUPP2614" } ,
 docs = "docs/ownership.md#dynamic-boundaries" ,
 } ,
@@ -114192,7 +113605,7 @@ assignment keeps that relation exactly. `T borrows (source)` ties a result or no
 field to a root. Closures borrow captured owners by default. `takes (source)` makes a
 single-shot closure; `scoped` proves callback captures cannot escape.
 
-Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds
+Affine nominal fields have path-sensitive state. `nupp.owners.set.Set` holds
 dynamic owners. `nupp.mem.span` provides `Span<T>` and affine `WriteSpan<T>` views;
 fixed variants remove a runtime length check. `nupp.mem.heap.Array<T>` moves its count
 with its private pointer. Suspension cannot strand an obligation.
@@ -114215,7 +113628,7 @@ The remaining ownership helpers are `nupp.attemptAll`, `nupp.borrow`,
 `nupp.borrowFrom`, and `nupp.pin`. `attemptAll` tries every cleanup in order and
 raises the first failure with the rest suppressed. Local names shadow helpers.
 
-Capabilities cannot disappear into `any`. `nupp.dynamic` holds self-contained
+Capabilities cannot disappear into `any`. `nupp.owners.store` holds self-contained
 cleanup capabilities behind copyable generation-checked handles; `recover` checks
 an erased handle's policy and `take` restores its exact capability. Watch-mode policy
 changes are rejected while matching entries are live; cleanup-body changes keep their
@@ -114516,7 +113929,7 @@ body runs; with `require`, one native call returns the completed ordinary Lua
 value.
 
 A pointer-free parser may call resolved
-`nupp.valuebuilder.materializeTree(nodes, links, source, root, nullValue)` in a
+`nupp.data.valuebuilder.materializeTree(nodes, links, source, root, nullValue)` in a
 builder. Its native-endian node and uint32 link blobs are bounds-checked before
 one C traversal constructs the graph. Raw source slices and validated
 backslash/Unicode string recipes become ordinary Lua-owned strings. The
@@ -114524,7 +113937,7 @@ ordinary module implementation supplies the same behavior with `aot = "off"`.
 The operation is a construction boundary, not access to `lua_State` or raw VM
 stack positions.
 
-An iterative parser may instead use the resolved `nupp.valuebuilder` stream.
+An iterative parser may instead use the resolved `nupp.data.valuebuilder` stream.
 `new` roots the null replacement; `openArray`, `openObject`, primitive and
 source-slice value operations, `key`, and `close` build one graph; `finish`
 publishes it. `byte`, native-endian `word`, and `length` read rooted string
@@ -119142,7 +118555,7 @@ end
 
 
 local BITSET = compact ( [=[
-__nuppLazy(__nuppData,"bitset",function()return require("nupp._bitset")end)
+__nuppLazy(__nuppData,"bitset",function()return require("nupp.data._bitset")end)
 ]=] )
 
 local SHA256 = compact (
@@ -125261,6 +124674,1538 @@ end
 return types
 
 end
+package.preload["nupp.data._bitset"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local bitset = { }
+local ffi = require ( "ffi" )
+
+const band = bit . band
+const bnot = bit . bnot
+const bor = bit . bor
+const bxor = bit . bxor
+const lshift = bit . lshift
+const rshift = bit . rshift
+const tobit = bit . tobit
+
+
+
+
+bitset . WORD_BITS = 32
+
+
+
+const BITS_PER_WORD = 32
+const WORD_SHIFT = 5
+const BIT_MASK = 31
+const ALL_ONES = - 1
+const DEFAULT_BITS = 64
+
+const HALF_MASK = 0xFFFF
+const HALF_SHIFT = 16
+
+
+
+
+
+
+
+
+
+
+local POPCOUNT_HALF = ffi . new ( "uint8_t[65536]" )
+local CTZ_HALF = ffi . new ( "uint8_t[65536]" )
+
+do
+
+
+POPCOUNT_HALF [ 0 ] = 0
+for value = 1 , 65535 do
+POPCOUNT_HALF [ value ] = POPCOUNT_HALF [ band ( value , value - 1 ) ] + 1
+end
+
+
+
+CTZ_HALF [ 0 ] = 16
+for value = 1 , 65535 do
+CTZ_HALF [ value ] = band ( value , 1 ) == 1 ? 0 : CTZ_HALF [ rshift ( value , 1 ) ] + 1
+end
+end
+
+
+local function popcount ( word )
+do
+return (
+POPCOUNT_HALF [ band ( word , HALF_MASK ) ] + POPCOUNT_HALF [ band ( rshift ( word , HALF_SHIFT ) , HALF_MASK ) ]
+)
+end
+end
+
+
+local function lowestBit ( word )
+do
+local half = band ( word , HALF_MASK )
+if half ~= 0 then
+return CTZ_HALF [ half ]
+end
+
+return ( HALF_SHIFT + CTZ_HALF [ band ( rshift ( word , HALF_SHIFT ) , HALF_MASK ) ] )
+end
+end
+
+
+local function wordsFor ( bits )
+local words = rshift ( bits + BIT_MASK , WORD_SHIFT )
+return words < 1 ? 1 : words
+end
+
+
+
+
+
+
+
+
+
+
+
+
+bitset.Bitset = {} bitset.Bitset.__index = bitset.Bitset
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bitset.Bitset:reserve(bits)
+local needed = wordsFor ( bits )
+if needed <= self . capacity then
+return
+end
+
+local doubled = self . capacity * 2
+local grown = needed > doubled ? needed : doubled
+local fresh = ffi . new ( "uint32_t[?]" , grown )
+ffi . copy ( fresh , self . words , self . capacity * 4 )
+self . words = fresh
+self . capacity = grown
+end
+
+
+
+
+function bitset.Bitset:set(index)
+
+
+
+
+if index < 0 then
+error ( "bitset index cannot be negative" , 2 )
+end
+
+local word = rshift ( index , WORD_SHIFT )
+if word >= self . capacity then
+self : reserve ( index + 1 )
+end
+
+do
+local previous = tobit ( self . words [ word ] )
+local mask = lshift ( 1 , band ( index , BIT_MASK ) )
+if band ( previous , mask ) == 0 then
+self . words [ word ] = bor ( previous , mask )
+if not self . stale then
+self . population = self . population + 1
+end
+if word >= self . used then
+self . used = word + 1
+end
+end
+end
+end
+
+
+
+
+
+function bitset.Bitset:clear(index)
+local word = rshift ( index , WORD_SHIFT )
+if word >= self . used then
+return
+end
+
+do
+local previous = tobit ( self . words [ word ] )
+local mask = lshift ( 1 , band ( index , BIT_MASK ) )
+if band ( previous , mask ) ~= 0 then
+self . words [ word ] = band ( previous , bnot ( mask ) )
+if not self . stale then
+self . population = self . population - 1
+end
+end
+end
+end
+
+
+
+
+
+function bitset.Bitset:get(index)
+local word = rshift ( index , WORD_SHIFT )
+if word >= self . used then
+return false
+end
+
+do
+return band ( tobit ( self . words [ word ] ) , lshift ( 1 , band ( index , BIT_MASK ) ) ) ~= 0
+end
+end
+
+
+
+
+
+
+
+function bitset.Bitset:setRange(low, high)
+if high < low then
+return
+end
+if low < 0 then
+error ( "bitset range cannot start below zero" , 2 )
+end
+
+self : reserve ( high + 1 )
+
+local firstWord = rshift ( low , WORD_SHIFT )
+local lastWord = rshift ( high , WORD_SHIFT )
+local lowBit = band ( low , BIT_MASK )
+local highBit = band ( high , BIT_MASK )
+local head = bnot ( lshift ( 1 , lowBit ) - 1 )
+local tail = highBit == BIT_MASK ? ALL_ONES : lshift ( 1 , highBit + 1 ) - 1
+
+
+
+
+
+
+
+
+
+
+local exact = not self . stale
+local added = 0
+
+
+local words = self . words
+local used = self . used
+do
+if firstWord == lastWord then
+local old = tobit ( words [ firstWord ] )
+local new = bor ( old , band ( head , tail ) )
+words [ firstWord ] = new
+if exact then
+added = popcount ( new ) - popcount ( old )
+end
+else
+local old = tobit ( words [ firstWord ] )
+local new = bor ( old , head )
+words [ firstWord ] = new
+if exact then
+added = popcount ( new ) - popcount ( old )
+end
+
+
+
+local lastMiddle = lastWord - 1
+local reached = used - 1 < lastMiddle ? used - 1 : lastMiddle
+local counted = reached < firstWord ? firstWord : reached
+if exact then
+for word = firstWord + 1 , counted do
+added = added + BITS_PER_WORD - popcount ( tobit ( words [ word ] ) )
+words [ word ] = ALL_ONES
+end
+if counted < lastMiddle then
+added = added + BITS_PER_WORD * ( lastMiddle - counted )
+end
+for word = counted + 1 , lastMiddle do
+words [ word ] = ALL_ONES
+end
+else
+for word = firstWord + 1 , lastMiddle do
+words [ word ] = ALL_ONES
+end
+end
+
+old = tobit ( words [ lastWord ] )
+new = bor ( old , tail )
+words [ lastWord ] = new
+if exact then
+added = added + popcount ( new ) - popcount ( old )
+end
+end
+
+if exact then
+self . population = ( self . population + added )
+end
+end
+
+if lastWord >= self . used then
+self . used = lastWord + 1
+end
+end
+
+
+
+
+
+function bitset.Bitset:count()
+if not self . stale then
+return self . population
+end
+
+
+
+local words = self . words
+local total = 0
+do
+for word = 0 , self . used - 1 do
+total = total + popcount ( tobit ( words [ word ] ) )
+end
+end
+local resolved = total
+self . population = resolved
+self . stale = false
+
+return resolved
+end
+
+
+
+function bitset.Bitset:isEmpty()
+return self : count ( ) == 0
+end
+
+
+
+function bitset.Bitset:clearAll()
+if self . used > 0 then
+ffi . fill ( self . words , self . used * 4 , 0 )
+self . used = 0
+end
+self . population = 0
+self . stale = false
+end
+
+
+
+
+function bitset.Bitset:setOnly(index)
+self : clearAll ( )
+self : set ( index )
+end
+
+
+
+
+
+function bitset.Bitset:wordCount()
+return self . used
+end
+
+
+
+
+
+
+function bitset.Bitset:wordAt(index)
+if index < 0 or index >= self . used then
+return 0
+end
+
+do
+return tobit ( self . words [ index ] )
+end
+end
+
+
+
+
+
+
+
+function bitset.Bitset:nextSetBit(from)
+local start = from < 0 ? 0 : from
+local first = rshift ( start , WORD_SHIFT )
+local used = self . used
+if first >= used then
+return - 1
+end
+
+local words = self . words
+
+
+
+
+
+do
+local partial = tobit ( words [ first ] )
+local offset = band ( start , BIT_MASK )
+if offset ~= 0 then
+partial = band ( partial , bnot ( lshift ( 1 , offset ) - 1 ) )
+end
+if partial ~= 0 then
+return lshift ( first , WORD_SHIFT ) + lowestBit ( partial )
+end
+
+for word = first + 1 , used - 1 do
+local bits = tobit ( words [ word ] )
+if bits ~= 0 then
+return lshift ( word , WORD_SHIFT ) + lowestBit ( bits )
+end
+end
+end
+
+return - 1
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bitset.Bitset:positionsInto(target, capacity, from)
+if capacity < 0 then
+error ( "bitset target capacity cannot be negative" , 2 )
+end
+
+local start = from < 0 ? 0 : from
+local first = rshift ( start , WORD_SHIFT )
+local used = self . used
+if first >= used then
+return 0 , - 1
+end
+if capacity == 0 then
+return 0 , start
+end
+
+local words = self . words
+local offset = band ( start , BIT_MASK )
+local written = 0
+
+
+
+do
+for word = first , used - 1 do
+local bits = tobit ( words [ word ] )
+if word == first and offset ~= 0 then
+bits = band ( bits , bnot ( lshift ( 1 , offset ) - 1 ) )
+end
+
+local base = lshift ( word , WORD_SHIFT )
+for _ = 1 , BITS_PER_WORD do
+if bits == 0 then
+break
+end
+
+local position = base + lowestBit ( bits )
+if written >= capacity then
+return written , position
+end
+target [ written ] = position
+written = ( written + 1 )
+
+
+bits = band ( bits , bits - 1 )
+end
+end
+end
+
+return written , - 1
+end
+
+
+
+
+
+function bitset.Bitset:containsAll(other)
+local otherUsed = other . used
+if otherUsed == 0 then
+return true
+end
+if self . used < otherUsed then
+return false
+end
+
+local words , theirWords = self . words , other . words
+do
+for word = 0 , otherUsed - 1 do
+local theirs = tobit ( theirWords [ word ] )
+if band ( tobit ( words [ word ] ) , theirs ) ~= theirs then
+return false
+end
+end
+end
+
+return true
+end
+
+
+
+
+
+function bitset.Bitset:overlaps(other)
+local limit = self . used < other . used ? self . used : other . used
+
+local words , theirWords = self . words , other . words
+do
+for word = 0 , limit - 1 do
+if band ( tobit ( words [ word ] ) , tobit ( theirWords [ word ] ) ) ~= 0 then
+return true
+end
+end
+end
+
+return false
+end
+
+
+
+
+function bitset.Bitset:disjoint(other)
+return not self : overlaps ( other )
+end
+
+
+
+
+function bitset.Bitset:copyFrom(other)
+local otherUsed = other . used
+if otherUsed > self . capacity then
+self : reserve ( lshift ( otherUsed , WORD_SHIFT ) )
+end
+
+if otherUsed > 0 then
+ffi . copy ( self . words , other . words , otherUsed * 4 )
+end
+local words = self . words
+do
+for word = otherUsed , self . used - 1 do
+words [ word ] = 0
+end
+end
+
+self . used = otherUsed
+self . population = other . population
+self . stale = other . stale
+end
+
+
+
+
+
+
+
+function bitset.Bitset:orWith(other)
+local otherUsed = other . used
+if otherUsed == 0 then
+return
+end
+if otherUsed > self . capacity then
+self : reserve ( lshift ( otherUsed , WORD_SHIFT ) )
+end
+
+
+local words , theirWords = self . words , other . words
+do
+for word = 0 , otherUsed - 1 do
+words [ word ] = bor ( tobit ( words [ word ] ) , tobit ( theirWords [ word ] ) )
+end
+end
+
+if otherUsed > self . used then
+self . used = otherUsed
+end
+self . stale = true
+end
+
+
+
+
+function bitset.Bitset:andWith(other)
+local used = self . used
+if used == 0 then
+return
+end
+
+local shared = used < other . used ? used : other . used
+local words , theirWords = self . words , other . words
+do
+for word = 0 , shared - 1 do
+words [ word ] = band ( tobit ( words [ word ] ) , tobit ( theirWords [ word ] ) )
+end
+for word = shared , used - 1 do
+words [ word ] = 0
+end
+end
+
+
+
+self . used = shared
+self . stale = true
+end
+
+
+
+
+function bitset.Bitset:andNotWith(other)
+local limit = self . used < other . used ? self . used : other . used
+if limit == 0 then
+return
+end
+
+local words , theirWords = self . words , other . words
+do
+for word = 0 , limit - 1 do
+words [ word ] = band ( tobit ( words [ word ] ) , bnot ( tobit ( theirWords [ word ] ) ) )
+end
+end
+
+self . stale = true
+end
+
+
+
+function bitset.Bitset:xorWith(other)
+local otherUsed = other . used
+if otherUsed == 0 then
+return
+end
+if otherUsed > self . capacity then
+self : reserve ( lshift ( otherUsed , WORD_SHIFT ) )
+end
+
+local words , theirWords = self . words , other . words
+do
+for word = 0 , otherUsed - 1 do
+words [ word ] = bxor ( tobit ( words [ word ] ) , tobit ( theirWords [ word ] ) )
+end
+end
+
+if otherUsed > self . used then
+self . used = otherUsed
+end
+self . stale = true
+end
+
+
+
+
+
+
+
+function bitset . create ( capacityBits )
+local words = wordsFor ( capacityBits ?? DEFAULT_BITS )
+
+return setmetatable({ words =
+ffi . new ( "uint32_t[?]" , words ) ,  capacity =
+words ,  used =
+0 ,  population =
+0 ,  stale =
+false }, bitset.Bitset)
+
+end
+
+return bitset
+
+end
+package.preload["nupp.data.valuebuilder"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();const __nuppNew = require("table.new"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end __nuppLazy(__nuppData,"utf8",function()local native=require("lua-utf8");local u={};local function bytes(value)if type(value)=="string"then return value end;return value:getString()end;local function offset(value,at,allowEnd)if type(at)~="number"or at~=math.floor(at)then error("nupp: UTF-8 byte offset must be an integer",3)end;local limit=#value+(allowEnd and 1 or 0);if at<1 or at>limit then error("nupp: UTF-8 byte offset is out of range",3)end;return at end;local function decode(s,at)local first=s:byte(at);if not first then return nil,at end;if first<128 then return first,at+1 end;local need,code,min;if first>=194 and first<=223 then need,code,min=1,first-192,128 elseif first>=224 and first<=239 then need,code,min=2,first-224,2048 elseif first>=240 and first<=244 then need,code,min=3,first-240,65536 else return 65533,at+1 end;for i=1,need do local b=s:byte(at+i);if not b or b<128 or b>191 then return 65533,at+1 end;code=code*64+b-128 end;if code<min or code>1114111 or(code>=55296 and code<=57343)then return 65533,at+1 end;return code,at+need+1 end function u.length(value)local s=bytes(value);local n,at=0,1;while at<=#s do local _,nextAt=decode(s,at);at=nextAt;n=n+1 end;return n end;function u.decodeAt(value,at)local s=bytes(value);at=offset(s,at,true);return decode(s,at)end;function u.decodeBefore(value,at)local s=bytes(value);at=offset(s,at,true);if at==1 then return nil,1 end;local start=at-1;while start>1 and s:byte(start)>=128 and s:byte(start)<=191 do start=start-1 end;local cp,nextAt=decode(s,start);if nextAt~=at then return 65533,at-1 end;return cp,start end;function u.encode(codepoint)return native.char(codepoint)end;function u.isValid(value)return native.isvalid(bytes(value))end;function u.validPrefixLength(value,maxBytes)local s=bytes(value);maxBytes=math.max(0,math.min(#s,maxBytes));while maxBytes>0 and not native.isvalid(s:sub(1,maxBytes))do maxBytes=maxBytes-1 end;return maxBytes end;function u.truncate(text,maxBytes)return text:sub(1,u.validPrefixLength(text,maxBytes))end;return u end) local m=__nuppMath;local pi,tau=math.pi,2*math.pi function m.lerp(from,to,t)if t==0 then return from elseif t==1 then return to end;return from+(to-from)*t end function m.wrapAngle(radians)return(radians+pi)%tau-pi end function m.deltaAngle(from,to)return m.wrapAngle(to-from)end local b=bit;local function ui32(x)x=b.tobit(x);return x<0 and x+4294967296 or x end local function mul32(a,c)local al,cl=a%65536,c%65536;local ah,ch=math.floor(a/65536),math.floor(c/65536);return b.tobit(al*cl+((ah*cl+al*ch)%65536)*65536)end local i32,u32={},{};m.i32=i32;m.u32=u32 function i32.wrap(a)return b.tobit(a)end;function u32.wrap(a)return ui32(a)end function i32.add(a,c)return b.tobit(a+c)end;function i32.sub(a,c)return b.tobit(a-c)end;function i32.mul(a,c)return mul32(ui32(a),ui32(c))end function i32.andBits(a,c)return b.band(a,c)end;function i32.orBits(a,c)return b.bor(a,c)end;function i32.xorBits(a,c)return b.bxor(a,c)end;function i32.notBits(a)return b.bnot(a)end function i32.shiftLeft(a,c)return b.lshift(a,b.band(c,31))end;function i32.shiftRightArithmetic(a,c)return b.arshift(a,b.band(c,31))end function i32.rotateLeft(a,c)return b.rol(a,b.band(c,31))end;function i32.rotateRight(a,c)return b.ror(a,b.band(c,31))end function i32.lessThan(a,c)return b.tobit(a)<b.tobit(c)end;function i32.lessOrEqual(a,c)return b.tobit(a)<=b.tobit(c)end function i32.fromU32(a)return b.tobit(a)end;function i32.toU32(a)return ui32(a)end function u32.add(a,c)return ui32(a+c)end;function u32.sub(a,c)return ui32(a-c)end;function u32.mul(a,c)return ui32(mul32(ui32(a),ui32(c)))end function u32.andBits(a,c)return ui32(b.band(a,c))end;function u32.orBits(a,c)return ui32(b.bor(a,c))end;function u32.xorBits(a,c)return ui32(b.bxor(a,c))end;function u32.notBits(a)return ui32(b.bnot(a))end function u32.shiftLeft(a,c)return ui32(b.lshift(a,b.band(c,31)))end;function u32.shiftRightLogical(a,c)return ui32(b.rshift(a,b.band(c,31)))end function u32.rotateLeft(a,c)return ui32(b.rol(a,b.band(c,31)))end;function u32.rotateRight(a,c)return ui32(b.ror(a,b.band(c,31)))end function u32.lessThan(a,c)return ui32(a)<ui32(c)end;function u32.lessOrEqual(a,c)return ui32(a)<=ui32(c)end function u32.fromI32(a)return ui32(a)end;function u32.toI32(a)return b.tobit(a)end function u32.popcount(a)local n=0;a=ui32(a);while a~=0 do a=ui32(b.band(a,a-1));n=n+1 end;return n end function u32.trailingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;while b.band(a,1)==0 do a=b.rshift(a,1);n=n+1 end;return n end function u32.leadingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;local bit=2147483648;while b.band(a,bit)==0 do bit=b.rshift(bit,1);n=n+1 end;return n end local ffi=require("ffi");local fh=ffi.new("union {float f;uint32_t u;}[1]");local f32={};m.f32=f32 local CANON=2143289344;local PINF=2139095040;local NINF=4286578688;local MAX=2139095039;local NMAX=4286578687 local function nanbits(bits)return b.band(bits,2139095040)==2139095040 and b.band(bits,8388607)~=0 end local function putbits(bits)if nanbits(bits)then bits=CANON end;fh[0].u=bits;return tonumber(fh[0].f)end local function bits32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then bits=CANON;fh[0].u=bits end;return bits end local function round32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then fh[0].u=CANON end;return tonumber(fh[0].f)end local function narrow32(value)fh[0].f=value;return tonumber(fh[0].f)end local function comparedd(hi,lo,value)local d=hi-value;if d>-lo then return 1 elseif d<-lo then return-1 end;return 0 end local function nextup(value,bits)if bits==PINF then return value,bits end;if bits==NINF then return putbits(NMAX),NMAX end;if b.band(bits,2147483648)~=0 then if bits==2147483648 then return putbits(1),1 end;bits=bits-1 else bits=bits+1 end;return putbits(bits),bits end local function nextdown(value,bits)if bits==NINF then return value,bits end;if bits==PINF then return putbits(MAX),MAX end;if b.band(bits,2147483648)~=0 then bits=bits+1 else if bits==0 then return putbits(2147483649),2147483649 end;bits=bits-1 end;return putbits(bits),bits end local function rounddd(hi,lo)local value=round32(hi);local bits=bits32(value);if nanbits(bits)then return putbits(CANON)end;if bits==PINF then local threshold=3.4028235677973366e38;if comparedd(hi,lo,threshold)<0 then return putbits(MAX)end;return value elseif bits==NINF then local threshold=-3.4028235677973366e38;if comparedd(hi,lo,threshold)>0 then return putbits(NMAX)end;return value end;local side=comparedd(hi,lo,value);if side==0 then return value end;local other,otherbits;if side>0 then other,otherbits=nextup(value,bits)else other,otherbits=nextdown(value,bits)end;local midpoint=(value+other)*0.5;local toward=comparedd(hi,lo,midpoint);if side<0 then toward=-toward end;if toward>0 or toward==0 and b.band(bits,1)~=0 then return putbits(otherbits)end;return value end function f32.narrow(a)return narrow32(a)end;function f32.round(a)return round32(a)end;function f32.add(a,c)return round32(round32(a)+round32(c))end;function f32.sub(a,c)return round32(round32(a)-round32(c))end;function f32.mul(a,c)return round32(round32(a)*round32(c))end;function f32.div(a,c)return round32(round32(a)/round32(c))end;function f32.sqrt(a)return round32(math.sqrt(round32(a)))end function f32.min(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and(b.band(ab,2147483648)~=0 or b.band(cb,2147483648)~=0)then return putbits(2147483648)end;return a end;return a<c and a or c end function f32.max(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and b.band(ab,2147483648)~=0 and b.band(cb,2147483648)~=0 then return putbits(2147483648)elseif a==0 then return putbits(0)end;return a end;return a>c and a or c end function f32.fma(a,c,d)a,c,d=round32(a),round32(c),round32(d);local product=a*c;if product~=product or product==math.huge or product==-math.huge then return round32(product+d)end;local sum=product+d;local carry=sum-product;local error=(product-(sum-carry))+(d-carry);return rounddd(sum,error)end function f32.fromBits(bits)return putbits(ui32(bits))end;function f32.toBits(value)return bits32(round32(value))end local v={};m.vec2=v function v.add(ax,ay,bx,by)return ax+bx,ay+by end function v.subtract(ax,ay,bx,by)return ax-bx,ay-by end function v.scale(x,y,f)return x*f,y*f end function v.dot(ax,ay,bx,by)return ax*bx+ay*by end function v.cross(ax,ay,bx,by)return ax*by-ay*bx end function v.lengthSquared(x,y)return x*x+y*y end function v.length(x,y)return math.sqrt(x*x+y*y)end function v.distanceSquared(ax,ay,bx,by)local x,y=bx-ax,by-ay;return x*x+y*y end function v.distance(ax,ay,bx,by)return math.sqrt(v.distanceSquared(ax,ay,bx,by))end function v.normalize(x,y)local length=v.length(x,y);if length==0 then return 0,0 end;return x/length,y/length end function v.lerp(ax,ay,bx,by,t)if t==0 then return ax,ay elseif t==1 then return bx,by end;return ax+(bx-ax)*t,ay+(by-ay)*t end function v.moveTowards(ax,ay,bx,by,d)if d<=0 then return ax,ay end;local x,y=bx-ax,by-ay;local squared=x*x+y*y;if squared==0 or squared<=d*d then return bx,by end;local f=d/math.sqrt(squared);return ax+x*f,ay+y*f end function v.rotate(x,y,r)local c,s=math.cos(r),math.sin(r);return x*c-y*s,x*s+y*c end function v.angle(x,y)if x==0 and y==0 then return 0 end;return math.atan2(y,x)end function v.angleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;return math.atan2(math.abs(v.cross(ax,ay,bx,by)),v.dot(ax,ay,bx,by))end function v.signedAngleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;local a=math.atan2(v.cross(ax,ay,bx,by),v.dot(ax,ay,bx,by));return a==pi and-pi or a end function v.project(x,y,ox,oy)local d=ox*ox+oy*oy;if d==0 then return 0,0 end;local f=(x*ox+y*oy)/d;return ox*f,oy*f end function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;local f=2*(x*nx+y*ny)/d;return x-nx*f,y-ny*f end;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local ffi = require ( "ffi" )
+
+local valuebuilder = { }
+
+pcall (
+ffi . cdef ,
+[[
+typedef struct {
+    double number;
+    uint32_t tag;
+    uint32_t start;
+    uint32_t length;
+    uint32_t linkStart;
+    uint32_t linkCount;
+    uint32_t parent;
+    uint32_t flags;
+} NuppValueTreeNode;
+]]
+)
+
+local NodePointer = ffi . typeof ( "const NuppValueTreeNode *" )
+local LinkPointer = ffi . typeof ( "const uint32_t *" )
+local nodeSize = ffi . sizeof ( "NuppValueTreeNode" )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local function decodeString ( source , first , length , escaped )
+local bytes = source : sub ( first + 1 , first + length )
+if not escaped then
+return bytes
+end
+
+local parts = { }
+local start = 1
+local position = 1
+local simple = {
+[ 34 ] = '"' ,
+[ 92 ] = "\\" ,
+[ 47 ] = "/" ,
+[ 98 ] = "\b" ,
+[ 102 ] = "\f" ,
+[ 110 ] = "\n" ,
+[ 114 ] = "\r" ,
+[ 116 ] = "\t" ,
+}
+while position <= # bytes do
+if bytes : byte ( position ) ~= 92 then
+position = position + 1
+else
+parts [ # parts + 1 ] = bytes : sub ( start , position - 1 )
+position = position + 1
+local escapedByte = bytes : byte ( position )
+local replacement = escapedByte and simple [ escapedByte ] or nil
+if replacement ~= nil then
+parts [ # parts + 1 ] = replacement
+position = position + 1
+elseif escapedByte == 117 then
+local codepoint = tonumber ( bytes : sub ( position + 1 , position + 4 ) , 16 )
+if codepoint == nil then
+error ( "invalid value-tree Unicode escape" , 0 )
+end
+position = position + 5
+if codepoint >= 0xD800 and codepoint <= 0xDBFF then
+if bytes : byte ( position ) ~= 92 or bytes : byte ( position + 1 ) ~= 117 then
+error ( "unmatched value-tree high surrogate" , 0 )
+end
+local low = tonumber ( bytes : sub ( position + 2 , position + 5 ) , 16 )
+if low == nil or low < 0xDC00 or low > 0xDFFF then
+error ( "invalid value-tree low surrogate" , 0 )
+end
+position = position + 6
+codepoint = 0x10000 + ( codepoint - 0xD800 ) * 0x400 + low - 0xDC00
+elseif codepoint >= 0xDC00 and codepoint <= 0xDFFF then
+error ( "unmatched value-tree low surrogate" , 0 )
+end
+parts [ # parts + 1 ] = nupp . data . utf8 . encode ( codepoint )
+else
+error ( "unknown value-tree escape" , 0 )
+end
+start = position
+end
+end
+parts [ # parts + 1 ] = bytes : sub ( start )
+
+return table . concat ( parts )
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . materializeTree (
+nodeBytes ,
+linkBytes ,
+source ,
+root ,
+nullValue
+)
+if # nodeBytes % nodeSize ~= 0 or # linkBytes % 4 ~= 0 then
+error ( "invalid value-tree blob size" , 2 )
+end
+local nodeCount = # nodeBytes / nodeSize
+local linkCount = # linkBytes / 4
+if root < 1 or root > nodeCount then
+error ( "value-tree root is out of bounds" , 2 )
+end
+
+local nodes = ffi . cast ( NodePointer , nodeBytes )
+local links = ffi . cast ( LinkPointer , linkBytes )
+local function sourceRange ( node )
+local first = tonumber ( node . start )
+local length = tonumber ( node . length )
+if first < 0 or length < 0 or first > # source or length > # source - first then
+error ( "value-tree source range is out of bounds" , 0 )
+end
+
+return first , length
+end
+
+local function materialize ( nodeId , depth )
+if nodeId < 1 or nodeId > nodeCount or depth > math . min ( nodeCount , 1024 ) then
+error ( "value-tree node is out of bounds" , 0 )
+end
+local node = nodes [ nodeId - 1 ]
+local tag = tonumber ( node . tag )
+if tag == 0 then
+return nullValue
+elseif tag == 1 then
+return true
+elseif tag == 2 then
+return false
+elseif tag == 3 then
+if tonumber ( node . flags ) == 1 then
+return tonumber ( node . number )
+end
+local first , length = sourceRange ( node )
+local value = tonumber ( source : sub ( first + 1 , first + length ) )
+if value == nil then
+error ( "invalid value-tree number" , 0 )
+end
+return value
+elseif tag == 4 then
+local flags = tonumber ( node . flags )
+if flags ~= 0 and flags ~= 1 then
+error ( "invalid value-tree string recipe" , 0 )
+end
+local first , length = sourceRange ( node )
+return decodeString ( source , first , length , flags == 1 )
+elseif tag ~= 5 and tag ~= 6 then
+error ( "invalid value-tree node tag" , 0 )
+end
+
+local first = tonumber ( node . linkStart )
+local count = tonumber ( node . linkCount )
+if first < 0 or count < 0 or first + count > linkCount then
+error ( "value-tree child range is out of bounds" , 0 )
+end
+if tag == 5 then
+local result = __nuppNew ( count , 0 )
+for offset = 0 , count - 1 do
+result [ offset + 1 ] = materialize ( tonumber ( links [ first + offset ] ) , depth + 1 )
+end
+return result
+end
+if count % 2 ~= 0 then
+error ( "value-tree object has an unmatched key" , 0 )
+end
+local result = __nuppNew ( 0 , count / 2 )
+for offset = 0 , count - 1 , 2 do
+local keyId = tonumber ( links [ first + offset ] )
+if keyId < 1 or keyId > nodeCount or tonumber ( nodes [ keyId - 1 ] . tag ) ~= 4 then
+error ( "value-tree object key is not a string" , 0 )
+end
+local key = materialize ( keyId , depth + 1 )
+result [ key ] = materialize ( tonumber ( links [ first + offset + 1 ] ) , depth + 1 )
+end
+
+return result
+end
+
+return materialize ( root , 1 )
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . new ( nullValue )
+return { nullValue = nullValue , stack = { } , result = nil , hasResult = false }
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . newSized ( nullValue , maxDepth , stringCapacity )
+return {
+nullValue = nullValue ,
+stack = { } ,
+result = nil ,
+hasResult = false ,
+maxDepth = maxDepth ,
+stringCapacity = stringCapacity
+}
+end
+
+
+
+
+
+
+local function put ( builder , value )
+local stack = builder . stack
+local frame = stack [ # stack ]
+if frame == nil then
+if builder . hasResult then
+error ( "value stream has more than one root" , 2 )
+end
+builder . result = value
+builder . hasResult = true
+elseif frame . kind == 5 then
+frame . value [ frame . next ] = value
+frame . next = frame . next + 1
+else
+if frame . key == nil then
+error ( "value stream object needs a key" , 2 )
+end
+frame . value [ frame . key ] = value
+frame . key = nil
+frame . count = frame . count + 1
+end
+end
+
+
+
+
+
+
+
+
+
+function valuebuilder . length ( bytes )
+return nupp . math . u32 . wrap ( # bytes )
+end
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . byte ( bytes , offset )
+local value = bytes : byte ( offset + 1 )
+if value == nil then
+error ( "value stream byte is out of bounds" , 2 )
+end
+
+return nupp . math . u32 . wrap ( value )
+end
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . word ( bytes , index )
+local offset = index * 4
+if offset > # bytes - 4 then
+error ( "value stream word is out of bounds" , 2 )
+end
+local pointer = ffi . cast ( LinkPointer , bytes )
+local value = tonumber ( pointer [ index ] )
+if value == nil then
+error ( "value stream word is invalid" , 2 )
+end
+
+return nupp . math . u32 . wrap ( value )
+end
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . newWordScratch ( capacity )
+return { capacity = capacity , length = 0 , words = ffi . new ( "uint32_t[?]" , capacity ) }
+end
+
+
+
+
+
+
+
+
+
+function valuebuilder . scratchWord ( scratch , index )
+if index >= scratch . length then
+error ( "value stream scratch read is out of bounds" , 2 )
+end
+local value = tonumber ( scratch . words [ index ] )
+if value == nil then
+error ( "value stream scratch word is invalid" , 2 )
+end
+
+return nupp . math . u32 . wrap ( value )
+end
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . setScratchWord ( scratch , index , value )
+if index > scratch . length or index >= scratch . capacity then
+error ( "value stream scratch write is out of bounds" , 2 )
+end
+if index == scratch . length then
+scratch . length = scratch . length + 1
+end
+scratch . words [ index ] = value
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . appendSetBits ( scratch , index , base , bits )
+error ( "appendSetBits exists only inside an @aot function" , 2 )
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . newByteScratch ( capacity )
+return { capacity = capacity , length = 0 , bytes = ffi . new ( "uint8_t[?]" , capacity ) }
+end
+
+
+
+
+
+
+function valuebuilder . scratchByte ( scratch , index )
+if index >= scratch . length then
+error ( "value stream byte scratch read is out of bounds" , 2 )
+end
+return nupp . math . u32 . wrap ( tonumber ( scratch . bytes [ index ] ) )
+end
+
+
+
+
+
+
+
+
+
+function valuebuilder . setScratchByte ( scratch , index , value )
+if index > scratch . length or index >= scratch . capacity or value > 255 then
+error ( "value stream byte scratch write is out of bounds" , 2 )
+end
+if index == scratch . length then
+scratch . length = scratch . length + 1
+end
+scratch . bytes [ index ] = value
+end
+
+
+
+
+
+
+
+
+function valuebuilder . resetByteScratch ( scratch )
+scratch . length = 0
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . stringScratch ( builder , scratch , start , length )
+if start > scratch . length or length > scratch . length - start then
+error ( "value stream byte scratch range is out of bounds" , 2 )
+end
+put ( builder , ffi . string ( scratch . bytes + start , length ) )
+end
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . keyScratch ( builder , scratch , start , length )
+local frame = builder . stack [ # builder . stack ]
+if frame == nil or frame . kind ~= 6 or frame . key ~= nil then
+error ( "value stream key is outside an object" , 2 )
+end
+if start > scratch . length or length > scratch . length - start then
+error ( "value stream byte scratch range is out of bounds" , 2 )
+end
+frame . key = ffi . string ( scratch . bytes + start , length )
+end
+
+
+
+
+
+
+
+
+function valuebuilder . openArray ( builder , capacity )
+local stack = builder . stack
+stack [ # stack + 1 ] = { kind = 5 , value = __nuppNew ( capacity , 0 ) , next = 1 }
+end
+
+
+
+
+
+
+
+
+
+function valuebuilder . openObject ( builder , capacity )
+local stack = builder . stack
+stack [ # stack + 1 ] = { kind = 6 , value = __nuppNew ( 0 , capacity ) , count = 0 }
+end
+
+
+
+
+
+
+
+
+function valuebuilder . depth ( builder )
+return nupp . math . u32 . wrap ( # builder . stack )
+end
+
+
+
+
+
+
+function valuebuilder . kind ( builder )
+local frame = builder . stack [ # builder . stack ]
+if frame == nil then
+error ( "value stream has no current container" , 2 )
+end
+
+return nupp . math . u32 . wrap ( frame . kind )
+end
+
+
+
+
+
+
+
+
+function valuebuilder . count ( builder )
+local frame = builder . stack [ # builder . stack ]
+if frame == nil then
+error ( "value stream has no current container" , 2 )
+end
+local count = frame . kind == 5 and frame . next - 1 or frame . count
+
+return nupp . math . u32 . wrap ( count )
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . key ( builder , source , start , length , escaped )
+local frame = builder . stack [ # builder . stack ]
+if frame == nil or frame . kind ~= 6 or frame . key ~= nil then
+error ( "value stream key is outside an object" , 2 )
+end
+frame . key = decodeString ( source , start , length , escaped )
+end
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . string ( builder , source , start , length , escaped )
+put ( builder , decodeString ( source , start , length , escaped ) )
+end
+
+
+
+
+
+
+
+
+
+function valuebuilder . number ( builder , value )
+put ( builder , value )
+end
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . numberSlice ( builder , source , start , length )
+local value = tonumber ( source : sub ( start + 1 , start + length ) )
+if value == nil then
+error ( "value stream number is invalid" , 2 )
+end
+put ( builder , value )
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . integerSlice ( builder , source , start , length )
+local value = tonumber ( source : sub ( start + 1 , start + length ) )
+if value == nil then
+error ( "value stream integer is invalid" , 2 )
+end
+put ( builder , value )
+end
+
+
+
+
+
+function valuebuilder . boolean ( builder , value )
+put ( builder , value )
+end
+
+
+
+
+
+function valuebuilder . null ( builder )
+put ( builder , builder . nullValue )
+end
+
+
+
+
+
+
+
+
+
+function valuebuilder . close ( builder )
+local stack = builder . stack
+local frame = stack [ # stack ]
+if frame == nil then
+error ( "value stream close has no container" , 2 )
+end
+if frame . kind == 6 and frame . key ~= nil then
+error ( "value stream object has an unmatched key" , 2 )
+end
+stack [ # stack ] = nil
+put ( builder , frame . value )
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+function valuebuilder . finish ( builder )
+if # builder . stack ~= 0 then
+error ( "value stream has an unclosed container" , 2 )
+end
+if not builder . hasResult then
+error ( "value stream has no root" , 2 )
+end
+
+return builder . result
+end
+
+return valuebuilder
+
+end
 package.preload["nupp.derive"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
@@ -125642,256 +126587,6 @@ end
 
 
 return derive
-
-end
-package.preload["nupp.dynamic"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;
-
-
-
-
-
-
-
-local dynamic = { }
-
-local STORE_REGISTRY_KEY = "__nuppDynamicStores"
-local stores = _G [ STORE_REGISTRY_KEY ]
-if not stores then
-stores = setmetatable ( { } , { __mode = "k" } )
-_G [ STORE_REGISTRY_KEY ] = stores
-end
-
-
-dynamic.Error = {} dynamic.Error.__index = dynamic.Error
-
-
-
-
-const Entry = {} Entry.__index = Entry
-
-
-
-
-
-
-
-
-dynamic.Handle = {} dynamic.Handle.__index = dynamic.Handle
-
-
-
-
-
-
-
-dynamic.ErasedHandle = {} dynamic.ErasedHandle.__index = dynamic.ErasedHandle
-
-
-
-
-
-
-
-dynamic.StoreState = {} dynamic.StoreState.__index = dynamic.StoreState
-
-
-
-
-
-
-
-
-function dynamic.StoreState:_put(value, cleanup, policy)
-assert ( not self . destroyed , "dynamic store is destroyed" )
-local slot = self . nextSlot
-self . nextSlot = slot + 1
-local generation = self . generations [ slot ] or 1
-self . entries [
-slot
-] = setmetatable({ value =  value ,  cleanup =  cleanup ,  policy =  policy ,  generation =  generation }, Entry)
-
-return setmetatable({ store =
-self ,  slot =
-slot ,  generation =
-generation ,  policy =
-policy }, dynamic.Handle)
-
-end
-
-
-
-
-
-
-function dynamic.StoreState:put(value)
-local _raw = value
-error ( "dynamic.Store.put must be lowered by the compiler" , 2 )
-end
-
-function dynamic.StoreState:with(handle, callback)
-
-
-
-
-local entry , problem = self : _entry ( handle )
-if not entry then
-return nil , problem
-end
-
-return callback ( entry . value ) , nil
-end
-
-function dynamic.StoreState:withExclusive(handle, callback)
-
-
-
-
-local entry , problem = self : _entry ( handle )
-if not entry then
-return nil , problem
-end
-
-return callback ( entry . value ) , nil
-end
-
-function dynamic.StoreState:take(handle)
-local entry , problem = self : _entry ( handle )
-if not entry then
-return nil , problem
-end
-self . entries [ handle . slot ] = nil
-self . generations [ handle . slot ] = entry . generation + 1
-
-return entry . value , nil
-end
-
-function dynamic.StoreState:remove(handle)
-local entry , problem = self : _entry ( handle )
-if not entry then
-return problem
-end
-self . entries [ handle . slot ] = nil
-self . generations [ handle . slot ] = entry . generation + 1
-entry . cleanup ( entry . value )
-
-return nil
-end
-
-function dynamic.StoreState:_entry(handle)
-if self . destroyed or handle . store ~= self then
-return nil , setmetatable({ code =
-"NUPP2614" ,  message =
-"dynamic handle names a destroyed or different store" }, dynamic.Error)
-
-end
-local entry = self . entries [ handle . slot ]
-if not entry or entry . generation ~= handle . generation then
-return nil , setmetatable({ code =  "NUPP2614" ,  message =  "dynamic handle is stale" }, dynamic.Error)
-end
-if entry . policy ~= handle . policy then
-return nil , setmetatable({ code =  "NUPP2613" ,  message =  "dynamic handle has the wrong type policy" }, dynamic.Error)
-end
-
-return entry , nil
-end
-
-
-function dynamic . StoreState . drop ( self )
-if self . destroyed then
-return
-end
-self . destroyed = true
-stores [ self ] = nil
-local first = nil
-local suppressed = 0
-for slot , entry in pairs ( self . entries ) do
-self . entries [ slot ] = nil
-self . generations [ slot ] = entry . generation + 1
-local ok , reason = pcall ( entry . cleanup , entry . value )
-if not ok then
-if first == nil then
-first = reason
-else
-suppressed = suppressed + 1
-end
-end
-end
-local _raw = self
-if first ~= nil then
-if suppressed > 0 then
-error ( tostring ( first ) .. " (suppressed " .. tostring ( suppressed ) .. " cleanup failure(s))" , 0 )
-end
-error ( first , 0 )
-end
-end
-
-local function destroyStore ( self )
-self : drop ( )
-end ;__nuppCleanups["nupp.dynamic#destroyStore"]=destroyStore
-
-__nuppCleanups["nupp.dynamic#destroyStore"]=destroyStore;
-
-function dynamic . newStore ( )
-local store = setmetatable({ entries =  { } ,  generations =  { } ,  nextSlot =  1 ,  destroyed =  false }, dynamic.StoreState)
-stores [ store ] = true
-
-return store
-end
-
-function dynamic . erase ( handle )
-return setmetatable({ store =
-handle . store ,  slot =
-handle . slot ,  generation =
-handle . generation ,  policy =
-handle . policy }, dynamic.ErasedHandle)
-
-end
-
-
-
-
-function dynamic . _recover ( handle , policy )
-if handle . policy ~= policy then
-return nil , setmetatable({ code =  "NUPP2613" ,  message =  "dynamic handle has the wrong type policy" }, dynamic.Error)
-end
-return ( setmetatable({ store =
-
-handle . store ,  slot =
-handle . slot ,  generation =
-handle . generation ,  policy =
-handle . policy }, dynamic.Handle)
-
-) , nil
-end
-
-
-
-
-
-
-function dynamic . recover ( handle , expected )
-error ( "dynamic.recover must be lowered by the compiler" , 2 )
-end
-
-
-
-_G . __nuppDynamicPolicyCount = function ( policy )
-local count = 0
-for store in pairs ( stores ) do
-if not store . destroyed then
-for _ , entry in pairs ( store . entries ) do
-if entry . policy == policy then
-count = count + 1
-end
-end
-end
-end
-
-return count
-end
-
-return dynamic
 
 end
 package.preload["nupp.format"] = function(...)
@@ -126371,6 +127066,86 @@ end
 _G [ API_KEY ] = hotreload
 
 return hotreload
+
+end
+package.preload["nupp.io.file"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;
+
+
+
+
+
+
+
+
+
+
+
+
+
+local file = { }
+
+local function close_file ( handle )
+local ok , reason = handle : close ( )
+if not ok then
+error ( reason or "file close failed" )
+end
+end ;__nuppCleanups["nupp.io.file#close_file"]=close_file
+
+
+
+
+
+
+
+
+
+
+function file . open ( path , mode ) __nuppCleanups["nupp.io.file#close_file"]=close_file;
+local handle , reason = io . open ( path , mode )
+if not handle then
+error ( reason or "file open failed" )
+end
+
+return handle
+end
+
+
+
+
+
+
+
+
+
+
+
+function file . popen ( command , mode ) __nuppCleanups["nupp.io.file#close_file"]=close_file;
+local handle , reason = io . popen ( command , mode )
+if not handle then
+error ( reason or "process open failed" )
+end
+
+return handle
+end
+
+
+
+
+
+
+
+
+function file . temporary ( ) __nuppCleanups["nupp.io.file#close_file"]=close_file;
+local handle = io . tmpfile ( )
+if not handle then
+error ( "temporary file creation failed" )
+end
+
+return handle
+end
+
+return file
 
 end
 package.preload["nupp.io.http"] = function(...)
@@ -130213,6 +130988,410 @@ end
 return span
 
 end
+package.preload["nupp.owners.set"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local set = { }
+
+
+
+
+
+
+const Entry = {} Entry.__index = Entry
+
+
+
+
+
+
+
+
+
+
+
+set.Set = {} set.Set.__index = set.Set
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function set.Set:adopt(value, terminal)
+assert ( not self . _closed , "resource set is closed" )
+local witness = terminal
+assert ( type ( witness ) == "function" , "resource adoption needs a discharge witness" )
+self . _entries [ # self . _entries + 1 ] = setmetatable({ value =  value ,  cleanup =  witness }, Entry)
+
+return self . _entries [ # self . _entries ] . value
+end
+
+
+
+
+
+
+function set.Set:remove(value)
+assert ( not self . _closed , "resource set is closed" )
+for index = # self . _entries , 1 , - 1 do
+local entry = self . _entries [ index ]
+if entry . value == value then
+table . remove ( self . _entries , index )
+return entry . value
+end
+end
+error ( "resource is not registered in this set" , 2 )
+end
+
+
+
+
+
+
+
+
+
+
+function set . Set . close ( self )
+local first = nil
+local suppressed = 0
+if not self . _closed then
+self . _closed = true
+for index = # self . _entries , 1 , - 1 do
+local entry = self . _entries [ index ]
+local ok , reason = pcall ( entry . cleanup , entry . value )
+if not ok then
+if first == nil then
+first = reason
+else
+suppressed = suppressed + 1
+end
+end
+end
+self . _entries = { }
+end
+
+
+local _raw = self
+if first ~= nil then
+if suppressed > 0 then
+error ( tostring ( first ) .. " (suppressed " .. tostring ( suppressed ) .. " cleanup failure(s))" , 0 )
+end
+error ( first , 0 )
+end
+end
+
+function set . Set . drop ( self )
+self : close ( )
+end
+
+local function destroySet ( value )
+value : drop ( )
+end ;__nuppCleanups["nupp.owners.set#destroySet"]=destroySet
+
+
+
+
+
+
+
+
+
+function set . new ( label ) __nuppCleanups["nupp.owners.set#destroySet"]=destroySet;
+return setmetatable({ label =  label or "resource" ,  _entries =  { } ,  _closed =  false }, set.Set)
+end
+
+return set
+
+end
+package.preload["nupp.owners.store"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local store = { }
+
+local STORE_REGISTRY_KEY = "__nuppDynamicStores"
+local stores = _G [ STORE_REGISTRY_KEY ]
+if not stores then
+stores = setmetatable ( { } , { __mode = "k" } )
+_G [ STORE_REGISTRY_KEY ] = stores
+end
+
+
+store.Error = {} store.Error.__index = store.Error
+
+
+
+
+const Entry = {} Entry.__index = Entry
+
+
+
+
+
+
+
+
+store.Handle = {} store.Handle.__index = store.Handle
+
+
+
+
+
+
+
+store.ErasedHandle = {} store.ErasedHandle.__index = store.ErasedHandle
+
+
+
+
+
+
+
+store.StoreState = {} store.StoreState.__index = store.StoreState
+
+
+
+
+
+
+
+
+function store.StoreState:_put(value, cleanup, policy)
+assert ( not self . destroyed , "dynamic store is destroyed" )
+local slot = self . nextSlot
+self . nextSlot = slot + 1
+local generation = self . generations [ slot ] or 1
+self . entries [
+slot
+] = setmetatable({ value =  value ,  cleanup =  cleanup ,  policy =  policy ,  generation =  generation }, Entry)
+
+return setmetatable({ store =  self ,  slot =  slot ,  generation =  generation ,  policy =  policy }, store.Handle)
+end
+
+
+
+
+
+
+function store.StoreState:put(value)
+local _raw = value
+error ( "store.Store.put must be lowered by the compiler" , 2 )
+end
+
+function store.StoreState:with(handle, callback)
+
+
+
+
+local entry , problem = self : _entry ( handle )
+if not entry then
+return nil , problem
+end
+
+return callback ( entry . value ) , nil
+end
+
+function store.StoreState:withExclusive(handle, callback)
+
+
+
+
+local entry , problem = self : _entry ( handle )
+if not entry then
+return nil , problem
+end
+
+return callback ( entry . value ) , nil
+end
+
+function store.StoreState:take(handle)
+local entry , problem = self : _entry ( handle )
+if not entry then
+return nil , problem
+end
+self . entries [ handle . slot ] = nil
+self . generations [ handle . slot ] = entry . generation + 1
+
+return entry . value , nil
+end
+
+function store.StoreState:remove(handle)
+local entry , problem = self : _entry ( handle )
+if not entry then
+return problem
+end
+self . entries [ handle . slot ] = nil
+self . generations [ handle . slot ] = entry . generation + 1
+entry . cleanup ( entry . value )
+
+return nil
+end
+
+function store.StoreState:_entry(handle)
+if self . destroyed or handle . store ~= self then
+return nil , setmetatable({ code =
+"NUPP2614" ,  message =
+"dynamic handle names a destroyed or different store" }, store.Error)
+
+end
+local entry = self . entries [ handle . slot ]
+if not entry or entry . generation ~= handle . generation then
+return nil , setmetatable({ code =  "NUPP2614" ,  message =  "dynamic handle is stale" }, store.Error)
+end
+if entry . policy ~= handle . policy then
+return nil , setmetatable({ code =  "NUPP2613" ,  message =  "dynamic handle has the wrong type policy" }, store.Error)
+end
+
+return entry , nil
+end
+
+
+function store . StoreState . drop ( self )
+if self . destroyed then
+return
+end
+self . destroyed = true
+stores [ self ] = nil
+local first = nil
+local suppressed = 0
+for slot , entry in pairs ( self . entries ) do
+self . entries [ slot ] = nil
+self . generations [ slot ] = entry . generation + 1
+local ok , reason = pcall ( entry . cleanup , entry . value )
+if not ok then
+if first == nil then
+first = reason
+else
+suppressed = suppressed + 1
+end
+end
+end
+local _raw = self
+if first ~= nil then
+if suppressed > 0 then
+error ( tostring ( first ) .. " (suppressed " .. tostring ( suppressed ) .. " cleanup failure(s))" , 0 )
+end
+error ( first , 0 )
+end
+end
+
+local function destroyStore ( self )
+self : drop ( )
+end ;__nuppCleanups["nupp.owners.store#destroyStore"]=destroyStore
+
+__nuppCleanups["nupp.owners.store#destroyStore"]=destroyStore;
+
+function store . new ( )
+local store = setmetatable({ entries =  { } ,  generations =  { } ,  nextSlot =  1 ,  destroyed =  false }, store.StoreState)
+stores [ store ] = true
+
+return store
+end
+
+function store . erase ( handle )
+return setmetatable({ store =
+handle . store ,  slot =
+handle . slot ,  generation =
+handle . generation ,  policy =
+handle . policy }, store.ErasedHandle)
+
+end
+
+
+
+
+function store . _recover ( handle , policy )
+if handle . policy ~= policy then
+return nil , setmetatable({ code =  "NUPP2613" ,  message =  "dynamic handle has the wrong type policy" }, store.Error)
+end
+return ( setmetatable({ store =
+
+handle . store ,  slot =
+handle . slot ,  generation =
+handle . generation ,  policy =
+handle . policy }, store.Handle)
+
+) , nil
+end
+
+
+
+
+
+
+function store . recover ( handle , expected )
+error ( "store.recover must be lowered by the compiler" , 2 )
+end
+
+
+
+_G . __nuppDynamicPolicyCount = function ( policy )
+local count = 0
+for store in pairs ( stores ) do
+if not store . destroyed then
+for _ , entry in pairs ( store . entries ) do
+if entry . policy == policy then
+count = count + 1
+end
+end
+end
+end
+
+return count
+end
+
+return store
+
+end
 package.preload["nupp.profile"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
@@ -131515,224 +132694,6 @@ end
 return zone
 
 end
-package.preload["nupp.resources"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-local resources = { }
-
-
-
-
-
-
-const Entry = {} Entry.__index = Entry
-
-
-
-
-
-
-
-
-
-
-
-resources.Set = {} resources.Set.__index = resources.Set
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function resources.Set:adopt(value, terminal)
-assert ( not self . _closed , "resource set is closed" )
-local witness = terminal
-assert ( type ( witness ) == "function" , "resource adoption needs a discharge witness" )
-self . _entries [ # self . _entries + 1 ] = setmetatable({ value =  value ,  cleanup =  witness }, Entry)
-
-return self . _entries [ # self . _entries ] . value
-end
-
-
-
-
-
-
-function resources.Set:remove(value)
-assert ( not self . _closed , "resource set is closed" )
-for index = # self . _entries , 1 , - 1 do
-local entry = self . _entries [ index ]
-if entry . value == value then
-table . remove ( self . _entries , index )
-return entry . value
-end
-end
-error ( "resource is not registered in this set" , 2 )
-end
-
-
-
-
-
-
-
-
-
-
-function resources . Set . close ( self )
-local first = nil
-local suppressed = 0
-if not self . _closed then
-self . _closed = true
-for index = # self . _entries , 1 , - 1 do
-local entry = self . _entries [ index ]
-local ok , reason = pcall ( entry . cleanup , entry . value )
-if not ok then
-if first == nil then
-first = reason
-else
-suppressed = suppressed + 1
-end
-end
-end
-self . _entries = { }
-end
-
-
-local _raw = self
-if first ~= nil then
-if suppressed > 0 then
-error ( tostring ( first ) .. " (suppressed " .. tostring ( suppressed ) .. " cleanup failure(s))" , 0 )
-end
-error ( first , 0 )
-end
-end
-
-function resources . Set . drop ( self )
-self : close ( )
-end
-
-local function destroySet ( value )
-value : drop ( )
-end ;__nuppCleanups["nupp.resources#destroySet"]=destroySet
-
-
-
-
-
-
-
-
-
-function resources . set ( label ) __nuppCleanups["nupp.resources#destroySet"]=destroySet;
-return setmetatable({ label =  label or "resource" ,  _entries =  { } ,  _closed =  false }, resources.Set)
-end
-
-local function close_file ( file )
-local ok , reason = file : close ( )
-if not ok then
-error ( reason or "file close failed" )
-end
-end ;__nuppCleanups["nupp.resources#close_file"]=close_file
-
-
-
-
-
-
-
-
-
-
-function resources . openFile ( path , mode ) __nuppCleanups["nupp.resources#close_file"]=close_file;
-local file , reason = io . open ( path , mode )
-if not file then
-error ( reason or "file open failed" )
-end
-
-return file
-end
-
-
-
-
-
-
-
-
-
-
-function resources . openProcess ( command , mode ) __nuppCleanups["nupp.resources#close_file"]=close_file;
-local file , reason = io . popen ( command , mode )
-if not file then
-error ( reason or "process open failed" )
-end
-
-return file
-end
-
-
-
-
-
-
-
-
-function resources . temporaryFile ( ) __nuppCleanups["nupp.resources#close_file"]=close_file;
-local file = io . tmpfile ( )
-if not file then
-error ( "temporary file creation failed" )
-end
-
-return file
-end
-
-return resources
-
-end
 package.preload["nupp.simd"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
 
@@ -132962,843 +133923,6 @@ return values
 end
 
 return suspension
-
-end
-package.preload["nupp.valuebuilder"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();const __nuppNew = require("table.new"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end __nuppLazy(__nuppData,"utf8",function()local native=require("lua-utf8");local u={};local function bytes(value)if type(value)=="string"then return value end;return value:getString()end;local function offset(value,at,allowEnd)if type(at)~="number"or at~=math.floor(at)then error("nupp: UTF-8 byte offset must be an integer",3)end;local limit=#value+(allowEnd and 1 or 0);if at<1 or at>limit then error("nupp: UTF-8 byte offset is out of range",3)end;return at end;local function decode(s,at)local first=s:byte(at);if not first then return nil,at end;if first<128 then return first,at+1 end;local need,code,min;if first>=194 and first<=223 then need,code,min=1,first-192,128 elseif first>=224 and first<=239 then need,code,min=2,first-224,2048 elseif first>=240 and first<=244 then need,code,min=3,first-240,65536 else return 65533,at+1 end;for i=1,need do local b=s:byte(at+i);if not b or b<128 or b>191 then return 65533,at+1 end;code=code*64+b-128 end;if code<min or code>1114111 or(code>=55296 and code<=57343)then return 65533,at+1 end;return code,at+need+1 end function u.length(value)local s=bytes(value);local n,at=0,1;while at<=#s do local _,nextAt=decode(s,at);at=nextAt;n=n+1 end;return n end;function u.decodeAt(value,at)local s=bytes(value);at=offset(s,at,true);return decode(s,at)end;function u.decodeBefore(value,at)local s=bytes(value);at=offset(s,at,true);if at==1 then return nil,1 end;local start=at-1;while start>1 and s:byte(start)>=128 and s:byte(start)<=191 do start=start-1 end;local cp,nextAt=decode(s,start);if nextAt~=at then return 65533,at-1 end;return cp,start end;function u.encode(codepoint)return native.char(codepoint)end;function u.isValid(value)return native.isvalid(bytes(value))end;function u.validPrefixLength(value,maxBytes)local s=bytes(value);maxBytes=math.max(0,math.min(#s,maxBytes));while maxBytes>0 and not native.isvalid(s:sub(1,maxBytes))do maxBytes=maxBytes-1 end;return maxBytes end;function u.truncate(text,maxBytes)return text:sub(1,u.validPrefixLength(text,maxBytes))end;return u end) local m=__nuppMath;local pi,tau=math.pi,2*math.pi function m.lerp(from,to,t)if t==0 then return from elseif t==1 then return to end;return from+(to-from)*t end function m.wrapAngle(radians)return(radians+pi)%tau-pi end function m.deltaAngle(from,to)return m.wrapAngle(to-from)end local b=bit;local function ui32(x)x=b.tobit(x);return x<0 and x+4294967296 or x end local function mul32(a,c)local al,cl=a%65536,c%65536;local ah,ch=math.floor(a/65536),math.floor(c/65536);return b.tobit(al*cl+((ah*cl+al*ch)%65536)*65536)end local i32,u32={},{};m.i32=i32;m.u32=u32 function i32.wrap(a)return b.tobit(a)end;function u32.wrap(a)return ui32(a)end function i32.add(a,c)return b.tobit(a+c)end;function i32.sub(a,c)return b.tobit(a-c)end;function i32.mul(a,c)return mul32(ui32(a),ui32(c))end function i32.andBits(a,c)return b.band(a,c)end;function i32.orBits(a,c)return b.bor(a,c)end;function i32.xorBits(a,c)return b.bxor(a,c)end;function i32.notBits(a)return b.bnot(a)end function i32.shiftLeft(a,c)return b.lshift(a,b.band(c,31))end;function i32.shiftRightArithmetic(a,c)return b.arshift(a,b.band(c,31))end function i32.rotateLeft(a,c)return b.rol(a,b.band(c,31))end;function i32.rotateRight(a,c)return b.ror(a,b.band(c,31))end function i32.lessThan(a,c)return b.tobit(a)<b.tobit(c)end;function i32.lessOrEqual(a,c)return b.tobit(a)<=b.tobit(c)end function i32.fromU32(a)return b.tobit(a)end;function i32.toU32(a)return ui32(a)end function u32.add(a,c)return ui32(a+c)end;function u32.sub(a,c)return ui32(a-c)end;function u32.mul(a,c)return ui32(mul32(ui32(a),ui32(c)))end function u32.andBits(a,c)return ui32(b.band(a,c))end;function u32.orBits(a,c)return ui32(b.bor(a,c))end;function u32.xorBits(a,c)return ui32(b.bxor(a,c))end;function u32.notBits(a)return ui32(b.bnot(a))end function u32.shiftLeft(a,c)return ui32(b.lshift(a,b.band(c,31)))end;function u32.shiftRightLogical(a,c)return ui32(b.rshift(a,b.band(c,31)))end function u32.rotateLeft(a,c)return ui32(b.rol(a,b.band(c,31)))end;function u32.rotateRight(a,c)return ui32(b.ror(a,b.band(c,31)))end function u32.lessThan(a,c)return ui32(a)<ui32(c)end;function u32.lessOrEqual(a,c)return ui32(a)<=ui32(c)end function u32.fromI32(a)return ui32(a)end;function u32.toI32(a)return b.tobit(a)end function u32.popcount(a)local n=0;a=ui32(a);while a~=0 do a=ui32(b.band(a,a-1));n=n+1 end;return n end function u32.trailingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;while b.band(a,1)==0 do a=b.rshift(a,1);n=n+1 end;return n end function u32.leadingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;local bit=2147483648;while b.band(a,bit)==0 do bit=b.rshift(bit,1);n=n+1 end;return n end local ffi=require("ffi");local fh=ffi.new("union {float f;uint32_t u;}[1]");local f32={};m.f32=f32 local CANON=2143289344;local PINF=2139095040;local NINF=4286578688;local MAX=2139095039;local NMAX=4286578687 local function nanbits(bits)return b.band(bits,2139095040)==2139095040 and b.band(bits,8388607)~=0 end local function putbits(bits)if nanbits(bits)then bits=CANON end;fh[0].u=bits;return tonumber(fh[0].f)end local function bits32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then bits=CANON;fh[0].u=bits end;return bits end local function round32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then fh[0].u=CANON end;return tonumber(fh[0].f)end local function narrow32(value)fh[0].f=value;return tonumber(fh[0].f)end local function comparedd(hi,lo,value)local d=hi-value;if d>-lo then return 1 elseif d<-lo then return-1 end;return 0 end local function nextup(value,bits)if bits==PINF then return value,bits end;if bits==NINF then return putbits(NMAX),NMAX end;if b.band(bits,2147483648)~=0 then if bits==2147483648 then return putbits(1),1 end;bits=bits-1 else bits=bits+1 end;return putbits(bits),bits end local function nextdown(value,bits)if bits==NINF then return value,bits end;if bits==PINF then return putbits(MAX),MAX end;if b.band(bits,2147483648)~=0 then bits=bits+1 else if bits==0 then return putbits(2147483649),2147483649 end;bits=bits-1 end;return putbits(bits),bits end local function rounddd(hi,lo)local value=round32(hi);local bits=bits32(value);if nanbits(bits)then return putbits(CANON)end;if bits==PINF then local threshold=3.4028235677973366e38;if comparedd(hi,lo,threshold)<0 then return putbits(MAX)end;return value elseif bits==NINF then local threshold=-3.4028235677973366e38;if comparedd(hi,lo,threshold)>0 then return putbits(NMAX)end;return value end;local side=comparedd(hi,lo,value);if side==0 then return value end;local other,otherbits;if side>0 then other,otherbits=nextup(value,bits)else other,otherbits=nextdown(value,bits)end;local midpoint=(value+other)*0.5;local toward=comparedd(hi,lo,midpoint);if side<0 then toward=-toward end;if toward>0 or toward==0 and b.band(bits,1)~=0 then return putbits(otherbits)end;return value end function f32.narrow(a)return narrow32(a)end;function f32.round(a)return round32(a)end;function f32.add(a,c)return round32(round32(a)+round32(c))end;function f32.sub(a,c)return round32(round32(a)-round32(c))end;function f32.mul(a,c)return round32(round32(a)*round32(c))end;function f32.div(a,c)return round32(round32(a)/round32(c))end;function f32.sqrt(a)return round32(math.sqrt(round32(a)))end function f32.min(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and(b.band(ab,2147483648)~=0 or b.band(cb,2147483648)~=0)then return putbits(2147483648)end;return a end;return a<c and a or c end function f32.max(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and b.band(ab,2147483648)~=0 and b.band(cb,2147483648)~=0 then return putbits(2147483648)elseif a==0 then return putbits(0)end;return a end;return a>c and a or c end function f32.fma(a,c,d)a,c,d=round32(a),round32(c),round32(d);local product=a*c;if product~=product or product==math.huge or product==-math.huge then return round32(product+d)end;local sum=product+d;local carry=sum-product;local error=(product-(sum-carry))+(d-carry);return rounddd(sum,error)end function f32.fromBits(bits)return putbits(ui32(bits))end;function f32.toBits(value)return bits32(round32(value))end local v={};m.vec2=v function v.add(ax,ay,bx,by)return ax+bx,ay+by end function v.subtract(ax,ay,bx,by)return ax-bx,ay-by end function v.scale(x,y,f)return x*f,y*f end function v.dot(ax,ay,bx,by)return ax*bx+ay*by end function v.cross(ax,ay,bx,by)return ax*by-ay*bx end function v.lengthSquared(x,y)return x*x+y*y end function v.length(x,y)return math.sqrt(x*x+y*y)end function v.distanceSquared(ax,ay,bx,by)local x,y=bx-ax,by-ay;return x*x+y*y end function v.distance(ax,ay,bx,by)return math.sqrt(v.distanceSquared(ax,ay,bx,by))end function v.normalize(x,y)local length=v.length(x,y);if length==0 then return 0,0 end;return x/length,y/length end function v.lerp(ax,ay,bx,by,t)if t==0 then return ax,ay elseif t==1 then return bx,by end;return ax+(bx-ax)*t,ay+(by-ay)*t end function v.moveTowards(ax,ay,bx,by,d)if d<=0 then return ax,ay end;local x,y=bx-ax,by-ay;local squared=x*x+y*y;if squared==0 or squared<=d*d then return bx,by end;local f=d/math.sqrt(squared);return ax+x*f,ay+y*f end function v.rotate(x,y,r)local c,s=math.cos(r),math.sin(r);return x*c-y*s,x*s+y*c end function v.angle(x,y)if x==0 and y==0 then return 0 end;return math.atan2(y,x)end function v.angleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;return math.atan2(math.abs(v.cross(ax,ay,bx,by)),v.dot(ax,ay,bx,by))end function v.signedAngleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;local a=math.atan2(v.cross(ax,ay,bx,by),v.dot(ax,ay,bx,by));return a==pi and-pi or a end function v.project(x,y,ox,oy)local d=ox*ox+oy*oy;if d==0 then return 0,0 end;local f=(x*ox+y*oy)/d;return ox*f,oy*f end function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;local f=2*(x*nx+y*ny)/d;return x-nx*f,y-ny*f end;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-local ffi = require ( "ffi" )
-
-local valuebuilder = { }
-
-pcall (
-ffi . cdef ,
-[[
-typedef struct {
-    double number;
-    uint32_t tag;
-    uint32_t start;
-    uint32_t length;
-    uint32_t linkStart;
-    uint32_t linkCount;
-    uint32_t parent;
-    uint32_t flags;
-} NuppValueTreeNode;
-]]
-)
-
-local NodePointer = ffi . typeof ( "const NuppValueTreeNode *" )
-local LinkPointer = ffi . typeof ( "const uint32_t *" )
-local nodeSize = ffi . sizeof ( "NuppValueTreeNode" )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-local function decodeString ( source , first , length , escaped )
-local bytes = source : sub ( first + 1 , first + length )
-if not escaped then
-return bytes
-end
-
-local parts = { }
-local start = 1
-local position = 1
-local simple = {
-[ 34 ] = '"' ,
-[ 92 ] = "\\" ,
-[ 47 ] = "/" ,
-[ 98 ] = "\b" ,
-[ 102 ] = "\f" ,
-[ 110 ] = "\n" ,
-[ 114 ] = "\r" ,
-[ 116 ] = "\t" ,
-}
-while position <= # bytes do
-if bytes : byte ( position ) ~= 92 then
-position = position + 1
-else
-parts [ # parts + 1 ] = bytes : sub ( start , position - 1 )
-position = position + 1
-local escapedByte = bytes : byte ( position )
-local replacement = escapedByte and simple [ escapedByte ] or nil
-if replacement ~= nil then
-parts [ # parts + 1 ] = replacement
-position = position + 1
-elseif escapedByte == 117 then
-local codepoint = tonumber ( bytes : sub ( position + 1 , position + 4 ) , 16 )
-if codepoint == nil then
-error ( "invalid value-tree Unicode escape" , 0 )
-end
-position = position + 5
-if codepoint >= 0xD800 and codepoint <= 0xDBFF then
-if bytes : byte ( position ) ~= 92 or bytes : byte ( position + 1 ) ~= 117 then
-error ( "unmatched value-tree high surrogate" , 0 )
-end
-local low = tonumber ( bytes : sub ( position + 2 , position + 5 ) , 16 )
-if low == nil or low < 0xDC00 or low > 0xDFFF then
-error ( "invalid value-tree low surrogate" , 0 )
-end
-position = position + 6
-codepoint = 0x10000 + ( codepoint - 0xD800 ) * 0x400 + low - 0xDC00
-elseif codepoint >= 0xDC00 and codepoint <= 0xDFFF then
-error ( "unmatched value-tree low surrogate" , 0 )
-end
-parts [ # parts + 1 ] = nupp . data . utf8 . encode ( codepoint )
-else
-error ( "unknown value-tree escape" , 0 )
-end
-start = position
-end
-end
-parts [ # parts + 1 ] = bytes : sub ( start )
-
-return table . concat ( parts )
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . materializeTree (
-nodeBytes ,
-linkBytes ,
-source ,
-root ,
-nullValue
-)
-if # nodeBytes % nodeSize ~= 0 or # linkBytes % 4 ~= 0 then
-error ( "invalid value-tree blob size" , 2 )
-end
-local nodeCount = # nodeBytes / nodeSize
-local linkCount = # linkBytes / 4
-if root < 1 or root > nodeCount then
-error ( "value-tree root is out of bounds" , 2 )
-end
-
-local nodes = ffi . cast ( NodePointer , nodeBytes )
-local links = ffi . cast ( LinkPointer , linkBytes )
-local function sourceRange ( node )
-local first = tonumber ( node . start )
-local length = tonumber ( node . length )
-if first < 0 or length < 0 or first > # source or length > # source - first then
-error ( "value-tree source range is out of bounds" , 0 )
-end
-
-return first , length
-end
-
-local function materialize ( nodeId , depth )
-if nodeId < 1 or nodeId > nodeCount or depth > math . min ( nodeCount , 1024 ) then
-error ( "value-tree node is out of bounds" , 0 )
-end
-local node = nodes [ nodeId - 1 ]
-local tag = tonumber ( node . tag )
-if tag == 0 then
-return nullValue
-elseif tag == 1 then
-return true
-elseif tag == 2 then
-return false
-elseif tag == 3 then
-if tonumber ( node . flags ) == 1 then
-return tonumber ( node . number )
-end
-local first , length = sourceRange ( node )
-local value = tonumber ( source : sub ( first + 1 , first + length ) )
-if value == nil then
-error ( "invalid value-tree number" , 0 )
-end
-return value
-elseif tag == 4 then
-local flags = tonumber ( node . flags )
-if flags ~= 0 and flags ~= 1 then
-error ( "invalid value-tree string recipe" , 0 )
-end
-local first , length = sourceRange ( node )
-return decodeString ( source , first , length , flags == 1 )
-elseif tag ~= 5 and tag ~= 6 then
-error ( "invalid value-tree node tag" , 0 )
-end
-
-local first = tonumber ( node . linkStart )
-local count = tonumber ( node . linkCount )
-if first < 0 or count < 0 or first + count > linkCount then
-error ( "value-tree child range is out of bounds" , 0 )
-end
-if tag == 5 then
-local result = __nuppNew ( count , 0 )
-for offset = 0 , count - 1 do
-result [ offset + 1 ] = materialize ( tonumber ( links [ first + offset ] ) , depth + 1 )
-end
-return result
-end
-if count % 2 ~= 0 then
-error ( "value-tree object has an unmatched key" , 0 )
-end
-local result = __nuppNew ( 0 , count / 2 )
-for offset = 0 , count - 1 , 2 do
-local keyId = tonumber ( links [ first + offset ] )
-if keyId < 1 or keyId > nodeCount or tonumber ( nodes [ keyId - 1 ] . tag ) ~= 4 then
-error ( "value-tree object key is not a string" , 0 )
-end
-local key = materialize ( keyId , depth + 1 )
-result [ key ] = materialize ( tonumber ( links [ first + offset + 1 ] ) , depth + 1 )
-end
-
-return result
-end
-
-return materialize ( root , 1 )
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . new ( nullValue )
-return { nullValue = nullValue , stack = { } , result = nil , hasResult = false }
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . newSized ( nullValue , maxDepth , stringCapacity )
-return {
-nullValue = nullValue ,
-stack = { } ,
-result = nil ,
-hasResult = false ,
-maxDepth = maxDepth ,
-stringCapacity = stringCapacity
-}
-end
-
-
-
-
-
-
-local function put ( builder , value )
-local stack = builder . stack
-local frame = stack [ # stack ]
-if frame == nil then
-if builder . hasResult then
-error ( "value stream has more than one root" , 2 )
-end
-builder . result = value
-builder . hasResult = true
-elseif frame . kind == 5 then
-frame . value [ frame . next ] = value
-frame . next = frame . next + 1
-else
-if frame . key == nil then
-error ( "value stream object needs a key" , 2 )
-end
-frame . value [ frame . key ] = value
-frame . key = nil
-frame . count = frame . count + 1
-end
-end
-
-
-
-
-
-
-
-
-
-function valuebuilder . length ( bytes )
-return nupp . math . u32 . wrap ( # bytes )
-end
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . byte ( bytes , offset )
-local value = bytes : byte ( offset + 1 )
-if value == nil then
-error ( "value stream byte is out of bounds" , 2 )
-end
-
-return nupp . math . u32 . wrap ( value )
-end
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . word ( bytes , index )
-local offset = index * 4
-if offset > # bytes - 4 then
-error ( "value stream word is out of bounds" , 2 )
-end
-local pointer = ffi . cast ( LinkPointer , bytes )
-local value = tonumber ( pointer [ index ] )
-if value == nil then
-error ( "value stream word is invalid" , 2 )
-end
-
-return nupp . math . u32 . wrap ( value )
-end
-
-
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . newWordScratch ( capacity )
-return { capacity = capacity , length = 0 , words = ffi . new ( "uint32_t[?]" , capacity ) }
-end
-
-
-
-
-
-
-
-
-
-function valuebuilder . scratchWord ( scratch , index )
-if index >= scratch . length then
-error ( "value stream scratch read is out of bounds" , 2 )
-end
-local value = tonumber ( scratch . words [ index ] )
-if value == nil then
-error ( "value stream scratch word is invalid" , 2 )
-end
-
-return nupp . math . u32 . wrap ( value )
-end
-
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . setScratchWord ( scratch , index , value )
-if index > scratch . length or index >= scratch . capacity then
-error ( "value stream scratch write is out of bounds" , 2 )
-end
-if index == scratch . length then
-scratch . length = scratch . length + 1
-end
-scratch . words [ index ] = value
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . appendSetBits ( scratch , index , base , bits )
-error ( "appendSetBits exists only inside an @aot function" , 2 )
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . newByteScratch ( capacity )
-return { capacity = capacity , length = 0 , bytes = ffi . new ( "uint8_t[?]" , capacity ) }
-end
-
-
-
-
-
-
-function valuebuilder . scratchByte ( scratch , index )
-if index >= scratch . length then
-error ( "value stream byte scratch read is out of bounds" , 2 )
-end
-return nupp . math . u32 . wrap ( tonumber ( scratch . bytes [ index ] ) )
-end
-
-
-
-
-
-
-
-
-
-function valuebuilder . setScratchByte ( scratch , index , value )
-if index > scratch . length or index >= scratch . capacity or value > 255 then
-error ( "value stream byte scratch write is out of bounds" , 2 )
-end
-if index == scratch . length then
-scratch . length = scratch . length + 1
-end
-scratch . bytes [ index ] = value
-end
-
-
-
-
-
-
-
-
-function valuebuilder . resetByteScratch ( scratch )
-scratch . length = 0
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . stringScratch ( builder , scratch , start , length )
-if start > scratch . length or length > scratch . length - start then
-error ( "value stream byte scratch range is out of bounds" , 2 )
-end
-put ( builder , ffi . string ( scratch . bytes + start , length ) )
-end
-
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . keyScratch ( builder , scratch , start , length )
-local frame = builder . stack [ # builder . stack ]
-if frame == nil or frame . kind ~= 6 or frame . key ~= nil then
-error ( "value stream key is outside an object" , 2 )
-end
-if start > scratch . length or length > scratch . length - start then
-error ( "value stream byte scratch range is out of bounds" , 2 )
-end
-frame . key = ffi . string ( scratch . bytes + start , length )
-end
-
-
-
-
-
-
-
-
-function valuebuilder . openArray ( builder , capacity )
-local stack = builder . stack
-stack [ # stack + 1 ] = { kind = 5 , value = __nuppNew ( capacity , 0 ) , next = 1 }
-end
-
-
-
-
-
-
-
-
-
-function valuebuilder . openObject ( builder , capacity )
-local stack = builder . stack
-stack [ # stack + 1 ] = { kind = 6 , value = __nuppNew ( 0 , capacity ) , count = 0 }
-end
-
-
-
-
-
-
-
-
-function valuebuilder . depth ( builder )
-return nupp . math . u32 . wrap ( # builder . stack )
-end
-
-
-
-
-
-
-function valuebuilder . kind ( builder )
-local frame = builder . stack [ # builder . stack ]
-if frame == nil then
-error ( "value stream has no current container" , 2 )
-end
-
-return nupp . math . u32 . wrap ( frame . kind )
-end
-
-
-
-
-
-
-
-
-function valuebuilder . count ( builder )
-local frame = builder . stack [ # builder . stack ]
-if frame == nil then
-error ( "value stream has no current container" , 2 )
-end
-local count = frame . kind == 5 and frame . next - 1 or frame . count
-
-return nupp . math . u32 . wrap ( count )
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . key ( builder , source , start , length , escaped )
-local frame = builder . stack [ # builder . stack ]
-if frame == nil or frame . kind ~= 6 or frame . key ~= nil then
-error ( "value stream key is outside an object" , 2 )
-end
-frame . key = decodeString ( source , start , length , escaped )
-end
-
-
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . string ( builder , source , start , length , escaped )
-put ( builder , decodeString ( source , start , length , escaped ) )
-end
-
-
-
-
-
-
-
-
-
-function valuebuilder . number ( builder , value )
-put ( builder , value )
-end
-
-
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . numberSlice ( builder , source , start , length )
-local value = tonumber ( source : sub ( start + 1 , start + length ) )
-if value == nil then
-error ( "value stream number is invalid" , 2 )
-end
-put ( builder , value )
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . integerSlice ( builder , source , start , length )
-local value = tonumber ( source : sub ( start + 1 , start + length ) )
-if value == nil then
-error ( "value stream integer is invalid" , 2 )
-end
-put ( builder , value )
-end
-
-
-
-
-
-function valuebuilder . boolean ( builder , value )
-put ( builder , value )
-end
-
-
-
-
-
-function valuebuilder . null ( builder )
-put ( builder , builder . nullValue )
-end
-
-
-
-
-
-
-
-
-
-function valuebuilder . close ( builder )
-local stack = builder . stack
-local frame = stack [ # stack ]
-if frame == nil then
-error ( "value stream close has no container" , 2 )
-end
-if frame . kind == 6 and frame . key ~= nil then
-error ( "value stream object has an unmatched key" , 2 )
-end
-stack [ # stack ] = nil
-put ( builder , frame . value )
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-function valuebuilder . finish ( builder )
-if # builder . stack ~= 0 then
-error ( "value stream has an unclosed container" , 2 )
-end
-if not builder . hasResult then
-error ( "value stream has no root" , 2 )
-end
-
-return builder . result
-end
-
-return valuebuilder
 
 end
 package.preload["nupp.workers"] = function(...)
@@ -138904,7 +139028,7 @@ local interface LuaFile
 end
 
 --- File input and output. Producers return borrowed handles here; annotated wrappers in
---- `nupp.resources` establish ownership obligations.
+--- `nupp.io.file` establish ownership obligations.
 local io: {
     --- Opens the file at `path`. Modes are "r", "w" and "a", with "+" added for update
     --- and a trailing "b" for binary.
@@ -139651,6 +139775,842 @@ end
 
 return native
 ]],
+["/nupp/data/valuebuilder.g.nupp"] = [=[
+--[[
+Ordinary Lua values, built straight out of parsed bytes.
+
+A parser written against this module never assembles Lua tables itself. It
+reports the shape it found -- open an array, take this source range as a key,
+this one as a number -- and the module assembles the value behind it. The
+ordinary implementation here does that with plain Lua state and is the
+`aot = "off"` behavioral oracle. Under `require`, the same calls inside an
+`@aot` function lower to one native construction pass: tables are presized from
+the capacities the parser authored, every unfinished container stays rooted in a
+Lua stack slot across allocations, writes go through the raw-set API so barriers
+stay correct, and each string is copied exactly once into Lua-owned storage.
+
+That lowering is the whole reason the module exists. It is the one construction
+boundary an AOT builder may cross, and it stays a narrow one: no `lua_State`, no
+stack index, no collector object appears in any signature here. Outside `@aot`
+the module still works and still answers the same, but it buys nothing over
+writing the tables directly. See [the AOT guide](../../docs/tooling/aot.md) for
+what the generated code is allowed to do.
+
+Two shapes are offered, and a parser picks one.
+
+[](nupp.data.valuebuilder.materializeTree) is the batch shape. A parser that has
+already written a complete pointer-free preorder tree into two blobs hands them
+over once and gets the finished value back from a single checked traversal.
+
+[](nupp.data.valuebuilder.new) is the streaming shape, for a parser that would rather
+not build the tree at all. Values are reported as they are reached and the
+intermediate representation never exists:
+
+```nupp
+local valuebuilder = require("nupp.data.valuebuilder")
+
+--- Decodes the fixed document `{"id": 41}`.
+--- @raises when the stream is left incomplete
+@aot
+local function decode(source: string, nullValue: any): any
+    local builder = valuebuilder.new(nullValue)
+    valuebuilder.openObject(builder, 1)
+    valuebuilder.key(builder, source, 2, 2, false)
+    valuebuilder.numberSlice(builder, source, 7, 2)
+    valuebuilder.close(builder)
+
+    return valuebuilder.finish(builder)
+end
+```
+
+Every offset, length, and index this module takes is zero-based, because they
+address the parser's own bytes rather than a Lua string. Node ids and the `root`
+argument of [](nupp.data.valuebuilder.materializeTree) are the exception: those are
+one-based, so that 0 can mean no node.
+
+Under AOT a stream handle and a scratch buffer are local construction state.
+Neither can be returned, reassigned, stored in a table, or passed to an ordinary
+call; only the operations in this module admit them.
+]]
+
+local ffi = require("ffi")
+
+local valuebuilder = {}
+
+pcall(
+    ffi.cdef,
+    [[
+typedef struct {
+    double number;
+    uint32_t tag;
+    uint32_t start;
+    uint32_t length;
+    uint32_t linkStart;
+    uint32_t linkCount;
+    uint32_t parent;
+    uint32_t flags;
+} NuppValueTreeNode;
+]]
+)
+
+local NodePointer = ffi.typeof("const NuppValueTreeNode *")
+local LinkPointer = ffi.typeof("const uint32_t *")
+local nodeSize = ffi.sizeof("NuppValueTreeNode")
+
+--- Resolves one string recipe into a Lua string.
+---
+--- A recipe is a source range plus whether that range may hold backslash
+--- escapes. Both forms exist because most strings in a document hold no escape
+--- at all, and for that majority the answer is one copy of a source range
+--- rather than a scan. `\u` escapes are decoded, including a surrogate pair,
+--- and encoded as UTF-8.
+--- @param source the rooted string the range indexes
+--- @param first the range's zero-based first byte
+--- @param length the range's length in bytes
+--- @param escaped whether the range may hold backslash escapes
+--- @return the decoded string
+--- @raises when an escape is unknown, a `\u` code is not hexadecimal, or a
+---     surrogate is unpaired or out of range
+local function decodeString(source: string, first: integer, length: integer, escaped: boolean): string
+    local bytes = source:sub(first + 1, first + length)
+    if not escaped then
+        return bytes
+    end
+
+    local parts = {}
+    local start: integer = 1
+    local position: integer = 1
+    local simple = {
+        [34] = '"',
+        [92] = "\\",
+        [47] = "/",
+        [98] = "\b",
+        [102] = "\f",
+        [110] = "\n",
+        [114] = "\r",
+        [116] = "\t",
+    }
+    while position <= #bytes do
+        if bytes:byte(position) ~= 92 then
+            position = position + 1
+        else
+            parts[#parts + 1] = bytes:sub(start, position - 1)
+            position = position + 1
+            local escapedByte = bytes:byte(position)
+            local replacement = escapedByte and simple[escapedByte] or nil
+            if replacement ~= nil then
+                parts[#parts + 1] = replacement
+                position = position + 1
+            elseif escapedByte == 117 then
+                local codepoint = tonumber(bytes:sub(position + 1, position + 4), 16)
+                if codepoint == nil then
+                    error("invalid value-tree Unicode escape", 0)
+                end
+                position = position + 5
+                if codepoint >= 0xD800 and codepoint <= 0xDBFF then
+                    if bytes:byte(position) ~= 92 or bytes:byte(position + 1) ~= 117 then
+                        error("unmatched value-tree high surrogate", 0)
+                    end
+                    local low = tonumber(bytes:sub(position + 2, position + 5), 16)
+                    if low == nil or low < 0xDC00 or low > 0xDFFF then
+                        error("invalid value-tree low surrogate", 0)
+                    end
+                    position = position + 6
+                    codepoint = 0x10000 + (codepoint - 0xD800) * 0x400 + low - 0xDC00
+                elseif codepoint >= 0xDC00 and codepoint <= 0xDFFF then
+                    error("unmatched value-tree low surrogate", 0)
+                end
+                parts[#parts + 1] = nupp.data.utf8.encode(codepoint as integer)
+            else
+                error("unknown value-tree escape", 0)
+            end
+            start = position
+        end
+    end
+    parts[#parts + 1] = bytes:sub(start)
+
+    return table.concat(parts)
+end
+
+--- Materializes a pointer-free preorder tree into ordinary Lua values.
+---
+--- This is the batch shape. A parser fills two blobs, calls this once, and is
+--- done; use [](nupp.data.valuebuilder.new) instead when the parser can report values
+--- as it reaches them and would rather the tree never existed.
+---
+--- `nodeBytes` holds every node, packed as native-endian `NuppValueTreeNode` and
+--- addressed by one-based id. `linkBytes` holds every parent-to-child edge as a
+--- native-endian uint32 node id; a container names its children as the run
+--- `linkStart` through `linkStart + linkCount - 1` of that array, and an
+--- object's run alternates key node and value node. A node's `tag` says what it
+--- is, and `flags` picks between the two recipes a tag may carry:
+---
+--- ```
+---  tag  node     value
+---  ───  ───────  ────────────────────────────────────────────────
+---  0    null     nullValue
+---  1    true     true
+---  2    false    false
+---  3    number   flags 1: node.number; flags 0: parse the source range
+---  4    string   flags 0: the source range; flags 1: an escape recipe
+---  5    array    the link run, in order
+---  6    object   the link run, alternating key and value
+--- ```
+---
+--- Every size, id, range, and tag is checked before it is used, so a truncated
+--- or hostile blob raises rather than reading out of bounds. Recursion depth is
+--- bounded too, so a tree whose links form a cycle raises rather than hanging.
+---
+--- ```nupp
+--- local valuebuilder = require("nupp.data.valuebuilder")
+---
+--- --- @raises when the blobs do not describe a well-formed tree
+--- @aot
+--- local function decode(nodes: string, links: string, source: string, null: any): any
+---     return valuebuilder.materializeTree(nodes, links, source, 1, null)
+--- end
+--- ```
+---
+--- @param nodeBytes every node, packed as native-endian `NuppValueTreeNode`
+--- @param linkBytes every child edge, packed as native-endian uint32 node ids
+--- @param source the rooted string that string and number ranges index
+--- @param root the one-based id of the node to materialize, usually 1
+--- @param nullValue what a null node becomes, so that a caller who needs to tell
+---     an absent key from a null one can pass a sentinel instead of nil
+--- @return the materialized value
+--- @raises when a blob, node, link, string recipe, or numeric recipe is invalid
+function valuebuilder.materializeTree(
+    nodeBytes: string,
+    linkBytes: string,
+    source: string,
+    root: integer,
+    nullValue: any
+): any
+    if #nodeBytes % nodeSize ~= 0 or #linkBytes % 4 ~= 0 then
+        error("invalid value-tree blob size", 2)
+    end
+    local nodeCount = #nodeBytes / nodeSize
+    local linkCount = #linkBytes / 4
+    if root < 1 or root > nodeCount then
+        error("value-tree root is out of bounds", 2)
+    end
+
+    local nodes: any = ffi.cast(NodePointer, nodeBytes)
+    local links: any = ffi.cast(LinkPointer, linkBytes)
+    local function sourceRange(node: any): (integer, integer)
+        local first = tonumber(node.start) as integer
+        local length = tonumber(node.length) as integer
+        if first < 0 or length < 0 or first > #source or length > #source - first then
+            error("value-tree source range is out of bounds", 0)
+        end
+
+        return first, length
+    end
+
+    local function materialize(nodeId: integer, depth: integer): any
+        if nodeId < 1 or nodeId > nodeCount or depth > math.min(nodeCount, 1024) then
+            error("value-tree node is out of bounds", 0)
+        end
+        local node = nodes[nodeId - 1]
+        local tag = tonumber(node.tag) as integer
+        if tag == 0 then
+            return nullValue
+        elseif tag == 1 then
+            return true
+        elseif tag == 2 then
+            return false
+        elseif tag == 3 then
+            if tonumber(node.flags) == 1 then
+                return tonumber(node.number)
+            end
+            local first, length = sourceRange(node)
+            local value = tonumber(source:sub(first + 1, first + length))
+            if value == nil then
+                error("invalid value-tree number", 0)
+            end
+            return value
+        elseif tag == 4 then
+            local flags = tonumber(node.flags) as integer
+            if flags ~= 0 and flags ~= 1 then
+                error("invalid value-tree string recipe", 0)
+            end
+            local first, length = sourceRange(node)
+            return decodeString(source, first, length, flags == 1)
+        elseif tag ~= 5 and tag ~= 6 then
+            error("invalid value-tree node tag", 0)
+        end
+
+        local first = tonumber(node.linkStart) as integer
+        local count = tonumber(node.linkCount) as integer
+        if first < 0 or count < 0 or first + count > linkCount then
+            error("value-tree child range is out of bounds", 0)
+        end
+        if tag == 5 then
+            local result = table.new(count, 0)
+            for offset = 0, count - 1 do
+                result[offset + 1] = materialize(tonumber(links[first + offset]) as integer, depth + 1)
+            end
+            return result
+        end
+        if count % 2 ~= 0 then
+            error("value-tree object has an unmatched key", 0)
+        end
+        local result = table.new(0, count / 2)
+        for offset = 0, count - 1, 2 do
+            local keyId = tonumber(links[first + offset]) as integer
+            if keyId < 1 or keyId > nodeCount or tonumber(nodes[keyId - 1].tag) ~= 4 then
+                error("value-tree object key is not a string", 0)
+            end
+            local key = materialize(keyId, depth + 1)
+            result[key] = materialize(tonumber(links[first + offset + 1]) as integer, depth + 1)
+        end
+
+        return result
+    end
+
+    return materialize(root, 1)
+end
+
+--- Starts a direct stream of values.
+---
+--- This is the streaming shape. Open a container with
+--- [](nupp.data.valuebuilder.openArray) or [](nupp.data.valuebuilder.openObject), add
+--- values to it, [](nupp.data.valuebuilder.close) it, and take the single root back
+--- from [](nupp.data.valuebuilder.finish). A stream must publish exactly one root:
+--- adding a second value at the top level raises, and so does finishing with
+--- none.
+---
+--- The ordinary implementation keeps growable Lua state and is the `aot = "off"`
+--- oracle. VM-aware AOT keeps the same state in a bounded C stack object and
+--- roots every unfinished container on the Lua stack; it admits at most 1,024
+--- open containers. Use [](nupp.data.valuebuilder.newSized) to choose that bound, and
+--- to reserve scratch for transformed strings, when the parser knows better.
+---
+--- ```nupp
+--- local valuebuilder = require("nupp.data.valuebuilder")
+---
+--- --- Builds `[true, null]` without a source document.
+--- --- @raises when the stream is left incomplete
+--- @aot
+--- local function pair(nullValue: any): any
+---     local builder = valuebuilder.new(nullValue)
+---     valuebuilder.openArray(builder, 2)
+---     valuebuilder.boolean(builder, true)
+---     valuebuilder.null(builder)
+---     valuebuilder.close(builder)
+---
+---     return valuebuilder.finish(builder)
+--- end
+--- ```
+---
+--- @param nullValue what [](nupp.data.valuebuilder.null) adds
+--- @return the stream handle, which under AOT is local construction state and
+---     cannot be returned, reassigned, stored, or passed to an ordinary call
+function valuebuilder.new(nullValue: any): any
+    return {nullValue = nullValue, stack = {}, result = nil, hasResult = false}
+end
+
+--- Starts a stream with authored bounds for native frame and transformed-byte
+--- scratch storage.
+---
+--- Same contract as [](nupp.data.valuebuilder.new); only the storage differs. The
+--- ordinary implementation keeps normal growable Lua state and ignores both
+--- bounds, because plain Lua has nothing to preallocate. AOT uses them to
+--- allocate two rooted regions once: the first 16 frames stay inline and deeper
+--- streams lazily spill to Lua-rooted storage, and the byte region is allocated
+--- on the first escaped string and then reused. Publication still copies exactly
+--- once into a normal Lua string.
+---
+--- Reach for this over [](nupp.data.valuebuilder.new) when the document may nest
+--- deeper than 1,024 containers, or when the parser already knows the longest
+--- string it can produce and would rather not grow into it.
+--- @param nullValue what [](nupp.data.valuebuilder.null) adds
+--- @param maxDepth the most containers that may be open at once
+--- @param stringCapacity the most bytes one transformed string may need
+--- @return the stream handle, on the same terms as [](nupp.data.valuebuilder.new)
+function valuebuilder.newSized(nullValue: any, maxDepth: uint32, stringCapacity: uint32): any
+    return {
+        nullValue = nullValue,
+        stack = {},
+        result = nil,
+        hasResult = false,
+        maxDepth = maxDepth,
+        stringCapacity = stringCapacity
+    }
+end
+
+--- Places one finished value wherever the stream currently is: into the open
+--- array, under the object key waiting for it, or as the single root.
+--- @param builder the stream
+--- @param value the finished value to place
+--- @raises when a second root arrives, or an object value arrives with no key
+local function put(builder: any, value: any): nil
+    local stack = builder.stack
+    local frame = stack[#stack]
+    if frame == nil then
+        if builder.hasResult then
+            error("value stream has more than one root", 2)
+        end
+        builder.result = value
+        builder.hasResult = true
+    elseif frame.kind == 5 then
+        frame.value[frame.next] = value
+        frame.next = frame.next + 1
+    else
+        if frame.key == nil then
+            error("value stream object needs a key", 2)
+        end
+        frame.value[frame.key] = value
+        frame.key = nil
+        frame.count = frame.count + 1
+    end
+end
+
+--- Returns the rooted string's byte length without making a substring.
+---
+--- This, [](nupp.data.valuebuilder.byte), and [](nupp.data.valuebuilder.word) are the
+--- three readers that let an AOT parser read its input where it already lies.
+--- `#bytes` answers the same in ordinary Lua; going through here is what keeps
+--- the read admissible inside `@aot`.
+--- @param bytes the rooted string to measure
+--- @return its length in bytes
+function valuebuilder.length(bytes: string): uint32
+    return nupp.math.u32.wrap(#bytes)
+end
+
+--- Reads one byte at a zero-based offset.
+---
+--- The scanning counterpart of [](nupp.data.valuebuilder.length); read whole words
+--- with [](nupp.data.valuebuilder.word) when the bytes are a packed side table rather
+--- than the document.
+--- @param bytes the rooted string to read
+--- @param offset the zero-based byte offset
+--- @return the byte, 0 through 255
+--- @raises when offset is outside bytes
+function valuebuilder.byte(bytes: string, offset: uint32): uint32
+    local value = bytes:byte(offset + 1)
+    if value == nil then
+        error("value stream byte is out of bounds", 2)
+    end
+
+    return nupp.math.u32.wrap(value)
+end
+
+--- Reads one native-endian uint32 at a zero-based word index.
+---
+--- This is how a parser reads a packed side table -- a structural index, a tape
+--- -- back out of a rooted string instead of a Lua array of numbers. The word at
+--- `index` begins at byte offset `index * 4`.
+--- @param bytes the rooted string to read
+--- @param index the zero-based word index
+--- @return the word's value
+--- @raises when the complete word is outside bytes
+function valuebuilder.word(bytes: string, index: uint32): uint32
+    local offset = index * 4
+    if offset > #bytes - 4 then
+        error("value stream word is out of bounds", 2)
+    end
+    local pointer: any = ffi.cast(LinkPointer, bytes)
+    local value = tonumber(pointer[index])
+    if value == nil then
+        error("value stream word is invalid", 2)
+    end
+
+    return nupp.math.u32.wrap(value as integer)
+end
+
+--- Allocates a bounded uint32 work buffer local to one decode.
+---
+--- AOT lowers this to Lua-owned userdata, so its address remains stable across
+--- value allocations without crossing the public API as a pointer. Words are
+--- initialized by contiguous writes before they can be read: append or overwrite
+--- with [](nupp.data.valuebuilder.setScratchWord), drain a SIMD mask into it with
+--- [](nupp.data.valuebuilder.appendSetBits), and read it back with
+--- [](nupp.data.valuebuilder.scratchWord). For transformed bytes rather than indexes,
+--- use [](nupp.data.valuebuilder.newByteScratch).
+--- @param capacity the most words this buffer will ever hold
+--- @return the scratch handle, local to the call that allocated it
+function valuebuilder.newWordScratch(capacity: uint32): any
+    return {capacity = capacity, length = 0, words = ffi.new("uint32_t[?]", capacity)}
+end
+
+--- Reads one word from a local work buffer.
+---
+--- Only initialized words can be read, so an index at or past the buffer's
+--- current length raises rather than answering whatever was there.
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newWordScratch)
+--- @param index the zero-based word index
+--- @return the word's value
+--- @raises when the indexed word has not been initialized
+function valuebuilder.scratchWord(scratch: any, index: uint32): uint32
+    if index >= scratch.length then
+        error("value stream scratch read is out of bounds", 2)
+    end
+    local value = tonumber(scratch.words[index])
+    if value == nil then
+        error("value stream scratch word is invalid", 2)
+    end
+
+    return nupp.math.u32.wrap(value as integer)
+end
+
+--- Writes an existing word or appends the next contiguous word.
+---
+--- Writing at the buffer's current length appends and grows it by one; writing
+--- below that overwrites. There is no way to write past the end, which is what
+--- makes "initialized" mean the same thing as "below the length" for
+--- [](nupp.data.valuebuilder.scratchWord).
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newWordScratch)
+--- @param index the zero-based word index, at most the current length
+--- @param value the word to store
+--- @raises when the index leaves a gap or exceeds the capacity
+function valuebuilder.setScratchWord(scratch: any, index: uint32, value: uint32): nil
+    if index > scratch.length or index >= scratch.capacity then
+        error("value stream scratch write is out of bounds", 2)
+    end
+    if index == scratch.length then
+        scratch.length = scratch.length + 1
+    end
+    scratch.words[index] = value
+end
+
+--- Appends `base + bit_index` for every set bit in one 64-bit mask, low bit
+--- first, and returns the next unwritten index.
+---
+--- This is the structural-indexing step of a SIMD parser. A 64-byte block's
+--- interesting positions arrive as a [](nupp.simd.maskBits64), and this drains
+--- the whole mask into the buffer behind one capacity check rather than one
+--- check per bit. Feeding the result back as the next call's `index` walks the
+--- document a block at a time.
+---
+--- It has no ordinary implementation and raises if it is reached, because there
+--- is no ordinary way to hold the mask it takes. Call it only from an `@aot`
+--- function.
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newWordScratch)
+--- @param index the next unwritten index, 0 or a previous call's result
+--- @param base the block offset added to each set bit's position
+--- @param bits the `MaskBits64` to drain
+--- @return the next unwritten index
+--- @raises when called without AOT lowering or when the append exceeds scratch
+function valuebuilder.appendSetBits(scratch: any, index: uint32, base: uint32, bits: any): uint32
+    error("appendSetBits exists only inside an @aot function", 2)
+end
+
+--- Allocates a bounded byte work buffer local to one decode.
+---
+--- This is where a codec assembles bytes that are not a range of the source --
+--- an unescaped string, a decoded field -- before publishing them. Write with
+--- [](nupp.data.valuebuilder.setScratchByte), read with
+--- [](nupp.data.valuebuilder.scratchByte), empty it between values with
+--- [](nupp.data.valuebuilder.resetByteScratch), and publish a finished range with
+--- [](nupp.data.valuebuilder.stringScratch) or [](nupp.data.valuebuilder.keyScratch).
+---
+--- When the bytes are already a contiguous range of the source, skip all of this and
+--- use [](nupp.data.valuebuilder.string) or [](nupp.data.valuebuilder.key), which read
+--- the source in place.
+--- @param capacity the most bytes this buffer will ever hold
+--- @return the scratch handle, local to the call that allocated it
+function valuebuilder.newByteScratch(capacity: uint32): any
+    return {capacity = capacity, length = 0, bytes = ffi.new("uint8_t[?]", capacity)}
+end
+
+--- Reads one initialized byte from a local work buffer.
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newByteScratch)
+--- @param index the zero-based byte index
+--- @return the byte, 0 through 255
+--- @raises when the indexed byte has not been initialized
+function valuebuilder.scratchByte(scratch: any, index: uint32): uint32
+    if index >= scratch.length then
+        error("value stream byte scratch read is out of bounds", 2)
+    end
+    return nupp.math.u32.wrap(tonumber(scratch.bytes[index]) as integer)
+end
+
+--- Writes an existing byte or appends the next contiguous byte.
+---
+--- Appends and grows by one when `index` is the current length, overwrites below
+--- it, on the same terms as [](nupp.data.valuebuilder.setScratchWord).
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newByteScratch)
+--- @param index the zero-based byte index, at most the current length
+--- @param value the byte to store, 0 through 255
+--- @raises when the write leaves a gap, exceeds capacity, or is not a byte
+function valuebuilder.setScratchByte(scratch: any, index: uint32, value: uint32): nil
+    if index > scratch.length or index >= scratch.capacity or value > 255 then
+        error("value stream byte scratch write is out of bounds", 2)
+    end
+    if index == scratch.length then
+        scratch.length = scratch.length + 1
+    end
+    scratch.bytes[index] = value
+end
+
+--- Makes a byte scratch buffer empty without reallocating it.
+---
+--- Call this between values so that one bounded allocation serves a whole
+--- decode. Bytes below the old length remain in memory but are no longer
+--- readable, since [](nupp.data.valuebuilder.scratchByte) admits only initialized
+--- indexes.
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newByteScratch)
+function valuebuilder.resetByteScratch(scratch: any): nil
+    scratch.length = 0
+end
+
+--- Publishes initialized scratch bytes as a normal Lua string value.
+---
+--- The copy into Lua-owned storage happens here, exactly once. Use
+--- [](nupp.data.valuebuilder.keyScratch) for the object-key position instead, and
+--- [](nupp.data.valuebuilder.string) when the bytes are already a range of the
+--- source and need no assembling.
+--- @param builder the stream
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newByteScratch)
+--- @param start the range's zero-based first byte
+--- @param length the range's length in bytes
+--- @raises when the range is not initialized
+--- @raises when the value would be a second root, or an object value with no key
+function valuebuilder.stringScratch(builder: any, scratch: any, start: uint32, length: uint32): nil
+    if start > scratch.length or length > scratch.length - start then
+        error("value stream byte scratch range is out of bounds", 2)
+    end
+    put(builder, ffi.string(scratch.bytes + start, length))
+end
+
+--- Publishes initialized scratch bytes as the next object key.
+---
+--- The key-position counterpart of [](nupp.data.valuebuilder.stringScratch). The very
+--- next value added becomes this key's value.
+--- @param builder the stream
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newByteScratch)
+--- @param start the range's zero-based first byte
+--- @param length the range's length in bytes
+--- @raises when outside an object, when a key is already pending, or when the
+---     range is not initialized
+function valuebuilder.keyScratch(builder: any, scratch: any, start: uint32, length: uint32): nil
+    local frame = builder.stack[#builder.stack]
+    if frame == nil or frame.kind ~= 6 or frame.key ~= nil then
+        error("value stream key is outside an object", 2)
+    end
+    if start > scratch.length or length > scratch.length - start then
+        error("value stream byte scratch range is out of bounds", 2)
+    end
+    frame.key = ffi.string(scratch.bytes + start, length)
+end
+
+--- Opens an array. Every value added after it belongs to it until the matching
+--- [](nupp.data.valuebuilder.close).
+---
+--- `capacity` is a presizing hint taken from what the parser already counted, not
+--- a limit: a wrong guess costs a rehash, never an error.
+--- @param builder the stream
+--- @param capacity how many elements to presize the array part for
+function valuebuilder.openArray(builder: any, capacity: uint32): nil
+    local stack = builder.stack
+    stack[#stack + 1] = {kind = 5, value = table.new(capacity, 0), next = 1}
+end
+
+--- Opens an object. Each value inside it must be preceded by a key from
+--- [](nupp.data.valuebuilder.key) or [](nupp.data.valuebuilder.keyScratch), until the
+--- matching [](nupp.data.valuebuilder.close).
+---
+--- `capacity` presizes the hash part and is a hint, as in
+--- [](nupp.data.valuebuilder.openArray).
+--- @param builder the stream
+--- @param capacity how many entries to presize the hash part for
+function valuebuilder.openObject(builder: any, capacity: uint32): nil
+    local stack = builder.stack
+    stack[#stack + 1] = {kind = 6, value = table.new(0, capacity), count = 0}
+end
+
+--- Returns how many containers are currently open.
+---
+--- This, [](nupp.data.valuebuilder.kind), and [](nupp.data.valuebuilder.count) are all
+--- an iterative parser can see of the construction state; there is deliberately no way
+--- to read a value back out of a container it has already been added to.
+--- @param builder the stream
+--- @return the number of open containers, 0 at the top level
+function valuebuilder.depth(builder: any): uint32
+    return nupp.math.u32.wrap(#builder.stack)
+end
+
+--- Returns the current container's tag: 5 for an array and 6 for an object, the
+--- same numbering [](nupp.data.valuebuilder.materializeTree) uses.
+--- @param builder the stream
+--- @return the innermost open container's tag
+--- @raises when the stream has no current container
+function valuebuilder.kind(builder: any): uint32
+    local frame = builder.stack[#builder.stack]
+    if frame == nil then
+        error("value stream has no current container", 2)
+    end
+
+    return nupp.math.u32.wrap(frame.kind as integer)
+end
+
+--- Returns the number of complete values in the current container.
+---
+--- Complete means a value has arrived, so an object with a key pending and no
+--- value yet still answers with the count before it.
+--- @param builder the stream
+--- @return how many values the innermost open container holds
+--- @raises when the stream has no current container
+function valuebuilder.count(builder: any): uint32
+    local frame = builder.stack[#builder.stack]
+    if frame == nil then
+        error("value stream has no current container", 2)
+    end
+    local count = frame.kind == 5 and frame.next - 1 or frame.count
+
+    return nupp.math.u32.wrap(count as integer)
+end
+
+--- Sets the next object key from a range of the rooted source.
+---
+--- The range is read in place, so a key that holds no escape costs one copy and
+--- no substring. Pass `escaped` as true only when the range may hold backslash
+--- escapes; false takes the bytes exactly as they lie. Assemble a key that is
+--- not a contiguous source range with [](nupp.data.valuebuilder.keyScratch) instead.
+--- @param builder the stream
+--- @param source the rooted string the range indexes
+--- @param start the range's zero-based first byte
+--- @param length the range's length in bytes
+--- @param escaped whether the range may hold backslash escapes
+--- @raises when outside an object, or when a key is already pending
+--- @raises when an escape in the range is malformed
+function valuebuilder.key(builder: any, source: string, start: uint32, length: uint32, escaped: boolean): nil
+    local frame = builder.stack[#builder.stack]
+    if frame == nil or frame.kind ~= 6 or frame.key ~= nil then
+        error("value stream key is outside an object", 2)
+    end
+    frame.key = decodeString(source, start, length, escaped)
+end
+
+--- Adds a string value from a range of the rooted source.
+---
+--- The value counterpart of [](nupp.data.valuebuilder.key), on the same terms: the
+--- range is read in place, and `escaped` says whether it needs decoding first.
+--- @param builder the stream
+--- @param source the rooted string the range indexes
+--- @param start the range's zero-based first byte
+--- @param length the range's length in bytes
+--- @param escaped whether the range may hold backslash escapes
+--- @raises when an escape in the range is malformed
+--- @raises when the value would be a second root, or an object value with no key
+function valuebuilder.string(builder: any, source: string, start: uint32, length: uint32, escaped: boolean): nil
+    put(builder, decodeString(source, start, length, escaped))
+end
+
+--- Adds a number the parser has already converted.
+---
+--- Use [](nupp.data.valuebuilder.numberSlice) or
+--- [](nupp.data.valuebuilder.integerSlice) instead when the number is still a range
+--- of the source, so that the conversion happens without a substring.
+--- @param builder the stream
+--- @param value the number to add
+--- @raises when the value would be a second root, or an object value with no key
+function valuebuilder.number(builder: any, value: number): nil
+    put(builder, value)
+end
+
+--- Adds a number token from a range of the rooted source, converting it in
+--- place.
+---
+--- This accepts any numeric token. When the token is known to be an integer,
+--- [](nupp.data.valuebuilder.integerSlice) says so and is cheaper.
+--- @param builder the stream
+--- @param source the rooted string the range indexes
+--- @param start the range's zero-based first byte
+--- @param length the range's length in bytes
+--- @raises when the source range is not a number token
+--- @raises when the value would be a second root, or an object value with no key
+function valuebuilder.numberSlice(builder: any, source: string, start: uint32, length: uint32): nil
+    local value = tonumber(source:sub(start + 1, start + length))
+    if value == nil then
+        error("value stream number is invalid", 2)
+    end
+    put(builder, value)
+end
+
+--- Adds an integer token from a range of the rooted source.
+---
+--- The integer counterpart of [](nupp.data.valuebuilder.numberSlice). AOT accumulates
+--- short integers directly without entering `strtod`, and falls back to the same
+--- checked binary64 conversion for longer tokens; the ordinary path retains
+--- `tonumber` as the behavioral oracle either way.
+--- @param builder the stream
+--- @param source the rooted string the range indexes
+--- @param start the range's zero-based first byte
+--- @param length the range's length in bytes
+--- @raises when the source range is not an integer token
+--- @raises when the value would be a second root, or an object value with no key
+function valuebuilder.integerSlice(builder: any, source: string, start: uint32, length: uint32): nil
+    local value = tonumber(source:sub(start + 1, start + length))
+    if value == nil then
+        error("value stream integer is invalid", 2)
+    end
+    put(builder, value)
+end
+
+--- Adds a boolean value.
+--- @param builder the stream
+--- @param value the boolean to add
+--- @raises when the value would be a second root, or an object value with no key
+function valuebuilder.boolean(builder: any, value: boolean): nil
+    put(builder, value)
+end
+
+--- Adds the null replacement the stream was started with by
+--- [](nupp.data.valuebuilder.new) or [](nupp.data.valuebuilder.newSized).
+--- @param builder the stream
+--- @raises when the value would be a second root, or an object value with no key
+function valuebuilder.null(builder: any): nil
+    put(builder, builder.nullValue)
+end
+
+--- Closes the innermost open container and adds it to whatever encloses it.
+---
+--- Every [](nupp.data.valuebuilder.openArray) and [](nupp.data.valuebuilder.openObject)
+--- needs exactly one of these. Closing the outermost container publishes the
+--- root, which [](nupp.data.valuebuilder.finish) then returns.
+--- @param builder the stream
+--- @raises when no container is open, or when an object key has no value
+--- @raises when the closed container would be a second root
+function valuebuilder.close(builder: any): nil
+    local stack = builder.stack
+    local frame = stack[#stack]
+    if frame == nil then
+        error("value stream close has no container", 2)
+    end
+    if frame.kind == 6 and frame.key ~= nil then
+        error("value stream object has an unmatched key", 2)
+    end
+    stack[#stack] = nil
+    put(builder, frame.value)
+end
+
+--- Ends the stream and returns its single root value.
+---
+--- ```nupp
+--- valuebuilder.openArray(builder, 1)
+--- valuebuilder.number(builder, 41)
+--- valuebuilder.close(builder)
+--- local result = valuebuilder.finish(builder)  -- {41}
+--- ```
+---
+--- @param builder the stream
+--- @return the one value the stream published
+--- @raises when a container is still open, or when no root was published
+function valuebuilder.finish(builder: any): any
+    if #builder.stack ~= 0 then
+        error("value stream has an unclosed container", 2)
+    end
+    if not builder.hasResult then
+        error("value stream has no root", 2)
+    end
+
+    return builder.result
+end
+
+return valuebuilder
+]=],
 ["/nupp/derive.nupp"] = [[
 -- The standard derives are ordinary comptime providers.  Their runtime work is
 -- deliberately kept in this module too, so a generated member is just an
@@ -140033,254 +140993,84 @@ end
 
 return derive
 ]],
-["/nupp/dynamic.nupp"] = [=[
+["/nupp/io/file.nupp"] = [=[
 --[[
-Typed custody for capabilities that must cross heterogeneous or untyped storage.
+Owning wrappers for Lua's file handles.
 
-The store owns erased representations together with the exact cleanup witness the
-checker injects at `put`. Handles are ordinary copyable tokens; store identity, slot,
-generation, and policy are checked before a value or cleanup is touched.
+`io.open` hands back a borrowed handle, which means nothing has to close it and
+nothing complains when nobody does. These are the same calls annotated as owners,
+so the checker knows a handle must be discharged and lexical cleanup can do it,
+on fallthrough, on error, and on structured control flow alike.
+
+Holding a runtime number of owners is a separate subject; that is
+[](nupp.owners.set).
+
+See `docs/ownership.md`.
 ]]
 
-local dynamic = {}
+local file = {}
 
-local STORE_REGISTRY_KEY = "__nuppDynamicStores"
-local stores: any = _G[STORE_REGISTRY_KEY]
-if not stores then
-    stores = setmetatable({}, {__mode = "k"})
-    _G[STORE_REGISTRY_KEY] = stores
-end
-
---- A structured static or runtime dynamic-custody failure.
-record dynamic.Error
-    code: string
-    message: string
-end
-
-local record Entry
-    value: any
-    cleanup: any
-    policy: string
-    generation: integer
-end
-
---- A copyable typed token. Its representation is private and cannot be forged by
---- checked code.
-record dynamic.Handle<T>
-    private store: dynamic.StoreState
-    private slot: integer
-    private generation: integer
-    private policy: string
-end
-
---- The intentionally type-erased token accepted by untyped adapters.
-record dynamic.ErasedHandle
-    private store: dynamic.StoreState
-    private slot: integer
-    private generation: integer
-    private policy: string
-end
-
---- Runtime state owned by `dynamic.Store`.
-record dynamic.StoreState
-    private entries: {[integer]: Entry}
-    private generations: {[integer]: integer}
-    private nextSlot: integer
-    private destroyed: boolean
-
-    drop: nosuspend function(takes self: dynamic.StoreState): nil
-
-    --- Compiler-lowered implementation of `put`; callers use `put` below.
-    function _put<T>(exclusive self, takes value: T, cleanup: any, policy: string): dynamic.Handle<T>
-        assert(not self.destroyed, "dynamic store is destroyed")
-        local slot = self.nextSlot
-        self.nextSlot = slot + 1
-        local generation = self.generations[slot] or 1
-        self.entries[
-            slot
-        ] = new Entry(value = unsafe release value, cleanup = cleanup, policy = policy, generation = generation)
-
-        return new dynamic.Handle(
-            store = self,
-            slot = slot,
-            generation = generation,
-            policy = policy
-        ) as dynamic.Handle<T>
-    end
-
-    --- Enrolls one self-contained, droppable capability.
-    ---
-    --- This body is replaced at the call site so the cleanup witness and stable type
-    --- policy remain erased from direct checked values.
-    --- @raises if compiler lowering is unavailable
-    function put<T>(exclusive self, takes value: T): dynamic.Handle<T>
-        local _raw = unsafe release value
-        error("dynamic.Store.put must be lowered by the compiler", 2)
-    end
-
-    function with<T, R>(
-        exclusive self,
-        handle: dynamic.Handle<T>,
-        scoped callback: function(borrows value: T): R
-    ): (R?, dynamic.Error?)
-        local entry, problem = self:_entry(handle)
-        if not entry then
-            return nil, problem
-        end
-
-        return callback(entry.value as T), nil
-    end
-
-    function withExclusive<T, R>(
-        exclusive self,
-        handle: dynamic.Handle<T>,
-        scoped callback: function(exclusive value: T): R
-    ): (R?, dynamic.Error?)
-        local entry, problem = self:_entry(handle)
-        if not entry then
-            return nil, problem
-        end
-
-        return callback(entry.value as T), nil
-    end
-
-    function take<T>(exclusive self, handle: dynamic.Handle<T>): (T?, dynamic.Error?)
-        local entry, problem = self:_entry(handle)
-        if not entry then
-            return nil, problem
-        end
-        self.entries[handle.slot] = nil
-        self.generations[handle.slot] = entry.generation + 1
-
-        return entry.value as T, nil
-    end
-
-    function remove<T>(exclusive self, handle: dynamic.Handle<T>): dynamic.Error?
-        local entry, problem = self:_entry(handle)
-        if not entry then
-            return problem
-        end
-        self.entries[handle.slot] = nil
-        self.generations[handle.slot] = entry.generation + 1
-        entry.cleanup(entry.value)
-
-        return nil
-    end
-
-    function _entry<T>(borrows self, handle: dynamic.Handle<T>): (Entry?, dynamic.Error?)
-        if self.destroyed or handle.store ~= self then
-            return nil, new dynamic.Error(
-                code = "NUPP2614",
-                message = "dynamic handle names a destroyed or different store"
-            )
-        end
-        local entry = self.entries[handle.slot]
-        if not entry or entry.generation ~= handle.generation then
-            return nil, new dynamic.Error(code = "NUPP2614", message = "dynamic handle is stale")
-        end
-        if entry.policy ~= handle.policy then
-            return nil, new dynamic.Error(code = "NUPP2613", message = "dynamic handle has the wrong type policy")
-        end
-
-        return entry, nil
+local function close_file(takes handle: LuaFile): nil
+    local ok, reason = handle:close()
+    if not ok then
+        error(reason or "file close failed")
     end
 end
 
-function dynamic.StoreState.drop(takes self)
-    if self.destroyed then
-        return
-    end
-    self.destroyed = true
-    stores[self] = nil
-    local first: any = nil
-    local suppressed = 0
-    for slot, entry in pairs(self.entries) do
-        self.entries[slot] = nil
-        self.generations[slot] = entry.generation + 1
-        local ok, reason = pcall(entry.cleanup, entry.value)
-        if not ok then
-            if first == nil then
-                first = reason
-            else
-                suppressed = suppressed + 1
-            end
-        end
-    end
-    local _raw = unsafe release self
-    if first ~= nil then
-        if suppressed > 0 then
-            error(tostring(first) .. " (suppressed " .. tostring(suppressed) .. " cleanup failure(s))", 0)
-        end
-        error(first, 0)
-    end
-end
-
-local function destroyStore(takes self: dynamic.StoreState): nil
-    self:drop()
-end
-
-type dynamic.Store = affine(dynamic.StoreState, destroyStore)
-
-function dynamic.newStore(): dynamic.Store
-    local store = new dynamic.StoreState(entries = {}, generations = {}, nextSlot = 1, destroyed = false)
-    stores[store] = true
-
-    return store
-end
-
-function dynamic.erase<T>(handle: dynamic.Handle<T>): dynamic.ErasedHandle
-    return new dynamic.ErasedHandle(
-        store = handle.store,
-        slot = handle.slot,
-        generation = handle.generation,
-        policy = handle.policy
-    )
-end
-
---- Runtime half of checked recovery. The compiler supplies the stable policy key and
---- lowers the public `recover` call here; this function is not a source-level escape
---- hatch because constructing either handle remains private to this module.
-function dynamic._recover<T>(handle: dynamic.ErasedHandle, policy: string): (dynamic.Handle<T>?, dynamic.Error?)
-    if handle.policy ~= policy then
-        return nil, new dynamic.Error(code = "NUPP2613", message = "dynamic handle has the wrong type policy")
-    end
-    return (
-        new dynamic.Handle(
-            store = handle.store,
-            slot = handle.slot,
-            generation = handle.generation,
-            policy = handle.policy
-        ) as dynamic.Handle<T>
-    ), nil
-end
-
---- Recovers a typed handle after checking its representation witness. The handle's
---- hidden custody metadata retains and validates the complete cleanup policy; `take`
---- restores that exact capability rather than inventing one from the witness. This
---- body is replaced by compiler lowering; `expected` is compile-time.
---- @raises only if this standard-library intrinsic is invoked without compiler lowering
-function dynamic.recover<T>(handle: dynamic.ErasedHandle, expected: Type<T>): (dynamic.Handle<T>?, dynamic.Error?)
-    error("dynamic.recover must be lowered by the compiler", 2)
-end
-
--- The hot-reload runtime asks only whether a stable policy has live custody. Values,
--- cleanup functions, slots, and handles remain private to this module.
-_G.__nuppDynamicPolicyCount = function(policy: string): integer
-    local count: integer = 0
-    for store in pairs(stores) do
-        if not store.destroyed then
-            for _, entry in pairs(store.entries) do
-                if entry.policy == policy then
-                    count = count + 1
-                end
-            end
-        end
+--- Opens a file and transfers responsibility for closing it to the caller.
+---
+--- The returned handle closes automatically at its lexical boundary.
+---
+--- @export
+--- @param path the path of the file to open
+--- @param mode the Lua file mode; omitted uses the Lua default
+--- @return the open file handle, owned by the caller
+--- @raises when the file cannot be opened
+function file.open(path: string, mode: string?): affine(LuaFile, close_file)
+    local handle, reason = io.open(path, mode)
+    if not handle then
+        error(reason or "file open failed")
     end
 
-    return count
+    return handle
 end
 
-return dynamic
+--- Starts a process and transfers responsibility for closing its pipe to the caller.
+---
+--- The returned handle closes automatically at its lexical boundary. This is Lua's
+--- `io.popen` as an owner; [](nupp.io.process) is the full process API.
+---
+--- @export
+--- @param command the shell command to run
+--- @param mode the Lua pipe mode; omitted uses the Lua default
+--- @return the process pipe, owned by the caller
+--- @raises when the process pipe cannot be opened
+function file.popen(command: string, mode: string?): affine(LuaFile, close_file)
+    local handle, reason = io.popen(command, mode)
+    if not handle then
+        error(reason or "process open failed")
+    end
+
+    return handle
+end
+
+--- Creates a temporary file owned by the caller.
+---
+--- The returned handle closes automatically at its lexical boundary.
+---
+--- @export
+--- @return the open temporary file handle, owned by the caller
+--- @raises when the temporary file cannot be created
+function file.temporary(): affine(LuaFile, close_file)
+    local handle = io.tmpfile()
+    if not handle then
+        error("temporary file creation failed")
+    end
+
+    return handle
+end
+
+return file
 ]=],
 ["/nupp/io/http.nupp"] = [=[
 --[[
@@ -144116,6 +144906,408 @@ end
 
 return span
 ]=],
+["/nupp/owners/set.nupp"] = [=[
+--[[
+A container for as many owners as a program turns out to need.
+
+How many owners a set holds, and of what types, is known only while running, so the
+proof of discharge cannot stay in the checker: it is carried into the entry as the
+witness `adopt` is handed. Surrendering an owner to that storage is what `unsafe
+release` is for, and the two `unsafe` blocks below are the whole of what this module
+asks to be trusted about. `nupp ownership-audit` lists them.
+
+This is the simple half of owner custody: entries are erased, discharge is LIFO, and
+a borrow lives as long as the set. [](nupp.owners.store) is the same idea with
+generation and type-policy checks, so an individual owner can cross untyped storage
+and be recovered.
+
+See `docs/ownership.md`.
+]]
+
+local set = {}
+
+--- One adopted owner and the witness that discharges it.
+---
+--- Both are erased: the set is one table holding owners of types it never learns,
+--- and the witness the call site reified is the only thing that knows what to do
+--- with the value beside it.
+local record Entry
+    value: any
+    cleanup: any
+end
+
+--- A container for as many owners as a program turns out to need.
+---
+--- `adopt` moves an owner in and returns a borrow tied to the set; `close` discharges
+--- every registration in reverse, attempts all of them, and reports the first failure
+--- with a count of the ones it suppressed.
+---
+--- @export
+record set.Set
+    --- What the set is for, in diagnostics.
+    label: string
+
+    --- Adopted owners, in the order they arrived.
+    _entries: {Entry}
+
+    --- Whether `close` has already run.
+    _closed: boolean
+
+    --- Discharges every registration in reverse.
+    ---
+    --- Attempts all of them, so one failing cleanup cannot strand the rest, then
+    --- reports the first failure with a count of the ones it suppressed. Idempotent.
+    drop: nosuspend function(takes self: set.Set)
+
+    close: nosuspend function(takes self: set.Set)
+
+    --- Moves an owner in and returns a borrow tied to the set.
+    ---
+    --- The second argument is the discharge witness. A caller never writes it: the
+    --- checker reifies the adopted value's own cleanup contract at the call site, and
+    --- asks for an explicit terminal consumer only where there is no contract to reify.
+    ---
+    --- @param value the owner the set takes responsibility for
+    --- @param terminal what discharges an opaque owner, which carries no contract
+    --- @return the adopted value, borrowed from the set
+    --- @raises when the set is already closed, or adoption carries no witness
+    function adopt<T>(self, takes value: T, terminal: function(takes value: T)?): T borrows (self)
+        assert(not self._closed, "resource set is closed")
+        local witness = terminal
+        assert(type(witness) == "function", "resource adoption needs a discharge witness")
+        self._entries[#self._entries + 1] = new Entry(value = unsafe release value, cleanup = witness)
+
+        return self._entries[#self._entries].value as T
+    end
+
+    --- Deletes one registration and returns the original capability exactly once.
+    ---
+    --- @param value a value a previous `adopt` returned
+    --- @return that value, owned by the caller again
+    --- @raises when the value is not registered in this set, or the set is closed
+    function remove<T>(self, borrows value: T): T
+        assert(not self._closed, "resource set is closed")
+        for index = #self._entries, 1, -1 do
+            local entry = self._entries[index]
+            if entry.value == value then
+                table.remove(self._entries, index)
+                return entry.value as T
+            end
+        end
+        error("resource is not registered in this set", 2)
+    end
+end
+
+--- Discharges every registration in reverse.
+---
+--- Attempts all of them, so one failing cleanup cannot strand the rest, then reports
+--- the first failure with a count of the ones it suppressed. Idempotent.
+---
+--- @export
+--- @param self the set, spent by this call
+--- @raises when a registration's cleanup fails
+function set.Set.close(takes self)
+    local first: any = nil
+    local suppressed = 0
+    if not self._closed then
+        self._closed = true
+        for index = #self._entries, 1, -1 do
+            local entry = self._entries[index]
+            local ok, reason = pcall(entry.cleanup, entry.value)
+            if not ok then
+                if first == nil then
+                    first = reason
+                else
+                    suppressed = suppressed + 1
+                end
+            end
+        end
+        self._entries = {}
+    end
+    -- The set is spent either way, and saying so before raising keeps a failing
+    -- cleanup from also reading as an undischarged owner.
+    local _raw = unsafe release self
+    if first ~= nil then
+        if suppressed > 0 then
+            error(tostring(first) .. " (suppressed " .. tostring(suppressed) .. " cleanup failure(s))", 0)
+        end
+        error(first, 0)
+    end
+end
+
+function set.Set.drop(takes self)
+    self:close()
+end
+
+local function destroySet(takes value: set.Set): nil
+    value:drop()
+end
+
+--- Creates a set that owns whatever is adopted into it.
+---
+--- The set closes automatically at its lexical boundary, discharging what it still
+--- holds.
+---
+--- @export
+--- @param label what the set is for, in diagnostics; omitted names it "resource"
+--- @return the empty set, owned by the caller
+function set.new(label: string?): affine(set.Set, destroySet)
+    return new set.Set(label = label or "resource", _entries = {}, _closed = false)
+end
+
+return set
+]=],
+["/nupp/owners/store.nupp"] = [=[
+--[[
+Typed custody for capabilities that must cross heterogeneous or untyped storage.
+
+The store owns erased representations together with the exact cleanup witness the
+checker injects at `put`. Handles are ordinary copyable tokens; store identity, slot,
+generation, and policy are checked before a value or cleanup is touched.
+
+This is the recoverable half of owner custody. [](nupp.owners.set) holds the same
+kind of erased entry when a program only needs them discharged together, in reverse,
+at one lexical boundary; the generation and policy checks here are what let a single
+owner be erased through untyped Lua and claimed back.
+
+See `docs/ownership.md`.
+]]
+
+local store = {}
+
+local STORE_REGISTRY_KEY = "__nuppDynamicStores"
+local stores: any = _G[STORE_REGISTRY_KEY]
+if not stores then
+    stores = setmetatable({}, {__mode = "k"})
+    _G[STORE_REGISTRY_KEY] = stores
+end
+
+--- A structured static or runtime dynamic-custody failure.
+record store.Error
+    code: string
+    message: string
+end
+
+local record Entry
+    value: any
+    cleanup: any
+    policy: string
+    generation: integer
+end
+
+--- A copyable typed token. Its representation is private and cannot be forged by
+--- checked code.
+record store.Handle<T>
+    private store: store.StoreState
+    private slot: integer
+    private generation: integer
+    private policy: string
+end
+
+--- The intentionally type-erased token accepted by untyped adapters.
+record store.ErasedHandle
+    private store: store.StoreState
+    private slot: integer
+    private generation: integer
+    private policy: string
+end
+
+--- Runtime state owned by `store.Store`.
+record store.StoreState
+    private entries: {[integer]: Entry}
+    private generations: {[integer]: integer}
+    private nextSlot: integer
+    private destroyed: boolean
+
+    drop: nosuspend function(takes self: store.StoreState): nil
+
+    --- Compiler-lowered implementation of `put`; callers use `put` below.
+    function _put<T>(exclusive self, takes value: T, cleanup: any, policy: string): store.Handle<T>
+        assert(not self.destroyed, "dynamic store is destroyed")
+        local slot = self.nextSlot
+        self.nextSlot = slot + 1
+        local generation = self.generations[slot] or 1
+        self.entries[
+            slot
+        ] = new Entry(value = unsafe release value, cleanup = cleanup, policy = policy, generation = generation)
+
+        return new store.Handle(store = self, slot = slot, generation = generation, policy = policy) as store.Handle<T>
+    end
+
+    --- Enrolls one self-contained, droppable capability.
+    ---
+    --- This body is replaced at the call site so the cleanup witness and stable type
+    --- policy remain erased from direct checked values.
+    --- @raises if compiler lowering is unavailable
+    function put<T>(exclusive self, takes value: T): store.Handle<T>
+        local _raw = unsafe release value
+        error("store.Store.put must be lowered by the compiler", 2)
+    end
+
+    function with<T, R>(
+        exclusive self,
+        handle: store.Handle<T>,
+        scoped callback: function(borrows value: T): R
+    ): (R?, store.Error?)
+        local entry, problem = self:_entry(handle)
+        if not entry then
+            return nil, problem
+        end
+
+        return callback(entry.value as T), nil
+    end
+
+    function withExclusive<T, R>(
+        exclusive self,
+        handle: store.Handle<T>,
+        scoped callback: function(exclusive value: T): R
+    ): (R?, store.Error?)
+        local entry, problem = self:_entry(handle)
+        if not entry then
+            return nil, problem
+        end
+
+        return callback(entry.value as T), nil
+    end
+
+    function take<T>(exclusive self, handle: store.Handle<T>): (T?, store.Error?)
+        local entry, problem = self:_entry(handle)
+        if not entry then
+            return nil, problem
+        end
+        self.entries[handle.slot] = nil
+        self.generations[handle.slot] = entry.generation + 1
+
+        return entry.value as T, nil
+    end
+
+    function remove<T>(exclusive self, handle: store.Handle<T>): store.Error?
+        local entry, problem = self:_entry(handle)
+        if not entry then
+            return problem
+        end
+        self.entries[handle.slot] = nil
+        self.generations[handle.slot] = entry.generation + 1
+        entry.cleanup(entry.value)
+
+        return nil
+    end
+
+    function _entry<T>(borrows self, handle: store.Handle<T>): (Entry?, store.Error?)
+        if self.destroyed or handle.store ~= self then
+            return nil, new store.Error(
+                code = "NUPP2614",
+                message = "dynamic handle names a destroyed or different store"
+            )
+        end
+        local entry = self.entries[handle.slot]
+        if not entry or entry.generation ~= handle.generation then
+            return nil, new store.Error(code = "NUPP2614", message = "dynamic handle is stale")
+        end
+        if entry.policy ~= handle.policy then
+            return nil, new store.Error(code = "NUPP2613", message = "dynamic handle has the wrong type policy")
+        end
+
+        return entry, nil
+    end
+end
+
+function store.StoreState.drop(takes self)
+    if self.destroyed then
+        return
+    end
+    self.destroyed = true
+    stores[self] = nil
+    local first: any = nil
+    local suppressed = 0
+    for slot, entry in pairs(self.entries) do
+        self.entries[slot] = nil
+        self.generations[slot] = entry.generation + 1
+        local ok, reason = pcall(entry.cleanup, entry.value)
+        if not ok then
+            if first == nil then
+                first = reason
+            else
+                suppressed = suppressed + 1
+            end
+        end
+    end
+    local _raw = unsafe release self
+    if first ~= nil then
+        if suppressed > 0 then
+            error(tostring(first) .. " (suppressed " .. tostring(suppressed) .. " cleanup failure(s))", 0)
+        end
+        error(first, 0)
+    end
+end
+
+local function destroyStore(takes self: store.StoreState): nil
+    self:drop()
+end
+
+type store.Store = affine(store.StoreState, destroyStore)
+
+function store.new(): store.Store
+    local store = new store.StoreState(entries = {}, generations = {}, nextSlot = 1, destroyed = false)
+    stores[store] = true
+
+    return store
+end
+
+function store.erase<T>(handle: store.Handle<T>): store.ErasedHandle
+    return new store.ErasedHandle(
+        store = handle.store,
+        slot = handle.slot,
+        generation = handle.generation,
+        policy = handle.policy
+    )
+end
+
+--- Runtime half of checked recovery. The compiler supplies the stable policy key and
+--- lowers the public `recover` call here; this function is not a source-level escape
+--- hatch because constructing either handle remains private to this module.
+function store._recover<T>(handle: store.ErasedHandle, policy: string): (store.Handle<T>?, store.Error?)
+    if handle.policy ~= policy then
+        return nil, new store.Error(code = "NUPP2613", message = "dynamic handle has the wrong type policy")
+    end
+    return (
+        new store.Handle(
+            store = handle.store,
+            slot = handle.slot,
+            generation = handle.generation,
+            policy = handle.policy
+        ) as store.Handle<T>
+    ), nil
+end
+
+--- Recovers a typed handle after checking its representation witness. The handle's
+--- hidden custody metadata retains and validates the complete cleanup policy; `take`
+--- restores that exact capability rather than inventing one from the witness. This
+--- body is replaced by compiler lowering; `expected` is compile-time.
+--- @raises only if this standard-library intrinsic is invoked without compiler lowering
+function store.recover<T>(handle: store.ErasedHandle, expected: Type<T>): (store.Handle<T>?, store.Error?)
+    error("store.recover must be lowered by the compiler", 2)
+end
+
+-- The hot-reload runtime asks only whether a stable policy has live custody. Values,
+-- cleanup functions, slots, and handles remain private to this module.
+_G.__nuppDynamicPolicyCount = function(policy: string): integer
+    local count: integer = 0
+    for store in pairs(stores) do
+        if not store.destroyed then
+            for _, entry in pairs(store.entries) do
+                if entry.policy == policy then
+                    count = count + 1
+                end
+            end
+        end
+    end
+
+    return count
+end
+
+return store
+]=],
 ["/nupp/profile.nupp"] = [=[
 --[[
 Profiling, in two channels.
@@ -145415,223 +146607,6 @@ end
 
 return zone
 ]=],
-["/nupp/resources.nupp"] = [=[
---[[
-Owning wrappers for Lua's file handles, and the container that holds a runtime
-number of owners.
-
-`io.open` hands back a borrowed handle, which means nothing has to close it and
-nothing complains when nobody does. These are the same calls annotated as owners,
-so the checker knows a handle must be discharged and lexical cleanup can do it,
-on fallthrough, on error, and on structured control flow alike.
-
-Producing owners and holding them are the two halves of one subject, so they are
-one module. `Set` is the audited exception to the rule that an owner cannot live
-in dynamic storage. How many owners a set holds, and of what types, is known only
-while running, so the proof of discharge cannot stay in the checker: it is carried
-into the entry as the witness `adopt` is handed. Surrendering an owner to that
-storage is what `unsafe release` is for, and the two `unsafe` blocks below are the whole
-of what this module asks to be trusted about. `nupp ownership-audit` lists them.
-
-See `docs/ownership.md`.
-]]
-
-local resources = {}
-
---- One adopted owner and the witness that discharges it.
----
---- Both are erased: the set is one table holding owners of types it never learns,
---- and the witness the call site reified is the only thing that knows what to do
---- with the value beside it.
-local record Entry
-    value: any
-    cleanup: any
-end
-
---- A container for as many owners as a program turns out to need.
----
---- `adopt` moves an owner in and returns a borrow tied to the set; `close` discharges
---- every registration in reverse, attempts all of them, and reports the first failure
---- with a count of the ones it suppressed.
----
---- @export
-record resources.Set
-    --- What the set is for, in diagnostics.
-    label: string
-
-    --- Adopted owners, in the order they arrived.
-    _entries: {Entry}
-
-    --- Whether `close` has already run.
-    _closed: boolean
-
-    --- Discharges every registration in reverse.
-    ---
-    --- Attempts all of them, so one failing cleanup cannot strand the rest, then
-    --- reports the first failure with a count of the ones it suppressed. Idempotent.
-    drop: nosuspend function(takes self: resources.Set)
-
-    close: nosuspend function(takes self: resources.Set)
-
-    --- Moves an owner in and returns a borrow tied to the set.
-    ---
-    --- The second argument is the discharge witness. A caller never writes it: the
-    --- checker reifies the adopted value's own cleanup contract at the call site, and
-    --- asks for an explicit terminal consumer only where there is no contract to reify.
-    ---
-    --- @param value the owner the set takes responsibility for
-    --- @param terminal what discharges an opaque owner, which carries no contract
-    --- @return the adopted value, borrowed from the set
-    --- @raises when the set is already closed, or adoption carries no witness
-    --- @param value the owner the set takes responsibility for
-    --- @param terminal what discharges an opaque owner, which carries no contract
-    --- @return the adopted value, borrowed from the set
-    --- @raises when the set is already closed, or adoption carries no witness
-    function adopt<T>(self, takes value: T, terminal: function(takes value: T)?): T borrows (self)
-        assert(not self._closed, "resource set is closed")
-        local witness = terminal
-        assert(type(witness) == "function", "resource adoption needs a discharge witness")
-        self._entries[#self._entries + 1] = new Entry(value = unsafe release value, cleanup = witness)
-
-        return self._entries[#self._entries].value as T
-    end
-
-    --- Deletes one registration and returns the original capability exactly once.
-    ---
-    --- @param value a value a previous `adopt` returned
-    --- @return that value, owned by the caller again
-    --- @raises when the value is not registered in this set, or the set is closed
-    function remove<T>(self, borrows value: T): T
-        assert(not self._closed, "resource set is closed")
-        for index = #self._entries, 1, -1 do
-            local entry = self._entries[index]
-            if entry.value == value then
-                table.remove(self._entries, index)
-                return entry.value as T
-            end
-        end
-        error("resource is not registered in this set", 2)
-    end
-end
-
---- Discharges every registration in reverse.
----
---- Attempts all of them, so one failing cleanup cannot strand the rest, then reports
---- the first failure with a count of the ones it suppressed. Idempotent.
----
---- @export
---- @param self the set, spent by this call
---- @raises when a registration's cleanup fails
-function resources.Set.close(takes self)
-    local first: any = nil
-    local suppressed = 0
-    if not self._closed then
-        self._closed = true
-        for index = #self._entries, 1, -1 do
-            local entry = self._entries[index]
-            local ok, reason = pcall(entry.cleanup, entry.value)
-            if not ok then
-                if first == nil then
-                    first = reason
-                else
-                    suppressed = suppressed + 1
-                end
-            end
-        end
-        self._entries = {}
-    end
-    -- The set is spent either way, and saying so before raising keeps a failing
-    -- cleanup from also reading as an undischarged owner.
-    local _raw = unsafe release self
-    if first ~= nil then
-        if suppressed > 0 then
-            error(tostring(first) .. " (suppressed " .. tostring(suppressed) .. " cleanup failure(s))", 0)
-        end
-        error(first, 0)
-    end
-end
-
-function resources.Set.drop(takes self)
-    self:close()
-end
-
-local function destroySet(takes value: resources.Set): nil
-    value:drop()
-end
-
---- Creates a set that owns whatever is adopted into it.
----
---- The set closes automatically at its lexical boundary, discharging what it still
---- holds.
----
---- @export
---- @param label what the set is for, in diagnostics; omitted names it "resource"
---- @return the empty set, owned by the caller
-function resources.set(label: string?): affine(resources.Set, destroySet)
-    return new resources.Set(label = label or "resource", _entries = {}, _closed = false)
-end
-
-local function close_file(takes file: LuaFile): nil
-    local ok, reason = file:close()
-    if not ok then
-        error(reason or "file close failed")
-    end
-end
-
---- Opens a file and transfers responsibility for closing it to the caller.
----
---- The returned handle closes automatically at its lexical boundary.
----
---- @export
---- @param path the path of the file to open
---- @param mode the Lua file mode; omitted uses the Lua default
---- @return the open file handle, owned by the caller
---- @raises when the file cannot be opened
-function resources.openFile(path: string, mode: string?): affine(LuaFile, close_file)
-    local file, reason = io.open(path, mode)
-    if not file then
-        error(reason or "file open failed")
-    end
-
-    return file
-end
-
---- Starts a process and transfers responsibility for closing its pipe to the caller.
----
---- The returned handle closes automatically at its lexical boundary.
----
---- @export
---- @param command the shell command to run
---- @param mode the Lua pipe mode; omitted uses the Lua default
---- @return the process pipe, owned by the caller
---- @raises when the process pipe cannot be opened
-function resources.openProcess(command: string, mode: string?): affine(LuaFile, close_file)
-    local file, reason = io.popen(command, mode)
-    if not file then
-        error(reason or "process open failed")
-    end
-
-    return file
-end
-
---- Creates a temporary file owned by the caller.
----
---- The returned handle closes automatically at its lexical boundary.
----
---- @export
---- @return the open temporary file handle, owned by the caller
---- @raises when the temporary file cannot be created
-function resources.temporaryFile(): affine(LuaFile, close_file)
-    local file = io.tmpfile()
-    if not file then
-        error("temporary file creation failed")
-    end
-
-    return file
-end
-
-return resources
-]=],
 ["/nupp/simd.nupp"] = [[
 -- Target-selected packed values that exist only inside an AOT compilation.
 --
@@ -146860,842 +147835,6 @@ function suspension.batch<T>(bodies: {function(): T}, limit: integer): {T}
 end
 
 return suspension
-]=],
-["/nupp/valuebuilder.g.nupp"] = [=[
---[[
-Ordinary Lua values, built straight out of parsed bytes.
-
-A parser written against this module never assembles Lua tables itself. It
-reports the shape it found -- open an array, take this source range as a key,
-this one as a number -- and the module assembles the value behind it. The
-ordinary implementation here does that with plain Lua state and is the
-`aot = "off"` behavioral oracle. Under `require`, the same calls inside an
-`@aot` function lower to one native construction pass: tables are presized from
-the capacities the parser authored, every unfinished container stays rooted in a
-Lua stack slot across allocations, writes go through the raw-set API so barriers
-stay correct, and each string is copied exactly once into Lua-owned storage.
-
-That lowering is the whole reason the module exists. It is the one construction
-boundary an AOT builder may cross, and it stays a narrow one: no `lua_State`, no
-stack index, no collector object appears in any signature here. Outside `@aot`
-the module still works and still answers the same, but it buys nothing over
-writing the tables directly. See [the AOT guide](../../docs/tooling/aot.md) for
-what the generated code is allowed to do.
-
-Two shapes are offered, and a parser picks one.
-
-[](nupp.valuebuilder.materializeTree) is the batch shape. A parser that has
-already written a complete pointer-free preorder tree into two blobs hands them
-over once and gets the finished value back from a single checked traversal.
-
-[](nupp.valuebuilder.new) is the streaming shape, for a parser that would rather
-not build the tree at all. Values are reported as they are reached and the
-intermediate representation never exists:
-
-```nupp
-local valuebuilder = require("nupp.valuebuilder")
-
---- Decodes the fixed document `{"id": 41}`.
---- @raises when the stream is left incomplete
-@aot
-local function decode(source: string, nullValue: any): any
-    local builder = valuebuilder.new(nullValue)
-    valuebuilder.openObject(builder, 1)
-    valuebuilder.key(builder, source, 2, 2, false)
-    valuebuilder.numberSlice(builder, source, 7, 2)
-    valuebuilder.close(builder)
-
-    return valuebuilder.finish(builder)
-end
-```
-
-Every offset, length, and index this module takes is zero-based, because they
-address the parser's own bytes rather than a Lua string. Node ids and the `root`
-argument of [](nupp.valuebuilder.materializeTree) are the exception: those are
-one-based, so that 0 can mean no node.
-
-Under AOT a stream handle and a scratch buffer are local construction state.
-Neither can be returned, reassigned, stored in a table, or passed to an ordinary
-call; only the operations in this module admit them.
-]]
-
-local ffi = require("ffi")
-
-local valuebuilder = {}
-
-pcall(
-    ffi.cdef,
-    [[
-typedef struct {
-    double number;
-    uint32_t tag;
-    uint32_t start;
-    uint32_t length;
-    uint32_t linkStart;
-    uint32_t linkCount;
-    uint32_t parent;
-    uint32_t flags;
-} NuppValueTreeNode;
-]]
-)
-
-local NodePointer = ffi.typeof("const NuppValueTreeNode *")
-local LinkPointer = ffi.typeof("const uint32_t *")
-local nodeSize = ffi.sizeof("NuppValueTreeNode")
-
---- Resolves one string recipe into a Lua string.
----
---- A recipe is a source range plus whether that range may hold backslash
---- escapes. Both forms exist because most strings in a document hold no escape
---- at all, and for that majority the answer is one copy of a source range
---- rather than a scan. `\u` escapes are decoded, including a surrogate pair,
---- and encoded as UTF-8.
---- @param source the rooted string the range indexes
---- @param first the range's zero-based first byte
---- @param length the range's length in bytes
---- @param escaped whether the range may hold backslash escapes
---- @return the decoded string
---- @raises when an escape is unknown, a `\u` code is not hexadecimal, or a
----     surrogate is unpaired or out of range
-local function decodeString(source: string, first: integer, length: integer, escaped: boolean): string
-    local bytes = source:sub(first + 1, first + length)
-    if not escaped then
-        return bytes
-    end
-
-    local parts = {}
-    local start: integer = 1
-    local position: integer = 1
-    local simple = {
-        [34] = '"',
-        [92] = "\\",
-        [47] = "/",
-        [98] = "\b",
-        [102] = "\f",
-        [110] = "\n",
-        [114] = "\r",
-        [116] = "\t",
-    }
-    while position <= #bytes do
-        if bytes:byte(position) ~= 92 then
-            position = position + 1
-        else
-            parts[#parts + 1] = bytes:sub(start, position - 1)
-            position = position + 1
-            local escapedByte = bytes:byte(position)
-            local replacement = escapedByte and simple[escapedByte] or nil
-            if replacement ~= nil then
-                parts[#parts + 1] = replacement
-                position = position + 1
-            elseif escapedByte == 117 then
-                local codepoint = tonumber(bytes:sub(position + 1, position + 4), 16)
-                if codepoint == nil then
-                    error("invalid value-tree Unicode escape", 0)
-                end
-                position = position + 5
-                if codepoint >= 0xD800 and codepoint <= 0xDBFF then
-                    if bytes:byte(position) ~= 92 or bytes:byte(position + 1) ~= 117 then
-                        error("unmatched value-tree high surrogate", 0)
-                    end
-                    local low = tonumber(bytes:sub(position + 2, position + 5), 16)
-                    if low == nil or low < 0xDC00 or low > 0xDFFF then
-                        error("invalid value-tree low surrogate", 0)
-                    end
-                    position = position + 6
-                    codepoint = 0x10000 + (codepoint - 0xD800) * 0x400 + low - 0xDC00
-                elseif codepoint >= 0xDC00 and codepoint <= 0xDFFF then
-                    error("unmatched value-tree low surrogate", 0)
-                end
-                parts[#parts + 1] = nupp.data.utf8.encode(codepoint as integer)
-            else
-                error("unknown value-tree escape", 0)
-            end
-            start = position
-        end
-    end
-    parts[#parts + 1] = bytes:sub(start)
-
-    return table.concat(parts)
-end
-
---- Materializes a pointer-free preorder tree into ordinary Lua values.
----
---- This is the batch shape. A parser fills two blobs, calls this once, and is
---- done; use [](nupp.valuebuilder.new) instead when the parser can report values
---- as it reaches them and would rather the tree never existed.
----
---- `nodeBytes` holds every node, packed as native-endian `NuppValueTreeNode` and
---- addressed by one-based id. `linkBytes` holds every parent-to-child edge as a
---- native-endian uint32 node id; a container names its children as the run
---- `linkStart` through `linkStart + linkCount - 1` of that array, and an
---- object's run alternates key node and value node. A node's `tag` says what it
---- is, and `flags` picks between the two recipes a tag may carry:
----
---- ```
----  tag  node     value
----  ───  ───────  ────────────────────────────────────────────────
----  0    null     nullValue
----  1    true     true
----  2    false    false
----  3    number   flags 1: node.number; flags 0: parse the source range
----  4    string   flags 0: the source range; flags 1: an escape recipe
----  5    array    the link run, in order
----  6    object   the link run, alternating key and value
---- ```
----
---- Every size, id, range, and tag is checked before it is used, so a truncated
---- or hostile blob raises rather than reading out of bounds. Recursion depth is
---- bounded too, so a tree whose links form a cycle raises rather than hanging.
----
---- ```nupp
---- local valuebuilder = require("nupp.valuebuilder")
----
---- --- @raises when the blobs do not describe a well-formed tree
---- @aot
---- local function decode(nodes: string, links: string, source: string, null: any): any
----     return valuebuilder.materializeTree(nodes, links, source, 1, null)
---- end
---- ```
----
---- @param nodeBytes every node, packed as native-endian `NuppValueTreeNode`
---- @param linkBytes every child edge, packed as native-endian uint32 node ids
---- @param source the rooted string that string and number ranges index
---- @param root the one-based id of the node to materialize, usually 1
---- @param nullValue what a null node becomes, so that a caller who needs to tell
----     an absent key from a null one can pass a sentinel instead of nil
---- @return the materialized value
---- @raises when a blob, node, link, string recipe, or numeric recipe is invalid
-function valuebuilder.materializeTree(
-    nodeBytes: string,
-    linkBytes: string,
-    source: string,
-    root: integer,
-    nullValue: any
-): any
-    if #nodeBytes % nodeSize ~= 0 or #linkBytes % 4 ~= 0 then
-        error("invalid value-tree blob size", 2)
-    end
-    local nodeCount = #nodeBytes / nodeSize
-    local linkCount = #linkBytes / 4
-    if root < 1 or root > nodeCount then
-        error("value-tree root is out of bounds", 2)
-    end
-
-    local nodes: any = ffi.cast(NodePointer, nodeBytes)
-    local links: any = ffi.cast(LinkPointer, linkBytes)
-    local function sourceRange(node: any): (integer, integer)
-        local first = tonumber(node.start) as integer
-        local length = tonumber(node.length) as integer
-        if first < 0 or length < 0 or first > #source or length > #source - first then
-            error("value-tree source range is out of bounds", 0)
-        end
-
-        return first, length
-    end
-
-    local function materialize(nodeId: integer, depth: integer): any
-        if nodeId < 1 or nodeId > nodeCount or depth > math.min(nodeCount, 1024) then
-            error("value-tree node is out of bounds", 0)
-        end
-        local node = nodes[nodeId - 1]
-        local tag = tonumber(node.tag) as integer
-        if tag == 0 then
-            return nullValue
-        elseif tag == 1 then
-            return true
-        elseif tag == 2 then
-            return false
-        elseif tag == 3 then
-            if tonumber(node.flags) == 1 then
-                return tonumber(node.number)
-            end
-            local first, length = sourceRange(node)
-            local value = tonumber(source:sub(first + 1, first + length))
-            if value == nil then
-                error("invalid value-tree number", 0)
-            end
-            return value
-        elseif tag == 4 then
-            local flags = tonumber(node.flags) as integer
-            if flags ~= 0 and flags ~= 1 then
-                error("invalid value-tree string recipe", 0)
-            end
-            local first, length = sourceRange(node)
-            return decodeString(source, first, length, flags == 1)
-        elseif tag ~= 5 and tag ~= 6 then
-            error("invalid value-tree node tag", 0)
-        end
-
-        local first = tonumber(node.linkStart) as integer
-        local count = tonumber(node.linkCount) as integer
-        if first < 0 or count < 0 or first + count > linkCount then
-            error("value-tree child range is out of bounds", 0)
-        end
-        if tag == 5 then
-            local result = table.new(count, 0)
-            for offset = 0, count - 1 do
-                result[offset + 1] = materialize(tonumber(links[first + offset]) as integer, depth + 1)
-            end
-            return result
-        end
-        if count % 2 ~= 0 then
-            error("value-tree object has an unmatched key", 0)
-        end
-        local result = table.new(0, count / 2)
-        for offset = 0, count - 1, 2 do
-            local keyId = tonumber(links[first + offset]) as integer
-            if keyId < 1 or keyId > nodeCount or tonumber(nodes[keyId - 1].tag) ~= 4 then
-                error("value-tree object key is not a string", 0)
-            end
-            local key = materialize(keyId, depth + 1)
-            result[key] = materialize(tonumber(links[first + offset + 1]) as integer, depth + 1)
-        end
-
-        return result
-    end
-
-    return materialize(root, 1)
-end
-
---- Starts a direct stream of values.
----
---- This is the streaming shape. Open a container with
---- [](nupp.valuebuilder.openArray) or [](nupp.valuebuilder.openObject), add
---- values to it, [](nupp.valuebuilder.close) it, and take the single root back
---- from [](nupp.valuebuilder.finish). A stream must publish exactly one root:
---- adding a second value at the top level raises, and so does finishing with
---- none.
----
---- The ordinary implementation keeps growable Lua state and is the `aot = "off"`
---- oracle. VM-aware AOT keeps the same state in a bounded C stack object and
---- roots every unfinished container on the Lua stack; it admits at most 1,024
---- open containers. Use [](nupp.valuebuilder.newSized) to choose that bound, and
---- to reserve scratch for transformed strings, when the parser knows better.
----
---- ```nupp
---- local valuebuilder = require("nupp.valuebuilder")
----
---- --- Builds `[true, null]` without a source document.
---- --- @raises when the stream is left incomplete
---- @aot
---- local function pair(nullValue: any): any
----     local builder = valuebuilder.new(nullValue)
----     valuebuilder.openArray(builder, 2)
----     valuebuilder.boolean(builder, true)
----     valuebuilder.null(builder)
----     valuebuilder.close(builder)
----
----     return valuebuilder.finish(builder)
---- end
---- ```
----
---- @param nullValue what [](nupp.valuebuilder.null) adds
---- @return the stream handle, which under AOT is local construction state and
----     cannot be returned, reassigned, stored, or passed to an ordinary call
-function valuebuilder.new(nullValue: any): any
-    return {nullValue = nullValue, stack = {}, result = nil, hasResult = false}
-end
-
---- Starts a stream with authored bounds for native frame and transformed-byte
---- scratch storage.
----
---- Same contract as [](nupp.valuebuilder.new); only the storage differs. The
---- ordinary implementation keeps normal growable Lua state and ignores both
---- bounds, because plain Lua has nothing to preallocate. AOT uses them to
---- allocate two rooted regions once: the first 16 frames stay inline and deeper
---- streams lazily spill to Lua-rooted storage, and the byte region is allocated
---- on the first escaped string and then reused. Publication still copies exactly
---- once into a normal Lua string.
----
---- Reach for this over [](nupp.valuebuilder.new) when the document may nest
---- deeper than 1,024 containers, or when the parser already knows the longest
---- string it can produce and would rather not grow into it.
---- @param nullValue what [](nupp.valuebuilder.null) adds
---- @param maxDepth the most containers that may be open at once
---- @param stringCapacity the most bytes one transformed string may need
---- @return the stream handle, on the same terms as [](nupp.valuebuilder.new)
-function valuebuilder.newSized(nullValue: any, maxDepth: uint32, stringCapacity: uint32): any
-    return {
-        nullValue = nullValue,
-        stack = {},
-        result = nil,
-        hasResult = false,
-        maxDepth = maxDepth,
-        stringCapacity = stringCapacity
-    }
-end
-
---- Places one finished value wherever the stream currently is: into the open
---- array, under the object key waiting for it, or as the single root.
---- @param builder the stream
---- @param value the finished value to place
---- @raises when a second root arrives, or an object value arrives with no key
-local function put(builder: any, value: any): nil
-    local stack = builder.stack
-    local frame = stack[#stack]
-    if frame == nil then
-        if builder.hasResult then
-            error("value stream has more than one root", 2)
-        end
-        builder.result = value
-        builder.hasResult = true
-    elseif frame.kind == 5 then
-        frame.value[frame.next] = value
-        frame.next = frame.next + 1
-    else
-        if frame.key == nil then
-            error("value stream object needs a key", 2)
-        end
-        frame.value[frame.key] = value
-        frame.key = nil
-        frame.count = frame.count + 1
-    end
-end
-
---- Returns the rooted string's byte length without making a substring.
----
---- This, [](nupp.valuebuilder.byte), and [](nupp.valuebuilder.word) are the
---- three readers that let an AOT parser read its input where it already lies.
---- `#bytes` answers the same in ordinary Lua; going through here is what keeps
---- the read admissible inside `@aot`.
---- @param bytes the rooted string to measure
---- @return its length in bytes
-function valuebuilder.length(bytes: string): uint32
-    return nupp.math.u32.wrap(#bytes)
-end
-
---- Reads one byte at a zero-based offset.
----
---- The scanning counterpart of [](nupp.valuebuilder.length); read whole words
---- with [](nupp.valuebuilder.word) when the bytes are a packed side table rather
---- than the document.
---- @param bytes the rooted string to read
---- @param offset the zero-based byte offset
---- @return the byte, 0 through 255
---- @raises when offset is outside bytes
-function valuebuilder.byte(bytes: string, offset: uint32): uint32
-    local value = bytes:byte(offset + 1)
-    if value == nil then
-        error("value stream byte is out of bounds", 2)
-    end
-
-    return nupp.math.u32.wrap(value)
-end
-
---- Reads one native-endian uint32 at a zero-based word index.
----
---- This is how a parser reads a packed side table -- a structural index, a tape
---- -- back out of a rooted string instead of a Lua array of numbers. The word at
---- `index` begins at byte offset `index * 4`.
---- @param bytes the rooted string to read
---- @param index the zero-based word index
---- @return the word's value
---- @raises when the complete word is outside bytes
-function valuebuilder.word(bytes: string, index: uint32): uint32
-    local offset = index * 4
-    if offset > #bytes - 4 then
-        error("value stream word is out of bounds", 2)
-    end
-    local pointer: any = ffi.cast(LinkPointer, bytes)
-    local value = tonumber(pointer[index])
-    if value == nil then
-        error("value stream word is invalid", 2)
-    end
-
-    return nupp.math.u32.wrap(value as integer)
-end
-
---- Allocates a bounded uint32 work buffer local to one decode.
----
---- AOT lowers this to Lua-owned userdata, so its address remains stable across
---- value allocations without crossing the public API as a pointer. Words are
---- initialized by contiguous writes before they can be read: append or overwrite
---- with [](nupp.valuebuilder.setScratchWord), drain a SIMD mask into it with
---- [](nupp.valuebuilder.appendSetBits), and read it back with
---- [](nupp.valuebuilder.scratchWord). For transformed bytes rather than indexes,
---- use [](nupp.valuebuilder.newByteScratch).
---- @param capacity the most words this buffer will ever hold
---- @return the scratch handle, local to the call that allocated it
-function valuebuilder.newWordScratch(capacity: uint32): any
-    return {capacity = capacity, length = 0, words = ffi.new("uint32_t[?]", capacity)}
-end
-
---- Reads one word from a local work buffer.
----
---- Only initialized words can be read, so an index at or past the buffer's
---- current length raises rather than answering whatever was there.
---- @param scratch a buffer from [](nupp.valuebuilder.newWordScratch)
---- @param index the zero-based word index
---- @return the word's value
---- @raises when the indexed word has not been initialized
-function valuebuilder.scratchWord(scratch: any, index: uint32): uint32
-    if index >= scratch.length then
-        error("value stream scratch read is out of bounds", 2)
-    end
-    local value = tonumber(scratch.words[index])
-    if value == nil then
-        error("value stream scratch word is invalid", 2)
-    end
-
-    return nupp.math.u32.wrap(value as integer)
-end
-
---- Writes an existing word or appends the next contiguous word.
----
---- Writing at the buffer's current length appends and grows it by one; writing
---- below that overwrites. There is no way to write past the end, which is what
---- makes "initialized" mean the same thing as "below the length" for
---- [](nupp.valuebuilder.scratchWord).
---- @param scratch a buffer from [](nupp.valuebuilder.newWordScratch)
---- @param index the zero-based word index, at most the current length
---- @param value the word to store
---- @raises when the index leaves a gap or exceeds the capacity
-function valuebuilder.setScratchWord(scratch: any, index: uint32, value: uint32): nil
-    if index > scratch.length or index >= scratch.capacity then
-        error("value stream scratch write is out of bounds", 2)
-    end
-    if index == scratch.length then
-        scratch.length = scratch.length + 1
-    end
-    scratch.words[index] = value
-end
-
---- Appends `base + bit_index` for every set bit in one 64-bit mask, low bit
---- first, and returns the next unwritten index.
----
---- This is the structural-indexing step of a SIMD parser. A 64-byte block's
---- interesting positions arrive as a [](nupp.simd.maskBits64), and this drains
---- the whole mask into the buffer behind one capacity check rather than one
---- check per bit. Feeding the result back as the next call's `index` walks the
---- document a block at a time.
----
---- It has no ordinary implementation and raises if it is reached, because there
---- is no ordinary way to hold the mask it takes. Call it only from an `@aot`
---- function.
---- @param scratch a buffer from [](nupp.valuebuilder.newWordScratch)
---- @param index the next unwritten index, 0 or a previous call's result
---- @param base the block offset added to each set bit's position
---- @param bits the `MaskBits64` to drain
---- @return the next unwritten index
---- @raises when called without AOT lowering or when the append exceeds scratch
-function valuebuilder.appendSetBits(scratch: any, index: uint32, base: uint32, bits: any): uint32
-    error("appendSetBits exists only inside an @aot function", 2)
-end
-
---- Allocates a bounded byte work buffer local to one decode.
----
---- This is where a codec assembles bytes that are not a range of the source --
---- an unescaped string, a decoded field -- before publishing them. Write with
---- [](nupp.valuebuilder.setScratchByte), read with
---- [](nupp.valuebuilder.scratchByte), empty it between values with
---- [](nupp.valuebuilder.resetByteScratch), and publish a finished range with
---- [](nupp.valuebuilder.stringScratch) or [](nupp.valuebuilder.keyScratch).
----
---- When the bytes are already a contiguous range of the source, skip all of this
---- and use [](nupp.valuebuilder.string) or [](nupp.valuebuilder.key), which read
---- the source in place.
---- @param capacity the most bytes this buffer will ever hold
---- @return the scratch handle, local to the call that allocated it
-function valuebuilder.newByteScratch(capacity: uint32): any
-    return {capacity = capacity, length = 0, bytes = ffi.new("uint8_t[?]", capacity)}
-end
-
---- Reads one initialized byte from a local work buffer.
---- @param scratch a buffer from [](nupp.valuebuilder.newByteScratch)
---- @param index the zero-based byte index
---- @return the byte, 0 through 255
---- @raises when the indexed byte has not been initialized
-function valuebuilder.scratchByte(scratch: any, index: uint32): uint32
-    if index >= scratch.length then
-        error("value stream byte scratch read is out of bounds", 2)
-    end
-    return nupp.math.u32.wrap(tonumber(scratch.bytes[index]) as integer)
-end
-
---- Writes an existing byte or appends the next contiguous byte.
----
---- Appends and grows by one when `index` is the current length, overwrites below
---- it, on the same terms as [](nupp.valuebuilder.setScratchWord).
---- @param scratch a buffer from [](nupp.valuebuilder.newByteScratch)
---- @param index the zero-based byte index, at most the current length
---- @param value the byte to store, 0 through 255
---- @raises when the write leaves a gap, exceeds capacity, or is not a byte
-function valuebuilder.setScratchByte(scratch: any, index: uint32, value: uint32): nil
-    if index > scratch.length or index >= scratch.capacity or value > 255 then
-        error("value stream byte scratch write is out of bounds", 2)
-    end
-    if index == scratch.length then
-        scratch.length = scratch.length + 1
-    end
-    scratch.bytes[index] = value
-end
-
---- Makes a byte scratch buffer empty without reallocating it.
----
---- Call this between values so that one bounded allocation serves a whole
---- decode. Bytes below the old length remain in memory but are no longer
---- readable, since [](nupp.valuebuilder.scratchByte) admits only initialized
---- indexes.
---- @param scratch a buffer from [](nupp.valuebuilder.newByteScratch)
-function valuebuilder.resetByteScratch(scratch: any): nil
-    scratch.length = 0
-end
-
---- Publishes initialized scratch bytes as a normal Lua string value.
----
---- The copy into Lua-owned storage happens here, exactly once. Use
---- [](nupp.valuebuilder.keyScratch) for the object-key position instead, and
---- [](nupp.valuebuilder.string) when the bytes are already a range of the
---- source and need no assembling.
---- @param builder the stream
---- @param scratch a buffer from [](nupp.valuebuilder.newByteScratch)
---- @param start the range's zero-based first byte
---- @param length the range's length in bytes
---- @raises when the range is not initialized
---- @raises when the value would be a second root, or an object value with no key
-function valuebuilder.stringScratch(builder: any, scratch: any, start: uint32, length: uint32): nil
-    if start > scratch.length or length > scratch.length - start then
-        error("value stream byte scratch range is out of bounds", 2)
-    end
-    put(builder, ffi.string(scratch.bytes + start, length))
-end
-
---- Publishes initialized scratch bytes as the next object key.
----
---- The key-position counterpart of [](nupp.valuebuilder.stringScratch). The very
---- next value added becomes this key's value.
---- @param builder the stream
---- @param scratch a buffer from [](nupp.valuebuilder.newByteScratch)
---- @param start the range's zero-based first byte
---- @param length the range's length in bytes
---- @raises when outside an object, when a key is already pending, or when the
----     range is not initialized
-function valuebuilder.keyScratch(builder: any, scratch: any, start: uint32, length: uint32): nil
-    local frame = builder.stack[#builder.stack]
-    if frame == nil or frame.kind ~= 6 or frame.key ~= nil then
-        error("value stream key is outside an object", 2)
-    end
-    if start > scratch.length or length > scratch.length - start then
-        error("value stream byte scratch range is out of bounds", 2)
-    end
-    frame.key = ffi.string(scratch.bytes + start, length)
-end
-
---- Opens an array. Every value added after it belongs to it until the matching
---- [](nupp.valuebuilder.close).
----
---- `capacity` is a presizing hint taken from what the parser already counted, not
---- a limit: a wrong guess costs a rehash, never an error.
---- @param builder the stream
---- @param capacity how many elements to presize the array part for
-function valuebuilder.openArray(builder: any, capacity: uint32): nil
-    local stack = builder.stack
-    stack[#stack + 1] = {kind = 5, value = table.new(capacity, 0), next = 1}
-end
-
---- Opens an object. Each value inside it must be preceded by a key from
---- [](nupp.valuebuilder.key) or [](nupp.valuebuilder.keyScratch), until the
---- matching [](nupp.valuebuilder.close).
----
---- `capacity` presizes the hash part and is a hint, as in
---- [](nupp.valuebuilder.openArray).
---- @param builder the stream
---- @param capacity how many entries to presize the hash part for
-function valuebuilder.openObject(builder: any, capacity: uint32): nil
-    local stack = builder.stack
-    stack[#stack + 1] = {kind = 6, value = table.new(0, capacity), count = 0}
-end
-
---- Returns how many containers are currently open.
----
---- This, [](nupp.valuebuilder.kind), and [](nupp.valuebuilder.count) are all an
---- iterative parser can see of the construction state; there is deliberately no
---- way to read a value back out of a container it has already been added to.
---- @param builder the stream
---- @return the number of open containers, 0 at the top level
-function valuebuilder.depth(builder: any): uint32
-    return nupp.math.u32.wrap(#builder.stack)
-end
-
---- Returns the current container's tag: 5 for an array and 6 for an object, the
---- same numbering [](nupp.valuebuilder.materializeTree) uses.
---- @param builder the stream
---- @return the innermost open container's tag
---- @raises when the stream has no current container
-function valuebuilder.kind(builder: any): uint32
-    local frame = builder.stack[#builder.stack]
-    if frame == nil then
-        error("value stream has no current container", 2)
-    end
-
-    return nupp.math.u32.wrap(frame.kind as integer)
-end
-
---- Returns the number of complete values in the current container.
----
---- Complete means a value has arrived, so an object with a key pending and no
---- value yet still answers with the count before it.
---- @param builder the stream
---- @return how many values the innermost open container holds
---- @raises when the stream has no current container
-function valuebuilder.count(builder: any): uint32
-    local frame = builder.stack[#builder.stack]
-    if frame == nil then
-        error("value stream has no current container", 2)
-    end
-    local count = frame.kind == 5 and frame.next - 1 or frame.count
-
-    return nupp.math.u32.wrap(count as integer)
-end
-
---- Sets the next object key from a range of the rooted source.
----
---- The range is read in place, so a key that holds no escape costs one copy and
---- no substring. Pass `escaped` as true only when the range may hold backslash
---- escapes; false takes the bytes exactly as they lie. Assemble a key that is
---- not a contiguous source range with [](nupp.valuebuilder.keyScratch) instead.
---- @param builder the stream
---- @param source the rooted string the range indexes
---- @param start the range's zero-based first byte
---- @param length the range's length in bytes
---- @param escaped whether the range may hold backslash escapes
---- @raises when outside an object, or when a key is already pending
---- @raises when an escape in the range is malformed
-function valuebuilder.key(builder: any, source: string, start: uint32, length: uint32, escaped: boolean): nil
-    local frame = builder.stack[#builder.stack]
-    if frame == nil or frame.kind ~= 6 or frame.key ~= nil then
-        error("value stream key is outside an object", 2)
-    end
-    frame.key = decodeString(source, start, length, escaped)
-end
-
---- Adds a string value from a range of the rooted source.
----
---- The value counterpart of [](nupp.valuebuilder.key), on the same terms: the
---- range is read in place, and `escaped` says whether it needs decoding first.
---- @param builder the stream
---- @param source the rooted string the range indexes
---- @param start the range's zero-based first byte
---- @param length the range's length in bytes
---- @param escaped whether the range may hold backslash escapes
---- @raises when an escape in the range is malformed
---- @raises when the value would be a second root, or an object value with no key
-function valuebuilder.string(builder: any, source: string, start: uint32, length: uint32, escaped: boolean): nil
-    put(builder, decodeString(source, start, length, escaped))
-end
-
---- Adds a number the parser has already converted.
----
---- Use [](nupp.valuebuilder.numberSlice) or
---- [](nupp.valuebuilder.integerSlice) instead when the number is still a range
---- of the source, so that the conversion happens without a substring.
---- @param builder the stream
---- @param value the number to add
---- @raises when the value would be a second root, or an object value with no key
-function valuebuilder.number(builder: any, value: number): nil
-    put(builder, value)
-end
-
---- Adds a number token from a range of the rooted source, converting it in
---- place.
----
---- This accepts any numeric token. When the token is known to be an integer,
---- [](nupp.valuebuilder.integerSlice) says so and is cheaper.
---- @param builder the stream
---- @param source the rooted string the range indexes
---- @param start the range's zero-based first byte
---- @param length the range's length in bytes
---- @raises when the source range is not a number token
---- @raises when the value would be a second root, or an object value with no key
-function valuebuilder.numberSlice(builder: any, source: string, start: uint32, length: uint32): nil
-    local value = tonumber(source:sub(start + 1, start + length))
-    if value == nil then
-        error("value stream number is invalid", 2)
-    end
-    put(builder, value)
-end
-
---- Adds an integer token from a range of the rooted source.
----
---- The integer counterpart of [](nupp.valuebuilder.numberSlice). AOT accumulates
---- short integers directly without entering `strtod`, and falls back to the same
---- checked binary64 conversion for longer tokens; the ordinary path retains
---- `tonumber` as the behavioral oracle either way.
---- @param builder the stream
---- @param source the rooted string the range indexes
---- @param start the range's zero-based first byte
---- @param length the range's length in bytes
---- @raises when the source range is not an integer token
---- @raises when the value would be a second root, or an object value with no key
-function valuebuilder.integerSlice(builder: any, source: string, start: uint32, length: uint32): nil
-    local value = tonumber(source:sub(start + 1, start + length))
-    if value == nil then
-        error("value stream integer is invalid", 2)
-    end
-    put(builder, value)
-end
-
---- Adds a boolean value.
---- @param builder the stream
---- @param value the boolean to add
---- @raises when the value would be a second root, or an object value with no key
-function valuebuilder.boolean(builder: any, value: boolean): nil
-    put(builder, value)
-end
-
---- Adds the null replacement the stream was started with by
---- [](nupp.valuebuilder.new) or [](nupp.valuebuilder.newSized).
---- @param builder the stream
---- @raises when the value would be a second root, or an object value with no key
-function valuebuilder.null(builder: any): nil
-    put(builder, builder.nullValue)
-end
-
---- Closes the innermost open container and adds it to whatever encloses it.
----
---- Every [](nupp.valuebuilder.openArray) and [](nupp.valuebuilder.openObject)
---- needs exactly one of these. Closing the outermost container publishes the
---- root, which [](nupp.valuebuilder.finish) then returns.
---- @param builder the stream
---- @raises when no container is open, or when an object key has no value
---- @raises when the closed container would be a second root
-function valuebuilder.close(builder: any): nil
-    local stack = builder.stack
-    local frame = stack[#stack]
-    if frame == nil then
-        error("value stream close has no container", 2)
-    end
-    if frame.kind == 6 and frame.key ~= nil then
-        error("value stream object has an unmatched key", 2)
-    end
-    stack[#stack] = nil
-    put(builder, frame.value)
-end
-
---- Ends the stream and returns its single root value.
----
---- ```nupp
---- valuebuilder.openArray(builder, 1)
---- valuebuilder.number(builder, 41)
---- valuebuilder.close(builder)
---- local result = valuebuilder.finish(builder)  -- {41}
---- ```
----
---- @param builder the stream
---- @return the one value the stream published
---- @raises when a container is still open, or when no root was published
-function valuebuilder.finish(builder: any): any
-    if #builder.stack ~= 0 then
-        error("value stream has an unclosed container", 2)
-    end
-    if not builder.hasResult then
-        error("value stream has no root", 2)
-    end
-
-    return builder.result
-end
-
-return valuebuilder
 ]=],
 ["/nupp/workers.nupp"] = [=[
 --[[

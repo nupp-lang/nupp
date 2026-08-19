@@ -127,7 +127,7 @@ The capability-specific codes distinguish the repair the checker needs:
 
 Run `nupp explain CODE` for a checked example and the matching repair. Runtime
 handle failures use the same `NUPP2613` and `NUPP2614` codes in
-`nupp.dynamic.Error` values.
+`nupp.owners.store.Error` values.
 
 Region conflicts relate the earlier live borrow, loop back-edge failures relate
 the repeatable loop, and borrow escapes relate their root where one is nameable.

@@ -1260,7 +1260,7 @@ assignment keeps that relation exactly. `T borrows (source)` ties a result or no
 field to a root. Closures borrow captured owners by default. `takes (source)` makes a
 single-shot closure; `scoped` proves callback captures cannot escape.
 
-Affine nominal fields have path-sensitive state. `nupp.resources.Set` holds
+Affine nominal fields have path-sensitive state. `nupp.owners.set.Set` holds
 dynamic owners. `nupp.mem.span` provides `Span<T>` and affine `WriteSpan<T>` views;
 fixed variants remove a runtime length check. `nupp.mem.heap.Array<T>` moves its count
 with its private pointer. Suspension cannot strand an obligation.
@@ -1283,7 +1283,7 @@ The remaining ownership helpers are `nupp.attemptAll`, `nupp.borrow`,
 `nupp.borrowFrom`, and `nupp.pin`. `attemptAll` tries every cleanup in order and
 raises the first failure with the rest suppressed. Local names shadow helpers.
 
-Capabilities cannot disappear into `any`. `nupp.dynamic` holds self-contained
+Capabilities cannot disappear into `any`. `nupp.owners.store` holds self-contained
 cleanup capabilities behind copyable generation-checked handles; `recover` checks
 an erased handle's policy and `take` restores its exact capability. Watch-mode policy
 changes are rejected while matching entries are live; cleanup-body changes keep their
@@ -1584,7 +1584,7 @@ body runs; with `require`, one native call returns the completed ordinary Lua
 value.
 
 A pointer-free parser may call resolved
-`nupp.valuebuilder.materializeTree(nodes, links, source, root, nullValue)` in a
+`nupp.data.valuebuilder.materializeTree(nodes, links, source, root, nullValue)` in a
 builder. Its native-endian node and uint32 link blobs are bounds-checked before
 one C traversal constructs the graph. Raw source slices and validated
 backslash/Unicode string recipes become ordinary Lua-owned strings. The
@@ -1592,7 +1592,7 @@ ordinary module implementation supplies the same behavior with `aot = "off"`.
 The operation is a construction boundary, not access to `lua_State` or raw VM
 stack positions.
 
-An iterative parser may instead use the resolved `nupp.valuebuilder` stream.
+An iterative parser may instead use the resolved `nupp.data.valuebuilder` stream.
 `new` roots the null replacement; `openArray`, `openObject`, primitive and
 source-slice value operations, `key`, and `close` build one graph; `finish`
 publishes it. `byte`, native-endian `word`, and `length` read rooted string

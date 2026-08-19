@@ -343,7 +343,7 @@ mutation of argument or previously published tables, metatables, dynamic calls,
 callbacks, userdata, cycles, and arbitrary Lua execution.
 
 Pointer-free parsers may also return the native-endian tree representation
-consumed by `nupp.valuebuilder.materializeTree`. An AOT builder lowers that
+consumed by `nupp.data.valuebuilder.materializeTree`. An AOT builder lowers that
 resolved call to one bounds-checked C traversal: source and arena blobs remain
 rooted strings, tables are presized from authored child counts, raw writes keep
 barriers correct, and source slices or validated backslash/Unicode recipes
@@ -352,7 +352,7 @@ oracle. This is a general codec/AST construction boundary; it does not expose
 `lua_State`, stack indexes, or collector objects.
 
 Streaming parsers can avoid that representation entirely. The resolved
-`nupp.valuebuilder` stream API starts with `new(nullValue)`, opens arrays or
+`nupp.data.valuebuilder` stream API starts with `new(nullValue)`, opens arrays or
 objects with an estimated capacity, adds keys and primitive values, closes each
 container, and publishes exactly one root with `finish`. `string`, `key`, and
 `numberSlice` take zero-based ranges of a rooted string, so generated code

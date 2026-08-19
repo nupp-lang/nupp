@@ -143,7 +143,7 @@ end
 function M.dynamicHandlesKeepPolicyAndUseThePatchedCleanupSlot()
    local function source(multiplier)
       return table.concat({
-         "local dynamic = require('nupp.dynamic')",
+         "local stores = require('nupp.owners.store')",
          "local cleaned: integer = 0",
          "local record Item value: integer end",
          "local function closeItem(takes item: Item): nil",
@@ -152,12 +152,12 @@ function M.dynamicHandlesKeepPolicyAndUseThePatchedCleanupSlot()
          "local function openItem(): affine(Item, closeItem)",
          "   return new Item(value = 3)",
          "end",
-         "local function make(): (dynamic.Store, dynamic.Handle<Item>)",
-         "   local store = dynamic.newStore()",
+         "local function make(): (stores.Store, stores.Handle<Item>)",
+         "   local store = stores.new()",
          "   local handle = store:put(openItem())",
          "   return store, handle",
          "end",
-         "local function remove(exclusive store: dynamic.Store, handle: dynamic.Handle<Item>): dynamic.Error?",
+         "local function remove(exclusive store: stores.Store, handle: stores.Handle<Item>): stores.Error?",
          "   return store:remove(handle)",
          "end",
          "local function count(): integer return cleaned end",
@@ -179,7 +179,7 @@ end
 function M.liveDynamicPoliciesRejectAnIncompatiblePatchTransactionally()
    local function source(openName)
       return table.concat({
-         "local dynamic = require('nupp.dynamic')",
+         "local stores = require('nupp.owners.store')",
          "local M = {}",
          "local cleaned: integer = 0",
          "local record Item value: integer end",
@@ -187,12 +187,12 @@ function M.liveDynamicPoliciesRejectAnIncompatiblePatchTransactionally()
          "local function closeB(takes item: Item): nil cleaned = cleaned + item.value * 10 end",
          "function M.openA(): affine(Item, closeA) return new Item(value = 2) end",
          "function M.openB(): affine(Item, closeB) return new Item(value = 2) end",
-         "function M.make(): (dynamic.Store, dynamic.Handle<Item>)",
-         "   local store = dynamic.newStore()",
+         "function M.make(): (stores.Store, stores.Handle<Item>)",
+         "   local store = stores.new()",
          "   local handle = store:put(M." .. openName .. "())",
          "   return store, handle",
          "end",
-         "function M.remove(exclusive store: dynamic.Store, handle: dynamic.Handle<Item>): dynamic.Error?",
+         "function M.remove(exclusive store: stores.Store, handle: stores.Handle<Item>): stores.Error?",
          "   return store:remove(handle)",
          "end",
          "function M.count(): integer return cleaned end",

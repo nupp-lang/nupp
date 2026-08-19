@@ -20,16 +20,16 @@ what the generated code is allowed to do.
 
 Two shapes are offered, and a parser picks one.
 
-[](nupp.valuebuilder.materializeTree) is the batch shape. A parser that has
+[](nupp.data.valuebuilder.materializeTree) is the batch shape. A parser that has
 already written a complete pointer-free preorder tree into two blobs hands them
 over once and gets the finished value back from a single checked traversal.
 
-[](nupp.valuebuilder.new) is the streaming shape, for a parser that would rather
+[](nupp.data.valuebuilder.new) is the streaming shape, for a parser that would rather
 not build the tree at all. Values are reported as they are reached and the
 intermediate representation never exists:
 
 ```nupp
-local valuebuilder = require("nupp.valuebuilder")
+local valuebuilder = require("nupp.data.valuebuilder")
 
 --- Decodes the fixed document `{"id": 41}`.
 --- @raises when the stream is left incomplete
@@ -47,7 +47,7 @@ end
 
 Every offset, length, and index this module takes is zero-based, because they
 address the parser's own bytes rather than a Lua string. Node ids and the `root`
-argument of [](nupp.valuebuilder.materializeTree) are the exception: those are
+argument of [](nupp.data.valuebuilder.materializeTree) are the exception: those are
 one-based, so that 0 can mean no node.
 
 Under AOT a stream handle and a scratch buffer are local construction state.
@@ -157,7 +157,7 @@ end
 --- Materializes a pointer-free preorder tree into ordinary Lua values.
 ---
 --- This is the batch shape. A parser fills two blobs, calls this once, and is
---- done; use [](nupp.valuebuilder.new) instead when the parser can report values
+--- done; use [](nupp.data.valuebuilder.new) instead when the parser can report values
 --- as it reaches them and would rather the tree never existed.
 ---
 --- `nodeBytes` holds every node, packed as native-endian `NuppValueTreeNode` and
@@ -184,7 +184,7 @@ end
 --- bounded too, so a tree whose links form a cycle raises rather than hanging.
 ---
 --- ```nupp
---- local valuebuilder = require("nupp.valuebuilder")
+--- local valuebuilder = require("nupp.data.valuebuilder")
 ---
 --- --- @raises when the blobs do not describe a well-formed tree
 --- @aot
@@ -296,20 +296,20 @@ end
 --- Starts a direct stream of values.
 ---
 --- This is the streaming shape. Open a container with
---- [](nupp.valuebuilder.openArray) or [](nupp.valuebuilder.openObject), add
---- values to it, [](nupp.valuebuilder.close) it, and take the single root back
---- from [](nupp.valuebuilder.finish). A stream must publish exactly one root:
+--- [](nupp.data.valuebuilder.openArray) or [](nupp.data.valuebuilder.openObject), add
+--- values to it, [](nupp.data.valuebuilder.close) it, and take the single root back
+--- from [](nupp.data.valuebuilder.finish). A stream must publish exactly one root:
 --- adding a second value at the top level raises, and so does finishing with
 --- none.
 ---
 --- The ordinary implementation keeps growable Lua state and is the `aot = "off"`
 --- oracle. VM-aware AOT keeps the same state in a bounded C stack object and
 --- roots every unfinished container on the Lua stack; it admits at most 1,024
---- open containers. Use [](nupp.valuebuilder.newSized) to choose that bound, and
+--- open containers. Use [](nupp.data.valuebuilder.newSized) to choose that bound, and
 --- to reserve scratch for transformed strings, when the parser knows better.
 ---
 --- ```nupp
---- local valuebuilder = require("nupp.valuebuilder")
+--- local valuebuilder = require("nupp.data.valuebuilder")
 ---
 --- --- Builds `[true, null]` without a source document.
 --- --- @raises when the stream is left incomplete
@@ -325,7 +325,7 @@ end
 --- end
 --- ```
 ---
---- @param nullValue what [](nupp.valuebuilder.null) adds
+--- @param nullValue what [](nupp.data.valuebuilder.null) adds
 --- @return the stream handle, which under AOT is local construction state and
 ---     cannot be returned, reassigned, stored, or passed to an ordinary call
 function valuebuilder.new(nullValue: any): any
@@ -335,7 +335,7 @@ end
 --- Starts a stream with authored bounds for native frame and transformed-byte
 --- scratch storage.
 ---
---- Same contract as [](nupp.valuebuilder.new); only the storage differs. The
+--- Same contract as [](nupp.data.valuebuilder.new); only the storage differs. The
 --- ordinary implementation keeps normal growable Lua state and ignores both
 --- bounds, because plain Lua has nothing to preallocate. AOT uses them to
 --- allocate two rooted regions once: the first 16 frames stay inline and deeper
@@ -343,13 +343,13 @@ end
 --- on the first escaped string and then reused. Publication still copies exactly
 --- once into a normal Lua string.
 ---
---- Reach for this over [](nupp.valuebuilder.new) when the document may nest
+--- Reach for this over [](nupp.data.valuebuilder.new) when the document may nest
 --- deeper than 1,024 containers, or when the parser already knows the longest
 --- string it can produce and would rather not grow into it.
---- @param nullValue what [](nupp.valuebuilder.null) adds
+--- @param nullValue what [](nupp.data.valuebuilder.null) adds
 --- @param maxDepth the most containers that may be open at once
 --- @param stringCapacity the most bytes one transformed string may need
---- @return the stream handle, on the same terms as [](nupp.valuebuilder.new)
+--- @return the stream handle, on the same terms as [](nupp.data.valuebuilder.new)
 function valuebuilder.newSized(nullValue: any, maxDepth: uint32, stringCapacity: uint32): any
     return {
         nullValue = nullValue,
@@ -390,7 +390,7 @@ end
 
 --- Returns the rooted string's byte length without making a substring.
 ---
---- This, [](nupp.valuebuilder.byte), and [](nupp.valuebuilder.word) are the
+--- This, [](nupp.data.valuebuilder.byte), and [](nupp.data.valuebuilder.word) are the
 --- three readers that let an AOT parser read its input where it already lies.
 --- `#bytes` answers the same in ordinary Lua; going through here is what keeps
 --- the read admissible inside `@aot`.
@@ -402,8 +402,8 @@ end
 
 --- Reads one byte at a zero-based offset.
 ---
---- The scanning counterpart of [](nupp.valuebuilder.length); read whole words
---- with [](nupp.valuebuilder.word) when the bytes are a packed side table rather
+--- The scanning counterpart of [](nupp.data.valuebuilder.length); read whole words
+--- with [](nupp.data.valuebuilder.word) when the bytes are a packed side table rather
 --- than the document.
 --- @param bytes the rooted string to read
 --- @param offset the zero-based byte offset
@@ -446,10 +446,10 @@ end
 --- AOT lowers this to Lua-owned userdata, so its address remains stable across
 --- value allocations without crossing the public API as a pointer. Words are
 --- initialized by contiguous writes before they can be read: append or overwrite
---- with [](nupp.valuebuilder.setScratchWord), drain a SIMD mask into it with
---- [](nupp.valuebuilder.appendSetBits), and read it back with
---- [](nupp.valuebuilder.scratchWord). For transformed bytes rather than indexes,
---- use [](nupp.valuebuilder.newByteScratch).
+--- with [](nupp.data.valuebuilder.setScratchWord), drain a SIMD mask into it with
+--- [](nupp.data.valuebuilder.appendSetBits), and read it back with
+--- [](nupp.data.valuebuilder.scratchWord). For transformed bytes rather than indexes,
+--- use [](nupp.data.valuebuilder.newByteScratch).
 --- @param capacity the most words this buffer will ever hold
 --- @return the scratch handle, local to the call that allocated it
 function valuebuilder.newWordScratch(capacity: uint32): any
@@ -460,7 +460,7 @@ end
 ---
 --- Only initialized words can be read, so an index at or past the buffer's
 --- current length raises rather than answering whatever was there.
---- @param scratch a buffer from [](nupp.valuebuilder.newWordScratch)
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newWordScratch)
 --- @param index the zero-based word index
 --- @return the word's value
 --- @raises when the indexed word has not been initialized
@@ -481,8 +481,8 @@ end
 --- Writing at the buffer's current length appends and grows it by one; writing
 --- below that overwrites. There is no way to write past the end, which is what
 --- makes "initialized" mean the same thing as "below the length" for
---- [](nupp.valuebuilder.scratchWord).
---- @param scratch a buffer from [](nupp.valuebuilder.newWordScratch)
+--- [](nupp.data.valuebuilder.scratchWord).
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newWordScratch)
 --- @param index the zero-based word index, at most the current length
 --- @param value the word to store
 --- @raises when the index leaves a gap or exceeds the capacity
@@ -508,7 +508,7 @@ end
 --- It has no ordinary implementation and raises if it is reached, because there
 --- is no ordinary way to hold the mask it takes. Call it only from an `@aot`
 --- function.
---- @param scratch a buffer from [](nupp.valuebuilder.newWordScratch)
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newWordScratch)
 --- @param index the next unwritten index, 0 or a previous call's result
 --- @param base the block offset added to each set bit's position
 --- @param bits the `MaskBits64` to drain
@@ -522,13 +522,13 @@ end
 ---
 --- This is where a codec assembles bytes that are not a range of the source --
 --- an unescaped string, a decoded field -- before publishing them. Write with
---- [](nupp.valuebuilder.setScratchByte), read with
---- [](nupp.valuebuilder.scratchByte), empty it between values with
---- [](nupp.valuebuilder.resetByteScratch), and publish a finished range with
---- [](nupp.valuebuilder.stringScratch) or [](nupp.valuebuilder.keyScratch).
+--- [](nupp.data.valuebuilder.setScratchByte), read with
+--- [](nupp.data.valuebuilder.scratchByte), empty it between values with
+--- [](nupp.data.valuebuilder.resetByteScratch), and publish a finished range with
+--- [](nupp.data.valuebuilder.stringScratch) or [](nupp.data.valuebuilder.keyScratch).
 ---
---- When the bytes are already a contiguous range of the source, skip all of this
---- and use [](nupp.valuebuilder.string) or [](nupp.valuebuilder.key), which read
+--- When the bytes are already a contiguous range of the source, skip all of this and
+--- use [](nupp.data.valuebuilder.string) or [](nupp.data.valuebuilder.key), which read
 --- the source in place.
 --- @param capacity the most bytes this buffer will ever hold
 --- @return the scratch handle, local to the call that allocated it
@@ -537,7 +537,7 @@ function valuebuilder.newByteScratch(capacity: uint32): any
 end
 
 --- Reads one initialized byte from a local work buffer.
---- @param scratch a buffer from [](nupp.valuebuilder.newByteScratch)
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newByteScratch)
 --- @param index the zero-based byte index
 --- @return the byte, 0 through 255
 --- @raises when the indexed byte has not been initialized
@@ -551,8 +551,8 @@ end
 --- Writes an existing byte or appends the next contiguous byte.
 ---
 --- Appends and grows by one when `index` is the current length, overwrites below
---- it, on the same terms as [](nupp.valuebuilder.setScratchWord).
---- @param scratch a buffer from [](nupp.valuebuilder.newByteScratch)
+--- it, on the same terms as [](nupp.data.valuebuilder.setScratchWord).
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newByteScratch)
 --- @param index the zero-based byte index, at most the current length
 --- @param value the byte to store, 0 through 255
 --- @raises when the write leaves a gap, exceeds capacity, or is not a byte
@@ -570,9 +570,9 @@ end
 ---
 --- Call this between values so that one bounded allocation serves a whole
 --- decode. Bytes below the old length remain in memory but are no longer
---- readable, since [](nupp.valuebuilder.scratchByte) admits only initialized
+--- readable, since [](nupp.data.valuebuilder.scratchByte) admits only initialized
 --- indexes.
---- @param scratch a buffer from [](nupp.valuebuilder.newByteScratch)
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newByteScratch)
 function valuebuilder.resetByteScratch(scratch: any): nil
     scratch.length = 0
 end
@@ -580,11 +580,11 @@ end
 --- Publishes initialized scratch bytes as a normal Lua string value.
 ---
 --- The copy into Lua-owned storage happens here, exactly once. Use
---- [](nupp.valuebuilder.keyScratch) for the object-key position instead, and
---- [](nupp.valuebuilder.string) when the bytes are already a range of the
+--- [](nupp.data.valuebuilder.keyScratch) for the object-key position instead, and
+--- [](nupp.data.valuebuilder.string) when the bytes are already a range of the
 --- source and need no assembling.
 --- @param builder the stream
---- @param scratch a buffer from [](nupp.valuebuilder.newByteScratch)
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newByteScratch)
 --- @param start the range's zero-based first byte
 --- @param length the range's length in bytes
 --- @raises when the range is not initialized
@@ -598,10 +598,10 @@ end
 
 --- Publishes initialized scratch bytes as the next object key.
 ---
---- The key-position counterpart of [](nupp.valuebuilder.stringScratch). The very
+--- The key-position counterpart of [](nupp.data.valuebuilder.stringScratch). The very
 --- next value added becomes this key's value.
 --- @param builder the stream
---- @param scratch a buffer from [](nupp.valuebuilder.newByteScratch)
+--- @param scratch a buffer from [](nupp.data.valuebuilder.newByteScratch)
 --- @param start the range's zero-based first byte
 --- @param length the range's length in bytes
 --- @raises when outside an object, when a key is already pending, or when the
@@ -618,7 +618,7 @@ function valuebuilder.keyScratch(builder: any, scratch: any, start: uint32, leng
 end
 
 --- Opens an array. Every value added after it belongs to it until the matching
---- [](nupp.valuebuilder.close).
+--- [](nupp.data.valuebuilder.close).
 ---
 --- `capacity` is a presizing hint taken from what the parser already counted, not
 --- a limit: a wrong guess costs a rehash, never an error.
@@ -630,11 +630,11 @@ function valuebuilder.openArray(builder: any, capacity: uint32): nil
 end
 
 --- Opens an object. Each value inside it must be preceded by a key from
---- [](nupp.valuebuilder.key) or [](nupp.valuebuilder.keyScratch), until the
---- matching [](nupp.valuebuilder.close).
+--- [](nupp.data.valuebuilder.key) or [](nupp.data.valuebuilder.keyScratch), until the
+--- matching [](nupp.data.valuebuilder.close).
 ---
 --- `capacity` presizes the hash part and is a hint, as in
---- [](nupp.valuebuilder.openArray).
+--- [](nupp.data.valuebuilder.openArray).
 --- @param builder the stream
 --- @param capacity how many entries to presize the hash part for
 function valuebuilder.openObject(builder: any, capacity: uint32): nil
@@ -644,9 +644,9 @@ end
 
 --- Returns how many containers are currently open.
 ---
---- This, [](nupp.valuebuilder.kind), and [](nupp.valuebuilder.count) are all an
---- iterative parser can see of the construction state; there is deliberately no
---- way to read a value back out of a container it has already been added to.
+--- This, [](nupp.data.valuebuilder.kind), and [](nupp.data.valuebuilder.count) are all
+--- an iterative parser can see of the construction state; there is deliberately no way
+--- to read a value back out of a container it has already been added to.
 --- @param builder the stream
 --- @return the number of open containers, 0 at the top level
 function valuebuilder.depth(builder: any): uint32
@@ -654,7 +654,7 @@ function valuebuilder.depth(builder: any): uint32
 end
 
 --- Returns the current container's tag: 5 for an array and 6 for an object, the
---- same numbering [](nupp.valuebuilder.materializeTree) uses.
+--- same numbering [](nupp.data.valuebuilder.materializeTree) uses.
 --- @param builder the stream
 --- @return the innermost open container's tag
 --- @raises when the stream has no current container
@@ -689,7 +689,7 @@ end
 --- The range is read in place, so a key that holds no escape costs one copy and
 --- no substring. Pass `escaped` as true only when the range may hold backslash
 --- escapes; false takes the bytes exactly as they lie. Assemble a key that is
---- not a contiguous source range with [](nupp.valuebuilder.keyScratch) instead.
+--- not a contiguous source range with [](nupp.data.valuebuilder.keyScratch) instead.
 --- @param builder the stream
 --- @param source the rooted string the range indexes
 --- @param start the range's zero-based first byte
@@ -707,7 +707,7 @@ end
 
 --- Adds a string value from a range of the rooted source.
 ---
---- The value counterpart of [](nupp.valuebuilder.key), on the same terms: the
+--- The value counterpart of [](nupp.data.valuebuilder.key), on the same terms: the
 --- range is read in place, and `escaped` says whether it needs decoding first.
 --- @param builder the stream
 --- @param source the rooted string the range indexes
@@ -722,8 +722,8 @@ end
 
 --- Adds a number the parser has already converted.
 ---
---- Use [](nupp.valuebuilder.numberSlice) or
---- [](nupp.valuebuilder.integerSlice) instead when the number is still a range
+--- Use [](nupp.data.valuebuilder.numberSlice) or
+--- [](nupp.data.valuebuilder.integerSlice) instead when the number is still a range
 --- of the source, so that the conversion happens without a substring.
 --- @param builder the stream
 --- @param value the number to add
@@ -736,7 +736,7 @@ end
 --- place.
 ---
 --- This accepts any numeric token. When the token is known to be an integer,
---- [](nupp.valuebuilder.integerSlice) says so and is cheaper.
+--- [](nupp.data.valuebuilder.integerSlice) says so and is cheaper.
 --- @param builder the stream
 --- @param source the rooted string the range indexes
 --- @param start the range's zero-based first byte
@@ -753,7 +753,7 @@ end
 
 --- Adds an integer token from a range of the rooted source.
 ---
---- The integer counterpart of [](nupp.valuebuilder.numberSlice). AOT accumulates
+--- The integer counterpart of [](nupp.data.valuebuilder.numberSlice). AOT accumulates
 --- short integers directly without entering `strtod`, and falls back to the same
 --- checked binary64 conversion for longer tokens; the ordinary path retains
 --- `tonumber` as the behavioral oracle either way.
@@ -780,7 +780,7 @@ function valuebuilder.boolean(builder: any, value: boolean): nil
 end
 
 --- Adds the null replacement the stream was started with by
---- [](nupp.valuebuilder.new) or [](nupp.valuebuilder.newSized).
+--- [](nupp.data.valuebuilder.new) or [](nupp.data.valuebuilder.newSized).
 --- @param builder the stream
 --- @raises when the value would be a second root, or an object value with no key
 function valuebuilder.null(builder: any): nil
@@ -789,9 +789,9 @@ end
 
 --- Closes the innermost open container and adds it to whatever encloses it.
 ---
---- Every [](nupp.valuebuilder.openArray) and [](nupp.valuebuilder.openObject)
+--- Every [](nupp.data.valuebuilder.openArray) and [](nupp.data.valuebuilder.openObject)
 --- needs exactly one of these. Closing the outermost container publishes the
---- root, which [](nupp.valuebuilder.finish) then returns.
+--- root, which [](nupp.data.valuebuilder.finish) then returns.
 --- @param builder the stream
 --- @raises when no container is open, or when an object key has no value
 --- @raises when the closed container would be a second root

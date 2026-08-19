@@ -1,24 +1,21 @@
 --[[
-Owning wrappers for Lua's file handles, and the container that holds a runtime
-number of owners.
+A container for as many owners as a program turns out to need.
 
-`io.open` hands back a borrowed handle, which means nothing has to close it and
-nothing complains when nobody does. These are the same calls annotated as owners,
-so the checker knows a handle must be discharged and lexical cleanup can do it,
-on fallthrough, on error, and on structured control flow alike.
+How many owners a set holds, and of what types, is known only while running, so the
+proof of discharge cannot stay in the checker: it is carried into the entry as the
+witness `adopt` is handed. Surrendering an owner to that storage is what `unsafe
+release` is for, and the two `unsafe` blocks below are the whole of what this module
+asks to be trusted about. `nupp ownership-audit` lists them.
 
-Producing owners and holding them are the two halves of one subject, so they are
-one module. `Set` is the audited exception to the rule that an owner cannot live
-in dynamic storage. How many owners a set holds, and of what types, is known only
-while running, so the proof of discharge cannot stay in the checker: it is carried
-into the entry as the witness `adopt` is handed. Surrendering an owner to that
-storage is what `unsafe release` is for, and the two `unsafe` blocks below are the whole
-of what this module asks to be trusted about. `nupp ownership-audit` lists them.
+This is the simple half of owner custody: entries are erased, discharge is LIFO, and
+a borrow lives as long as the set. [](nupp.owners.store) is the same idea with
+generation and type-policy checks, so an individual owner can cross untyped storage
+and be recovered.
 
 See `docs/ownership.md`.
 ]]
 
-local resources = {}
+local set = {}
 
 --- One adopted owner and the witness that discharges it.
 ---
@@ -37,7 +34,7 @@ end
 --- with a count of the ones it suppressed.
 ---
 --- @export
-record resources.Set
+record set.Set
     --- What the set is for, in diagnostics.
     label: string
 
@@ -51,9 +48,9 @@ record resources.Set
     ---
     --- Attempts all of them, so one failing cleanup cannot strand the rest, then
     --- reports the first failure with a count of the ones it suppressed. Idempotent.
-    drop: nosuspend function(takes self: resources.Set)
+    drop: nosuspend function(takes self: set.Set)
 
-    close: nosuspend function(takes self: resources.Set)
+    close: nosuspend function(takes self: set.Set)
 
     --- Moves an owner in and returns a borrow tied to the set.
     ---
@@ -61,10 +58,6 @@ record resources.Set
     --- checker reifies the adopted value's own cleanup contract at the call site, and
     --- asks for an explicit terminal consumer only where there is no contract to reify.
     ---
-    --- @param value the owner the set takes responsibility for
-    --- @param terminal what discharges an opaque owner, which carries no contract
-    --- @return the adopted value, borrowed from the set
-    --- @raises when the set is already closed, or adoption carries no witness
     --- @param value the owner the set takes responsibility for
     --- @param terminal what discharges an opaque owner, which carries no contract
     --- @return the adopted value, borrowed from the set
@@ -104,7 +97,7 @@ end
 --- @export
 --- @param self the set, spent by this call
 --- @raises when a registration's cleanup fails
-function resources.Set.close(takes self)
+function set.Set.close(takes self)
     local first: any = nil
     local suppressed = 0
     if not self._closed then
@@ -133,11 +126,11 @@ function resources.Set.close(takes self)
     end
 end
 
-function resources.Set.drop(takes self)
+function set.Set.drop(takes self)
     self:close()
 end
 
-local function destroySet(takes value: resources.Set): nil
+local function destroySet(takes value: set.Set): nil
     value:drop()
 end
 
@@ -149,67 +142,8 @@ end
 --- @export
 --- @param label what the set is for, in diagnostics; omitted names it "resource"
 --- @return the empty set, owned by the caller
-function resources.set(label: string?): affine(resources.Set, destroySet)
-    return new resources.Set(label = label or "resource", _entries = {}, _closed = false)
+function set.new(label: string?): affine(set.Set, destroySet)
+    return new set.Set(label = label or "resource", _entries = {}, _closed = false)
 end
 
-local function close_file(takes file: LuaFile): nil
-    local ok, reason = file:close()
-    if not ok then
-        error(reason or "file close failed")
-    end
-end
-
---- Opens a file and transfers responsibility for closing it to the caller.
----
---- The returned handle closes automatically at its lexical boundary.
----
---- @export
---- @param path the path of the file to open
---- @param mode the Lua file mode; omitted uses the Lua default
---- @return the open file handle, owned by the caller
---- @raises when the file cannot be opened
-function resources.openFile(path: string, mode: string?): affine(LuaFile, close_file)
-    local file, reason = io.open(path, mode)
-    if not file then
-        error(reason or "file open failed")
-    end
-
-    return file
-end
-
---- Starts a process and transfers responsibility for closing its pipe to the caller.
----
---- The returned handle closes automatically at its lexical boundary.
----
---- @export
---- @param command the shell command to run
---- @param mode the Lua pipe mode; omitted uses the Lua default
---- @return the process pipe, owned by the caller
---- @raises when the process pipe cannot be opened
-function resources.openProcess(command: string, mode: string?): affine(LuaFile, close_file)
-    local file, reason = io.popen(command, mode)
-    if not file then
-        error(reason or "process open failed")
-    end
-
-    return file
-end
-
---- Creates a temporary file owned by the caller.
----
---- The returned handle closes automatically at its lexical boundary.
----
---- @export
---- @return the open temporary file handle, owned by the caller
---- @raises when the temporary file cannot be created
-function resources.temporaryFile(): affine(LuaFile, close_file)
-    local file = io.tmpfile()
-    if not file then
-        error("temporary file creation failed")
-    end
-
-    return file
-end
-
-return resources
+return set

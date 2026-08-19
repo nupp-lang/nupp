@@ -3,7 +3,7 @@ local indexer = require("simd_json.indexer")
 local parser = require("simd_json.parser")
 local fused = require("simd_json.fused")
 local span = require("nupp.mem.span")
-local _valueBuilder = require("nupp.valuebuilder")
+local _valueBuilder = require("nupp.data.valuebuilder")
 local _materializeTree = _valueBuilder.materializeTree
 
 local arena = {}

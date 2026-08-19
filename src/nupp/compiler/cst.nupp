@@ -519,10 +519,10 @@ interface cst.Hints
     --- result stays at its source rather than transferring into temporary storage.
     discardingResults: boolean?
 
-    --- Ordered discharge functions injected into resources.Set.adopt.
+    --- Ordered discharge functions injected into Set.adopt.
     resourceAdoptCleanups: any
 
-    --- Exact capability dynamically registered by resources.Set.adopt/remove.
+    --- Exact capability dynamically registered by Set.adopt/remove.
     resourceCapability: any
 
     --- Cleanup program and stable policy injected into dynamic.Store.put.

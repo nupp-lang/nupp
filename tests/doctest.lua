@@ -1118,29 +1118,22 @@ function M.standardMathApiHasCompleteDocumentation()
    end
 end
 
-function M.standardResourcesApiHasCompleteDocumentation()
-   local source = readFile(HERE .. "/../src/nupp/resources.nupp")
-   local module, errors = doc.extract(source, "src/nupp/resources.nupp",
-      "nupp.resources")
+-- Shared by the two halves of what used to be one `nupp.resources` module: the
+-- owning file wrappers and the container that holds owners. Both claim to document
+-- exactly their public surface, and neither may leak private storage into it.
+local function assertDocumentedSurface(relativePath, moduleName, expected, recordCheck)
+   local source = readFile(HERE .. "/../" .. relativePath)
+   local module, errors = doc.extract(source, relativePath, moduleName)
    assert(module, errors and errors[1] and errors[1].msg)
    assert(#errors == 0)
-   assert(module.text ~= "", "nupp.resources has no module documentation")
+   assert(module.text ~= "", moduleName .. " has no module documentation")
 
-   -- Only what reaches an operation that can fail documents a failure. Handing back
-   -- an empty set cannot fail, and neither can discharging one.
-   -- `adopt` and `remove` are inline members and document themselves inside the record.
-   -- `close` is declared there and defined below so its public signature and
-   -- implementation remain separately documented.
-   -- Being written outside the record does not make it a function of the module: it
-   -- folds back onto `Set`, which is where a reader reaches it.
-   local expected = {
-      ["resources.openFile"] = "raises",
-      ["resources.openProcess"] = "raises",
-      ["resources.temporaryFile"] = "raises",
-      ["resources.set"] = "function",
-      ["Set"] = "record",
-   }
-   assert(#module.items == 5, "nupp.resources must document exactly its public surface")
+   local wanted = 0
+   for _ in pairs(expected) do
+      wanted = wanted + 1
+   end
+   assert(#module.items == wanted,
+      moduleName .. " must document exactly its public surface")
    for _, item in ipairs(module.items) do
       local prefix = item.path
       local want = expected[item.name]
@@ -1160,23 +1153,48 @@ function M.standardResourcesApiHasCompleteDocumentation()
       if want == "raises" then
          assert(#item.raises > 0, prefix .. " has no documented failure condition")
       end
-      -- The set's storage is its own business. A reader of these docs is told what a
-      -- set does, never what it keeps to do it.
-      if want == "record" then
-         local named = {}
-         for _, member in ipairs(item.members) do
-            assert(member.name ~= "_entries" and member.name ~= "_closed",
-               "the set's private storage leaked into the public docs")
-            named[member.name] = member
-         end
-         for _, operation in ipairs({"close", "adopt", "remove"}) do
-            assert(named[operation], "the set stopped documenting " .. operation)
-            assert(#named[operation].raises > 0,
-               operation .. " has no documented failure condition")
-         end
+      if want == "record" and recordCheck then
+         recordCheck(item)
       end
    end
-   assert(next(expected) == nil, "nupp.resources is missing part of its public API")
+   assert(next(expected) == nil, moduleName .. " is missing part of its public API")
+end
+
+-- Only what reaches an operation that can fail documents a failure. Handing back an
+-- empty set cannot fail, and neither can discharging one.
+-- `adopt` and `remove` are inline members and document themselves inside the record.
+-- `close` is declared there and defined below so its public signature and
+-- implementation remain separately documented.
+-- Being written outside the record does not make it a function of the module: it
+-- folds back onto `Set`, which is where a reader reaches it.
+function M.standardOwnerSetApiHasCompleteDocumentation()
+   assertDocumentedSurface("src/nupp/owners/set.nupp", "nupp.owners.set", {
+      ["set.new"] = "function",
+      ["Set"] = "record",
+   }, function(item)
+      -- The set's storage is its own business. A reader of these docs is told what a
+      -- set does, never what it keeps to do it.
+      local named = {}
+      for _, member in ipairs(item.members) do
+         assert(member.name ~= "_entries" and member.name ~= "_closed",
+            "the set's private storage leaked into the public docs")
+         named[member.name] = member
+      end
+      for _, operation in ipairs({"close", "adopt", "remove"}) do
+         assert(named[operation], "the set stopped documenting " .. operation)
+         assert(#named[operation].raises > 0,
+            operation .. " has no documented failure condition")
+      end
+   end)
+end
+
+-- Every opener reaches a Lua call that can fail, so every one documents how.
+function M.standardFileApiHasCompleteDocumentation()
+   assertDocumentedSurface("src/nupp/io/file.nupp", "nupp.io.file", {
+      ["file.open"] = "raises",
+      ["file.popen"] = "raises",
+      ["file.temporary"] = "raises",
+   })
 end
 
 function M.documentsACdefOnlyWhereItReachesAReader()
