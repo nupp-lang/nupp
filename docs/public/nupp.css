@@ -132,11 +132,11 @@
 .nuppdoc-hero-action.brand,
 .nuppdoc-hero-action.brand:hover {
   color: #ffffff;
-  background: #698064;
+  background: var(--nupp-woodblock-vermilion);
 }
 
 .nuppdoc-hero-action.brand:hover {
-  background: color-mix(in srgb, #698064 80%, black);
+  background: var(--nupp-woodblock-vermilion-hover);
 }
 
 .nuppdoc-hero-action {
@@ -149,7 +149,6 @@
 }
 
 .nuppdoc-hero-text {
-  color: #698064;
   font-weight: 700;
 }
 
