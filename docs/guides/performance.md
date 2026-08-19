@@ -343,7 +343,7 @@ instead of an FFI one halves the interpreted penalty and gives up most of the
 compiled margin without removing the cliff. Choosing correctly needs a hotness
 input the cost model does not have, so it is deferred rather than rejected;
 `bench/switch-dispatch.lua` keeps both `ph-ffi` and `ph-lua` baselines, and
-`plans/057-switch-dispatch-optimization.md` records the decision.
+[NEP 4](../neps/0004-switch-expressions.md) records the decision.
 
 ## Optimization passes
 
