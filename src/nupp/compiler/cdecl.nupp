@@ -432,6 +432,31 @@ function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): 
         end
     end
 
+    -- Which names the target itself spells, for the same reason `cdecl.declare` keeps
+    -- them: the registry is process-wide, so a header whose types something else in
+    -- this process already declared introduces no new ctype and the diff below finds
+    -- nothing. Left at that, importing a header a `cheader` had already pinned
+    -- produced an empty module rather than the header's declarations, and said so
+    -- nowhere -- the declarations were not rejected, they were simply not new.
+    --
+    -- The prelude's names are held back. That vocabulary is the include closure's, it
+    -- is declared here only so the target parses, and claiming it would export the
+    -- neighbours a header names rather than what it declares.
+    local preludeNames: {[string]: boolean} = {}
+    for _, declaration in ipairs(declarations) do
+        for word in declaration:gmatch("[%a_][%w_]*") do
+            preludeNames[word] = true
+        end
+    end
+    local spelled: {[string]: boolean} = {}
+    for _, unit in ipairs(units) do
+        for word in unit:gmatch("[%a_][%w_]*") do
+            if not preludeNames[word] then
+                spelled[word] = true
+            end
+        end
+    end
+
     -- What LuaJIT will not parse is set aside rather than taken as the answer for the
     -- whole header. One declaration commonly fails for a reason local to itself, as a
     -- struct laid out from a type whose definition lives in a header that was filtered
@@ -456,7 +481,7 @@ function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): 
     local anonymousStructs = {}
     for id = 1, MAX_CTYPE_ID do
         local entry = info(id)
-        if entry and not before[id] then
+        if entry and (not before[id] or (entry.name ~= nil and spelled[entry.name])) then
             local kind = kindOf(entry.info)
             -- An enum carries its constants whether or not it is named: `typedef enum {
             -- ... } Mode;` names the type and nothing else, and its members are the
