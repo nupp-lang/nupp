@@ -33,21 +33,21 @@ See `plans/018-suspension.md`, S5.
 ]]
 
 local suspension = require("nupp.suspension")
-local processtypes = require("nupp.io.processtypes")
+local processbackend = require("nupp.io.processbackend")
 
 local process = {}
 
 --- Re-exported so a caller needs one import.
-type process.Options = processtypes.Options
+type process.Options = processbackend.Options
 
 --- Re-exported so a caller needs one import.
-type process.Exit = processtypes.Exit
+type process.Exit = processbackend.Exit
 
 --- Re-exported so a caller needs one import.
-type process.CommunicateOptions = processtypes.CommunicateOptions
+type process.CommunicateOptions = processbackend.CommunicateOptions
 
 --- Re-exported so a caller needs one import.
-type process.Result = processtypes.Result
+type process.Result = processbackend.Result
 
 -- Declared ahead of the records, whose method bodies reach them.
 -- How many bytes one read asks for. Large enough that a busy pipe empties in a pass or
@@ -59,12 +59,12 @@ local progressed, releasePump, await, awaitTick, pumpOnce, readForCompletion
 -- The backend `process.new` uses, installed by whichever platform module is loaded.
 -- Kept internal: a caller naming its platform is a caller that has to change when it
 -- moves to another one.
-local defaultBackend: processtypes.Backend? = nil
+local defaultBackend: processbackend.Backend? = nil
 
 local type NativeBackendFactory = {
     new: function(
-        exited: function(exitCode: integer, killed: boolean, timedOut: boolean): processtypes.Exit
-    ): processtypes.Backend
+        exited: function(exitCode: integer, killed: boolean, timedOut: boolean): processbackend.Exit
+    ): processbackend.Backend
 }
 
 --- One of a child's readable streams.
@@ -215,11 +215,11 @@ record process.Reader is nupp.io.Reader
 
                 return false
             end,
-            function(): processtypes.Interest
+            function(): processbackend.Interest
                 -- This stream, and the child: end of stream is something the child's
                 -- ending produces, so a reader that only asked about the pipe could
                 -- sleep through the very event that answers it.
-                return new processtypes.Interest(child = self.owner.handle, read = {self.handle}, write = {})
+                return new processbackend.Interest(child = self.owner.handle, read = {self.handle}, write = {})
             end
         )
 
@@ -398,10 +398,10 @@ record process.Writer is nupp.io.Writer
         end
         local sent = 0
         local before = 0
-        local function interest(): processtypes.Interest
+        local function interest(): processbackend.Interest
             -- Room in this pipe, and the child: a child that exits makes every
             -- remaining write impossible, which is an answer too.
-            return new processtypes.Interest(child = self.owner.handle, read = {}, write = {self.handle})
+            return new processbackend.Interest(child = self.owner.handle, read = {}, write = {self.handle})
         end
 
         -- Both of these are written above the loop rather than in it, so the loop holds
@@ -535,10 +535,10 @@ end
 --- A running child.
 record process.Process
     drop: nosuspend function(takes self: process.Process): nil
-    backend: processtypes.Backend
+    backend: processbackend.Backend
     handle: any
     deadline: number?
-    exit: processtypes.Exit?
+    exit: processbackend.Exit?
 
     --- Whether the whole teardown finished: every stream released, the pump released,
     --- and the child handle released. The aggregate, and what makes a repeat call a
@@ -589,26 +589,26 @@ record process.Process
     end
 
     --- Waits for it to end and answers how. Suspends while it runs.
-    function wait(self): processtypes.Exit
+    function wait(self): processbackend.Exit
         await(
             self,
             "process wait",
             function(): boolean
                 return self.exit ~= nil
             end,
-            function(): processtypes.Interest
+            function(): processbackend.Interest
                 -- The child alone. Its streams are deliberately left out: output nobody
                 -- is reading stays ready forever, so asking about it here would turn
                 -- this sleep into a spin. The cost is that waiting without draining can
                 -- fill a pipe and stall, which is exactly what `communicate` is for.
-                return new processtypes.Interest(child = self.handle, read = {}, write = {})
+                return new processbackend.Interest(child = self.handle, read = {}, write = {})
             end
         )
         if self.timedOut and self.exit ~= nil then
             self.exit.timedOut = true
         end
 
-        return self.exit as processtypes.Exit
+        return self.exit as processbackend.Exit
     end
 
     --- Asks it to end; `force` insists. Answers whether the request was made.
@@ -631,8 +631,8 @@ record process.Process
     ---
     --- One combined step per pass: offer some input, take whatever each output has,
     --- suspend only when none of the three moved.
-    function communicate(self, options: processtypes.CommunicateOptions?): (processtypes.Result?, string?)
-        local ok, answer = pcall(function(): processtypes.Result
+    function communicate(self, options: processbackend.CommunicateOptions?): (processbackend.Result?, string?)
+        local ok, answer = pcall(function(): processbackend.Result
             local given = options or {}
             local input = given.input
             local pending = input == nil and "" or type(input) == "string" and input as string or input:getString()
@@ -676,7 +676,7 @@ record process.Process
             -- Written here rather than at the wait it belongs to, because that wait is
             -- inside the loop, and a function built inside a loop is one LuaJIT never
             -- compiles. It reads what varies through names the loop shares with it.
-            local function interest(): processtypes.Interest
+            local function interest(): processbackend.Interest
                 local read: {any} = {}
                 if stdout ~= nil and not stdout.eof and not stdout.closed then
                     read[#read + 1] = stdout.handle
@@ -689,7 +689,7 @@ record process.Process
                     write[#write + 1] = stdin.handle
                 end
 
-                return new processtypes.Interest(child = self.handle, read = read, write = write)
+                return new processbackend.Interest(child = self.handle, read = read, write = write)
             end
 
             while not (inputDone() and outputDone()) do
@@ -753,7 +753,7 @@ record process.Process
 
             abandonInput()
 
-            return new processtypes.Result(
+            return new processbackend.Result(
                 output = table.concat(out),
                 errorOutput = table.concat(err),
                 exit = self:wait()
@@ -763,7 +763,7 @@ record process.Process
             return nil, answer == nil and "process communication failed without saying why" or tostring(answer)
         end
 
-        return answer as processtypes.Result
+        return answer as processbackend.Result
     end
 
     --- Closes every stream, ends the child if it is still running, waits for it to
@@ -809,8 +809,8 @@ record process.Process
                 function(): boolean
                     return not self.closing
                 end,
-                function(): processtypes.Interest
-                    return new processtypes.Interest(child = self.handle, read = {}, write = {})
+                function(): processbackend.Interest
+                    return new processbackend.Interest(child = self.handle, read = {}, write = {})
                 end
             )
             if self.reaped then
@@ -873,8 +873,8 @@ record process.Process
                     function(): boolean
                         return self.exit ~= nil
                     end,
-                    function(): processtypes.Interest
-                        return new processtypes.Interest(child = self.handle, read = {}, write = {})
+                    function(): processbackend.Interest
+                        return new processbackend.Interest(child = self.handle, read = {}, write = {})
                     end
                 )
             end)
@@ -1029,7 +1029,7 @@ local BLOCKING_WAIT_MS = 20
 -- Bounded rather than indefinite, because a deadline has to be reached even when the
 -- child never speaks again, and never overshooting it: a wait longer than what is left
 -- would report the timeout late by however much it overslept.
-local function blockOnce(self: any, interest: processtypes.Interest, stopAt: number?): nil
+local function blockOnce(self: any, interest: processbackend.Interest, stopAt: number?): nil
     local budget = BLOCKING_WAIT_MS
     if self.deadline ~= nil then
         local remaining = self.deadline - self.backend:now()
@@ -1047,7 +1047,7 @@ local function blockOnce(self: any, interest: processtypes.Interest, stopAt: num
     pumpOnce(self)
 end
 
-awaitTick = function(self: any, operation: string, interest: function(): processtypes.Interest): nil
+awaitTick = function(self: any, operation: string, interest: function(): processbackend.Interest): nil
     if not suspension.handled() then
         blockOnce(self, interest())
 
@@ -1075,7 +1075,7 @@ await = function(
     self: any,
     operation: string,
     ready: function(): boolean,
-    interest: function(): processtypes.Interest,
+    interest: function(): processbackend.Interest,
     stopAt: number?
 ): boolean
     if ready() then
@@ -1159,8 +1159,8 @@ readForCompletion = function(source: process.Reader, limit: integer): (string?, 
 
             return false
         end,
-        function(): processtypes.Interest
-            return new processtypes.Interest(child = source.owner.handle, read = {source.handle}, write = {})
+        function(): processbackend.Interest
+            return new processbackend.Interest(child = source.owner.handle, read = {source.handle}, write = {})
         end,
         stopAt
     )
@@ -1191,14 +1191,14 @@ end
 ---
 --- Called by a platform module, not by a caller: the point of the seam is that nothing
 --- above it names a platform.
-function process.useBackend(backend: processtypes.Backend): nil
+function process.useBackend(backend: processbackend.Backend): nil
     defaultBackend = backend
 end
 
 -- Public callers include plain Lua, so the type declaration is not the runtime
 -- boundary. Reject programmer mistakes before allocating a native spawn request;
 -- platform failures remain the nil-and-reason result of `new`.
-local function validateOptions(options: processtypes.Options): nil
+local function validateOptions(options: processbackend.Options): nil
     local given: any = options
     if type(given.args) ~= "table" or #given.args == 0 then
         error("nupp: process args must contain a program", 3)
@@ -1231,8 +1231,8 @@ end
 
 --- Builds the owned state after the platform has successfully spawned.
 local function fromSpawn(
-    backend: processtypes.Backend,
-    options: processtypes.Options,
+    backend: processbackend.Backend,
+    options: processbackend.Options,
     handle: any,
     inHandle: any?,
     outHandle: any?,
@@ -1275,8 +1275,8 @@ end
 --- @raises when the options do not describe a runnable child, or the backend cannot
 --- start one
 function process.spawnOn(
-    backend: processtypes.Backend,
-    options: processtypes.Options
+    backend: processbackend.Backend,
+    options: processbackend.Options
 ): affine(process.Process, process.destroyProcess)
     validateOptions(options)
     local handle, inHandle, outHandle, errHandle, pid, problem = backend:spawn(options)
@@ -1291,7 +1291,7 @@ end
 ---
 --- @param options what to run and how to connect it
 --- @return the child, which must be closed
-function process.new(options: processtypes.Options): (affine(process.Process?, process.destroyProcess), string?)
+function process.new(options: processbackend.Options): (affine(process.Process?, process.destroyProcess), string?)
     validateOptions(options)
     local backend = defaultBackend
     if backend == nil then
@@ -1300,28 +1300,28 @@ function process.new(options: processtypes.Options): (affine(process.Process?, p
         defaultBackend = backend
     end
 
-    local handle, inHandle, outHandle, errHandle, pid, problem = (backend as processtypes.Backend):spawn(options)
+    local handle, inHandle, outHandle, errHandle, pid, problem = (backend as processbackend.Backend):spawn(options)
     if handle == nil then
         return nil, problem or "the process could not be started"
     end
 
-    return fromSpawn(backend as processtypes.Backend, options, handle, inHandle, outHandle, errHandle, pid)
+    return fromSpawn(backend as processbackend.Backend, options, handle, inHandle, outHandle, errHandle, pid)
 end
 
 --- The exit a backend reports, with `succeeded` attached.
 ---
 --- Backends build these, so the one judgement every caller makes -- did this work --
 --- has one definition rather than one per platform.
-function process.exited(exitCode: integer, killed: boolean, timedOut: boolean): processtypes.Exit
+function process.exited(exitCode: integer, killed: boolean, timedOut: boolean): processbackend.Exit
     return {
         exitCode = exitCode,
         killed = killed,
         timedOut = timedOut,
-        succeeded = function(self: processtypes.Exit): boolean
+        succeeded = function(self: processbackend.Exit): boolean
             -- A killed child never succeeded, whatever status the platform reported.
             return not self.killed and not self.timedOut and self.exitCode == 0
         end,
-    } as processtypes.Exit
+    } as processbackend.Exit
 end
 
 return process

@@ -17,6 +17,17 @@ platform providers differ in how they spawn and how they read; they do not
 differ in what a process *is*, and a design that let them would end up with two
 of every bug.
 
+The module is named for the second, because the second is who needs it. A
+caller reaches the first through `nupp.io.process`, which re-exports it and
+never mentions this module; a platform provider is the one who has to import it
+by name, and `Backend` is what they came for.
+
+Both halves live here rather than in `nupp.io.process` because the private
+native declaration needs `Backend` and `Exit`, and `nupp.io.process` already
+requires that declaration. Declaring them there would close the loop, and a
+resolved cycle answers `any` rather than complaining -- the native binding
+would quietly stop being typed.
+
 Nothing in the caller-facing half mentions a file descriptor, a HANDLE, errno,
 or a signal number. A caller that has to know which platform it is on has been
 handed a leak.
@@ -24,17 +35,17 @@ handed a leak.
 See `plans/018-suspension.md`, S5.
 ]]
 
-local processtypes = {}
+local processbackend = {}
 
 --- Where a stream goes: a pipe this process reads or writes, the parent's own
 --- descriptor, or nothing at all.
-type processtypes.StreamMode = "pipe" | "inherit" | "null"
+type processbackend.StreamMode = "pipe" | "inherit" | "null"
 
 --- The same, plus stderr's option to join stdout.
-type processtypes.ErrorMode = "pipe" | "inherit" | "null" | "stdout"
+type processbackend.ErrorMode = "pipe" | "inherit" | "null" | "stdout"
 
 --- How a child was asked to be started.
-type processtypes.Options = {
+type processbackend.Options = {
     --- The program in `args[1]`, then its arguments. A program with no separator in
     --- it is resolved through `PATH` by the platform, not by this module.
     args: {string},
@@ -50,13 +61,13 @@ type processtypes.Options = {
     clearEnv: boolean?,
 
     --- Defaults to `"pipe"`.
-    stdin: processtypes.StreamMode?,
+    stdin: processbackend.StreamMode?,
 
     --- Defaults to `"pipe"`.
-    stdout: processtypes.StreamMode?,
+    stdout: processbackend.StreamMode?,
 
     --- Defaults to `"pipe"`.
-    stderr: processtypes.ErrorMode?,
+    stderr: processbackend.ErrorMode?,
 
     --- Kill the child after this many milliseconds. The clock starts when it is
     --- created, not when it is first waited on.
@@ -64,7 +75,7 @@ type processtypes.Options = {
 }
 
 --- Controls a complete duplex exchange.
-type processtypes.CommunicateOptions = {
+type processbackend.CommunicateOptions = {
     --- Complete standard input. Omitted input sends EOF immediately.
     input: (string | nupp.io.Buffer | nupp.io.ByteView)?,
 
@@ -73,7 +84,7 @@ type processtypes.CommunicateOptions = {
 }
 
 --- How a child ended.
-record processtypes.Exit
+record processbackend.Exit
     --- The status it exited with. Zero conventionally means success, and
     --- `succeeded` is the question worth asking instead.
     exitCode: integer
@@ -86,13 +97,13 @@ record processtypes.Exit
 
     --- Exited on its own with status zero. A killed child never succeeded, whatever
     --- status the platform reported for it.
-    succeeded: function(processtypes.Exit): boolean
+    succeeded: function(processbackend.Exit): boolean
 end
 
 --- A completed duplex exchange.
-record processtypes.Result
+record processbackend.Result
     --- How the child ended.
-    exit: processtypes.Exit
+    exit: processbackend.Exit
 
     --- Captured standard output.
     output: string
@@ -118,7 +129,7 @@ end
 --- everything at once asks about all three; waiting for the child to end asks only
 --- about the child, and accepts that a caller who does that without reading the output
 --- can fill a pipe and stall -- which is why `communicate` exists.
-record processtypes.Interest
+record processbackend.Interest
     --- The child, when its termination is one of the things being waited for, and nil
     --- when this wait would not be advanced by it.
     child: any?
@@ -136,17 +147,17 @@ end
 --- that the blocking case is a deliberate call rather than a loop. Waiting is otherwise
 --- the state machine's business: it suspends, so a caller inside a scheduler keeps its
 --- frame, which is only possible while the backend is not blocking on its behalf.
-record processtypes.Backend
+record processbackend.Backend
     --- Starts a child. Answers an opaque handle and the streams that were piped,
     --- each an opaque stream handle or nil for a mode that made none.
-    spawn: function(processtypes.Backend, processtypes.Options): (any?, any?, any?, any?, integer, string?)
+    spawn: function(processbackend.Backend, processbackend.Options): (any?, any?, any?, any?, integer, string?)
 
     --- Whether the child has ended, and how. Answers nil while it is still running,
     --- so a caller can tell "not yet" from "exited with 0".
-    poll: function(processtypes.Backend, any): (processtypes.Exit?)
+    poll: function(processbackend.Backend, any): (processbackend.Exit?)
 
     --- Asks the child to end, or insists.
-    kill: function(processtypes.Backend, any, boolean): nil
+    kill: function(processbackend.Backend, any, boolean): nil
 
     --- Reads what is available without waiting, at most `limit` bytes. Answers the
     --- bytes, or "" when nothing is ready, or nil at end of stream.
@@ -160,7 +171,7 @@ record processtypes.Backend
     --- leave the completion-oriented method holding a surplus buffer of its own -- a
     --- second place where bytes wait, with its own emptiness to reason about, to work
     --- around a limit the kernel accepts perfectly well.
-    read: function(processtypes.Backend, any, integer): (string?)
+    read: function(processbackend.Backend, any, integer): (string?)
 
     --- Writes what it can without waiting. Answers how many bytes went, and whether
     --- the far end is gone.
@@ -228,7 +239,7 @@ record processtypes.Backend
     --- child that closes stdin and surfacing `gone`; Linux proves the masking route
     --- and that a `SIGPIPE` pending before the write remains pending afterwards. The
     --- failure mode in either case is not a wrong answer but no host left to read one.
-    write: function(processtypes.Backend, any, string): (integer, boolean)
+    write: function(processbackend.Backend, any, string): (integer, boolean)
 
     --- Closes one stream. Idempotent.
     ---
@@ -261,7 +272,7 @@ record processtypes.Backend
     --- A backend that raises anyway has broken this, and the state machine assumes the
     --- descriptor was released, because between leaking one and closing someone else's
     --- there is no contest.
-    closeStream: function(processtypes.Backend, any): (boolean, string?)
+    closeStream: function(processbackend.Backend, any): (boolean, string?)
 
     --- Releases the child's own resources once it has ended.
     ---
@@ -278,11 +289,11 @@ record processtypes.Backend
     ---
     --- **Never raises**, on exactly the terms `closeStream` does not, and a backend
     --- that does is read as having released the child.
-    reap: function(processtypes.Backend, any): (boolean, string?)
+    reap: function(processbackend.Backend, any): (boolean, string?)
 
     --- Milliseconds on a monotonic clock, for deadlines. The backend owns this
     --- because a platform's monotonic clock is a platform's business.
-    now: function(processtypes.Backend): number
+    now: function(processbackend.Backend): number
 
     --- Blocks until something in `interest` could have changed, or `timeoutMs` passes.
     --- Answers how many things became ready, which may be zero.
@@ -305,7 +316,7 @@ record processtypes.Backend
     --- anything over there sees it, and what arrives may be a short wait, or a long
     --- one,
     --- or a negative meaning forever. Nothing downstream can tell which.
-    waitReady: function(processtypes.Backend, processtypes.Interest, number): integer
+    waitReady: function(processbackend.Backend, processbackend.Interest, number): integer
 end
 
-return processtypes
+return processbackend

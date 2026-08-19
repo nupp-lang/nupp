@@ -6,12 +6,12 @@ type-check the private preload which joins its platform-neutral state machine to
 native crate; none of these operations are a user-facing ABI.
 ]]
 
-local processtypes = require("nupp.io.processtypes")
+local processbackend = require("nupp.io.processbackend")
 
 local record ProcessNative
     new: function(
-        exited: function(exitCode: integer, killed: boolean, timedOut: boolean): processtypes.Exit
-    ): processtypes.Backend
+        exited: function(exitCode: integer, killed: boolean, timedOut: boolean): processbackend.Exit
+    ): processbackend.Backend
 end
 
 local binding: ProcessNative
