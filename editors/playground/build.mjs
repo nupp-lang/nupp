@@ -97,6 +97,8 @@ async function run() {
   // bootstrap/nupp.lua to reach the bootstrap compiler's own lexer, the same
   // way bin/nupp does.
   const rocks = path.join(repoRoot, ".rocks");
+  const inheritedLuaPath = process.env.LUA_PATH || ";";
+  const inheritedLuaCPath = process.env.LUA_CPATH || ";";
   execFileSync(
     "luajit",
     [path.join(root, "tools/patch-bootstrap-for-browser.lua"), bootstrapSrc, path.join(dist, "nupp-bootstrap.lua")],
@@ -105,8 +107,8 @@ async function run() {
       stdio: "inherit",
       env: {
         ...process.env,
-        LUA_PATH: `${rocks}/share/lua/5.1/?.lua;${rocks}/share/lua/5.1/?/init.lua;;`,
-        LUA_CPATH: `${rocks}/lib/lua/5.1/?.so;;`,
+        LUA_PATH: `${rocks}/share/lua/5.1/?.lua;${rocks}/share/lua/5.1/?/init.lua;${inheritedLuaPath}`,
+        LUA_CPATH: `${rocks}/lib/lua/5.1/?.so;${rocks}/lib/lua/5.1/?.dll;${inheritedLuaCPath}`,
       },
     }
   );
