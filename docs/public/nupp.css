@@ -149,6 +149,7 @@
 }
 
 .nuppdoc-hero-text {
+  color: var(--nuppdoc-text);
   font-weight: 700;
 }
 
