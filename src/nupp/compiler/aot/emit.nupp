@@ -1005,10 +1005,32 @@ function emit.includes(): {string}
         "#else",
         "#define KS_API",
         "#endif",
-        "#if defined(__GNUC__)",
+        "/* Clang targeting MSVC defines neither __GNUC__ nor the MSVC warning set,",
+        " * so keying this on __GNUC__ alone left the attribute empty on the one",
+        " * compiler that still warns about an unused static function. */",
+        "#if defined(__GNUC__) || defined(__clang__)",
         "#define KS_UNUSED __attribute__((unused))",
         "#else",
         "#define KS_UNUSED",
+        "#endif",
+        "/* The test-only scalar oracle must not be vectorized back into the thing",
+        " * it exists to be compared against. Clang spells that `optnone`; GCC has",
+        " * no such attribute and warns about the one it does not know, so it gets",
+        " * the equivalent it does have. */",
+        "#if defined(__clang__)",
+        "#define KS_OPTNONE __attribute__((optnone))",
+        "#elif defined(__GNUC__)",
+        "#define KS_OPTNONE __attribute__((optimize(\"O0\")))",
+        "#else",
+        "#define KS_OPTNONE",
+        "#endif",
+        "/* A count that came in as a uint32_t can only overflow the byte product",
+        " * where size_t is no wider than it is. On a 64-bit size_t the comparison",
+        " * is provably false, which is a -Wtype-limits error rather than a guard. */",
+        "#if SIZE_MAX <= 0xFFFFFFFFu",
+        "#define KS_COUNT_OVERFLOWS(n, size) ((size_t)(n) > SIZE_MAX / (size))",
+        "#else",
+        "#define KS_COUNT_OVERFLOWS(n, size) (0)",
         "#endif",
         "#ifndef M_PI",
         "#define M_PI 3.14159265358979323846264338327950288",
@@ -1225,13 +1247,13 @@ function emit.luaPrelude(): {string}
         "    return (uint32_t)bytes[offset];",
         "}",
         "static KS_UNUSED uint32_t ks_lua_string_u32(lua_State *L, const unsigned char *bytes, size_t length, uint32_t index) {",
-        "    if ((size_t)index > SIZE_MAX / sizeof(uint32_t)) { luaL_error(L, \"AOT builder word index overflows\"); return 0u; }",
+        "    if (KS_COUNT_OVERFLOWS(index, sizeof(uint32_t))) { luaL_error(L, \"AOT builder word index overflows\"); return 0u; }",
         "    size_t offset = (size_t)index * sizeof(uint32_t); uint32_t value = 0u;",
         "    if (offset > length || sizeof(uint32_t) > length - offset) { luaL_error(L, \"AOT builder word is out of bounds\"); return 0u; }",
         "    memcpy(&value, bytes + offset, sizeof(value)); return value;",
         "}",
         "static KS_UNUSED KsLuaScratchU32 ks_lua_scratch_u32(lua_State *L, uint32_t capacity) {",
-        "    if ((size_t)capacity > SIZE_MAX / sizeof(uint32_t)) { luaL_error(L, \"AOT scratch capacity overflows\"); capacity = 0u; }",
+        "    if (KS_COUNT_OVERFLOWS(capacity, sizeof(uint32_t))) { luaL_error(L, \"AOT scratch capacity overflows\"); capacity = 0u; }",
         "    size_t bytes = (size_t)capacity * sizeof(uint32_t);",
         "    uint32_t *words = (uint32_t *)lua_newuserdata(L, bytes == 0u ? 1u : bytes);",
         "    KsLuaScratchU32 scratch = {words, capacity, 0u, lua_gettop(L)}; return scratch;",
@@ -1242,7 +1264,7 @@ function emit.luaPrelude(): {string}
         "}",
         "static KS_UNUSED void ks_lua_scratch_u32_set(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t value) {",
         "    if (index > scratch->length || index >= scratch->capacity) { luaL_error(L, \"AOT scratch write is out of bounds\"); return; }",
-        "    if (index == scratch->length) scratch->length += 1u; scratch->words[index] = value;",
+        "    if (index == scratch->length) { scratch->length += 1u; } scratch->words[index] = value;",
         "}",
         "static KS_UNUSED uint32_t ks_reverse_u32(uint32_t value) {",
         "    value = ((value >> 1u) & UINT32_C(0x55555555)) | ((value & UINT32_C(0x55555555)) << 1u);",
@@ -1273,14 +1295,14 @@ function emit.luaPrelude(): {string}
         "}",
         "static KS_UNUSED void ks_lua_scratch_u8_set(lua_State *L, KsLuaScratchU8 *scratch, uint32_t index, uint32_t value) {",
         "    if (index > scratch->length || index >= scratch->capacity || value > 255u) { luaL_error(L, \"AOT byte scratch write is out of bounds\"); return; }",
-        "    if (index == scratch->length) scratch->length += 1u; scratch->bytes[index] = (unsigned char)value;",
+        "    if (index == scratch->length) { scratch->length += 1u; } scratch->bytes[index] = (unsigned char)value;",
         "}",
         "static KS_UNUSED int ks_lua_scratch_u8_push(lua_State *L, KsLuaScratchU8 *scratch, uint32_t start, uint32_t length) {",
         "    if (start > scratch->length || length > scratch->length - start) return luaL_error(L, \"AOT byte scratch string range is out of bounds\");",
         "    lua_pushlstring(L, (const char *)(scratch->bytes + start), (size_t)length); return 1;",
         "}",
         "static KS_UNUSED KsLuaBuilder ks_lua_builder_new(lua_State *L, int null_index, uint32_t max_depth, uint32_t byte_capacity) {",
-        "    if ((size_t)max_depth > SIZE_MAX / sizeof(KsLuaBuildFrame)) { luaL_error(L, \"AOT value stream depth capacity overflows\"); max_depth = 0u; }",
+        "    if (KS_COUNT_OVERFLOWS(max_depth, sizeof(KsLuaBuildFrame))) { luaL_error(L, \"AOT value stream depth capacity overflows\"); max_depth = 0u; }",
         "    KsLuaBuilder builder = {null_index, 0, lua_gettop(L), 0, 0u, max_depth, NULL, {{0}}, NULL, byte_capacity}; return builder;",
         "}",
         "static KS_UNUSED KsLuaBuildFrame *ks_lua_builder_frame(KsLuaBuilder *builder, uint32_t index) {",
@@ -2735,15 +2757,23 @@ function emit.program(programs: {scalarIR.Program}): string
     -- One prelude per distinct gang. A file whose functions chose different
     -- gangs needs both, and the mask helpers are suffixed by their mask so the
     -- two sets do not collide.
+    --
+    -- A program without a lane body contributes no gang. It used to fall back to
+    -- the widest shape, which put that shape's typedefs and helpers in files no
+    -- gang was chosen for -- and on a target whose register class is narrower
+    -- than the widest shape, a 32-byte vector returned by value is exactly the
+    -- `-Wpsabi` the target model exists to avoid.
     local emitted: {[string]: boolean} = {}
     for _, program in ipairs(programs) do
         local lanes = program.lanes
-        local shape = lanes ~= nil and lane.SHAPE_BY_NAME[(lanes as scalarIR.LaneBody).shape] or lane.SHAPES[1]
-        local named = (shape as lane.Shape).name
-        if not emitted[named] then
-            emitted[named] = true
-            for _, line in ipairs(emit.prelude(shape as lane.Shape)) do
-                lines[#lines + 1] = line
+        local shape = lanes ~= nil and lane.SHAPE_BY_NAME[(lanes as scalarIR.LaneBody).shape] or nil
+        if shape ~= nil then
+            local named = (shape as lane.Shape).name
+            if not emitted[named] then
+                emitted[named] = true
+                for _, line in ipairs(emit.prelude(shape as lane.Shape)) do
+                    lines[#lines + 1] = line
+                end
             end
         end
     end
@@ -2830,7 +2860,7 @@ function emit.program(programs: {scalarIR.Program}): string
                     -- The block may declare locals before its first loop, so a
                     -- loop pragma cannot be placed at function entry. Keep this
                     -- test-only oracle wholly scalar instead.
-                    lines[#lines + 1] = "__attribute__((optnone))"
+                    lines[#lines + 1] = "KS_OPTNONE"
                 end
                 lines[#lines + 1] = "__attribute__((noinline))"
                 lines[#lines + 1] = "KS_API " .. cResult .. " " .. symbol .. "(" .. params .. ") {"
