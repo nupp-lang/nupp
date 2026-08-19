@@ -614,6 +614,47 @@ function M.documentsDeclarationsWrappedInAnnotations()
    assert(open.returns[1].text == "The owned handle.", open.returns[1].text)
 end
 
+function M.hidesPrivateCleanupNamesFromSignatures()
+   local source = table.concat({
+      "--- The library's own terminal.",
+      "const __destroyReader: function(takes value: Reader): nil",
+      "",
+      "--- A terminal callers may name.",
+      "const closeReader: function(takes value: Reader): nil",
+      "",
+      "--- Opens a reader over a string.",
+      "function io.newReader(text: string): affine(Reader, __destroyReader)",
+      "   return read(text)",
+      "end",
+      "",
+      "--- Adopts a reader callers close themselves.",
+      "function io.adopt(text: string): affine(Reader, closeReader)",
+      "   return read(text)",
+      "end",
+      "",
+      "--- Byte sources.",
+      "record io.Bytes",
+      "   --- Opens a reader over these bytes.",
+      "   newReader: function(self: Bytes): affine(Reader, __destroyReader)",
+      "end",
+   }, "\n")
+   local module = assert(doc.extract(source, "src/io.nupp", "io"))
+   local byName = {}
+   for _, item in ipairs(module.items) do
+      byName[item.name] = item
+   end
+   assert(byName["io.__destroyReader"] == nil, "the private terminal was documented")
+   local opened = assert(byName["io.newReader"], "the opening function was not documented")
+   assert(opened.signature:find("affine(Reader, _)", 1, true), opened.signature)
+   assert(not opened.signature:find("__destroyReader", 1, true), opened.signature)
+   assert(opened.returns[1].type == "affine(Reader, _)", opened.returns[1].type)
+   local adopted = assert(byName["io.adopt"], "the adopting function was not documented")
+   assert(adopted.signature:find("affine(Reader, closeReader)", 1, true), adopted.signature)
+   local bytes = assert(byName["Bytes"], "the record was not documented")
+   assert(bytes.signature:find("affine(Reader, _)", 1, true), bytes.signature)
+   assert(not bytes.signature:find("__destroyReader", 1, true), bytes.signature)
+end
+
 function M.namespaceTagSynthesizesModulesFromAShapesFields()
    local source = table.concat({
       "--- @namespace lib",

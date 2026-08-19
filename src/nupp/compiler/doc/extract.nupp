@@ -163,10 +163,6 @@ local function dedent(text: string): string
     return (text:gsub("\n" .. margin, "\n"))
 end
 
-local function syntax(node)
-    return dedent(trim(cst.textOf(node)))
-end
-
 -- The `---` run and its tags are read by nupp.compiler.docblock, because the checker
 -- reads
 -- the
@@ -197,6 +193,64 @@ local function privateName(name)
     local tail = tostring(name or ""):match("([^%.:]+)$") or ""
     tail = tail:gsub("^[\"']", "")
     return tail:sub(1, 1) == "_"
+end
+
+-- A cleanup whose own declaration documentation leaves out has no business appearing in
+-- a signature documentation publishes. The prelude's `__nuppDestroyReader` is the
+-- clearest case: it is the library's terminal, a reader neither calls it nor writes it
+-- down, and printing it in every `nupp.io` signature says otherwise.
+--
+-- Dropping the argument would be worse than printing it, because `affine(T)` is not
+-- `affine(T, cleanup)` with the cleanup left off. It is a different type: transfer-only,
+-- with deliberately no terminal at all. So the argument is replaced rather than removed.
+-- `_` keeps the type honest -- this value carries a cleanup obligation -- while saying
+-- the name behind it is not the reader's to name.
+local function withoutHiddenTerminals(text: string): string
+    local pieces: {string} = {}
+    local index = 1
+    while true do
+        local start, open = text:find("affine[ \t\n]*%(", index)
+        if start == nil or open == nil then
+            break
+        end
+        -- `affine` has to be the whole word. A field or function whose name merely ends
+        -- in it, `myAffine(x, _y)`, is somebody else's call and is left alone.
+        local before = start > 1 and text:sub(start - 1, start - 1) or ""
+        if before:match("[%w_%.:]") ~= nil then
+            pieces[#pieces + 1] = text:sub(index, open)
+            index = open + 1
+        else
+            local depth, cursor, comma = 1, open + 1, nil
+            while cursor <= #text and depth > 0 do
+                local char = text:sub(cursor, cursor)
+                if char == "(" or char == "[" or char == "{" then
+                    depth = depth + 1
+                elseif char == ")" or char == "]" or char == "}" then
+                    depth = depth - 1
+                elseif char == "," and depth == 1 and comma == nil then
+                    comma = cursor
+                end
+                cursor = cursor + 1
+            end
+            local closeAt = cursor - 1
+            local cleanup = comma ~= nil and depth == 0 and trim(text:sub(comma + 1, closeAt - 1)) or ""
+            if cleanup ~= "" and cleanup:match("^[%w_%.:]+$") ~= nil and privateName(cleanup) then
+                pieces[#pieces + 1] = text:sub(index, comma)
+                pieces[#pieces + 1] = " _"
+                index = closeAt
+            else
+                pieces[#pieces + 1] = text:sub(index, open)
+                index = open + 1
+            end
+        end
+    end
+    pieces[#pieces + 1] = text:sub(index)
+
+    return table.concat(pieces)
+end
+
+local function syntax(node)
+    return withoutHiddenTerminals(dedent(trim(cst.textOf(node))))
 end
 
 -- A module whose name has an `internal` segment is private the same way a file below an
@@ -316,10 +370,10 @@ local function structureSignature(node, includePrivate)
     local source = trim(table.concat(parts))
     local formatted, errors = formatter.format(source, "documentation-signature.nupp")
     if #errors > 0 then
-        return source
+        return withoutHiddenTerminals(source)
     end
 
-    return trim(formatted)
+    return withoutHiddenTerminals(trim(formatted))
 end
 
 -- Every token under one annotation argument, in order. A separate function rather than

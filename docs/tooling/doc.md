@@ -162,6 +162,23 @@ A `.d.nupp` declaration file documents in full without `--all`, because `local`
 there is not privacy. Its bindings are the interface it describes. Mark one
 `@local` to keep it out.
 
+### Cleanup names
+
+`affine(T, cleanup)` names an exact cleanup identity, and a library's terminal
+is usually private: the prelude declares `__nuppDestroyReader` and never means
+a caller to write it. Wherever a rendered signature applies `affine` to a
+cleanup the documentation hides, the argument prints as `_`:
+
+```nupp
+newReader: function(self: ByteView): affine(Reader, _)
+```
+
+The argument is replaced rather than dropped, because `affine(Reader)` is a
+different type: transfer-only, with deliberately no terminal at all. `_` keeps
+the type honest about the obligation the value carries while saying the name
+behind it is not the reader's to write. A cleanup the documentation does
+describe prints as written.
+
 ## Markdown pages
 
 A docs target can carry handwritten pages alongside the generated API. Beyond
