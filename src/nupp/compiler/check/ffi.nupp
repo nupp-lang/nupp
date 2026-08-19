@@ -233,7 +233,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             --
             -- Reifying is what makes a value unreachable to anything that walks a
             -- table, and this is what makes it reachable again without the language
-            -- choosing a serialization format. See plans/010-layout.md.
+            -- choosing a serialization format. See docs/neps/0010-runtime-reflection-and-layout.md.
             --
             -- Only the spec is built here, because only the checker knows the declared
             -- field order and types. Everything numeric is this platform's and is asked
