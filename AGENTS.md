@@ -87,15 +87,23 @@ whenever output is not a terminal, so piped output never carries escapes.
 - `./bin/nupp lsp actions --json FILE LINE COLUMN` lists code actions. Use
   `--only quickfix` or `--only refactor` to narrow the results.
 
-## Plans are not documentation
+## Proposals are not documentation
 
-`plans/` holds dated design records. `docs/` says how Nupp behaves today, and
-wins wherever the two disagree. Every plan carries a `Status:` line under its
-title saying how much of it is real — read that before believing the body,
-which may describe syntax that was never built. See `plans/README.md`.
+`docs/neps/` holds Nupp Enhancement Proposals: numbered records of why a design
+is the way it is. `docs/` says how Nupp behaves today and wins wherever the two
+disagree. A proposal states its status in frontmatter — read it before believing
+the body, which may describe something that was never built.
 
-When work lands, update the status line in the same commit. Leave the body
-alone; it is the record of what was intended, not a description of the code.
+A proposal records reasoning, not behaviour. Never write a sentence describing
+what the compiler does today into one; link to the page that owns it. Reasoning
+about a decision made on a date stays true after the code moves.
+
+When work lands, change the status in the same commit and leave the body alone.
+[NEP 1](docs/neps/0001-nep-process.md) says how to write one; adding a proposal
+is writing `docs/neps/NNNN-slug.md` and nothing else.
+
+`TODO.md` is the backlog. It is not a design record and does not carry
+reasoning.
 
 ## Verification
 

@@ -2,7 +2,7 @@
 
 What it costs to translate real Teal into Nupp, measured rather than guessed.
 
-The v0.1 acceptance gate (plans/019-todo.md) is `tecs/src/tecs/internal/ffi`, 1276
+The v0.1 acceptance gate (TODO.md) is `tecs/src/tecs/internal/ffi`, 1276
 lines across six files. This is a running port of the first two, kept with a
 log of everything that fought back, because the friction is the point: it is the
 evidence for what to build next.
@@ -143,7 +143,7 @@ The 143 lines ported are the two files with the least FFI in them. Everything
 that would exercise reification is in the four not started: `FFIStorage.tl` (706
 lines) is the schema-to-cdata layer, `FFIEvents.tl` (200) is the event storage
 the metatable and prototype work was aimed at, and `EpochArena.tl` (116) is the
-owned growable buffer that `plans/019-todo.md` names for bounds-carrying spans.
+owned growable buffer that `TODO.md` names for bounds-carrying spans.
 
 So the finding is only "the easy files were easy, and what made them hard was
 unrelated to cdata". Whether the cdata story needs `__pairs`, a conversion, or

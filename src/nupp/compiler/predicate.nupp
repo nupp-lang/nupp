@@ -8,7 +8,7 @@ value is one of these. Two very different readers need it: the checker, which
 validates it against the declaration's own fields, and the generator, which
 compiles `x is T` into it. Handing the generator an expression tree, or worse a
 piece of source text to resolve again, is how a spelling ends up being resolved
-twice and disagreeing, the mistake `plans/019-todo.md` records for cleanups.
+twice and disagreeing, the mistake `TODO.md` records for cleanups.
 
 So the clause is read once, into a small tree of plain data whose only free
 variable is the subject. Nothing in it needs a scope: a path is a list of field

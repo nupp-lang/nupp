@@ -1,7 +1,8 @@
 # Nupp TODO
 
-Status: living list, not a plan. Items are checked off in place, so the boxes
-below are the status; nothing here is a commitment or a schedule.
+A living list, not a design record. Items are checked off in place, so the boxes
+below are the status; nothing here is a commitment or a schedule. Why something
+is designed the way it is belongs in [an enhancement proposal](docs/neps/).
 
 Grouped by the part of the system a change lands in. Nothing here is
 prioritised by tier; the ordering inside a section is roughly the order the
@@ -39,7 +40,7 @@ work makes sense in.
         that leaves a setting to the default, so a codec added later is held to
         the same rule on the run that adds it
   - [ ] shipped per-platform stubs
-        ([plan](043-cross-target-binaries.md)). Selection is built: `platforms`
+        ([plan](docs/neps/0041-cross-target-binaries.md)). Selection is built: `platforms`
         is a validated binary-target field, `--platform NAME|all` is on `build`,
         `check` and `clean`, `build/stubs.nupp` authenticates a stub by SHA-256,
         size and `hostAbi`, and release CI builds a stub, its notices and its
@@ -151,8 +152,8 @@ work makes sense in.
       verification and lane emission move together. The public
       surface stays ordinary scalar Nupp: do not add explicit vector values or
       a second numeric operator tower. The full delivery plan is
-      [aot-functions.md](038-aot-functions.md), and the rejected alternatives are
-      recorded in [portable-vectors.md](037-portable-vectors.md).
+      [aot-functions.md](docs/neps/0028-checked-aot-functions.md), and the rejected alternatives are
+      recorded in [portable-vectors.md](docs/neps/0032-aot-block-kernels-and-simd.md).
       The fixed-width intrinsic identities now come from
       `nupp.compiler.scalar_intrinsics` rather than a second table, so aliasing
       a standard member cannot mean one thing to the checker and another to the
@@ -174,7 +175,7 @@ work makes sense in.
         scalar, naming the construct that stopped it.
         The original entry follows.
   - [ ] withdraw `@aot(simd = true)`. Decided; the reasoning and its cost are
-        recorded in [portable-vectors.md](037-portable-vectors.md). The
+        recorded in [portable-vectors.md](docs/neps/0032-aot-block-kernels-and-simd.md). The
         annotation was justified as asserting iteration independence, and in the
         admitted subset independence is a theorem: disjointness follows from
         `exclusive_borrow`, every span access must use the loop index exactly,
@@ -290,7 +291,7 @@ work makes sense in.
         gangs without a project promising instructions its users may not have.
         Until then the conservative default costs half the lanes on the most
         common target, which is a real price and a stated one.
-        Scoped in [multiversioning.md](059-multiversioning.md), which is the
+        Scoped in [multiversioning.md](docs/neps/0028-checked-aot-functions.md), which is the
         decision this wanted before any code: one translation unit per
         `(source, tier)`, all of them linked into the one library that already
         travels, tier-suffixed symbols, and the wrapper binding the widest symbol
@@ -458,13 +459,13 @@ work makes sense in.
 - [ ] **Buffer adoption.** Port tecs `Buffer`, `ByteView`, `WriteRange`,
       compression, process-I/O, mapped-buffer, and pointer-plus-length call
       sites to Nupp's bounds-carrying spans and buffer implementation.
-- [ ] **HTTP adoption** ([design](007-http.md)): Tecs keeps its ECS policy and
+- [ ] **HTTP adoption** ([design](docs/neps/0038-http-client.md)): Tecs keeps its ECS policy and
       SDL-owned loop, installs its existing suspension adapter per task, polls
       Nupp without sleeping before and between scheduler rounds, and deletes
       its per-client transport pump and private upload scheduler after
       adoption. A close/count-only facade registry may remain for Teal
       lifecycle compatibility.
-- [ ] **Files adoption** ([design](006-files.md)): `nupp.io.files`, its native
+- [ ] **Files adoption** ([design](docs/neps/0037-files.md)): `nupp.io.files`, its native
       provider, bounded request lane, suspension integration, and compiler
       adoption have landed. The remaining project is tecs adoption: delete
       `io/files`, `internal/fileasync`, `platform/storagebackend` and its
