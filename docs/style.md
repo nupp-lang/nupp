@@ -345,10 +345,12 @@ the guarantee.
 The vocabulary is fixed so a reader meets one word per idea:
 
 - American spelling: color, behavior, initialize.
-- **"Spelling" means how something is written**, as in "the C library's
-  spelling" or "`not` is Lua's word spelling of `!`". It is not a word for a
-  way of doing something: `external = true` is not "a spelling for accept
-  arbitrary behavior", it is a way to say it.
+- **"Spelling" is about letters and nothing else.** Use it only for how a word
+  is formed from its characters, as in "American spelling" or "a misspelled
+  field name". It is not a word for a name, a syntax, a form, or a way of doing
+  something. Write "the C library's name", "`not` is Lua's word for `!`", "the
+  former API", "the source form". And `external = true` is a way to say accept
+  arbitrary behavior, not "a spelling" for it.
 - **The tools have names**: the checker, the compiler, the formatter, the
   language server, the documentation generator, the profiler. Commands are
   written as `nupp check`, in code style, without the leading `./bin/`.
