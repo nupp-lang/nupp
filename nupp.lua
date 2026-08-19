@@ -105,9 +105,10 @@ local RESOURCES = {
    {source = "src/nupp/io/process.nupp", output = "nupp/compiler/nupp/io/process.nupp"},
    {source = "src/nupp/workers.nupp", output = "nupp/compiler/nupp/workers.nupp"},
    {source = "src/nupp/io/http.nupp", output = "nupp/compiler/nupp/io/http.nupp"},
-   {source = "src/nupp/compiler/decls/processnative.d.nupp", output = "nupp/compiler/decls/processnative.d.nupp"},
-   {source = "src/nupp/compiler/decls/workersnative.d.nupp", output = "nupp/compiler/decls/workersnative.d.nupp"},
-   {source = "src/nupp/compiler/decls/httpnative.d.nupp", output = "nupp/compiler/decls/httpnative.d.nupp"},
+   {source = "src/nupp/io/processnative.d.nupp", output = "nupp/compiler/nupp/io/processnative.d.nupp"},
+   {source = "src/nupp/workers/native.d.nupp", output = "nupp/compiler/nupp/workers/native.d.nupp"},
+   {source = "src/nupp/io/httpnative.d.nupp", output = "nupp/compiler/nupp/io/httpnative.d.nupp"},
+   {source = "src/nupp/data/jsonnative.d.nupp", output = "nupp/compiler/nupp/data/jsonnative.d.nupp"},
 }
 for _, relative in ipairs(TEMPLATE_FILES) do
    RESOURCES[#RESOURCES + 1] = {

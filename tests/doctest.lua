@@ -767,7 +767,7 @@ end
 -- The JSON surface is declared by the host boundary the module re-exports, so this
 -- is asked of that file rather than of the prelude it used to sit in.
 function M.standardJsonApiHasCompleteDocumentation()
-   local path = "src/nupp/compiler/decls/jsonnative.d.nupp"
+   local path = "src/nupp/data/jsonnative.d.nupp"
    local source = readFile(HERE .. "/../" .. path)
    local module, errors = doc.extract(source, path, "nupp.data.json")
    assert(module, errors and errors[1] and errors[1].msg)

@@ -75321,7 +75321,7 @@ end
 
 local BUNDLED = {
 [ "string.buffer" ] = "/decls/stringbuffer.d.nupp" ,
-[ "jsonNative" ] = "/decls/jsonnative.d.nupp" ,
+[ "jsonNative" ] = "/nupp/data/jsonnative.d.nupp" ,
 [ "ffi" ] = "/decls/ffi.d.nupp" ,
 [ "lpeg" ] = "/decls/lpeg.d.nupp" ,
 [ "re" ] = "/decls/re.d.nupp" ,
@@ -75332,9 +75332,9 @@ local BUNDLED = {
 [ "jit.profile" ] = "/decls/jit/profile.d.nupp" ,
 [ "jit.zone" ] = "/decls/jit/zone.d.nupp" ,
 [ "jit.vmdef" ] = "/decls/jit/vmdef.d.nupp" ,
-[ "nupp.io.processnative" ] = "/decls/processnative.d.nupp" ,
-[ "nupp.io.httpnative" ] = "/decls/httpnative.d.nupp" ,
-[ "nupp.workers.native" ] = "/decls/workersnative.d.nupp" ,
+[ "nupp.io.processnative" ] = "/nupp/io/processnative.d.nupp" ,
+[ "nupp.io.httpnative" ] = "/nupp/io/httpnative.d.nupp" ,
+[ "nupp.workers.native" ] = "/nupp/workers/native.d.nupp" ,
 }
 
 
@@ -127143,6 +127143,13 @@ end
 const __nuppExportValue= http ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.io.http"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.io.http"]=__nuppExports;return __nuppExports
 end
+package.preload["nupp.io.httpnative"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+local httpnative
+
+return httpnative
+
+end
 package.preload["nupp.io.process"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
@@ -128767,6 +128774,29 @@ end
 
 const __nuppExportValue= process ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.io.process"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.io.process"]=__nuppExports;return __nuppExports
+end
+package.preload["nupp.io.processnative"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+
+
+
+
+
+
+
+
+
+const ProcessNative = {} ProcessNative.__index = ProcessNative
+
+
+
+
+local binding
+return binding
+
 end
 package.preload["nupp.log"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
@@ -133901,6 +133931,31 @@ workers . Exit = workers . Exit
 const __nuppExportValue= workers ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.workers"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.workers"]=__nuppExports;return __nuppExports
 end
+package.preload["nupp.workers.native"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,\"data\")or{};rawset(__nupp,\"data\",__nuppData);local __nuppIO=rawget(__nupp,\"io\")or{};rawset(__nupp,\"io\",__nuppIO);local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;\n\n\n\n\nlocal function __nuppDestroyByteView ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView\n\nlocal function __nuppDestroyReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader\n\nlocal function __nuppDestroyWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter\n\nlocal function __nuppDestroyBuffer ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer\n\nlocal function __nuppDestroyFile ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile\n\nlocal function __nuppDestroyTemporaryPath ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath\n\nlocal function __nuppDestroyScalarReader ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader\n\nlocal function __nuppDestroyScalarWriter ( value )\ndo\nvalue : drop ( )\nend\nend ;__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter\n\n\n\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyByteView\"]=__nuppDestroyByteView;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyReader\"]=__nuppDestroyReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyWriter\"]=__nuppDestroyWriter;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyBuffer\"]=__nuppDestroyBuffer;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyFile\"]=__nuppDestroyFile;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyTemporaryPath\"]=__nuppDestroyTemporaryPath;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarReader\"]=__nuppDestroyScalarReader;\n__nuppCleanups[\"nupp:prelude.d.nupp#__nuppDestroyScalarWriter\"]=__nuppDestroyScalarWriter;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
+
+
+
+const native = {} native.__index = native
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+return native
+
+end
 package.preload["nupp.embedded"] = function()
 return {
 ["/decls/ffi.d.nupp"] = [=[
@@ -133979,18 +134034,6 @@ end
 
 return ffi
 ]=],
-["/decls/httpnative.d.nupp"] = [[
---- Private provider binding for `nupp.io.http`.
-local httpnative: {newClient: function(options: any): (any?, string?)}
-
-return httpnative
-]],
-["/decls/httpnative.d.nupp"] = [[
---- Private provider binding for `nupp.io.http`.
-local httpnative: {newClient: function(options: any): (any?, string?)}
-
-return httpnative
-]],
 ["/decls/jit/profile.d.nupp"] = [=[
 --[[
 Declarations for LuaJIT's jit.profile module, loaded for
@@ -134253,152 +134296,6 @@ end
 
 local zone: Zone
 return zone
-]=],
-["/decls/jsonnative.d.nupp"] = [=[
---[[
-JSON encoding and decoding, and the values a Lua table cannot express by itself.
-
-This is the surface of the simdjson-backed host module. Programs reach it as
-`nupp.data.json`, which loads this boundary and re-exports it, so the shape is
-declared here and nowhere else.
-
-`decodeAs`, `encodeAs` and `encodeRecord` are not the host's. The derive runtime
-installs them onto this table when a program derives JSON for a type, and they raise
-when nothing was derived. They are declared with the rest so a caller sees one API.
-]]
-
---- Values that can encode themselves as JSON text.
-record json
-    --- Values that can encode themselves as JSON text.
-    interface JSONEncodable
-        toJSON: function(self): string
-    end
-
-    --- A checked incremental JSON writer.
-    interface Writer
-        --- Starts an array value.
-        --- @param self this writer
-        --- @return this writer
-        startArray: function(self: Writer): Writer
-
-        --- Starts an object value.
-        --- @param self this writer
-        --- @return this writer
-        startObject: function(self: Writer): Writer
-
-        --- Selects the next object member.
-        --- @param self this writer
-        --- @param name the next object member name
-        --- @return this writer
-        key: function(self: Writer, name: string): Writer
-
-        --- Appends one complete Lua value.
-        --- @param self this writer
-        --- @param value the next complete JSON value
-        --- @return this writer
-        write: function(self: Writer, value: any): Writer
-
-        --- Appends JSON null.
-        --- @param self this writer
-        --- @return this writer
-        null: function(self: Writer): Writer
-
-        --- Closes the current array or object.
-        --- @param self this writer
-        --- @return this writer
-        close: function(self: Writer): Writer
-
-        --- Returns bytes completed since the previous flush.
-        --- @param self this writer
-        --- @return the completed JSON bytes
-        flush: function(self: Writer): string
-
-        --- Completes the document and returns its final bytes.
-        --- @param self this writer
-        --- @return the final JSON bytes
-        finish: function(self: Writer): string
-    end
-
-    --- Decodes one JSON document. Null members are dropped unless a replacement
-    --- value is supplied.
-    --- @param text the complete JSON document
-    --- @param nullValue the value used for JSON null, or nil to drop nulls
-    --- @return the decoded Lua value
-    decode: function(text: string, nullValue: any?): any
-
-    --- Materializes only the fields selected by an On-Demand pull shape.
-    --- @param text the complete JSON document
-    --- @param shape the fields and array members to materialize
-    --- @param nullValue the value used for JSON null, or nil to drop nulls
-    --- @return the selected Lua value
-    pull: function(text: string, shape: any, nullValue: any?): any
-
-    --- Applies one pull shape to every member of an array.
-    --- @param shape the selection applied to each member, or every value when
-    ---     omitted
-    --- @return an array pull shape
-    arrayOf: function(shape: any?): table
-
-    --- Marks a Lua table as a JSON array, including while it is empty.
-    --- @param value the table to mark
-    --- @return the same table
-    asArray: function<T is table>(takes value: T): T preserves value
-
-    --- Marks a Lua table as a JSON object.
-    --- @param value the table to mark
-    --- @return the same table
-    asObject: function<T is table>(takes value: T): T preserves value
-
-    --- Serializes one Lua value as JSON.
-    --- @param value the value to serialize
-    --- @param nullValue an additional value treated as JSON null
-    --- @return the JSON document
-    encode: function(value: any, nullValue: any?): string
-
-    --- Alias of `encode`.
-    --- @param value the value to serialize
-    --- @param nullValue an additional value treated as JSON null
-    --- @return the JSON document
-    serialize: function(value: any, nullValue: any?): string
-
-    --- Creates an incremental JSON writer.
-    --- @param nullValue an additional value treated as JSON null
-    --- @return a new writer
-    writer: function(nullValue: any?): Writer
-
-    --- Decodes JSON into the nominal record named by its one type witness.
-    --- @param type the record's type witness, naming what to decode into
-    --- @param text the JSON document to decode
-    --- @return the decoded record, or nil when the document does not fit it
-    --- @return why it did not fit, when unsuccessful
-    decodeAs: function<T>(type: Type<T>, text: string): (T?, string?)
-
-    --- Encodes a nominal record after explicitly supplying its type witness.
-    --- @param type the record's type witness
-    --- @param value the record to encode
-    --- @return the encoded JSON document
-    encodeAs: function<T>(type: Type<T>, value: T): string
-
-    --- Encodes a nominal record using the metatable its value already carries.
-    --- @param value the record to encode
-    --- @return the encoded JSON document
-    encodeRecord: function<T>(value: T): string
-
-    --- Sentinel that decodes from and encodes as JSON null.
-    NULL: any
-
-    --- An explicit empty JSON array.
-    EMPTY_ARRAY: table
-
-    --- An explicit empty JSON object.
-    EMPTY_OBJECT: table
-
-end
-
---- @local
-local value: json
-
-return value
 ]=],
 ["/decls/lpeg.d.nupp"] = [=[
 --[[
@@ -138642,50 +138539,6 @@ local type __NuppTemporaryPathCleanup = affine(nupp.io.Files.TemporaryPath, __nu
 local type __NuppScalarReaderCleanup = affine(nupp.io.ScalarReader, __nuppDestroyScalarReader)
 local type __NuppScalarWriterCleanup = affine(nupp.io.ScalarWriter, __nuppDestroyScalarWriter)
 ]],
-["/decls/processnative.d.nupp"] = [=[
---[[
-Internal native process binding installed by the compiler bootstrap.
-
-The public module is `nupp.io.process`. This declaration exists only so that module can
-name the private preload which joins its platform-neutral state machine to the native
-crate; none of these operations are a user-facing ABI.
-
-Deliberately not typed in that module's terms. Naming `nupp.io.process.Backend` here
-would make the two require each other, and a resolved cycle answers `any` without
-saying so -- the binding would stop being typed and nothing would report it. The one
-call site casts instead, where a reader can see what is being assumed.
-]]
-
-local record ProcessNative
-    --- Answers a `nupp.io.process.Backend`, built over that module's `exited`.
-    new: function(exited: any): any
-end
-
-local binding: ProcessNative
-return binding
-]=],
-["/decls/processnative.d.nupp"] = [=[
---[[
-Internal native process binding installed by the compiler bootstrap.
-
-The public module is `nupp.io.process`. This declaration exists only so that module can
-name the private preload which joins its platform-neutral state machine to the native
-crate; none of these operations are a user-facing ABI.
-
-Deliberately not typed in that module's terms. Naming `nupp.io.process.Backend` here
-would make the two require each other, and a resolved cycle answers `any` without
-saying so -- the binding would stop being typed and nothing would report it. The one
-call site casts instead, where a reader can see what is being assumed.
-]]
-
-local record ProcessNative
-    --- Answers a `nupp.io.process.Backend`, built over that module's `exited`.
-    new: function(exited: any): any
-end
-
-local binding: ProcessNative
-return binding
-]=],
 ["/decls/re.d.nupp"] = [[
 -- Typed declaration for the textual LPeg grammar module bundled by Nupp.
 
@@ -138876,54 +138729,6 @@ local decode: function(s: string): any
 
 return {new = new, encode = encode, decode = decode}
 ]=],
-["/decls/workersnative.d.nupp"] = [[
---- Private compiler-host primitives used by `nupp.workers`.
----
---- The public module owns values, framing, suspension, and lifecycle. These
---- functions deliberately expose only opaque handles and serialized bytes.
-local record native
-    channelCreate: function(): any
-    channelDestroy: function(any)
-    channelClose: function(any)
-    channelPush: function(any, string): boolean
-    channelPop: function(any, integer): string?
-    channelCount: function(any): integer
-    channelClosed: function(any): boolean
-
-    workerSpawn: function(string, any, any): (any?, string?)
-    workerFinished: function(any): boolean
-    workerJoin: function(any): (integer, string?)
-
-    current: function(): (any?, any?)
-    now: function(): number
-end
-
-return native
-]],
-["/decls/workersnative.d.nupp"] = [[
---- Private compiler-host primitives used by `nupp.workers`.
----
---- The public module owns values, framing, suspension, and lifecycle. These
---- functions deliberately expose only opaque handles and serialized bytes.
-local record native
-    channelCreate: function(): any
-    channelDestroy: function(any)
-    channelClose: function(any)
-    channelPush: function(any, string): boolean
-    channelPop: function(any, integer): string?
-    channelCount: function(any): integer
-    channelClosed: function(any): boolean
-
-    workerSpawn: function(string, any, any): (any?, string?)
-    workerFinished: function(any): boolean
-    workerJoin: function(any): (integer, string?)
-
-    current: function(): (any?, any?)
-    now: function(): number
-end
-
-return native
-]],
 ["/nupp/data/bitset.nupp"] = [=[
 module nupp.data.bitset
 
@@ -139740,6 +139545,152 @@ export interface JSONEncodable
 end
 
 export = native
+]=],
+["/nupp/data/jsonnative.d.nupp"] = [=[
+--[[
+JSON encoding and decoding, and the values a Lua table cannot express by itself.
+
+This is the surface of the simdjson-backed host module. Programs reach it as
+`nupp.data.json`, which loads this boundary and re-exports it, so the shape is
+declared here and nowhere else.
+
+`decodeAs`, `encodeAs` and `encodeRecord` are not the host's. The derive runtime
+installs them onto this table when a program derives JSON for a type, and they raise
+when nothing was derived. They are declared with the rest so a caller sees one API.
+]]
+
+--- Values that can encode themselves as JSON text.
+record json
+    --- Values that can encode themselves as JSON text.
+    interface JSONEncodable
+        toJSON: function(self): string
+    end
+
+    --- A checked incremental JSON writer.
+    interface Writer
+        --- Starts an array value.
+        --- @param self this writer
+        --- @return this writer
+        startArray: function(self: Writer): Writer
+
+        --- Starts an object value.
+        --- @param self this writer
+        --- @return this writer
+        startObject: function(self: Writer): Writer
+
+        --- Selects the next object member.
+        --- @param self this writer
+        --- @param name the next object member name
+        --- @return this writer
+        key: function(self: Writer, name: string): Writer
+
+        --- Appends one complete Lua value.
+        --- @param self this writer
+        --- @param value the next complete JSON value
+        --- @return this writer
+        write: function(self: Writer, value: any): Writer
+
+        --- Appends JSON null.
+        --- @param self this writer
+        --- @return this writer
+        null: function(self: Writer): Writer
+
+        --- Closes the current array or object.
+        --- @param self this writer
+        --- @return this writer
+        close: function(self: Writer): Writer
+
+        --- Returns bytes completed since the previous flush.
+        --- @param self this writer
+        --- @return the completed JSON bytes
+        flush: function(self: Writer): string
+
+        --- Completes the document and returns its final bytes.
+        --- @param self this writer
+        --- @return the final JSON bytes
+        finish: function(self: Writer): string
+    end
+
+    --- Decodes one JSON document. Null members are dropped unless a replacement
+    --- value is supplied.
+    --- @param text the complete JSON document
+    --- @param nullValue the value used for JSON null, or nil to drop nulls
+    --- @return the decoded Lua value
+    decode: function(text: string, nullValue: any?): any
+
+    --- Materializes only the fields selected by an On-Demand pull shape.
+    --- @param text the complete JSON document
+    --- @param shape the fields and array members to materialize
+    --- @param nullValue the value used for JSON null, or nil to drop nulls
+    --- @return the selected Lua value
+    pull: function(text: string, shape: any, nullValue: any?): any
+
+    --- Applies one pull shape to every member of an array.
+    --- @param shape the selection applied to each member, or every value when
+    ---     omitted
+    --- @return an array pull shape
+    arrayOf: function(shape: any?): table
+
+    --- Marks a Lua table as a JSON array, including while it is empty.
+    --- @param value the table to mark
+    --- @return the same table
+    asArray: function<T is table>(takes value: T): T preserves value
+
+    --- Marks a Lua table as a JSON object.
+    --- @param value the table to mark
+    --- @return the same table
+    asObject: function<T is table>(takes value: T): T preserves value
+
+    --- Serializes one Lua value as JSON.
+    --- @param value the value to serialize
+    --- @param nullValue an additional value treated as JSON null
+    --- @return the JSON document
+    encode: function(value: any, nullValue: any?): string
+
+    --- Alias of `encode`.
+    --- @param value the value to serialize
+    --- @param nullValue an additional value treated as JSON null
+    --- @return the JSON document
+    serialize: function(value: any, nullValue: any?): string
+
+    --- Creates an incremental JSON writer.
+    --- @param nullValue an additional value treated as JSON null
+    --- @return a new writer
+    writer: function(nullValue: any?): Writer
+
+    --- Decodes JSON into the nominal record named by its one type witness.
+    --- @param type the record's type witness, naming what to decode into
+    --- @param text the JSON document to decode
+    --- @return the decoded record, or nil when the document does not fit it
+    --- @return why it did not fit, when unsuccessful
+    decodeAs: function<T>(type: Type<T>, text: string): (T?, string?)
+
+    --- Encodes a nominal record after explicitly supplying its type witness.
+    --- @param type the record's type witness
+    --- @param value the record to encode
+    --- @return the encoded JSON document
+    encodeAs: function<T>(type: Type<T>, value: T): string
+
+    --- Encodes a nominal record using the metatable its value already carries.
+    --- @param value the record to encode
+    --- @return the encoded JSON document
+    encodeRecord: function<T>(value: T): string
+
+    --- Sentinel that decodes from and encodes as JSON null.
+    NULL: any
+
+    --- An explicit empty JSON array.
+    EMPTY_ARRAY: table
+
+    --- An explicit empty JSON object.
+    EMPTY_OBJECT: table
+
+end
+
+--- @local
+local value: json
+
+return value
 ]=],
 ["/nupp/data/valuebuilder.g.nupp"] = [=[
 module nupp.data.valuebuilder
@@ -142097,6 +142048,12 @@ end
 
 export = http
 ]=],
+["/nupp/io/httpnative.d.nupp"] = [[
+--- Private provider binding for `nupp.io.http`.
+local httpnative: {newClient: function(options: any): (any?, string?)}
+
+return httpnative
+]],
 ["/nupp/io/process.nupp"] = [=[
 module nupp.io.process
 
@@ -143720,6 +143677,28 @@ function process.exited(exitCode: integer, killed: boolean, timedOut: boolean): 
 end
 
 export = process
+]=],
+["/nupp/io/processnative.d.nupp"] = [=[
+--[[
+Internal native process binding installed by the compiler bootstrap.
+
+The public module is `nupp.io.process`. This declaration exists only so that module can
+name the private preload which joins its platform-neutral state machine to the native
+crate; none of these operations are a user-facing ABI.
+
+Deliberately not typed in that module's terms. Naming `nupp.io.process.Backend` here
+would make the two require each other, and a resolved cycle answers `any` without
+saying so -- the binding would stop being typed and nothing would report it. The one
+call site casts instead, where a reader can see what is being assumed.
+]]
+
+local record ProcessNative
+    --- Answers a `nupp.io.process.Backend`, built over that module's `exited`.
+    new: function(exited: any): any
+end
+
+local binding: ProcessNative
+return binding
 ]=],
 ["/nupp/log.g.nupp"] = [=[
 module nupp.log
@@ -148841,6 +148820,30 @@ workers.Exit = workers.Exit
 
 export = workers
 ]=],
+["/nupp/workers/native.d.nupp"] = [[
+--- Private compiler-host primitives used by `nupp.workers`.
+---
+--- The public module owns values, framing, suspension, and lifecycle. These
+--- functions deliberately expose only opaque handles and serialized bytes.
+local record native
+    channelCreate: function(): any
+    channelDestroy: function(any)
+    channelClose: function(any)
+    channelPush: function(any, string): boolean
+    channelPop: function(any, integer): string?
+    channelCount: function(any): integer
+    channelClosed: function(any): boolean
+
+    workerSpawn: function(string, any, any): (any?, string?)
+    workerFinished: function(any): boolean
+    workerJoin: function(any): (integer, string?)
+
+    current: function(): (any?, any?)
+    now: function(): number
+end
+
+return native
+]],
 ["/templates/app/.gitignore"] = [[
 /build/
 ]],
