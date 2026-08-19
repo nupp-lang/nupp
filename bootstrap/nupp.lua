@@ -54034,7 +54034,7 @@ detail = [[Manifest target options cannot be combined with explicit source files
 Use 'nupp tasks' to discover target names and configuration.
 
 The level is part of the build key, so changing it rebuilds rather than
-mixing artifacts compiled at two different levels. See plans/014-optimizations.md.
+mixing artifacts compiled at two different levels. See docs/neps/0026-compiler-optimizations.md.
 
 --json reports the same diagnostics as 'nupp check --json' alongside what the
 build wrote, so one call answers both what went wrong and what landed. It also
@@ -75904,7 +75904,7 @@ summary = "An optimizer remark" ,
 rule = "Not a problem. A pass saying what it rewrote, or what it looked "
 .. "at and declined to rewrite. Always a note, and never fails a "
 .. "build." ,
-docs = "plans/014-optimizations.md"
+docs = "docs/neps/0026-compiler-optimizations.md"
 } ,
 }
 
@@ -77082,7 +77082,7 @@ rule = "`@jit` promises a function compiles as a LuaJIT trace. `@aot` reserves "
 wrong = "@jit\n@aot\nlocal function hot(scale: number): number\n    return scale * 2.0\nend\n" ,
 right = "@aot\nlocal function hot(scale: number): number\n    return scale * 2.0\nend\n" ,
 related = { "NUPP2707" , "NUPP2902" } ,
-docs = "plans/038-aot-functions.md" ,
+docs = "docs/neps/0028-checked-aot-functions.md" ,
 }
 
 ENTRIES [
@@ -77101,7 +77101,7 @@ right = "@aot\nlocal function scaled(x: number): number\n    return x * 2.0\nend
 .. "local record Point\n    x: number\n    constructor(self, x: number)\n"
 .. "        self.x = scaled(x)\n    end\nend\n" ,
 related = { "NUPP2901" , "NUPP2903" } ,
-docs = "plans/038-aot-functions.md" ,
+docs = "docs/neps/0028-checked-aot-functions.md" ,
 }
 
 ENTRIES [
@@ -77121,7 +77121,7 @@ wrong = "@aot\nlocal function total(scale: number): number\n"
 right = "local function double(x: number): number\n    return x * 2.0\nend\n\n"
 .. "@aot\nlocal function total(scale: number): number\n    return double(scale)\nend\n" ,
 related = { "NUPP2901" , "NUPP2902" } ,
-docs = "plans/038-aot-functions.md" ,
+docs = "docs/neps/0028-checked-aot-functions.md" ,
 }
 
 ENTRIES [
