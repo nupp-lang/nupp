@@ -4,11 +4,11 @@ This directory tests one implementation seam: an ordinary Nupp function is
 checked, lowered to a sealed AOT IR, verified, and emitted as private C. The
 same body remains the ordinary Nupp implementation and differential oracle.
 
-This is not yet `nupp build` AOT support. The public checker recognizes `@aot`
-and records its semantic facts, while the generator and Clang orchestration
-still live under `bench/`. The generator runs the normal checker in its own
-process and lowers that same annotated CST; it does not re-decide `@aot`,
-`simd`, floating-point relaxation, or fixed-width establishment from spelling.
+The backend it drives is the production one. Everything that used to live here
+is under `src/nupp/compiler/aot/`, and what is left in this directory is the
+kernels, the harnesses that run them three ways, and the Clang orchestration
+that a benchmark needs and a build does not. `kernel_compiler.lua` is a driver
+over `nupp.compiler.aot.compile`.
 
 ## One SIMD source model
 
@@ -384,16 +384,20 @@ access, region relationship, scalar conversion, and lane operation must already
 exist in verified IR. C compilation uses contraction and fast math only when an
 explicit source relaxation permits them.
 
-## Remaining production work
+## What this directory is for now
 
-The spike accepts one annotated local function and emits one private translation
-unit. It does not yet provide build policy in `nupp.lua`, module AOT summaries,
-incremental hashes, production artifact validation, status-return failures,
-target dispatch, inspection commands, hot reload, reductions, stencils,
-helper graphs, or nested numeric-loop lowering.
+Native lowering has landed: a target selects `aot = "emit-c"` or
+`aot = "require"`, the build writes the C and links it, and `nupp aot` reports
+what either produced. [The guide](../../docs/guides/ahead-of-time.md) documents
+all of it.
 
-Most importantly, ordinary `nupp build` still emits the Lua body. Moving this
-IR and emitter under `src/`, consuming the full checked ownership/effect graph,
-and making `aot=require` or `aot=emit-c` real build policies are the next
-integration boundary. Until then, this directory is evidence for that design,
-not a claim that native lowering has landed.
+What stays here is what a build has no reason to carry. The kernels are the
+shapes the admitted subset was designed against, and each has a harness that
+runs it as ordinary Nupp, as forced-scalar C, and as lane-parallel C and
+compares the three -- which is how a change to the backend is shown not to have
+changed an answer. `mandelbrot.sh` and `mixedwidth.sh` are the measurements the
+lane decisions were taken on, and `crosscheck.sh` runs the differentials against
+a second target.
+
+Not covered by any of it, and so not claimed: hot reload, reductions, stencils,
+helper graphs, and nested numeric-loop lowering.
