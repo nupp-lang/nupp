@@ -3043,7 +3043,7 @@ end
 
 function compile . lanes ( program , filename , selected )
 if program . usesSimd == true then
-program . simdWidth = selected . tier == "avx2" and 32 or 16
+program . simdWidth = ( selected . tier == "avx2" or selected . tier == "avx512f" ) and 32 or 16
 end
 if program . loop == nil then
 program . wantsLanes = false
@@ -4117,6 +4117,7 @@ end
 
 
 emit . MASK_C = {
+[ "m64x8" ] = "long long" ,
 [ "m64x4" ] = "long long" ,
 [ "m32x8" ] = "int" ,
 [ "m64x2" ] = "long long" ,
@@ -6333,10 +6334,11 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
+
 local scalarIR = require ( "nupp.compiler.aot.scalar" )
 
 local aotLane = { }
-
 
 
 
@@ -6713,8 +6715,16 @@ aotLane.Local = {} aotLane.Local.__index = aotLane.Local
 
 
 
-
 aotLane . SHAPES = { setmetatable({ name =
+
+"mixed8" ,  lanes =
+8 ,  bytes =
+64 ,  mask =
+"m64x8" ,  vectorFor =
+{ [ "f64" ] = "f64x8" , [ "f32" ] = "f32x8" , [ "i32" ] = "f64x8" , [ "u32" ] = "f64x8" , [ "bool" ] = "m64x8" } ,  maskFor =
+{ [ "f32" ] = "m32x8" } ,  bits =
+"u32x8" }, aotLane.Shape)
+, setmetatable({ name =
 
 "mixed4" ,  lanes =
 4 ,  bytes =
@@ -12244,12 +12254,14 @@ end
 
 
 
+
+
 table . sort ( ordered , function ( a , b )
 if a . lanes ~= b . lanes then
 return a . lanes > b . lanes
 end
 if a . bytes ~= b . bytes then
-return a . bytes > b . bytes
+return a . bytes < b . bytes
 end
 
 return a . name < b . name
@@ -13361,6 +13373,9 @@ target . TIERS = {
 [ "avx2" ] = 32 ,
 
 
+[ "avx512f" ] = 64 ,
+
+
 
 [ "neon" ] = 32 ,
 }
@@ -13418,6 +13433,8 @@ end
 function target . tiers ( architecture )
 if architecture == "aarch64" then
 return { "neon" }
+elseif architecture == "x86_64" then
+return { "baseline" , "avx2" , "avx512f" }
 end
 
 return { "baseline" , "avx2" }
@@ -16511,7 +16528,7 @@ aot . DIALECT_FLAGS = { [ "clang" ] = { "-Wno-parentheses-equality" } , [ "gcc" 
 
 
 
-aot . TIER_FLAGS = { [ "avx2" ] = "-mavx2" }
+aot . TIER_FLAGS = { [ "avx2" ] = "-mavx2" , [ "avx512f" ] = "-mavx512f" }
 
 
 
@@ -53192,7 +53209,7 @@ list [
 name = "--features" ,
 key = "features" ,
 value = "TIER" ,
-help = "The CPU feature tier to promise: baseline, avx2, or neon" ,
+help = "The CPU feature tier to promise: baseline, avx2, avx512f, or neon" ,
 }
 list [
 # list + 1

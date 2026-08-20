@@ -39,6 +39,15 @@ local function capture(cmd)
    return out
 end
 
+-- See lspclitest: a JSON capture reads stdout alone, because the launcher's
+-- cold-cache progress line goes to stderr and would arrive in front of it.
+local function captureJson(cmd)
+   local p = assert(io.popen(cmd))
+   local out = p:read("*a")
+   p:close()
+   return out
+end
+
 local function exists(path)
    local f = io.open(path, "rb")
    if f then f:close() return true end
@@ -503,7 +512,7 @@ end
 return new Model()
 ]],
    })
-   local first = require("testjson").decode(capture(
+   local first = require("testjson").decode(captureJson(
       ("cd '%s' && '%s' build model.g.nupp --json"):format(dir, NUPP)
    ))
    assert(first.ok and #first.derives == 2, "cold build reports all derives")
@@ -519,7 +528,7 @@ return new Model()
       "build observations expose bounded generation facts")
    local coldBytes = read(dir .. "/model.lua")
 
-   local second = require("testjson").decode(capture(
+   local second = require("testjson").decode(captureJson(
       ("cd '%s' && '%s' build model.g.nupp --json"):format(dir, NUPP)
    ))
    assert(second.ok and #second.derives == 2,

@@ -225,7 +225,8 @@ Options:
   --check          Exit non-zero for a map loop that wanted lanes and ran one
                    iteration at a time
   --target TRIPLE  The target triple to compile for; the host's by default
-  --features TIER  The CPU feature tier to promise: baseline, avx2, avx512f, or neon
+  --features TIER  The CPU feature tier to promise: baseline, avx2, avx512f, or
+                   neon
   --library PATH   Where the compiled object will be found, for the generated
                    binding
   --schema         Print the JSON Schema of --json output and exit

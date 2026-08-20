@@ -29,6 +29,18 @@ local function capture(dir, command)
    return output
 end
 
+-- `--json` promises a clean stdout, so a JSON capture must not fold stderr into
+-- it. The launcher writes "building the compiler" there when the cache is cold,
+-- which never happens in a warm single-suite run and lands in front of the
+-- payload under a full parallel one.
+local function captureJson(dir, command)
+   local pipe = assert(io.popen(("cd '%s' && '%s' %s")
+      :format(dir, NUPP, command)))
+   local output = pipe:read("*a")
+   pipe:close()
+   return output
+end
+
 local function readFile(path)
    local file = assert(io.open(path, "rb"))
    local source = file:read("*a")
@@ -77,7 +89,7 @@ local M = {}
 function M.inspectDefinitionReferencesAndSymbols()
    local dir = project()
 
-   local inspected = json.decode(capture(dir,
+   local inspected = json.decode(captureJson(dir,
       "lsp inspect --json main.nupp 2 20"))
    assert(inspected.symbol.name == "double", "inspect names the member")
    assert(inspected.symbol.kind == "function", "inspect reports its kind")
@@ -88,21 +100,21 @@ function M.inspectDefinitionReferencesAndSymbols()
    assert(inspected.symbol.definition.file == "lib.nupp",
       "inspect includes the cross-file definition")
 
-   local definition = json.decode(capture(dir,
+   local definition = json.decode(captureJson(dir,
       "lsp definition --json main.nupp 2 20"))
    assert(definition.definition.file == "lib.nupp",
       "definition reaches the module member")
    assert(definition.definition.range.start.line == 4,
       "definition uses one-based lines")
 
-   local references = json.decode(capture(dir,
+   local references = json.decode(captureJson(dir,
       "lsp references --json --include-declaration main.nupp 2 20"))
    assert(#references.references == 2,
       "references includes declaration and use")
    assert(references.declarationIncluded == true,
       "references records declaration policy")
 
-   local workspace = json.decode(capture(dir, "lsp symbols --json Widget"))
+   local workspace = json.decode(captureJson(dir, "lsp symbols --json Widget"))
    assert(#workspace.symbols == 1, "workspace symbols filters by name")
    assert(workspace.symbols[1].name == "Widget", "workspace symbol is named")
    assert(workspace.symbols[1].file == nil,
@@ -110,7 +122,7 @@ function M.inspectDefinitionReferencesAndSymbols()
    assert(workspace.symbols[1].location.file == "lib.nupp",
       "workspace symbol carries a project-relative location")
 
-   local document = json.decode(capture(dir,
+   local document = json.decode(captureJson(dir,
       "lsp symbols --json --file lib.nupp double"))
    assert(#document.symbols == 1 and document.symbols[1].name == "lib.double",
       "document symbols expose the source outline")
@@ -134,7 +146,7 @@ function M.traceCheckInspectsOneFunctionWithoutAddingAContract()
          "",
       }, "\n"),
    })
-   local checked = json.decode(capture(dir,
+   local checked = json.decode(captureJson(dir,
       "lsp trace-check --json hot.g.nupp 5 7"))
    assert(checked.functionName == "hot", "the enclosing function is selected")
    assert(checked.contract == "inspection", "manual inspection does not add @jit")
@@ -162,7 +174,7 @@ function M.traceCheckIncludesARepairableNoncapturingClosure()
          "",
       }, "\n"),
    })
-   local checked = json.decode(capture(dir,
+   local checked = json.decode(captureJson(dir,
       "lsp trace-check --json hot.g.nupp 2 4"))
    local found
    for _, finding in ipairs(checked.findings) do
@@ -200,7 +212,7 @@ function M.traceCheckFollowsAnExactImportedCallee()
          "",
       }, "\n"),
    })
-   local checked = json.decode(capture(dir,
+   local checked = json.decode(captureJson(dir,
       "lsp trace-check --json main.g.nupp 4 8"))
    local found
    for _, finding in ipairs(checked.findings) do
@@ -209,7 +221,7 @@ function M.traceCheckFollowsAnExactImportedCallee()
    assert(found, "the exported callee transports its trace summary")
    assert(#found.callPath >= 2 and found.callPath[1] == "hot",
       "the imported call path starts at the inspected function")
-   local diagnostics = json.decode(capture(dir, "check --json main.g.nupp"))
+   local diagnostics = json.decode(captureJson(dir, "check --json main.g.nupp"))
    local contractError
    for _, diagnostic in ipairs(diagnostics.diagnostics or {}) do
       if diagnostic.code == "NUPP2707" then contractError = diagnostic end
@@ -221,7 +233,7 @@ end
 
 function M.renamePreviewsThenWritesEverySemanticReference()
    local dir = project()
-   local preview = json.decode(capture(dir,
+   local preview = json.decode(captureJson(dir,
       "lsp rename --json main.nupp 2 20 twice"))
    assert(preview.written == false, "rename previews by default")
    assert(preview.oldName == "double" and preview.newName == "twice",
@@ -256,7 +268,7 @@ function M.actionsAndJsonDiagnosticsAreMachineReadable()
       ["point.nupp"] = "local shapes = {}\nrecord Point\n"
          .. "    x: number\nend\nreturn shapes\n",
    })
-   local actions = json.decode(capture(dir,
+   local actions = json.decode(captureJson(dir,
       "lsp actions --json --only quickfix point.nupp 2 8"))
    assert(#actions.actions == 3, "the three visibility fixes are exposed")
    local titles = {}
@@ -264,7 +276,7 @@ function M.actionsAndJsonDiagnosticsAreMachineReadable()
    contains(table.concat(titles, "|"), "mark it local", "local action")
    contains(table.concat(titles, "|"), "mark it global", "global action")
 
-   local checked = json.decode(capture(dir, "check --json point.nupp"))
+   local checked = json.decode(captureJson(dir, "check --json point.nupp"))
    assert(#checked.diagnostics == 1, "JSON check emits one diagnostic")
    assert(checked.diagnostics[1].code == "NUPP2119",
       "JSON check preserves the diagnostic code")
@@ -280,7 +292,7 @@ function M.actionsAndJsonDiagnosticsAreMachineReadable()
    contains(text, "2 | record Point", "text diagnostic includes source")
    contains(text, "^~~~~", "text diagnostic underlines the complete name")
 
-   local projectCheck = json.decode(capture(dir, "check --json"))
+   local projectCheck = json.decode(captureJson(dir, "check --json"))
    assert(#projectCheck.diagnostics == 1
       and projectCheck.diagnostics[1].code == "NUPP2119",
       "project checking uses the same JSON diagnostic contract")
@@ -296,7 +308,7 @@ function M.refinementAndSpellingFixesReachLanguageActions()
       ["field.nupp"] = "local p: {horizontal: number} = {horizontal = 1}\n"
          .. "print(p.horizonal)\n",
    })
-   local narrowing = json.decode(capture(dir,
+   local narrowing = json.decode(captureJson(dir,
       "lsp actions --json --only quickfix main.nupp 2 22"))
    assert(#narrowing.actions == 2, "refinement error reaches the LSP")
    assert(narrowing.actions[1].title == "convert with `nupp.math.i32.wrap`",
@@ -304,12 +316,12 @@ function M.refinementAndSpellingFixesReachLanguageActions()
    assert(narrowing.actions[2].title == "change the type to `integer`",
       "the identity-preserving widening is offered")
 
-   local spelling = json.decode(capture(dir,
+   local spelling = json.decode(captureJson(dir,
       "lsp actions --json --only quickfix field.nupp 2 9"))
    assert(#spelling.actions == 1, "field typo exposes one safe fix")
    assert(spelling.actions[1].title == "change to `horizontal`")
 
-   local checked = json.decode(capture(dir, "check --json field.nupp"))
+   local checked = json.decode(captureJson(dir, "check --json field.nupp"))
    local diagnostic = checked.diagnostics[1]
    assert(diagnostic.range["end"].column - diagnostic.range.start.column
       == #"horizonal", "JSON carries the complete token range")
@@ -329,7 +341,7 @@ function M.jsonDiagnosticsCarryCrossFileRelatedRanges()
       ["b.nupp"] = "global record Shared end\n",
       ["use.nupp"] = "local value: Shared?\nreturn value\n",
    })
-   local checked = json.decode(capture(dir, "check --json"))
+   local checked = json.decode(captureJson(dir, "check --json"))
    local diagnostic = checked.diagnostics[1]
    assert(diagnostic and diagnostic.code == "NUPP2102",
       "ambiguous global is serialized")
