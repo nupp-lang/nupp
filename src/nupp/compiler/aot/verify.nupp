@@ -978,8 +978,12 @@ laneWalk = function(node: lane.Expr, values: {[string]: string}, context: verify
         )
         operands(node.args, node.type, #node.args, values, context, "a math argument of the wrong width")
     elseif node.op == "vcorrected" then
+        -- Whatever binary32 lanes this gang carries, which is eight of them
+        -- only in a 32-byte one. A 16-byte gang has four, and naming a width
+        -- here rather than asking the shape refused every x86-64 baseline
+        -- build -- the tier most machines get -- for IR that was correct.
         laneHolds(
-            node.type == "f32x8" and verify.CORRECTED_ARITY[node.helper] == #node.args,
+            node.type == shape.vectorFor["f32"] and verify.CORRECTED_ARITY[node.helper] == #node.args,
             "a corrected operation with the wrong helper or arity"
         )
         operands(node.args, node.type, #node.args, values, context, "a corrected operand of the wrong width")
