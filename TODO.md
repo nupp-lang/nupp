@@ -55,13 +55,6 @@ work makes sense in.
       `target("avx2")` per function -- was tried rather than assumed away: it
       compiles clean only with the attribute on every helper too, which is the
       cost the flag route does not have.
-- [ ] **Name a `kind = "c"` dependency's library relative to its module.**
-      Compiled `@aot` code travels: the wrapper names its library with a
-      leading `@`, resolved against the chunk that loads it, so a copied output
-      tree runs from anywhere. An ordinary C dependency still embeds the path
-      the build wrote, so it has the problem `@aot` code no longer has. The
-      mechanism is general and nothing has been changed there.
-
 ## Dialect interop (`import-tl`)
 
 - [ ] source translator CLI (eject model, visible residue comments, `any`
