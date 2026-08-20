@@ -67,7 +67,7 @@ lib.ks_corrected(lanes, samples, 1, count, count)
 lib.ks_corrected_forced_scalar(scalar, samples, 1, count, count)
 local writer = spans.writeCarray(fallback, count)
 ordinary.corrected(writer, spans.fromCarray(samples, count), 1, count)
-writer:commit()
+writer:drop()
 
 local f32 = nupp.math.f32
 local mismatches = 0

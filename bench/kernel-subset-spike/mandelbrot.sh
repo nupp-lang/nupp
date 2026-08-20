@@ -37,7 +37,7 @@ ${NUPP_NATIVE_CC:-clang} -std=c11 -O3 -ffp-contract=off -fno-fast-math \
 # Build the exact annotated body through the ordinary Lua path as the semantic
 # oracle. The generated C and ordinary module never come from separate source.
 ./bin/nupp build -O2 -o "$OUT/fallback" "$SPIKE/$SOURCE.nupp"
-mkdir -p "$OUT/fallback/nupp"
-./bin/nupp build -O2 -o "$OUT/fallback/nupp" src/nupp/span.nupp
+mkdir -p "$OUT/fallback/nupp/mem"
+./bin/nupp build -O2 -o "$OUT/fallback/nupp/mem" src/nupp/mem/span.nupp
 
 echo "$LIB"

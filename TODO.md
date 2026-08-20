@@ -148,13 +148,6 @@ work makes sense in.
         tree runs from anywhere. An ordinary C dependency still embeds the path
         the build wrote, so it has the problem `@aot` code no longer has. The
         mechanism is general and nothing has been changed there.
-  - [ ] admit `nupp.math.f32.min`, `max`, and `fma`. The admitted operations are
-        exact because a binary32 operation over binary32 operands computed in
-        binary64 and rounded once is bit-identical to the native instruction
-        (53 >= 2 * 24 + 2). These three are not covered by that argument: their
-        `nupp.math` implementations canonicalize NaNs and compensate rounding in
-        ways `fmin`, `fmax` and `fmadd` may not match. Each owes a differential
-        test over signed zero, NaN payloads, and subnormals before it enters.
 ## Dialect interop (`import-tl`)
 
 - [ ] source translator CLI (eject model, visible residue comments, `any`

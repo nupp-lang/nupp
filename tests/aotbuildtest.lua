@@ -95,6 +95,48 @@ return {
 }
 ]]
 
+local CORRECTED_KERNEL = [[
+local span = require("nupp.mem.span")
+
+local struct Sample
+    a: float
+    b: float
+    c: float
+end
+
+local struct Result
+    least: float
+    greatest: float
+    fused: float
+end
+
+@aot(lanes = true)
+local function corrected(
+    exclusive results: span.WriteSpan<Result>,
+    borrows samples: span.Span<Sample>,
+    first: integer,
+    last: integer
+): nil
+    if #results ~= #samples then error("length mismatch", 2) end
+    if first < 1 or last > #results or first > last + 1 then
+        error("range out of bounds", 2)
+    end
+
+    for i = first, last do
+        local result = results[i]
+        local sample = samples[i]
+        local a = nupp.math.f32.narrow(sample.a)
+        local b = nupp.math.f32.narrow(sample.b)
+        local c = nupp.math.f32.narrow(sample.c)
+        result.least = nupp.math.f32.min(a, b)
+        result.greatest = nupp.math.f32.max(a, b)
+        result.fused = nupp.math.f32.fma(a, b, c)
+    end
+end
+
+return {corrected = corrected, Sample = Sample, Result = Result}
+]]
+
 local SIMD_KERNEL = [[
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
@@ -749,6 +791,81 @@ function M.theBuiltLibraryLoadsAndComputes()
    test.equal(tonumber(result.v2), 2, "the second scalar result crosses the result aggregate")
    test.equal(tonumber(result.v3), 3, "the third scalar result crosses the result aggregate")
 
+end
+
+function M.correctedBinary32OperationsMatchTheRuntimeBitForBit()
+   if not hasToolchain() then return end
+
+   local dir = project("require")
+   local source = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+   source:write(CORRECTED_KERNEL)
+   source:close()
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+
+   local ffi = require("ffi")
+   ffi.cdef[[
+      typedef struct { float a, b, c; } NuppCorrectedSample;
+      typedef struct { float least, greatest, fused; } NuppCorrectedResult;
+      void ks_corrected(NuppCorrectedResult *results,
+         const NuppCorrectedSample *samples, double first, double last,
+         size_t count);
+      void ks_corrected_forced_scalar(NuppCorrectedResult *results,
+         const NuppCorrectedSample *samples, double first, double last,
+         size_t count);
+   ]]
+   local lib = ffi.load(libraryPath(dir))
+   local holder = ffi.new("union { float f; uint32_t u; }[1]")
+   local function fromBits(value)
+      holder[0].u = value
+      return tonumber(holder[0].f)
+   end
+   local function bits(value)
+      holder[0].f = value
+      return tonumber(holder[0].u)
+   end
+
+   -- Both zero signs, both subnormal extremes, both finite extremes, both
+   -- infinities, and canonical, payload, and signalling NaNs. The cross product
+   -- makes every category occupy every argument of min, max, and fma.
+   local corners = {
+      0x00000000, 0x80000000, 0x00000001, 0x807fffff,
+      0x3f800000, 0xbf800000, 0x7f7fffff, 0xff7fffff,
+      0x7f800000, 0xff800000, 0x7fc00000, 0x7fc01234,
+      0x7f801234, 0x3fc00000, 0x40490fdb,
+   }
+   local count = #corners * #corners * #corners
+   local samples = ffi.new("NuppCorrectedSample[?]", count)
+   local position = 0
+   for _, a in ipairs(corners) do
+      for _, b in ipairs(corners) do
+         for _, c in ipairs(corners) do
+            samples[position].a = fromBits(a)
+            samples[position].b = fromBits(b)
+            samples[position].c = fromBits(c)
+            position = position + 1
+         end
+      end
+   end
+
+   local lanes = ffi.new("NuppCorrectedResult[?]", count)
+   local scalar = ffi.new("NuppCorrectedResult[?]", count)
+   lib.ks_corrected(lanes, samples, 1, count, count)
+   lib.ks_corrected_forced_scalar(scalar, samples, 1, count, count)
+   local f32 = nupp.math.f32
+   for index = 0, count - 1 do
+      local sample = samples[index]
+      local want = {
+         bits(f32.min(sample.a, sample.b)),
+         bits(f32.max(sample.a, sample.b)),
+         bits(f32.fma(sample.a, sample.b, sample.c)),
+      }
+      for _, body in ipairs({lanes[index], scalar[index]}) do
+         test.equal(bits(body.least), want[1], "min differs at case " .. index)
+         test.equal(bits(body.greatest), want[2], "max differs at case " .. index)
+         test.equal(bits(body.fused), want[3], "fma differs at case " .. index)
+      end
+   end
 end
 
 function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
