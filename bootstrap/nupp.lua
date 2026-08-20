@@ -69730,7 +69730,7 @@ local THEME = [[
 @media(max-width:1100px){.nuppdoc-shell{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr)}.nuppdoc-outline{display:none}.nuppdoc-content{width:min(100% - 5rem,var(--nuppdoc-content-width))}}@media(max-width:760px){.nuppdoc-top-nav{display:none}.nuppdoc-search{width:140px}.nuppdoc-shell{display:block}.nuppdoc-sidebar{position:static;max-height:none;padding:.7rem 1rem;border-right:0;border-bottom:1px solid var(--nuppdoc-border);box-shadow:none}.nuppdoc-sidebar h2{display:none}.nuppdoc-sidebar ul{display:flex;overflow:auto;gap:.25rem}.nuppdoc-content{width:auto;padding:1.5rem 1.25rem 4rem}}@media(max-width:480px){.nuppdoc-search{display:none}.nuppdoc-brand span:last-child{display:none}.nuppdoc-content table{display:block;overflow:auto}}
 /* The custom properties a site is meant to override. They are named and grouped
  * deliberately: this is the part of the stylesheet a project stylesheet targets. */
-:root{--nuppdoc-text-faint:color-mix(in srgb,var(--nuppdoc-text-muted) 72%,transparent);--nuppdoc-sidebar-background:var(--nuppdoc-background-alt);--nuppdoc-accent-contrast:#fff;--nuppdoc-home-width:1152px;--nuppdoc-home-gutter:2rem;--nuppdoc-hero-glow-color:var(--nuppdoc-accent);--nuppdoc-hero-glow-size:520px;--nuppdoc-hero-glow-blur:24px;--nuppdoc-hero-glow-opacity:.68;--nuppdoc-code-block-radius:8px;--nuppdoc-playground-border:color-mix(in srgb,var(--nuppdoc-border) 70%,var(--nuppdoc-text));--nuppdoc-code-tab-text:var(--nuppdoc-text-muted);--nuppdoc-code-tab-hover-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-bar:var(--nuppdoc-accent);--nuppdoc-code-tab-divider:var(--nuppdoc-border);--nuppdoc-code-tab-font-size:.72rem;--nuppdoc-code-tab-font-weight:600;--nuppdoc-code-tab-padding:.45rem .75rem;--nuppdoc-admonition-note:var(--nuppdoc-accent);--nuppdoc-admonition-info:#0969da;--nuppdoc-admonition-tip:#1a7f37;--nuppdoc-admonition-warning:#9a6700;--nuppdoc-admonition-danger:#cf222e;--nuppdoc-light-admonition-seealso:#0550ae;--nuppdoc-dark-admonition-seealso:#79c0ff;--nuppdoc-light-admonition-deepdive:#8b4c24;--nuppdoc-dark-admonition-deepdive:#d19a66;--nuppdoc-admonition-seealso:var(--nuppdoc-light-admonition-seealso);--nuppdoc-admonition-deepdive:var(--nuppdoc-light-admonition-deepdive)}
+:root{--nuppdoc-text-faint:color-mix(in srgb,var(--nuppdoc-text-muted) 72%,transparent);--nuppdoc-sidebar-background:var(--nuppdoc-background-alt);--nuppdoc-accent-contrast:#fff;--nuppdoc-home-width:1152px;--nuppdoc-home-gutter:2rem;--nuppdoc-hero-glow-color:var(--nuppdoc-accent);--nuppdoc-hero-glow-size:520px;--nuppdoc-hero-glow-blur:24px;--nuppdoc-hero-glow-opacity:.68;--nuppdoc-code-block-radius:8px;--nuppdoc-playground-border:color-mix(in srgb,var(--nuppdoc-border) 70%,var(--nuppdoc-text));--nuppdoc-code-tab-text:var(--nuppdoc-text-muted);--nuppdoc-code-tab-hover-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-bar:var(--nuppdoc-accent);--nuppdoc-code-tab-divider:var(--nuppdoc-border);--nuppdoc-code-tab-font-size:.72rem;--nuppdoc-code-tab-font-weight:600;--nuppdoc-code-tab-padding:.45rem .75rem;--nuppdoc-admonition-note:var(--nuppdoc-accent);--nuppdoc-admonition-info:#0969da;--nuppdoc-admonition-tip:#1a7f37;--nuppdoc-admonition-warning:#9a6700;--nuppdoc-admonition-danger:#cf222e;--nuppdoc-light-admonition-seealso:#0550ae;--nuppdoc-dark-admonition-seealso:#388bfd;--nuppdoc-light-admonition-deepdive:#8b4c24;--nuppdoc-dark-admonition-deepdive:#d19a66;--nuppdoc-admonition-seealso:var(--nuppdoc-light-admonition-seealso);--nuppdoc-admonition-deepdive:var(--nuppdoc-light-admonition-deepdive)}
 @media(prefers-color-scheme:dark){:root{--nuppdoc-admonition-seealso:var(--nuppdoc-dark-admonition-seealso);--nuppdoc-admonition-deepdive:var(--nuppdoc-dark-admonition-deepdive)}}
 :root[data-theme="dark"]{--nuppdoc-admonition-seealso:var(--nuppdoc-dark-admonition-seealso);--nuppdoc-admonition-deepdive:var(--nuppdoc-dark-admonition-deepdive)}
 :root[data-theme="light"]{--nuppdoc-admonition-seealso:var(--nuppdoc-light-admonition-seealso);--nuppdoc-admonition-deepdive:var(--nuppdoc-light-admonition-deepdive)}
@@ -69757,7 +69757,7 @@ local THEME = [[
 .nuppdoc-breadcrumbs{margin:0 0 .75rem}.nuppdoc-breadcrumbs ol{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin:0;padding:0;list-style:none}.nuppdoc-breadcrumbs li{display:inline-flex;align-items:center;margin:0;padding:0;color:var(--nuppdoc-text-faint);font-size:.82rem;line-height:1.2}.nuppdoc-breadcrumbs li+li::before{margin:0 .45rem;color:var(--nuppdoc-border);content:"/"}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-faint);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.16em}.nuppdoc-breadcrumbs .nuppdoc-breadcrumb-home{font-size:.9rem;text-decoration:none}.nuppdoc-breadcrumbs [aria-current="page"]{color:var(--nuppdoc-text-muted)}
 .nuppdoc-module-summary h3{margin-top:1.65rem;font-size:1rem}.nuppdoc-module-summary table,.nuppdoc-module-modules table{table-layout:fixed}.nuppdoc-module-summary th:first-child{width:28%}.nuppdoc-module-summary th:nth-child(2):not(:last-child){width:19%}.nuppdoc-module-modules th:first-child{width:32%}.nuppdoc-module-summary .nuppdoc-kind-badge{margin-left:0}.nuppdoc-kind-record,.nuppdoc-kind-interface,.nuppdoc-kind-struct,.nuppdoc-kind-type{color:#8250df;border-color:color-mix(in srgb,#8250df 35%,var(--nuppdoc-border));background:color-mix(in srgb,#8250df 12%,var(--nuppdoc-background))}.nuppdoc-kind-variable{color:#9a6700;border-color:color-mix(in srgb,#9a6700 35%,var(--nuppdoc-border));background:color-mix(in srgb,#9a6700 12%,var(--nuppdoc-background))}.nuppdoc-kind-comptime-function,.nuppdoc-kind-comptime-type{color:#bc4c00;border-color:color-mix(in srgb,#bc4c00 35%,var(--nuppdoc-border));background:color-mix(in srgb,#bc4c00 12%,var(--nuppdoc-background))}.nuppdoc-annotations{display:flex;flex-wrap:wrap;gap:.3rem;margin:.35rem 0 .1rem}.nuppdoc-annotation{padding:.12rem .42rem;color:#bc4c00;border:1px solid color-mix(in srgb,#bc4c00 35%,var(--nuppdoc-border));border-radius:999px;background:color-mix(in srgb,#bc4c00 12%,var(--nuppdoc-background));font-family:var(--nuppdoc-font-mono);font-size:.66rem;font-weight:650}
 .nuppdoc-home-shell{display:block;max-width:none}.nuppdoc-home-content{width:min(calc(100% - 2 * var(--nuppdoc-home-gutter)),var(--nuppdoc-home-width));padding-top:4.5rem}.nuppdoc-home-hero{margin:0 0 4rem}.nuppdoc-hero-main{display:grid;align-items:start;gap:3rem;grid-template-columns:minmax(0,1fr)}.nuppdoc-hero-main.has-image{grid-template-columns:minmax(0,1fr) minmax(280px,.8fr)}.nuppdoc-hero-copy{position:relative;z-index:1}.nuppdoc-hero-copy h1{max-width:720px;margin:0;color:var(--nuppdoc-accent);font-size:5.5rem;letter-spacing:-.04em;line-height:.95}.nuppdoc-hero-text{max-width:650px;margin:1.08rem 0 0;color:var(--nuppdoc-text-muted);font-size:1.6rem;line-height:1.35}.nuppdoc-hero-actions{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:2rem}.nuppdoc-hero-action{display:inline-flex;align-items:center;justify-content:center;padding:.52rem .95rem;border:1px solid transparent;border-radius:16px;font-size:.9rem;font-weight:650;line-height:1;text-decoration:none}.nuppdoc-hero-action.brand{color:var(--nuppdoc-accent-contrast);background:var(--nuppdoc-accent)}.nuppdoc-hero-action.alt{color:var(--nuppdoc-text);border-color:var(--nuppdoc-border);background:var(--nuppdoc-background-alt)}.nuppdoc-hero-image{position:relative;display:grid;align-self:center;place-items:center}.nuppdoc-hero-starburst{position:absolute;width:var(--nuppdoc-hero-glow-size);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 38%,transparent) 0,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 20%,transparent) 34%,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 8%,transparent) 58%,transparent 76%);filter:blur(var(--nuppdoc-hero-glow-blur));opacity:var(--nuppdoc-hero-glow-opacity)}.nuppdoc-hero-image img{position:relative;z-index:1;width:min(100%,390px);max-height:330px;border-radius:20px;box-shadow:0 24px 70px rgb(0 0 0 / 22%);object-fit:contain}.nuppdoc-features{position:relative;z-index:2;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-top:2rem}.nuppdoc-feature{margin:0;padding:1.4rem;border:1px solid var(--nuppdoc-border);border-radius:12px;background:var(--nuppdoc-background-alt)}.nuppdoc-feature-icon,.nuppdoc-feature-image{display:inline-grid;width:40px;height:40px;place-items:center;margin-bottom:1rem;border-radius:8px;background:var(--nuppdoc-accent-soft);font-size:1.25rem;object-fit:contain}.nuppdoc-feature h2{margin:0 0 .55rem;padding:0;border:0;font-size:1rem;letter-spacing:0}.nuppdoc-feature-details{margin:0;color:var(--nuppdoc-text-muted);font-size:.86rem;line-height:1.55}.nuppdoc-footer{display:flex;flex-wrap:wrap;justify-content:center;gap:.45rem}.nuppdoc-footer a{color:var(--nuppdoc-text-muted)}
-.nuppdoc-hero-starburst{overflow:hidden;clip-path:circle(50% at 50% 50%)}.nuppdoc-hero-image img{box-shadow:none;filter:drop-shadow(0 24px 35px rgb(0 0 0 / 22%))}
+.nuppdoc-hero-content{font-size:1.05rem}.nuppdoc-hero-starburst{overflow:hidden;clip-path:circle(50% at 50% 50%)}.nuppdoc-hero-image img{box-shadow:none;filter:drop-shadow(0 24px 35px rgb(0 0 0 / 22%))}
 @media(max-width:1100px){.nuppdoc-panel-toggle-right{display:none}.nuppdoc-shell.is-sidebar-collapsed{grid-template-columns:0 minmax(0,1fr)}.nuppdoc-features{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .nuppdoc-search-button{display:inline-flex;width:min(190px,18vw);min-width:0;min-height:32px;align-items:center;justify-content:flex-start;gap:.35rem;margin:0;padding:.25rem .5rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:6px;background:var(--nuppdoc-background-alt);box-shadow:none;font-size:.76rem;cursor:pointer}.nuppdoc-search-button:hover{color:var(--nuppdoc-text);border-color:var(--nuppdoc-text-muted)}.nuppdoc-search-button kbd{margin-left:auto;padding:.06rem .28rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:4px;background:transparent;font-size:.62rem}.nuppdoc-search-dialog{width:min(94vw,680px);max-width:none;padding:0;border:1px solid var(--nuppdoc-border);border-radius:12px;background:var(--nuppdoc-background);color:var(--nuppdoc-text);box-shadow:0 24px 80px rgb(0 0 0 / 28%)}.nuppdoc-search-dialog::backdrop{background:rgb(0 0 0 / 46%);backdrop-filter:blur(3px)}.nuppdoc-search-panel{margin:0;padding:0}.nuppdoc-search-panel>header{display:flex;align-items:center;gap:.65rem;margin:0;padding:.8rem;border-bottom:1px solid var(--nuppdoc-border);background:transparent}.nuppdoc-search-panel label{display:flex;flex:1;align-items:center;gap:.5rem;margin:0}.nuppdoc-search-panel input{width:100%;height:42px;margin:0;padding:0 .75rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-accent);border-radius:7px;background:var(--nuppdoc-background);box-shadow:0 0 0 3px var(--nuppdoc-accent-soft)}.nuppdoc-search-panel [data-nuppdoc-search-close]{width:auto;margin:0;padding:.32rem .5rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:5px;background:var(--nuppdoc-background-alt);box-shadow:none;font-size:.72rem;cursor:pointer}.nuppdoc-search-results{display:grid;overflow:auto;max-height:min(60vh,520px);gap:.35rem;padding:.65rem}.nuppdoc-search-results a{display:grid;gap:.15rem;padding:.7rem .8rem;color:var(--nuppdoc-text);border:1px solid transparent;border-radius:7px;text-decoration:none}.nuppdoc-search-results a:hover,.nuppdoc-search-results a:focus{border-color:var(--nuppdoc-border);background:var(--nuppdoc-accent-soft)}.nuppdoc-search-results strong{font-size:.9rem}.nuppdoc-search-results small{overflow:hidden;color:var(--nuppdoc-text-faint);font-size:.72rem;text-overflow:ellipsis;white-space:nowrap}.nuppdoc-search-empty{margin:0;padding:1.5rem;color:var(--nuppdoc-text-muted);text-align:center}
 .nuppdoc-mobile-nav-toggle,.nuppdoc-sidebar-backdrop{display:none}.nuppdoc-page-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--nuppdoc-border)}.nuppdoc-page-nav a{display:flex;flex-direction:column;padding:1rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-border);border-radius:10px;text-decoration:none}.nuppdoc-page-nav a:hover{border-color:var(--nuppdoc-accent);background:var(--nuppdoc-background-alt)}.nuppdoc-page-nav-next{grid-column:2;text-align:right}.nuppdoc-page-nav-label{color:var(--nuppdoc-text-faint);font-size:.68rem;font-weight:650;text-transform:uppercase;letter-spacing:.05em}.nuppdoc-page-nav-title{color:var(--nuppdoc-accent);font-size:.85rem;font-weight:650}
@@ -87614,7 +87614,14 @@ cleanupGlobals . error ,
 cleanupError
 )
 )
+
+
+
+
 local parent = cleanupStack [ # cleanupStack ]
+if parent and parent . functionDepth ~= ctx . functionDepth then
+parent = nil
+end
 e ( ( "if %s==\"return\" then " ) : format ( tag ) )
 if parent then
 e ( ( "return \"return\",%s" ) : format ( payload ) )
@@ -114898,6 +114905,80 @@ return m
 , setmetatable({ title =
 
 
+"Waiting and concurrency" ,  codes =
+{ "NUPP2706" } ,  body =
+[=[
+A suspension-aware call is an ordinary call. There is no `async function`, no
+`await`, no future in a return type, and no asynchronous half of the standard
+library: `client:send(request)` answers a response, and whether it blocked the
+thread or parked a coroutine is the host's business rather than the signature's.
+
+Whether a function may suspend is inferred from `coroutine.yield` and
+propagates through resolved calls and across modules, separately from parameter
+and result types. `nosuspend` refuses that fact rather than consuming it, and
+the Suspension regions section covers it.
+
+`handle suspension with HANDLER do ... end` installs a host's scheduling policy
+for the region and everything called beneath it, per coroutine rather than per
+process. `HANDLER` is an ordinary value satisfying `nupp.suspension.Handler`,
+not a keyword or a global scheduler. Where none is installed a wait drives the
+registered readiness sources on the current thread, which is what a
+command-line program wants. `NUPP2706` rejects a jump into the region, which
+would bypass installation.
+
+`nupp.suspension` runs several zero-argument bodies concurrently, each in its
+own coroutine, and one body parking is what lets the next one run:
+
+- `all` answers every value in input order, raising the first branch error once
+  every branch has settled.
+- `gather` answers values and errors side by side, for a caller handling each.
+- `race` answers the first settled value and its index, then cancels the rest.
+- `batch` is `all` with at most `limit` branches in flight.
+
+These share one LuaJIT state and run one at a time between suspensions, so they
+are concurrency and not CPU parallelism. Cores are `nupp.workers`.
+
+A closure that captures an owner directly cannot be stored, so a body that
+shares one client calls a function holding it rather than closing over it.
+
+See [suspension.md](docs/concepts/suspension.md) for the handler contract,
+cancellation, and the protocol a waiting library subscribes through.
+]=] ,  example =
+[=[
+local m = {}
+
+local http = require("nupp.io.http")
+local suspension = require("nupp.suspension")
+local uri = require("nupp.io.uri")
+
+function m.statuses(urls: {string}): {integer}
+    local client = assert(http.newClient())
+
+    local function status(url: string): integer
+        local response = assert(client:send(new http.Request(
+            url = assert(uri.new(url))
+        )))
+        local code = response.status
+        response:close()
+
+        return code
+    end
+
+    local bodies: {function(): integer} = {}
+    for index, url in ipairs(urls) do
+        bodies[index] = function(): integer
+            return status(url)
+        end
+    end
+
+    return suspension.all(bodies)
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
 "Suspension regions" ,  codes =
 { "NUPP2701" , "NUPP2702" , "NUPP2706" } ,  body =
 [=[
@@ -131530,6 +131611,42 @@ end ;__nuppExports["userFolder"]=userFolder
 end
 package.preload["nupp.io.http"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();const __nuppT76={}; const __nuppT77,__nuppT78,__nuppT79,__nuppT80,__nuppT81,__nuppT82,__nuppT83,__nuppT84=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT73(...) return {n=__nuppT81("#",...),...} end; const function __nuppT74(value) return value end; const function __nuppT75(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT82({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT83(v.primary) for _,reason in __nuppT84(v.suppressed) do text=text.."\ncleanup: "..__nuppT83(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.io#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io#destroyOwner") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io.http#destroyBody"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.http#destroyBody") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppClosureCleanup1 = function(__nuppV) return __nuppV:__nuppRelease() end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -152738,6 +152855,42 @@ Calls suspend through `nupp.suspension`: a CLI blocks on the provider's condvar,
 while a scheduler or SDL host only drives the nonblocking source. See
 [0005-suspension.md](docs/neps/0005-suspension.md) for why waiting is a
 suspension rather than a block.
+
+Requests share a client and go out together when something drives them together.
+`nupp.suspension` runs each body in a coroutine of its own, and the one waiting
+on the network is what lets the next one send:
+
+```nupp
+local http = require("nupp.io.http")
+local suspension = require("nupp.suspension")
+local uri = require("nupp.io.uri")
+
+local client = assert(http.newClient())
+
+local function status(url: string): integer
+    local response = assert(client:send(new http.Request(
+        url = assert(uri.new(url))
+    )))
+    local code = response.status
+    response:close()
+
+    return code
+end
+
+local codes = suspension.all({function(): integer
+    return status("https://example.com/")
+end, function(): integer
+    return status("https://example.org/")
+end,})
+
+print(codes[1], codes[2])
+client:close()
+```
+
+A body calls a function holding the client rather than capturing the client
+itself, because a closure that captures an owner directly cannot be stored.
+`maxConnectionsPerHost` bounds what one host is asked to carry, and
+`suspension.batch` bounds how many requests are in flight at all.
 
 Response bodies and generic request readers are progressive and bounded. A response
 status is an answer, 4xx and 5xx included; transport and body failures are returned
