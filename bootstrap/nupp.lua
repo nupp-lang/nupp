@@ -69730,7 +69730,10 @@ local THEME = [[
 @media(max-width:1100px){.nuppdoc-shell{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr)}.nuppdoc-outline{display:none}.nuppdoc-content{width:min(100% - 5rem,var(--nuppdoc-content-width))}}@media(max-width:760px){.nuppdoc-top-nav{display:none}.nuppdoc-search{width:140px}.nuppdoc-shell{display:block}.nuppdoc-sidebar{position:static;max-height:none;padding:.7rem 1rem;border-right:0;border-bottom:1px solid var(--nuppdoc-border);box-shadow:none}.nuppdoc-sidebar h2{display:none}.nuppdoc-sidebar ul{display:flex;overflow:auto;gap:.25rem}.nuppdoc-content{width:auto;padding:1.5rem 1.25rem 4rem}}@media(max-width:480px){.nuppdoc-search{display:none}.nuppdoc-brand span:last-child{display:none}.nuppdoc-content table{display:block;overflow:auto}}
 /* The custom properties a site is meant to override. They are named and grouped
  * deliberately: this is the part of the stylesheet a project stylesheet targets. */
-:root{--nuppdoc-text-faint:color-mix(in srgb,var(--nuppdoc-text-muted) 72%,transparent);--nuppdoc-sidebar-background:var(--nuppdoc-background-alt);--nuppdoc-accent-contrast:#fff;--nuppdoc-home-width:1152px;--nuppdoc-home-gutter:2rem;--nuppdoc-hero-glow-color:var(--nuppdoc-accent);--nuppdoc-hero-glow-size:520px;--nuppdoc-hero-glow-blur:24px;--nuppdoc-hero-glow-opacity:.68;--nuppdoc-code-block-radius:8px;--nuppdoc-playground-border:color-mix(in srgb,var(--nuppdoc-border) 70%,var(--nuppdoc-text));--nuppdoc-code-tab-text:var(--nuppdoc-text-muted);--nuppdoc-code-tab-hover-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-bar:var(--nuppdoc-accent);--nuppdoc-code-tab-divider:var(--nuppdoc-border);--nuppdoc-code-tab-font-size:.72rem;--nuppdoc-code-tab-font-weight:600;--nuppdoc-code-tab-padding:.45rem .75rem;--nuppdoc-admonition-note:var(--nuppdoc-accent);--nuppdoc-admonition-info:#0969da;--nuppdoc-admonition-tip:#1a7f37;--nuppdoc-admonition-warning:#9a6700;--nuppdoc-admonition-danger:#cf222e;--nuppdoc-admonition-seealso:#a15c38;--nuppdoc-admonition-deepdive:var(--nuppdoc-text-muted)}
+:root{--nuppdoc-text-faint:color-mix(in srgb,var(--nuppdoc-text-muted) 72%,transparent);--nuppdoc-sidebar-background:var(--nuppdoc-background-alt);--nuppdoc-accent-contrast:#fff;--nuppdoc-home-width:1152px;--nuppdoc-home-gutter:2rem;--nuppdoc-hero-glow-color:var(--nuppdoc-accent);--nuppdoc-hero-glow-size:520px;--nuppdoc-hero-glow-blur:24px;--nuppdoc-hero-glow-opacity:.68;--nuppdoc-code-block-radius:8px;--nuppdoc-playground-border:color-mix(in srgb,var(--nuppdoc-border) 70%,var(--nuppdoc-text));--nuppdoc-code-tab-text:var(--nuppdoc-text-muted);--nuppdoc-code-tab-hover-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-bar:var(--nuppdoc-accent);--nuppdoc-code-tab-divider:var(--nuppdoc-border);--nuppdoc-code-tab-font-size:.72rem;--nuppdoc-code-tab-font-weight:600;--nuppdoc-code-tab-padding:.45rem .75rem;--nuppdoc-admonition-note:var(--nuppdoc-accent);--nuppdoc-admonition-info:#0969da;--nuppdoc-admonition-tip:#1a7f37;--nuppdoc-admonition-warning:#9a6700;--nuppdoc-admonition-danger:#cf222e;--nuppdoc-light-admonition-seealso:#0550ae;--nuppdoc-dark-admonition-seealso:#79c0ff;--nuppdoc-light-admonition-deepdive:#8b4c24;--nuppdoc-dark-admonition-deepdive:#d19a66;--nuppdoc-admonition-seealso:var(--nuppdoc-light-admonition-seealso);--nuppdoc-admonition-deepdive:var(--nuppdoc-light-admonition-deepdive)}
+@media(prefers-color-scheme:dark){:root{--nuppdoc-admonition-seealso:var(--nuppdoc-dark-admonition-seealso);--nuppdoc-admonition-deepdive:var(--nuppdoc-dark-admonition-deepdive)}}
+:root[data-theme="dark"]{--nuppdoc-admonition-seealso:var(--nuppdoc-dark-admonition-seealso);--nuppdoc-admonition-deepdive:var(--nuppdoc-dark-admonition-deepdive)}
+:root[data-theme="light"]{--nuppdoc-admonition-seealso:var(--nuppdoc-light-admonition-seealso);--nuppdoc-admonition-deepdive:var(--nuppdoc-light-admonition-deepdive)}
 .nuppdoc-admonition{--nuppdoc-admonition-color:var(--nuppdoc-admonition-note);margin:1.25rem 0;padding:.85rem 1rem;border:1px solid color-mix(in srgb,var(--nuppdoc-admonition-color) 45%,var(--nuppdoc-border));border-left:4px solid var(--nuppdoc-admonition-color);border-radius:8px;background:color-mix(in srgb,var(--nuppdoc-admonition-color) 9%,var(--nuppdoc-background))}.nuppdoc-admonition-info{--nuppdoc-admonition-color:var(--nuppdoc-admonition-info)}.nuppdoc-admonition-tip{--nuppdoc-admonition-color:var(--nuppdoc-admonition-tip)}.nuppdoc-admonition-warning{--nuppdoc-admonition-color:var(--nuppdoc-admonition-warning)}.nuppdoc-admonition-danger{--nuppdoc-admonition-color:var(--nuppdoc-admonition-danger)}.nuppdoc-admonition-seealso{--nuppdoc-admonition-color:var(--nuppdoc-admonition-seealso)}.nuppdoc-admonition-deepdive{--nuppdoc-admonition-color:var(--nuppdoc-admonition-deepdive);padding:0;border-left-width:1px}details.nuppdoc-admonition>summary{cursor:pointer;padding:.7rem 1rem;list-style:none}details.nuppdoc-admonition>summary::-webkit-details-marker{display:none}details.nuppdoc-admonition>summary::before{content:'\25B8';display:inline-block;width:1em;transition:transform .12s ease}details.nuppdoc-admonition[open]>summary::before{transform:rotate(90deg)}details.nuppdoc-admonition>.nuppdoc-admonition-body{padding:0 1rem .85rem 2rem}.nuppdoc-admonition-title{margin:0;color:var(--nuppdoc-admonition-color);font-size:.78rem;font-weight:750;text-transform:uppercase;letter-spacing:.04em}.nuppdoc-admonition-body>:first-child{margin-top:.35rem}.nuppdoc-admonition-body>:last-child{margin-bottom:0}
 .nuppdoc-code-group{position:relative;display:flex;overflow:hidden;flex-wrap:wrap;margin:1.25rem 0;border:1px solid var(--nuppdoc-border);border-radius:var(--nuppdoc-code-block-radius);background:var(--nuppdoc-code-background);box-shadow:none}.nuppdoc-code-tab-input{position:absolute;width:1px;height:1px;margin:0;padding:0;border:0;opacity:0;appearance:none;clip-path:inset(50%);pointer-events:none;-webkit-appearance:none}.nuppdoc-code-tab{order:-1;padding:var(--nuppdoc-code-tab-padding);border-bottom:2px solid transparent;color:var(--nuppdoc-code-tab-text);cursor:pointer;font-family:var(--nuppdoc-font);font-size:var(--nuppdoc-code-tab-font-size);font-weight:var(--nuppdoc-code-tab-font-weight)}.nuppdoc-code-tab:hover{color:var(--nuppdoc-code-tab-hover-text)}.nuppdoc-code-panel{display:none;width:100%;margin:0;border-top:1px solid var(--nuppdoc-code-tab-divider)}.nuppdoc-code-tab-input:checked+.nuppdoc-code-tab+.nuppdoc-code-panel{display:block}.nuppdoc-code-tab-input:checked+.nuppdoc-code-tab{border-bottom-color:var(--nuppdoc-code-tab-active-bar);color:var(--nuppdoc-code-tab-active-text)}.nuppdoc-code-tab-input:focus-visible+.nuppdoc-code-tab{outline:2px solid var(--nuppdoc-accent);outline-offset:-2px}.nuppdoc-code-group>.nuppdoc-code-block{width:100%}.nuppdoc-code-group>.nuppdoc-code-block pre,.nuppdoc-code-panel .nuppdoc-code-block pre{margin:0;border:0;border-radius:0}.nuppdoc-labeled-code{margin:1.25rem 0}.nuppdoc-code-group>.nuppdoc-labeled-code{margin:0}.nuppdoc-code-group>.nuppdoc-labeled-code+.nuppdoc-labeled-code{border-top:1px solid var(--nuppdoc-border)}.nuppdoc-labeled-code figcaption{padding:.45rem .6rem;color:var(--nuppdoc-text-muted);font-family:var(--nuppdoc-font);font-size:.72rem;font-weight:600}.nuppdoc-labeled-code pre{margin:0;border-radius:0}.nuppdoc-code-group>.nuppdoc-labeled-code pre{border:0}@media print{.nuppdoc-code-panel{display:block}}
 /* The gutter and the code are siblings sharing the pre's line box metrics, so the
@@ -133999,7 +134002,7 @@ process.Result = {} process.Result.__index = process.Result
 
 
 
-function process.Result:succeeded()
+function process.Result:succeeded() 
 return self . exit : succeeded ( )
 end
 
@@ -134248,12 +134251,12 @@ process.Reader = {} process.Reader.__index = process.Reader
 
 
 
-function process.Reader:isEOF()
+function process.Reader:isEOF() 
 return self . eof
 end
 
 
-function process.Reader:isClosed()
+function process.Reader:isClosed() 
 return self . closed
 end
 
@@ -134267,7 +134270,7 @@ end
 
 
 
-function process.Reader:release()
+function process.Reader:release() 
 if self . closed then
 return
 end
@@ -134276,7 +134279,7 @@ end
 
 
 
-local ok , released , why = pcall ( function ( )
+local ok , released , why = pcall ( function ( ) 
 return self . owner . backend : closeStream ( self . handle )
 end )
 if not ok then
@@ -134322,7 +134325,7 @@ end
 
 
 
-function process.Reader:poll(limit)
+function process.Reader:poll(limit) 
 if self . closed or self . eof then
 return nil
 end
@@ -134342,7 +134345,7 @@ end
 
 
 
-function process.Reader:next()
+function process.Reader:next() 
 if self . closed or self . eof then
 return nil
 end
@@ -134350,7 +134353,7 @@ local chunk = nil
 await (
 self . owner ,
 "process stream read" ,
-function ( )
+function ( ) 
 if self . closed or self . eof then
 return true
 end
@@ -134366,7 +134369,7 @@ end
 
 return false
 end ,
-function ( )
+function ( ) 
 
 
 
@@ -134379,14 +134382,14 @@ end
 
 
 
-function process.Reader:setTimeout(timeoutMs)
+function process.Reader:setTimeout(timeoutMs) 
 if timeoutMs < 0 or timeoutMs > 2147483647 or math . floor ( timeoutMs ) ~= timeoutMs then
 error ( "nupp: process reader timeout must be 0 through 2147483647 milliseconds" , 2 )
 end
 self . timeoutMs = timeoutMs
 end
 
-function process.Reader:read(count)
+function process.Reader:read(count) 
 if self . closed then
 return nil , "the process reader is closed"
 end
@@ -134398,7 +134401,7 @@ end
 return chunk or ""
 end
 
-function process.Reader:readInto(destination, offset, count)
+function process.Reader:readInto(destination, offset, count) 
 local at = offset or 0
 local wanted = count or READ_LIMIT
 if at < 0 or wanted < 0 then
@@ -134419,7 +134422,7 @@ destination : setString ( chunk , at )
 return # chunk
 end
 
-function process.Reader:transferTo(destination)
+function process.Reader:transferTo(destination) 
 local total = 0
 while true do
 local chunk , reason = self : read ( READ_LIMIT )
@@ -134437,8 +134440,8 @@ total = total + # chunk
 end
 end
 
-function process.Reader:close()
-local ok , problem = pcall ( function ( )
+function process.Reader:close() 
+local ok , problem = pcall ( function ( ) 
 self : release ( )
 end )
 if not ok then
@@ -134471,12 +134474,12 @@ process.Writer = {} process.Writer.__index = process.Writer
 
 
 
-function process.Writer:isGone()
+function process.Writer:isGone() 
 return self . gone
 end
 
 
-function process.Writer:isClosed()
+function process.Writer:isClosed() 
 return self . closed
 end
 
@@ -134486,7 +134489,7 @@ end
 
 
 
-function process.Writer:release()
+function process.Writer:release() 
 if self . closed then
 return
 end
@@ -134495,7 +134498,7 @@ end
 
 
 
-local ok , released , why = pcall ( function ( )
+local ok , released , why = pcall ( function ( ) 
 return self . owner . backend : closeStream ( self . handle )
 end )
 if not ok then
@@ -134526,7 +134529,7 @@ end
 
 
 
-function process.Writer:offer(data)
+function process.Writer:offer(data) 
 if self . closed or self . gone or # data == 0 then
 return 0
 end
@@ -134543,13 +134546,13 @@ end
 
 
 
-function process.Writer:send(data, stopAt, stallFor)
+function process.Writer:send(data, stopAt, stallFor) 
 if self . closed or self . gone then
 return 0
 end
 local sent = 0
 local before = 0
-local function interest ( )
+local function interest ( ) 
 
 
 return setmetatable({ child =  self . owner . handle ,  read =  { } ,  write =  { self . handle } }, process.Interest)
@@ -134559,7 +134562,7 @@ end
 
 
 
-local function offered ( )
+local function offered ( ) 
 if self . closed or self . gone then
 return true
 end
@@ -134588,14 +134591,14 @@ end
 
 
 
-function process.Writer:setTimeout(timeoutMs)
+function process.Writer:setTimeout(timeoutMs) 
 if timeoutMs < 0 or timeoutMs > 2147483647 or math . floor ( timeoutMs ) ~= timeoutMs then
 error ( "nupp: process writer timeout must be 0 through 2147483647 milliseconds" , 2 )
 end
 self . timeoutMs = timeoutMs
 end
 
-function process.Writer:write(bytes)
+function process.Writer:write(bytes) 
 if self . closed then
 return false , "the process writer is closed"
 end
@@ -134603,7 +134606,7 @@ if self . gone then
 return false , "the child is no longer reading this stream"
 end
 local stopAt = self . owner . backend : now ( ) + self . timeoutMs
-local ok , sent = pcall ( function ( )
+local ok , sent = pcall ( function ( ) 
 return self : send ( bytes , stopAt , self . timeoutMs )
 end )
 if not ok then
@@ -134619,7 +134622,7 @@ end
 return true
 end
 
-function process.Writer:writeFrom(source, offset, count)
+function process.Writer:writeFrom(source, offset, count) 
 local at = offset or 0
 local length = source : length ( )
 local wanted = count == nil and length - at or count
@@ -134634,7 +134637,7 @@ end
 return wanted
 end
 
-function process.Writer:writeView(source, offset, count)
+function process.Writer:writeView(source, offset, count) 
 local at = offset or 0
 local length = source : length ( )
 local wanted = count == nil and length - at or count
@@ -134652,16 +134655,16 @@ end
 
 
 
-function process.Writer:acceptsRaw()
+function process.Writer:acceptsRaw() 
 return false
 end
 
 
-function process.Writer:writeRaw(source, count)
+function process.Writer:writeRaw(source, count) 
 return nil , "a process writer does not take raw bytes"
 end
 
-function process.Writer:flush()
+function process.Writer:flush() 
 if self . closed then
 return false , "the process writer is closed"
 end
@@ -134672,8 +134675,8 @@ end
 return true
 end
 
-function process.Writer:close()
-local ok , problem = pcall ( function ( )
+function process.Writer:close() 
+local ok , problem = pcall ( function ( ) 
 self : release ( )
 end )
 if not ok then
@@ -134685,12 +134688,12 @@ end
 
 
 
-function process . asReader ( source )
+function process . asReader ( source ) 
 return source
 end
 
 
-function process . asWriter ( source )
+function process . asWriter ( source ) 
 return source
 end
 
@@ -134741,7 +134744,7 @@ process.Process = {} process.Process.__index = process.Process
 
 
 
-function process.Process:isRunning()
+function process.Process:isRunning() 
 if self . exit ~= nil then
 return false
 end
@@ -134753,14 +134756,14 @@ end
 
 
 
-function process.Process:wait()
+function process.Process:wait() 
 await (
 self ,
 "process wait" ,
-function ( )
+function ( ) 
 return self . exit ~= nil
 end ,
-function ( )
+function ( ) 
 
 
 
@@ -134776,11 +134779,11 @@ return self . exit
 end
 
 
-function process.Process:kill(force)
+function process.Process:kill(force) 
 if self . exit ~= nil then
 return true
 end
-local ok , problem = pcall ( function ( )
+local ok , problem = pcall ( function ( ) 
 self . backend : kill ( self . handle , force == true )
 end )
 if not ok then
@@ -134795,8 +134798,8 @@ end
 
 
 
-function process.Process:communicate(options)
-local ok , answer = pcall ( function ( )
+function process.Process:communicate(options) 
+local ok , answer = pcall ( function ( ) 
 local given = options or { }
 local input = given . input
 local pending = input == nil and "" or type ( input ) == "string" and input or input : getString ( )
@@ -134808,16 +134811,16 @@ local stdin , stdout , stderr = self . stdin , self . stdout , self . stderr
 local sent = 0
 local out , err = { } , { }
 local outputBytes = 0
-local function inputDone ( )
+local function inputDone ( ) 
 
 return stdin == nil or stdin . closed or stdin . gone
 end
 
-local function outputDone ( )
+local function outputDone ( ) 
 return ( stdout == nil or stdout . eof or stdout . closed ) and ( stderr == nil or stderr . eof or stderr . closed )
 end
 
-local function idle ( )
+local function idle ( ) 
 return ( inputDone ( ) and outputDone ( ) ) or self . exit ~= nil and outputDone ( )
 end
 
@@ -134825,7 +134828,7 @@ end
 
 
 
-local function abandonInput ( )
+local function abandonInput ( ) 
 if stdin ~= nil and not stdin . closed then
 stdin : release ( )
 end
@@ -134840,7 +134843,7 @@ end
 
 
 
-local function interest ( )
+local function interest ( ) 
 local read = { }
 if stdout ~= nil and not stdout . eof and not stdout . closed then
 read [ # read + 1 ] = stdout . handle
@@ -134929,7 +134932,7 @@ end
 
 
 
-function process.Process:close()
+function process.Process:close() 
 if self . reaped then
 return true
 end
@@ -134965,10 +134968,10 @@ end
 await (
 self ,
 "process close" ,
-function ( )
+function ( ) 
 return not self . closing
 end ,
-function ( )
+function ( ) 
 return setmetatable({ child =  self . handle ,  read =  { } ,  write =  { } }, process.Interest)
 end
 )
@@ -134989,7 +134992,7 @@ self . closingBy = coroutine . running ( )
 
 
 local firstError = nil
-local function attempt ( step )
+local function attempt ( step ) 
 local ok , raised = pcall ( step )
 if not ok and firstError == nil then
 
@@ -135002,22 +135005,22 @@ end
 
 
 if self . stdin ~= nil then
-attempt ( function ( )
+attempt ( function ( ) 
 self . stdin : release ( )
 end )
 end
 if self . stdout ~= nil then
-attempt ( function ( )
+attempt ( function ( ) 
 self . stdout : release ( )
 end )
 end
 if self . stderr ~= nil then
-attempt ( function ( )
+attempt ( function ( ) 
 self . stderr : release ( )
 end )
 end
 if self . exit == nil then
-attempt ( function ( )
+attempt ( function ( ) 
 
 
 self . backend : kill ( self . handle , true )
@@ -135029,16 +135032,16 @@ self . backend : kill ( self . handle , true )
 await (
 self ,
 "process close" ,
-function ( )
+function ( ) 
 return self . exit ~= nil
 end ,
-function ( )
+function ( ) 
 return setmetatable({ child =  self . handle ,  read =  { } ,  write =  { } }, process.Interest)
 end
 )
 end )
 end
-attempt ( function ( )
+attempt ( function ( ) 
 releasePump ( self )
 end )
 
@@ -135054,7 +135057,7 @@ if not self . childReleased and self . exit ~= nil then
 
 
 
-local ok , released , reason = pcall ( function ( )
+local ok , released , reason = pcall ( function ( ) 
 return self . backend : reap ( self . handle )
 end )
 if not ok then
@@ -135097,16 +135100,16 @@ return true
 end
 
 
-function process . Process . drop ( self )
+function process . Process . drop ( self ) 
 self : close ( )
 end
 
-function process . destroyProcess ( self )
+function process . destroyProcess ( self ) 
 self : drop ( )
 end ;__nuppCleanups["nupp.io.process#process.destroyProcess"]=process.destroyProcess
 
 
-progressed = function ( self )
+progressed = function ( self ) 
 local moved = 0
 if self . exit == nil then
 local ended = self . backend : poll ( self . handle )
@@ -135120,7 +135123,7 @@ return moved
 end
 
 
-local function enforceDeadline ( self )
+local function enforceDeadline ( self ) 
 
 
 
@@ -135141,7 +135144,7 @@ end
 
 
 
-pumpOnce = function ( self )
+pumpOnce = function ( self ) 
 local moved = progressed ( self )
 if enforceDeadline ( self ) then
 moved = moved + progressed ( self ) + 1
@@ -135151,16 +135154,16 @@ return moved
 end
 
 
-local function ensurePump ( self )
+local function ensurePump ( self ) 
 if self . pump ~= nil then
 return
 end
-self . pump = suspension . source ( "nupp.io.process" , 50 , function ( )
+self . pump = suspension . source ( "nupp.io.process" , 50 , function ( ) 
 return pumpOnce ( self )
 end )
 end
 
-releasePump = function ( self )
+releasePump = function ( self ) 
 if self . pump == nil then
 return
 end
@@ -135188,7 +135191,7 @@ local BLOCKING_WAIT_MS = 20
 
 
 
-local function blockOnce ( self , interest , stopAt )
+local function blockOnce ( self , interest , stopAt ) 
 local budget = BLOCKING_WAIT_MS
 if self . deadline ~= nil then
 local remaining = self . deadline - self . backend : now ( )
@@ -135206,15 +135209,15 @@ self . backend : waitReady ( interest , budget )
 pumpOnce ( self )
 end
 
-awaitTick = function ( self , operation , interest )
+awaitTick = function ( self , operation , interest ) 
 if not suspension . handled ( ) then
 blockOnce ( self , interest ( ) )
 
 return
 end
 ensurePump ( self )
-suspension . suspend ( operation , function ( resume , context )
-local source = context : source ( "nupp.io.process.tick" , 50 , function ( )
+suspension . suspend ( operation , function ( resume , context ) 
+local source = context : source ( "nupp.io.process.tick" , 50 , function ( ) 
 pumpOnce ( self )
 
 
@@ -135223,7 +135226,7 @@ resume ( true )
 return 1
 end )
 
-return function ( )
+return function ( ) 
 source : release ( )
 end
 end )
@@ -135236,7 +135239,7 @@ operation ,
 ready ,
 interest ,
 stopAt
-)
+) 
 if ready ( ) then
 return true
 end
@@ -135259,8 +135262,8 @@ return true
 end
 ensurePump ( self )
 
-local function subscribe ( resume , context )
-local source = context : source ( "nupp.io.process.wait" , 50 , function ( )
+local function subscribe ( resume , context ) 
+local source = context : source ( "nupp.io.process.wait" , 50 , function ( ) 
 local moved = pumpOnce ( self )
 if ready ( ) or stopAt ~= nil and self . backend : now ( ) >= stopAt or moved > 0 then
 resume ( true )
@@ -135271,7 +135274,7 @@ end
 return 0
 end )
 
-return function ( )
+return function ( ) 
 source : release ( )
 end
 end
@@ -135293,7 +135296,7 @@ end
 
 
 
-readForCompletion = function ( source , limit )
+readForCompletion = function ( source , limit ) 
 if source . closed or source . eof then
 return nil
 end
@@ -135302,7 +135305,7 @@ local stopAt = source . owner . backend : now ( ) + source . timeoutMs
 local completed = await (
 source . owner ,
 "process stream read" ,
-function ( )
+function ( ) 
 if source . closed or source . eof then
 return true
 end
@@ -135318,7 +135321,7 @@ end
 
 return false
 end ,
-function ( )
+function ( ) 
 return setmetatable({ child =  source . owner . handle ,  read =  { source . handle } ,  write =  { } }, process.Interest)
 end ,
 stopAt
@@ -135330,7 +135333,7 @@ end
 return chunk
 end
 
-local function newReader ( owner , handle )
+local function newReader ( owner , handle ) 
 if handle == nil then
 return nil
 end
@@ -135338,7 +135341,7 @@ end
 return setmetatable({ owner =  owner ,  handle =  handle ,  closed =  false ,  eof =  false ,  timeoutMs =  30000 }, process.Reader)
 end
 
-local function newWriter ( owner , handle )
+local function newWriter ( owner , handle ) 
 if handle == nil then
 return nil
 end
@@ -135350,14 +135353,14 @@ end
 
 
 
-function process . useBackend ( backend )
+function process . useBackend ( backend ) 
 defaultBackend = backend
 end
 
 
 
 
-local function validateOptions ( options )
+local function validateOptions ( options ) 
 local given = options
 if type ( given . args ) ~= "table" or # given . args == 0 then
 error ( "nupp: process args must contain a program" , 3 )
@@ -135397,7 +135400,7 @@ inHandle ,
 outHandle ,
 errHandle ,
 pid
-) __nuppCleanups["nupp.io.process#process.destroyProcess"]=process.destroyProcess;
+) __nuppCleanups["nupp.io.process#process.destroyProcess"]=process.destroyProcess; 
 local self = setmetatable({ stdin =
 nil ,  stdout =
 nil ,  stderr =
@@ -135436,7 +135439,7 @@ end
 function process . spawnOn (
 backend ,
 options
-) __nuppCleanups["nupp.io.process#process.destroyProcess"]=process.destroyProcess;
+) __nuppCleanups["nupp.io.process#process.destroyProcess"]=process.destroyProcess; 
 validateOptions ( options )
 local handle , inHandle , outHandle , errHandle , pid , problem = backend : spawn ( options )
 if handle == nil then
@@ -135510,7 +135513,7 @@ const READ_SIZE = 65536
 const INT32_MAX = 2147483647
 
 
-local function reason ( prefix )
+local function reason ( prefix ) 
 local said = native . error ( )
 if said == nil or said == "" then
 said = "native process operation failed"
@@ -135523,7 +135526,7 @@ end
 
 
 
-local function maybeDestroy ( owner )
+local function maybeDestroy ( owner ) 
 if owner . destroyed or not owner . released then
 return
 end
@@ -135552,7 +135555,7 @@ end
 
 
 
-local function abandon ( owner , message )
+local function abandon ( owner , message ) 
 for _ , stream in ipairs ( owner . streams ) do
 if not stream . released then
 C . nuppProcessCloseStream ( stream . handle )
@@ -135572,7 +135575,7 @@ end
 
 
 
-local function configured ( ok , request , what )
+local function configured ( ok , request , what ) 
 if ok then
 return
 end
@@ -135582,7 +135585,7 @@ error ( why , 0 )
 end
 
 
-local function wrap ( owner , which , expected )
+local function wrap ( owner , which , expected ) 
 local handle = C . nuppProcessTakeStream ( owner . handle , which )
 if handle == nil then
 if expected then
@@ -135599,7 +135602,7 @@ end
 
 
 
-local function makeArray ( streams )
+local function makeArray ( streams ) 
 local count = # streams
 if count == 0 then
 return nil , 0
@@ -135617,7 +135620,7 @@ return out , count
 end
 
 
-local function whole ( value )
+local function whole ( value ) 
 local number = tonumber ( value ) or 0
 if number ~= number then
 return 0
@@ -135630,9 +135633,9 @@ end
 
 
 
-local function nativeBackend ( )
+local function nativeBackend ( ) 
 return setmetatable({ spawn =
-function ( self , options )
+function ( self , options ) 
 local inputMode = options . stdin or "pipe"
 local outputMode = options . stdout or "pipe"
 local errorMode = options . stderr or "pipe"
@@ -135676,7 +135679,7 @@ local err = wrap ( owner , 2 , errorMode == "pipe" )
 
 return owner , input , output , err , tonumber ( C . nuppProcessId ( child ) )
 end ,  poll =
-function ( self , owner )
+function ( self , owner ) 
 local code = native . ffi . new ( "int32_t[1]" )
 local killed = native . ffi . new ( "bool[1]" )
 local status = C . nuppProcessPollExit ( owner . handle , code , killed )
@@ -135689,12 +135692,12 @@ end
 
 return process . exited ( tonumber ( code [ 0 ] ) , killed [ 0 ] , false )
 end ,  kill =
-function ( self , owner , force )
+function ( self , owner , force ) 
 if not C . nuppProcessKill ( owner . handle , force ) then
 error ( reason ( "nupp: could not kill process" ) , 0 )
 end
 end ,  read =
-function ( self , stream , limit )
+function ( self , stream , limit ) 
 local wanted = whole ( limit )
 if wanted < 1 then
 wanted = 1
@@ -135722,7 +135725,7 @@ return nil
 end
 error ( reason ( "nupp: could not read process stream" ) , 0 )
 end ,  write =
-function ( self , stream , bytes )
+function ( self , stream , bytes ) 
 local sent = tonumber ( C . nuppProcessTryWrite ( stream . handle , bytes , # bytes ) )
 if sent >= 0 then
 return sent , false
@@ -135735,7 +135738,7 @@ return 0 , true
 end
 error ( reason ( "nupp: could not write process stream" ) , 0 )
 end ,  closeStream =
-function ( self , stream )
+function ( self , stream ) 
 if stream . released then
 return true , nil
 end
@@ -135753,7 +135756,7 @@ end
 
 return false , why
 end ,  reap =
-function ( self , owner )
+function ( self , owner ) 
 if owner . released then
 return true , nil
 end
@@ -135771,10 +135774,10 @@ end
 
 return false , why
 end ,  now =
-function ( self )
+function ( self ) 
 return C . nuppProcessMonotonicMs ( )
 end ,  waitReady =
-function ( self , interest , timeoutMs )
+function ( self , interest , timeoutMs ) 
 local readable , readCount = makeArray ( interest . read )
 local writable , writeCount = makeArray ( interest . write )
 local timeout = whole ( timeoutMs )
@@ -135811,7 +135814,7 @@ end
 
 
 
-function process . new ( options ) __nuppCleanups["nupp.io.process#process.destroyProcess"]=process.destroyProcess;
+function process . new ( options ) __nuppCleanups["nupp.io.process#process.destroyProcess"]=process.destroyProcess; 
 validateOptions ( options )
 local backend = defaultBackend
 if backend == nil then
@@ -135831,12 +135834,12 @@ end
 
 
 
-function process . exited ( exitCode , killed , timedOut )
+function process . exited ( exitCode , killed , timedOut ) 
 return {
 exitCode = exitCode ,
 killed = killed ,
 timedOut = timedOut ,
-succeeded = function ( self )
+succeeded = function ( self ) 
 
 return not self . killed and not self . timedOut and self . exitCode == 0
 end ,
@@ -136861,7 +136864,7 @@ const pi = math . pi
 const tau = 2 * math . pi
 
 
-local function ui32 ( value )
+local function ui32 ( value ) 
 local wrapped = tobit ( value )
 
 return wrapped < 0 and wrapped + 4294967296 or wrapped
@@ -136872,7 +136875,7 @@ end
 
 
 
-local function mul32 ( a , c )
+local function mul32 ( a , c ) 
 local al , cl = a % 65536 , c % 65536
 local ah , ch = math . floor ( a / 65536 ) , math . floor ( c / 65536 )
 
@@ -136894,7 +136897,7 @@ const NMAX = 4286578687
 const SIGN = 2147483648
 
 
-local function nanbits ( bits )
+local function nanbits ( bits ) 
 return band ( bits , 2139095040 ) == 2139095040 and band ( bits , 8388607 ) ~= 0
 end
 
@@ -136903,7 +136906,7 @@ end
 
 
 
-local function putbits ( bits )
+local function putbits ( bits ) 
 local pattern = nanbits ( bits ) and CANON or bits
 cell [ 0 ] . u = pattern
 
@@ -136911,7 +136914,7 @@ return cell [ 0 ] . f
 end
 
 
-local function bits32 ( value )
+local function bits32 ( value ) 
 cell [ 0 ] . f = value
 local bits = cell [ 0 ] . u
 if nanbits ( bits ) then
@@ -136923,7 +136926,7 @@ return bits
 end
 
 
-local function round32 ( value )
+local function round32 ( value ) 
 cell [ 0 ] . f = value
 if nanbits ( cell [ 0 ] . u ) then
 cell [ 0 ] . u = CANON
@@ -136933,14 +136936,14 @@ return cell [ 0 ] . f
 end
 
 
-local function narrow32 ( value )
+local function narrow32 ( value ) 
 cell [ 0 ] . f = value
 
 return cell [ 0 ] . f
 end
 
 
-local function comparedd ( hi , lo , value )
+local function comparedd ( hi , lo , value ) 
 local difference = hi - value
 if difference > - lo then
 return 1
@@ -136952,7 +136955,7 @@ return 0
 end
 
 
-local function nextup ( value , bits )
+local function nextup ( value , bits ) 
 if bits == PINF then
 return value , bits
 end
@@ -136973,7 +136976,7 @@ return putbits ( stepped ) , stepped
 end
 
 
-local function nextdown ( value , bits )
+local function nextdown ( value , bits ) 
 if bits == NINF then
 return value , bits
 end
@@ -136999,7 +137002,7 @@ end
 
 
 
-local function rounddd ( hi , lo )
+local function rounddd ( hi , lo ) 
 local value = round32 ( hi )
 local bits = bits32 ( value )
 if nanbits ( bits ) then
@@ -137032,138 +137035,138 @@ end
 
 local i32 = { }
 
-function i32 . wrap ( a )
+function i32 . wrap ( a ) 
 return tobit ( a )
 end
 
-function i32 . add ( a , c )
+function i32 . add ( a , c ) 
 return tobit ( a + c )
 end
 
-function i32 . sub ( a , c )
+function i32 . sub ( a , c ) 
 return tobit ( a - c )
 end
 
-function i32 . mul ( a , c )
+function i32 . mul ( a , c ) 
 return mul32 ( ui32 ( a ) , ui32 ( c ) )
 end
 
-function i32 . andBits ( a , c )
+function i32 . andBits ( a , c ) 
 return band ( a , c )
 end
 
-function i32 . orBits ( a , c )
+function i32 . orBits ( a , c ) 
 return bor ( a , c )
 end
 
-function i32 . xorBits ( a , c )
+function i32 . xorBits ( a , c ) 
 return bxor ( a , c )
 end
 
-function i32 . notBits ( a )
+function i32 . notBits ( a ) 
 return bnot ( a )
 end
 
-function i32 . shiftLeft ( a , c )
+function i32 . shiftLeft ( a , c ) 
 return lshift ( a , band ( c , 31 ) )
 end
 
-function i32 . shiftRightArithmetic ( a , c )
+function i32 . shiftRightArithmetic ( a , c ) 
 return arshift ( a , band ( c , 31 ) )
 end
 
-function i32 . rotateLeft ( a , c )
+function i32 . rotateLeft ( a , c ) 
 return rol ( a , band ( c , 31 ) )
 end
 
-function i32 . rotateRight ( a , c )
+function i32 . rotateRight ( a , c ) 
 return ror ( a , band ( c , 31 ) )
 end
 
-function i32 . lessThan ( a , c )
+function i32 . lessThan ( a , c ) 
 return tobit ( a ) < tobit ( c )
 end
 
-function i32 . lessOrEqual ( a , c )
+function i32 . lessOrEqual ( a , c ) 
 return tobit ( a ) <= tobit ( c )
 end
 
-function i32 . fromU32 ( a )
+function i32 . fromU32 ( a ) 
 return tobit ( a )
 end
 
-function i32 . toU32 ( a )
+function i32 . toU32 ( a ) 
 return ui32 ( a )
 end
 
 
 local u32 = { }
 
-function u32 . wrap ( a )
+function u32 . wrap ( a ) 
 return ui32 ( a )
 end
 
-function u32 . add ( a , c )
+function u32 . add ( a , c ) 
 return ui32 ( a + c )
 end
 
-function u32 . sub ( a , c )
+function u32 . sub ( a , c ) 
 return ui32 ( a - c )
 end
 
-function u32 . mul ( a , c )
+function u32 . mul ( a , c ) 
 return ui32 ( mul32 ( ui32 ( a ) , ui32 ( c ) ) )
 end
 
-function u32 . andBits ( a , c )
+function u32 . andBits ( a , c ) 
 return ui32 ( band ( a , c ) )
 end
 
-function u32 . orBits ( a , c )
+function u32 . orBits ( a , c ) 
 return ui32 ( bor ( a , c ) )
 end
 
-function u32 . xorBits ( a , c )
+function u32 . xorBits ( a , c ) 
 return ui32 ( bxor ( a , c ) )
 end
 
-function u32 . notBits ( a )
+function u32 . notBits ( a ) 
 return ui32 ( bnot ( a ) )
 end
 
-function u32 . shiftLeft ( a , c )
+function u32 . shiftLeft ( a , c ) 
 return ui32 ( lshift ( a , band ( c , 31 ) ) )
 end
 
-function u32 . shiftRightLogical ( a , c )
+function u32 . shiftRightLogical ( a , c ) 
 return ui32 ( rshift ( a , band ( c , 31 ) ) )
 end
 
-function u32 . rotateLeft ( a , c )
+function u32 . rotateLeft ( a , c ) 
 return ui32 ( rol ( a , band ( c , 31 ) ) )
 end
 
-function u32 . rotateRight ( a , c )
+function u32 . rotateRight ( a , c ) 
 return ui32 ( ror ( a , band ( c , 31 ) ) )
 end
 
-function u32 . lessThan ( a , c )
+function u32 . lessThan ( a , c ) 
 return ui32 ( a ) < ui32 ( c )
 end
 
-function u32 . lessOrEqual ( a , c )
+function u32 . lessOrEqual ( a , c ) 
 return ui32 ( a ) <= ui32 ( c )
 end
 
-function u32 . fromI32 ( a )
+function u32 . fromI32 ( a ) 
 return ui32 ( a )
 end
 
-function u32 . toI32 ( a )
+function u32 . toI32 ( a ) 
 return tobit ( a )
 end
 
-function u32 . popcount ( a )
+function u32 . popcount ( a ) 
 local remaining = ui32 ( a )
 local count = 0
 while remaining ~= 0 do
@@ -137174,7 +137177,7 @@ end
 return count
 end
 
-function u32 . trailingZeros ( a )
+function u32 . trailingZeros ( a ) 
 local remaining = ui32 ( a )
 if remaining == 0 then
 return 32
@@ -137188,7 +137191,7 @@ end
 return count
 end
 
-function u32 . leadingZeros ( a )
+function u32 . leadingZeros ( a ) 
 local remaining = ui32 ( a )
 if remaining == 0 then
 return 32
@@ -137206,36 +137209,36 @@ end
 
 local f32 = { }
 
-function f32 . narrow ( a )
+function f32 . narrow ( a ) 
 return narrow32 ( a )
 end
 
-function f32 . round ( a )
+function f32 . round ( a ) 
 return round32 ( a )
 end
 
-function f32 . add ( a , c )
+function f32 . add ( a , c ) 
 return round32 ( round32 ( a ) + round32 ( c ) )
 end
 
-function f32 . sub ( a , c )
+function f32 . sub ( a , c ) 
 return round32 ( round32 ( a ) - round32 ( c ) )
 end
 
-function f32 . mul ( a , c )
+function f32 . mul ( a , c ) 
 return round32 ( round32 ( a ) * round32 ( c ) )
 end
 
-function f32 . div ( a , c )
+function f32 . div ( a , c ) 
 return round32 ( round32 ( a ) / round32 ( c ) )
 end
 
-function f32 . sqrt ( a )
+function f32 . sqrt ( a ) 
 return round32 ( math . sqrt ( round32 ( a ) ) )
 end
 
 
-function f32 . min ( a , c )
+function f32 . min ( a , c ) 
 local left , right = round32 ( a ) , round32 ( c )
 if left ~= left or right ~= right then
 return putbits ( CANON )
@@ -137252,7 +137255,7 @@ return left < right and left or right
 end
 
 
-function f32 . max ( a , c )
+function f32 . max ( a , c ) 
 local left , right = round32 ( a ) , round32 ( c )
 if left ~= left or right ~= right then
 return putbits ( CANON )
@@ -137275,7 +137278,7 @@ end
 
 
 
-function f32 . fma ( a , c , d )
+function f32 . fma ( a , c , d ) 
 local left , right , addend = round32 ( a ) , round32 ( c ) , round32 ( d )
 local product = left * right
 if product ~= product or product == math . huge or product == - math . huge then
@@ -137287,11 +137290,11 @@ local carry = sum - product
 return rounddd ( sum , ( product - ( sum - carry ) ) + ( addend - carry ) )
 end
 
-function f32 . fromBits ( bits )
+function f32 . fromBits ( bits ) 
 return putbits ( ui32 ( bits ) )
 end
 
-function f32 . toBits ( value )
+function f32 . toBits ( value ) 
 return bits32 ( round32 ( value ) )
 end
 
@@ -137302,45 +137305,45 @@ end
 
 local vec2 = { }
 
-function vec2 . add ( ax , ay , bx , by )
+function vec2 . add ( ax , ay , bx , by ) 
 return ax + bx , ay + by
 end
 
-function vec2 . subtract ( ax , ay , bx , by )
+function vec2 . subtract ( ax , ay , bx , by ) 
 return ax - bx , ay - by
 end
 
-function vec2 . scale ( x , y , factor )
+function vec2 . scale ( x , y , factor ) 
 return x * factor , y * factor
 end
 
-function vec2 . dot ( ax , ay , bx , by )
+function vec2 . dot ( ax , ay , bx , by ) 
 return ax * bx + ay * by
 end
 
-function vec2 . cross ( ax , ay , bx , by )
+function vec2 . cross ( ax , ay , bx , by ) 
 return ax * by - ay * bx
 end
 
-function vec2 . lengthSquared ( x , y )
+function vec2 . lengthSquared ( x , y ) 
 return x * x + y * y
 end
 
-function vec2 . length ( x , y )
+function vec2 . length ( x , y ) 
 return math . sqrt ( x * x + y * y )
 end
 
-function vec2 . distanceSquared ( ax , ay , bx , by )
+function vec2 . distanceSquared ( ax , ay , bx , by ) 
 local x , y = bx - ax , by - ay
 
 return x * x + y * y
 end
 
-function vec2 . distance ( ax , ay , bx , by )
+function vec2 . distance ( ax , ay , bx , by ) 
 return math . sqrt ( vec2 . distanceSquared ( ax , ay , bx , by ) )
 end
 
-function vec2 . normalize ( x , y )
+function vec2 . normalize ( x , y ) 
 local length = vec2 . length ( x , y )
 if length == 0 then
 return 0 , 0
@@ -137349,7 +137352,7 @@ end
 return x / length , y / length
 end
 
-function vec2 . lerp ( ax , ay , bx , by , t )
+function vec2 . lerp ( ax , ay , bx , by , t ) 
 if t == 0 then
 return ax , ay
 elseif t == 1 then
@@ -137360,7 +137363,7 @@ return ax + ( bx - ax ) * t , ay + ( by - ay ) * t
 end
 
 
-function vec2 . moveTowards ( ax , ay , bx , by , distance )
+function vec2 . moveTowards ( ax , ay , bx , by , distance ) 
 if distance <= 0 then
 return ax , ay
 end
@@ -137374,13 +137377,13 @@ local factor = distance / math . sqrt ( squared )
 return ax + x * factor , ay + y * factor
 end
 
-function vec2 . rotate ( x , y , radians )
+function vec2 . rotate ( x , y , radians ) 
 local c , s = math . cos ( radians ) , math . sin ( radians )
 
 return x * c - y * s , x * s + y * c
 end
 
-function vec2 . angle ( x , y )
+function vec2 . angle ( x , y ) 
 if x == 0 and y == 0 then
 return 0
 end
@@ -137389,7 +137392,7 @@ return math . atan2 ( y , x )
 end
 
 
-function vec2 . angleBetween ( ax , ay , bx , by )
+function vec2 . angleBetween ( ax , ay , bx , by ) 
 if ( ax == 0 and ay == 0 ) or ( bx == 0 and by == 0 ) then
 return 0
 end
@@ -137398,7 +137401,7 @@ return math . atan2 ( math . abs ( vec2 . cross ( ax , ay , bx , by ) ) , vec2 .
 end
 
 
-function vec2 . signedAngleBetween ( ax , ay , bx , by )
+function vec2 . signedAngleBetween ( ax , ay , bx , by ) 
 if ( ax == 0 and ay == 0 ) or ( bx == 0 and by == 0 ) then
 return 0
 end
@@ -137408,7 +137411,7 @@ return turn == pi and - pi or turn
 end
 
 
-function vec2 . project ( x , y , ox , oy )
+function vec2 . project ( x , y , ox , oy ) 
 local squared = ox * ox + oy * oy
 if squared == 0 then
 return 0 , 0
@@ -137419,7 +137422,7 @@ return ox * factor , oy * factor
 end
 
 
-function vec2 . reflect ( x , y , nx , ny )
+function vec2 . reflect ( x , y , nx , ny ) 
 local squared = nx * nx + ny * ny
 if squared == 0 then
 return x , y
@@ -137433,7 +137436,7 @@ end
 
 
 
-local function lerp ( from , to , t )
+local function lerp ( from , to , t ) 
 if t == 0 then
 return from
 elseif t == 1 then
@@ -137444,12 +137447,12 @@ return from + ( to - from ) * t
 end
 
 
-local function wrapAngle ( radians )
+local function wrapAngle ( radians ) 
 return ( radians + pi ) % tau - pi
 end
 
 
-local function deltaAngle ( from , to )
+local function deltaAngle ( from , to ) 
 return wrapAngle ( to - from )
 end
 
@@ -137459,7 +137462,7 @@ end
 
 
 
-install=function ( namespace )
+install=function ( namespace ) 
 namespace . lerp = lerp
 namespace . wrapAngle = wrapAngle
 namespace . deltaAngle = deltaAngle
@@ -139737,7 +139740,7 @@ local lpeg = require ( "lpeg" )
 
 
 
-start=function ( subject , init , level )
+start=function ( subject , init , level ) 
 if type ( subject ) ~= "string" then
 error ( "nupp: PEG subject must be a string" , level )
 end
@@ -139771,7 +139774,7 @@ captureful ,
 subject ,
 init ,
 search
-)
+) 
 if search ~= nil and search . direct ~= nil then
 local first , last = subject : find ( search . direct , init , search . directPlain )
 if first == nil then
@@ -139807,7 +139810,7 @@ return nil
 end
 
 
-local function replaced ( replacement , first , nextPosition , ... )
+local function replaced ( replacement , first , nextPosition , ... ) 
 local out = replacement ( first , nextPosition , ... )
 if type ( out ) ~= "string" then
 error ( "nupp: PEG replacement callback must return a string" , 3 )
@@ -139816,7 +139819,7 @@ end
 return out
 end
 
-local function visited ( visitor , first , nextPosition , ... )
+local function visited ( visitor , first , nextPosition , ... ) 
 if first ~= nil then
 visitor ( first , nextPosition , ... )
 
@@ -139831,7 +139834,7 @@ replacement ,
 first ,
 nextPosition ,
 ...
-)
+) 
 if first ~= nil then
 return first , nextPosition , replaced ( replacement , first , nextPosition , ... )
 end
@@ -139863,10 +139866,10 @@ search ,
 generatedFind ,
 directReplaceAll ,
 generatedTraverse
-)
+) 
 local Matcher = { }
 Matcher . __index = Matcher
-local function findAt ( subject , init )
+local function findAt ( subject , init ) 
 if generatedFind ~= nil then
 return generatedFind ( subject , init )
 end
@@ -139874,7 +139877,7 @@ end
 return findFrom ( run , take , captureful , subject , init , search )
 end
 
-Matcher . match = function ( self , subject , init )
+Matcher . match = function ( self , subject , init ) 
 local at = start ( subject , init , 2 )
 if at == nil then
 return nil
@@ -139889,7 +139892,7 @@ end
 
 return nextPosition
 end
-Matcher . find = function ( self , subject , init )
+Matcher . find = function ( self , subject , init ) 
 local at = start ( subject , init , 2 )
 if at == nil then
 return nil
@@ -139897,12 +139900,12 @@ end
 
 return findAt ( subject , at )
 end
-Matcher . isMatch = function ( self , subject , init )
+Matcher . isMatch = function ( self , subject , init ) 
 local at = start ( subject , init , 2 )
 
 return at ~= nil and findAt ( subject , at ) ~= nil
 end
-Matcher . forEachMatch = function ( self , subject , visitor , init )
+Matcher . forEachMatch = function ( self , subject , visitor , init ) 
 if type ( visitor ) ~= "function" then
 error ( "nupp: PEG match visitor must be a function" , 2 )
 end
@@ -139928,7 +139931,7 @@ end
 
 
 
-Matcher . __nuppPegReplaceLiteral = function ( self , subject , replacement , init )
+Matcher . __nuppPegReplaceLiteral = function ( self , subject , replacement , init ) 
 local at = start ( subject , init , 2 )
 if at == nil then
 return subject
@@ -139940,7 +139943,7 @@ end
 
 return subject : sub ( 1 , ( first ) - 1 ) .. replacement .. subject : sub ( nextPosition )
 end
-Matcher . __nuppPegReplaceCallback = function ( self , subject , replacement , init )
+Matcher . __nuppPegReplaceCallback = function ( self , subject , replacement , init ) 
 local at = start ( subject , init , 2 )
 if at == nil then
 return subject
@@ -139952,7 +139955,7 @@ end
 
 return subject : sub ( 1 , ( first ) - 1 ) .. ( value ) .. subject : sub ( nextPosition )
 end
-Matcher . replace = function ( self , subject , replacement , init )
+Matcher . replace = function ( self , subject , replacement , init ) 
 if type ( replacement ) == "string" then
 return self : __nuppPegReplaceLiteral ( subject , replacement , init )
 elseif type ( replacement ) == "function" then
@@ -139968,7 +139971,7 @@ self ,
 subject ,
 replacement ,
 init
-)
+) 
 local at = start ( subject , init , 2 )
 if at == nil then
 return subject
@@ -140005,7 +140008,7 @@ parts [ # parts + 1 ] = subject : sub ( copyAt )
 
 return table . concat ( parts )
 end
-Matcher . __nuppPegReplaceAllCallback = function ( self , subject , replacement , init )
+Matcher . __nuppPegReplaceAllCallback = function ( self , subject , replacement , init ) 
 local at = start ( subject , init , 2 )
 if at == nil then
 return subject
@@ -140039,7 +140042,7 @@ parts [ # parts + 1 ] = subject : sub ( copyAt )
 
 return table . concat ( parts )
 end
-Matcher . replaceAll = function ( self , subject , replacement , init )
+Matcher . replaceAll = function ( self , subject , replacement , init ) 
 if type ( replacement ) == "string" then
 return self : __nuppPegReplaceAllLiteral ( subject , replacement , init )
 elseif type ( replacement ) == "function" then
@@ -140063,7 +140066,7 @@ end ;__nuppExports["matcher"]=matcher
 
 
 
-graphPattern=function ( program , definitions )
+graphPattern=function ( program , definitions ) 
 local given = definitions or { }
 for _ , name in ipairs ( program . actions or { } ) do
 if rawget ( given , name ) == nil then
@@ -140083,7 +140086,7 @@ local targets = { }
 
 
 
-local function equalcap ( subject , position , captured )
+local function equalcap ( subject , position , captured ) 
 if type ( captured ) ~= "string" then
 return false
 end
@@ -140096,7 +140099,7 @@ return false
 end
 
 local build
-build = function ( index )
+build = function ( index ) 
 local prior = memo [ index ]
 if prior then
 return prior
@@ -140167,7 +140170,7 @@ elseif op == "action" then
 
 
 local callback = given [ node [ 3 ] ]
-pattern = C ( build ( node [ 2 ] ) / 0 ) / function ( text )
+pattern = C ( build ( node [ 2 ] ) / 0 ) / function ( text ) 
 return callback ( text )
 end
 elseif op == "reference" then
@@ -140216,14 +140219,14 @@ end ;__nuppExports["graphPattern"]=graphPattern
 
 
 
-fromPattern=function ( pattern )
-local function pack ( ... )
+fromPattern=function ( pattern ) 
+local function pack ( ... ) 
 return { n = select ( "#" , ... ) , ... , }
 end
 
 local resultValues = nil
 local execution = ( pattern ) * lpeg . Cp ( )
-local function run ( subject , position )
+local function run ( subject , position ) 
 local values = pack ( lpeg . match ( execution , subject , position ) )
 local nextPosition = values [ values . n ]
 if nextPosition == nil then
@@ -140241,7 +140244,7 @@ resultValues = values
 return nextPosition
 end
 
-local function take ( )
+local function take ( ) 
 local values = resultValues
 resultValues = nil
 
@@ -140256,7 +140259,7 @@ end ;__nuppExports["fromPattern"]=fromPattern
 
 
 
-lpegBackend=function ( program , definitions )
+lpegBackend=function ( program , definitions ) 
 return fromPattern ( graphPattern ( program , definitions ) )
 end ;__nuppExports["lpegBackend"]=lpegBackend
 
@@ -140265,7 +140268,7 @@ end ;__nuppExports["lpegBackend"]=lpegBackend
 
 
 
-local function fastScan9Run ( plan , sets )
+local function fastScan9Run ( plan , sets ) 
 local keys = plan . packedKeys
 local k1 , k2 , k3 , k4 = keys [ 1 ] , keys [ 2 ] , keys [ 3 ] , keys [ 4 ]
 local k5 , k6 , k7 , k8 = keys [ 5 ] , keys [ 6 ] , keys [ 7 ] , keys [ 8 ]
@@ -140288,7 +140291,7 @@ else
 lastClass = sets [ ( suffix [ 9 ] ) - 255 ]
 end
 
-return function ( subject , position )
+return function ( subject , position ) 
 local a , b , c , d , e , f , g = subject : byte ( position , position + 6 )
 if not a then
 return nil
@@ -140357,7 +140360,7 @@ end
 
 
 
-local function checkSource ( encoded , expression )
+local function checkSource ( encoded , expression ) 
 if encoded < 256 then
 return expression .. "==" .. tostring ( encoded )
 end
@@ -140368,7 +140371,7 @@ end
 
 
 
-local function repeatSource ( plan )
+local function repeatSource ( plan ) 
 local head = checkSource ( plan . head , "byte" )
 local tail = checkSource ( plan . tail , "byte" )
 local accept = plan . eof and "if position~=#subject+1 then return nil end;" or ""
@@ -140419,7 +140422,7 @@ end
 
 
 
-local function fixedSource ( checks )
+local function fixedSource ( checks ) 
 local conditions = { "position+" .. tostring ( # checks ) .. "==#subject+1" , }
 for index , encoded in ipairs ( checks ) do
 local expression = "subject:byte(position+" .. tostring ( index - 1 ) .. ")"
@@ -140443,7 +140446,7 @@ end
 
 
 
-codegen=function ( program , definitions )
+codegen=function ( program , definitions ) 
 local scan = program . fastScan
 if scan ~= nil and scan . packedKeys ~= nil and ( scan . maximum ) <= 6 and # scan . keys <= 8 then
 local suffix = scan . suffix
@@ -140490,7 +140493,7 @@ local patternCache = setmetatable ( { } , { __mode = "v" , } )
 
 
 
-compile=function ( source , options )
+compile=function ( source , options ) 
 if type ( source ) ~= "string" then
 error ( "nupp: PEG compile source must be a string" , 2 )
 end
@@ -142338,7 +142341,7 @@ const __nuppExportValue= simd ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.simd"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.simd"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.suspension"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.suspension#suspension.destroyInstalled"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.suspension#suspension.destroyInstalled") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();const __nuppT41={}; const __nuppT42,__nuppT43,__nuppT44,__nuppT45,__nuppT46,__nuppT47,__nuppT48,__nuppT49=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT38(...) return {n=__nuppT46("#",...),...} end; const function __nuppT39(value) return value end; const function __nuppT40(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT47({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT48(v.primary) for _,reason in __nuppT49(v.suppressed) do text=text.."\ncleanup: "..__nuppT48(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.suspension#suspension.destroyInstalled"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.suspension#suspension.destroyInstalled") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -142512,7 +142515,7 @@ local running = coroutine . running
 
 
 
-local function effectiveInstallation ( )
+local function effectiveInstallation ( ) 
 local co = running ( )
 local current = co == nil and mainInstalled or installed [ co ]
 
@@ -142531,7 +142534,7 @@ end
 return current
 end
 
-local function effective ( )
+local function effective ( ) 
 local current = effectiveInstallation ( )
 
 return current and current . handler or nil
@@ -142541,8 +142544,8 @@ end
 
 local sources = { }
 
-local function sortSources ( )
-table . sort ( sources , function ( a , b )
+local function sortSources ( ) 
+table . sort ( sources , function ( a , b ) 
 if a . priority == b . priority then
 return a . name < b . name
 end
@@ -142554,7 +142557,7 @@ end
 local SourceMT = { }
 SourceMT . __index = SourceMT
 
-function SourceMT . release ( self )
+function SourceMT . release ( self ) 
 if self . released then
 return
 end
@@ -142572,7 +142575,7 @@ name ,
 priority ,
 poll ,
 wait
-)
+) 
 local source = setmetatable (
 { name = name , priority = priority , poll = poll , wait = wait , released = false } ,
 SourceMT
@@ -142603,7 +142606,7 @@ name ,
 priority ,
 poll ,
 wait
-)
+) 
 return addSource ( name , priority , poll , wait )
 end
 
@@ -142613,7 +142616,7 @@ end
 
 
 
-function suspension . poll ( )
+function suspension . poll ( ) 
 local settled = 0
 
 local pass = { }
@@ -142636,7 +142639,7 @@ end
 
 
 
-local function waitCandidates ( waiting )
+local function waitCandidates ( waiting ) 
 local associated = waiting . context and waiting . context . associated
 local preferred = { }
 if associated ~= nil then
@@ -142662,7 +142665,7 @@ end
 return fallback
 end
 
-local function blockingPark ( waiting )
+local function blockingPark ( waiting ) 
 while not waiting : ready ( ) do
 if # sources == 0 then
 error ( ( "nupp: %s cannot complete: no readiness source is registered" ) : format ( waiting . operation ) , 0 )
@@ -142691,11 +142694,11 @@ end
 local WaitingMT = { }
 WaitingMT . __index = WaitingMT
 
-function WaitingMT . ready ( self )
+function WaitingMT . ready ( self ) 
 return self . isReady ( )
 end
 
-function WaitingMT . onResume ( self , waker )
+function WaitingMT . onResume ( self , waker ) 
 self . setWaker ( waker )
 end
 
@@ -142708,7 +142711,7 @@ name ,
 priority ,
 poll ,
 wait
-)
+) 
 local source = addSource ( name , priority , poll , wait )
 
 
@@ -142724,7 +142727,7 @@ self . associated [ source ] = true
 return source
 end
 
-function ContextMT . uses ( self , source )
+function ContextMT . uses ( self , source ) 
 if source == nil or source . released then
 error ( "nupp: cannot use a released readiness source" , 2 )
 end
@@ -142732,7 +142735,7 @@ self . associated = self . associated or { }
 self . associated [ source ] = true
 end
 
-function ContextMT . canPark ( self )
+function ContextMT . canPark ( self ) 
 local handler = self . handler
 if handler == nil then
 return true
@@ -142746,7 +142749,7 @@ end
 
 
 
-local function releaseOwned ( context )
+local function releaseOwned ( context ) 
 local owned = context and context . owned
 if owned == nil then
 return
@@ -142787,7 +142790,7 @@ end
 function suspension . suspend (
 operation ,
 subscribe
-)
+) 
 local current = effectiveInstallation ( )
 local handler = current and current . handler or nil
 
@@ -142795,7 +142798,7 @@ local handler = current and current . handler or nil
 
 local state = { resumed = false , value = nil , cancelled = false , reason = nil , waker = nil }
 
-local function resume ( answer )
+local function resume ( answer ) 
 if state . resumed or state . cancelled then
 error ( ( "nupp: %s was resumed twice" ) : format ( operation ) , 0 )
 end
@@ -142842,7 +142845,7 @@ end
 local ticket = nil
 if current ~= nil then
 ticket = { operation = operation , unsubscribeAttempted = false }
-function ticket . abandon ( reason )
+function ticket . abandon ( reason ) 
 
 
 
@@ -142890,10 +142893,10 @@ local waiting = setmetatable (
 operation = operation ,
 context = context ,
 waitCursor = 1 ,
-isReady = function ( )
+isReady = function ( ) 
 return state . resumed or state . cancelled
 end ,
-setWaker = function ( wake )
+setWaker = function ( wake ) 
 state . waker = wake
 end ,
 } ,
@@ -142960,7 +142963,7 @@ suspension.Installed = {} suspension.Installed.__index = suspension.Installed
 
 
 
-function suspension.Installed:release()
+function suspension.Installed:release() 
 if self . released then
 return
 end
@@ -142983,7 +142986,7 @@ end
 
 
 local firstError = nil
-local function attempt ( fn , argument )
+local function attempt ( fn , argument ) 
 local ok , err = pcall ( fn , argument )
 if not ok and firstError == nil then
 firstError = err
@@ -143044,7 +143047,7 @@ self . released = true
 end
 
 
-function suspension . Installed . drop ( self )
+function suspension . Installed . drop ( self ) 
 self : release ( )
 end
 
@@ -143054,7 +143057,7 @@ end
 
 
 
-function suspension . destroyInstalled ( self )
+function suspension . destroyInstalled ( self ) 
 self : drop ( )
 end ;__nuppCleanups["nupp.suspension#suspension.destroyInstalled"]=suspension.destroyInstalled
 
@@ -143078,7 +143081,7 @@ end ;__nuppCleanups["nupp.suspension#suspension.destroyInstalled"]=suspension.de
 
 
 
-function suspension . install ( handler ) __nuppCleanups["nupp.suspension#suspension.destroyInstalled"]=suspension.destroyInstalled;
+function suspension . install ( handler ) __nuppCleanups["nupp.suspension#suspension.destroyInstalled"]=suspension.destroyInstalled; 
 local co = running ( )
 local previous
 if co == nil then
@@ -143120,7 +143123,7 @@ end
 
 
 
-function suspension . create ( body )
+function suspension . create ( body ) 
 local co = coroutine . create ( body )
 
 
@@ -143148,7 +143151,7 @@ end
 
 
 
-function suspension . handled ( )
+function suspension . handled ( ) 
 return effective ( ) ~= nil
 end
 
@@ -143156,7 +143159,7 @@ end
 
 
 
-function suspension . canSuspend ( )
+function suspension . canSuspend ( ) 
 local handler = effective ( )
 if handler == nil or handler . canPark == nil then
 return true
@@ -143213,7 +143216,7 @@ local function drive (
 bodies ,
 limit ,
 stopEarly
-)
+) 
 local count = # bodies
 local values = { }
 local errors = { }
@@ -143230,7 +143233,7 @@ local inFlight = limit and ( limit > 1 and limit or 1 ) or count
 
 
 
-local function nudge ( )
+local function nudge ( ) 
 local wake = wakeDriver
 if wake then
 wakeDriver = nil
@@ -143239,9 +143242,9 @@ end
 end
 
 local branchHandler = setmetatable({ park =
-function ( _ , waiting , cancel )
+function ( _ , waiting , cancel ) 
 local index = indexOf [ running ( ) ]
-local function markRunnable ( )
+local function markRunnable ( ) 
 runnable [ index ] = true
 nudge ( )
 end
@@ -143260,25 +143263,25 @@ error ( ABANDONED , 0 )
 end
 end
 end ,  canPark =
-function ( _ )
+function ( _ ) 
 return true
 end ,  shutdown =
-function ( _ )
+function ( _ ) 
 end }, suspension.Handler)
 
 
 
 
-local function startNext ( )
+local function startNext ( ) 
 started = started + 1
 local index = started
 local body = bodies [ index ]
-local co = suspension . create ( function ( )
+local co = suspension . create ( function ( ) local __nuppT37;
 local produced
 do
-do local __nuppT13=0; local  __nuppT19 ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT20= suspension . install ( branchHandler ) ; __nuppT19= __nuppT20 ; __nuppT13=1;  local handling=__nuppT19;
+do const  __nuppT56= suspension . install ( branchHandler ) ; __nuppT37=__nuppT37 or {} ; local __nuppT57=__nuppT37[1]; if not __nuppT57 then __nuppT57=function(handling) do
 entered [ index ] = true
-produced = body ( ) end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 then  const __nuppT21,__nuppT22=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT21 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT22 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
+produced = body ( ) end; return "normal" end; __nuppT37[1]=__nuppT57 end; const __nuppT51,__nuppT52,__nuppT53=__nuppT43(__nuppT57,__nuppT39,__nuppT56); const __nuppT50=1; const __nuppT54={}; local __nuppT55=0; if __nuppT50>=1 then  const __nuppT58,__nuppT59=__nuppT42(__nuppCleanup1,__nuppT56);  if not __nuppT58 then __nuppT55=__nuppT55+1; __nuppT54[__nuppT55]=__nuppT59 end; end; if not __nuppT51 then if __nuppT55>0 then __nuppT44(__nuppT40(__nuppT52,__nuppT54,1),0) else __nuppT44(__nuppT52,0) end end; if __nuppT55>0 then if __nuppT55>1 then __nuppT44(__nuppT40(__nuppT54[1],__nuppT54,2),0) else __nuppT44(__nuppT54[1],0) end end; if __nuppT52=="return" then  return __nuppT45(__nuppT53,1,__nuppT53.n)  end; end
 end
 
 return produced
@@ -143295,12 +143298,12 @@ end
 
 
 
-local function parkDriver ( resume , _ )
-wakeDriver = function ( )
+local function parkDriver ( resume , _ ) 
+wakeDriver = function ( ) 
 resume ( true )
 end
 
-return function ( )
+return function ( ) 
 wakeDriver = nil
 end
 end
@@ -143387,7 +143390,7 @@ end
 
 
 
-function suspension . all ( bodies )
+function suspension . all ( bodies ) 
 local values , errors = drive ( bodies , nil , nil )
 for index = 1 , # bodies do
 if errors [ index ] ~= nil then
@@ -143407,7 +143410,7 @@ end
 
 
 
-function suspension . gather ( bodies )
+function suspension . gather ( bodies ) 
 local values , errors = drive ( bodies , nil , nil )
 
 return values , errors
@@ -143430,13 +143433,13 @@ end
 
 
 
-local function raceImpl ( bodies )
+local function raceImpl ( bodies ) 
 local rawBodies
 rawBodies = bodies
 if # rawBodies == 0 then
 return nil , nil
 end
-local values , errors , first = drive ( rawBodies , nil , function ( )
+local values , errors , first = drive ( rawBodies , nil , function ( ) 
 return true
 end )
 if first ~= nil and errors [ first ] ~= nil then
@@ -143470,7 +143473,7 @@ suspension . race = race
 
 
 
-function suspension . batch ( bodies , limit )
+function suspension . batch ( bodies , limit ) 
 local values , errors = drive ( bodies , limit , nil )
 for index = 1 , # bodies do
 if errors [ index ] ~= nil then
