@@ -9,15 +9,17 @@ for an installed implementation and it emits nothing when no provider was
 selected.
 
 Only JSON is wired for the spike. The point is to exercise the seam end to end:
-manifest validation, generated bootstrap, lazy loading, shallow contract
-validation and suppression of the native provider build.
+manifest validation, generated selection, lazy loading, contract validation and
+suppression of the native provider build. Runtime behavior lives in the checked
+`nupp.runtime.seam.json` module; this compiler module emits only a call that
+names the selected module.
 ]]
 
 local providers = {}
+local runtimeBackend = require("nupp.runtime.backend")
+local jsonSeam = require("nupp.runtime.seam.json")
 
 local KNOWN = {json = true,}
-
-local JSON_FUNCTIONS = {"arrayOf", "asArray", "asObject", "decode", "encode", "pull", "serialize", "writer",}
 
 function providers.names(): {string}
     local names = {}
@@ -60,63 +62,12 @@ function providers.withoutNative(effects: {[string]: boolean}, selected: {[strin
     return effects
 end
 
-local function jsonBootstrap(moduleName: string): string
-    local required = {}
-    for _, name in ipairs(JSON_FUNCTIONS) do
-        required[#required + 1] = ("[%q]=\"function\""):format(name)
-    end
-    required[#required + 1] = '["EMPTY_ARRAY"]="table"'
-    required[#required + 1] = '["EMPTY_OBJECT"]="table"'
-
-    return (
-        (
-            [=[
-local __nuppProviders=rawget(_G,"__nuppRuntimeProviders")
-if __nuppProviders==nil then __nuppProviders={};rawset(_G,"__nuppRuntimeProviders",__nuppProviders) end
-local __nuppPrior=__nuppProviders["json"]
-if __nuppPrior~=nil and __nuppPrior~=%q then
-    error("nupp: runtime provider conflict for data.json: "..__nuppPrior.." and "..%q,0)
-elseif __nuppPrior==nil then
-    if package.loaded["jsonNative"]~=nil then
-        error("nupp: data.json provider "..%q.." was selected after jsonNative was already loaded",0)
-    end
-    __nuppProviders["json"]=%q
-    package.preload["jsonNative"]=function()
-        local ok,value=pcall(require,%q)
-        local problem
-        if not ok then
-            problem="could not load module: "..tostring(value)
-        elseif type(value)~="table" then
-            problem="module returned "..type(value)..", expected table"
-        else
-            local expected={%s}
-            for name,kind in pairs(expected) do
-                if type(value[name])~=kind then
-                    problem="member "..name.." is "..type(value[name])..", expected "..kind
-                    break
-                end
-            end
-            if problem==nil and value.NULL==nil then problem="member NULL is absent" end
-        end
-        if problem~=nil then
-            return setmetatable({}, {__index=function()
-                error("nupp: runtime provider "..%q.." for data.json is incompatible: "..problem,0)
-            end})
-        end
-        return value
-    end
-end
-]=]
-        ):format(moduleName, moduleName, moduleName, moduleName, moduleName, table.concat(required, ","), moduleName)
-            :gsub("[\r\n]+%s*", " ")
-            :gsub("%s+$", "")
-    )
-end
-
 --- Generated before a module body, and empty when no reached effect selected one.
 function providers.bootstrap(effects: {[string]: any}?, selected: {[string]: string}?): string
     if selected and selected.json and effects and effects["native.json"] then
-        return jsonBootstrap(selected.json) .. ";"
+        return (
+            "require(%q).install(require(%q).backend(%q));"
+        ):format(runtimeBackend.moduleName, jsonSeam.moduleName, selected.json)
     end
 
     return ""

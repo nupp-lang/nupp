@@ -94,6 +94,18 @@ local RESOURCES = {
    {source = "src/nupp/mem/heap.nupp", output = "nupp/compiler/nupp/mem/heap.nupp"},
    {source = "src/nupp/mem/soa.nupp", output = "nupp/compiler/nupp/mem/soa.nupp"},
    {source = "src/nupp/data/json.nupp", output = "nupp/compiler/nupp/data/json.nupp"},
+   {
+      source = "src/nupp/runtime/backend.nupp",
+      output = "nupp/compiler/nupp/runtime/backend.nupp",
+   },
+   {
+      source = "src/nupp/runtime/seam/json.nupp",
+      output = "nupp/compiler/nupp/runtime/seam/json.nupp",
+   },
+   {
+      source = "src/nupp/runtime/seam/jsonsuite.nupp",
+      output = "nupp/compiler/nupp/runtime/seam/jsonsuite.nupp",
+   },
    {source = "src/nupp/data/utf8.nupp", output = "nupp/compiler/nupp/data/utf8.nupp"},
    {source = "src/nupp/native.nupp", output = "nupp/compiler/nupp/native.nupp"},
    {source = "src/nupp/data/init.nupp", output = "nupp/compiler/nupp/data/init.nupp"},

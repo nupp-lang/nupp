@@ -4,6 +4,8 @@ local envMod = require("nupp.compiler.env")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
 local providers = require("nupp.compiler.providers")
+local runtimeBackend = require("nupp.runtime.backend")
+local jsonSeam = require("nupp.runtime.seam.json")
 local optimize = require("nupp.compiler.optimize")
 local gen = require("nupp.compiler.gen")
 
@@ -41,7 +43,11 @@ local M = {}
 function M.runtimeJsonProviderIsOptInLazyAndChecked()
    local selected = "fixtures.portable_json"
    local bootstrap = providers.bootstrap({["native.json"] = true}, {json = selected})
-   assert(bootstrap:find(selected, 1, true), "the selected provider is recorded")
+   assertEq(bootstrap, ('require(%q).install(require(%q).backend(%q));'):format(
+      runtimeBackend.moduleName,
+      jsonSeam.moduleName,
+      selected
+   ), "generated output contains composition only, not adapter source")
    assertEq(providers.bootstrap({["native.json"] = true}, nil), "",
       "the default native path emits no provider bootstrap")
    assertEq(providers.bootstrap({}, {json = selected}), "",
@@ -52,10 +58,12 @@ function M.runtimeJsonProviderIsOptInLazyAndChecked()
    local oldNativePreload = package.preload.jsonNative
    local oldProvider = package.loaded[selected]
    local oldProviderPreload = package.preload[selected]
+   local oldSuite = package.loaded[jsonSeam.suiteModuleName]
    _G.__nuppRuntimeProviders = nil
    package.loaded.jsonNative = nil
    package.preload.jsonNative = nil
    package.loaded[selected] = nil
+   package.loaded[jsonSeam.suiteModuleName] = nil
    local sentinel = {}
    package.preload[selected] = function()
       local function same(value) return value end
@@ -80,6 +88,8 @@ function M.runtimeJsonProviderIsOptInLazyAndChecked()
       local json = require("jsonNative")
       assertEq(package.loaded[selected], json, "the boundary loads exactly the selected module")
       assertEq(json.NULL, sentinel, "the compatible provider is returned unchanged")
+      assertEq(package.loaded[jsonSeam.suiteModuleName], nil,
+         "installing and using a seam does not load its conformance suite")
    end)
 
    _G.__nuppRuntimeProviders = oldRegistry
@@ -87,6 +97,53 @@ function M.runtimeJsonProviderIsOptInLazyAndChecked()
    package.preload.jsonNative = oldNativePreload
    package.loaded[selected] = oldProvider
    package.preload[selected] = oldProviderPreload
+   package.loaded[jsonSeam.suiteModuleName] = oldSuite
+   assert(ok, problem)
+end
+
+function M.runtimeJsonSeamExposesItsOwnConformanceSuite()
+   local conforming = "fixtures.conforming_json_backend"
+   local broken = "fixtures.broken_json_backend"
+   local oldConforming = package.loaded[conforming]
+   local oldConformingPreload = package.preload[conforming]
+   local oldBroken = package.loaded[broken]
+   local oldBrokenPreload = package.preload[broken]
+   local nativeJson = require("jsonNative")
+   package.loaded[conforming] = nil
+   package.loaded[broken] = nil
+   package.preload[conforming] = function() return nativeJson end
+   package.preload[broken] = function()
+      local adapter = {}
+      for name, value in pairs(nativeJson) do adapter[name] = value end
+      adapter.encode = function() return 42 end
+      return adapter
+   end
+
+   local ok, problem = pcall(function()
+      local selected = jsonSeam.backend(conforming)
+      assertEq(selected.name, "json:" .. conforming, "the backend has a stable name")
+      assertEq(#selected.seams, 1, "the backend exposes its seams")
+      assertEq(selected.seams[1].name, "data.json", "the JSON seam is named")
+      assertEq(selected.seams[1].version, 1, "the JSON contract is versioned")
+      local unique, duplicate = pcall(runtimeBackend.new, "duplicate", {
+         selected.seams[1],
+         selected.seams[1],
+      })
+      assert(not unique and tostring(duplicate):find("more than once", 1, true),
+         "a backend cannot provide one seam twice")
+      local passed, why = runtimeBackend.test(selected)
+      assert(passed, "the native adapter passes the same public suite: " .. tostring(why))
+
+      local rejected, rejection = runtimeBackend.test(jsonSeam.backend(broken))
+      assert(not rejected, "behavior, not just member names, is checked")
+      assert(tostring(rejection):find("data.json contract 1", 1, true),
+         "a failure identifies the seam contract: " .. tostring(rejection))
+   end)
+
+   package.loaded[conforming] = oldConforming
+   package.preload[conforming] = oldConformingPreload
+   package.loaded[broken] = oldBroken
+   package.preload[broken] = oldBrokenPreload
    assert(ok, problem)
 end
 
@@ -131,7 +188,7 @@ function M.selectedRuntimeProviderSuppressesOnlyItsNativeFeature()
    assert(effects['native.sha256'], "unrelated native features remain selected")
 end
 
-function M.generatedProviderAdapterDoesNotTouchDefaultOutput()
+function M.generatedBackendSelectionDoesNotTouchDefaultOutput()
    local source = "local json = require('nupp.data.json')\nreturn json.encode({answer = 42})"
    local result = parser.parse(source, "runtime-provider.g.nupp")
    assertEq(#result.errors, 0, "provider source parses")
