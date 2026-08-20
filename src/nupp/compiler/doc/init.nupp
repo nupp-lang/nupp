@@ -503,6 +503,7 @@ local function rewriteModuleDocLinks(
 
         return rewriteConfiguredPageLinks(text, page, pages, file)
     end
+
     local function rewriteParts(
         params: {nupp.compiler.doc.extract.Param},
         returns: {nupp.compiler.doc.extract.Result}
@@ -514,6 +515,7 @@ local function rewriteModuleDocLinks(
             result.text = rewrite(result.text)
         end
     end
+
     local rewriteMembers: (function(members: {nupp.compiler.doc.extract.Member}?): nil)
     rewriteMembers = function(members)
         for _, member in ipairs(members or {}) do
@@ -627,7 +629,9 @@ local function configuredPages(root, settings, title)
             return nil, what .. " collides with a configured page: " .. route
         end
         seen[route] = true
-        pages[#pages + 1] = {
+        pages[
+            #pages + 1
+        ] = {
             path = route,
             title = generated.title,
             markdown = generated.markdown,

@@ -500,10 +500,7 @@ function M.stringFormatSyntaxIsReusableByUserFormattingWrappers()
       "end",
       "local value = format('%?', {})",
       "print(value)",
-   }, "\n"), "NUPP2006", table.concat({
-      "%? is available only to compiler-lowered formatting APIs",
-      "  called StringFormatSyntax at 5:1; defined at 5:1",
-   }, "\n"))
+   }, "\n"), "NUPP2006", "%? is available only to compiler-lowered formatting APIs")
 end
 
 function M.luaDebugFormatLoweringUsesThePegRuntime()

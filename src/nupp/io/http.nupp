@@ -1109,6 +1109,7 @@ record http.Body is io.Reader
     --- Releases the body and cancels whatever is still being produced for it.
     --- @param self this body, spent by the call
     drop: nosuspend function(takes self: http.Body): nil
+
     _client: BodyClient
     _transfer: NativeTransfer
     _closed: boolean

@@ -2697,10 +2697,10 @@ function M.diagnosticIndexCoversEveryDocumentedCode()
    local codes = explain.documented()
    assert(#codes > 0)
    local sections = 0
-   for _ in page.markdown:gmatch("\n### NUPP%d+\n") do sections = sections + 1 end
+   for _ in page.markdown:gmatch("\n#### NUPP%d+\n") do sections = sections + 1 end
    assert(sections == #codes, sections .. " sections for " .. #codes .. " codes")
    for _, code in ipairs(codes) do
-      assert(page.markdown:find("### " .. code .. "\n", 1, true), "no section for " .. code)
+      assert(page.markdown:find("#### " .. code .. "\n", 1, true), "no section for " .. code)
    end
 end
 
@@ -2711,8 +2711,8 @@ function M.diagnosticSectionsShowBothProgramsAsText()
    local diagnostics = require("nupp.compiler.doc.diagnostics")
    local page = assert(diagnostics.page({path = "diagnostics"}, {["docs/reference/lints.md"] = true}))
 
-   local at = assert(page.markdown:find("### NUPP2107\n", 1, true))
-   local body = page.markdown:sub(at, (page.markdown:find("\n### ", at + 5, true)))
+   local at = assert(page.markdown:find("#### NUPP2107\n", 1, true))
+   local body = page.markdown:sub(at, (page.markdown:find("\n#### ", at + 5, true)))
    local reported = assert(body:find("```nupp [Reported]", 1, true))
    local accepted = assert(body:find("```nupp [Accepted]", 1, true))
    assert(reported < accepted)

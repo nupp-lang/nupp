@@ -17,7 +17,7 @@ they were made, which is what makes them usable as keys where
 const native = require("nupp.native")
 
 native.ffi.cdef[[
-bool nuppUuid4(char *);
+bool nuppUuid7(char *);
 ]]
 
 --- Generates a version 7 UUID.
@@ -26,7 +26,7 @@ bool nuppUuid4(char *);
 --- @raises when the system has no randomness to draw on
 local function uuid7(): string
     local output = native.ffi.new("char[37]")
-    if not native.C.nuppUuid4(output) then
+    if not native.C.nuppUuid7(output) then
         error("nupp: UUID generation failed", 2)
     end
 
