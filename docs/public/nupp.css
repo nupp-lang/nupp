@@ -164,11 +164,11 @@
 .nuppdoc-hero-action.brand,
 .nuppdoc-hero-action.brand:hover {
   color: #ffffff;
-  background: var(--nupp-woodblock-vermilion);
+  background: var(--nuppdoc-accent);
 }
 
 .nuppdoc-hero-action.brand:hover {
-  background: var(--nupp-woodblock-vermilion-hover);
+  background: var(--nuppdoc-accent-hover);
 }
 
 .nuppdoc-hero-action {
