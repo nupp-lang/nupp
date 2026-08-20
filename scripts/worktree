@@ -104,24 +104,3 @@ fi
 echo "created $TASK_ROOT"
 echo "seeded compiler, test scheduling, and native build caches where available"
 
-# A worktree earns its keep only while its task is open. One whose branch has
-# already merged into this checkout's HEAD did its job, and nothing removed it
-# -- the cleanup step AGENTS.md asks for is a thing to remember, not a thing
-# anything checks. Naming it here, once, when the next worktree is made, is
-# the cheapest place to catch that: whoever is about to start a task is
-# already looking at this output. This never fails the worktree it is only
-# noticing leftovers beside -- every git call here is best effort.
-{
-    git -C "$ROOT" worktree list --porcelain 2>/dev/null | awk '
-        /^worktree / { path = substr($0, 10) }
-        /^branch /   { branch = substr($0, 8); print path "\t" branch }
-    ' | while IFS="$(printf '\t')" read -r WT_PATH WT_BRANCH; do
-        [ "$WT_PATH" = "$ROOT" ] && continue
-        [ "$WT_PATH" = "$TASK_ROOT" ] && continue
-        SHORT_BRANCH=${WT_BRANCH#refs/heads/}
-        if git -C "$ROOT" merge-base --is-ancestor "$SHORT_BRANCH" HEAD 2>/dev/null; then
-            echo "note: $WT_PATH (branch $SHORT_BRANCH) is already merged and still registered"
-            echo "  remove it with: git worktree remove $WT_PATH"
-        fi
-    done
-} || true
