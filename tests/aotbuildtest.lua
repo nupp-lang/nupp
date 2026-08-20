@@ -251,6 +251,34 @@ end
 return {rows = rows, object = object, stream = stream, primitives = primitives}
 ]]
 
+local ALIASED_KERNEL = [[
+local span = require("nupp.mem.span")
+
+local struct Sample
+    value: uint32
+end
+
+local type Output = span.WriteSpan<Sample>
+local type Input = span.Span<Sample>
+local type Word = uint32
+local add = nupp.math.u32.add
+
+local function bump(value: Word): Word
+    return add(value, nupp.math.u32.wrap(1))
+end
+
+@aot(lanes = false)
+local function aliased(exclusive output: Output, borrows input: Input): nil
+    if #output ~= #input then error("length mismatch", 2) end
+    for index = 1, #output do
+        local value: Word = input[index].value
+        output[index].value = bump(value)
+    end
+end
+
+return {aliased = aliased, Sample = Sample}
+]]
+
 local function project(policy)
    local dir = os.tmpname()
    os.remove(dir)
@@ -359,6 +387,23 @@ function M.emitCWritesTheCBesideTheBuild()
       "a module with no @aot function produces no artifact")
    assert(read(dir .. "/build/native/kernel.lua"),
       "the ordinary Lua body is still emitted: emit-c adds an artifact, it does not replace one")
+end
+
+function M.checkedAliasesFeedTypesOwnershipLayoutsAndIntrinsics()
+   local dir = project("require")
+   local source = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
+   source:write(ALIASED_KERNEL)
+   source:close()
+
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   local c = assert(read(dir .. "/build/native/aot/src/kernel.c"))
+   assert(c:find("void ks_aliased(", 1, true),
+      "resolved span aliases still produce the compiled entry")
+   assert(c:find("uint32_t value;", 1, true),
+      "the checked nominal field layout, not alias text, selects physical storage")
+   assert(c:find("+", 1, true),
+      "the fixed-width operation aliased through a local reaches native IR")
 end
 
 --- The key one source's artifact was recorded under, or nothing.

@@ -38,96 +38,30 @@ work makes sense in.
         The one piece that has to land before then: `scripts/stub-catalog.py`
         has `record` and `catalog` but nothing that turns a published
         `stub-catalog.json` back into `stub_catalog.nupp`
-- [ ] **Integrate checked `@aot` lowering for Nupp-authored tight loops.** The
-      annotation, fixed-width establishment facts, structural subset checker,
-      and scalar-source `@aot(simd = true)` contract exist. The spike under
-      `bench/kernel-subset-spike` consumes the normal checker's annotated CST,
-      lowers and verifies scalar and lane IR, emits private C, and differentially
-      checks ordinary Nupp, forced-scalar C, and SIMD C. Its lane IR now proves
-      nested mask stacks, pure-and-total short-circuit expressions,
-      data-dependent inner `while` loops, per-lane `break`/`continue`, exact
-      scalar tails, and a gang width chosen from the loop's own lane types.
-      Production `nupp build` still emits the ordinary Lua body.
-      The whole backend is under `src/nupp/compiler/aot/` as typed Nupp: the
-      admitted subset, the front end, the IR, the verifier, the lane rewrite
-      and gang selection, the C emitter, the readable IR form, and the binding
-      generator. `bench/kernel-subset-spike/kernel_compiler.lua` went from
-      2885 lines to 170 and is now a driver -- parse, lower, verify, select a
-      gang, emit -- plus the differential harnesses. Every move was proved by
-      generated C, IR and bindings staying byte-identical for every kernel,
-      which is also what caught a duplicated rendering path and a
-      nondeterministic emitter.
-      What remains: consume the complete checked ownership, alias, effect,
-      layout, and numeric facts rather than re-deriving them from written type
-      text; then add build policy, target compilation and dispatch, cache and
-      artifact validation, inspection, and diagnostics.
-      A uniform multiple binding inside a lane body used to produce a
-      `helper_result` node no verifier rule covered, so compiling such a kernel
-      raised rather than declining lanes. It is not a lane form at all: the call
-      produces the same results for every lane, so it stays the statement it was
-      and the lane body reads its results as the uniform values they are.
-      `uniformcall.nupp` is that shape.
-      A file may now hold as many `@aot` functions as it likes, at whatever
-      widths they each choose. They come out as one C file: a shared struct is
-      declared once, each function brings its own layout reporters and its own
-      pair of bodies, and each gang's prelude appears once. That needed the three
-      mask helpers named for their mask -- two gangs in one file otherwise define
-      `ks_any` twice with different signatures -- and the helpers no gang owns
-      lifted out of the per-gang prelude. `twokernels.nupp` is two functions
-      landing on four lanes and eight.
-      A uniform inner loop is no longer refused. Every lane runs it the same
-      number of times, so there is nothing for a mask to say and it stays
-      ordinary control flow over lane-parallel statements -- masking it would
-      have been correct and would have paid a select per assignment and a
-      horizontal test per iteration to prove something never in doubt.
-      `uniform.nupp` is that shape and it lowers to four lanes where it used to
-      run one iteration at a time. Generated C is byte-identical for every kernel
-      that already lowered.
-      Two things about how, both learned by starting it. The backend
-      re-derives facts because they are not published, not because it was
-      lazy: it matched `span%.WriteSpan<(.+)>` against written type text
-      because the checker computed the resolved parameter type and dropped
-      the association. So each fact is published first, then consumed in the
-      spike against the differentials that already exist, and only then does
-      the code that used to derive it move. And the port wants vertical
-      slices rather than layers -- the records only do work where producer
-      and consumer are both Nupp, so a verifier ported alone still receives
-      untyped tables and re-checks everything by hand. Lane rewrite, lane
-      verification and lane emission move together. The public
-      surface stays ordinary scalar Nupp: do not add explicit vector values or
-      a second numeric operator tower. The full delivery plan is
-      [aot-functions.md](docs/neps/0028-checked-aot-functions.md), and the rejected alternatives are
-      recorded in [portable-vectors.md](docs/neps/0032-aot-block-kernels-and-simd.md).
-      The fixed-width intrinsic identities now come from
-      `nupp.compiler.scalar_intrinsics` rather than a second table, so aliasing
-      a standard member cannot mean one thing to the checker and another to the
-      backend. What is still text-based is the lookup itself: it resolves a
-      written dotted path, so an alias bound to a local name is not recognised.
-      That needs the checker's resolved identity, which is part of the handoff
-      above.
-  - [ ] **Multiversion the feature tier.** A build pins one. Dispatching between
-        several at run time, so one binary uses AVX2 where it is present and the
-        16-byte gangs where it is not, is what would let x86-64 have the wide
-        gangs without a project promising instructions its users may not have.
-        Until then the conservative default costs half the lanes on the most
-        common target, which is a real price and a stated one.
-        Scoped in [multiversioning.md](docs/neps/0028-checked-aot-functions.md), which is the
-        decision this wanted before any code: one translation unit per
-        `(source, tier)`, all of them linked into the one library that already
-        travels, tier-suffixed symbols, and the wrapper binding the widest symbol
-        the machine reports at load. The run-time feature detection this compiler
-        has none of is one function the emitter writes in C and the baseline unit
-        exports, rather than anything new in the runtime, the native provider or
-        the FFI layer. The single-unit alternative -- `target("avx2")` per
-        function -- was tried rather than assumed away: it compiles clean only
-        with the attribute on every helper too, which is the cost the flag route
-        does not have.
-  - [ ] **Name a `kind = "c"` dependency's library relative to its module.**
-        Compiled `@aot` code travels: the wrapper names its library with a
-        leading `@`, resolved against the chunk that loads it, so a copied output
-        tree runs from anywhere. An ordinary C dependency still embeds the path
-        the build wrote, so it has the problem `@aot` code no longer has. The
-        mechanism is general and nothing has been changed there.
+- [ ] **Multiversion the feature tier.** A build pins one. Dispatching between
+      several at run time, so one binary uses AVX2 where it is present and the
+      16-byte gangs where it is not, is what would let x86-64 have the wide
+      gangs without a project promising instructions its users may not have.
+      Until then the conservative default costs half the lanes on the most
+      common target, which is a real price and a stated one.
+      The chosen shape is recorded in
+      [NEP 10](docs/neps/0010-ahead-of-time-compilation.md): one translation
+      unit per `(source, tier)`, all of them linked into the one library that
+      already travels, tier-suffixed symbols, and the wrapper binding the widest
+      symbol the machine reports at load. The run-time feature detection this
+      compiler has none of is one function the emitter writes in C and the
+      baseline unit exports, rather than anything new in the runtime, the native
+      provider or the FFI layer. The single-unit alternative --
+      `target("avx2")` per function -- was tried rather than assumed away: it
+      compiles clean only with the attribute on every helper too, which is the
+      cost the flag route does not have.
+- [ ] **Name a `kind = "c"` dependency's library relative to its module.**
+      Compiled `@aot` code travels: the wrapper names its library with a
+      leading `@`, resolved against the chunk that loads it, so a copied output
+      tree runs from anywhere. An ordinary C dependency still embeds the path
+      the build wrote, so it has the problem `@aot` code no longer has. The
+      mechanism is general and nothing has been changed there.
+
 ## Dialect interop (`import-tl`)
 
 - [ ] source translator CLI (eject model, visible residue comments, `any`

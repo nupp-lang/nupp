@@ -229,8 +229,37 @@ local function run(parsed: any): integer
         return 1
     end
 
+    -- Inspection lowers the same checked tree a production build does. Parsing
+    -- here would make `nupp aot` disagree with `nupp build` precisely on the
+    -- aliases, ownership modes, effects and resolved layouts it exists to show.
+    local parser = require("nupp.compiler.parser")
+    local tree = parser.parse(source as string, path)
+    local diagnosticMod = require("nupp.compiler.diagnostics")
+    if #tree.errors > 0 then
+        diagnosticMod.report(tree.errors)
+
+        return 1
+    end
+    local envMod = require("nupp.compiler.env")
+    local environment = envMod.new(".")
+    -- The command is an inspection of AOT output even when the manifest's
+    -- build policy is off. Keep every other project setting and make only that
+    -- question explicit while checking AOT-only values such as preferredU8.
+    environment.config._target = environment.config._target or {}
+    environment.config._target.aot = "emit-c"
+    local checked = require("nupp.compiler.check").check(tree, path, environment as {[string]: any})
+    local failed = false
+    for _, diagnostic in ipairs(checked) do
+        failed = failed or diagnosticMod.isFatal(diagnostic)
+    end
+    if failed then
+        diagnosticMod.report(checked)
+
+        return 1
+    end
+
     local library = parsed.values.library or "<object>"
-    local artifacts, diagnostics = aot.artifacts(source as string, path, nil, library, selected as targets.Target)
+    local artifacts, diagnostics = aot.artifacts(source as string, path, tree, library, selected as targets.Target)
     if artifacts == nil then
         for _, problem in ipairs(diagnostics) do
             io.stderr:write(aot.renderDiagnostic(problem) .. "\n")

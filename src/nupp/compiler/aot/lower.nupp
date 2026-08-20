@@ -19,6 +19,7 @@ local lexer = require("nupp.compiler.lexer")
 local cst = require("nupp.compiler.cst")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local switchplan = require("nupp.compiler.switchplan")
+local T = require("nupp.compiler.types")
 
 local lower = {}
 
@@ -27,6 +28,11 @@ record lower.Context
     --- Reports a construct the subset does not admit, naming where it was
     --- written. Does not return.
     reject: function(scalarIR.Source?, string): nil
+
+    --- Whether the source came from the checker. A checked tree must carry the
+    --- semantic facts below; source spellings remain only for the standalone
+    --- parser harness which deliberately exercises lowering in isolation.
+    checked: boolean
 end
 
 --- The IR type one source spelling denotes, or nothing when it denotes none.
@@ -152,6 +158,133 @@ function lower.compactType(node: cst.Child?): string
     return (cst.textOf(node as cst.Child):gsub("%s+", ""))
 end
 
+--- The semantic type the checker published on one type node.
+---
+--- A checked lowering never falls back to source text. Absence here is a broken
+--- producer/consumer contract, and treating the spelling as an answer would
+--- hide it until an alias or qualified type made the two disagree.
+local function checkedType(node: cst.Child?, context: lower.Context): any?
+    if not context.checked then
+        return nil
+    end
+    local resolved = node ~= nil and (node as any).resolvedType or nil
+    if resolved == nil then
+        context.reject(lower.site(node), "the checker did not publish this AOT type")
+    end
+
+    return resolved
+end
+
+--- The alias-expanded semantic value beneath ownership wrappers.
+---
+--- A local alias with no parameters may still be represented by the checker's
+--- generic-alias node. Its body is the resolved type; consuming that body is
+--- semantic expansion, not another parse of the alias's written declaration.
+local function semanticRaw(t: any?): any?
+    local raw = t ~= nil and T.unwrapOwnership(t) or nil
+    while raw ~= nil and raw.tag == "genericAlias" and #(raw.paramKinds or {}) == 0 do
+        raw = T.unwrapOwnership(raw.body)
+    end
+
+    return raw
+end
+
+--- The nominal declaration behind an instantiated semantic type.
+local function nominal(t: any?): (any?, any?)
+    local raw = semanticRaw(t)
+    if raw == nil or raw.tag ~= "nominal" then
+        return nil, nil
+    end
+
+    return raw, raw.origin or raw
+end
+
+--- The canonical source spelling of a checked type.
+---
+--- Used only in the generated wrapper, never to decide admission. The wrapper
+--- lives at the declaration site, so a local nominal's simple name is the most
+--- direct spelling; all other types use the checker's own renderer.
+local function sourceSpelling(t: any): string
+    local raw = semanticRaw(t)
+    if raw.tag == "nominal" then
+        local _, origin = nominal(raw)
+        if origin ~= nil and origin.moduleName == nil then
+            return origin.name
+        end
+    end
+
+    return T.tostring(raw)
+end
+
+--- The IR scalar one checked value type denotes.
+---
+--- `helper` preserves the established backend contract that helper `float`
+--- signatures carry ordinary binary64 values. Top-level parameters and locals
+--- retain their explicit binary32 establishment.
+local function semanticValueType(t: any?, helper: boolean?): scalarIR.Type?
+    if t == nil then
+        return nil
+    end
+    local raw = semanticRaw(t)
+    local tag = raw.tag
+    if tag == "boolean" then
+        return "bool"
+    elseif tag == "number" or tag == "integer" then
+        return "f64"
+    elseif tag == "float" then
+        return helper and "f64" or "f32"
+    elseif tag == "uint32" then
+        return "u32"
+    elseif tag == "int32" then
+        return "i32"
+    elseif tag == "string" then
+        return "lua_string"
+    elseif tag == "nil" then
+        return "lua_nil"
+    elseif tag == "any" then
+        return "lua_value"
+    elseif tag == "table" or tag == "array" or tag == "map" or tag == "tuple" or tag == "shape" then
+        return "lua_table"
+    end
+
+    local _, origin = nominal(raw)
+    if origin == nil or origin.moduleName ~= "nupp.simd" then
+        return nil
+    end
+    local simdTypes: {
+        [string]: scalarIR.Type
+    } = {
+        VectorU8 = "simd_vector_u8",
+        MaskU8 = "simd_mask_u8",
+        MaskBits64 = "simd_mask_bits64",
+        SpeciesU8 = "simd_species_u8",
+        TableU8x16 = "simd_table_u8x16",
+        PaddedStringU8 = "simd_padded_string_u8",
+    }
+
+    return simdTypes[origin.name]
+end
+
+--- The storage scalar one checked physical type denotes.
+local function semanticStorageType(t: any?): scalarIR.Type?
+    local raw = semanticRaw(t)
+
+    return raw ~= nil and admit.STORAGE[raw.tag] or nil
+end
+
+--- The admitted value type attached to an optional type annotation.
+local function annotatedValueType(node: cst.Child?, context: lower.Context, helper: boolean?): scalarIR.Type?
+    if node == nil then
+        return nil
+    end
+    if context.checked then
+        return semanticValueType(checkedType(node, context), helper)
+    end
+    local spelling = lower.compactType(node)
+
+    return helper and lower.helperValueType(spelling) or lower.sourceValueType(spelling)
+end
+
 --- The bytes one source string token denotes.
 ---
 --- Quoted Nupp strings are raw, and long brackets carry their equality level
@@ -198,11 +331,19 @@ end
 --- Nupp and C could disagree about.
 function lower.layout(
     name: string,
+    resolved: any?,
     at: cst.Child?,
     declarations: {[string]: cst.RecordDecl},
     layouts: lower.Layouts,
     context: lower.Context
 ): scalarIR.Layout
+    local semantic, origin = nominal(resolved)
+    if context.checked then
+        if semantic == nil or origin == nil or origin.declKind ~= "struct" then
+            context.reject(lower.site(at), "span elements with fields must resolve to a struct")
+        end
+        name = origin.name
+    end
     local known = layouts.byName[name]
     if known ~= nil then
         return known as scalarIR.Layout
@@ -214,11 +355,51 @@ function lower.layout(
     end
 
     local declaration = found as cst.RecordDecl
-    if declaration.generics ~= nil or #(declaration.supertypes or {}) > 0 then
+    if context.checked then
+        local declared = declaration.resolvedType
+        local _, declaredOrigin = nominal(declared)
+        if declaredOrigin == nil or declaredOrigin.id ~= origin.id then
+            context.reject(lower.site(at), "span element " .. name .. " is not the visible local struct of that name")
+        end
+    elseif declaration.generics ~= nil or #(declaration.supertypes or {}) > 0 then
         context.reject(lower.site(declaration), "native structs must be non-generic and have no supertypes")
     end
 
     local layout = new scalarIR.Layout(name = name, cName = "Ks" .. name, fields = {}, source = lower.site(declaration))
+    if context.checked then
+        if #(origin.typeParams or {}) > 0 or #(origin.supertypes or {}) > 0 then
+            context.reject(lower.site(declaration), "native structs must be non-generic and have no supertypes")
+        end
+        local fields = origin.fieldOrder or {}
+        for _, fieldName in ipairs(fields) do
+            local fieldType = origin.byname and origin.byname[fieldName] or nil
+            local storage = semanticStorageType(fieldType)
+            if storage == nil then
+                context.reject(
+                    lower.site(origin.fieldDefs and origin.fieldDefs[fieldName] or declaration),
+                    "native struct field type " .. tostring(
+                        fieldType ~= nil and T.tostring(fieldType) or "unknown"
+                    ) .. " is not admitted"
+                )
+            end
+            layout.fields[
+                #layout.fields + 1
+            ] = new scalarIR.Field(
+                name = fieldName,
+                type = storage as string,
+                sourceType = sourceSpelling(fieldType),
+                source = lower.site(origin.fieldDefs and origin.fieldDefs[fieldName] or declaration)
+            )
+        end
+        if #layout.fields == 0 then
+            context.reject(lower.site(declaration), "native structs need at least one field")
+        end
+        layouts.byName[name] = layout
+        layouts.ordered[#layouts.ordered + 1] = layout
+
+        return layout
+    end
+
     local seen: {[string]: boolean} = {}
     for _, entry in ipairs(declaration.entries) do
         local field = entry as cst.FieldDecl
@@ -274,15 +455,53 @@ end
 
 --- The element type a span spelling names, or nothing when it is not that span.
 ---
---- @param prefix the span type to match, as a Lua pattern
+--- @param expected the resolved span declaration name
 function lower.spanElement(
     spelling: string,
-    prefix: string,
+    resolved: any?,
+    expected: string,
     at: cst.Child?,
     declarations: {[string]: cst.RecordDecl},
     layouts: lower.Layouts,
     context: lower.Context
 ): lower.Element?
+    if context.checked then
+        local span, origin = nominal(resolved)
+        if span == nil
+            or origin == nil
+            or origin.moduleName ~= "nupp.mem.span"
+            or origin.name ~= expected
+            or span.typeArgs == nil
+            or span.typeArgs[
+            1
+        ] == nil then
+            return nil
+        end
+        local elementType = span.typeArgs[1]
+        local storage = semanticStorageType(elementType)
+        if storage ~= nil then
+            return new lower.Element(
+                kind = "scalar",
+                type = storage as string,
+                sourceType = sourceSpelling(elementType)
+            )
+        end
+        local _, elementOrigin = nominal(elementType)
+        if elementOrigin == nil or elementOrigin.declKind ~= "struct" then
+            context.reject(
+                lower.site(at),
+                "span element " .. T.tostring(elementType) .. " has no admitted physical layout"
+            )
+        end
+
+        return new lower.Element(
+            kind = "struct",
+            type = "struct:" .. elementOrigin.name,
+            layout = lower.layout(elementOrigin.name, elementType, at, declarations, layouts, context)
+        )
+    end
+
+    local prefix = expected == "WriteSpan" and "span%.WriteSpan" or "span%.Span"
     local element = spelling:match("^" .. prefix .. "<(.+)>$")
     if element == nil then
         return nil
@@ -296,7 +515,7 @@ function lower.spanElement(
     return new lower.Element(
         kind = "struct",
         type = "struct:" .. (element as string),
-        layout = lower.layout(element as string, at, declarations, layouts, context)
+        layout = lower.layout(element as string, nil, at, declarations, layouts, context)
     )
 end
 
@@ -1172,9 +1391,16 @@ local function call(
             source = lower.site(node)
         )
     end
-    local fixed = path ~= nil and admit.fixed(path as string) or nil
+    -- The checker follows definitions through local aliases and publishes the
+    -- canonical fixed-width identity on the call. A spelling lookup remains
+    -- only for the standalone parser harness; production lowering must not
+    -- turn `local add = nupp.math.u32.add` into an unrelated helper call.
+    local fixedIdentity = (node as any).scalarIntrinsic
+    local fixed = fixedIdentity ~= nil and admit.FIXED[
+        fixedIdentity as string
+    ] or not context.checked and path ~= nil and admit.fixed(path as string) or nil
     if fixed ~= nil then
-        return fixedCall(node, path as string, fixed as admit.Fixed, args, kernel)
+        return fixedCall(node, path or tostring(fixedIdentity), fixed as admit.Fixed, args, kernel)
     end
 
     local intrinsic = path ~= nil and admit.math(path as string) or nil
@@ -1715,9 +1941,39 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
         context.reject(lower.site(declaration), "native helpers must be non-generic, non-variadic, and non-capturing")
     end
 
+    local checkedSignature = context.checked and body.signatureType or nil
+    if context.checked and checkedSignature == nil then
+        context.reject(lower.site(body), "the checker did not publish this native helper signature")
+    end
+    if context.checked then
+        local effects = body.effectSummary
+        if effects == nil then
+            context.reject(lower.site(body), "the checker did not publish this native helper effect summary")
+        end
+        -- Positive effects are authoritative refusals. `top` alone is not:
+        -- AOT-only SIMD interfaces deliberately have no runtime body whose
+        -- ordinary effect analysis could summarize. Their calls still pass
+        -- through the closed AOT operation vocabulary below, and no unknown
+        -- call can reach IR or emission.
+        if effects.allocates == true
+            or effects.yields == true
+            or effects.raises == true
+            or effects.external == true
+            or next(
+            effects.writes or {}
+        ) ~= nil or next(
+            effects.shapes or {}
+        ) ~= nil or next(effects.metatables or {}) ~= nil or next(effects.escapes or {}) ~= nil then
+            context.reject(lower.site(body), "the checker reports side effects in this native helper")
+        end
+    end
+
     local resultTypes: {scalarIR.Type} = {}
-    for _, result in ipairs(body.rets or {}) do
-        local resultType = lower.helperValueType(lower.compactType(result))
+    for position, result in ipairs(body.rets or {}) do
+        local resultType = context.checked and semanticValueType(
+            checkedSignature.rets[position],
+            true
+        ) or lower.helperValueType(lower.compactType(result))
         if resultType == nil then
             context.reject(lower.site(result), "native helper results are scalar or SIMD values")
         end
@@ -1729,10 +1985,16 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
 
     local params: {scalarIR.Name} = {}
     local environment: {[string]: any} = {}
-    for _, raw in ipairs(body.params or {}) do
+    for position, raw in ipairs(body.params or {}) do
         local paramName = raw.name ~= nil and (raw.name as lexer.Token).text or nil
-        local paramType = lower.helperValueType(lower.compactType(raw.type))
-        if paramName == nil or paramType == nil or raw.modeTok ~= nil then
+        local paramType = context.checked and semanticValueType(
+            checkedSignature.params[position],
+            true
+        ) or lower.helperValueType(lower.compactType(raw.type))
+        local mode = context.checked and checkedSignature.paramModes[
+            position
+        ] or raw.modeTok ~= nil and (raw.modeTok as lexer.Token).text or nil
+        if paramName == nil or paramType == nil or mode ~= nil and mode ~= "plain" then
             context.reject(lower.site(raw), "native helper parameters are unowned scalar or SIMD values")
         end
         if environment[paramName as string] ~= nil then
@@ -1889,9 +2151,9 @@ local function switchLocal(
         kernel.index,
         kernel
     ) or nil
-    local spelling = lower.compactType(stat.types ~= nil and (stat.types as {cst.Node})[1] or nil)
+    local annotation = stat.types ~= nil and (stat.types as {cst.Node})[1] or nil
     local inferredResult = elseValue and elseValue.type or arms[1] and arms[1].value.type or nil
-    local resultType = spelling ~= "" and lower.sourceValueType(spelling) or inferredResult
+    local resultType = annotatedValueType(annotation, context) or inferredResult
     if resultType == nil or resultType == "multi" or resultType:match("^ref:") then
         context.reject(lower.site(stat), "native switch results must be scalar")
     end
@@ -2072,8 +2334,9 @@ local function localStmt(
 
             local bindings: {scalarIR.Binding} = {}
             for position, token in ipairs(names) do
-                local annotated = lower.sourceValueType(
-                    lower.compactType(stat.types ~= nil and (stat.types as {cst.Node})[position] or nil)
+                local annotated = annotatedValueType(
+                    stat.types ~= nil and (stat.types as {cst.Node})[position] or nil,
+                    context
                 )
                 local valueType = resultTypes[position]
                 if annotated ~= nil and annotated ~= valueType then
@@ -2102,10 +2365,13 @@ local function localStmt(
         context.reject(lower.site(stat), "native local initializer count must match names")
     end
     for position, token in ipairs(names) do
-        local spelling = lower.compactType(stat.types ~= nil and (stat.types as {cst.Node})[position] or nil)
-        local expected = spelling ~= "" and lower.sourceValueType(spelling) or values[position].type
+        local annotation = stat.types ~= nil and (stat.types as {cst.Node})[position] or nil
+        local expected = annotatedValueType(annotation, context) or values[position].type
         if expected == nil then
-            context.reject(lower.site(stat), "native local annotation " .. spelling .. " is not admitted")
+            context.reject(
+                lower.site(stat),
+                "native local annotation " .. lower.compactType(annotation) .. " is not admitted"
+            )
         end
 
         local value = lower.convert(values[position], expected as scalarIR.Type, lower.site(stat), context)
@@ -2620,12 +2886,13 @@ end
 --- would be a `restrict` nobody proved.
 function lower.parameters(
     raws: {cst.Param},
+    checkedSignature: any?,
     declarations: {[string]: cst.RecordDecl},
     layouts: lower.Layouts,
     context: lower.Context
 ): lower.Signature
     local signature = new lower.Signature(params = {}, byName = {}, spans = {}, writes = {}, reads = {})
-    for _, raw in ipairs(raws) do
+    for position, raw in ipairs(raws) do
         local name = raw.name ~= nil and (raw.name as lexer.Token).text or nil
         if name == nil then
             context.reject(lower.site(raw), "every kernel parameter must be named")
@@ -2635,10 +2902,15 @@ function lower.parameters(
         end
 
         local spelling = lower.compactType(raw.type)
-        local mode = raw.modeTok ~= nil and (raw.modeTok as lexer.Token).text or nil
+        local resolved = checkedType(raw.type, context)
+        local mode = context.checked and checkedSignature ~= nil and checkedSignature.paramModes[
+            position
+        ] or raw.modeTok ~= nil and (raw.modeTok as lexer.Token).text or nil
+        local sourceType = context.checked and sourceSpelling(resolved) or spelling
+        local valueType = context.checked and semanticValueType(resolved) or lower.sourceValueType(spelling)
         local at = raw.type or raw
-        local writeElement = lower.spanElement(spelling, "span%.WriteSpan", at, declarations, layouts, context)
-        local readElement = lower.spanElement(spelling, "span%.Span", at, declarations, layouts, context)
+        local writeElement = lower.spanElement(spelling, resolved, "WriteSpan", at, declarations, layouts, context)
+        local readElement = lower.spanElement(spelling, resolved, "Span", at, declarations, layouts, context)
         local region = "r" .. tostring(#signature.spans)
 
         local param: scalarIR.Param
@@ -2676,63 +2948,63 @@ function lower.parameters(
             param.element = readElement
             signature.reads[#signature.reads + 1] = param
             signature.spans[#signature.spans + 1] = param
-        elseif spelling == "float" or spelling == "number" or spelling == "integer" then
-            if mode ~= nil then
+        elseif valueType == "f32" or valueType == "f64" then
+            if mode ~= nil and mode ~= "plain" then
                 context.reject(lower.site(raw), "a uniform float parameter has no ownership mode")
             end
             param = new scalarIR.Param(
                 kind = "uniform",
                 name = name as string,
-                type = spelling == "float" and "f32" or "f64",
-                sourceType = spelling,
+                type = valueType,
+                sourceType = sourceType,
                 source = lower.site(raw)
             )
-        elseif spelling == "uint32" or spelling == "int32" then
-            if mode ~= nil then
+        elseif valueType == "u32" or valueType == "i32" then
+            if mode ~= nil and mode ~= "plain" then
                 context.reject(lower.site(raw), "a uniform integer parameter has no ownership mode")
             end
             param = new scalarIR.Param(
                 kind = "uniform",
                 name = name as string,
-                type = spelling == "uint32" and "u32" or "i32",
-                sourceType = spelling,
+                type = valueType,
+                sourceType = sourceType,
                 source = lower.site(raw)
             )
-        elseif spelling == "boolean" then
-            if mode ~= nil then
+        elseif valueType == "bool" then
+            if mode ~= nil and mode ~= "plain" then
                 context.reject(lower.site(raw), "a boolean parameter has no ownership mode")
             end
             param = new scalarIR.Param(
                 kind = "uniform",
                 name = name as string,
                 type = "bool",
-                sourceType = spelling,
+                sourceType = sourceType,
                 source = lower.site(raw)
             )
-        elseif spelling == "string" then
-            if mode ~= nil then
+        elseif valueType == "lua_string" then
+            if mode ~= nil and mode ~= "plain" then
                 context.reject(lower.site(raw), "a string parameter has no ownership mode")
             end
             param = new scalarIR.Param(
                 kind = "scalar",
                 name = name as string,
                 type = "lua_string",
-                sourceType = spelling,
+                sourceType = sourceType,
                 source = lower.site(raw)
             )
-        elseif spelling == "any" then
-            if mode ~= nil then
+        elseif valueType == "lua_value" then
+            if mode ~= nil and mode ~= "plain" then
                 context.reject(lower.site(raw), "an opaque Lua value parameter has no ownership mode")
             end
             param = new scalarIR.Param(
                 kind = "scalar",
                 name = name as string,
                 type = "lua_value",
-                sourceType = spelling,
+                sourceType = sourceType,
                 source = lower.site(raw)
             )
         else
-            context.reject(lower.site(at), "parameter type " .. spelling .. " is not admitted")
+            context.reject(lower.site(at), "parameter type " .. sourceType .. " is not admitted")
             param = new scalarIR.Param(kind = "uniform", name = name as string, type = "f64")
         end
 
@@ -3231,30 +3503,50 @@ function lower.program(
     local contract = lower.contract(application, body, checked, context)
 
     local layouts = new lower.Layouts(ordered = {}, byName = {})
-    local signature = lower.parameters((body.params or {}) as {cst.Param}, declarations.structs, layouts, context)
+    local checkedSignature = context.checked and body.signatureType or nil
+    if context.checked and checkedSignature == nil then
+        context.reject(lower.site(body), "the checker did not publish this AOT signature")
+    end
+    local signature = lower.parameters(
+        (body.params or {}) as {cst.Param},
+        checkedSignature,
+        declarations.structs,
+        layouts,
+        context
+    )
     local regions, aliasFacts = lower.regions(signature.spans)
     local name = (fn.name as lexer.Token).text
 
     local resultTypes: {scalarIR.Type} = {}
     local resultSourceTypes: {string} = {}
     local rets = body.rets or {}
-    if #rets == 1 and lower.compactType(rets[1]) == "nil" then
+    local resolvedResults = checkedSignature ~= nil and checkedSignature.rets or nil
+    if #rets == 1 and (
+        context.checked and resolvedResults[
+            1
+        ] ~= nil and semanticRaw(
+            resolvedResults[1]
+        ).tag == "nil" or not context.checked and lower.compactType(rets[1]) == "nil"
+    ) then
         rets = {}
     end
     if #rets > 4 then
         context.reject(lower.site(body), "general AOT entries currently return at most four scalar values")
     end
     for position, result in ipairs(rets) do
-        local sourceType = lower.compactType(result)
-        local resultType = lower.helperValueType(sourceType)
-        if resultType == nil and sourceType == "string" then
-            resultType = "lua_string"
-        elseif resultType == nil and sourceType == "any" then
-            resultType = "lua_value"
-        elseif resultType == nil and sourceType == "nil" then
-            resultType = "lua_nil"
-        elseif resultType == nil and (sourceType:sub(1, 1) == "{" or sourceType == "table") then
-            resultType = "lua_table"
+        local resolved = context.checked and resolvedResults[position] or nil
+        local sourceType = context.checked and sourceSpelling(resolved) or lower.compactType(result)
+        local resultType = context.checked and semanticValueType(resolved, true) or lower.helperValueType(sourceType)
+        if not context.checked then
+            if resultType == nil and sourceType == "string" then
+                resultType = "lua_string"
+            elseif resultType == nil and sourceType == "any" then
+                resultType = "lua_value"
+            elseif resultType == nil and sourceType == "nil" then
+                resultType = "lua_nil"
+            elseif resultType == nil and (sourceType:sub(1, 1) == "{" or sourceType == "table") then
+                resultType = "lua_table"
+            end
         end
         if resultType == nil then
             context.reject(lower.site(result), "AOT entry results are admitted scalar values or fresh tables")

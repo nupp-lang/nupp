@@ -124,6 +124,25 @@ local type Node = cst.Node
 --- A token, as the lexer produced it.
 local type Token = lexer.Token
 
+--- Whether ordinary arithmetic over this operand keeps a whole number whole.
+---
+--- Ordinary arithmetic is binary64, so no operand keeps its fixed-width
+--- refinement through it -- but whether the result is still an integer is a
+--- separate question, and `int32` and `uint32` answer it the way `integer` does.
+--- That is not a new claim about either: `fixedwidth.widenedName` already says
+--- both widen to `integer`, and that `float` widens to `number`.
+---
+--- It matters because a cursor is written `uint32` and then indexes with
+--- `cursor + 1`. Calling that sum a `number` made the one form a checked view
+--- append is written in a form nothing could accept.
+local function integral(t: Type): boolean
+    if fixedWidth.isValue(t) then
+        return fixedWidth.widenedName(t) == "integer"
+    end
+
+    return t ~= T.any and isA(t, T.integer)
+end
+
 --- Reports `customary-operator` when an operator was written in its C spelling. The two
 --- forms mean exactly the same thing, so this is a house style question and nothing
 --- more: a project that prefers `&&` turns the lint off, and a file that wants it once
@@ -470,10 +489,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
             if op == "/" or op == "^" then
                 return T.number
             end
-            if fixedWidth.isValue(lt) or fixedWidth.isValue(rt) then
-                return T.number
-            end
-            if isA(lt, T.integer) and isA(rt, T.integer) and lt ~= T.any and rt ~= T.any then
+            if integral(lt) and integral(rt) then
                 return T.integer
             end
             return T.number

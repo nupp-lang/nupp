@@ -215,7 +215,7 @@ Show what the @aot functions in a file compile to
 Usage:
   nupp aot [--emit ir|c|binding] [--check] [--target TRIPLE] [--features TIER] <file>
 
-Production `nupp build` still emits the ordinary Lua body; this reports what the ahead-of-time backend would produce for the file.
+Reports what the ahead-of-time backend produces for one file, without writing it. A build emits the same artifacts under `aot = "emit-c"` or `aot = "require"`.
 
 Options:
   --format FORMAT  Output format: text (default) or json

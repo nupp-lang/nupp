@@ -161,6 +161,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
         end
         for index, typeNode in ipairs(stat.types or {}) do
             local annotation = c.resolveType(typeNode)
+            -- Retain the resolved annotation beside its source node. Later
+            -- consumers need the exact alias-expanded type the checker bound,
+            -- not another interpretation of the text which produced it.
+            typeNode.resolvedType = annotation
             annotations[index] = annotation
             c.fixedWidth.storageOnly(typeNode, annotation, "a local value")
             local initializer = initializers[index]

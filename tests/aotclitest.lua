@@ -205,7 +205,7 @@ local function delimiters(
     for i = 1, #source do
         if source[i] == 44 then
             if written < #offsets then
-                offsets[written + 1] = nupp.math.u32.fromI32(i)
+                offsets[written + 1] = written
                 written = nupp.math.u32.add(written, 1)
             else
                 return written
@@ -243,7 +243,7 @@ local preferredBytes = simd.preferredU8
 @aot(lanes = false)
 local function quotes(borrows source: span.Span<uint8>): uint32
     local species = preferredBytes()
-    local cursor = 0.0
+    local cursor: integer = 0
     local found: uint32 = 0
     while cursor < #source do
         local bytes = species:load(source, cursor)
@@ -313,8 +313,9 @@ function M.anAssertGuardTakesAConditionAndAMessage()
    local dir = project{["compute.nupp"] = replaceOnce(COMPUTE_ASSERTED,
       '"length mismatch")', '"length mismatch", "and another")')}
    local out, code = run(dir, PINNED .. "compute.nupp")
-   test.equal(code, 1, "a third argument is not part of the shape\n" .. out)
-   assert(out:find("condition and an optional message", 1, true), "the shape is named: " .. out)
+   test.equal(code, 1, "a third argument is rejected by the checked source\n" .. out)
+   assert(out:find("expected 2, got 3", 1, true),
+      "the ordinary call contract is reported first: " .. out)
 end
 
 function M.aRegisterResidentLoopReportsItsGangAndWidth()
@@ -833,7 +834,7 @@ function builder.materializeTree(nodes: string, links: string, source: string, r
 end
 return builder
 ]],
-      ["tree.nupp"] = [[
+      ["tree.g.nupp"] = [[
 local builder = require("nupp.data.valuebuilder")
 @aot
 local function materialize(nodes: string, links: string, source: string, root: integer, nullValue: any): any
@@ -842,7 +843,7 @@ end
 return {materialize = materialize}
 ]],
    }
-   local out, code = run(dir, "--json tree.nupp")
+   local out, code = run(dir, "--json tree.g.nupp")
    test.equal(code, 0, out)
    local decoded = require("testjson").decode(out)
    local only = decoded.functions[1]

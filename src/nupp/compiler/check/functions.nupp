@@ -1089,6 +1089,12 @@ function functions.install(c: state.Checker): state.StatHandlers
             nil,
             explicitPreserves
         )
+        -- Published on the checked body for consumers that need the exact
+        -- resolved signature rather than the type spellings which produced it.
+        -- In particular, AOT lowering reads the instantiated parameter and
+        -- result types together with the ownership modes from this one fact;
+        -- aliases and inferred modes therefore cannot drift from checking.
+        body.signatureType = callable
         if #captures > 0 then
             return T.affine(callable, {T.closureCleanup()})
         end

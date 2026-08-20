@@ -197,6 +197,15 @@ function M.anIntegerSurvivesAnInferredLocal()
    assertEq(diagsOf("local x = 1\nx = 1.5"), "")
 end
 
+function M.fixedWidthArithmeticWidensToAnInteger()
+   assertEq(diagsOf(table.concat({
+      "local unsigned: uint32 = 0",
+      "local signed: int32 = 0",
+      "local nextUnsigned: integer = unsigned + 1",
+      "local nextSigned: integer = signed - 1",
+   }, "\n")), "")
+end
+
 -- A record's runtime table is its identity, so `is` compiles to a real test
 -- rather than failing for want of one.
 function M.recordIdentityCompiles()

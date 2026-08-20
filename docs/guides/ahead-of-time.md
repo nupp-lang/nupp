@@ -167,6 +167,12 @@ function brings its own bodies, and each gang's prelude appears once.
 `nupp aot` names each function's `kernel` or `lua-builder` entry mode. JSON
 inspection additionally reports the runtime ABI and digest-named registrar.
 
+Inspection checks the source before lowering it, just as `nupp build` does.
+The backend consumes the checker's resolved signatures, ownership modes,
+effects, intrinsic identities, and struct layouts, so a local type or function
+alias has exactly the same meaning as the declaration it names. Written type
+spelling is not a second source of truth.
+
 `--emit ir`, `--emit c` and `--emit binding` print the three artifacts.
 
 ### Running the kernel
