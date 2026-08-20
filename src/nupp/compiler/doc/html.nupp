@@ -88,7 +88,19 @@ end
 local codeGroupIndex = 0
 local markdownHtml: (function(text: string?, links: nupp.compiler.doc.urls.Links?, headingShift: integer?): string)
 
-local ADMONITION_TITLES = {note = "Note", info = "Info", tip = "Tip", warning = "Warning", danger = "Danger",}
+local ADMONITION_TITLES = {
+    note = "Note",
+    info = "Info",
+    tip = "Tip",
+    warning = "Warning",
+    danger = "Danger",
+    rationale = "Why it is this way",
+}
+
+-- A rationale is the one admonition a reader chooses to open. It answers a question
+-- the page did not raise, so it is collapsed: the reader following a task scrolls past
+-- it, and the reader who stopped to wonder gets it in one click.
+local COLLAPSED = {rationale = true}
 
 -- `:line-numbers` on the fence, optionally `:line-numbers=12` when the excerpt starts
 -- somewhere other than the top of a file.
@@ -201,9 +213,7 @@ local function codeGroupHtml(blocks, links)
             #out + 1
         ] = '<input class="nuppdoc-code-tab-input" type="radio"' .. ' name="' .. name .. '" id="' .. id .. '"' .. (
             index == 1 and " checked" or ""
-        ) .. '><label class="nuppdoc-code-tab" for="' .. id .. '">' .. htmlEscape(
-            block.caption
-        ) .. "</label>"
+        ) .. '><label class="nuppdoc-code-tab" for="' .. id .. '">' .. htmlEscape(block.caption) .. "</label>"
     end
     out[#out + 1] = "</div>"
     for index, block in ipairs(labeled) do
@@ -216,13 +226,17 @@ end
 
 local function admonitionHtml(kind, title, source, links)
     title = title ~= "" and title or ADMONITION_TITLES[kind]
-    return '<aside class="nuppdoc-admonition nuppdoc-admonition-' .. htmlEscape(
-        kind
-    ) .. '" aria-label="' .. htmlEscape(
+    local body = '<div class="nuppdoc-admonition-body">' .. markdownHtml(source, links) .. "</div>"
+    local classes = "nuppdoc-admonition nuppdoc-admonition-" .. htmlEscape(kind)
+    if COLLAPSED[kind] then
+        return '<details class="' .. classes .. '"><summary class="nuppdoc-admonition-title">' .. htmlEscape(
+            title
+        ) .. "</summary>" .. body .. "</details>"
+    end
+
+    return '<aside class="' .. classes .. '" aria-label="' .. htmlEscape(
         title
-    ) .. '">' .. '<p class="nuppdoc-admonition-title">' .. htmlEscape(
-        title
-    ) .. "</p>" .. '<div class="nuppdoc-admonition-body">' .. markdownHtml(source, links) .. "</div></aside>"
+    ) .. '">' .. '<p class="nuppdoc-admonition-title">' .. htmlEscape(title) .. "</p>" .. body .. "</aside>"
 end
 
 -- Reads one fence, starting at its opening line, and returns the block it describes

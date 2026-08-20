@@ -34,6 +34,18 @@ end
 The generated Lua holds a 256-entry table of numbers. The loop that built it is
 not in the program at all.
 
+::: rationale
+Comptime is a language construct rather than an optimization, because a fold
+must be invisible, is absent at `-O0`, and may decline silently — so anything
+whose meaning depends on a compile-time value could never be one. Type functions
+replaced a separate type-level language of `match` and `infer` rather than
+adding a third: that language had its own parser, evaluator, budgets, and
+diagnostics, and the compiler's own format-string declaration was 254 lines of
+recursive type-state machine because type position had no loop.
+
+[NEP 4](../neps/0004-comptime.md) has the full record.
+:::
+
 ## Type functions
 
 Any function that is available only during compilation is declared with the

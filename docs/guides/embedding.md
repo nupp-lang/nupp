@@ -35,6 +35,16 @@ an installed package with CMake or `pkg-config` metadata. The
 the public embedding surface.
 :::
 
+::: rationale
+Nupp runs in the host's own state, on the host's own heap. A second embedded VM
+would mean two collectors, two object models, and a marshalling layer between
+code that is the same language. Raw pointers into collector-managed values are
+never exposed as a public object ABI, which is the line an embedding API is most
+tempted to cross and the one that would constrain the runtime permanently.
+
+[NEP 9](../neps/0009-c-interop-and-embedding.md) has the full record.
+:::
+
 ## Complete example
 
 The repository carries a C host in `host/examples/embed.c` and its component
@@ -376,8 +386,7 @@ The current embedding release has these deliberate limits:
 - the in-process compiler and host-driven hot-reload APIs are not exposed yet;
 - CMake, `pkg-config`, and prebuilt multi-platform SDK packages are not shipped.
 
-[NEP 10](../neps/0010-c-interop-and-embedding.md) records why embedding is shaped this
-way. The current C header remains the authority for the implemented ABI.
+The current C header remains the authority for the implemented ABI.
 
 ## Next
 

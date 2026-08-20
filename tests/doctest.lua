@@ -2605,6 +2605,26 @@ end
 
 -- Lunamark does not parse `:::` containers itself. The container is lifted out,
 -- while its body goes through the same Lunamark parser as the surrounding page.
+function M.aRationaleAdmonitionRendersCollapsed()
+   local html = require("nupp.compiler.doc.html")
+   local out = html.markdownHtml("::: rationale\nBecause **of this**.\n:::", {})
+   assert(out:find('<details class="nuppdoc-admonition nuppdoc-admonition-rationale">',
+      1, true), out)
+   assert(out:find('<summary class="nuppdoc-admonition-title">Why it is this way</summary>',
+      1, true), out)
+   assert(not out:find("<details open", 1, true),
+      "a rationale must arrive collapsed")
+   assert(out:find("<strong>of this</strong>", 1, true), out)
+
+   -- The other kinds keep their always-open aside.
+   local note = html.markdownHtml("::: note\nSeen.\n:::", {})
+   assert(note:find("<aside class=", 1, true), note)
+   assert(not note:find("<details", 1, true), note)
+
+   local titled = html.markdownHtml("::: rationale Why the floor is a file name\nBecause.\n:::", {})
+   assert(titled:find(">Why the floor is a file name</summary>", 1, true), titled)
+end
+
 function M.admonitionsKeepLunamarkMarkdown()
    local html = require("nupp.compiler.doc.html")
    local out = html.markdownHtml(table.concat({

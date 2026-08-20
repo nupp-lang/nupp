@@ -17,6 +17,16 @@ local record File
 end
 ```
 
+::: rationale
+Ownership is garbage collection plus opt-in affine capabilities: a value
+participates only once an API gives it an obligation, a root, a region, or an
+anchor, so ordinary Lua pays nothing. Cleanup attaches to a producer rather than
+to a type alone because the same file type covers a handle you must close and
+one you must not — attaching it to the type would close `stdout`.
+
+[NEP 5](../neps/0005-ownership.md) has the full record.
+:::
+
 ## Exact cleanup policies
 
 An affine type names one exact cleanup function:

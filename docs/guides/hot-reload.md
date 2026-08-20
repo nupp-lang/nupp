@@ -20,6 +20,16 @@ Call `poll` between units of work, when no update or request is partially
 applied. Application state, registered callback values and module tables stay
 in place; only future calls through named function slots enter new bodies.
 
+::: rationale
+Staging proves a whole patch compatible before commit touches any slot, because
+a partly-applied patch is what makes reload untrustworthy: the reported
+behaviour is then the behaviour of no version of the source. The host owns the
+commit boundary because there is no generally safe moment to swap an
+implementation, and only the program knows which one it is in.
+
+[NEP 7](../neps/0007-hot-reload.md) has the full record.
+:::
+
 ## Start, edit, reload
 
 Save this as `app.nupp`. It prints once, waits for Enter, then polls and prints

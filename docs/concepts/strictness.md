@@ -21,6 +21,16 @@ end
 Saved as `.nupp`, that file is held to the strict floor. Saved as `.g.nupp` it
 is the same program, checked the same way, without that floor underneath it.
 
+::: rationale
+The floor lives in the file name rather than in a project setting or a pragma. A
+project-wide setting has one value, so the unit of migration becomes the whole
+project and nobody schedules that. A marker inside the file is invisible where
+files are listed, reviewed, and searched, and is silently copied or dropped when
+one is duplicated or rewritten.
+
+[NEP 2](../neps/0002-gradual-typing.md) has the full record.
+:::
+
 ## Four extensions
 
 | Extension | Floor | Effect |

@@ -21,6 +21,16 @@ with rows = positions:write() do
 end
 ```
 
+::: rationale
+The container owns the layout rather than the declaration, because one
+declaration needs both: a value passed to C wants the canonical layout, and a
+large array wants its columns contiguous. Annotating the declaration would make
+one nominal identity cover two incompatible physical meanings, so a value's
+memory layout would depend invisibly on where it came from.
+
+[NEP 11](../neps/0011-structure-of-arrays.md) has the full record.
+:::
+
 ## Containers select the layout
 
 A struct keeps its ordinary C-compatible array-of-structures layout. Only an

@@ -57,6 +57,16 @@ stable table and written interfaces participate fully in grouped cycle checking,
 while the migration form keeps ordinary Lua initialization and is gradual across
 an active cycle.
 
+::: rationale
+A module is its own public declaration — no ambient table and no companion
+declaration file repeats it. That constraint rejected most of the design space:
+any option producing a second description of a module's surface was ruled out
+however cheap it was to build, because the second copy is the one that goes
+stale.
+
+[NEP 8](../neps/0008-modules-and-lazy-loading.md) has the full record.
+:::
+
 ## Canonical names
 
 The declared name must equal the module name derived from the file's configured

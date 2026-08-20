@@ -59,6 +59,16 @@ local selected = __nuppT2
 ```
 :::
 
+::: rationale
+The arrow is shared vocabulary with short functions, not a request to allocate
+one: a switch lowers to branches and merge labels so it stays trace-recordable
+in a hot loop. That invariant is why placement is restricted rather than lowered
+through an immediately invoked function, and why an optimized lookup replaces
+the whole decision or nothing.
+
+[NEP 3](../neps/0003-switch-expressions.md) has the full record.
+:::
+
 ## Static cases
 
 Static cases use primitive Lua equality. An allowed value is:

@@ -19,6 +19,17 @@ thread. A library opts into suspension through `nupp.suspension`; the runtime
 does not intercept other calls.
 :::
 
+::: rationale
+This is one effect with handlers rather than general algebraic effects, which
+would be a much larger language than anything here needs. Suspending with a live
+obligation is permitted for a handled suspension and refused for a raw
+coroutine yield, and that permission rests on a trusted handler contract rather
+than a proof: the checker cannot prove anything about an arbitrary scheduler's
+cancellation behaviour.
+
+[NEP 6](../neps/0006-suspension.md) has the full record.
+:::
+
 ## One call blocks or parks
 
 `communicate` follows one of three paths:

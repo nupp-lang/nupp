@@ -23,6 +23,17 @@ cdef function abs(value: int32): int32
 const magnitude = abs(-3)
 ```
 
+::: rationale
+A declaration is direct, bridged, or skipped for one reported reason — never
+substituted with a generic pointer or a guessed ABI, which would produce a
+declaration that checks, links, and is wrong at run time. The header supplies
+physical facts only: what a call borrows, takes, retains, or releases is not in
+the header, so deriving it would be invention at exactly the boundary where
+invention is most expensive.
+
+[NEP 9](../neps/0009-c-interop-and-embedding.md) has the full record.
+:::
+
 ## Export ordinary structs to C
 
 Define an ordinary reified struct once in Nupp, then select it and any typed C

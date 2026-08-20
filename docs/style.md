@@ -323,6 +323,20 @@ showing `nupp explain NUPP2119` is quoting a code rather than introducing one.
 Two per page is a lot. An admonition that restates the prose above it is
 deleted, not retitled.
 
+`::: rationale` is the third job and renders collapsed, because it answers a
+question the page did not raise. One per page, near the construct it explains:
+why the design is shaped this way, in two to four sentences, ending with a link
+to the [proposal](neps/) that holds the full record.
+
+It carries the *current* design only. A rejected alternative, a superseded
+spelling, or an attempt that was withdrawn belongs in the proposal — this page
+is rewritten when behaviour changes, and anything about a design that no longer
+exists is rewritten with it. That is the whole reason proposals are separate
+files.
+
+A rationale that grows past a few sentences was proposal content. Move it, do
+not expand it.
+
 ## Voice
 
 Present tense, active, declarative. State what the tool does; the reader infers
