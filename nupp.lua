@@ -290,14 +290,19 @@ end]],
                         details = "Every valid LuaJIT program is already valid Nupp. Add type "
                            .. "syntax under gradual checks, then rename a file when it is ready "
                            .. "for a strict boundary—without changing how other modules load it.",
-                        code = [[-- models.g.nupp: type syntax, gradual checks
+                        code = [[local record Point
+    x: number
+    y: number
+end
+
+-- models.g.nupp: type syntax, gradual checks
 local function scale(point, factor)
     return {x = point.x * factor, y = point.y * factor}
 end
 
 -- models.nupp: the same code, now a checked boundary
 local function scale(point: Point, factor: number): Point
-    return new Point {x = point.x * factor, y = point.y * factor}
+    return new Point(x = point.x * factor, y = point.y * factor)
 end]],
                      },
                      {
@@ -317,12 +322,15 @@ value = "ready"]],
                         details = "Ownership, borrowing, pinning, and deterministic cleanup make "
                            .. "the important rules at a C boundary explicit—and make leaks and "
                            .. "use-after-move errors reportable.",
-                        code = [[local files = require("nupp.io.file")
+                        code = [[local file = require("nupp.io.file")
+
+local function send(borrows handle: LuaFile): nil
+    print(handle:read("*a"))
+end
 
 do
-    local file = files.open("report.txt", "r")
-    local contents = file:read("*a")
-    send(borrows contents)
+    local report = file.open("report.txt")
+    send(report)
 end -- the file is closed on every structured exit]],
                      },
                      {
@@ -338,7 +346,7 @@ cdef function buffer_free(takes buffer: nativeBuffer*)
 
 cdef function buffer_create_c(size: uint64): nativeBuffer*
 
-local function buffer_create(size: uint64): Owned<nativeBuffer*, buffer_free>
+local function buffer_create(size: uint64): affine(nativeBuffer*, buffer_free)
     return buffer_create_c(size)
 end
 
@@ -461,17 +469,21 @@ nupp fixpoint --binary]],
                            .. "the tracer cannot: plucked arguments share stable table paths and "
                            .. "become flat positional arguments without tables, varargs, or "
                            .. "closures.",
-                        code = [[local record Vec2
+                        code = [[local record Body
     x: number
     y: number
+    vx: number
+    vy: number
 end
 
-update(
-    (x, y) = entity.body.position,
-    (vx, vy) = entity.body.velocity,
-    delta = delta
-)
--- entity.body is read once; update receives x, y, vx, vy, delta.]],
+local function update(x: number, y: number, vx: number, vy: number): nil
+    print(x + vx, y + vy)
+end
+
+local body = new Body(x = 0, y = 0, vx = 1, vy = 0)
+
+update({x, y} = body, {vx, vy} = body)
+-- body is read once per group; update receives x, y, vx, vy.]],
                      },
                      {
                         title = "Erase instrumentation from hot paths",
