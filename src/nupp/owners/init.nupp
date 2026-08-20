@@ -16,9 +16,42 @@ release` is for, and the two `unsafe` blocks below are the whole of what this mo
 asks to be trusted about. `nupp ownership-audit` lists them.
 
 This is the simple half of owner custody: entries are erased, discharge is LIFO, and
-a borrow lives as long as the set. `Store` is the same idea with
-generation and type-policy checks, so an individual owner can cross untyped storage
-and be recovered.
+a borrow lives as long as the set.
+
+```nupp
+local owners = require("nupp.owners")
+
+do
+    local requests = owners.newSet("requests")
+    local request = requests:adopt(beginRequest())
+    request:send()
+end -- discharges the request automatically
+```
+
+## Stores
+
+`Store` adds generation and type-policy checks, so an individual owner can cross
+untyped storage and be recovered. Taking it out invalidates every copy of its handle;
+anything left in the store is discharged with the store.
+
+```nupp
+local owners = require("nupp.owners")
+
+local store = owners.newStore()
+local handle = store:put(openFile("notes.txt"))
+local token = owners.erase(handle) -- safe to pass through untyped storage
+
+local restored, recoveryProblem = owners.recover(token, FileState)
+assert(recoveryProblem == nil)
+if restored then
+    local file, takeProblem = store:take(restored)
+    assert(takeProblem == nil)
+    if file then
+        drop file
+    end
+end
+drop store
+```
 
 See [ownership.md](docs/type-system/ownership.md) for the complete contract
 reference, and [ownership.md](docs/concepts/ownership.md) for the annotations a
