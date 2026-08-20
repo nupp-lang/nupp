@@ -2,10 +2,18 @@
 
 ## Unreleased
 
-- Cut the enhancement proposals to fourteen architecture documents. The port
+- Put the design rationale where the question occurs. A `::: rationale` block
+  renders collapsed, holds two to four sentences on why the construct on that
+  page is shaped the way it is, and links to the proposal holding the full
+  record. Fifteen pages had no signal that a design record existed at all. It
+  carries the current design only: a rejected alternative, a superseded
+  spelling, or a withdrawn attempt has no page to sit on and is rewritten away
+  when behaviour changes, which is why proposals are separate files.
+
+- Cut the enhancement proposals to eleven architecture documents. The port
   produced one proposal per decision, which is one per sub-feature: forty-three
-  documents, several of them re-documenting the type system or the command-line
-  tools that already have pages of their own. A proposal is now a broad
+  documents, several of them re-documenting the type system, the standard
+  library, or the command-line tools that already have pages of their own. A proposal is now a broad
   architectural slice -- ownership, suspension, comptime, modules, C interop,
   ahead-of-time compilation -- and each shows the syntax, a usage example, and
   what the construct lowers to, rather than describing it. More granular ones

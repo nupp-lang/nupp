@@ -140,7 +140,7 @@ even though the value type is unchanged. Hot reload must restart or invoke an
 application-owned migration rather than reinterpret live bytes.
 
 Stating this is what keeps a layout change from being silently unsafe under
-[NEP 8](0008-hot-reload.md): the value type is identical, so nothing else in
+[NEP 7](0007-hot-reload.md): the value type is identical, so nothing else in
 the system would notice.
 
 ### Pooled element storage

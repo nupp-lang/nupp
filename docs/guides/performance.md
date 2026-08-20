@@ -6,10 +6,10 @@ each rewrite.
 LuaJIT's trace compiler does the hot-path work, so everything here is either
 something the checker knows that LuaJIT cannot, or a shape chosen so a trace
 forms at all. A pass lands only with a LuaJIT-enabled benchmark and a static
-proof that it preserves behavior. Nothing is a promise about timing: thresholds
-are measured implementation details, and every rewrite preserves answers. The
-design catalog is
-[NEP 11](../neps/0011-performance-and-the-jit.md).
+proof that it preserves behavior, and the proof has to be static because there
+is no deoptimization: generated Lua source cannot revoke an optimization at run
+time, so sound-in-the-common-case is not available here. Nothing is a promise about timing: thresholds
+are measured implementation details, and every rewrite preserves answers. 
 
 ```bash
 nupp build -O1

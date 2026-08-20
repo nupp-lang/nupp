@@ -4,6 +4,10 @@
 The states share no Lua heap, globals, loaded modules, closures, userdata, or
 cdata. They communicate by copying serialized values through bounded queues.
 
+Isolation is total because every ownership proof assumes single-threaded access:
+sharing a heap would mean either extending the capability model or holding
+proofs that are silently false under concurrency.
+
 Workers are currently available only in a `binary` target whose `stub` is
 `"nupp"`. The compiler-owned host supplies the pinned LuaJIT, the stamped
 payload from which worker entries load, and the early machine-code address-space

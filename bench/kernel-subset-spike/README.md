@@ -318,7 +318,7 @@ anything about single-precision arithmetic being cheaper. The explicitly
 binary32 program's ordinary fallback is roughly sixteen times slower than the
 binary64 one, because LuaJIT has to perform each rounding the source asked for.
 And contraction is worth only a few percent here, against the 2.38x it is worth
-to the scalar kernel that `docs/neps/0012-ahead-of-time-compilation.md` measured -- once the loop
+to the scalar kernel that `docs/neps/0010-ahead-of-time-compilation.md` measured -- once the loop
 is lane-parallel, fusing a multiply-add stops being where the time goes.
 
 Comparing the exact bodies, eight binary32 lanes are about 1.7x four binary64
