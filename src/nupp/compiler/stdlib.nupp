@@ -162,29 +162,18 @@ local PEG_COMPILE = compact([=[
 __nuppPeg.compile=__nuppPegRuntime.compile
 ]=])
 
+-- The keyed codec a materialized `nupp.reflect.fieldCodec` calls, and the registry
+-- behind `reflect()`, are both an ordinary checked module. What stays here is which
+-- of the two a program's feature set asked for.
 local FIELDCODEC = compact(
     [=[
-local __nuppFieldCodec=rawget(__nupp,"fieldcodec")or{};rawset(__nupp,"fieldcodec",__nuppFieldCodec)
-local function __nuppKeyedCodec(fields,fingerprint)local Codec={};Codec.__index=Codec;function Codec:encode(value)if type(value)~="table"then error("nupp: keyed codec value must be a table",2)end;local out={};for _,name in ipairs(fields)do local field=rawget(value,name);if field~=nil then out[name]=field end end;return out end;return setmetatable({fingerprint=fingerprint},Codec)end
-__nuppFieldCodec.keyed=__nuppKeyedCodec;
+require("nupp.reflectruntime").installFieldCodec(__nupp)
 ]=]
 )
 
--- Runtime descriptors deliberately live in private weak side tables. A record's
--- declaration table remains its metatable; `register` only installs the lazy
--- intrinsic and records the immutable compiler blueprint.
 local REFLECTION = compact(
     [=[
-local __nuppReflect=rawget(__nupp,"__reflect")or{};rawset(__nupp,"__reflect",__nuppReflect)
-local __nuppReflectionBlueprints=__nuppReflect.blueprints or setmetatable({},{__mode="k"});__nuppReflect.blueprints=__nuppReflectionBlueprints
-local __nuppReflectionInfos=__nuppReflect.infos or setmetatable({},{__mode="k"});__nuppReflect.infos=__nuppReflectionInfos
-local __nuppReflectionStates=__nuppReflect.states or setmetatable({},{__mode="k"});__nuppReflect.states=__nuppReflectionStates
-local __nuppReflectionInfo={}
-function __nuppReflectionInfo:extension(extension)local state=__nuppReflectionStates[self];if not state then error("nupp: foreign reflection descriptor",2)end;local cached=state.extensions[extension];if cached then if cached.state=="ready"then return cached.value end;if cached.state=="failed"then error(cached.error,2)end;error("nupp: recursive extension initialization",2)end;cached={state="initializing"};state.extensions[extension]=cached;local ok,value=pcall(extension.build,self);if not ok then cached.state="failed";cached.error=tostring(value);error(cached.error,2)end;cached.state="ready";cached.value=value;return value end
-__nuppReflectionInfo.__index=function(info,key)if key=="extension"then return __nuppReflectionInfo.extension end;local state=__nuppReflectionStates[info];if key=="type"then return state and state.type end;return state and state.blueprint[key]end
-__nuppReflectionInfo.__newindex=function()error("nupp: reflection descriptors are immutable",2)end
-function __nuppReflect.register(typeObject,blueprint)__nuppReflectionBlueprints[typeObject]=blueprint;rawset(typeObject,"reflect",function()local prior=__nuppReflectionInfos[typeObject];if prior then return prior end;local declared=__nuppReflectionBlueprints[typeObject];if not declared then error("nupp: type has no reflection blueprint",2)end;local info=setmetatable({},__nuppReflectionInfo);__nuppReflectionInfos[typeObject]=info;__nuppReflectionStates[info]={type=typeObject,blueprint=declared,extensions={}};return info end);return typeObject end
-__nuppReflect.json=__nuppReflect.json or {version="nupp-json-extension-v1"}
+require("nupp.reflectruntime").install(__nupp)
 ]=]
 )
 

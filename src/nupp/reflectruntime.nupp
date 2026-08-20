@@ -1,0 +1,171 @@
+@!internal
+
+module nupp.reflectruntime
+
+--[[
+What reflection is at run time.
+
+The compiler does the describing. A type that is reflected on carries a blueprint the
+checker built from its declaration, and generated code hands that blueprint over with
+`_G.nupp.__reflect.register`. What is left for run time is holding the blueprints,
+answering `reflect()` from one, and running the extensions a program layers on top --
+and, separately, the keyed codec a materialized `nupp.reflect.fieldCodec` calls.
+
+A descriptor is deliberately not the declaration table. A record's declaration stays
+its own metatable, and everything reflection knows lives in weak side tables keyed by
+the type, so reflecting on a type does not change it and a type that goes out of use
+takes its descriptor with it. The descriptor a program sees is an empty table whose
+metatable reads through to that state, which is how it stays immutable without any
+field on it to write over.
+]]
+
+local reflectruntime = {}
+
+--- Reads a namespace member, installing a default when nothing is there yet.
+---
+--- Two programs can share one process and one `_G.nupp`, and either may have been
+--- built by a compiler old enough to install these namespaces itself. Filling in what
+--- is missing rather than replacing what is there leaves whichever arrived first
+--- holding the descriptors both then use.
+local function claim(namespace: any, name: string, fresh: any): any
+    local present = rawget(namespace, name)
+    if present ~= nil then
+        return present
+    end
+    rawset(namespace, name, fresh)
+
+    return fresh
+end
+
+--- Installs the keyed field codec.
+---
+--- A materialized codec calls this with the field names the compiler settled on and
+--- the fingerprint it checked them under, so encoding is a copy of the named fields
+--- and nothing else -- a field that is absent stays absent rather than becoming an
+--- explicit nil, which is what makes the result round-trip.
+--- @export
+function reflectruntime.installFieldCodec(namespace: any): nil
+    local fieldcodec = claim(namespace, "fieldcodec", {})
+    fieldcodec.keyed = function(fields: {string}, fingerprint: string): any
+        local Codec: any = {}
+        Codec.__index = Codec
+        function Codec:encode(value: any): any
+            if type(value) ~= "table" then
+                error("nupp: keyed codec value must be a table", 2)
+            end
+            local out: any = {}
+            for _, name in ipairs(fields) do
+                local field = rawget(value, name)
+                if field ~= nil then
+                    out[name] = field
+                end
+            end
+
+            return out
+        end
+
+        return setmetatable({fingerprint = fingerprint}, Codec)
+    end
+end
+
+--- Installs the reflection registry and the descriptor protocol.
+--- @export
+function reflectruntime.install(namespace: any): nil
+    local reflect = claim(namespace, "__reflect", {})
+    local blueprints = reflect.blueprints or setmetatable({}, {__mode = "k"})
+    local infos = reflect.infos or setmetatable({}, {__mode = "k"})
+    local states = reflect.states or setmetatable({}, {__mode = "k"})
+    reflect.blueprints, reflect.infos, reflect.states = blueprints, infos, states
+
+    local Info: any = {}
+
+    --- Builds an extension over a descriptor, or answers the one already built.
+    ---
+    --- An extension is memoized under the extension itself rather than a name, so two
+    --- extensions that happen to describe the same thing stay separate. The
+    --- in-progress state is kept as well as the finished one: an extension whose
+    --- `build` reflects its way back to the descriptor it is being built for would
+    --- otherwise recur until the stack ran out, and a build that failed once is
+    --- reported the same way every time rather than retried.
+    ---
+    --- @raises when the descriptor is not one of ours, when the extension is already
+    --- being built, or when its `build` did not succeed
+    function Info:extension(extension: any): any
+        local state = states[self]
+        if not state then
+            error("nupp: foreign reflection descriptor", 2)
+        end
+        local cached: any = state.extensions[extension]
+        if cached then
+            if cached.state == "ready" then
+                return cached.value
+            end
+            if cached.state == "failed" then
+                error(cached.error, 2)
+            end
+            error("nupp: recursive extension initialization", 2)
+        end
+        cached = {state = "initializing"} as any
+        state.extensions[extension] = cached
+        local ok, value = pcall(extension.build, self)
+        if not ok then
+            cached.state = "failed"
+            cached.error = tostring(value)
+            error(cached.error, 2)
+        end
+        cached.state = "ready"
+        cached.value = value
+
+        return value
+    end
+
+    -- The descriptor is an empty table, so every read arrives here and is answered
+    -- from the side state. That is what keeps a blueprint from being reachable as a
+    -- field somebody could write over, and why `__newindex` has nothing to allow.
+    Info.__index = function(info: any, key: string): any
+        if key == "extension" then
+            return Info.extension
+        end
+        local state = states[info]
+        if key == "type" then
+            return state and state.type
+        end
+
+        return state and state.blueprint[key]
+    end
+
+    Info.__newindex = function(): nil
+        error("nupp: reflection descriptors are immutable", 2)
+    end
+
+    --- Records a type's blueprint and gives the type its `reflect`.
+    ---
+    --- The descriptor is built on the first call rather than here, because a program
+    --- that never reflects on a type should not pay for one, and the blueprint is
+    --- read again at that point rather than captured so a type registered twice
+    --- describes itself the second way.
+    function reflect.register(typeObject: any, blueprint: any): any
+        blueprints[typeObject] = blueprint
+        rawset(typeObject, "reflect", function(): any
+            local prior = infos[typeObject]
+            if prior then
+                return prior
+            end
+            local declared = blueprints[typeObject]
+            if not declared then
+                error("nupp: type has no reflection blueprint", 2)
+            end
+            local info = setmetatable({}, Info)
+            infos[typeObject] = info
+            states[info] = {type = typeObject, blueprint = declared, extensions = {}}
+
+            return info
+        end)
+
+        return typeObject
+    end
+
+    reflect.json = reflect.json or {version = "nupp-json-extension-v1"}
+end
+
+export = reflectruntime

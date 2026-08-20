@@ -66,7 +66,11 @@ return {x = encoded["x"], y = encoded["y"], fingerprint = PositionCodec.fingerpr
    assertEq(result.y, 20, "y field")
    assertEq(result.fingerprint, "t:x,y", "compatibility fingerprint")
    assert(code:find("nupp.fieldcodec.keyed", 1, true), code)
-   assertEq(code:find("reflect", 1, true), nil, "reflection erased")
+   -- The comptime reflection is folded away entirely: the program carries the codec
+   -- the materializer built and none of the machinery that described the type. What
+   -- says so is the reflection namespace, which a program installs only when a record
+   -- of its own is reflected on at run time.
+   assertEq(code:find("__reflect", 1, true), nil, "reflection erased")
 end
 
 function M.passesReflectionThroughATypedComptimeHelper()
@@ -254,7 +258,7 @@ end
 
 function M.excludesTheCodecHelperFromUnrelatedPrograms()
    local code = compile("return 42")
-   assertEq(code:find("__nuppKeyedCodec", 1, true), nil, "unused helper")
+   assertEq(code:find("nupp.reflectruntime", 1, true), nil, "unused helper")
 end
 
 return M

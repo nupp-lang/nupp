@@ -45,7 +45,12 @@ local FEATURES: {[string]: native.Feature} = {
         runtimeModule = "nupp.pegruntime",
         requires = {"native.lpeg"},
     },
-    ["stdlib.fieldcodec"] = {name = "fieldcodec", globals = {"nupp.reflect.fieldCodec"},},
+    [
+        "stdlib.fieldcodec"
+    ] = {name = "fieldcodec", globals = {"nupp.reflect.fieldCodec"}, runtimeModule = "nupp.reflectruntime",},
+    [
+        "stdlib.reflection"
+    ] = {name = "reflection", globals = {}, runtimeModule = "nupp.reflectruntime",},
     ["stdlib.derives"] = {name = "derives", globals = {},},
     ["stdlib.io"] = {name = "io", modules = {"nupp.io"},},
     ["stdlib.math"] = {name = "math", globals = {"nupp.math"}, runtimeModule = "nupp.mathruntime",},

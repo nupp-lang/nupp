@@ -116,6 +116,7 @@ local RESOURCES = {
    {source = "src/nupp/suspension.nupp", output = "nupp/compiler/nupp/suspension.nupp"},
    {source = "src/nupp/pegruntime.nupp", output = "nupp/compiler/nupp/pegruntime.nupp"},
    {source = "src/nupp/mathruntime.nupp", output = "nupp/compiler/nupp/mathruntime.nupp"},
+   {source = "src/nupp/reflectruntime.nupp", output = "nupp/compiler/nupp/reflectruntime.nupp"},
    {source = "src/nupp/io/process.nupp", output = "nupp/compiler/nupp/io/process.nupp"},
    {source = "src/nupp/workers.nupp", output = "nupp/compiler/nupp/workers.nupp"},
    {source = "src/nupp/io/http.nupp", output = "nupp/compiler/nupp/io/http.nupp"},
