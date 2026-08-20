@@ -194,6 +194,21 @@ end
 -- browser), so there is no table here to patch yet.
 io = io or {}
 
+-- Compiler modules name the three standard streams while they initialize,
+-- even though the playground never writes a CLI report. Browser Fengari omits
+-- them with the rest of `io`; distinct inert handles preserve the stream keys
+-- and make an accidental write harmless instead of crashing worker startup.
+local function inertStream()
+    local stream = {}
+    function stream:write() return self end
+    function stream:flush() return true end
+    function stream:read() return nil end
+    return stream
+end
+io.stdin = io.stdin or inertStream()
+io.stdout = io.stdout or inertStream()
+io.stderr = io.stderr or inertStream()
+
 local realOpen = io.open
 io.open = function(path, mode)
     if realOpen then

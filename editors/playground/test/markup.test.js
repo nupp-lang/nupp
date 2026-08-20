@@ -103,6 +103,26 @@ test("documentation playgrounds inherit normal code-block colors", () => {
   }
 });
 
+test("standalone playground uses the current documentation palette", () => {
+  const style = readFileSync(new URL("../static/style.css", import.meta.url), "utf8");
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  for (const current of [
+    "#fcfbfb", "#e6eaec", "#2e2f2a", "#9a1600", "#836620",
+    "#1c1917", "#1f1c1b", "#d4c2b6", "#fa745c", "#f9cd5f",
+  ]) {
+    assert.match(style, new RegExp(current));
+  }
+  for (const retired of [
+    "#faf7e8", "#ded7b9", "#173333", "#765128", "#081e27",
+    "#0a252b", "#d7bd72",
+  ]) {
+    assert.doesNotMatch(style, new RegExp(retired));
+    assert.doesNotMatch(docApp, new RegExp(retired));
+  }
+  assert.match(style, /--pg-button-text: #000000;/);
+  assert.match(style, /\.button \{[\s\S]*?color: var\(--pg-button-text\);/);
+});
+
 test("generated Lua output has a muted line-number gutter", () => {
   const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
   const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");

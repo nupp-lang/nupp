@@ -150,6 +150,19 @@ test("does not expose native environment variables", () => {
   lua.lua_close(L);
 });
 
+test("provides inert standard streams when browser Fengari omits io", () => {
+  const L = lauxlib.luaL_newstate();
+  lualib.luaL_openlibs(L);
+  run(L, "io = nil");
+  run(L, hostRuntime);
+  run(L, [
+    "assert(io.stdin ~= io.stdout and io.stdout ~= io.stderr)",
+    "assert(io.stdout:write('ignored') == io.stdout)",
+    "assert(io.stderr:flush() == true)",
+  ].join("\n"));
+  lua.lua_close(L);
+});
+
 test("provides an empty filesystem without loading the native ABI", () => {
   const L = lauxlib.luaL_newstate();
   lualib.luaL_openlibs(L);
