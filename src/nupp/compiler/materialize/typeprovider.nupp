@@ -128,6 +128,23 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         library[name == "nil" and "nil_" or name == "table" and "table_" or name] = primitive(name)
     end
 
+    -- Not in `PRIMITIVES`, so `nupp.types.open` is not a handle anybody can read. The
+    -- only way to place the open member in a union is to call for it, which is what
+    -- makes a non-exhaustive union a written decision rather than an inferred one.
+    installIntrinsic(state, library, "nonExhaustive", function(at, args)
+        if args[1] ~= nil then
+            return nil, failure("NUPP2415", "nupp.types.nonExhaustive takes no arguments")
+        end
+
+        return make(
+            state,
+            opaque,
+            "Type",
+            {kind = "primitive", name = "open", key = "primitive:open"},
+            provenance(at, "nonExhaustive")
+        )
+    end)
+
     installIntrinsic(state, library, "literal", function(at, args)
         local value = args[1]
         local valueKind = type(value)

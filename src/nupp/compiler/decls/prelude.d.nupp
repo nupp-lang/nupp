@@ -60,6 +60,7 @@ local nupp: {
         readonly uint64: comptime type,
 
         readonly literal: comptime function(value: string | boolean | integer): type,
+        readonly nonExhaustive: comptime function(): type,
         readonly array: comptime function(element: type): type,
         readonly tuple: comptime function(elements: {type}): type,
         readonly union: comptime function(members: {type}): type,

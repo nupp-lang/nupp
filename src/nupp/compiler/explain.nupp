@@ -676,7 +676,8 @@ local ENTRIES: {any} = {
         summary = "A switch leaves possible selector values unhandled",
         rule = "A switch is an expression and must produce a value whenever its "
         .. "selector returns. Cover every member of a finite checked type, or add else "
-        .. "when the remaining set is open.",
+        .. "when the remaining set is open. A union declared with "
+        .. "`nupp.types.nonExhaustive()` is always open, so it always needs else.",
         wrong = "local type Mode = 'read' | 'write'\nlocal mode: Mode = 'read'\n"
         .. "local value = switch mode do case 'read' -> 1 end\nreturn value\n",
         right = "local type Mode = 'read' | 'write'\nlocal mode: Mode = 'read'\n"

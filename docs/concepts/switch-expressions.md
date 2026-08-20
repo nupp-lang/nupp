@@ -323,11 +323,29 @@ local area = __nuppT4
 :::
 
 An open selector such as `string`, `integer`, or `any` requires `else` unless
-the arms already cover its type. A missing alternative is `NUPP2140`. A value
-outside the selector type, a case after the remaining type is empty, or an
-unnecessary `else` is `NUPP2139`. See
+the arms already cover its type. A missing alternative is reported, and so is a
+value outside the selector type, a case after the remaining type is empty, or an
+unnecessary `else`. See
 [unions.md](../type-system/unions.md#exhaustiveness) for the union shapes that
 are enumerable.
+
+A union declared with `nupp.types.nonExhaustive()` among its alternatives
+requires `else` however many cases are written, because the member that call
+adds is one no case can name:
+
+```nupp
+local type Status = "ok" | "error" | nupp.types.nonExhaustive()
+
+local label = switch status do
+    case "ok" -> "fine"
+    case "error" -> "broken"
+    else -> "unrecognized"
+end
+```
+
+The `else` there is never reported as unnecessary. See [Unions that may
+grow](../type-system/unions.md#unions-that-may-grow) for what the member means
+to a caller.
 
 ## Evaluation and placement
 

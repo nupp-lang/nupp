@@ -183,6 +183,49 @@ one numeric value and therefore count as duplicate cases. See [Switch
 expressions](../concepts/switch-expressions.md#exhaustiveness-and-reachability)
 for the reachability rules that go with them.
 
+### Unions that may grow
+
+A union that lists `nupp.types.nonExhaustive()` among its alternatives carries
+one member no value inhabits, no name resolves to, and no case can cover:
+
+::: code-group
+```nupp [Nupp]
+local type Status = "ok" | "error" | nupp.types.nonExhaustive()
+
+local function describe(status: Status): string
+    return switch status do
+        case "ok" -> "fine"
+        case "error" -> "broken"
+        else -> "unrecognized"
+    end
+end
+```
+
+```lua [Generated Lua]
+local function describe(status)
+    local __nuppT1 = status
+    local __nuppT2
+    if __nuppT1 == "ok" then __nuppT2 = "fine"
+    elseif __nuppT1 == "error" then __nuppT2 = "broken"
+    else __nuppT2 = "unrecognized"
+    end
+    return __nuppT2
+end
+```
+:::
+
+Handling `"ok"` and `"error"` leaves that member behind, so the switch keeps
+asking for its `else` and never reports one as unnecessary. `Status` prints as
+`"error" | "ok" | ...`, and it does not fit `"ok" | "error"`, which is the same
+statement read from the other side: code outside the declaration may not assume
+the set is closed. Each alternative still assigns into it, so adding one is not
+a breaking change for the callers that write them.
+
+The member is only ever obtained by calling for it. There is no name for it, in
+a case, an annotation, or anywhere else. See [Comptime
+types](type-level-computation.md#inspection-and-construction) for the rest of
+the type builders it belongs to.
+
 ### Returning-branch exhaustiveness
 
 When a dispatch on a closed set of literals has every branch return, the

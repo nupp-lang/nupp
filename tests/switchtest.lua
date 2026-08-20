@@ -460,6 +460,52 @@ function M.aNestedArmStaysLazyAndPlansIndependently()
    assertEq(after, 1, "the selected nested selector runs once")
 end
 
+function M.anOpenUnionKeepsAskingForItsElseArm()
+   local source = table.concat({
+      "local type Status = 'on' | 'off' | nupp.types.nonExhaustive()",
+      "local status: Status = 'on'",
+      "local value = switch status do case 'on' -> 1 case 'off' -> 2 end",
+   }, "\n")
+   local codes, diagnostics = diagnosticCodes(source)
+   assertEq(codes, "NUPP2140", "covering every written member is not exhaustive")
+   assert(diagnostics[1].msg:find("open", 1, true), diagnostics[1].msg)
+
+   -- and the `else` that answers it is never the unnecessary one
+   local covered = diagnosticCodes(table.concat({
+      "local type Status = 'on' | 'off' | nupp.types.nonExhaustive()",
+      "local status: Status = 'on'",
+      "local value = switch status do case 'on' -> 1 case 'off' -> 2 else -> 3 end",
+   }, "\n"))
+   assertEq(covered, "", "an open union's else arm is not unnecessary")
+
+   -- the same union without the open member still closes
+   local closed = diagnosticCodes(table.concat({
+      "local type Status = 'on' | 'off'",
+      "local status: Status = 'on'",
+      "local value = switch status do case 'on' -> 1 case 'off' -> 2 end",
+   }, "\n"))
+   assertEq(closed, "", "a closed union is exhaustive once every member is a case")
+end
+
+function M.anOpenUnionDoesNotFitTheMembersItLists()
+   local narrowing = diagnosticCodes(table.concat({
+      "local type Status = 'on' | 'off' | nupp.types.nonExhaustive()",
+      "local status: Status = 'on'",
+      "local closed: 'on' | 'off' = status",
+   }, "\n"))
+   assertEq(narrowing, "NUPP2001", "an open union is not the closed union of its members")
+
+   -- a member still assigns into it, so writing one costs nothing at a call site
+   local widening = diagnosticCodes(table.concat({
+      "local type Status = 'on' | 'off' | nupp.types.nonExhaustive()",
+      "local status: Status = 'on'",
+   }, "\n"))
+   assertEq(widening, "", "a member of an open union fits it")
+
+   local arguments = diagnosticCodes("local type Status = 'on' | nupp.types.nonExhaustive(1)")
+   assertEq(arguments, "NUPP2421", "the open member takes no arguments")
+end
+
 function M.switchDiagnosticsAreSpecific()
    local missing = diagnosticCodes(table.concat({
       "local type Status = 'on' | 'off'",

@@ -390,6 +390,24 @@ function expr.install(c: state.Checker): nil
         return nil
     end
 
+    --- Whether a type carries the open member, which no arm can cover and no name can
+    --- write. A union holding one is a union its declaration says may grow.
+    local function openMember(t: Type?): boolean
+        if not t then
+            return false
+        elseif t == T.open then
+            return true
+        elseif t.tag == "union" then
+            for _, member in ipairs(t.members) do
+                if member == T.open then
+                    return true
+                end
+            end
+        end
+
+        return false
+    end
+
     --- Whether every value left at this point in a switch is a record instance.
     --- A non-nil primitive is not enough: `getmetatable(1)` may still answer nil.
     --- This stronger fact is what lets generation remove the safe-navigation guard
@@ -599,6 +617,10 @@ function expr.install(c: state.Checker): nil
             end
             checkResult(node.elseCase)
             c.popScope()
+        elseif openMember(residue) then
+            c.diag("NUPP2140", node, "switch is not exhaustive: the selector type is open", nil, {
+                help = "add an `else` arm, which is what `nupp.types.nonExhaustive()` asks every switch for"
+            })
         elseif residue ~= T.never then
             local missing = finiteMembers(residue)
             local detail = ""

@@ -34,6 +34,7 @@ local types = {}
 type types.PrimTag = 'any'
     | 'unknown'
     | 'never'
+    | 'open'
     | 'nil'
     | 'boolean'
     | 'string'
@@ -1109,6 +1110,12 @@ types.unknown = prim("unknown")
 -- The bottom type: uninhabited, so it fits anywhere any type is wanted, and nothing but
 -- itself fits it. It is what a function that never returns returns.
 types.never = prim("never")
+-- The member that says a union may grow. Nothing inhabits it and it fits nowhere but
+-- itself, so a union carrying it can never be shown to be covered: a switch over one
+-- keeps needing its `else`, and the union does not fit the closed union of the members
+-- actually written. `nupp.types.nonExhaustive()` is the only way to obtain it, since no
+-- name resolves to it.
+types.open = prim("open")
 types.nil_ = prim("nil")
 types.boolean = prim("boolean")
 types.string = prim("string")
@@ -3476,6 +3483,10 @@ function types.tostring(t: types.Type): string
         ) .. ", " .. types.tostringPack(t.yieldPack) .. ", " .. types.tostringPack(t.returnPack) .. ">"
     elseif tag == "genericAlias" then
         return t.name
+    elseif tag == "open" then
+        -- No name resolves to it, so it prints as the only thing it means: there may be
+        -- more here than the members beside it.
+        return "..."
     end
 
     return tag

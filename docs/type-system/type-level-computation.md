@@ -39,6 +39,12 @@ such as `literal`, `optional`, `array`, `tuple`, `map`, `shape`, `union`,
 `intersection`, `pointer`, `carray`, `constof`, `function_`, and `pack` produce
 validated handles.
 
+`nupp.types.nonExhaustive()` takes no arguments and answers the one type no
+name resolves to: the member that keeps a union open. It is written in a type
+directly as well as inside a generator, since a union is where it means
+anything. See [Unions that may grow](unions.md#unions-that-may-grow) for what
+it does to a switch over that union.
+
 ```nupp
 local comptime function DeepElement(T: type): type
     while nupp.types.kind(T) == "array" do

@@ -32,6 +32,7 @@ local PRIMITIVES = {
     any = T.any,
     unknown = T.unknown,
     never = T.never,
+    open = T.open,
     ["nil"] = T.nil_,
     boolean = T.boolean,
     string = T.string,

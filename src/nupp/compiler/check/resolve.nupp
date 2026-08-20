@@ -531,6 +531,21 @@ function resolve.install(c: state.Checker): nil
                 end
                 node.resolvedType = result
                 return result
+            elseif name == "nupp.types.nonExhaustive" then
+                -- The one type that has no name to resolve. Calling for it is what puts
+                -- the open member in a union, so a reader sees the decision where the
+                -- alternatives are written.
+                local argumentCount = #(node.arguments or {})
+                if argumentCount ~= 0 then
+                    c.diag(
+                        "NUPP2421",
+                        node,
+                        ("nonExhaustive takes no arguments, got %d"):format(argumentCount)
+                    )
+                    return T.any
+                end
+                node.resolvedType = T.open
+                return T.open
             elseif name == "pinned" then
                 local argumentCount = #(node.arguments or {})
                 if argumentCount ~= 1 then

@@ -989,6 +989,21 @@ remaining union. An open type such as `string`, `integer`, or `any` needs
 `else`. A non-exhaustive switch is `NUPP2140` and cannot be suppressed as a
 lint.
 
+A union that lists `nupp.types.nonExhaustive()` among its alternatives always
+needs `else`, and never reports one as unnecessary. That call answers a member
+no value inhabits and no name resolves to, so no case covers it, and the union
+does not fit the closed union of the alternatives written beside it.
+
+```nupp
+local type Status = "ok" | "error" | nupp.types.nonExhaustive()
+
+local label = switch status do
+    case "ok" -> "fine"
+    case "error" -> "broken"
+    else -> "unrecognized"
+end
+```
+
 ### Type cases and destructuring
 
 `case is T` uses the same runtime identity test and narrowing rules as `value is
