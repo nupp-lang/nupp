@@ -537,11 +537,7 @@ function resolve.install(c: state.Checker): nil
                 -- alternatives are written.
                 local argumentCount = #(node.arguments or {})
                 if argumentCount ~= 0 then
-                    c.diag(
-                        "NUPP2421",
-                        node,
-                        ("nonExhaustive takes no arguments, got %d"):format(argumentCount)
-                    )
+                    c.diag("NUPP2421", node, ("nonExhaustive takes no arguments, got %d"):format(argumentCount))
                     return T.any
                 end
                 node.resolvedType = T.open

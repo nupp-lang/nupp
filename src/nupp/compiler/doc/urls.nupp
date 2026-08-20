@@ -255,13 +255,11 @@ local function rewriteConfiguredPageLinks(
             return written
         end
 
-        return "["
-            .. linkText(text, path, destination.title)
-            .. "]("
-            .. relativePrefix(file)
-            .. routeFile(destination.path)
-            .. fragment
-            .. ")"
+        return "[" .. linkText(
+            text,
+            path,
+            destination.title
+        ) .. "](" .. relativePrefix(file) .. routeFile(destination.path) .. fragment .. ")"
     end))
 end
 
