@@ -33,7 +33,9 @@ const chrome = EditorView.theme({
   ".cm-activeLineGutter": {
     backgroundColor: "var(--pg-code-background, var(--pg-background))",
   },
-  ".cm-activeLine": { backgroundColor: "var(--pg-background-alt)" },
+  ".cm-activeLine": {
+    backgroundColor: "color-mix(in srgb, var(--pg-code-background, var(--pg-background)) 88%, white)",
+  },
   ".cm-lineNumbers .cm-gutterElement": {
     paddingLeft: ".65rem",
     paddingRight: "1px",

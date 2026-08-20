@@ -86,6 +86,12 @@
 
   .nuppdoc-playground {
     --nuppdoc-text-faint: color-mix(in srgb, var(--nuppdoc-text-muted) 45%, transparent);
+    /* doc-app.js's --pg-border reads --nuppdoc-border directly, not
+     * --nuppdoc-playground-border (which nothing in the built site actually
+     * consumes) — scoped here the same way as --nuppdoc-text-faint above,
+     * so only the playground's own border moves to match the code-block
+     * border, not every other divider that uses --nuppdoc-border. */
+    --nuppdoc-border: #38312d;
   }
 }
 
@@ -95,6 +101,7 @@
 
 :root[data-theme="dark"] .nuppdoc-playground {
   --nuppdoc-text-faint: color-mix(in srgb, var(--nuppdoc-text-muted) 45%, transparent);
+  --nuppdoc-border: #38312d;
 }
 
 :root[data-theme="light"] .nuppdoc-line-numbers {
@@ -103,6 +110,7 @@
 
 :root[data-theme="light"] .nuppdoc-playground {
   --nuppdoc-text-faint: color-mix(in srgb, var(--nuppdoc-text-muted) 90%, transparent);
+  --nuppdoc-border: var(--nuppdoc-light-border);
 }
 
 /* The base theme sets nav links to the muted text color; pull them up to
@@ -452,7 +460,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --nuppdoc-feature-heading: var(--nuppdoc-dark-text);
-    --nuppdoc-playground-border: color-mix(in srgb, #50676c 65%, black);
+    --nuppdoc-playground-border: #38312d;
     --nuppdoc-syntax-boolean: #f9cd5f;
     --nuppdoc-syntax-comment: #747673;
     --nuppdoc-syntax-function: #93aab7;
@@ -470,7 +478,7 @@
 
 :root[data-theme="dark"] {
   --nuppdoc-feature-heading: var(--nuppdoc-dark-text);
-  --nuppdoc-playground-border: color-mix(in srgb, #50676c 65%, black);
+  --nuppdoc-playground-border: #38312d;
   --nuppdoc-syntax-boolean: #f9cd5f;
   --nuppdoc-syntax-comment: #747673;
   --nuppdoc-syntax-function: #93aab7;
