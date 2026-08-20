@@ -14,21 +14,26 @@ facility is a named capability, and the dialect says how each one is satisfied:
 by the compiler, by a backend module, left open for a project backend, or not at
 all.
 
-A backend is an ordinary module carrying `@backend` and checked against the
-capability's interface. Each capability also publishes a conformance suite that
-`nupp backend test` runs explicitly; checking and building never execute a
+A backend is an ordinary checked value satisfying the `Backend` interface. It
+contains one or more versioned `Seam` values. Each seam carries a complete
+implementation and the compiler-owned conformance suite for that contract;
+there is no second registry of provider strings. `nupp backend test` runs every
+selected seam explicitly, while checking and building never execute a
 dependency merely because a manifest named it. Selection resolves during the
-build, binds one implementation per capability the program reaches, and is
-recorded in the artifact. A capability with no implementation reports a
-diagnostic at the construct that needed it, and never lowers to a substitute
-that means something else.
+build, binds one implementation per reached seam, and is recorded in the
+artifact. A seam with no implementation reports a diagnostic at the construct
+or standard member that needed it, and never lowers to a substitute that means
+something else.
 
-The standard library is a separate seam. A portable build may name a runtime
-provider for a reached member, such as JSON, SHA-256, UTF-8, UUID or PEG. The
-generated adapter requires that one module when the member is first reached and
-reports what to install when it is absent. Nupp specifies the contract and may
-ship thin adapters for common modules; it does not acquire a second pure-Lua
-implementation of every library facility.
+Compiler operations and standard-library facilities use the same composition
+model. A compile-bound seam supplies lowering operations such as bitops or
+struct values. A runtime-bound seam lazily requires a named third-party module
+for JSON, SHA-256, UTF-8, UUID, bitsets or PEG and checks its runtime shape.
+Both the adapter and the suite are ordinary checked source files tested in
+isolation. Generated output contains only the selected backend installation;
+it never contains fallback source stored in a compiler string. Nupp specifies
+the contracts and may ship thin adapters for common modules, but it does not
+acquire a second pure-Lua implementation of every library facility.
 
 ::: seealso
 - [syntax.md](../concepts/syntax.md) for what generated Lua requires today
@@ -44,12 +49,12 @@ implementation of every library facility.
   `require`, with a check that rejects uses outside their common runtime surface.
 - Keep one front end: one parser, one checker, one standard library surface,
   one set of diagnostics.
-- Make substitution checkable. A module claiming a capability must satisfy its
-  structural interface, and the same documented behavioral contract is
-  available as an explicit, compiler-owned conformance suite.
+- Make substitution checkable. A seam implementation must satisfy its
+  structural interface, and its `Seam` value exposes the same documented,
+  compiler-owned behavioral suite to the explicit backend test command.
 - Cost nothing on the native path. A `luajit` artifact binds native operations
-  directly; only an artifact selecting a portable backend or provider pays for
-  its adapter, runtime check or indirection.
+  directly; only an artifact selecting a portable seam pays for its adapter,
+  runtime check or indirection.
 - Leave the default `luajit` output unchanged. Portable adapters, checks and
   modules occur only in an artifact built for a dialect that selected them.
 - Report at the construct that cannot be lowered, naming the capability that is
@@ -66,10 +71,11 @@ implementation of every library facility.
 - A capability set a project extends. A capability is a construct the compiler
   lowers to; a facility the compiler does not lower to is an ordinary module
   dependency and needs none of this.
-- Partial backends. A backend implements one capability completely.
+- Partial seam implementations. A backend may collect any number of seams, but
+  every seam it contains implements one contract completely.
 - Changing the default. Under `luajit` the generated Lua is what it is today.
 - Bundling pure-Lua implementations of every standard-library facility. A
-  checked provider contract and a precise missing-module error are sufficient.
+  checked runtime seam and a precise missing-module error are sufficient.
 - A per-file dialect. A dialect is a property of a build, and a source file
   that named one would be a library its consumers could not retarget.
 
@@ -108,11 +114,11 @@ compiler selects each native implementation from the members checked source
 reaches.
 
 Per-program implementation selection and lazy initialization are therefore
-existing machinery. What they lack is a name for a portable provider, a
-contract its adapter has to satisfy, and an artifact requirement that tells a
-consumer which runtime module to install. The stage-zero JSON copy is not the
-model: it remains a bootstrap implementation rather than becoming the first of
-many algorithms Nupp maintains twice.
+existing machinery. What they lack is a runtime seam, a contract its adapter
+has to satisfy, and an artifact requirement that tells a consumer which runtime
+module to install. The stage-zero JSON copy is not the model: it remains a
+bootstrap implementation rather than becoming the first of many algorithms
+Nupp maintains twice.
 
 ### Truncation is worse than refusal
 
@@ -178,8 +184,9 @@ and is refused under `lua51`; the backend is not allowed to call a table a C
 layout.
 
 A project cannot add a capability, because a capability is a name for something
-the compiler already lowers to. A facility the compiler does not lower to is a
-module, and swapping one of those is `require`.
+the compiler already lowers to. A third-party facility the compiler does not
+lower to is an ordinary module; a runtime seam is needed only when adapting it
+to an enumerated Nupp standard contract.
 
 ### Syntax is not a capability
 
@@ -203,10 +210,51 @@ change its frames and error sites. `lua51` therefore reports `NUPP3009` at an
 authored label or `goto`, with help to use structured control flow. Generated
 cleanup jumps are not source constructs and take the lowering above.
 
-### Capability contract is an interface
+### Backend and seam are actual interfaces
 
-A capability's contract is an ordinary `interface`, checked by the machinery
-that already checks every other one:
+Backend composition is part of the checked library surface, not an annotation
+registry. The common interfaces are deliberately small enough to hold
+heterogeneous seams:
+
+```nupp
+interface Seam
+    readonly name: string
+    readonly version: integer
+    install: function(self: Seam): nil
+    test: function(self: Seam): (boolean, string?)
+end
+
+interface Backend
+    readonly name: string
+    readonly seams: {Seam}
+end
+```
+
+`install` makes the seam's functionality available to generated calls. For a
+compile-bound seam it binds the already checked implementation selected by the
+lowering. For a runtime-bound seam it installs a lazy boundary that requires
+the selected third-party module and validates its values. `test` invokes the
+compiler-owned behavioral suite against the same implementation. It is not a
+callback a backend author may replace with a test that always passes.
+
+The common `Seam` interface erases the implementation type only after a
+seam-specific factory has checked it. Each compiler-owned seam module exports
+its implementation interface and the only constructor for that seam. The
+constructor attaches the name, contract version, installer and conformance
+suite. `Backend.new` rejects duplicate seam names. This lets one backend bundle
+several facilities without weakening the type of any of them.
+
+A backend descriptor must also be readable without running it. The exported
+value is therefore restricted to `Backend.new` with a constant name and a
+literal list of compiler-owned seam constructor calls. The implementation
+passed to a constructor remains ordinary checked source and may contain
+functions and requires; only the descriptor is declarative. The checker writes
+the backend and seam identities into the module interface, so `check`, `build`
+and task inspection can resolve a backend without executing its top level or a
+third-party dependency.
+
+A capability's implementation contract remains an ordinary `interface`,
+checked by the machinery that already checks every other one:
 
 ```nupp
 --- Two's-complement operations on the low 32 bits. Every result is
@@ -223,46 +271,36 @@ interface Bitops
 end
 ```
 
-### Backend declares the capability it implements
-
-A backend is a module carrying the built-in `@backend` annotation:
-
-```nupp
-@backend(bitops)
-module acme.compat.bitops
-```
-
-Where the file sits means nothing. A backend ships from whatever rock its
-author publishes, and is found because a build named it, not because it was
-discovered.
-
-This adds `module` to the annotation registry's semantic attachment targets; it
-does not add a keyword or grammar production. `@backend` takes exactly one name
-from the compiler-owned capability set and may attach only to the file's module
-declaration. It is reserved rather than user-defined because it changes
-lowering. An ordinary user-defined annotation remains erased metadata and can
-never become a backend by colliding with the spelling.
-
 ### Worked example: bitops through a runtime module
 
 ```nupp
-@backend(bitops)
 module acme.compat.bitops
+
+local Backend = require("nupp.runtime.backend")
+local Bitops = require("nupp.runtime.seam.bitops")
 
 --- Declared by this adapter package and satisfied at run time by its rock.
 local bits = require("thirdparty.bitops")
 
-export function band(a: integer, b: integer): integer
-    return bits.band(a, b)
-end
+local implementation: Bitops.Implementation = {
+    band = function(a, b) return bits.band(a, b) end,
+    bor = function(a, b) return bits.bor(a, b) end,
+    bxor = function(a, b) return bits.bxor(a, b) end,
+    bnot = function(a) return bits.bnot(a) end,
+    lshift = function(a, n) return bits.lshift(a, n) end,
+    rshift = function(a, n) return bits.rshift(a, n) end,
+    arshift = function(a, n) return bits.arshift(a, n) end,
+}
+
+export = Backend.new("acme.compat.bitops", {Bitops.seam(implementation)})
 ```
 
-`bor`, `bxor`, `bnot`, `lshift`, `rshift` and `arshift` follow the same shape.
 The adapter owns the declaration for its third-party module and its package
 metadata owns the runtime dependency. It may wrap BitOp or another library; it
-does not reimplement the operations. Under `luajit` the same capability
-resolves to native operators and this module is never loaded, never bound, and
-never named in the output.
+does not reimplement the operations. The checked call to `Bitops.seam` both
+proves the structural shape and attaches the bitops suite. Under `luajit` the
+same seam resolves to native operators and this module is never loaded, never
+bound, and never named in the output.
 
 ### Worked example: struct values as tables
 
@@ -390,31 +428,36 @@ only the conclusion that an explicit-SIMD function cannot execute when native
 AOT is disabled. Under `luajit` with native AOT selected, the existing intrinsic
 lowering remains direct and no emulation module is loaded.
 
-### Dialect selects, `nupp.lua` overrides
+### Dialect selects, `nupp.lua` composes
 
-A dialect supplies a default per capability, and a project names an override:
+A dialect supplies a default backend, and a project may name checked backend
+modules that add or replace complete seams:
 
 ```lua
 backends = {
-    bitops = "acme.compat.bitops",
-    int64 = "acme.compat.int64",
+    "acme.compat.core",
+    "acme.compat.libraries",
 }
 ```
 
-An override is per capability. There is no setting that turns emulation on
-generally, for the reason `.nupp` and `.g.nupp` are extensions rather than a
-project flag: what a file means is visible where the file is.
+The module order is not precedence. A project backend replaces a dialect
+default with the same seam name, but two project backends supplying the same
+seam are an error. This keeps resolution explicit while allowing one package to
+bundle bitops, wide integers and several library adapters in one `Backend`
+value. The checked module interface records the backend name, seam names and
+versions without executing the module or any dependency.
 
-An override may replace `native`, a dialect default, or `open`. It may not
-replace `forbidden`: a module cannot give stock Lua a C ABI or make an ordinary
-Lua value carry a C pointer. A module can emulate wide integers or packed lanes,
-which is why `int64` and `simd` are `open` while `cinterop` is `forbidden`.
+A project backend may replace `native`, a dialect default, or `open`. It may
+not replace `forbidden`: a module cannot give stock Lua a C ABI or make an
+ordinary Lua value carry a C pointer. A module can emulate wide integers or
+packed lanes, which is why `int64` and `simd` are `open` while `cinterop` is
+`forbidden`.
 
 An explicit override of `native` is permission to pay the override's cost. In
 its absence, a `luajit` build binds the native operation exactly as it does
 today. Portability never inserts a common wrapper in front of that operation.
 
-### Standard-library providers are runtime dependencies
+### Runtime seams adapt standard-library dependencies
 
 A standard-library member is not a compiler capability merely because its
 current implementation uses the FFI. JSON, UTF-8, SHA-256, UUID, bitsets, byte
@@ -422,38 +465,48 @@ buffers and PEG are library facilities. A portable artifact may obtain one from
 a selected runtime module rather than from an implementation maintained in
 Nupp.
 
-The project names providers by the smallest independently selected standard
-contract it reaches:
+The smallest independently selected standard contract is a runtime seam. A
+backend can contain one or many of `data.json`, `data.sha256`, `data.utf8`,
+`data.uuid`, `data.bitset`, `io` and `peg`. Those names are contracts, not
+blessed packages. A seam may be a thin adapter over `lunajson`, BitOp, a
+SHA-256 or UUID rock, LPeg, or any other implementation. Its checked source
+must use the compiler-owned seam factory. Nupp may publish small adapters for
+common module APIs, but the proposal does not require Nupp to own their
+algorithms.
 
-```lua
-providers = {
-    ["data.json"] = "acme.nupp.json",
-    ["data.sha256"] = "acme.nupp.sha256",
-    ["data.utf8"] = "acme.nupp.utf8",
-    ["data.uuid"] = "acme.nupp.uuid",
-    ["data.bitset"] = "acme.nupp.bitset",
-    ["peg"] = "acme.nupp.peg",
-}
+For a dependency that is intentionally unavailable while building, the seam
+factory accepts an exact runtime module name:
+
+```nupp
+module acme.compat.json
+
+local Backend = require("nupp.runtime.backend")
+local JSON = require("nupp.runtime.seam.data_json")
+
+export = Backend.new("acme.compat.json", {
+    JSON.runtime("lunajson"),
+})
 ```
 
-Those names illustrate contracts, not blessed packages. A provider module may
-be a thin adapter over `lunajson`, BitOp, a SHA-256 or UUID rock, LPeg, or any
-other implementation. Its checked declaration must satisfy the compiler-owned
-interface. Nupp may publish small adapters for common module APIs, but the
-proposal does not require Nupp to own their algorithms.
+`JSON.runtime` is ordinary checked Nupp source. It owns the lazy require, the
+shape check, the adapter to Nupp's JSON contract and the compiler-owned suite.
+It can be checked and tested in isolation. The generated artifact contains only
+a call that installs `acme.compat.json`; no adapter or fallback implementation
+is assembled in a string inside the compiler.
 
 Selection remains explicit and singular. Nupp never probes an ordered list of
 installed modules, because two machines with different ambient rocks would then
-give the same artifact different providers. The generated lazy adapter performs
-`require` for the one recorded module when the reached member is initialized,
-checks the runtime values that the contract can check, and raises an error that
-names both the standard facility and the missing or incompatible module. A
-build does not execute the provider, and an absent runtime rock is therefore a
-runtime dependency error rather than a compiler execution side effect.
+give the same artifact different implementations. The selected runtime seam
+performs `require` for the one recorded module when the reached member is
+initialized, checks the runtime values that the contract can check, and raises
+an error that names both the standard facility and the missing or incompatible
+module. A build does not execute the backend, and an absent runtime rock is
+therefore a runtime dependency error rather than a compiler execution side
+effect.
 
 Facilities with environmental authority use the same rule. Filesystem access,
-processes, HTTP, secure entropy and clocks may have host providers. A provider
-is allowed to be unavailable on a host; it is not allowed to replace secure
+processes, HTTP, secure entropy and clocks may have host seams. A seam is
+allowed to be unavailable on a host; it is not allowed to replace secure
 UUID entropy with `math.random` or otherwise weaken the documented contract.
 
 The portable standard surface is accounted for by kind:
@@ -461,35 +514,35 @@ The portable standard surface is accounted for by kind:
 | Surface | Portable answer |
 | --- | --- |
 | scalar `nupp.math` expressible on the common Lua `math` table | compiler or existing Lua source |
-| exact `i32`, `u32` and binary32 operations not supplied by a chosen bit backend | selected provider |
-| JSON, UTF-8, hashes, checksums, UUID and bitsets | selected provider per independently reached contract |
-| byte buffers, readers, writers and typed scalar codecs | selected `io` provider |
-| PEG | selected provider, commonly an adapter over LPeg |
-| lexical URI and path operations | selected provider or existing portable source |
-| files, processes, HTTP, entropy, clocks and workers | selected host provider |
+| exact `i32`, `u32` and binary32 operations not supplied by a chosen bit backend | selected runtime seam |
+| JSON, UTF-8, hashes, checksums, UUID and bitsets | selected runtime seam per independently reached contract |
+| byte buffers, readers, writers and typed scalar codecs | selected `io` seam |
+| PEG | selected runtime seam, commonly an adapter over LPeg |
+| lexical URI and path operations | selected runtime seam or existing portable source |
+| files, processes, HTTP, entropy, clocks and workers | selected host seam |
 | `nupp.native`, raw heaps, C-array spans, C-layout SoA and pointer projection | unavailable without `cstorage` or `cinterop` |
 
 This table is a completeness requirement for the dialect, not a promise to
 vendor any particular third-party rock. Every public standard member must be
-classified as common source, selected provider, host provider, or unavailable
+classified as common source, selected runtime seam, host seam, or unavailable
 at a native boundary. “The module currently happens to require `ffi`” is not a
 classification.
 
 ### Resolution is total and recorded
 
-Every capability the program actually reaches resolves to exactly one
-implementation, or the build fails. Nothing is discovered by scanning a
+Every seam the program actually reaches resolves to exactly one implementation,
+or the build fails. Nothing is discovered by scanning a
 directory, nothing is ambient, and no resolution order decides between two
 candidates, because there is never more than one.
 
 `nupp build --json` reports the resolved table, and the artifact records it, the
 way an artifact already records the ahead-of-time policy it was built under. A
-backend entry carries the module name and the digest of the checked module
-interface, so changing a source backend cannot leave an artifact claiming it
-resolved the old one. A runtime-provider entry carries the selected module name
-and standard contract version. The provider's installed code is deliberately
-not hashed: it is a runtime dependency that may be supplied by a rock or a host
-after the artifact was built.
+backend entry carries the module name and digest of the checked `Backend`
+value. Each reached seam entry carries its name, contract version and whether
+it binds at compile time or runtime, so changing a checked backend cannot leave
+an artifact claiming it resolved the old one. Code behind an exact third-party
+runtime module name is deliberately not hashed: it may be supplied by a rock or
+a host after the artifact was built.
 
 ### Missing capability reports at the use site
 
@@ -510,18 +563,18 @@ checked construct:
 | Code | Reported when |
 | --- | --- |
 | `NUPP3006` | the dialect has no capability the construct needs |
-| `NUPP3007` | a capability has no implementation and no backend was named |
-| `NUPP3008` | a named backend does not satisfy the capability interface |
+| `NUPP3007` | no selected backend supplies the seam a capability needs |
+| `NUPP3008` | a named module does not export a valid `Backend` or supplies an incompatible seam |
 | `NUPP3009` | the dialect has no semantics-preserving lowering for authored syntax |
 | `NUPP3010` | a resolved prelude use is outside the dialect's runtime surface |
-| `NUPP3012` | a reached standard-library facility has no provider for the dialect |
+| `NUPP3012` | a reached standard-library facility has no runtime seam for the dialect |
 
-`NUPP3012` is a build-time selection error: it says which provider contract to
-name. If a provider was named but its module is absent or incompatible on the
-machine running the artifact, the lazy adapter raises a runtime dependency
-error naming that module. The two cases are not collapsed, because the compiler
-can prove the first and cannot inspect the second without executing the target's
-dependency environment.
+`NUPP3012` is a build-time selection error: it says which seam contract to
+supply. If a runtime seam named a third-party module that is absent or
+incompatible on the machine running the artifact, the lazy adapter raises a
+runtime dependency error naming that module. The two cases are not collapsed,
+because the compiler can prove the first and cannot inspect the second without
+executing the target's dependency environment.
 
 ### Backend may change representation and cost, not meaning
 
@@ -534,26 +587,32 @@ The build reports `NUPP3007` there, rather than lowering a slow answer or a wron
 one. Naming a backend permits the slow answer only because that backend supplies
 a representation and operations for the complete `int64` contract.
 
-The checker enforces the part a type system can prove: the annotation names one
-known capability, the module exports its complete interface, and every generated
-call has that checked type. It does not claim that an arbitrary implementation
+The checker enforces the part a type system can prove: the module exports a
+valid `Backend`, every seam came through its compiler-owned factory, the
+implementation satisfies that seam's complete interface, and every generated
+call has the checked type. It does not claim that an arbitrary implementation
 of `band` computes the right bits. A function body can lie behind any ordinary
-interface, and a special annotation does not change that fact.
+interface, which is why structural checking and the behavioral suite are
+separate evidence.
 
-Behavior remains testable rather than ambient. Each capability's documentation
-owns a compiler-versioned conformance suite generated by `doctest`, and
+Behavior remains testable rather than ambient. Every seam factory attaches a
+compiler-versioned conformance suite implemented as ordinary checked source,
+and
 
 ```sh
-nupp backend test bitops acme.compat.bitops --dialect lua51
+nupp backend test acme.compat.portable --dialect lua51
 ```
 
-compiles the module under that dialect and runs the suite in an isolated worker.
-The command reports the capability contract version, backend source digest, and
-runtime that ran it, and exits unsuccessfully on the first mismatch. It is an
-explicit test command for backend authors, package CI, and consumers auditing a
-dependency. `check` and `build` never run it implicitly, never execute a module
-only because `nupp.lua` named it, and never turn a cached test result into a
-proof. The artifact records identities and digests, not a certification claim.
+compiles the backend under that dialect and runs each of its seams in an
+isolated worker. A seam can also be selected by name for a focused run. The
+command reports the seam name and contract version, backend source digest, and
+runtime that ran it, and exits unsuccessfully on the first mismatch. Native
+seams run these same suites, making them the reference implementation without
+giving them a private test path. It is an explicit command for backend authors,
+package CI, and consumers auditing a dependency. `check` and `build` never run
+it implicitly, never execute a module only because `nupp.lua` named it, and
+never turn a cached result into a proof. The artifact records identities and
+digests, not a certification claim.
 
 ### Portability floor
 
@@ -579,8 +638,48 @@ an identity requires the same semantics on that matrix or an explicit compiler
 lowering; availability on only one runtime does not widen the intersection.
 This is what makes `check --dialect lua51` a portability check rather than only
 a parser check, and what lets the same published artifact reach a 5.4 project
-or a browser interpreter once the artifact's recorded provider modules are
+or a browser interpreter once the artifact's recorded runtime modules are
 available there.
+
+## Proof order
+
+The implementation proceeds through independently falsifiable seams. A later
+step does not compensate for a failure in an earlier one.
+
+1. **Backend composition.** Check the real `Backend` and `Seam` interfaces,
+   reject duplicate seams, install a selected backend with one generated call,
+   and keep all adapter and suite behavior in separately checked source. Prove
+   it with one native JSON seam, one third-party module name, and one
+   structurally valid adapter that the behavioral suite rejects.
+2. **Static backend metadata.** Restrict the exported descriptor, record its
+   constant name and seam versions in the checked module interface, and prove
+   that `check`, task inspection and `build` resolve it without executing the
+   backend or requiring its runtime dependency.
+3. **Dialect plumbing.** Add `luajit` and `lua51` to check, build, cache keys,
+   task output and artifact metadata. A generated-output corpus must show that
+   an omitted dialect and explicit `luajit` remain byte-identical to today's
+   output.
+4. **One compile-bound seam and one lowering.** Use `bitops`: preserve direct
+   LuaJIT operators on the default backend, bind a complete checked BitOp-style
+   adapter for `lua51`, and report a missing seam at the operator. Run the same
+   bit-vector suite against native and adapted implementations.
+5. **Syntax and prelude floor.** Lower generated `continue` and cleanup jumps,
+   reject authored labels and runtime-specific prelude identities, and run the
+   portable corpus under Lua 5.1, 5.2, 5.3, 5.4 and LuaJIT.
+6. **Representation seams.** Prove `structvalue` with table-backed identity,
+   copy sites and width-normalized stores before attempting `int64`. Refuse
+   `cstorage` and `cinterop` at their exact uses.
+7. **SIMD emulation.** Implement the complete confined `nupp.simd` seam with
+   sixteen scalar lanes and run its suite against native and emulated backends.
+   Ordinary vectorizable loops remain scalar when vectorization is unavailable.
+8. **Standard and host accounting.** Classify every public standard member,
+   adding checked runtime seam adapters for JSON, SHA, UTF-8, UUID, bitsets,
+   PEG and host facilities as projects need them. These adapters may perform
+   runtime checks for third-party modules; this step does not add duplicate
+   algorithms to Nupp.
+9. **Backend test command and artifact audit.** Expose isolated all-seam and
+   focused runs, report versions, runtime and digests, and verify the artifact
+   records exactly the reached resolution without claiming certification.
 
 ## Risks and assumptions
 
@@ -590,11 +689,11 @@ available there.
   surface true, and without that matrix it rots quietly.
 - **The standard library is FFI-shaped.** Seventeen modules under `src/nupp/`
   reach the FFI, including all of `io` and `mem`, and much of `data`. The
-  provider accounting above prevents those modules from becoming an unnamed
+  seam accounting above prevents those modules from becoming an unnamed
   portability hole, but it moves availability into package management. A
   portable artifact can build successfully and then fail at first use when its
   declared runtime module was not installed on the target host.
-- **Third-party APIs do not share one shape.** A checked provider or thin
+- **Third-party APIs do not share one shape.** A checked runtime seam or thin
   adapter has to normalize each chosen module to Nupp's contract. Nupp avoids
   maintaining SHA-256, UTF-8, JSON and PEG algorithms, but somebody still owns
   each adapter and its compatibility range.
@@ -633,12 +732,10 @@ whose answer depends on a load order the source does not show. A filename also
 cannot be checked against a contract, and the safety argument here is entirely
 that the contract is checked.
 
-**Partial backends, supplying some members and inheriting the rest.**
-Rejected: the result is semantics nobody wrote down and a conformance suite has
-nothing to run against. `src/nupp/compiler/build/aot.nupp` already makes this
-call for ahead-of-time policy, refusing a mode that mixes compiled functions
-with fallbacks, because a build whose speed nobody can reason about is not
-worth the flexibility.
+**Partial seams, supplying some members and inheriting the rest.** Rejected:
+the result is semantics nobody wrote down and a conformance suite has nothing
+complete to run against. A `Backend` may intentionally contain a subset of all
+known seams so packages compose, but each `Seam` value is a complete contract.
 
 **Lower `struct` to a table automatically wherever the FFI is absent.**
 Rejected: the deepdive under [choosing](../type-system/records.md#choosing)
@@ -669,13 +766,13 @@ to lower. Swapping an implementation the compiler does not lower to is
 **Bundle a pure-Lua implementation of every standard facility.** Rejected: it
 would make Nupp maintain second implementations of JSON, Unicode, hashes,
 identifiers, byte codecs and PEG despite mature Lua modules already existing.
-The portable contract needs a selected provider and a useful missing-dependency
+The portable contract needs a selected runtime seam and a useful missing-dependency
 error; it does not need every algorithm to live in this repository.
 
 **Probe for several well-known runtime modules and use the first installed.**
 Rejected: an artifact would change behavior when an unrelated rock was added to
-the host. A project selects one provider module, and the artifact records and
-requires that exact name.
+the host. A checked runtime seam selects one exact module, and the artifact
+records and requires that exact name.
 
 **Reuse `target` or `platform` as the name.** Rejected: `nupp.lua` already
 names build targets, and `--platform` already selects a binary platform. A
