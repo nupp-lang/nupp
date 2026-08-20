@@ -2972,7 +2972,9 @@ end
 return { } , diagnostics , { }
 end
 
-local context = setmetatable({ reject =  function ( at , message )
+local context = setmetatable({ checked =
+parsed ~= nil ,  reject =
+function ( at , message )
 diagnostics [
 # diagnostics + 1
 ] = setmetatable({ file =
@@ -2983,6 +2985,7 @@ message }, compile.Diagnostic)
 
 error ( REFUSED , 0 )
 end }, lower.Context)
+
 
 
 
@@ -6986,11 +6989,17 @@ local lexer = require ( "nupp.compiler.lexer" )
 local cst = require ( "nupp.compiler.cst" )
 local scalarIR = require ( "nupp.compiler.aot.scalar" )
 local switchplan = require ( "nupp.compiler.switchplan" )
+local T = require ( "nupp.compiler.types" )
 
 local lower = { }
 
 
 lower.Context = {} lower.Context.__index = lower.Context
+
+
+
+
+
 
 
 
@@ -7124,6 +7133,133 @@ end
 
 
 
+local function checkedType ( node , context )
+if not context . checked then
+return nil
+end
+local resolved = node ~= nil and ( node ) . resolvedType or nil
+if resolved == nil then
+context . reject ( lower . site ( node ) , "the checker did not publish this AOT type" )
+end
+
+return resolved
+end
+
+
+
+
+
+
+local function semanticRaw ( t )
+local raw = t ~= nil and T . unwrapOwnership ( t ) or nil
+while raw ~= nil and raw . tag == "genericAlias" and # ( raw . paramKinds or { } ) == 0 do
+raw = T . unwrapOwnership ( raw . body )
+end
+
+return raw
+end
+
+
+local function nominal ( t )
+local raw = semanticRaw ( t )
+if raw == nil or raw . tag ~= "nominal" then
+return nil , nil
+end
+
+return raw , raw . origin or raw
+end
+
+
+
+
+
+
+local function sourceSpelling ( t )
+local raw = semanticRaw ( t )
+if raw . tag == "nominal" then
+local _ , origin = nominal ( raw )
+if origin ~= nil and origin . moduleName == nil then
+return origin . name
+end
+end
+
+return T . tostring ( raw )
+end
+
+
+
+
+
+
+local function semanticValueType ( t , helper )
+if t == nil then
+return nil
+end
+local raw = semanticRaw ( t )
+local tag = raw . tag
+if tag == "boolean" then
+return "bool"
+elseif tag == "number" or tag == "integer" then
+return "f64"
+elseif tag == "float" then
+return helper and "f64" or "f32"
+elseif tag == "uint32" then
+return "u32"
+elseif tag == "int32" then
+return "i32"
+elseif tag == "string" then
+return "lua_string"
+elseif tag == "nil" then
+return "lua_nil"
+elseif tag == "any" then
+return "lua_value"
+elseif tag == "table" or tag == "array" or tag == "map" or tag == "tuple" or tag == "shape" then
+return "lua_table"
+end
+
+local _ , origin = nominal ( raw )
+if origin == nil or origin . moduleName ~= "nupp.simd" then
+return nil
+end
+local simdTypes
+
+= {
+VectorU8 = "simd_vector_u8" ,
+MaskU8 = "simd_mask_u8" ,
+MaskBits64 = "simd_mask_bits64" ,
+SpeciesU8 = "simd_species_u8" ,
+TableU8x16 = "simd_table_u8x16" ,
+PaddedStringU8 = "simd_padded_string_u8" ,
+}
+
+return simdTypes [ origin . name ]
+end
+
+
+local function semanticStorageType ( t )
+local raw = semanticRaw ( t )
+
+return raw ~= nil and admit . STORAGE [ raw . tag ] or nil
+end
+
+
+local function annotatedValueType ( node , context , helper )
+if node == nil then
+return nil
+end
+if context . checked then
+return semanticValueType ( checkedType ( node , context ) , helper )
+end
+local spelling = lower . compactType ( node )
+
+return helper and lower . helperValueType ( spelling ) or lower . sourceValueType ( spelling )
+end
+
+
+
+
+
+
 local function stringBytes ( written )
 local quote = written : sub ( 1 , 1 )
 if quote == "\"" or quote == "'" then
@@ -7165,11 +7301,19 @@ lower.Layouts = {} lower.Layouts.__index = lower.Layouts
 
 function lower . layout (
 name ,
+resolved ,
 at ,
 declarations ,
 layouts ,
 context
 )
+local semantic , origin = nominal ( resolved )
+if context . checked then
+if semantic == nil or origin == nil or origin . declKind ~= "struct" then
+context . reject ( lower . site ( at ) , "span elements with fields must resolve to a struct" )
+end
+name = origin . name
+end
 local known = layouts . byName [ name ]
 if known ~= nil then
 return known
@@ -7181,11 +7325,51 @@ context . reject ( lower . site ( at ) , "span element " .. name .. " is not a v
 end
 
 local declaration = found
-if declaration . generics ~= nil or # ( declaration . supertypes or { } ) > 0 then
+if context . checked then
+local declared = declaration . resolvedType
+local _ , declaredOrigin = nominal ( declared )
+if declaredOrigin == nil or declaredOrigin . id ~= origin . id then
+context . reject ( lower . site ( at ) , "span element " .. name .. " is not the visible local struct of that name" )
+end
+elseif declaration . generics ~= nil or # ( declaration . supertypes or { } ) > 0 then
 context . reject ( lower . site ( declaration ) , "native structs must be non-generic and have no supertypes" )
 end
 
 local layout = setmetatable({ name =  name ,  cName =  "Ks" .. name ,  fields =  { } ,  source =  lower . site ( declaration ) }, scalarIR.Layout)
+if context . checked then
+if # ( origin . typeParams or { } ) > 0 or # ( origin . supertypes or { } ) > 0 then
+context . reject ( lower . site ( declaration ) , "native structs must be non-generic and have no supertypes" )
+end
+local fields = origin . fieldOrder or { }
+for _ , fieldName in ipairs ( fields ) do
+local fieldType = origin . byname and origin . byname [ fieldName ] or nil
+local storage = semanticStorageType ( fieldType )
+if storage == nil then
+context . reject (
+lower . site ( origin . fieldDefs and origin . fieldDefs [ fieldName ] or declaration ) ,
+"native struct field type " .. tostring (
+fieldType ~= nil and T . tostring ( fieldType ) or "unknown"
+) .. " is not admitted"
+)
+end
+layout . fields [
+# layout . fields + 1
+] = setmetatable({ name =
+fieldName ,  type =
+storage ,  sourceType =
+sourceSpelling ( fieldType ) ,  source =
+lower . site ( origin . fieldDefs and origin . fieldDefs [ fieldName ] or declaration ) }, scalarIR.Field)
+
+end
+if # layout . fields == 0 then
+context . reject ( lower . site ( declaration ) , "native structs need at least one field" )
+end
+layouts . byName [ name ] = layout
+layouts . ordered [ # layouts . ordered + 1 ] = layout
+
+return layout
+end
+
 local seen = { }
 for _ , entry in ipairs ( declaration . entries ) do
 local field = entry
@@ -7244,12 +7428,50 @@ lower.Element = {} lower.Element.__index = lower.Element
 
 function lower . spanElement (
 spelling ,
-prefix ,
+resolved ,
+expected ,
 at ,
 declarations ,
 layouts ,
 context
 )
+if context . checked then
+local span , origin = nominal ( resolved )
+if span == nil
+or origin == nil
+or origin . moduleName ~= "nupp.mem.span"
+or origin . name ~= expected
+or span . typeArgs == nil
+or span . typeArgs [
+1
+] == nil then
+return nil
+end
+local elementType = span . typeArgs [ 1 ]
+local storage = semanticStorageType ( elementType )
+if storage ~= nil then
+return setmetatable({ kind =
+"scalar" ,  type =
+storage ,  sourceType =
+sourceSpelling ( elementType ) }, lower.Element)
+
+end
+local _ , elementOrigin = nominal ( elementType )
+if elementOrigin == nil or elementOrigin . declKind ~= "struct" then
+context . reject (
+lower . site ( at ) ,
+"span element " .. T . tostring ( elementType ) .. " has no admitted physical layout"
+)
+end
+
+return setmetatable({ kind =
+"struct" ,  type =
+"struct:" .. elementOrigin . name ,  layout =
+lower . layout ( elementOrigin . name , elementType , at , declarations , layouts , context ) }, lower.Element)
+
+end
+
+local prefix = expected == "WriteSpan" and "span%.WriteSpan" or "span%.Span"
 local element = spelling : match ( "^" .. prefix .. "<(.+)>$" )
 if element == nil then
 return nil
@@ -7263,7 +7485,7 @@ end
 return setmetatable({ kind =
 "struct" ,  type =
 "struct:" .. ( element ) ,  layout =
-lower . layout ( element , at , declarations , layouts , context ) }, lower.Element)
+lower . layout ( element , nil , at , declarations , layouts , context ) }, lower.Element)
 
 end
 
@@ -8139,9 +8361,16 @@ args [ 2 ] ,  type =
 lower . site ( node ) }, scalarIR.LuaNewTable)
 
 end
-local fixed = path ~= nil and admit . fixed ( path ) or nil
+
+
+
+
+local fixedIdentity = ( node ) . scalarIntrinsic
+local fixed = fixedIdentity ~= nil and admit . FIXED [
+fixedIdentity
+] or not context . checked and path ~= nil and admit . fixed ( path ) or nil
 if fixed ~= nil then
-return fixedCall ( node , path , fixed , args , kernel )
+return fixedCall ( node , path or tostring ( fixedIdentity ) , fixed , args , kernel )
 end
 
 local intrinsic = path ~= nil and admit . math ( path ) or nil
@@ -8682,9 +8911,39 @@ then
 context . reject ( lower . site ( declaration ) , "native helpers must be non-generic, non-variadic, and non-capturing" )
 end
 
+local checkedSignature = context . checked and body . signatureType or nil
+if context . checked and checkedSignature == nil then
+context . reject ( lower . site ( body ) , "the checker did not publish this native helper signature" )
+end
+if context . checked then
+local effects = body . effectSummary
+if effects == nil then
+context . reject ( lower . site ( body ) , "the checker did not publish this native helper effect summary" )
+end
+
+
+
+
+
+if effects . allocates == true
+or effects . yields == true
+or effects . raises == true
+or effects . external == true
+or next (
+effects . writes or { }
+) ~= nil or next (
+effects . shapes or { }
+) ~= nil or next ( effects . metatables or { } ) ~= nil or next ( effects . escapes or { } ) ~= nil then
+context . reject ( lower . site ( body ) , "the checker reports side effects in this native helper" )
+end
+end
+
 local resultTypes = { }
-for _ , result in ipairs ( body . rets or { } ) do
-local resultType = lower . helperValueType ( lower . compactType ( result ) )
+for position , result in ipairs ( body . rets or { } ) do
+local resultType = context . checked and semanticValueType (
+checkedSignature . rets [ position ] ,
+true
+) or lower . helperValueType ( lower . compactType ( result ) )
 if resultType == nil then
 context . reject ( lower . site ( result ) , "native helper results are scalar or SIMD values" )
 end
@@ -8696,10 +8955,16 @@ end
 
 local params = { }
 local environment = { }
-for _ , raw in ipairs ( body . params or { } ) do
+for position , raw in ipairs ( body . params or { } ) do
 local paramName = raw . name ~= nil and ( raw . name ) . text or nil
-local paramType = lower . helperValueType ( lower . compactType ( raw . type ) )
-if paramName == nil or paramType == nil or raw . modeTok ~= nil then
+local paramType = context . checked and semanticValueType (
+checkedSignature . params [ position ] ,
+true
+) or lower . helperValueType ( lower . compactType ( raw . type ) )
+local mode = context . checked and checkedSignature . paramModes [
+position
+] or raw . modeTok ~= nil and ( raw . modeTok ) . text or nil
+if paramName == nil or paramType == nil or mode ~= nil and mode ~= "plain" then
 context . reject ( lower . site ( raw ) , "native helper parameters are unowned scalar or SIMD values" )
 end
 if environment [ paramName ] ~= nil then
@@ -8856,9 +9121,9 @@ environment ,
 kernel . index ,
 kernel
 ) or nil
-local spelling = lower . compactType ( stat . types ~= nil and ( stat . types ) [ 1 ] or nil )
+local annotation = stat . types ~= nil and ( stat . types ) [ 1 ] or nil
 local inferredResult = elseValue and elseValue . type or arms [ 1 ] and arms [ 1 ] . value . type or nil
-local resultType = spelling ~= "" and lower . sourceValueType ( spelling ) or inferredResult
+local resultType = annotatedValueType ( annotation , context ) or inferredResult
 if resultType == nil or resultType == "multi" or resultType : match ( "^ref:" ) then
 context . reject ( lower . site ( stat ) , "native switch results must be scalar" )
 end
@@ -9039,8 +9304,9 @@ end
 
 local bindings = { }
 for position , token in ipairs ( names ) do
-local annotated = lower . sourceValueType (
-lower . compactType ( stat . types ~= nil and ( stat . types ) [ position ] or nil )
+local annotated = annotatedValueType (
+stat . types ~= nil and ( stat . types ) [ position ] or nil ,
+context
 )
 local valueType = resultTypes [ position ]
 if annotated ~= nil and annotated ~= valueType then
@@ -9069,10 +9335,13 @@ if # values ~= # names then
 context . reject ( lower . site ( stat ) , "native local initializer count must match names" )
 end
 for position , token in ipairs ( names ) do
-local spelling = lower . compactType ( stat . types ~= nil and ( stat . types ) [ position ] or nil )
-local expected = spelling ~= "" and lower . sourceValueType ( spelling ) or values [ position ] . type
+local annotation = stat . types ~= nil and ( stat . types ) [ position ] or nil
+local expected = annotatedValueType ( annotation , context ) or values [ position ] . type
 if expected == nil then
-context . reject ( lower . site ( stat ) , "native local annotation " .. spelling .. " is not admitted" )
+context . reject (
+lower . site ( stat ) ,
+"native local annotation " .. lower . compactType ( annotation ) .. " is not admitted"
+)
 end
 
 local value = lower . convert ( values [ position ] , expected , lower . site ( stat ) , context )
@@ -9587,12 +9856,13 @@ lower.Signature = {} lower.Signature.__index = lower.Signature
 
 function lower . parameters (
 raws ,
+checkedSignature ,
 declarations ,
 layouts ,
 context
 )
 local signature = setmetatable({ params =  { } ,  byName =  { } ,  spans =  { } ,  writes =  { } ,  reads =  { } }, lower.Signature)
-for _ , raw in ipairs ( raws ) do
+for position , raw in ipairs ( raws ) do
 local name = raw . name ~= nil and ( raw . name ) . text or nil
 if name == nil then
 context . reject ( lower . site ( raw ) , "every kernel parameter must be named" )
@@ -9602,10 +9872,15 @@ context . reject ( lower . site ( raw ) , "duplicate kernel parameter " .. ( nam
 end
 
 local spelling = lower . compactType ( raw . type )
-local mode = raw . modeTok ~= nil and ( raw . modeTok ) . text or nil
+local resolved = checkedType ( raw . type , context )
+local mode = context . checked and checkedSignature ~= nil and checkedSignature . paramModes [
+position
+] or raw . modeTok ~= nil and ( raw . modeTok ) . text or nil
+local sourceType = context . checked and sourceSpelling ( resolved ) or spelling
+local valueType = context . checked and semanticValueType ( resolved ) or lower . sourceValueType ( spelling )
 local at = raw . type or raw
-local writeElement = lower . spanElement ( spelling , "span%.WriteSpan" , at , declarations , layouts , context )
-local readElement = lower . spanElement ( spelling , "span%.Span" , at , declarations , layouts , context )
+local writeElement = lower . spanElement ( spelling , resolved , "WriteSpan" , at , declarations , layouts , context )
+local readElement = lower . spanElement ( spelling , resolved , "Span" , at , declarations , layouts , context )
 local region = "r" .. tostring ( # signature . spans )
 
 local param
@@ -9643,63 +9918,63 @@ lower . site ( raw ) }, scalarIR.Param)
 param . element = readElement
 signature . reads [ # signature . reads + 1 ] = param
 signature . spans [ # signature . spans + 1 ] = param
-elseif spelling == "float" or spelling == "number" or spelling == "integer" then
-if mode ~= nil then
+elseif valueType == "f32" or valueType == "f64" then
+if mode ~= nil and mode ~= "plain" then
 context . reject ( lower . site ( raw ) , "a uniform float parameter has no ownership mode" )
 end
 param = setmetatable({ kind =
 "uniform" ,  name =
 name ,  type =
-spelling == "float" and "f32" or "f64" ,  sourceType =
-spelling ,  source =
+valueType ,  sourceType =
+sourceType ,  source =
 lower . site ( raw ) }, scalarIR.Param)
 
-elseif spelling == "uint32" or spelling == "int32" then
-if mode ~= nil then
+elseif valueType == "u32" or valueType == "i32" then
+if mode ~= nil and mode ~= "plain" then
 context . reject ( lower . site ( raw ) , "a uniform integer parameter has no ownership mode" )
 end
 param = setmetatable({ kind =
 "uniform" ,  name =
 name ,  type =
-spelling == "uint32" and "u32" or "i32" ,  sourceType =
-spelling ,  source =
+valueType ,  sourceType =
+sourceType ,  source =
 lower . site ( raw ) }, scalarIR.Param)
 
-elseif spelling == "boolean" then
-if mode ~= nil then
+elseif valueType == "bool" then
+if mode ~= nil and mode ~= "plain" then
 context . reject ( lower . site ( raw ) , "a boolean parameter has no ownership mode" )
 end
 param = setmetatable({ kind =
 "uniform" ,  name =
 name ,  type =
 "bool" ,  sourceType =
-spelling ,  source =
+sourceType ,  source =
 lower . site ( raw ) }, scalarIR.Param)
 
-elseif spelling == "string" then
-if mode ~= nil then
+elseif valueType == "lua_string" then
+if mode ~= nil and mode ~= "plain" then
 context . reject ( lower . site ( raw ) , "a string parameter has no ownership mode" )
 end
 param = setmetatable({ kind =
 "scalar" ,  name =
 name ,  type =
 "lua_string" ,  sourceType =
-spelling ,  source =
+sourceType ,  source =
 lower . site ( raw ) }, scalarIR.Param)
 
-elseif spelling == "any" then
-if mode ~= nil then
+elseif valueType == "lua_value" then
+if mode ~= nil and mode ~= "plain" then
 context . reject ( lower . site ( raw ) , "an opaque Lua value parameter has no ownership mode" )
 end
 param = setmetatable({ kind =
 "scalar" ,  name =
 name ,  type =
 "lua_value" ,  sourceType =
-spelling ,  source =
+sourceType ,  source =
 lower . site ( raw ) }, scalarIR.Param)
 
 else
-context . reject ( lower . site ( at ) , "parameter type " .. spelling .. " is not admitted" )
+context . reject ( lower . site ( at ) , "parameter type " .. sourceType .. " is not admitted" )
 param = setmetatable({ kind =  "uniform" ,  name =  name ,  type =  "f64" }, scalarIR.Param)
 end
 
@@ -10198,22 +10473,41 @@ local fn , body = lower . kernelBody ( application , context )
 local contract = lower . contract ( application , body , checked , context )
 
 local layouts = setmetatable({ ordered =  { } ,  byName =  { } }, lower.Layouts)
-local signature = lower . parameters ( ( body . params or { } ) , declarations . structs , layouts , context )
+local checkedSignature = context . checked and body . signatureType or nil
+if context . checked and checkedSignature == nil then
+context . reject ( lower . site ( body ) , "the checker did not publish this AOT signature" )
+end
+local signature = lower . parameters (
+( body . params or { } ) ,
+checkedSignature ,
+declarations . structs ,
+layouts ,
+context
+)
 local regions , aliasFacts = lower . regions ( signature . spans )
 local name = ( fn . name ) . text
 
 local resultTypes = { }
 local resultSourceTypes = { }
 local rets = body . rets or { }
-if # rets == 1 and lower . compactType ( rets [ 1 ] ) == "nil" then
+local resolvedResults = checkedSignature ~= nil and checkedSignature . rets or nil
+if # rets == 1 and (
+context . checked and resolvedResults [
+1
+] ~= nil and semanticRaw (
+resolvedResults [ 1 ]
+) . tag == "nil" or not context . checked and lower . compactType ( rets [ 1 ] ) == "nil"
+) then
 rets = { }
 end
 if # rets > 4 then
 context . reject ( lower . site ( body ) , "general AOT entries currently return at most four scalar values" )
 end
 for position , result in ipairs ( rets ) do
-local sourceType = lower . compactType ( result )
-local resultType = lower . helperValueType ( sourceType )
+local resolved = context . checked and resolvedResults [ position ] or nil
+local sourceType = context . checked and sourceSpelling ( resolved ) or lower . compactType ( result )
+local resultType = context . checked and semanticValueType ( resolved , true ) or lower . helperValueType ( sourceType )
+if not context . checked then
 if resultType == nil and sourceType == "string" then
 resultType = "lua_string"
 elseif resultType == nil and sourceType == "any" then
@@ -10222,6 +10516,7 @@ elseif resultType == nil and sourceType == "nil" then
 resultType = "lua_nil"
 elseif resultType == nil and ( sourceType : sub ( 1 , 1 ) == "{" or sourceType == "table" ) then
 resultType = "lua_table"
+end
 end
 if resultType == nil then
 context . reject ( lower . site ( result ) , "AOT entry results are admitted scalar values or fresh tables" )
@@ -16459,14 +16754,20 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
+
+
 local bindingRules = require ( "nupp.compiler.aot.binding" )
 local compile = require ( "nupp.compiler.aot.compile" )
+local diagnosticMod = require ( "nupp.compiler.diagnostics" )
 local fs = require ( "nupp.compiler.fs" )
 local cache = require ( "nupp.compiler.build.cache" )
 local hash = require ( "nupp.compiler.build.hash" )
 local process = require ( "nupp.compiler.build.process" )
 local scalarIR = require ( "nupp.compiler.aot.scalar" )
 local targets = require ( "nupp.compiler.aot.target" )
+
+local isFatal = diagnosticMod . isFatal
 
 local aot = { }
 
@@ -16730,6 +17031,35 @@ end
 
 
 
+local function checkedTree (
+session ,
+source
+)
+local checked = session . inc . checkFile ( source )
+if checked . missing == true or checked . syntax == true or checked . result == nil then
+return nil
+end
+for _ , diagnostic in ipairs ( checked . diags or { } ) do
+if isFatal ( diagnostic ) then
+return nil
+end
+end
+
+return checked . result
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -16932,11 +17262,14 @@ end
 
 
 
+
+
 function aot . emitC (
 root ,
 outDir ,
 roots ,
 previous ,
+session ,
 features ,
 triple
 )
@@ -16958,11 +17291,12 @@ if not seen [ source ] and source : match ( "%.nupp$" ) ~= nil then
 seen [ source ] = true
 
 local text = fs . readFile ( source )
-if text ~= nil and mentionsAot ( text ) then
+local tree = text ~= nil and mentionsAot ( text ) and checkedTree ( session , source ) or nil
+if tree ~= nil then
 local artifacts , diagnostics = compile . artifacts (
 text ,
 source ,
-nil ,
+tree ,
 "<object>" ,
 selected
 )
@@ -17045,11 +17379,12 @@ roots ,
 name ,
 previous ,
 previousLibraryKey ,
+session ,
 features ,
 triple ,
 cflags
 )
-local emitted , emitErr , produced = aot . emitC ( root , outDir , roots , previous , features , triple )
+local emitted , emitErr , produced = aot . emitC ( root , outDir , roots , previous , session , features , triple )
 if emitted == nil then
 return nil , emitErr
 end
@@ -20244,6 +20579,25 @@ end
 
 
 
+modules.Session = {} modules.Session.__index = modules.Session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -20563,6 +20917,17 @@ active [ t ] = nil
 return value
 end
 
+
+
+local function shortPath ( root , path )
+local rootPrefix = normalize ( root )
+if rootPrefix ~= "." and path : sub ( 1 , # rootPrefix + 1 ) == rootPrefix .. "/" then
+return path : sub ( # rootPrefix + 2 )
+end
+
+return path
+end
+
 local function resourceRelative ( config , path , root )
 local normalized = normalize ( path )
 local rootPrefix = normalize ( root )
@@ -20628,25 +20993,20 @@ derives = record . derives ,
 }
 end
 
-local function buildModules ( root , outDir , config , target , oldState , newState , checkOnly , strict , stats , diagnostics
-
-, checkState ,
-
-
-
-
-narrow ,
-
-
-
-
-reporter ,
 
 
 
 
 
-overlays )
+local function openSession (
+root ,
+outDir ,
+config ,
+target ,
+dependencies ,
+strict ,
+reporter
+)
 local report = reporter or progress . new ( "never" )
 local envConfig = { }
 for key , value in pairs ( config ) do
@@ -20657,13 +21017,7 @@ for _ , include in ipairs ( config . include or { } ) do
 envConfig . include [ # envConfig . include + 1 ] = include
 end
 envConfig . include [ # envConfig . include + 1 ] = join ( outDir , "generated" )
-local rocks = deps . rockPaths ( root , config , target , newState . dependencies )
-
-
-
-
-
-
+local rocks = deps . rockPaths ( root , config , target , dependencies )
 local checkMs = { }
 local open
 
@@ -20672,15 +21026,6 @@ local open
 
 
 local resumeActivity = "scan"
-local rootPrefix = normalize ( root )
-local function shortPath ( path )
-if rootPrefix ~= "." and path : sub ( 1 , # rootPrefix + 1 ) == rootPrefix .. "/" then
-return path : sub ( # rootPrefix + 2 )
-end
-
-return path
-end
-
 local observer = {
 checking = function ( path )
 
@@ -20692,7 +21037,7 @@ resumeActivity = report . activity
 report : at ( "check" )
 end
 open [ # open + 1 ] = { startedAt = progress . now ( ) , children = 0 }
-report : step ( "checking " .. shortPath ( path ) )
+report : step ( "checking " .. shortPath ( root , path ) )
 end ,
 checked = function ( path )
 local frame = open [ # open ]
@@ -20712,12 +21057,45 @@ end
 end ,
 }
 
-local inc = incremental . new ( root , {
+return setmetatable({ inc =
+incremental . new ( root , {
 config = envConfig ,
 strict = strict ,
 typeRoots = rocks and rocks . typeRoots or { } ,
 observe = observer ,
-} )
+} ) ,  checkMs =
+checkMs }, modules.Session)
+
+end
+
+local function buildModules ( root , outDir , config , target , oldState , newState , checkOnly , strict , stats , diagnostics
+
+, checkState ,
+
+
+
+
+narrow ,
+
+
+
+
+reporter ,
+
+
+
+
+
+overlays ,
+
+
+
+
+session )
+local report = reporter or progress . new ( "never" )
+local opened = session or openSession ( root , outDir , config , target , newState . dependencies , strict , reporter )
+local inc = opened . inc
+local checkMs = opened . checkMs
 local substituted = { }
 for path , text in pairs ( overlays or { } ) do
 local at = normalize ( path )
@@ -21231,7 +21609,7 @@ end
 end
 report : at ( "write" )
 for _ , item in ipairs ( pending ) do
-report : step ( "writing " .. shortPath ( item . path ) )
+report : step ( "writing " .. shortPath ( root , item . path ) )
 local ok , err = writeFile ( item . path , item . text )
 if not ok then
 return nil , err
@@ -21245,6 +21623,7 @@ modules . typeFingerprint = typeFingerprint
 modules . resourceRelative = resourceRelative
 modules . resourceOutput = resourceOutput
 modules . build = buildModules
+modules . session = openSession
 
 const __nuppExportValue= modules ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.build.modules"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.build.modules"]=__nuppExports;return __nuppExports
@@ -22241,7 +22620,7 @@ const __nuppExportValue= platform ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.build.platform"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.build.platform"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.compiler.build.process"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end package.preload["nupp.io.processnative"]=function() local native=__nuppNative();local ffi,C=native.ffi,native.C ffi.cdef[[double nuppProcessMonotonicMs(void);]] local MODE={pipe=0,inherit=1,["null"]=2,stdout=3} local WOULD_BLOCK,GONE,FAILED=-1,-2,-3 local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2 local READ_SIZE,INT32_MAX=65536,2147483647 local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end return{new=function(exited) local backend={} function backend:spawn(options) local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe" if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode") for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin") configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout") configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr") local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end local owner={handle=child,streams={},released=false,destroyed=false} local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe") return owner,input,output,err,tonumber(C.nuppProcessId(child)) end function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end function backend:now()return C.nuppProcessMonotonicMs()end function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end return backend end} end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.io.process#process.destroyProcess"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.process#process.destroyProcess") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.io.process#process.destroyProcess"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.process#process.destroyProcess") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -23289,6 +23668,15 @@ newState . dependencies = dependencies
 
 
 
+local session = modules . session ( root , outDir , config , target , dependencies , strict , report )
+
+
+
+
+
+
+
+
 
 
 
@@ -23309,6 +23697,7 @@ config . include or { } ,
 ( target . name or opts . target or "default" ) ,
 ( oldState . aot or { } ) ,
 oldState . aotLibrary ,
+session ,
 target . aotFeatures ,
 target . aotTarget ,
 target . aotCflags
@@ -23348,7 +23737,8 @@ opts . diagnostics ,
 checkState ,
 opts . paths and { paths = opts . paths , unchecked = opts . unchecked or { } , } or nil ,
 report ,
-aotOverlays
+aotOverlays ,
+session
 )
 
 
@@ -30365,6 +30755,10 @@ c . raises . checkParams ( stat , ( stat . types [ 1 ] ) . params or { } )
 end
 for index , typeNode in ipairs ( stat . types or { } ) do
 local annotation = c . resolveType ( typeNode )
+
+
+
+typeNode . resolvedType = annotation
 annotations [ index ] = annotation
 c . fixedWidth . storageOnly ( typeNode , annotation , "a local value" )
 local initializer = initializers [ index ]
@@ -45530,6 +45924,12 @@ body . partitionResults ,
 nil ,
 explicitPreserves
 )
+
+
+
+
+
+body . signatureType = callable
 if # captures > 0 then
 return T . affine ( callable , { T . closureCleanup ( ) } )
 end
@@ -48426,6 +48826,25 @@ local subtract = narrowing . subtract
 
 
 
+
+
+
+
+
+
+
+local function integral ( t )
+if fixedWidth . isValue ( t ) then
+return fixedWidth . widenedName ( t ) == "integer"
+end
+
+return t ~= T . any and isA ( t , T . integer )
+end
+
+
+
+
+
 local function customaryOperator ( c , opTok )
 
 
@@ -48768,10 +49187,7 @@ c . numericOperand ( rt , rhs , op )
 if op == "/" or op == "^" then
 return T . number
 end
-if fixedWidth . isValue ( lt ) or fixedWidth . isValue ( rt ) then
-return T . number
-end
-if isA ( lt , T . integer ) and isA ( rt , T . integer ) and lt ~= T . any and rt ~= T . any then
+if integral ( lt ) and integral ( rt ) then
 return T . integer
 end
 return T . number
@@ -53278,8 +53694,8 @@ local command = spec . command {
 name = "aot" ,
 summary = "Show what the @aot functions in a file compile to" ,
 usage = { "nupp aot [--emit ir|c|binding] [--check] [--target TRIPLE] [--features TIER] <file>" , } ,
-intro = "Production `nupp build` still emits the ordinary Lua body; this reports what the "
-.. "ahead-of-time backend would produce for the file." ,
+intro = "Reports what the ahead-of-time backend produces for one file, without writing it. "
+.. "A build emits the same artifacts under `aot = \"emit-c\"` or `aot = \"require\"`." ,
 options = aotOptions ( ) ,
 schema = {
 type = "object" ,
@@ -53424,8 +53840,37 @@ io . stderr : write ( "nupp: " .. tostring ( targetErr ) .. "\n" )
 return 1
 end
 
+
+
+
+local parser = require ( "nupp.compiler.parser" )
+local tree = parser . parse ( source , path )
+local diagnosticMod = require ( "nupp.compiler.diagnostics" )
+if # tree . errors > 0 then
+diagnosticMod . report ( tree . errors )
+
+return 1
+end
+local envMod = require ( "nupp.compiler.env" )
+local environment = envMod . new ( "." )
+
+
+
+environment . config . _target = environment . config . _target or { }
+environment . config . _target . aot = "emit-c"
+local checked = require ( "nupp.compiler.check" ) . check ( tree , path , environment )
+local failed = false
+for _ , diagnostic in ipairs ( checked ) do
+failed = failed or diagnosticMod . isFatal ( diagnostic )
+end
+if failed then
+diagnosticMod . report ( checked )
+
+return 1
+end
+
 local library = parsed . values . library or "<object>"
-local artifacts , diagnostics = aot . artifacts ( source , path , nil , library , selected )
+local artifacts , diagnostics = aot . artifacts ( source , path , tree , library , selected )
 if artifacts == nil then
 for _ , problem in ipairs ( diagnostics ) do
 io . stderr : write ( aot . renderDiagnostic ( problem ) .. "\n" )
@@ -68850,21 +69295,41 @@ local SCRIPT = [[
     requestAnimationFrame(revealCurrentSidebarPage);
 
     const mobileToggle = document.querySelector("[data-mobile-nav-toggle]");
+    const mobileNavHistoryKey = "nuppMobileNavOpen";
+    const mobileViewport = matchMedia("(max-width: 760px)");
+    const setMobileNavOpen = (open) => {
+        document.body.classList.toggle("is-mobile-nav-open", open);
+        mobileToggle?.setAttribute("aria-expanded", String(open));
+        if (open) requestAnimationFrame(revealCurrentSidebarPage);
+    };
+    const restoreMobileNav = (state = history.state) => {
+        setMobileNavOpen(mobileViewport.matches && state?.[mobileNavHistoryKey] === true);
+    };
     const closeMobileNav = () => {
-        document.body.classList.remove("is-mobile-nav-open");
-        mobileToggle?.setAttribute("aria-expanded", "false");
+        if (!document.body.classList.contains("is-mobile-nav-open")) return;
+        if (history.state?.[mobileNavHistoryKey] === true) {
+            history.back();
+        } else {
+            setMobileNavOpen(false);
+        }
     };
     mobileToggle?.addEventListener("click", () => {
-        const open = !document.body.classList.contains("is-mobile-nav-open");
-        document.body.classList.toggle("is-mobile-nav-open", open);
-        mobileToggle.setAttribute("aria-expanded", String(open));
-        if (open) requestAnimationFrame(revealCurrentSidebarPage);
+        if (document.body.classList.contains("is-mobile-nav-open")) {
+            closeMobileNav();
+            return;
+        }
+        history.pushState(
+            {...history.state, [mobileNavHistoryKey]: true},
+            "",
+            location.href
+        );
+        setMobileNavOpen(true);
     });
+    addEventListener("popstate", (event) => restoreMobileNav(event.state));
+    mobileViewport.addEventListener("change", () => restoreMobileNav());
+    restoreMobileNav();
     document.querySelector("[data-mobile-nav-close]")
         ?.addEventListener("click", closeMobileNav);
-    sidebar?.addEventListener("click", (event) => {
-        if (event.target.closest("a")) closeMobileNav();
-    });
 
     const outlinePanel = document.querySelector(".nuppdoc-outline");
     const mobileOutlineToggle = document.querySelector("[data-mobile-outline-toggle]");
@@ -75758,8 +76223,6 @@ local BUNDLED = {
 [ "jit.profile" ] = "/decls/jit/profile.d.nupp" ,
 [ "jit.zone" ] = "/decls/jit/zone.d.nupp" ,
 [ "jit.vmdef" ] = "/decls/jit/vmdef.d.nupp" ,
-[ "nupp.io.processnative" ] = "/nupp/io/processnative.d.nupp" ,
-[ "nupp.io.httpnative" ] = "/nupp/io/httpnative.d.nupp" ,
 [ "nupp.workers.native" ] = "/nupp/workers/native.d.nupp" ,
 }
 
@@ -94100,7 +94563,7 @@ const __nuppExportValue= lints ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.lints"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.lints"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.compiler.lsp"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[const char*nuppNativeError(void);typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);void nuppProcessDestroy(NuppChild*);int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);size_t nuppProcessUncollectedTotal(void);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end package.preload["nupp.io.processnative"]=function() local native=__nuppNative();local ffi,C=native.ffi,native.C ffi.cdef[[double nuppProcessMonotonicMs(void);]] local MODE={pipe=0,inherit=1,["null"]=2,stdout=3} local WOULD_BLOCK,GONE,FAILED=-1,-2,-3 local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2 local READ_SIZE,INT32_MAX=65536,2147483647 local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end return{new=function(exited) local backend={} function backend:spawn(options) local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe" if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode") for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin") configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout") configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr") local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end local owner={handle=child,streams={},released=false,destroyed=false} local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe") return owner,input,output,err,tonumber(C.nuppProcessId(child)) end function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end function backend:now()return C.nuppProcessMonotonicMs()end function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end return backend end} end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.io.process#process.destroyProcess"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.process#process.destroyProcess") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.io.process#process.destroyProcess"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.process#process.destroyProcess") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -117180,178 +117643,6 @@ require("nupp.derive").install(__nupp)
 
 
 
-
-local NATIVE_TEMPLATE = compact (
-[=[
-local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[__NUPP_NATIVE_CDEFS__]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local linked=pcall(function()return ffi.C.nuppNativeError end);if linked then C=ffi.C else local library=ffi.os=="Windows"and"/lib/nupp_native.dll"or"/lib/nupp_native";local ok,lib=pcall(ffi.load,root..library);if ok then C=lib else C=ffi.load(root.."/.."..library)end end end;local function errorText()return ffi.string(C.nuppNativeError())end;__nuppNativeValue={ffi=ffi,C=C,error=errorText};return __nuppNativeValue end
-]=]
-)
-
-local NATIVE_CDEF_BASE = "const char*nuppNativeError(void);"
-local NATIVE_CDEFS = {
-[
-"native.process"
-] = "typedef struct NuppSpawn NuppSpawn;typedef struct NuppChild NuppChild;"
-.. "typedef struct NuppStream NuppStream;NuppSpawn*nuppProcessSpawnBegin(void);"
-.. "bool nuppProcessSpawnArg(NuppSpawn*,const uint8_t*,size_t);"
-.. "bool nuppProcessSpawnEnv(NuppSpawn*,const uint8_t*,size_t);"
-.. "bool nuppProcessSpawnClearEnv(NuppSpawn*,bool);"
-.. "bool nuppProcessSpawnCwd(NuppSpawn*,const uint8_t*,size_t);"
-.. "bool nuppProcessSpawnStdio(NuppSpawn*,uint8_t,uint8_t);void nuppProcessSpawnCancel(NuppSpawn*);"
-.. "NuppChild*nuppProcessSpawnRun(NuppSpawn*);NuppStream*nuppProcessTakeStream(NuppChild*,uint8_t);"
-.. "intptr_t nuppProcessTryRead(NuppStream*,uint8_t*,size_t);"
-.. "intptr_t nuppProcessTryWrite(NuppStream*,const uint8_t*,size_t);"
-.. "uint8_t nuppProcessCloseStream(NuppStream*);void nuppProcessStreamDestroy(NuppStream*);"
-.. "int32_t nuppProcessPollExit(NuppChild*,int32_t*,bool*);uint32_t nuppProcessId(NuppChild*);"
-.. "bool nuppProcessKill(NuppChild*,bool);uint8_t nuppProcessReap(NuppChild*);"
-.. "void nuppProcessDestroy(NuppChild*);"
-.. "int32_t nuppProcessWaitReady(NuppStream*const*,size_t,NuppStream*const*,size_t,int32_t);"
-.. "size_t nuppProcessUncollectedTotal(void);" ,
-}
-local NATIVE_CDEF_ORDER = { "native.process" , }
-
-local function nativeRuntime ( effects )
-local declarations = { NATIVE_CDEF_BASE }
-
-
-if effects [ "native.http" ] then
-declarations [ # declarations + 1 ] = "typedef struct NuppUri NuppUri;"
-end
-for _ , effect in ipairs ( NATIVE_CDEF_ORDER ) do
-if effects [ effect ] then
-declarations [ # declarations + 1 ] = NATIVE_CDEFS [ effect ]
-end
-end
-
-return ( NATIVE_TEMPLATE : gsub ( "__NUPP_NATIVE_CDEFS__" , table . concat ( declarations ) ) )
-end
-
-
-
-
-
-local PROCESS = compact (
-[=[
-package.preload["nupp.io.processnative"]=function()
-local native=__nuppNative();local ffi,C=native.ffi,native.C
-ffi.cdef[[double nuppProcessMonotonicMs(void);]]
-local MODE={pipe=0,inherit=1,["null"]=2,stdout=3}
-local WOULD_BLOCK,GONE,FAILED=-1,-2,-3
-local RELEASED,RELEASED_WITH_REASON,NOT_RELEASED=0,1,2
-local READ_SIZE,INT32_MAX=65536,2147483647
-local function reason(prefix)local said=native.error();if said==nil or said==""then said="native process operation failed"end;return prefix..": "..said end
-local function maybeDestroy(owner)if owner.destroyed or not owner.released then return end;for _,stream in ipairs(owner.streams)do if not stream.released then return end end;owner.destroyed=true;for _,stream in ipairs(owner.streams)do local handle=stream.handle;stream.handle=nil;if handle~=nil then C.nuppProcessStreamDestroy(handle)end end;local child=owner.handle;owner.handle=nil;if child~=nil then C.nuppProcessDestroy(child)end end
-local function abandon(owner,message)for _,stream in ipairs(owner.streams)do if not stream.released then C.nuppProcessCloseStream(stream.handle);stream.released=true end;C.nuppProcessStreamDestroy(stream.handle);stream.handle=nil end;if owner.handle~=nil then C.nuppProcessKill(owner.handle,true);C.nuppProcessDestroy(owner.handle);owner.handle=nil end;owner.destroyed=true;error(message,0)end
-local function configured(ok,request,what)if ok then return end;local why=reason("nupp: could not configure process "..what);C.nuppProcessSpawnCancel(request);error(why,0)end
-local function wrap(owner,which,expected)local handle=C.nuppProcessTakeStream(owner.handle,which);if handle==nil then if expected then abandon(owner,reason("nupp: could not take process stream"))end;return nil end;local stream={owner=owner,handle=handle,released=false,scratch=nil,capacity=0};owner.streams[#owner.streams+1]=stream;return stream end
-local function makeArray(streams)local count=#streams;if count==0 then return nil,0 end;local out=ffi.new("NuppStream*[?]",count);for index,stream in ipairs(streams)do local handle=stream and stream.handle;if handle==nil then error("nupp: readiness interest named a destroyed process stream",0)end;out[index-1]=handle end;return out,count end
-local function whole(value)local number=tonumber(value)or 0;if number~=number then return 0 end;return math.floor(number)end
-return{new=function(exited)
-local backend={}
-function backend:spawn(options)
-local inputMode=options.stdin or"pipe";local outputMode=options.stdout or"pipe";local errorMode=options.stderr or"pipe"
-if MODE[inputMode]==nil then error("nupp: process has no stdin mode named "..tostring(inputMode),0)end
-if MODE[outputMode]==nil or outputMode=="stdout"then error("nupp: process has no stdout mode named "..tostring(outputMode),0)end
-if MODE[errorMode]==nil then error("nupp: process has no stderr mode named "..tostring(errorMode),0)end
-local request=C.nuppProcessSpawnBegin();if request==nil then error(reason("nupp: could not begin process spawn"),0)end
-for _,argument in ipairs(options.args or{})do configured(C.nuppProcessSpawnArg(request,argument,#argument),request,"argument")end
-configured(C.nuppProcessSpawnClearEnv(request,options.clearEnv==true),request,"environment mode")
-for key,value in pairs(options.env or{})do local entry=key.."="..value;configured(C.nuppProcessSpawnEnv(request,entry,#entry),request,"environment")end
-if options.cwd~=nil then local cwd=type(options.cwd)=="string"and options.cwd or options.cwd:toString();configured(C.nuppProcessSpawnCwd(request,cwd,#cwd),request,"working directory")end
-configured(C.nuppProcessSpawnStdio(request,0,MODE[inputMode]),request,"stdin")
-configured(C.nuppProcessSpawnStdio(request,1,MODE[outputMode]),request,"stdout")
-configured(C.nuppProcessSpawnStdio(request,2,MODE[errorMode]),request,"stderr")
-local child=C.nuppProcessSpawnRun(request);if child==nil then return nil,nil,nil,nil,0,reason("nupp: could not start process")end
-local owner={handle=child,streams={},released=false,destroyed=false}
-local input=wrap(owner,0,inputMode=="pipe");local output=wrap(owner,1,outputMode=="pipe");local err=wrap(owner,2,errorMode=="pipe")
-return owner,input,output,err,tonumber(C.nuppProcessId(child))
-end
-function backend:poll(owner)local code=ffi.new("int32_t[1]");local killed=ffi.new("bool[1]");local status=C.nuppProcessPollExit(owner.handle,code,killed);if status<0 then error(reason("nupp: could not poll process"),0)end;if status==0 then return nil end;return exited(tonumber(code[0]),killed[0],false)end
-function backend:kill(owner,force)if not C.nuppProcessKill(owner.handle,force)then error(reason("nupp: could not kill process"),0)end end
-function backend:read(stream,limit)local wanted=whole(limit);if wanted<1 then wanted=1 elseif wanted>READ_SIZE then wanted=READ_SIZE end;if stream.capacity<wanted then stream.scratch=ffi.new("uint8_t[?]",wanted);stream.capacity=wanted end;local got=tonumber(C.nuppProcessTryRead(stream.handle,stream.scratch,wanted));if got>=0 then return ffi.string(stream.scratch,got)end;if got==WOULD_BLOCK then return""end;if got==GONE then return nil end;error(reason("nupp: could not read process stream"),0)end
-function backend:write(stream,bytes)local sent=tonumber(C.nuppProcessTryWrite(stream.handle,bytes,#bytes));if sent>=0 then return sent,false end;if sent==WOULD_BLOCK then return 0,false end;if sent==GONE then return 0,true end;error(reason("nupp: could not write process stream"),0)end
-function backend:closeStream(stream)if stream.released then return true end;local status=C.nuppProcessCloseStream(stream.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not close process stream")end;if status==RELEASED or status==RELEASED_WITH_REASON then stream.released=true;maybeDestroy(stream.owner);return true,why end;return false,why end
-function backend:reap(owner)if owner.released then return true end;local status=C.nuppProcessReap(owner.handle);local why=nil;if status~=RELEASED then why=reason("nupp: could not release process")end;if status==RELEASED or status==RELEASED_WITH_REASON then owner.released=true;maybeDestroy(owner);return true,why end;return false,why end
-function backend:now()return C.nuppProcessMonotonicMs()end
-function backend:waitReady(interest,timeoutMs)local readable,readCount=makeArray(interest.read);local writable,writeCount=makeArray(interest.write);local timeout=whole(timeoutMs);if timeout<0 then timeout=0 elseif timeout>INT32_MAX then timeout=INT32_MAX end;local answered=C.nuppProcessWaitReady(readable,readCount,writable,writeCount,timeout);if answered<0 then error(reason("nupp: process readiness wait failed"),0)end;return tonumber(answered)end
-return backend end}
-end
-]=]
-)
-
-
-
-local HTTP = compact (
-[=[
-package.preload["nupp.io.httpnative"]=function()
-local native=__nuppNative();local ffi,C=native.ffi,native.C
-ffi.cdef[[
-typedef struct NuppHttpClient NuppHttpClient;
-typedef struct NuppHttpTransfer NuppHttpTransfer;
-typedef struct{const uint8_t*data;size_t length;}NuppHttpSlice;
-typedef struct{NuppHttpSlice name;NuppHttpSlice value;}NuppHttpHeader;
-typedef struct{uint64_t connect_timeout_ms;uint32_t max_redirects;uint32_t max_pending_requests;uint32_t max_connections;uint32_t max_connections_per_host;int compressed;int has_insecure_hosts;int proxy_mode;NuppHttpSlice proxy;int no_proxy_set;NuppHttpSlice no_proxy;NuppHttpSlice proxy_credentials;}NuppHttpClientOptions;
-typedef struct{const NuppUri*uri;NuppHttpSlice method;const NuppHttpHeader*headers;size_t header_count;NuppHttpSlice body;uint32_t body_kind;int64_t body_length;uint64_t timeout_ms;uint64_t stall_timeout_ms;uint64_t max_bytes;int insecure;}NuppHttpRequest;
-typedef struct{uint16_t status;uint8_t version;const uint8_t*url;size_t url_length;const uint8_t*headers;size_t headers_length;}NuppHttpResponseHead;
-typedef struct{const NuppHttpTransfer*transfer;uint32_t tokens;}NuppHttpReady;
-NuppHttpClient*nuppHttpClientCreate(const NuppHttpClientOptions*);
-void nuppHttpClientDestroy(NuppHttpClient*);
-const NuppHttpTransfer*nuppHttpClientSend(NuppHttpClient*,const NuppHttpRequest*);
-void nuppHttpTransferCancel(const NuppHttpTransfer*);
-void nuppHttpTransferDestroy(const NuppHttpTransfer*);
-int nuppHttpTransferOffer(const NuppHttpTransfer*,const uint8_t*,size_t,bool);
-uint32_t nuppHttpTransferPollHeaders(const NuppHttpTransfer*,NuppHttpResponseHead*);
-const char*nuppHttpTransferError(const NuppHttpTransfer*);
-const NuppHttpTransfer*nuppHttpTransferTakeBody(const NuppHttpTransfer*);
-bool nuppHttpBodyArm(const NuppHttpTransfer*);
-bool nuppHttpBodyPeek(const NuppHttpTransfer*,const uint8_t**,size_t*,uint32_t*);
-bool nuppHttpBodyConsume(const NuppHttpTransfer*,size_t);
-const char*nuppHttpBodyError(const NuppHttpTransfer*);
-void nuppHttpBodyDestroy(const NuppHttpTransfer*);
-size_t nuppHttpClientPoll(NuppHttpClient*,NuppHttpReady*,size_t,bool*);
-size_t nuppHttpClientWait(NuppHttpClient*,uint64_t,NuppHttpReady*,size_t,bool*);
-void nuppHttpReadyRelease(const NuppHttpTransfer*);
-size_t nuppHttpClientPending(const NuppHttpClient*);
-double nuppHttpMonotonicMs(void);
-]]
-local HEAD_PENDING,HEAD_READY,HEAD_FAILED=0,1,2
-local BODY_DATA,BODY_PENDING,BODY_EOF,BODY_FAILED,BODY_CLOSED=1,2,3,4,5
-local TOKEN_HEADERS,TOKEN_BODY,TOKEN_UPLOAD,TOKEN_FAILED=1,2,4,8
-local BODY_NONE,BODY_INLINE,BODY_UPLOAD,BODY_FILE=0,1,2,3
-local UPLOAD_CLOSED,UPLOAD_BACKPRESSURE,UPLOAD_ACCEPTED=-1,0,1
-local function slice(value,pointer,length)local out=ffi.new("NuppHttpSlice");if pointer~=nil then out.data=pointer;out.length=length;elseif value~=nil then out.data=value;out.length=#value end;return out end
-local function reason(pointer,fallback)if pointer==nil then return fallback end;local text=ffi.string(pointer);return text~=""and text or fallback end
-local Transfer={};Transfer.__index=Transfer
-local Client={};Client.__index=Client
-local function dispatch(self,field)local waiters=self[field];if waiters==nil then return 0 end;self[field]=nil;local count=#waiters;for index=count,1,-1 do waiters[index]()end;return count end
-local function dispatchOne(self,field)local waiters=self[field];if waiters==nil or#waiters==0 then return 0 end;local wake=table.remove(waiters,1);if#waiters==0 then self[field]=nil end;wake();return 1 end
-function Transfer:_ready(tokens)local moved=0;if bit.band(tokens,TOKEN_HEADERS+TOKEN_FAILED)~=0 then moved=moved+dispatch(self,"_headWaiters")end;if bit.band(tokens,TOKEN_BODY)~=0 then moved=moved+dispatch(self,"_bodyWaiters")end;if bit.band(tokens,TOKEN_UPLOAD)~=0 then moved=moved+dispatch(self,"_uploadWaiters")end;return moved end
-local function addWaiter(self,field,wake)local waiters=self[field];if waiters==nil then waiters={};self[field]=waiters end;waiters[#waiters+1]=wake;local active=true;return function()if not active then return end;active=false;for index=1,#waiters do if waiters[index]==wake then table.remove(waiters,index);break end end end end
-function Transfer:onHead(wake)return addWaiter(self,"_headWaiters",wake)end
-function Transfer:onBody(wake)local forget=addWaiter(self,"_bodyWaiters",wake);if self._body~=nil then C.nuppHttpBodyArm(self._body)end;return forget end
-function Transfer:onUpload(wake)return addWaiter(self,"_uploadWaiters",wake)end
-function Client:onAdmission(wake)if self._closed or tonumber(C.nuppHttpClientPending(self._handle))<self._maxPending then wake();return function()end end;return addWaiter(self,"_admissionWaiters",wake)end
-function Transfer:head()local out=ffi.new("NuppHttpResponseHead[1]");local state=C.nuppHttpTransferPollHeaders(self._handle,out);if state==HEAD_PENDING then return"pending"end;if state==HEAD_FAILED then return"failed",nil,nil,nil,nil,reason(C.nuppHttpTransferError(self._handle),"HTTP transfer failed")end;local head=out[0];local url;if head.url~=nil then url=ffi.string(head.url,tonumber(head.url_length))end;return"ready",tonumber(head.status),tonumber(head.version),url,ffi.string(head.headers,tonumber(head.headers_length))end
-function Transfer:offer(value,finished,count)local data,length=nil,0;if value~=nil then local raw=type(value)=="table"and rawget(value,"_data")or nil;if raw~=nil then data=raw;length=count or rawget(value,"_length")else data=value;length=count or#value end end;local answer=C.nuppHttpTransferOffer(self._handle,data,length,finished==true);if answer==UPLOAD_ACCEPTED then return"accepted"end;if answer==UPLOAD_BACKPRESSURE then return"backpressure"end;return"closed"end
-function Transfer:takeBody()if self._body==nil then local handle=C.nuppHttpTransferTakeBody(self._handle);if handle==nil then return nil,"the HTTP response has no body"end;self._body=ffi.gc(handle,C.nuppHttpBodyDestroy)end;return true end
-function Transfer:bodyRead(count,destination,offset)local data=ffi.new("const uint8_t*[1]");local length=ffi.new("size_t[1]");local state=ffi.new("uint32_t[1]");if not C.nuppHttpBodyPeek(self._body,data,length,state)then return"failed",nil,native.error()end;local kind=tonumber(state[0]);if kind==BODY_PENDING then return"pending"end;if kind==BODY_EOF then return"eof"end;if kind==BODY_FAILED then return"failed",nil,reason(C.nuppHttpBodyError(self._body),"HTTP response body failed")end;if kind==BODY_CLOSED then return"closed",nil,"the body is closed"end;local available=tonumber(length[0]);local take=math.min(count,available);if destination~=nil then local raw=rawget(destination,"_data");local capacity=rawget(destination,"_capacity");if raw~=nil or capacity~=nil then destination:ensureCapacity(offset+take);raw=rawget(destination,"_data");local old=rawget(destination,"_length");if offset>old then ffi.fill(raw+old,offset-old,0)end;ffi.copy(raw+offset,data[0],take);if offset+take>old then rawset(destination,"_length",offset+take)end;if not C.nuppHttpBodyConsume(self._body,take)then return"failed",nil,native.error()end;return"data",take end end;local bytes=ffi.string(data[0],take);if not C.nuppHttpBodyConsume(self._body,take)then return"failed",nil,native.error()end;return"data",bytes end
-function Transfer:directDestination(destination)local buffer=rawget(destination,"_buffer");if buffer~=nil and rawget(destination,"_at")~=nil and rawget(buffer,"_capacity")~=nil then return true end;local file=rawget(destination,"_file");return file~=nil and rawget(file,"_handle")~=nil end
-function Transfer:bodyWrite(destination,count)if rawget(destination,"_closed")then return"failed",nil,"the writer is closed"end;local buffer=rawget(destination,"_buffer");if buffer~=nil and rawget(destination,"_at")~=nil and rawget(buffer,"_capacity")~=nil then local at=rawget(destination,"_at");local state,value,why=self:bodyRead(count,buffer,at);if state=="data"then rawset(destination,"_at",at+value)end;return state,value,why end;local file=rawget(destination,"_file");local handle=file and rawget(file,"_handle")or nil;if handle==nil then return"unsupported"end;local data=ffi.new("const uint8_t*[1]");local length=ffi.new("size_t[1]");local state=ffi.new("uint32_t[1]");if not C.nuppHttpBodyPeek(self._body,data,length,state)then return"failed",nil,native.error()end;local kind=tonumber(state[0]);if kind==BODY_PENDING then return"pending"end;if kind==BODY_EOF then return"eof"end;if kind==BODY_FAILED then return"failed",nil,reason(C.nuppHttpBodyError(self._body),"HTTP response body failed")end;if kind==BODY_CLOSED then return"closed",nil,"the body is closed"end;local take=math.min(count,tonumber(length[0]));local wrote=tonumber(C.nuppFileWrite(handle,data[0],take));if wrote<0 then return"failed",nil,native.error()end;if not C.nuppHttpBodyConsume(self._body,wrote)then return"failed",nil,native.error()end;return"data",wrote end
-function Transfer:cancel()if self._handle~=nil then C.nuppHttpTransferCancel(self._handle)end end
-function Transfer:close()if self._closed then return end;self._closed=true;self._client._byHandle[tostring(self._handle)]=nil;if self._body~=nil then local body=self._body;self._body=nil;ffi.gc(body,nil);C.nuppHttpBodyDestroy(body)else C.nuppHttpTransferCancel(self._handle)end;local handle=self._handle;self._handle=nil;ffi.gc(handle,nil);C.nuppHttpTransferDestroy(handle)end
-function Client:send(request)local headers=request.headers or{};local count=#headers;local packed=count>0 and ffi.new("NuppHttpHeader[?]",count)or nil;for index=1,count do local item=headers[index];packed[index-1].name=slice(item[1]);packed[index-1].value=slice(item[2])end;local bodyPointer,bodyLength=nil,0;local value=request.body;if request.bodyKind==BODY_INLINE then if type(value)=="string"then bodyPointer=value;bodyLength=#value else local raw=rawget(value,"_data");if raw~=nil then bodyPointer=raw;bodyLength=rawget(value,"_length")else local bytes=rawget(value,"_bytes")or value:getString();bodyPointer=bytes;bodyLength=#bytes end end elseif request.bodyKind==BODY_FILE then bodyPointer=value;bodyLength=#value end;local descriptor=ffi.new("NuppHttpRequest");descriptor.uri=rawget(request.uri,"_handle");descriptor.method=slice(request.method);descriptor.headers=packed;descriptor.header_count=count;descriptor.body=slice(nil,bodyPointer,bodyLength);descriptor.body_kind=request.bodyKind;descriptor.body_length=request.bodyLength or-1;descriptor.timeout_ms=request.timeoutMs;descriptor.stall_timeout_ms=request.stallTimeoutMs;descriptor.max_bytes=request.maxBytes;descriptor.insecure=request.insecure and 1 or 0;local handle=C.nuppHttpClientSend(self._handle,descriptor);if handle==nil then local why=native.error();return nil,why,why=="the HTTP client has reached maxPendingRequests"end;handle=ffi.gc(handle,C.nuppHttpTransferDestroy);local transfer=setmetatable({_client=self,_handle=handle,_body=nil,_closed=false},Transfer);self._byHandle[tostring(handle)]=transfer;return transfer end
-function Client:poll(waitMs)local count;if waitMs>0 then count=C.nuppHttpClientWait(self._handle,waitMs,self._ready,256,self._more)else count=C.nuppHttpClientPoll(self._handle,self._ready,256,self._more)end;local moved=0;for index=0,tonumber(count)-1 do local item=self._ready[index];local transfer=self._byHandle[tostring(item.transfer)];local ok,problem=true,nil;if transfer~=nil then ok,problem=pcall(function()moved=moved+transfer:_ready(tonumber(item.tokens))end)end;C.nuppHttpReadyRelease(item.transfer);if not ok then error(problem,0)end end;if self._admissionWaiters~=nil and tonumber(C.nuppHttpClientPending(self._handle))<self._maxPending then moved=moved+dispatchOne(self,"_admissionWaiters")end;return moved end
-function Client:pending()if self._closed then return 0 end;return tonumber(C.nuppHttpClientPending(self._handle))end
-function Client:now()return tonumber(C.nuppHttpMonotonicMs())end
-function Client:close()if self._closed then return end;self._closed=true;dispatch(self,"_admissionWaiters");local transfers={};for _,transfer in pairs(self._byHandle)do transfers[#transfers+1]=transfer end;for index=1,#transfers do transfers[index]:close()end;local handle=self._handle;self._handle=nil;ffi.gc(handle,nil);C.nuppHttpClientDestroy(handle)end
-local backend={}
-function backend.newClient(options)local proxyMode=options.proxy==nil and 0 or(options.proxy==""and 1 or 2);local proxy=options.proxy or"";local noProxy=options.noProxy or"";local credentials=options.proxyCredentials or"";local nativeOptions=ffi.new("NuppHttpClientOptions");nativeOptions.connect_timeout_ms=options.connectTimeoutMs;nativeOptions.max_redirects=options.maxRedirects;nativeOptions.max_pending_requests=options.maxPendingRequests;nativeOptions.max_connections=options.maxConnections;nativeOptions.max_connections_per_host=options.maxConnectionsPerHost;nativeOptions.compressed=options.compressed and 1 or 0;nativeOptions.has_insecure_hosts=next(options.insecureHosts)and 1 or 0;nativeOptions.proxy_mode=proxyMode;nativeOptions.proxy=slice(proxy);nativeOptions.no_proxy_set=options.noProxy~=nil and 1 or 0;nativeOptions.no_proxy=slice(noProxy);nativeOptions.proxy_credentials=slice(credentials);local handle=C.nuppHttpClientCreate(nativeOptions);if handle==nil then return nil,native.error()end;handle=ffi.gc(handle,C.nuppHttpClientDestroy);return setmetatable({_handle=handle,_closed=false,_byHandle={},_admissionWaiters=nil,_maxPending=options.maxPendingRequests,_ready=ffi.new("NuppHttpReady[256]"),_more=ffi.new("bool[1]")},Client)end
-return backend end
-]=]
-)
-
-
-
 function stdlib . bootstrapJsonFallback ( )
 return 'package.preload["jsonNative"]=function()\n' .. JSON_FALLBACK .. "\nend\n"
 end
@@ -117383,17 +117674,6 @@ end
 if effects [ "stdlib.derives" ] then
 out [ # out + 1 ] = DERIVES
 end
-local hasNative = effects [ "native.process" ] or effects [ "native.http" ]
-if hasNative then
-out [ # out + 1 ] = nativeRuntime ( effects )
-end
-if effects [ "native.process" ] then
-out [ # out + 1 ] = PROCESS
-end
-if effects [ "native.http" ] then
-out [ # out + 1 ] = HTTP
-end
-
 local code = table . concat ( out , " " )
 
 return code : sub ( - 1 ) == ";" and code or code .. ";"
@@ -130049,7 +130329,679 @@ local http = { }
 
 
 
-local native = require ( "nupp.io.httpnative" )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const native = require ( "nupp.native" )
+
+
+
+
+native . ffi . cdef [[
+typedef struct NuppHttpClient NuppHttpClient;
+typedef struct NuppHttpTransfer NuppHttpTransfer;
+
+typedef struct { const uint8_t *data; size_t length; } NuppHttpSlice;
+typedef struct { NuppHttpSlice name; NuppHttpSlice value; } NuppHttpHeader;
+
+typedef struct {
+    uint64_t connect_timeout_ms;
+    uint32_t max_redirects;
+    uint32_t max_pending_requests;
+    uint32_t max_connections;
+    uint32_t max_connections_per_host;
+    int compressed;
+    int has_insecure_hosts;
+    int proxy_mode;
+    NuppHttpSlice proxy;
+    int no_proxy_set;
+    NuppHttpSlice no_proxy;
+    NuppHttpSlice proxy_credentials;
+} NuppHttpClientOptions;
+
+typedef struct {
+    const NuppUri *uri;
+    NuppHttpSlice method;
+    const NuppHttpHeader *headers;
+    size_t header_count;
+    NuppHttpSlice body;
+    uint32_t body_kind;
+    int64_t body_length;
+    uint64_t timeout_ms;
+    uint64_t stall_timeout_ms;
+    uint64_t max_bytes;
+    int insecure;
+} NuppHttpRequest;
+
+typedef struct {
+    uint16_t status;
+    uint8_t version;
+    const uint8_t *url;
+    size_t url_length;
+    const uint8_t *headers;
+    size_t headers_length;
+} NuppHttpResponseHead;
+
+typedef struct { const NuppHttpTransfer *transfer; uint32_t tokens; } NuppHttpReady;
+
+NuppHttpClient *nuppHttpClientCreate(const NuppHttpClientOptions *);
+void nuppHttpClientDestroy(NuppHttpClient *);
+const NuppHttpTransfer *nuppHttpClientSend(NuppHttpClient *, const NuppHttpRequest *);
+void nuppHttpTransferCancel(const NuppHttpTransfer *);
+void nuppHttpTransferDestroy(const NuppHttpTransfer *);
+int nuppHttpTransferOffer(const NuppHttpTransfer *, const uint8_t *, size_t, bool);
+uint32_t nuppHttpTransferPollHeaders(const NuppHttpTransfer *, NuppHttpResponseHead *);
+const char *nuppHttpTransferError(const NuppHttpTransfer *);
+const NuppHttpTransfer *nuppHttpTransferTakeBody(const NuppHttpTransfer *);
+bool nuppHttpBodyArm(const NuppHttpTransfer *);
+bool nuppHttpBodyPeek(const NuppHttpTransfer *, const uint8_t **, size_t *, uint32_t *);
+bool nuppHttpBodyConsume(const NuppHttpTransfer *, size_t);
+const char *nuppHttpBodyError(const NuppHttpTransfer *);
+void nuppHttpBodyDestroy(const NuppHttpTransfer *);
+size_t nuppHttpClientPoll(NuppHttpClient *, NuppHttpReady *, size_t, bool *);
+size_t nuppHttpClientWait(NuppHttpClient *, uint64_t, NuppHttpReady *, size_t, bool *);
+void nuppHttpReadyRelease(const NuppHttpTransfer *);
+size_t nuppHttpClientPending(const NuppHttpClient *);
+double nuppHttpMonotonicMs(void);
+]]
+
+const C = native . C
+
+
+const HEAD_PENDING = 0
+const HEAD_FAILED = 2
+
+
+const BODY_PENDING = 2
+const BODY_EOF = 3
+const BODY_FAILED = 4
+const BODY_CLOSED = 5
+
+
+
+const TOKEN_HEADERS = 1
+const TOKEN_BODY = 2
+const TOKEN_UPLOAD = 4
+const TOKEN_FAILED = 8
+
+
+const BODY_INLINE = 1
+const BODY_UPLOAD = 2
+const BODY_FILE = 3
+
+
+const UPLOAD_BACKPRESSURE = 0
+const UPLOAD_ACCEPTED = 1
+
+
+const READY_SLOTS = 256
+
+
+
+
+
+
+local function slice ( value , pointer , length )
+local out = native . ffi . new ( "NuppHttpSlice" )
+if pointer ~= nil then
+out . data = pointer
+out . length = length
+elseif value ~= nil then
+out . data = value
+out . length = # ( value )
+end
+
+return out
+end
+
+
+local function reason ( pointer , fallback )
+if pointer == nil then
+return fallback
+end
+local text = native . ffi . string ( pointer )
+
+return text ~= "" and text or fallback
+end
+
+
+
+
+
+local function dispatch ( self , field )
+local waiters = self [ field ]
+if waiters == nil then
+return 0
+end
+self [ field ] = nil
+local count = # waiters
+for index = count , 1 , - 1 do
+waiters [ index ] ( )
+end
+
+return count
+end
+
+
+
+
+
+local function dispatchOne ( self , field )
+local waiters = self [ field ]
+if waiters == nil or # waiters == 0 then
+return 0
+end
+local wake = table . remove ( waiters , 1 )
+if # waiters == 0 then
+self [ field ] = nil
+end
+wake ( )
+
+return 1
+end
+
+
+
+
+
+local function addWaiter ( self , field , wake )
+local waiters = self [ field ]
+if waiters == nil then
+waiters = { }
+self [ field ] = waiters
+end
+waiters [ # waiters + 1 ] = wake
+local active = true
+
+return function ( )
+if not active then
+return
+end
+active = false
+for index = 1 , # waiters do
+if waiters [ index ] == wake then
+table . remove ( waiters , index )
+break
+end
+end
+end
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const Transfer = {} Transfer.__index = Transfer
+
+
+
+
+
+
+
+
+
+function Transfer:_ready(tokens)
+local moved = 0
+
+
+if bit . band ( tokens , TOKEN_HEADERS + TOKEN_FAILED ) ~= 0 then
+moved = moved + dispatch ( self , "_headWaiters" )
+end
+if bit . band ( tokens , TOKEN_BODY ) ~= 0 then
+moved = moved + dispatch ( self , "_bodyWaiters" )
+end
+if bit . band ( tokens , TOKEN_UPLOAD ) ~= 0 then
+moved = moved + dispatch ( self , "_uploadWaiters" )
+end
+
+return moved
+end
+
+function Transfer:onHead(wake)
+return addWaiter ( self , "_headWaiters" , wake )
+end
+
+function Transfer:onBody(wake)
+local forget = addWaiter ( self , "_bodyWaiters" , wake )
+
+
+if self . _body ~= nil then
+C . nuppHttpBodyArm ( self . _body )
+end
+
+return forget
+end
+
+function Transfer:onUpload(wake)
+return addWaiter ( self , "_uploadWaiters" , wake )
+end
+
+function Transfer:head()
+local out = native . ffi . new ( "NuppHttpResponseHead[1]" )
+local state = C . nuppHttpTransferPollHeaders ( self . _handle , out )
+if state == HEAD_PENDING then
+return "pending" , nil , nil , nil , nil , nil
+end
+if state == HEAD_FAILED then
+return "failed" , nil , nil , nil , nil , reason ( C . nuppHttpTransferError ( self . _handle ) , "HTTP transfer failed" )
+end
+local head = out [ 0 ]
+local url = nil
+if head . url ~= nil then
+url = native . ffi . string ( head . url , tonumber ( head . url_length ) )
+end
+
+return "ready" , tonumber (
+head . status
+) , tonumber (
+head . version
+) , url , native . ffi . string ( head . headers , tonumber ( head . headers_length ) ) , nil
+end
+
+function Transfer:offer(value, final, count)
+local data = nil
+local length = 0
+if value ~= nil then
+
+local raw = type ( value ) == "table" and rawget ( value , "_data" ) or nil
+if raw ~= nil then
+data = raw
+length = count or rawget ( value , "_length" )
+else
+data = value
+length = count or # ( value )
+end
+end
+local answer = C . nuppHttpTransferOffer ( self . _handle , data , length , final == true )
+if answer == UPLOAD_ACCEPTED then
+return "accepted"
+end
+if answer == UPLOAD_BACKPRESSURE then
+return "backpressure"
+end
+
+return "closed"
+end
+
+function Transfer:takeBody()
+if self . _body == nil then
+local handle = C . nuppHttpTransferTakeBody ( self . _handle )
+if handle == nil then
+return nil , "the HTTP response has no body"
+end
+self . _body = native . ffi . gc ( handle , C . nuppHttpBodyDestroy )
+end
+
+return true , nil
+end
+
+
+
+
+
+function Transfer:bodyRead(count, destination, offset)
+local data = native . ffi . new ( "const uint8_t*[1]" )
+local length = native . ffi . new ( "size_t[1]" )
+local state = native . ffi . new ( "uint32_t[1]" )
+if not C . nuppHttpBodyPeek ( self . _body , data , length , state ) then
+return "failed" , nil , native . error ( )
+end
+local kind = tonumber ( state [ 0 ] )
+if kind == BODY_PENDING then
+return "pending" , nil , nil
+end
+if kind == BODY_EOF then
+return "eof" , nil , nil
+end
+if kind == BODY_FAILED then
+return "failed" , nil , reason ( C . nuppHttpBodyError ( self . _body ) , "HTTP response body failed" )
+end
+if kind == BODY_CLOSED then
+return "closed" , nil , "the body is closed"
+end
+local take = math . min ( count , tonumber ( length [ 0 ] ) )
+if destination ~= nil then
+local raw = rawget ( destination , "_data" )
+local capacity = rawget ( destination , "_capacity" )
+if raw ~= nil or capacity ~= nil then
+destination : ensureCapacity ( offset + take )
+raw = rawget ( destination , "_data" )
+local old = rawget ( destination , "_length" )
+
+
+if offset > old then
+native . ffi . fill ( raw + old , ( offset - old ) , 0 )
+end
+native . ffi . copy ( raw + offset , data [ 0 ] , take )
+if offset + take > old then
+rawset ( destination , "_length" , offset + take )
+end
+if not C . nuppHttpBodyConsume ( self . _body , take ) then
+return "failed" , nil , native . error ( )
+end
+
+return "data" , take , nil
+end
+end
+local bytes = native . ffi . string ( data [ 0 ] , take )
+if not C . nuppHttpBodyConsume ( self . _body , take ) then
+return "failed" , nil , native . error ( )
+end
+
+return "data" , bytes , nil
+end
+
+
+function Transfer:directDestination(destination)
+local buffer = rawget ( destination , "_buffer" )
+if buffer ~= nil and rawget ( destination , "_at" ) ~= nil and rawget ( buffer , "_capacity" ) ~= nil then
+return true
+end
+local file = rawget ( destination , "_file" )
+
+return file ~= nil and rawget ( file , "_handle" ) ~= nil
+end
+
+
+
+function Transfer:bodyWrite(destination, count)
+if rawget ( destination , "_closed" ) then
+return "failed" , nil , "the writer is closed"
+end
+local buffer = rawget ( destination , "_buffer" )
+if buffer ~= nil and rawget ( destination , "_at" ) ~= nil and rawget ( buffer , "_capacity" ) ~= nil then
+local at = rawget ( destination , "_at" )
+local state , value , why = self : bodyRead ( count , buffer , at )
+if state == "data" then
+rawset ( destination , "_at" , at + ( value ) )
+end
+
+return state , value , why
+end
+local file = rawget ( destination , "_file" )
+local handle = file and rawget ( file , "_handle" ) or nil
+if handle == nil then
+return "unsupported" , nil , nil
+end
+local data = native . ffi . new ( "const uint8_t*[1]" )
+local length = native . ffi . new ( "size_t[1]" )
+local state = native . ffi . new ( "uint32_t[1]" )
+if not C . nuppHttpBodyPeek ( self . _body , data , length , state ) then
+return "failed" , nil , native . error ( )
+end
+local kind = tonumber ( state [ 0 ] )
+if kind == BODY_PENDING then
+return "pending" , nil , nil
+end
+if kind == BODY_EOF then
+return "eof" , nil , nil
+end
+if kind == BODY_FAILED then
+return "failed" , nil , reason ( C . nuppHttpBodyError ( self . _body ) , "HTTP response body failed" )
+end
+if kind == BODY_CLOSED then
+return "closed" , nil , "the body is closed"
+end
+local take = math . min ( count , tonumber ( length [ 0 ] ) )
+
+
+
+local wrote = tonumber ( C . nuppFileWrite ( handle , data [ 0 ] , take ) )
+if wrote < 0 then
+return "failed" , nil , native . error ( )
+end
+if not C . nuppHttpBodyConsume ( self . _body , wrote ) then
+return "failed" , nil , native . error ( )
+end
+
+return "data" , wrote , nil
+end
+
+function Transfer:cancel()
+if self . _handle ~= nil then
+C . nuppHttpTransferCancel ( self . _handle )
+end
+end
+
+
+
+
+
+
+function Transfer:close()
+if self . _closed then
+return
+end
+self . _closed = true
+self . _client . _byHandle [ tostring ( self . _handle ) ] = nil
+if self . _body ~= nil then
+local body = self . _body
+self . _body = nil
+native . ffi . gc ( body , nil )
+C . nuppHttpBodyDestroy ( body )
+else
+C . nuppHttpTransferCancel ( self . _handle )
+end
+local handle = self . _handle
+self . _handle = nil
+native . ffi . gc ( handle , nil )
+C . nuppHttpTransferDestroy ( handle )
+end
+
+
+
+const Client = {} Client.__index = Client
+
+
+
+
+
+
+
+
+
+
+
+
+function Client:onAdmission(wake)
+if self . _closed or ( tonumber ( C . nuppHttpClientPending ( self . _handle ) ) ) < self . _maxPending then
+wake ( )
+
+return function ( )
+end
+end
+
+return addWaiter ( self , "_admissionWaiters" , wake )
+end
+
+function Client:send(descriptor)
+local headers = descriptor . headers or { }
+local count = # headers
+local packed = count > 0 and native . ffi . new ( "NuppHttpHeader[?]" , count ) or nil
+for index = 1 , count do
+local item = headers [ index ]
+packed [ index - 1 ] . name = slice ( item [ 1 ] )
+packed [ index - 1 ] . value = slice ( item [ 2 ] )
+end
+local bodyPointer = nil
+local bodyLength = 0
+local value = descriptor . body
+if descriptor . bodyKind == BODY_INLINE then
+if type ( value ) == "string" then
+bodyPointer = value
+bodyLength = # ( value )
+else
+local raw = rawget ( value , "_data" )
+if raw ~= nil then
+bodyPointer = raw
+bodyLength = rawget ( value , "_length" )
+else
+local bytes = rawget ( value , "_bytes" ) or value : getString ( )
+bodyPointer = bytes
+bodyLength = # ( bytes )
+end
+end
+elseif descriptor . bodyKind == BODY_FILE then
+
+bodyPointer = value
+bodyLength = # ( value )
+end
+local request = native . ffi . new ( "NuppHttpRequest" )
+request . uri = rawget ( descriptor . uri , "_handle" )
+request . method = slice ( descriptor . method )
+request . headers = packed
+request . header_count = count
+request . body = slice ( nil , bodyPointer , bodyLength )
+request . body_kind = descriptor . bodyKind
+request . body_length = descriptor . bodyLength or - 1
+request . timeout_ms = descriptor . timeoutMs
+request . stall_timeout_ms = descriptor . stallTimeoutMs
+request . max_bytes = descriptor . maxBytes
+request . insecure = descriptor . insecure and 1 or 0
+local handle = C . nuppHttpClientSend ( self . _handle , request )
+if handle == nil then
+local why = native . error ( )
+
+return nil , why , why == "the HTTP client has reached maxPendingRequests"
+end
+handle = native . ffi . gc ( handle , C . nuppHttpTransferDestroy )
+local transfer = setmetatable({ _client =  self ,  _handle =  handle ,  _body =  nil ,  _closed =  false }, Transfer)
+self . _byHandle [ tostring ( handle ) ] = transfer
+
+return transfer , nil , nil
+end
+
+
+
+
+
+
+
+function Client:poll(waitMs)
+local count
+local moved = 0
+if waitMs > 0 then
+count = C . nuppHttpClientWait ( self . _handle , waitMs , self . _ready , READY_SLOTS , self . _more )
+else
+count = C . nuppHttpClientPoll ( self . _handle , self . _ready , READY_SLOTS , self . _more )
+end
+for index = 0 , ( tonumber ( count ) ) - 1 do
+local item = self . _ready [ index ]
+local transfer = self . _byHandle [ tostring ( item . transfer ) ]
+local ok , problem = true , nil
+if transfer ~= nil then
+ok , problem = pcall ( function ( )
+moved = moved + transfer : _ready ( tonumber ( item . tokens ) )
+end )
+end
+C . nuppHttpReadyRelease ( item . transfer )
+if not ok then
+error ( problem , 0 )
+end
+end
+if self . _admissionWaiters ~= nil and (
+tonumber ( C . nuppHttpClientPending ( self . _handle ) )
+) < self . _maxPending then
+moved = moved + dispatchOne ( self , "_admissionWaiters" )
+end
+
+return moved
+end
+
+function Client:pending()
+if self . _closed then
+return 0
+end
+
+return tonumber ( C . nuppHttpClientPending ( self . _handle ) )
+end
+
+function Client:now()
+return tonumber ( C . nuppHttpMonotonicMs ( ) )
+end
+
+
+
+
+
+function Client:close()
+if self . _closed then
+return
+end
+self . _closed = true
+dispatch ( self , "_admissionWaiters" )
+local transfers = { }
+for _ , transfer in pairs ( self . _byHandle ) do
+transfers [ # transfers + 1 ] = transfer
+end
+for index = 1 , # transfers do
+transfers [ index ] : close ( )
+end
+local handle = self . _handle
+self . _handle = nil
+native . ffi . gc ( handle , nil )
+C . nuppHttpClientDestroy ( handle )
+end
+
+
+
+local function newClient ( options )
+
+
+local proxyMode = options . proxy == nil and 0 or ( options . proxy == "" and 1 or 2 )
+local settings = native . ffi . new ( "NuppHttpClientOptions" )
+settings . connect_timeout_ms = options . connectTimeoutMs
+settings . max_redirects = options . maxRedirects
+settings . max_pending_requests = options . maxPendingRequests
+settings . max_connections = options . maxConnections
+settings . max_connections_per_host = options . maxConnectionsPerHost
+settings . compressed = options . compressed and 1 or 0
+settings . has_insecure_hosts = next ( options . insecureHosts ) and 1 or 0
+settings . proxy_mode = proxyMode
+settings . proxy = slice ( options . proxy or "" )
+settings . no_proxy_set = options . noProxy ~= nil and 1 or 0
+settings . no_proxy = slice ( options . noProxy or "" )
+settings . proxy_credentials = slice ( options . proxyCredentials or "" )
+local handle = C . nuppHttpClientCreate ( settings )
+if handle == nil then
+return nil , native . error ( )
+end
+
+return setmetatable({ _handle =
+native . ffi . gc ( handle , C . nuppHttpClientDestroy ) ,  _closed =
+false ,  _byHandle =
+{ } ,  _admissionWaiters =
+nil ,  _maxPending =
+options . maxPendingRequests ,  _ready =
+native . ffi . new ( "NuppHttpReady[?]" , READY_SLOTS ) ,  _more =
+native . ffi . new ( "bool[1]" ) }, Client)
+, nil
+end
 
 
 
@@ -130099,7 +131051,6 @@ local UPLOAD_SIZE = 512 * 1024
 local UPLOAD_PAGE = 64 * 1024
 local COALESCE_BELOW = 8 * 1024
 local COPY_TURN = 16 * 1024 * 1024
-local BODY_INLINE , BODY_UPLOAD , BODY_FILE = 1 , 2 , 3
 
 local function whole ( value , what , minimum , maximum )
 if type (
@@ -131001,8 +131952,8 @@ self . _source : release ( )
 self . _source = nil
 self . _sourceUsers = 0
 end
-local native = self . _native
-native : close ( )
+local client = self . _native
+client : close ( )
 end
 end
 end
@@ -131035,7 +131986,7 @@ end
 
 function http . newClient ( options ) __nuppCleanups["nupp.io.http#destroyClient"]=destroyClient;
 local copied = copiedOptions ( options )
-local backend , reason = native . newClient ( copied )
+local backend , reason = newClient ( copied )
 if backend == nil then
 return nil , reason
 end
@@ -131045,15 +131996,6 @@ end
 
 const __nuppExportValue= http ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.io.http"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.io.http"]=__nuppExports;return __nuppExports
-end
-package.preload["nupp.io.httpnative"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
-
-
-local httpnative
-
-return httpnative
-
 end
 package.preload["nupp.io.path"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports={};package.loaded["nupp.io.path"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local currentDirectory;__nuppExports["currentDirectory"]=function(...) return currentDirectory(...) end;local separator;__nuppExports["separator"]=function(...) return separator(...) end;
@@ -131726,17 +132668,6 @@ local progressed , releasePump , await , awaitTick , pumpOnce , readForCompletio
 
 
 local defaultBackend = nil
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -132958,12 +133889,358 @@ end
 
 
 
+
+
+
+
+
+
+
+
+
+
+const native = require ( "nupp.native" )
+
+native . ffi . cdef [[
+typedef struct NuppSpawn NuppSpawn;
+typedef struct NuppChild NuppChild;
+typedef struct NuppStream NuppStream;
+
+NuppSpawn *nuppProcessSpawnBegin(void);
+bool nuppProcessSpawnArg(NuppSpawn *, const uint8_t *, size_t);
+bool nuppProcessSpawnEnv(NuppSpawn *, const uint8_t *, size_t);
+bool nuppProcessSpawnClearEnv(NuppSpawn *, bool);
+bool nuppProcessSpawnCwd(NuppSpawn *, const uint8_t *, size_t);
+bool nuppProcessSpawnStdio(NuppSpawn *, uint8_t, uint8_t);
+void nuppProcessSpawnCancel(NuppSpawn *);
+NuppChild *nuppProcessSpawnRun(NuppSpawn *);
+
+NuppStream *nuppProcessTakeStream(NuppChild *, uint8_t);
+intptr_t nuppProcessTryRead(NuppStream *, uint8_t *, size_t);
+intptr_t nuppProcessTryWrite(NuppStream *, const uint8_t *, size_t);
+uint8_t nuppProcessCloseStream(NuppStream *);
+void nuppProcessStreamDestroy(NuppStream *);
+
+int32_t nuppProcessPollExit(NuppChild *, int32_t *, bool *);
+uint32_t nuppProcessId(NuppChild *);
+bool nuppProcessKill(NuppChild *, bool);
+uint8_t nuppProcessReap(NuppChild *);
+void nuppProcessDestroy(NuppChild *);
+
+int32_t nuppProcessWaitReady(NuppStream *const *, size_t, NuppStream *const *, size_t, int32_t);
+double nuppProcessMonotonicMs(void);
+]]
+
+const C = native . C
+
+
+const MODE = { pipe = 0 , inherit = 1 , [ "null" ] = 2 , stdout = 3 }
+
+
+const WOULD_BLOCK = - 1
+const GONE = - 2
+
+
+
+const RELEASED = 0
+const RELEASED_WITH_REASON = 1
+
+const READ_SIZE = 65536
+const INT32_MAX = 2147483647
+
+
+local function reason ( prefix )
+local said = native . error ( )
+if said == nil or said == "" then
+said = "native process operation failed"
+end
+
+return prefix .. ": " .. said
+end
+
+
+
+
+
+local function maybeDestroy ( owner )
+if owner . destroyed or not owner . released then
+return
+end
+for _ , stream in ipairs ( owner . streams ) do
+if not stream . released then
+return
+end
+end
+owner . destroyed = true
+for _ , stream in ipairs ( owner . streams ) do
+local handle = stream . handle
+stream . handle = nil
+if handle ~= nil then
+C . nuppProcessStreamDestroy ( handle )
+end
+end
+local child = owner . handle
+owner . handle = nil
+if child ~= nil then
+C . nuppProcessDestroy ( child )
+end
+end
+
+
+
+
+
+
+local function abandon ( owner , message )
+for _ , stream in ipairs ( owner . streams ) do
+if not stream . released then
+C . nuppProcessCloseStream ( stream . handle )
+stream . released = true
+end
+C . nuppProcessStreamDestroy ( stream . handle )
+stream . handle = nil
+end
+if owner . handle ~= nil then
+C . nuppProcessKill ( owner . handle , true )
+C . nuppProcessDestroy ( owner . handle )
+owner . handle = nil
+end
+owner . destroyed = true
+error ( message , 0 )
+end
+
+
+
+local function configured ( ok , request , what )
+if ok then
+return
+end
+local why = reason ( "nupp: could not configure process " .. what )
+C . nuppProcessSpawnCancel ( request )
+error ( why , 0 )
+end
+
+
+local function wrap ( owner , which , expected )
+local handle = C . nuppProcessTakeStream ( owner . handle , which )
+if handle == nil then
+if expected then
+abandon ( owner , reason ( "nupp: could not take process stream" ) )
+end
+
+return nil
+end
+local stream = { owner = owner , handle = handle , released = false , scratch = nil , capacity = 0 }
+owner . streams [ # owner . streams + 1 ] = stream
+
+return stream
+end
+
+
+
+local function makeArray ( streams )
+local count = # streams
+if count == 0 then
+return nil , 0
+end
+local out = native . ffi . new ( "NuppStream*[?]" , count )
+for index , stream in ipairs ( streams ) do
+local handle = stream and stream . handle
+if handle == nil then
+error ( "nupp: readiness interest named a destroyed process stream" , 0 )
+end
+out [ index - 1 ] = handle
+end
+
+return out , count
+end
+
+
+local function whole ( value )
+local number = tonumber ( value ) or 0
+if number ~= number then
+return 0
+end
+
+return math . floor ( number )
+end
+
+
+
+
+
+local function nativeBackend ( )
+return setmetatable({ spawn =
+function ( self , options )
+local inputMode = options . stdin or "pipe"
+local outputMode = options . stdout or "pipe"
+local errorMode = options . stderr or "pipe"
+if MODE [ inputMode ] == nil then
+error ( "nupp: process has no stdin mode named " .. tostring ( inputMode ) , 0 )
+end
+
+if MODE [ outputMode ] == nil or outputMode == "stdout" then
+error ( "nupp: process has no stdout mode named " .. tostring ( outputMode ) , 0 )
+end
+if MODE [ errorMode ] == nil then
+error ( "nupp: process has no stderr mode named " .. tostring ( errorMode ) , 0 )
+end
+local request = C . nuppProcessSpawnBegin ( )
+if request == nil then
+error ( reason ( "nupp: could not begin process spawn" ) , 0 )
+end
+for _ , argument in ipairs ( options . args or { } ) do
+configured ( C . nuppProcessSpawnArg ( request , argument , # argument ) , request , "argument" )
+end
+configured ( C . nuppProcessSpawnClearEnv ( request , options . clearEnv == true ) , request , "environment mode" )
+for key , value in pairs ( options . env or { } ) do
+local entry = key .. "=" .. value
+configured ( C . nuppProcessSpawnEnv ( request , entry , # entry ) , request , "environment" )
+end
+if options . cwd ~= nil then
+local cwd = type ( options . cwd ) == "string" and options . cwd or ( options . cwd ) : toString ( )
+configured ( C . nuppProcessSpawnCwd ( request , cwd , # cwd ) , request , "working directory" )
+end
+configured ( C . nuppProcessSpawnStdio ( request , 0 , MODE [ inputMode ] ) , request , "stdin" )
+configured ( C . nuppProcessSpawnStdio ( request , 1 , MODE [ outputMode ] ) , request , "stdout" )
+configured ( C . nuppProcessSpawnStdio ( request , 2 , MODE [ errorMode ] ) , request , "stderr" )
+local child = C . nuppProcessSpawnRun ( request )
+if child == nil then
+return nil , nil , nil , nil , 0 , reason ( "nupp: could not start process" )
+end
+local owner = { handle = child , streams = { } , released = false , destroyed = false }
+local input = wrap ( owner , 0 , inputMode == "pipe" )
+local output = wrap ( owner , 1 , outputMode == "pipe" )
+local err = wrap ( owner , 2 , errorMode == "pipe" )
+
+return owner , input , output , err , tonumber ( C . nuppProcessId ( child ) )
+end ,  poll =
+function ( self , owner )
+local code = native . ffi . new ( "int32_t[1]" )
+local killed = native . ffi . new ( "bool[1]" )
+local status = C . nuppProcessPollExit ( owner . handle , code , killed )
+if status < 0 then
+error ( reason ( "nupp: could not poll process" ) , 0 )
+end
+if status == 0 then
+return nil
+end
+
+return process . exited ( tonumber ( code [ 0 ] ) , killed [ 0 ] , false )
+end ,  kill =
+function ( self , owner , force )
+if not C . nuppProcessKill ( owner . handle , force ) then
+error ( reason ( "nupp: could not kill process" ) , 0 )
+end
+end ,  read =
+function ( self , stream , limit )
+local wanted = whole ( limit )
+if wanted < 1 then
+wanted = 1
+elseif wanted > READ_SIZE then
+wanted = READ_SIZE
+end
+
+
+
+if stream . capacity < wanted then
+stream . scratch = native . ffi . new ( "uint8_t[?]" , wanted )
+stream . capacity = wanted
+end
+local got = tonumber ( C . nuppProcessTryRead ( stream . handle , stream . scratch , wanted ) )
+if got >= 0 then
+return native . ffi . string ( stream . scratch , got )
+end
+
+
+if got == WOULD_BLOCK then
+return ""
+end
+if got == GONE then
+return nil
+end
+error ( reason ( "nupp: could not read process stream" ) , 0 )
+end ,  write =
+function ( self , stream , bytes )
+local sent = tonumber ( C . nuppProcessTryWrite ( stream . handle , bytes , # bytes ) )
+if sent >= 0 then
+return sent , false
+end
+if sent == WOULD_BLOCK then
+return 0 , false
+end
+if sent == GONE then
+return 0 , true
+end
+error ( reason ( "nupp: could not write process stream" ) , 0 )
+end ,  closeStream =
+function ( self , stream )
+if stream . released then
+return true , nil
+end
+local status = C . nuppProcessCloseStream ( stream . handle )
+local why = nil
+if status ~= RELEASED then
+why = reason ( "nupp: could not close process stream" )
+end
+if status == RELEASED or status == RELEASED_WITH_REASON then
+stream . released = true
+maybeDestroy ( stream . owner )
+
+return true , why
+end
+
+return false , why
+end ,  reap =
+function ( self , owner )
+if owner . released then
+return true , nil
+end
+local status = C . nuppProcessReap ( owner . handle )
+local why = nil
+if status ~= RELEASED then
+why = reason ( "nupp: could not release process" )
+end
+if status == RELEASED or status == RELEASED_WITH_REASON then
+owner . released = true
+maybeDestroy ( owner )
+
+return true , why
+end
+
+return false , why
+end ,  now =
+function ( self )
+return C . nuppProcessMonotonicMs ( )
+end ,  waitReady =
+function ( self , interest , timeoutMs )
+local readable , readCount = makeArray ( interest . read )
+local writable , writeCount = makeArray ( interest . write )
+local timeout = whole ( timeoutMs )
+if timeout < 0 then
+timeout = 0
+elseif timeout > INT32_MAX then
+timeout = INT32_MAX
+end
+local answered = C . nuppProcessWaitReady ( readable , readCount , writable , writeCount , timeout )
+if answered < 0 then
+error ( reason ( "nupp: process readiness wait failed" ) , 0 )
+end
+
+return tonumber ( answered )
+end }, process.Backend)
+
+end
+
+
+
+
+
 function process . new ( options ) __nuppCleanups["nupp.io.process#process.destroyProcess"]=process.destroyProcess;
 validateOptions ( options )
 local backend = defaultBackend
 if backend == nil then
-local native = require ( "nupp.io.processnative" )
-backend = native . new ( process . exited )
+backend = nativeBackend ( )
 defaultBackend = backend
 end
 
@@ -132993,31 +134270,6 @@ end
 
 const __nuppExportValue= process ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.io.process"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.io.process"]=__nuppExports;return __nuppExports
-end
-package.preload["nupp.io.processnative"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-const ProcessNative = {} ProcessNative.__index = ProcessNative
-
-
-
-
-local binding
-return binding
-
 end
 package.preload["nupp.io.uri"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports={};package.loaded["nupp.io.uri"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local isURI;__nuppExports["isURI"]=function(...) return isURI(...) end;local new;__nuppExports["new"]=function(...) return new(...) end;local validate;__nuppExports["validate"]=function(...) return validate(...) end;
@@ -148845,7 +150097,9 @@ local interface NativeTransfer
     onHead: function(self: NativeTransfer, wake: function()): function()
     onBody: function(self: NativeTransfer, wake: function()): function()
     onUpload: function(self: NativeTransfer, wake: function()): function()
-    head: function(self: NativeTransfer): (string, integer?, string?, string?, string?, string?)
+    -- The version is the wire number -- 10, 11, 20 -- not its spelling; `http.Version`
+    -- is derived from it at the one place a caller sees a response.
+    head: function(self: NativeTransfer): (string, integer?, integer?, string?, string?, string?)
     cancel: nosuspend function(self: NativeTransfer): nil
     close: nosuspend function(self: NativeTransfer): nil
     offer: function(self: NativeTransfer, value: any, final: boolean, count: integer?): string
@@ -148879,8 +150133,678 @@ local interface BodyClient
     _releaseSource: function(self: BodyClient): nil
 end
 
-local type NativeBackend = {newClient: function(any): (NativeClient?, string?)}
-local native = require("nupp.io.httpnative") as NativeBackend
+--[[
+The platform binding.
+
+Everything below is platform-neutral: it owns the affine policy, the suspension, and
+the shapes a caller sees. This is the other side of `NativeClient` and
+`NativeTransfer` for the machine the program is on, over the symbols the native crate
+exports.
+
+It used to be a string in the compiler, installed as `nupp.io.httpnative` through
+`package.preload` and reached from here by a cast onto those two interfaces. Written
+here it implements them, so the contracts above are checked against the code that
+answers them rather than asserted about a module the checker could not see.
+
+The library is not opened by requiring this module: `nupp.native` opens on the first
+symbol read, and nothing here reads one until a client is created.
+]]
+
+const native = require("nupp.native")
+
+-- `NuppUri` is not declared here: it is `nupp.io.uri`'s handle, that module declares
+-- it, and this one requires it above. The loader that used to install this carried a
+-- copy of the typedef because it had no module to depend on.
+native.ffi.cdef[[
+typedef struct NuppHttpClient NuppHttpClient;
+typedef struct NuppHttpTransfer NuppHttpTransfer;
+
+typedef struct { const uint8_t *data; size_t length; } NuppHttpSlice;
+typedef struct { NuppHttpSlice name; NuppHttpSlice value; } NuppHttpHeader;
+
+typedef struct {
+    uint64_t connect_timeout_ms;
+    uint32_t max_redirects;
+    uint32_t max_pending_requests;
+    uint32_t max_connections;
+    uint32_t max_connections_per_host;
+    int compressed;
+    int has_insecure_hosts;
+    int proxy_mode;
+    NuppHttpSlice proxy;
+    int no_proxy_set;
+    NuppHttpSlice no_proxy;
+    NuppHttpSlice proxy_credentials;
+} NuppHttpClientOptions;
+
+typedef struct {
+    const NuppUri *uri;
+    NuppHttpSlice method;
+    const NuppHttpHeader *headers;
+    size_t header_count;
+    NuppHttpSlice body;
+    uint32_t body_kind;
+    int64_t body_length;
+    uint64_t timeout_ms;
+    uint64_t stall_timeout_ms;
+    uint64_t max_bytes;
+    int insecure;
+} NuppHttpRequest;
+
+typedef struct {
+    uint16_t status;
+    uint8_t version;
+    const uint8_t *url;
+    size_t url_length;
+    const uint8_t *headers;
+    size_t headers_length;
+} NuppHttpResponseHead;
+
+typedef struct { const NuppHttpTransfer *transfer; uint32_t tokens; } NuppHttpReady;
+
+NuppHttpClient *nuppHttpClientCreate(const NuppHttpClientOptions *);
+void nuppHttpClientDestroy(NuppHttpClient *);
+const NuppHttpTransfer *nuppHttpClientSend(NuppHttpClient *, const NuppHttpRequest *);
+void nuppHttpTransferCancel(const NuppHttpTransfer *);
+void nuppHttpTransferDestroy(const NuppHttpTransfer *);
+int nuppHttpTransferOffer(const NuppHttpTransfer *, const uint8_t *, size_t, bool);
+uint32_t nuppHttpTransferPollHeaders(const NuppHttpTransfer *, NuppHttpResponseHead *);
+const char *nuppHttpTransferError(const NuppHttpTransfer *);
+const NuppHttpTransfer *nuppHttpTransferTakeBody(const NuppHttpTransfer *);
+bool nuppHttpBodyArm(const NuppHttpTransfer *);
+bool nuppHttpBodyPeek(const NuppHttpTransfer *, const uint8_t **, size_t *, uint32_t *);
+bool nuppHttpBodyConsume(const NuppHttpTransfer *, size_t);
+const char *nuppHttpBodyError(const NuppHttpTransfer *);
+void nuppHttpBodyDestroy(const NuppHttpTransfer *);
+size_t nuppHttpClientPoll(NuppHttpClient *, NuppHttpReady *, size_t, bool *);
+size_t nuppHttpClientWait(NuppHttpClient *, uint64_t, NuppHttpReady *, size_t, bool *);
+void nuppHttpReadyRelease(const NuppHttpTransfer *);
+size_t nuppHttpClientPending(const NuppHttpClient *);
+double nuppHttpMonotonicMs(void);
+]]
+
+const C = native.C
+
+-- What polling the headers answers.
+const HEAD_PENDING = 0
+const HEAD_FAILED = 2
+
+-- What peeking at the body answers.
+const BODY_PENDING = 2
+const BODY_EOF = 3
+const BODY_FAILED = 4
+const BODY_CLOSED = 5
+
+-- Which of a transfer's waiters a readiness event should wake. A bit set, because one
+-- event commonly moves more than one of them.
+const TOKEN_HEADERS = 1
+const TOKEN_BODY = 2
+const TOKEN_UPLOAD = 4
+const TOKEN_FAILED = 8
+
+-- How a request body is supplied.
+const BODY_INLINE = 1
+const BODY_UPLOAD = 2
+const BODY_FILE = 3
+
+-- What offering upload bytes answers.
+const UPLOAD_BACKPRESSURE = 0
+const UPLOAD_ACCEPTED = 1
+
+-- How many readiness events one poll collects.
+const READY_SLOTS = 256
+
+--- Fills the borrowed byte span the crate reads its strings through.
+---
+--- A pointer and a length are passed when the bytes are not a Lua string; otherwise
+--- the string itself is the pointer. Nothing is copied either way, so the value has to
+--- outlive the call -- which it does, because every caller holds it across one.
+local function slice(value: any, pointer: any?, length: integer?): any
+    local out = native.ffi.new("NuppHttpSlice")
+    if pointer ~= nil then
+        out.data = pointer
+        out.length = length
+    elseif value ~= nil then
+        out.data = value
+        out.length = #(value as string)
+    end
+
+    return out
+end
+
+--- What the crate said, or what to say when it said nothing.
+local function reason(pointer: any, fallback: string): string
+    if pointer == nil then
+        return fallback
+    end
+    local text = native.ffi.string(pointer)
+
+    return text ~= "" and text or fallback
+end
+
+--- Wakes everything waiting on one channel and answers how many moved.
+---
+--- Backwards, because a woken waiter may add itself again and appending while
+--- iterating forwards would wake the new one in the same pass.
+local function dispatch(self: any, field: string): integer
+    local waiters = self[field]
+    if waiters == nil then
+        return 0
+    end
+    self[field] = nil
+    local count = #waiters
+    for index = count, 1, -1 do
+        waiters[index]()
+    end
+
+    return count
+end
+
+--- Wakes the longest-waiting one, and only that one.
+---
+--- Admission is one-at-a-time: waking every waiter when a single slot opened would
+--- have all of them retry and all but one fail.
+local function dispatchOne(self: any, field: string): integer
+    local waiters = self[field]
+    if waiters == nil or #waiters == 0 then
+        return 0
+    end
+    local wake = table.remove(waiters, 1)
+    if #waiters == 0 then
+        self[field] = nil
+    end
+    wake()
+
+    return 1
+end
+
+--- Adds a waiter and answers the function that takes it back off.
+---
+--- The forget is idempotent, because a waiter that has already been woken will still
+--- have its scope leave and call this.
+local function addWaiter(self: any, field: string, wake: function()): function()
+    local waiters = self[field]
+    if waiters == nil then
+        waiters = {}
+        self[field] = waiters
+    end
+    waiters[#waiters + 1] = wake
+    local active = true
+
+    return function(): nil
+        if not active then
+            return
+        end
+        active = false
+        for index = 1, #waiters do
+            if waiters[index] == wake then
+                table.remove(waiters, index)
+                break
+            end
+        end
+    end
+end
+
+--- One request in flight.
+---
+--- Deliberately not declared `is NativeTransfer`, and `Client.send` casts onto that
+--- interface instead. Two of these operations write body bytes straight into the
+--- caller's destination without a copy, which means reaching the private storage of
+--- whichever writer it is -- and a borrow cannot be handed to something that takes it
+--- as `any`, which is the rule that keeps a capability from being erased. The cast is
+--- where that is admitted. What would remove it is a capability on `io.Writer` saying
+--- "here is somewhere to write directly, or nothing", which is a change to a contract
+--- three modules implement rather than to this binding.
+---
+--- `_client` is also loose: the client's own record names this one, so typing the
+--- back-pointer would have the two name each other.
+local record Transfer
+    _client: any
+    _handle: any
+    _body: any
+    _closed: boolean
+    _headWaiters: {function()}?
+    _bodyWaiters: {function()}?
+    _uploadWaiters: {function()}?
+
+    --- Wakes whatever this event moved, and answers how many waiters that was.
+    function _ready(self: Transfer, tokens: integer): integer
+        local moved: integer = 0
+        -- A failure is reported as the headers arriving, because that is where the
+        -- caller is waiting and the head call is what will report it.
+        if bit.band(tokens, TOKEN_HEADERS + TOKEN_FAILED) ~= 0 then
+            moved = moved + dispatch(self, "_headWaiters")
+        end
+        if bit.band(tokens, TOKEN_BODY) ~= 0 then
+            moved = moved + dispatch(self, "_bodyWaiters")
+        end
+        if bit.band(tokens, TOKEN_UPLOAD) ~= 0 then
+            moved = moved + dispatch(self, "_uploadWaiters")
+        end
+
+        return moved
+    end
+
+    function onHead(self: Transfer, wake: function()): function()
+        return addWaiter(self, "_headWaiters", wake)
+    end
+
+    function onBody(self: Transfer, wake: function()): function()
+        local forget = addWaiter(self, "_bodyWaiters", wake)
+        -- Arming is what tells the crate somebody is waiting on body bytes; without it
+        -- a body that is already complete never produces another readiness event.
+        if self._body ~= nil then
+            C.nuppHttpBodyArm(self._body)
+        end
+
+        return forget
+    end
+
+    function onUpload(self: Transfer, wake: function()): function()
+        return addWaiter(self, "_uploadWaiters", wake)
+    end
+
+    function head(self: Transfer): (string, integer?, integer?, string?, string?, string?)
+        local out = native.ffi.new("NuppHttpResponseHead[1]")
+        local state = C.nuppHttpTransferPollHeaders(self._handle, out)
+        if state == HEAD_PENDING then
+            return "pending", nil, nil, nil, nil, nil
+        end
+        if state == HEAD_FAILED then
+            return "failed", nil, nil, nil, nil, reason(C.nuppHttpTransferError(self._handle), "HTTP transfer failed")
+        end
+        local head = out[0]
+        local url: string? = nil
+        if head.url ~= nil then
+            url = native.ffi.string(head.url, tonumber(head.url_length) as integer)
+        end
+
+        return "ready", tonumber(
+            head.status
+        ) as integer, tonumber(
+            head.version
+        ) as integer, url, native.ffi.string(head.headers, tonumber(head.headers_length) as integer), nil
+    end
+
+    function offer(self: Transfer, value: any, final: boolean, count: integer?): string
+        local data: any = nil
+        local length = 0
+        if value ~= nil then
+            -- A buffer hands over its storage directly; anything else is bytes.
+            local raw = type(value) == "table" and rawget(value, "_data") or nil
+            if raw ~= nil then
+                data = raw
+                length = count or rawget(value, "_length")
+            else
+                data = value
+                length = count or #(value as string)
+            end
+        end
+        local answer = C.nuppHttpTransferOffer(self._handle, data, length, final == true)
+        if answer == UPLOAD_ACCEPTED then
+            return "accepted"
+        end
+        if answer == UPLOAD_BACKPRESSURE then
+            return "backpressure"
+        end
+
+        return "closed"
+    end
+
+    function takeBody(self: Transfer): (boolean?, string?)
+        if self._body == nil then
+            local handle = C.nuppHttpTransferTakeBody(self._handle)
+            if handle == nil then
+                return nil, "the HTTP response has no body"
+            end
+            self._body = native.ffi.gc(handle, C.nuppHttpBodyDestroy)
+        end
+
+        return true, nil
+    end
+
+    --- Reads body bytes, into a buffer when one was given and as a string otherwise.
+    ---
+    --- The crate lends the bytes rather than copying them, so this consumes only what
+    --- it took and leaves the rest for the next call.
+    function bodyRead(self: Transfer, count: integer, destination: any, offset: integer): (string, any?, string?)
+        local data = native.ffi.new("const uint8_t*[1]")
+        local length = native.ffi.new("size_t[1]")
+        local state = native.ffi.new("uint32_t[1]")
+        if not C.nuppHttpBodyPeek(self._body, data, length, state) then
+            return "failed", nil, native.error()
+        end
+        local kind = tonumber(state[0])
+        if kind == BODY_PENDING then
+            return "pending", nil, nil
+        end
+        if kind == BODY_EOF then
+            return "eof", nil, nil
+        end
+        if kind == BODY_FAILED then
+            return "failed", nil, reason(C.nuppHttpBodyError(self._body), "HTTP response body failed")
+        end
+        if kind == BODY_CLOSED then
+            return "closed", nil, "the body is closed"
+        end
+        local take = math.min(count, tonumber(length[0]) as integer)
+        if destination ~= nil then
+            local raw = rawget(destination, "_data")
+            local capacity = rawget(destination, "_capacity")
+            if raw ~= nil or capacity ~= nil then
+                destination:ensureCapacity(offset + take)
+                raw = rawget(destination, "_data")
+                local old = rawget(destination, "_length")
+                -- Writing past the end leaves a gap, which is zeroed rather than left
+                -- holding whatever the buffer grew over.
+                if offset > old then
+                    native.ffi.fill(raw + old, (offset - old) as integer, 0)
+                end
+                native.ffi.copy(raw + offset, data[0], take)
+                if offset + take > old then
+                    rawset(destination, "_length", offset + take)
+                end
+                if not C.nuppHttpBodyConsume(self._body, take) then
+                    return "failed", nil, native.error()
+                end
+
+                return "data", take, nil
+            end
+        end
+        local bytes = native.ffi.string(data[0], take)
+        if not C.nuppHttpBodyConsume(self._body, take) then
+            return "failed", nil, native.error()
+        end
+
+        return "data", bytes, nil
+    end
+
+    --- Whether this destination can take body bytes without a copy through Lua.
+    function directDestination(self: Transfer, destination: any): boolean
+        local buffer = rawget(destination, "_buffer")
+        if buffer ~= nil and rawget(destination, "_at") ~= nil and rawget(buffer, "_capacity") ~= nil then
+            return true
+        end
+        local file = rawget(destination, "_file")
+
+        return file ~= nil and rawget(file, "_handle") ~= nil
+    end
+
+    --- Moves body bytes straight into a writer, when the writer has storage to take
+    --- them; "unsupported" when it does not, so the caller falls back to `bodyRead`.
+    function bodyWrite(self: Transfer, destination: any, count: integer): (string, integer?, string?)
+        if rawget(destination, "_closed") then
+            return "failed", nil, "the writer is closed"
+        end
+        local buffer = rawget(destination, "_buffer")
+        if buffer ~= nil and rawget(destination, "_at") ~= nil and rawget(buffer, "_capacity") ~= nil then
+            local at = rawget(destination, "_at")
+            local state, value, why = self:bodyRead(count, buffer, at)
+            if state == "data" then
+                rawset(destination, "_at", at + (value as integer))
+            end
+
+            return state, value as integer?, why
+        end
+        local file = rawget(destination, "_file")
+        local handle = file and rawget(file, "_handle") or nil
+        if handle == nil then
+            return "unsupported", nil, nil
+        end
+        local data = native.ffi.new("const uint8_t*[1]")
+        local length = native.ffi.new("size_t[1]")
+        local state = native.ffi.new("uint32_t[1]")
+        if not C.nuppHttpBodyPeek(self._body, data, length, state) then
+            return "failed", nil, native.error()
+        end
+        local kind = tonumber(state[0])
+        if kind == BODY_PENDING then
+            return "pending", nil, nil
+        end
+        if kind == BODY_EOF then
+            return "eof", nil, nil
+        end
+        if kind == BODY_FAILED then
+            return "failed", nil, reason(C.nuppHttpBodyError(self._body), "HTTP response body failed")
+        end
+        if kind == BODY_CLOSED then
+            return "closed", nil, "the body is closed"
+        end
+        local take = math.min(count, tonumber(length[0]) as integer)
+        -- `nuppFileWrite` belongs to the files binding. Reaching it here needs no
+        -- declaration of its own, because a writer can only be holding a file handle
+        -- if that module is what made it.
+        local wrote = tonumber(C.nuppFileWrite(handle, data[0], take)) as integer
+        if wrote < 0 then
+            return "failed", nil, native.error()
+        end
+        if not C.nuppHttpBodyConsume(self._body, wrote) then
+            return "failed", nil, native.error()
+        end
+
+        return "data", wrote, nil
+    end
+
+    function cancel(self: Transfer): nil
+        if self._handle ~= nil then
+            C.nuppHttpTransferCancel(self._handle)
+        end
+    end
+
+    --- Releases the transfer and its body.
+    ---
+    --- The finalizer is cleared before each destroy so the collector does not free a
+    --- handle this call already freed. A transfer with no body taken is cancelled
+    --- first, because the crate keeps producing for one that was not.
+    function close(self: Transfer): nil
+        if self._closed then
+            return
+        end
+        self._closed = true
+        self._client._byHandle[tostring(self._handle)] = nil
+        if self._body ~= nil then
+            local body = self._body
+            self._body = nil
+            native.ffi.gc(body, nil)
+            C.nuppHttpBodyDestroy(body)
+        else
+            C.nuppHttpTransferCancel(self._handle)
+        end
+        local handle = self._handle
+        self._handle = nil
+        native.ffi.gc(handle, nil)
+        C.nuppHttpTransferDestroy(handle)
+    end
+end
+
+--- One connection pool, and the transfers it is carrying.
+local record Client is NativeClient
+    _handle: any
+    _closed: boolean
+
+    --- Every live transfer, keyed by its handle's address, because a readiness event
+    --- names the handle and this is what turns that back into the object.
+    _byHandle: {[string]: Transfer}
+
+    _admissionWaiters: {function()}?
+    _maxPending: integer
+    _ready: any
+    _more: any
+
+    function onAdmission(self: Client, wake: function()): function()
+        if self._closed or (tonumber(C.nuppHttpClientPending(self._handle)) as integer) < self._maxPending then
+            wake()
+
+            return function(): nil
+            end
+        end
+
+        return addWaiter(self, "_admissionWaiters", wake)
+    end
+
+    function send(self: Client, descriptor: any): (NativeTransfer?, string?, boolean?)
+        local headers = descriptor.headers or {}
+        local count = #headers
+        local packed = count > 0 and native.ffi.new("NuppHttpHeader[?]", count) or nil
+        for index = 1, count do
+            local item = headers[index]
+            packed[index - 1].name = slice(item[1])
+            packed[index - 1].value = slice(item[2])
+        end
+        local bodyPointer: any = nil
+        local bodyLength: integer = 0
+        local value = descriptor.body
+        if descriptor.bodyKind == BODY_INLINE then
+            if type(value) == "string" then
+                bodyPointer = value
+                bodyLength = #(value as string)
+            else
+                local raw = rawget(value, "_data")
+                if raw ~= nil then
+                    bodyPointer = raw
+                    bodyLength = rawget(value, "_length")
+                else
+                    local bytes = rawget(value, "_bytes") or value:getString()
+                    bodyPointer = bytes
+                    bodyLength = #(bytes as string)
+                end
+            end
+        elseif descriptor.bodyKind == BODY_FILE then
+            -- The path, which the crate opens for itself.
+            bodyPointer = value
+            bodyLength = #(value as string)
+        end
+        local request = native.ffi.new("NuppHttpRequest")
+        request.uri = rawget(descriptor.uri, "_handle")
+        request.method = slice(descriptor.method)
+        request.headers = packed
+        request.header_count = count
+        request.body = slice(nil, bodyPointer, bodyLength)
+        request.body_kind = descriptor.bodyKind
+        request.body_length = descriptor.bodyLength or -1
+        request.timeout_ms = descriptor.timeoutMs
+        request.stall_timeout_ms = descriptor.stallTimeoutMs
+        request.max_bytes = descriptor.maxBytes
+        request.insecure = descriptor.insecure and 1 or 0
+        local handle = C.nuppHttpClientSend(self._handle, request)
+        if handle == nil then
+            local why = native.error()
+
+            return nil, why, why == "the HTTP client has reached maxPendingRequests"
+        end
+        handle = native.ffi.gc(handle, C.nuppHttpTransferDestroy)
+        local transfer = new Transfer(_client = self, _handle = handle, _body = nil, _closed = false)
+        self._byHandle[tostring(handle)] = transfer
+
+        return transfer as any as NativeTransfer, nil, nil
+    end
+
+    --- Collects readiness events and wakes what they moved.
+    ---
+    --- A wake is run under `pcall` so that one waiter raising still lets the event be
+    --- released; the crate is holding the transfer until it is, and leaking that would
+    --- outlast the error.
+    --- @raises with whatever a woken waiter raised, once its event has been released
+    function poll(self: Client, waitMs: integer): integer
+        local count: any
+        local moved: integer = 0
+        if waitMs > 0 then
+            count = C.nuppHttpClientWait(self._handle, waitMs, self._ready, READY_SLOTS, self._more)
+        else
+            count = C.nuppHttpClientPoll(self._handle, self._ready, READY_SLOTS, self._more)
+        end
+        for index = 0, (tonumber(count) as integer) - 1 do
+            local item = self._ready[index]
+            local transfer = self._byHandle[tostring(item.transfer)]
+            local ok, problem = true, nil
+            if transfer ~= nil then
+                ok, problem = pcall(function(): nil
+                    moved = moved + transfer:_ready(tonumber(item.tokens) as integer)
+                end)
+            end
+            C.nuppHttpReadyRelease(item.transfer)
+            if not ok then
+                error(problem, 0)
+            end
+        end
+        if self._admissionWaiters ~= nil and (
+            tonumber(C.nuppHttpClientPending(self._handle)) as integer
+        ) < self._maxPending then
+            moved = moved + dispatchOne(self, "_admissionWaiters")
+        end
+
+        return moved
+    end
+
+    function pending(self: Client): integer
+        if self._closed then
+            return 0
+        end
+
+        return tonumber(C.nuppHttpClientPending(self._handle)) as integer
+    end
+
+    function now(self: Client): number
+        return tonumber(C.nuppHttpMonotonicMs()) as number
+    end
+
+    --- Closes every transfer still in flight, then the pool.
+    ---
+    --- The transfers are listed before any is closed, because closing one takes it out
+    --- of the table being walked.
+    function close(self: Client): nil
+        if self._closed then
+            return
+        end
+        self._closed = true
+        dispatch(self, "_admissionWaiters")
+        local transfers: {Transfer} = {}
+        for _, transfer in pairs(self._byHandle) do
+            transfers[#transfers + 1] = transfer
+        end
+        for index = 1, #transfers do
+            transfers[index]:close()
+        end
+        local handle = self._handle
+        self._handle = nil
+        native.ffi.gc(handle, nil)
+        C.nuppHttpClientDestroy(handle)
+    end
+end
+
+--- Opens a connection pool.
+local function newClient(options: any): (NativeClient?, string?)
+    -- Three proxy modes rather than two: unset means take the environment's, and empty
+    -- means deliberately none, which is not the same answer.
+    local proxyMode = options.proxy == nil and 0 or (options.proxy == "" and 1 or 2)
+    local settings = native.ffi.new("NuppHttpClientOptions")
+    settings.connect_timeout_ms = options.connectTimeoutMs
+    settings.max_redirects = options.maxRedirects
+    settings.max_pending_requests = options.maxPendingRequests
+    settings.max_connections = options.maxConnections
+    settings.max_connections_per_host = options.maxConnectionsPerHost
+    settings.compressed = options.compressed and 1 or 0
+    settings.has_insecure_hosts = next(options.insecureHosts) and 1 or 0
+    settings.proxy_mode = proxyMode
+    settings.proxy = slice(options.proxy or "")
+    settings.no_proxy_set = options.noProxy ~= nil and 1 or 0
+    settings.no_proxy = slice(options.noProxy or "")
+    settings.proxy_credentials = slice(options.proxyCredentials or "")
+    local handle = C.nuppHttpClientCreate(settings)
+    if handle == nil then
+        return nil, native.error()
+    end
+
+    return new Client(
+        _handle = native.ffi.gc(handle, C.nuppHttpClientDestroy),
+        _closed = false,
+        _byHandle = {},
+        _admissionWaiters = nil,
+        _maxPending = options.maxPendingRequests,
+        _ready = native.ffi.new("NuppHttpReady[?]", READY_SLOTS),
+        _more = native.ffi.new("bool[1]")
+    ), nil
+end
 
 type http.Version = "1.0" | "1.1" | "2"
 
@@ -148930,7 +150854,6 @@ local UPLOAD_SIZE: integer = 512 * 1024
 local UPLOAD_PAGE: integer = 64 * 1024
 local COALESCE_BELOW: integer = 8 * 1024
 local COPY_TURN: integer = 16 * 1024 * 1024
-local BODY_INLINE, BODY_UPLOAD, BODY_FILE = 1, 2, 3
 
 local function whole(value: any, what: string, minimum: integer, maximum: integer?): integer
     if type(
@@ -149832,8 +151755,8 @@ function http.Client.drop(takes self: http.Client): nil
                 self._source = nil
                 self._sourceUsers = 0
             end
-            local native = self._native as {close: nosuspend function(any): nil}
-            native:close()
+            local client = self._native as {close: nosuspend function(any): nil}
+            client:close()
         end
     end
 end
@@ -149866,7 +151789,7 @@ end
 
 function http.newClient(options: http.Options?): (affine(http.Client?, destroyClient), string?)
     local copied = copiedOptions(options)
-    local backend, reason = native.newClient(copied)
+    local backend, reason = newClient(copied)
     if backend == nil then
         return nil, reason
     end
@@ -149876,14 +151799,6 @@ end
 
 export = http
 ]=],
-["/nupp/io/httpnative.d.nupp"] = [[
-@!internal
-
---- Private provider binding for `nupp.io.http`.
-local httpnative: {newClient: function(options: any): (any?, string?)}
-
-return httpnative
-]],
 ["/nupp/io/init.nupp"] = [=[
 module nupp.io
 
@@ -151984,17 +153899,6 @@ local progressed, releasePump, await, awaitTick, pumpOnce, readForCompletion
 -- moves to another one.
 local defaultBackend: process.Backend? = nil
 
--- What `nupp.io.processnative` answers, spelled here rather than there. That
--- declaration cannot name these types: it would then require this module while this
--- module requires it, and a resolved cycle answers `any` without reporting one, so the
--- binding would silently stop being checked. Written on this side the assumption is
--- visible, and the cast below is where it is made.
-local type NativeBackendFactory = {
-    new: function(
-        exited: function(exitCode: integer, killed: boolean, timedOut: boolean): process.Exit
-    ): process.Backend
-}
-
 --- One of a child's readable streams.
 ---
 --- Its blocking `read` and its nonblocking `poll` are both here on purpose. A caller
@@ -153211,6 +155115,353 @@ function process.spawnOn(
     return fromSpawn(backend, options, handle, inHandle, outHandle, errHandle, pid)
 end
 
+--[[
+The platform binding.
+
+Everything above is platform-neutral: it moves bytes between buffers and decides when
+to wait. This is the other side of `Backend` for the machine the program is on, over
+the symbols the native crate exports.
+
+It used to be a string in the compiler, installed as `nupp.io.processnative` through
+`package.preload` and reached from here by a cast, because a module of its own could
+not name `Backend` -- naming it would have made the two require each other, and a
+resolved cycle answers `any` without reporting one. Written here it names `Backend`
+directly and is checked against it, which is what the cast was standing in for.
+]]
+
+const native = require("nupp.native")
+
+native.ffi.cdef[[
+typedef struct NuppSpawn NuppSpawn;
+typedef struct NuppChild NuppChild;
+typedef struct NuppStream NuppStream;
+
+NuppSpawn *nuppProcessSpawnBegin(void);
+bool nuppProcessSpawnArg(NuppSpawn *, const uint8_t *, size_t);
+bool nuppProcessSpawnEnv(NuppSpawn *, const uint8_t *, size_t);
+bool nuppProcessSpawnClearEnv(NuppSpawn *, bool);
+bool nuppProcessSpawnCwd(NuppSpawn *, const uint8_t *, size_t);
+bool nuppProcessSpawnStdio(NuppSpawn *, uint8_t, uint8_t);
+void nuppProcessSpawnCancel(NuppSpawn *);
+NuppChild *nuppProcessSpawnRun(NuppSpawn *);
+
+NuppStream *nuppProcessTakeStream(NuppChild *, uint8_t);
+intptr_t nuppProcessTryRead(NuppStream *, uint8_t *, size_t);
+intptr_t nuppProcessTryWrite(NuppStream *, const uint8_t *, size_t);
+uint8_t nuppProcessCloseStream(NuppStream *);
+void nuppProcessStreamDestroy(NuppStream *);
+
+int32_t nuppProcessPollExit(NuppChild *, int32_t *, bool *);
+uint32_t nuppProcessId(NuppChild *);
+bool nuppProcessKill(NuppChild *, bool);
+uint8_t nuppProcessReap(NuppChild *);
+void nuppProcessDestroy(NuppChild *);
+
+int32_t nuppProcessWaitReady(NuppStream *const *, size_t, NuppStream *const *, size_t, int32_t);
+double nuppProcessMonotonicMs(void);
+]]
+
+const C = native.C
+
+-- How a stdio mode is spelled to the crate.
+const MODE: {[string]: integer} = {pipe = 0, inherit = 1, ["null"] = 2, stdout = 3}
+
+-- What a nonblocking read or write answers instead of a count.
+const WOULD_BLOCK = -1
+const GONE = -2
+
+-- What releasing a handle answers. `RELEASED_WITH_REASON` is released and complaining:
+-- the handle is gone either way, so the caller stops holding it and still hears why.
+const RELEASED = 0
+const RELEASED_WITH_REASON = 1
+
+const READ_SIZE = 65536
+const INT32_MAX = 2147483647
+
+--- Puts what the crate said behind what this side was trying to do.
+local function reason(prefix: string): string
+    local said = native.error()
+    if said == nil or said == "" then
+        said = "native process operation failed"
+    end
+
+    return prefix .. ": " .. said
+end
+
+--- Frees a child once nothing is holding it or any of its streams.
+---
+--- The crate owns the child and the streams separately, and either side can be the
+--- last to let go, so the free happens here rather than at whichever release ran last.
+local function maybeDestroy(owner: any): nil
+    if owner.destroyed or not owner.released then
+        return
+    end
+    for _, stream in ipairs(owner.streams) do
+        if not stream.released then
+            return
+        end
+    end
+    owner.destroyed = true
+    for _, stream in ipairs(owner.streams) do
+        local handle = stream.handle
+        stream.handle = nil
+        if handle ~= nil then
+            C.nuppProcessStreamDestroy(handle)
+        end
+    end
+    local child = owner.handle
+    owner.handle = nil
+    if child ~= nil then
+        C.nuppProcessDestroy(child)
+    end
+end
+
+--- Kills and frees a half-built child, then raises.
+---
+--- Reached when a spawn got far enough to have a child but not far enough to hand one
+--- back. Nothing else knows about it yet, so nothing else can clean it up.
+--- @raises always; that is what it is for
+local function abandon(owner: any, message: string): nil
+    for _, stream in ipairs(owner.streams) do
+        if not stream.released then
+            C.nuppProcessCloseStream(stream.handle)
+            stream.released = true
+        end
+        C.nuppProcessStreamDestroy(stream.handle)
+        stream.handle = nil
+    end
+    if owner.handle ~= nil then
+        C.nuppProcessKill(owner.handle, true)
+        C.nuppProcessDestroy(owner.handle)
+        owner.handle = nil
+    end
+    owner.destroyed = true
+    error(message, 0)
+end
+
+--- Cancels a spawn request when one of its settings would not take.
+--- @raises when the setting failed
+local function configured(ok: boolean, request: any, what: string): nil
+    if ok then
+        return
+    end
+    local why = reason("nupp: could not configure process " .. what)
+    C.nuppProcessSpawnCancel(request)
+    error(why, 0)
+end
+
+--- Takes one of a started child's streams, when that mode made one.
+local function wrap(owner: any, which: integer, expected: boolean): any
+    local handle = C.nuppProcessTakeStream(owner.handle, which)
+    if handle == nil then
+        if expected then
+            abandon(owner, reason("nupp: could not take process stream"))
+        end
+
+        return nil
+    end
+    local stream = {owner = owner, handle = handle, released = false, scratch = nil, capacity = 0}
+    owner.streams[#owner.streams + 1] = stream
+
+    return stream
+end
+
+--- Packs stream handles into the array `waitReady` takes.
+--- @raises when the interest names a stream that has already been freed
+local function makeArray(streams: {any}): (any, integer)
+    local count = #streams
+    if count == 0 then
+        return nil, 0
+    end
+    local out = native.ffi.new("NuppStream*[?]", count)
+    for index, stream in ipairs(streams) do
+        local handle = stream and stream.handle
+        if handle == nil then
+            error("nupp: readiness interest named a destroyed process stream", 0)
+        end
+        out[index - 1] = handle
+    end
+
+    return out, count
+end
+
+--- A count the crate will accept: an integer, with NaN read as zero.
+local function whole(value: number?): integer
+    local number = tonumber(value) or 0
+    if number ~= number then
+        return 0
+    end
+
+    return math.floor(number) as integer
+end
+
+--- The backend for this machine.
+---
+--- Built on demand rather than at load, so a program that requires this module and
+--- never starts a child never opens the library.
+local function nativeBackend(): process.Backend
+    return new process.Backend(
+        spawn = function(self: process.Backend, options: process.Options): (any?, any?, any?, any?, integer, string?)
+            local inputMode = options.stdin or "pipe"
+            local outputMode = options.stdout or "pipe"
+            local errorMode = options.stderr or "pipe"
+            if MODE[inputMode] == nil then
+                error("nupp: process has no stdin mode named " .. tostring(inputMode), 0)
+            end
+            -- `stdout` as a stdout mode would mean redirecting stdout to itself.
+            if MODE[outputMode] == nil or outputMode == "stdout" then
+                error("nupp: process has no stdout mode named " .. tostring(outputMode), 0)
+            end
+            if MODE[errorMode] == nil then
+                error("nupp: process has no stderr mode named " .. tostring(errorMode), 0)
+            end
+            local request = C.nuppProcessSpawnBegin()
+            if request == nil then
+                error(reason("nupp: could not begin process spawn"), 0)
+            end
+            for _, argument in ipairs(options.args or {}) do
+                configured(C.nuppProcessSpawnArg(request, argument, #argument), request, "argument")
+            end
+            configured(C.nuppProcessSpawnClearEnv(request, options.clearEnv == true), request, "environment mode")
+            for key, value in pairs(options.env or {}) do
+                local entry = key .. "=" .. value
+                configured(C.nuppProcessSpawnEnv(request, entry, #entry), request, "environment")
+            end
+            if options.cwd ~= nil then
+                local cwd = type(options.cwd) == "string" and options.cwd as string or (options.cwd as any):toString()
+                configured(C.nuppProcessSpawnCwd(request, cwd, #cwd), request, "working directory")
+            end
+            configured(C.nuppProcessSpawnStdio(request, 0, MODE[inputMode]), request, "stdin")
+            configured(C.nuppProcessSpawnStdio(request, 1, MODE[outputMode]), request, "stdout")
+            configured(C.nuppProcessSpawnStdio(request, 2, MODE[errorMode]), request, "stderr")
+            local child = C.nuppProcessSpawnRun(request)
+            if child == nil then
+                return nil, nil, nil, nil, 0, reason("nupp: could not start process")
+            end
+            local owner = {handle = child, streams = {}, released = false, destroyed = false}
+            local input = wrap(owner, 0, inputMode == "pipe")
+            local output = wrap(owner, 1, outputMode == "pipe")
+            local err = wrap(owner, 2, errorMode == "pipe")
+
+            return owner, input, output, err, tonumber(C.nuppProcessId(child)) as integer
+        end,
+        poll = function(self: process.Backend, owner: any): process.Exit?
+            local code = native.ffi.new("int32_t[1]")
+            local killed = native.ffi.new("bool[1]")
+            local status = C.nuppProcessPollExit(owner.handle, code, killed)
+            if status < 0 then
+                error(reason("nupp: could not poll process"), 0)
+            end
+            if status == 0 then
+                return nil
+            end
+
+            return process.exited(tonumber(code[0]) as integer, killed[0], false)
+        end,
+        kill = function(self: process.Backend, owner: any, force: boolean): nil
+            if not C.nuppProcessKill(owner.handle, force) then
+                error(reason("nupp: could not kill process"), 0)
+            end
+        end,
+        read = function(self: process.Backend, stream: any, limit: integer): string?
+            local wanted = whole(limit)
+            if wanted < 1 then
+                wanted = 1
+            elseif wanted > READ_SIZE then
+                wanted = READ_SIZE
+            end
+            -- The scratch buffer grows to the largest read this stream has been asked
+            -- for and is then reused, so a drain loop allocates once rather than once
+            -- per pass.
+            if stream.capacity < wanted then
+                stream.scratch = native.ffi.new("uint8_t[?]", wanted)
+                stream.capacity = wanted
+            end
+            local got = tonumber(C.nuppProcessTryRead(stream.handle, stream.scratch, wanted))
+            if got >= 0 then
+                return native.ffi.string(stream.scratch, got as integer)
+            end
+            -- Nothing yet is an empty read; the far end being gone is nil. The state
+            -- machine tells them apart to know whether to wait again.
+            if got == WOULD_BLOCK then
+                return ""
+            end
+            if got == GONE then
+                return nil
+            end
+            error(reason("nupp: could not read process stream"), 0)
+        end,
+        write = function(self: process.Backend, stream: any, bytes: string): (integer, boolean)
+            local sent = tonumber(C.nuppProcessTryWrite(stream.handle, bytes, #bytes))
+            if sent >= 0 then
+                return sent as integer, false
+            end
+            if sent == WOULD_BLOCK then
+                return 0, false
+            end
+            if sent == GONE then
+                return 0, true
+            end
+            error(reason("nupp: could not write process stream"), 0)
+        end,
+        closeStream = function(self: process.Backend, stream: any): (boolean, string?)
+            if stream.released then
+                return true, nil
+            end
+            local status = C.nuppProcessCloseStream(stream.handle)
+            local why: string? = nil
+            if status ~= RELEASED then
+                why = reason("nupp: could not close process stream")
+            end
+            if status == RELEASED or status == RELEASED_WITH_REASON then
+                stream.released = true
+                maybeDestroy(stream.owner)
+
+                return true, why
+            end
+
+            return false, why
+        end,
+        reap = function(self: process.Backend, owner: any): (boolean, string?)
+            if owner.released then
+                return true, nil
+            end
+            local status = C.nuppProcessReap(owner.handle)
+            local why: string? = nil
+            if status ~= RELEASED then
+                why = reason("nupp: could not release process")
+            end
+            if status == RELEASED or status == RELEASED_WITH_REASON then
+                owner.released = true
+                maybeDestroy(owner)
+
+                return true, why
+            end
+
+            return false, why
+        end,
+        now = function(self: process.Backend): number
+            return C.nuppProcessMonotonicMs()
+        end,
+        waitReady = function(self: process.Backend, interest: process.Interest, timeoutMs: number): integer
+            local readable, readCount = makeArray(interest.read)
+            local writable, writeCount = makeArray(interest.write)
+            local timeout = whole(timeoutMs)
+            if timeout < 0 then
+                timeout = 0
+            elseif timeout > INT32_MAX then
+                timeout = INT32_MAX
+            end
+            local answered = C.nuppProcessWaitReady(readable, readCount, writable, writeCount, timeout)
+            if answered < 0 then
+                error(reason("nupp: process readiness wait failed"), 0)
+            end
+
+            return tonumber(answered) as integer
+        end
+    )
+end
+
 --- Starts a child.
 ---
 --- @param options what to run and how to connect it
@@ -153219,8 +155470,7 @@ function process.new(options: process.Options): (affine(process.Process?, proces
     validateOptions(options)
     local backend = defaultBackend
     if backend == nil then
-        local native = require("nupp.io.processnative") as NativeBackendFactory
-        backend = native.new(process.exited)
+        backend = nativeBackend()
         defaultBackend = backend
     end
 
@@ -153249,30 +155499,6 @@ function process.exited(exitCode: integer, killed: boolean, timedOut: boolean): 
 end
 
 export = process
-]=],
-["/nupp/io/processnative.d.nupp"] = [=[
-@!internal
-
---[[
-Internal native process binding installed by the compiler bootstrap.
-
-The public module is `nupp.io.process`. This declaration exists only so that module can
-name the private preload which joins its platform-neutral state machine to the native
-crate; none of these operations are a user-facing ABI.
-
-Deliberately not typed in that module's terms. Naming `nupp.io.process.Backend` here
-would make the two require each other, and a resolved cycle answers `any` without
-saying so -- the binding would stop being typed and nothing would report it. The one
-call site casts instead, where a reader can see what is being assumed.
-]]
-
-local record ProcessNative
-    --- Answers a `nupp.io.process.Backend`, built over that module's `exited`.
-    new: function(exited: any): any
-end
-
-local binding: ProcessNative
-return binding
 ]=],
 ["/nupp/io/uri.nupp"] = [=[
 module nupp.io.uri
