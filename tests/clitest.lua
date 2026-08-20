@@ -269,6 +269,37 @@ local function captureAt(directory, argv)
    return out, ok
 end
 
+function M.migrateChecksThenAtomicallyRenamesAnnotatedLua()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+   local path = dir .. "/legacy.lua"
+   local source = assert(io.open(path, "wb"))
+   source:write("---@param value integer\n---@return integer\n"
+      .. "local function keep(value) return value end\nreturn keep\n")
+   source:close()
+   local function exists(name)
+      local file = io.open(name, "rb")
+      if not file then return false end
+      file:close()
+      return true
+   end
+
+   local preview, previewed = captureAt(dir, "migrate --check legacy.lua")
+   assert(previewed, "migration preview succeeds: " .. preview)
+   assert(exists(path) and not exists(dir .. "/legacy.g.nupp"),
+      "--check changes neither source nor destination")
+
+   local output, migrated = captureAt(dir, "migrate legacy.lua")
+   assert(migrated, "migration succeeds: " .. output)
+   assert(not exists(path) and exists(dir .. "/legacy.g.nupp"),
+      "the checked destination replaces the source")
+   local result = assert(io.open(dir .. "/legacy.g.nupp", "rb")):read("*a")
+   assert(result:find("local function keep(value: integer): integer", 1, true),
+      "the written destination carries imported types")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.exportCEmitsTheCanonicalTypedHeader()
    local dir = os.tmpname()
    os.remove(dir)

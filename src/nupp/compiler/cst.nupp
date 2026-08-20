@@ -26,6 +26,19 @@ local cst = {}
 --- These belong to no one kind, so they are declared once and included by every node
 --- rather than repeated on each.
 interface cst.Hints
+    --- A type/declaration imported from an annotated plain-Lua comment. It belongs to
+    --- the semantic tree but not the lossless ordered children.
+    foreignAnnotation: boolean?
+
+    --- Additional callable contracts imported from `---@overload`.
+    foreignOverloads: {cst.Node}?
+
+    foreignAnnotationsDecorated: boolean?
+
+    foreignInsertOffset: integer?
+
+    foreignRecoveryReported: boolean?
+
     --- This declaration is wrapped in a declared module's `export` statement.
     exported: boolean?
 

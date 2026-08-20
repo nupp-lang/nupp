@@ -3612,4 +3612,27 @@ do
    end
 end
 
+function M.plansAnnotatedLuaWithoutClaimingTheLuaDocument()
+   local projectDir = os.tmpname()
+   os.remove(projectDir)
+   assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
+   local uri = "file://" .. projectDir .. "/legacy.lua"
+   local source = "---@param value integer\n---@return integer\n"
+      .. "local function keep(value) return value end\nreturn keep\n"
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", id = 10, method = "$/nupp/migrateAnnotatedLua",
+        params = { textDocument = { uri = uri }, text = source,
+           dialect = "auto" } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   }, projectDir)
+   os.execute("rm -rf '" .. projectDir .. "'")
+   local result = responseWithId(out, 10).result
+   assert(result and result.ok, "migration request failed")
+   assert(result.destinationUri:match("legacy%.g%.nupp$"))
+   assertContains(result.text, "local function keep(value: integer): integer",
+      "unsaved Lua text was planned")
+end
+
 return M

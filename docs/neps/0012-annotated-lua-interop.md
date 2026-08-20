@@ -1,6 +1,6 @@
 ---
 title: Annotated Lua interoperation and migration
-status: Accepted
+status: Implemented
 created: 2026-08-20
 ---
 

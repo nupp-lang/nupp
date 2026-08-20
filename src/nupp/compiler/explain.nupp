@@ -175,12 +175,21 @@ local ENTRIES: {any} = {
         code = "NUPP1006",
         summary = "The typed layer appears in a plain Lua file",
         rule = "A `.lua` file is Lua. The toolchain will require, build and run "
-        .. "one, and that is the whole promise: its extension already settles "
-        .. "that it is checked gradually, so an annotation written there governs "
-        .. "nothing. Rename the file `.nupp` to mean it, or `.g.nupp` to keep the "
-        .. "gradual layer with the typed syntax available.",
+        .. "one unchanged, so typed Nupp syntax cannot be written into it. Rename "
+        .. "the file `.nupp` to mean it, or `.g.nupp` to keep the gradual layer "
+        .. "with typed syntax available. Type comments are separate: recognized "
+        .. "LuaCATS, EmmyLua, and typed LuaDoc comments are always imported.",
         related = {"NUPP2105", "NUPP2106"},
         docs = "docs/reference/diagnostics.md#code-families",
+    },
+    {
+        code = "NUPP1008",
+        summary = "An annotated Lua type lost precision during import",
+        rule = "Type comments in a .lua file are always read. A malformed, "
+        .. "ambiguous, unsupported, or ownership-incomplete foreign type recovers "
+        .. "at the smallest affected position, usually as any, and checking continues.",
+        related = {"NUPP1006", "NUPP2101"},
+        docs = "docs/guides/annotated-lua.md#recovery",
     },
     {
         code = "NUPP2001",

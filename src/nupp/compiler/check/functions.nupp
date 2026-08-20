@@ -1192,7 +1192,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             false
         )
 
-        return T.func(
+        local declared = T.func(
             params,
             rets,
             vararg,
@@ -1221,6 +1221,15 @@ function functions.install(c: state.Checker): state.StatHandlers
             nil,
             explicitPreserves
         )
+        if body.foreignOverloads and #body.foreignOverloads > 0 then
+            local members = {declared}
+            for _, overload in ipairs(body.foreignOverloads) do
+                members[#members + 1] = c.resolveType(overload)
+            end
+            return T.intersection(members)
+        end
+
+        return declared
     end
 
     c.apply.checkFuncbodyExpected = function(body, expected)

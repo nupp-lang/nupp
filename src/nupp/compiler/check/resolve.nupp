@@ -78,6 +78,31 @@ function resolve.install(c: state.Checker): nil
     local requireEdit = edits.requireEdit
     local pointerShaped = c.pointerShaped
     local functionConstCleanups: {[string]: T.Cleanup} = {}
+
+    local function recoverForeign(node: Node, message: string): boolean
+        if not node.foreignAnnotation then
+            return false
+        end
+        if not node.foreignRecoveryReported then
+            node.foreignRecoveryReported = true
+            local at = cst.firstToken(node)
+            c.diags[
+                #c.diags + 1
+            ] = {
+                code = "NUPP1008",
+                msg = message .. "; using any",
+                filename = c.filename,
+                severity = "warning",
+                line = at and at.line or 0,
+                col = at and at.col or 0,
+                offset = at and at.offset or 0,
+                length = at and #at.text or 0,
+            }
+        end
+
+        return true
+    end
+
     c.functionConstCleanup = function(term)
         return functionConstCleanups[term.id] or T.constFunctionCleanup(term)
     end
@@ -953,7 +978,12 @@ function resolve.install(c: state.Checker): nil
                     end
                     return applyTypeArgs(t, node)
                 end
-                c.diag("NUPP2101", node, ("unknown exported type %q in module %q"):format(typeName, moduleName))
+                if not recoverForeign(
+                    node,
+                    ("annotated Lua names unknown exported type %q in module %q"):format(typeName, moduleName)
+                ) then
+                    c.diag("NUPP2101", node, ("unknown exported type %q in module %q"):format(typeName, moduleName))
+                end
                 return T.any
             end
             local name = base.text
@@ -1097,16 +1127,18 @@ function resolve.install(c: state.Checker): nil
                         end
                     end
                 end
-                c.diag(
-                    "NUPP2102",
-                    node,
-                    ("ambiguous global type %q; a project global must be unique"):format(name),
-                    nil,
-                    {
-                        related = related,
-                        help = "make all but one declaration local or attach them " .. "to their module tables"
-                    }
-                )
+                if not recoverForeign(node, ("annotated Lua type %q is ambiguous"):format(name)) then
+                    c.diag(
+                        "NUPP2102",
+                        node,
+                        ("ambiguous global type %q; a project global must be unique"):format(name),
+                        nil,
+                        {
+                            related = related,
+                            help = "make all but one declaration local or attach them " .. "to their module tables"
+                        }
+                    )
+                end
                 return T.any
             end
             local fixes = exportingModuleFixes(name, base)
@@ -1114,11 +1146,13 @@ function resolve.install(c: state.Checker): nil
             for _, candidate in ipairs(spelling or {}) do
                 fixes[#fixes + 1] = candidate
             end
-            c.diag("NUPP2101", base, ("unknown type name %q"):format(name), fixes, {
-                help = #fixes > 0
-                and "use one of the suggested type names"
-                or "declare the type, qualify its module, or correct the spelling"
-            })
+            if not recoverForeign(node, ("annotated Lua names unknown type %q"):format(name)) then
+                c.diag("NUPP2101", base, ("unknown type name %q"):format(name), fixes, {
+                    help = #fixes > 0
+                    and "use one of the suggested type names"
+                    or "declare the type, qualify its module, or correct the spelling"
+                })
+            end
             return T.any
         elseif kind == "tliteral" then
             local literal = node.token

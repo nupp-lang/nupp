@@ -38,6 +38,10 @@ type parser.ParseResult = {
     --- Syntax errors, in source order. Parsing continued past all of them.
     errors: {lexer.LexError},
 
+    --- Original bytes, retained so semantic readers of comments do not have to
+    --- reconstruct them from trivia.
+    source: string,
+
     --- Compiler passes attach reporting-only derive observations after checking.
     deriveObservations: {any}?
 }
@@ -3167,7 +3171,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     end
     root.eof = add(root, advance())
 
-    return {root = root, tokens = tokens, errors = errors}
+    return {root = root, tokens = tokens, errors = errors, source = source}
 end
 
 export = parser

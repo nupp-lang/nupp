@@ -814,6 +814,9 @@ function checkMod.check(
     opts: state.Options?
 ): {checkMod.Diagnostic}, Type?, state.ModuleExports
     opts = opts or {} as state.Options
+    if filename and filename:match("%.lua$") then
+        require("nupp.compiler.annotatedlua").decorate(result, filename)
+    end
     if opts.strict == nil then
         -- A bundled declaration is checked under its module name rather than a path, so
         -- the flag rather than the extension is what identifies one here.
@@ -861,7 +864,7 @@ function checkMod.check(
         -- that returns M exports Point while `record Other.Point` does not.
         moduleLocal = declaredModuleName and (
             cst.exportedLocal(result.root) or "__nuppExports"
-        ) or cst.returnedLocal(result.root),
+        ) or cst.returnedLocal(result.root) or result.foreignModuleLocal,
         annotationRegistry = registry,
         annotationDefinitions = {},
         lintConfig = opts and opts.lints or env and env.config and env.config.lints or nil,
@@ -1161,6 +1164,10 @@ function checkMod.check(
             notes = details and details.notes or nil,
             related = details and details.related or nil,
         }
+    end
+
+    for _, diagnostic in ipairs(result.annotationWarnings or {}) do
+        c.diags[#c.diags + 1] = diagnostic
     end
 
     if declaredModuleNode then

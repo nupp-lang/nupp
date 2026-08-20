@@ -104,6 +104,9 @@ entry of its own can still be resolved this far.
 | `NUPP1003` | A required name is missing. |
 | `NUPP1004` | A required expression is missing. |
 | `NUPP1005` | Another syntax or recovery constraint failed. |
+| `NUPP1006` | Typed Nupp syntax appeared in plain Lua. |
+| `NUPP1007` | A docblock names a parameter that does not exist. |
+| `NUPP1008` | An annotated Lua type was recovered with reduced precision. |
 | `NUPP2xxx` | Type, declaration, lint, FFI, or ownership diagnostics. |
 | `NUPP3xxx` | Code generation cannot represent a checked construct. |
 | `NUPP4001` | Formatting could not safely produce the requested result. |
@@ -155,7 +158,7 @@ that page:
 | Files | [files.md](../modules/nupp/io/files.md) | `NUPP2701` |
 | Formatter | [fmt.md](../guides/fmt.md) | `NUPP4001` |
 | Generics | [generics.md](../type-system/generics.md) | `NUPP2003`, `NUPP2116`, `NUPP2122` |
-| Gradual typing | [strictness.md](../concepts/strictness.md) | `NUPP1006`, `NUPP2105`, `NUPP2106` |
+| Gradual typing | [strictness.md](../concepts/strictness.md) | `NUPP1006`, `NUPP1008`, `NUPP2105`, `NUPP2106` |
 | Hot reload | [hot-reload.md](../guides/hot-reload.md) | `NUPP5001` |
 | Interfaces | [interfaces.md](../type-system/interfaces.md) | `NUPP2116`, `NUPP2117`, `NUPP2118`, `NUPP2136`, `NUPP3001` |
 | Intersections and overloads | [intersections.md](../type-system/intersections.md) | `NUPP2124`, `NUPP2125`, `NUPP2126`, `NUPP2208` |

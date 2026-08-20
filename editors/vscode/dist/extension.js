@@ -22893,6 +22893,64 @@ async function checkFunctionForTraceBlockers(target) {
     await vscode.workspace.applyEdit(edit);
   }
 }
+async function migrateAnnotatedLua(target) {
+  const editor = vscode.window.activeTextEditor;
+  const document = target && target.uri ? await vscode.workspace.openTextDocument(target.uri) : editor && editor.document;
+  if (!document || document.uri.scheme !== "file" || !document.uri.fsPath.endsWith(".lua")) {
+    void vscode.window.showInformationMessage("Open an annotated .lua file to migrate it to Nupp.");
+    return;
+  }
+  const running = clientForDocument(document);
+  if (!running) {
+    void vscode.window.showErrorMessage("No Nupp migration service is running for this file.");
+    return;
+  }
+  const dialect = vscode.workspace.getConfiguration("nupp", document.uri).get("luaMigrationDialect", "auto");
+  let plan;
+  try {
+    plan = await running.client.sendRequest("$/nupp/migrateAnnotatedLua", {
+      textDocument: { uri: document.uri.toString() },
+      text: document.getText(),
+      dialect
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    void vscode.window.showErrorMessage(`Annotated Lua migration failed: ${detail}`);
+    return;
+  }
+  if (!plan || !plan.ok) {
+    void vscode.window.showErrorMessage(
+      `Annotated Lua migration failed: ${plan?.error || "no migration plan was returned"}`
+    );
+    return;
+  }
+  const destination = vscode.Uri.parse(plan.destinationUri);
+  try {
+    await vscode.workspace.fs.stat(destination);
+    void vscode.window.showErrorMessage(`Migration destination already exists: ${destination.fsPath}`);
+    return;
+  } catch {
+  }
+  const warningCount = (plan.warnings || []).length;
+  const confirm = await vscode.window.showWarningMessage(
+    `Create ${path.basename(destination.fsPath)} and remove ${path.basename(document.uri.fsPath)}` + (warningCount ? ` (${warningCount} recoverable warning${warningCount === 1 ? "" : "s"})?` : "?"),
+    { modal: true },
+    "Migrate"
+  );
+  if (confirm !== "Migrate") {
+    return;
+  }
+  const edit = new vscode.WorkspaceEdit();
+  edit.createFile(destination, { ignoreIfExists: false, overwrite: false });
+  edit.insert(destination, new vscode.Position(0, 0), plan.text);
+  edit.deleteFile(document.uri, { ignoreIfNotExists: false, recursive: false });
+  if (!await vscode.workspace.applyEdit(edit)) {
+    void vscode.window.showErrorMessage("VS Code could not apply the annotated Lua migration.");
+    return;
+  }
+  const migrated = await vscode.workspace.openTextDocument(destination);
+  await vscode.window.showTextDocument(migrated);
+}
 function expandSetting(value, root) {
   return value.replaceAll("${workspaceFolder}", root).replace(/\$\{env:([^}]+)\}/g, (match, name) => process.env[name] || "");
 }
@@ -22932,8 +22990,8 @@ async function startClient(context, folder) {
     return;
   }
   const launch = serverLaunch(context, folder);
-  const watcher = vscode.workspace.createFileSystemWatcher(
-    new vscode.RelativePattern(folder, "**/*.nupp")
+  const watchers = ["**/*.nupp", "**/*.lua"].map(
+    (pattern) => vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, pattern))
   );
   const client = new LanguageClient(
     `nupp-${nextClientId++}`,
@@ -22951,19 +23009,19 @@ async function startClient(context, folder) {
           pattern: new vscode.RelativePattern(folder, "**/*.nupp")
         }
       ],
-      synchronize: { fileEvents: watcher },
+      synchronize: { fileEvents: watchers },
       workspaceFolder: folder,
       diagnosticCollectionName: "nupp",
       outputChannelName: `Nupp Language Server (${folder.name})`
     }
   );
-  clients.set(key, { client, watcher });
+  clients.set(key, { client, watchers });
   try {
     await client.start();
   } catch (error) {
     clients.delete(key);
     await client.dispose();
-    watcher.dispose();
+    watchers.forEach((watcher) => watcher.dispose());
     const detail = error instanceof Error ? error.message : String(error);
     void vscode.window.showErrorMessage(
       `Could not start the Nupp language server (${launch.command}): ${detail}`
@@ -22978,13 +23036,13 @@ async function stopClient(folder) {
   }
   clients.delete(key);
   await running.client.stop();
-  running.watcher.dispose();
+  running.watchers.forEach((watcher) => watcher.dispose());
 }
 async function restartClients(context) {
   const running = Array.from(clients.values());
   clients.clear();
   await Promise.allSettled(running.map(({ client }) => client.stop()));
-  running.forEach(({ watcher }) => watcher.dispose());
+  running.forEach(({ watchers }) => watchers.forEach((watcher) => watcher.dispose()));
   await Promise.all(
     (vscode.workspace.workspaceFolders || []).map(
       (folder) => startClient(context, folder)
@@ -23004,6 +23062,7 @@ async function activate(context) {
       "nupp.checkFunctionForJitTraceBlockers",
       checkFunctionForTraceBlockers
     ),
+    vscode.commands.registerCommand("nupp.migrateAnnotatedLua", migrateAnnotatedLua),
     vscode.commands.registerCommand("nupp.restartLanguageServer", async () => {
       await restartClients(context);
       void vscode.window.showInformationMessage("Nupp language server restarted.");
@@ -23036,6 +23095,27 @@ async function activate(context) {
         }
       }
     ),
+    vscode.languages.registerCodeActionsProvider(
+      { language: "lua", scheme: "file" },
+      {
+        provideCodeActions(document) {
+          if (!document.uri.fsPath.endsWith(".lua")) {
+            return [];
+          }
+          const action = new vscode.CodeAction(
+            "Migrate annotated Lua to Nupp",
+            vscode.CodeActionKind.RefactorRewrite
+          );
+          action.command = {
+            command: "nupp.migrateAnnotatedLua",
+            title: action.title,
+            arguments: [{ uri: document.uri }]
+          };
+          return [action];
+        }
+      },
+      { providedCodeActionKinds: [vscode.CodeActionKind.RefactorRewrite] }
+    ),
     vscode.workspace.onDidChangeTextDocument((event) => {
       traceDiagnostics.delete(event.document.uri);
     }),
@@ -23063,6 +23143,6 @@ async function deactivate() {
   const running = Array.from(clients.values());
   clients.clear();
   await Promise.allSettled(running.map(({ client }) => client.stop()));
-  running.forEach(({ watcher }) => watcher.dispose());
+  running.forEach(({ watchers }) => watchers.forEach((watcher) => watcher.dispose()));
 }
 module.exports = { activate, deactivate };

@@ -31,12 +31,11 @@ from the gradual one.
 | `.nupp` | strict | unknown variables and untyped exports are errors |
 | `.g.nupp` | gradual | the same typed syntax, without that floor |
 | `.d.nupp` | gradual | declares an interface somebody else implements |
-| `.lua` | gradual | plain Lua, and the typed layer is refused in it |
+| `.lua` | gradual | plain Lua syntax; recognized type comments are imported |
 
-The toolchain requires, builds, and runs a `.lua` file unchanged. An annotation
-written there is reported rather than being a silently ignored comment,
-because the extension has already settled that the file is Lua, so an
-annotation written into it would govern nothing:
+The toolchain requires, builds, and runs a `.lua` file unchanged. Nupp syntax is
+still refused because the runtime file must remain Lua, but LuaCATS, EmmyLua,
+and typed LuaDoc comments are always imported as gradual checker facts:
 
 ```lua
 local function double(n: integer): integer
@@ -47,6 +46,20 @@ end
 ```text [nupp check helpers.lua]
 error: NUPP1006: a type annotation is not plain Lua
 ```
+
+Write the same contract in a Lua file without changing its runtime syntax:
+
+```lua
+---@param n integer
+---@return integer
+local function double(n)
+    return n * 2
+end
+```
+
+Malformed or unsupported comment types recover locally to `any` and report a
+`NUPP1008` warning. There is no setting that disables comment ingestion. See
+[Annotated Lua](../guides/annotated-lua.md) for migration and compatibility.
 
 A `.d.nupp` file is gradual because it describes an interface somebody else
 implements, where `any` is often the type the interface actually has:

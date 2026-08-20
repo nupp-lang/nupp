@@ -161,6 +161,12 @@ local REGISTRY: {{
         end
     },
     {
+        name = "migrate",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.migrate")
+        end
+    },
+    {
         name = "export-c",
         load = function(): specMod.Handler
             return require("nupp.compiler.cli.exportc")

@@ -1,0 +1,850 @@
+module nupp.compiler.annotatedlua
+
+--[[
+LuaCATS, EmmyLua and typed LuaDoc comments as checker facts.
+
+The runtime tree stays lossless. Imported declarations and annotations are attached
+through semantic fields (`block.stats`, `local.types`, `param.type`, and funcbody
+returns) without adding them to the CST's ordered children. The checker therefore
+sees them while formatting and code generation continue to reproduce the Lua source.
+]]
+
+local parser = require("nupp.compiler.parser")
+local cst = require("nupp.compiler.cst")
+local lexer = require("nupp.compiler.lexer")
+
+local annotated = {}
+
+record annotated.Warning
+    code: string
+    msg: string
+    filename: string?
+    severity: string
+    line: integer
+    col: integer
+    offset: integer
+    length: integer
+end
+
+record annotated.Tag
+    name: string
+    value: string
+    line: integer
+    col: integer
+    offset: integer
+    raw: string
+    used: boolean?
+end
+
+local function trim(text: string): string
+    return (text:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function appendTag(out: {annotated.Tag}, body: string?, line: integer, col: integer, offset: integer, raw: string)
+    if not body then
+        return
+    end
+    local name, value = body:match("^([%a_][%w_-]*)%s*(.*)$")
+    if name then
+        out[
+            #out + 1
+        ] = new annotated.Tag(
+            name = name:lower(),
+            value = trim(value),
+            line = line,
+            col = col,
+            offset = offset,
+            raw = raw
+        )
+    end
+end
+
+--- Every annotation-looking comment in a source file. Unknown tags stay in this list:
+--- callers can ignore metadata without mistaking a misspelled type tag for prose.
+function annotated.tags(source: string, parsedTokens: {lexer.Token}?): {annotated.Tag}
+    local out: {annotated.Tag} = {}
+    local tokens = parsedTokens
+    if not tokens then
+        tokens = select(1, lexer.lex(source, nil))
+    end
+    for _, token in ipairs(tokens) do
+        for index = 1, token.triviaCount do
+            if lexer.triviaKind(token, index) == "comment" then
+                local record = lexer.triviaRecord(token, index)
+                local body = record.text:match("^%-%-%-%s*@(.+)$") or record.text:match("^%-%-%s+@(.+)$")
+                if body then
+                    appendTag(out, body, record.line, record.col, record.offset, record.text)
+                else
+                    local opener = record.text:match("^(%-%-%[=*%[)")
+                    if opener then
+                        local contents = record.text:sub(#opener + 1):gsub("%]=*%]$", "")
+                        local cursor, line = 0, record.line
+                        for written in (contents .. "\n"):gmatch("(.-)\n") do
+                            local prefix, blockBody = written:match("^(%s*%*?%s*)@(.+)$")
+                            if not blockBody then
+                                prefix, blockBody = written:match("^(%s*%-%-%-?%s*)@(.+)$")
+                            end
+                            if blockBody then
+                                local matchedPrefix = prefix or ""
+                                local at = math.floor(record.offset + #opener + cursor + #matchedPrefix)
+                                local col = line == record.line
+                                    and record.col
+                                    + #opener
+                                    + #matchedPrefix
+                                    or #matchedPrefix
+                                    + 1
+                                appendTag(out, blockBody, line, col, at, written)
+                            end
+                            cursor = cursor + #written + 1
+                            line = line + 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return out
+end
+
+local function safeSegment(name: string): string
+    local safe = name:gsub("[^%w_]", "_")
+    if safe == "" or safe:match("^%d") then
+        safe = "_" .. safe
+    end
+
+    return safe
+end
+
+local function safeName(name: string): string
+    local parts = {}
+    for part in name:gmatch("[^.]+") do
+        parts[#parts + 1] = safeSegment(part)
+    end
+
+    return table.concat(parts, ".")
+end
+
+local function declaredName(value: string): string?
+    return value:match("^([^%s:]+)")
+end
+
+local function nameMapOf(tags: {annotated.Tag}): {[string]: string}
+    local names: {[string]: string} = {}
+    for _, tag in ipairs(tags) do
+        if tag.name == "alias" or tag.name == "class" or tag.name == "enum" then
+            local name = declaredName(tag.value)
+            if name then
+                names[name] = safeName(name)
+            end
+        end
+    end
+
+    return names
+end
+
+--- Rewrites only dialect differences; the result is still parsed by Nupp's type
+--- parser, which is the authority on the common subset.
+local function translateType(text: string, names: {[string]: string}): string
+    text = trim(text)
+    text = text:gsub("^async%s+", "")
+    text = text:gsub("%f[%a]fun%f[^%w_]", "function")
+    -- LuaCATS permits an optional marker on a function parameter name.
+    text = text:gsub("([%a_][%w_]*)%?%s*:%s*", "%1: ")
+    for foreign, safe in pairs(names) do
+        local escaped = foreign:gsub("([^%w])", "%%%1")
+        text = text:gsub("%f[%w_]" .. escaped .. "%f[^%w_]", safe)
+        if foreign:match("[^%w_]$") then
+            text = text:gsub(escaped, safe)
+        end
+    end
+
+    -- Postfix LuaCATS arrays. Repeatedly handle a name/application/parenthesized atom;
+    -- shapes already use Nupp's spelling and are deliberately left alone.
+    local changed = true
+    while changed do
+        local before = text
+        text = text:gsub("([%w_%.]+)%[%]", "{%1}")
+        text = text:gsub("(%b())%[%]", "{%1}")
+        changed = text ~= before
+    end
+
+    -- The overwhelmingly common generic table spelling. Nested applications are
+    -- handled from the innermost pair outward.
+    changed = true
+    while changed do
+        local before = text
+        text = text:gsub("table%s*<%s*([^<>,]+)%s*,%s*([^<>]+)%s*>", "{[%1]: %2}")
+        changed = text ~= before
+    end
+
+    return text
+end
+
+local function markSynthetic(node: any, tag: annotated.Tag)
+    if type(node) ~= "table" then
+        return
+    end
+    node.foreignAnnotation = true
+    if cst.isToken(node) then
+        node.line = tag.line
+        node.col = tag.col
+        node.offset = tag.offset
+        return
+    end
+    for _, child in ipairs(node) do
+        markSynthetic(child, tag)
+    end
+end
+
+local function warning(tag: annotated.Tag, filename: string?, message: string): annotated.Warning
+    return new annotated.Warning(
+        code = "NUPP1008",
+        msg = message,
+        filename = filename,
+        severity = "warning",
+        line = tag.line,
+        col = tag.col,
+        offset = tag.offset,
+        length = #tag.raw
+    )
+end
+
+--- Returns the longest leading portion of `written` that is a Nupp type. The remainder
+--- is a LuaCATS description or a named return value. A `#` description delimiter is
+--- honored before probing whitespace boundaries.
+local function parsedType(written: string, names: {[string]: string}, tag: annotated.Tag): cst.Node?, string?
+    local hash = written:find("%s+#%s+")
+    if hash then
+        written = written:sub(1, hash - 1)
+    end
+    written = trim(written)
+    local cuts = {#written}
+    for at = #written, 1, -1 do
+        if written:sub(at, at):match("%s") then
+            cuts[#cuts + 1] = at - 1
+        end
+    end
+    local seen: {[integer]: boolean} = {}
+    for _, cut in ipairs(cuts) do
+        if cut > 0 and not seen[cut] then
+            seen[cut] = true
+            local candidate = translateType(trim(written:sub(1, cut)), names)
+            local result = parser.parse("local __foreign: " .. candidate .. " = nil\n", "nupp:annotated-lua-type")
+            local block = result.root.blocks and result.root.blocks[1]
+            local stat = block and block.stats and block.stats[1]
+            if #result.errors == 0 and stat and stat.kind == "localStmt" and stat.types and stat.types[1] then
+                local node = stat.types[1]
+                markSynthetic(node, tag)
+                return node, candidate
+            end
+        end
+    end
+
+    return nil, nil
+end
+
+local function anyType(tag: annotated.Tag): cst.Node
+    local result = parser.parse("local __foreign: any = nil\n", "nupp:annotated-lua-type")
+    local stat = result.root.blocks[1].stats[1] as any
+    local node = stat.types[1]
+    markSynthetic(node, tag)
+
+    return node
+end
+
+local function splitFirst(value: string): string?, string?
+    local name, rest = value:match("^(%S+)%s+(.+)$")
+    return name, rest
+end
+
+local function splitTypes(value: string): {string}
+    local out, start, depth, quote = {}, 1, 0, nil
+    for index = 1, #value do
+        local char = value:sub(index, index)
+        if quote then
+            if char == quote and value:sub(index - 1, index - 1) ~= "\\" then
+                quote = nil
+            end
+        elseif char == "'" or char == '"' then
+            quote = char
+        elseif char == "(" or char == "{" or char == "[" or char == "<" then
+            depth = depth + 1
+        elseif char == ")" or char == "}" or char == "]" or char == ">" then
+            depth = math.max(0, depth - 1)
+        elseif char == "," and depth == 0 then
+            out[#out + 1] = trim(value:sub(start, index - 1))
+            start = index + 1
+        end
+    end
+    out[#out + 1] = trim(value:sub(start))
+
+    return out
+end
+
+local function firstTokenLine(node: any): integer
+    local tok = cst.firstToken(node)
+    return tok and tok.line or 0
+end
+
+local function functionBody(stat: any): cst.Funcbody?
+    if stat.kind == "localFuncStmt" or stat.kind == "funcStmt" then
+        return stat.body
+    end
+    if (stat.kind == "localStmt" or stat.kind == "assignStmt") and stat.exprs and stat.exprs[1] then
+        local expr = stat.exprs[1]
+        if expr.kind == "funcExpr" then
+            return expr.body
+        end
+    end
+
+    return nil
+end
+
+local function tagsBefore(all: {annotated.Tag}, line: integer, previous: integer): {annotated.Tag}
+    local selected = {}
+    for _, tag in ipairs(all) do
+        if tag.line > previous and tag.line < line then
+            selected[#selected + 1] = tag
+        end
+    end
+
+    return selected
+end
+
+local function declarationSource(
+    tag: annotated.Tag,
+    following: {annotated.Tag},
+    names: {[string]: string},
+    warnings: {annotated.Warning},
+    filename: string?
+): string?
+    if tag.name == "alias" then
+        tag.used = true
+        local foreign, rest = splitFirst(tag.value)
+        if not foreign or not rest then
+            warnings[#warnings + 1] = warning(tag, filename, "malformed annotated Lua @alias; using any")
+            return "local type " .. safeName(foreign or "ForeignAlias") .. " = any\n"
+        end
+        local _, translated = parsedType(rest, names, tag)
+        if not translated then
+            warnings[#warnings + 1] = warning(tag, filename, "cannot read annotated Lua alias type; using any")
+            translated = "any"
+        end
+        local name = names[foreign] or safeName(foreign)
+        return (name:find("%.", 1, false) and "type " or "local type ") .. name .. " = " .. translated .. "\n"
+    end
+    if tag.name == "enum" then
+        tag.used = true
+        local foreign = declaredName(tag.value)
+        if not foreign then
+            warnings[#warnings + 1] = warning(tag, filename, "malformed annotated Lua @enum; declaration ignored")
+            return nil
+        end
+        warnings[
+            #warnings + 1
+        ] = warning(tag, filename, "annotated Lua enum values require runtime table analysis; enum uses any")
+        local name = names[foreign] or safeName(foreign)
+        return (name:find("%.", 1, false) and "type " or "local type ") .. name .. " = any\n"
+    end
+    if tag.name ~= "class" then
+        return nil
+    end
+    tag.used = true
+    local foreign, parent = tag.value:match("^([^%s:]+)%s*:?%s*(.*)$")
+    if not foreign then
+        warnings[#warnings + 1] = warning(tag, filename, "malformed annotated Lua @class; declaration ignored")
+        return nil
+    end
+    local name = names[foreign] or safeName(foreign)
+    local out = {(name:find("%.", 1, false) and "interface " or "local interface ") .. name}
+    if parent and parent ~= "" then
+        local _, translated = parsedType(parent, names, tag)
+        if translated then
+            out[1] = out[1] .. " is " .. translated
+        else
+            warnings[#warnings + 1] = warning(tag, filename, "cannot read annotated Lua base class; base ignored")
+        end
+    end
+    for _, field in ipairs(following) do
+        if field.name == "field" then
+            field.used = true
+            local fieldName, rest = splitFirst(field.value)
+            if fieldName and rest then
+                local optional = fieldName:sub(-1) == "?"
+                if optional then
+                    fieldName = fieldName:sub(1, -2)
+                end
+                fieldName = fieldName:gsub("^%[", ""):gsub("%]$", "")
+                local _, translated = parsedType(rest, names, field)
+                if not translated then
+                    warnings[
+                        #warnings + 1
+                    ] = warning(field, filename, "cannot read annotated Lua field type; using any")
+                    translated = "any"
+                elseif optional then
+                    translated = "(" .. translated .. ")?"
+                end
+                out[#out + 1] = "    " .. safeSegment(fieldName) .. ": " .. translated
+            else
+                warnings[#warnings + 1] = warning(field, filename, "malformed annotated Lua @field; field ignored")
+            end
+        elseif field.name == "operator" then
+            field.used = true
+            local operation, arguments, returns = field.value:match("^([%a_][%w_]*)%s*(%b())%s*:%s*(.+)$")
+            if not operation then
+                operation, returns = field.value:match("^([%a_][%w_]*)%s*:%s*(.+)$")
+                arguments = "()"
+            end
+            local metamethods = {
+                add = "__add",
+                sub = "__sub",
+                mul = "__mul",
+                div = "__div",
+                idiv = "__idiv",
+                mod = "__mod",
+                pow = "__pow",
+                unm = "__unm",
+                concat = "__concat",
+                len = "__len",
+                eq = "__eq",
+                lt = "__lt",
+                le = "__le",
+                call = "__call",
+                index = "__index",
+                newindex = "__newindex",
+                band = "__band",
+                bor = "__bor",
+                bxor = "__bxor",
+                bnot = "__bnot",
+                shl = "__shl",
+                shr = "__shr",
+            }
+            local method = operation and metamethods[operation]
+            if method and returns and arguments then
+                local inside = arguments:sub(2, -2)
+                local signature = "function(self: " .. name .. (
+                    trim(inside) ~= "" and ", " .. inside or ""
+                ) .. "): " .. returns
+                local _, translated = parsedType(signature, names, field)
+                if translated then
+                    out[#out + 1] = "    metamethod " .. method .. ": " .. translated
+                else
+                    warnings[
+                        #warnings + 1
+                    ] = warning(field, filename, "cannot read annotated Lua operator; operator ignored")
+                end
+            else
+                warnings[
+                    #warnings + 1
+                ] = warning(field, filename, "unsupported annotated Lua operator; operator ignored")
+            end
+        end
+    end
+    out[#out + 1] = "end\n"
+
+    return table.concat(out, "\n")
+end
+
+local function decorateFunction(
+    body: cst.Funcbody,
+    tags: {annotated.Tag},
+    names: {[string]: string},
+    warnings: {annotated.Warning},
+    filename: string?,
+    dialect: string
+)
+    if body.foreignAnnotationsDecorated then
+        return
+    end
+    body.foreignAnnotationsDecorated = true
+    local params: {[string]: cst.Node} = {}
+    local returns: {cst.Node} = {}
+    local vararg: cst.Node? = nil
+    local genericTag: annotated.Tag? = nil
+    local overloads: {cst.Node} = {}
+    local functionNames: {[string]: string} = {}
+    for name, translated in pairs(names) do
+        functionNames[name] = translated
+    end
+    for _, tag in ipairs(tags) do
+        if tag.name == "generic" then
+            for part in tag.value:gmatch("[^,]+") do
+                local name = trim(part):match("^([%a_][%w_]*)")
+                if name then
+                    functionNames[name] = "any"
+                end
+            end
+        end
+    end
+    for _, tag in ipairs(tags) do
+        if tag.name == "param" and dialect == "luadoc" then
+            -- Plain LuaDoc @param is prose. Its typed spelling is @tparam.
+            tag.used = true
+        elseif tag.name == "param" or tag.name == "tparam" then
+            tag.used = true
+            local name, rest = splitFirst(tag.value)
+            if tag.name == "tparam" then
+                local writtenType, writtenName = name, rest
+                name, rest = writtenName and splitFirst(writtenName) or nil, writtenType
+            end
+            if name and rest then
+                local optional = name:sub(-1) == "?"
+                if optional then
+                    name = name:sub(1, -2)
+                end
+                local node = parsedType(rest, functionNames, tag)
+                if not node then
+                    warnings[
+                        #warnings + 1
+                    ] = warning(tag, filename, "cannot read annotated Lua parameter type; using any")
+                    node = anyType(tag)
+                elseif optional then
+                    local translated = select(2, parsedType(rest, functionNames, tag))
+                    node = parsedType("(" .. (translated or "any") .. ")?", functionNames, tag) or anyType(tag)
+                end
+                params[name] = node
+            else
+                warnings[
+                    #warnings + 1
+                ] = warning(tag, filename, "malformed annotated Lua @param; parameter remains any")
+            end
+        elseif tag.name == "return" or tag.name == "returns" or tag.name == "treturn" then
+            tag.used = true
+            local node = parsedType(tag.value, functionNames, tag)
+            if not node then
+                warnings[#warnings + 1] = warning(tag, filename, "cannot read annotated Lua return type; using any")
+                node = anyType(tag)
+            end
+            returns[#returns + 1] = node
+        elseif tag.name == "vararg" then
+            tag.used = true
+            vararg = parsedType(tag.value, functionNames, tag)
+            if not vararg then
+                warnings[#warnings + 1] = warning(tag, filename, "cannot read annotated Lua vararg type; using any")
+                vararg = anyType(tag)
+            end
+        elseif tag.name == "generic" then
+            tag.used = true
+            genericTag = tag
+        elseif tag.name == "overload" then
+            tag.used = true
+            local overload = parsedType(tag.value, functionNames, tag)
+            if overload then
+                overloads[#overloads + 1] = overload
+            else
+                warnings[#warnings + 1] = warning(tag, filename, "cannot read annotated Lua overload; overload ignored")
+            end
+        end
+    end
+    if genericTag then
+        warnings[
+            #warnings + 1
+        ] = warning(
+            genericTag,
+            filename,
+            "annotated Lua generics do not state ownership contracts; generic positions use any"
+        )
+    end
+    for _, writtenParam in ipairs(body.params or {}) do
+        local param = writtenParam as cst.Param
+        if param.name and params[param.name.text] then
+            param.type = params[param.name.text]
+        elseif param.vararg and vararg then
+            param.type = vararg
+        end
+    end
+    if #returns > 0 then
+        body.rets = returns
+        local source = "local function __foreign(): "
+        local pieces = {}
+        for _, node in ipairs(returns) do
+            pieces[#pieces + 1] = cst.textOf(node):gsub("^%s+", "")
+        end
+        local parsed = parser.parse(source .. table.concat(pieces, ", ") .. " end\n", "nupp:annotated-lua-return")
+        if #parsed.errors == 0 then
+            local generated = (parsed.root.blocks[1].stats[1] as any).body
+            body.returnPack = generated.returnPack
+            markSynthetic(body.returnPack, tags[#tags])
+        end
+    end
+    if #overloads > 0 then
+        body.foreignOverloads = overloads
+    end
+end
+
+local function decorateBlock(
+    block: cst.Block,
+    all: {annotated.Tag},
+    names: {[string]: string},
+    warnings: {annotated.Warning},
+    filename: string?,
+    lowerBound: integer?,
+    dialect: string
+)
+    local previous = lowerBound or 0
+    local semantic = {}
+    for _, stat in ipairs(block.stats or {}) do
+        local line = firstTokenLine(stat)
+        local attached = tagsBefore(all, line, previous)
+        local lastBefore = cst.lastToken(stat)
+        local lastLine = lastBefore and lastBefore.line or line
+        for _, tag in ipairs(all) do
+            if (tag.name == "type" or tag.name == "cast") and tag.line >= line and tag.line <= lastLine then
+                attached[#attached + 1] = tag
+            end
+        end
+        for _, tag in ipairs(attached) do
+            if tag.name == "cast" then
+                tag.used = true
+                local name, rest = splitFirst(tag.value)
+                if not name or not rest or rest:match("^%-") then
+                    warnings[
+                        #warnings + 1
+                    ] = warning(
+                        tag,
+                        filename,
+                        "negative or malformed annotated Lua cast is not representable; cast ignored"
+                    )
+                elseif not name:match("^[%a_][%w_]*$") then
+                    warnings[
+                        #warnings + 1
+                    ] = warning(tag, filename, "annotated Lua cast target is not a local name; cast ignored")
+                else
+                    local _, translated = parsedType(rest, names, tag)
+                    if translated then
+                        local parsed = parser.parse(
+                            name .. " = " .. name .. " as " .. translated .. "\n",
+                            "nupp:annotated-lua-cast"
+                        )
+                        if #parsed.errors == 0 then
+                            local cast = parsed.root.blocks[1].stats[1]
+                            markSynthetic(cast, tag)
+                            cast.foreignInsertOffset = (cst.firstToken(stat) or {offset = tag.offset}).offset
+                            semantic[#semantic + 1] = cast
+                        else
+                            warnings[
+                                #warnings + 1
+                            ] = warning(tag, filename, "cannot read annotated Lua cast; cast ignored")
+                        end
+                    else
+                        warnings[
+                            #warnings + 1
+                        ] = warning(tag, filename, "cannot read annotated Lua cast type; cast ignored")
+                    end
+                end
+            end
+        end
+        semantic[#semantic + 1] = stat
+        local body = functionBody(stat)
+        if body then
+            decorateFunction(body, attached, names, warnings, filename, dialect)
+        elseif stat.kind == "localStmt" then
+            for _, tag in ipairs(attached) do
+                if tag.name == "type" then
+                    tag.used = true
+                    for index, written in ipairs(splitTypes(tag.value)) do
+                        if stat.names[index] then
+                            local node = parsedType(written, names, tag)
+                            if not node then
+                                warnings[
+                                    #warnings + 1
+                                ] = warning(tag, filename, "cannot read annotated Lua variable type; using any")
+                                node = anyType(tag)
+                            end
+                            stat.types[index] = node
+                        end
+                    end
+                    break
+                end
+            end
+        end
+        if stat.kind == "assignStmt" then
+            for _, tag in ipairs(attached) do
+                if tag.name == "type" then
+                    tag.used = true
+                    local generated = {}
+                    for index, written in ipairs(splitTypes(tag.value)) do
+                        local target = stat.targets and stat.targets[index]
+                        local token = target and target.kind == "name" and target.token or nil
+                        if token then
+                            local _, translated = parsedType(written, names, tag)
+                            if not translated then
+                                warnings[
+                                    #warnings + 1
+                                ] = warning(tag, filename, "cannot read annotated Lua assignment type; using any")
+                                translated = "any"
+                            end
+                            generated[#generated + 1] = token.text .. " = " .. token.text .. " as " .. translated
+                        end
+                    end
+                    if #generated > 0 then
+                        local parsed = parser.parse(table.concat(generated, "\n") .. "\n", "nupp:annotated-lua-type")
+                        if #parsed.errors == 0 then
+                            for _, assertion in ipairs(parsed.root.blocks[1].stats or {}) do
+                                markSynthetic(assertion, tag)
+                                assertion.foreignInsertOffset = tag.offset + #tag.raw
+                                semantic[#semantic + 1] = assertion
+                            end
+                        end
+                    else
+                        warnings[
+                            #warnings + 1
+                        ] = warning(
+                            tag,
+                            filename,
+                            "annotated Lua assignment target cannot carry a type; annotation ignored"
+                        )
+                    end
+                    break
+                end
+            end
+        end
+        local last = cst.lastToken(stat)
+        previous = last and last.line or line
+        -- Nested blocks are found through the semantic children below; their own pass
+        -- uses source lines to select only annotations inside them.
+        local function decorateNested(node: any)
+            if type(node) ~= "table" or cst.isToken(node) then
+                return
+            end
+            if node.kind == "block" then
+                decorateBlock(node, all, names, warnings, filename, line, dialect)
+                return
+            elseif node.kind == "funcExpr" and node.body then
+                decorateFunction(
+                    node.body,
+                    tagsBefore(all, firstTokenLine(node), line),
+                    names,
+                    warnings,
+                    filename,
+                    dialect
+                )
+                decorateBlock(node.body.body, all, names, warnings, filename, firstTokenLine(node), dialect)
+                return
+            elseif node.kind == "funcbody" and node.body then
+                decorateBlock(node.body, all, names, warnings, filename, line, dialect)
+                return
+            end
+            for _, child in ipairs(node) do
+                decorateNested(child)
+            end
+        end
+
+        for _, child in ipairs(stat) do
+            decorateNested(child)
+        end
+    end
+    block.stats = semantic
+end
+
+--- Attaches the comments of one `.lua` parse as semantic typing facts. This operation
+--- is idempotent because incremental checking may reuse a parse result.
+function annotated.decorate(result: any, filename: string?, dialect: string?): {annotated.Warning}
+    if result.annotatedLuaDecorated then
+        return result.annotationWarnings or {}
+    end
+    result.annotatedLuaDecorated = true
+    local warnings: {annotated.Warning} = {}
+    result.annotationWarnings = warnings
+    local source = result.source
+    if type(source) ~= "string" or not filename or not filename:match("%.lua$") then
+        return warnings
+    end
+    local tags = annotated.tags(source, result.tokens)
+    dialect = dialect or "auto"
+    result.annotationTags = tags
+    local names = nameMapOf(tags)
+    local moduleLocal = cst.returnedLocal(result.root) or "__nuppForeignExports"
+    result.foreignModuleLocal = moduleLocal
+
+    -- Type declarations are file-scoped in the interoperable dialect. Insert them at
+    -- the front of the semantic statement list, but not the lossless child list.
+    local declarations = {}
+    for index, tag in ipairs(tags) do
+        if tag.name == "alias" or tag.name == "class" or tag.name == "enum" then
+            local following = {}
+            if tag.name == "class" then
+                local at = index + 1
+                while tags[at] and (tags[at].name == "field" or tags[at].name == "operator") do
+                    following[#following + 1] = tags[at]
+                    at = at + 1
+                end
+            end
+            local sourceDecl = declarationSource(tag, following, names, warnings, filename)
+            if sourceDecl then
+                local parsed = parser.parse(sourceDecl, "nupp:annotated-lua-declaration")
+                if #parsed.errors == 0 then
+                    for _, stat in ipairs(parsed.root.blocks[1].stats or {}) do
+                        markSynthetic(stat, tag)
+                        declarations[#declarations + 1] = stat
+                    end
+                    local foreign = declaredName(tag.value)
+                    local localName = foreign and (names[foreign] or safeName(foreign)) or nil
+                    if moduleLocal and localName and not localName:find("%.") then
+                        local exported = parser.parse(
+                            "type " .. moduleLocal .. "." .. localName .. " = " .. localName .. "\n",
+                            "nupp:annotated-lua-export"
+                        )
+                        if #exported.errors == 0 then
+                            for _, stat in ipairs(exported.root.blocks[1].stats or {}) do
+                                markSynthetic(stat, tag)
+                                declarations[#declarations + 1] = stat
+                            end
+                        end
+                    end
+                else
+                    warnings[
+                        #warnings + 1
+                    ] = warning(tag, filename, "cannot import annotated Lua declaration; declaration ignored")
+                end
+            end
+        end
+    end
+    local first = result.root.blocks and result.root.blocks[1]
+    if first and #declarations > 0 then
+        local merged = {}
+        for _, declaration in ipairs(declarations) do
+            merged[#merged + 1] = declaration
+        end
+        for _, stat in ipairs(first.stats or {}) do
+            merged[#merged + 1] = stat
+        end
+        first.stats = merged
+    end
+    for _, block in ipairs(result.root.blocks or {}) do
+        decorateBlock(block, tags, names, warnings, filename, 0, dialect)
+    end
+    local typeBearing = {
+        alias = true,
+        class = true,
+        field = true,
+        enum = true,
+        generic = true,
+        operator = true,
+        overload = true,
+        param = true,
+        tparam = true,
+        ["return"] = true,
+        returns = true,
+        treturn = true,
+        type = true,
+        cast = true,
+        vararg = true,
+    }
+    for _, tag in ipairs(tags) do
+        if typeBearing[tag.name] and not tag.used then
+            warnings[
+                #warnings + 1
+            ] = warning(
+                tag,
+                filename,
+                "annotated Lua @" .. tag.name .. " is not representable here; annotation ignored"
+            )
+        end
+    end
+
+    return warnings
+end
+
+export = annotated

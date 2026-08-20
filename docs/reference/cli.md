@@ -1718,6 +1718,37 @@ See [c-interop.md](../concepts/c-interop.md#header-only-functions) for complete
 direct and bridge headers, a runnable header-only manifest, macro recipe types,
 emitted C, ownership refinements, and supported limits.
 
+### `migrate`
+
+```text [nupp migrate --help]
+Migrate typed foreign source into gradual Nupp
+
+Usage:
+  nupp migrate [--check] [--json] [--dialect auto|luacats|emmy|luadoc] FILE...
+
+Options:
+  --check            Print the migration plan without changing files
+  --dialect DIALECT  Resolve ambiguous comment spellings for this migration
+                     (default auto)
+  --format FORMAT    Output format: text (default) or json
+  --json             Shorthand for --format json
+  --text             Shorthand for --format text
+  --schema           Print the JSON Schema of --json output and exit
+  --color[=WHEN]     When to color output: always, never, or auto (default)
+  --no-color         Never color output; the same as --color=never
+  -h, --help         Show this help
+
+The file extension selects the migrator. Annotated `.lua` becomes the
+same module at `.g.nupp`; unsupported extensions are refused rather than guessed.
+
+Without --check, the destination is written atomically and checked before the source
+is removed. An existing destination is never replaced.
+```
+
+The annotated-Lua guide describes [always-on comment
+ingestion](../guides/annotated-lua.md) and the shared command/editor migration
+planner. `--check` reports the complete plan without writing or removing files.
+
 ### `export-c`
 
 ```text [nupp export-c --help]
@@ -1969,6 +2000,7 @@ Commands:
   fixpoint         Verify a byte-identical self-hosting rebuild
   run              Compile and run a Nupp or Lua program
   import-c         Generate typed Nupp bindings from a C header
+  migrate          Migrate typed foreign source into gradual Nupp
   export-c         Export canonical C declarations for Nupp structs
   rock             Create and package typed LuaRocks libraries
   lsp              Language-server and semantic source operations

@@ -1,0 +1,162 @@
+module nupp.compiler.cli.migrate
+
+-- `nupp migrate`: one extension-dispatched path from foreign source facts into Nupp.
+
+local spec = require("nupp.compiler.cli.spec")
+local options = require("nupp.compiler.cli.options")
+
+local command = spec.command{
+    name = "migrate",
+    summary = "Migrate typed foreign source into gradual Nupp",
+    usage = {"nupp migrate [--check] [--json] [--dialect auto|luacats|emmy|luadoc] FILE..."},
+    options = options.join(
+        {name = "--check", help = "Print the migration plan without changing files"},
+        {
+            name = "--dialect",
+            value = "DIALECT",
+            choices = {"auto", "luacats", "emmy", "luadoc"},
+            help = "Resolve ambiguous comment spellings for this migration (default auto)"
+        },
+        options.format()
+    ),
+    schema = {
+        type = "object",
+        properties = {
+            ok = {type = "boolean"},
+            check = {type = "boolean"},
+            migrations = {
+                type = "array",
+                items = {
+                    type = "object",
+                    properties = {
+                        source = {type = "string"},
+                        destination = {type = "string"},
+                        dialect = {type = "string"},
+                        text = {type = "string"},
+                        edits = {type = "array", items = {type = "object"}},
+                        warnings = {type = "array", items = {type = "object"}},
+                        written = {type = "boolean"},
+                    },
+                    required = {"source", "destination", "dialect", "edits", "warnings", "written"},
+                },
+            },
+            errors = {type = "array", items = {type = "string"}},
+        },
+        required = {"ok", "check", "migrations", "errors"},
+    },
+    detail = [[The file extension selects the migrator. Annotated `.lua` becomes the
+same module at `.g.nupp`; unsupported extensions are refused rather than guessed.
+
+Without --check, the destination is written atomically and checked before the source
+is removed. An existing destination is never replaced.]],
+}
+
+local function publicPlan(plan: any, written: boolean, includeText: boolean): any
+    return {
+        source = plan.source,
+        destination = plan.destination,
+        dialect = plan.dialect,
+        text = includeText and plan.text or nil,
+        edits = plan.edits,
+        warnings = plan.warnings,
+        written = written,
+    }
+end
+
+local function run(parsed: any): integer
+    local paths: {string} = parsed.positional
+    if #paths == 0 then
+        return command:usageError("at least one source file is required")
+    end
+    local asJson = parsed.values.format == "json"
+    local asking = parsed.values.check and true or false
+    local dialect = parsed.values.dialect or "auto"
+    local fs = require("nupp.compiler.fs")
+    local planner = require("nupp.compiler.migrate")
+    local plans, errors = {}, {}
+    for _, path in ipairs(paths) do
+        local source, readErr = fs.readFile(path)
+        if not source then
+            errors[#errors + 1] = path .. ": " .. tostring(readErr)
+        else
+            local plan, planErr = planner.plan(source, path, dialect)
+            if not plan then
+                errors[#errors + 1] = path .. ": " .. tostring(planErr)
+            elseif fs.exists(plan.destination) then
+                errors[#errors + 1] = plan.destination .. " already exists"
+            else
+                plans[#plans + 1] = plan
+            end
+        end
+    end
+
+    local public = {}
+    if #errors == 0 and not asking then
+        local parser = require("nupp.compiler.parser")
+        local check = require("nupp.compiler.check")
+        local diagnostics = require("nupp.compiler.diagnostics")
+        local env = require("nupp.compiler.env").new(".")
+        for _, plan in ipairs(plans) do
+            local wrote, writeErr = fs.writeFile(plan.destination, plan.text)
+            if not wrote then
+                errors[#errors + 1] = plan.destination .. ": " .. tostring(writeErr)
+                public[#public + 1] = publicPlan(plan, false, asJson)
+                break
+            end
+            local result = parser.parse(plan.text, plan.destination)
+            local checked = #result.errors == 0 and check.check(
+                result,
+                plan.destination,
+                env as {[string]: any}
+            ) or result.errors
+            local fatal = nil
+            for _, diagnostic in ipairs(checked) do
+                if diagnostics.isFatal(diagnostic) then
+                    fatal = diagnostic
+                    break
+                end
+            end
+            if fatal then
+                errors[#errors + 1] = plan.destination .. ": " .. fatal.code .. ": " .. fatal.msg
+                public[#public + 1] = publicPlan(plan, true, asJson)
+                break
+            end
+            local removed, removeErr = os.remove(plan.source)
+            if not removed then
+                errors[#errors + 1] = plan.source .. ": " .. tostring(removeErr)
+                public[#public + 1] = publicPlan(plan, true, asJson)
+                break
+            end
+            public[#public + 1] = publicPlan(plan, true, asJson)
+        end
+    else
+        for _, plan in ipairs(plans) do
+            public[#public + 1] = publicPlan(plan, false, asJson)
+        end
+    end
+
+    if asJson then
+        require("nupp.compiler.cli.report").write({
+            ok = #errors == 0,
+            check = asking,
+            migrations = public,
+            errors = errors,
+        })
+    else
+        for _, plan in ipairs(plans) do
+            io.write(plan.source .. " -> " .. plan.destination .. (asking and " (planned)\n" or "\n"))
+            for _, item in ipairs(plan.warnings) do
+                io.stderr:write(
+                    ("%s:%d:%d: warning: %s: %s\n"):format(plan.source, item.line, item.col, item.code, item.msg)
+                )
+            end
+        end
+        for _, message in ipairs(errors) do
+            io.stderr:write("nupp: " .. message .. "\n")
+        end
+    end
+
+    return #errors == 0 and 0 or 1
+end
+
+export = new spec.Handler(spec = command, run = run)

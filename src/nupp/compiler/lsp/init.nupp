@@ -795,6 +795,32 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         })
     end
 
+    -- A one-shot planner for Lua documents. The current bytes travel with the request,
+    -- so LuaLS can continue to own synchronization and every ordinary Lua feature.
+    handlers["$/nupp/migrateAnnotatedLua"] = function(id, params)
+        local document = params and params.textDocument
+        local uri = type(document) == "table" and document.uri or nil
+        local source = params and params.text
+        if type(uri) ~= "string" or type(source) ~= "string" then
+            respond(id, {ok = false, error = "a file URI and current document text are required"})
+            return
+        end
+        local plan, problem = require("nupp.compiler.migrate").plan(source, uriToPath(uri), params.dialect or "auto")
+        if not plan then
+            respond(id, {ok = false, error = problem})
+            return
+        end
+        respond(id, {
+            ok = true,
+            sourceUri = uri,
+            destinationUri = pathToUri(plan.destination),
+            text = plan.text,
+            edits = wire.array(plan.edits),
+            warnings = wire.array(plan.warnings),
+            dialect = plan.dialect,
+        })
+    end
+
     handlers["textDocument/completion"] = function(id, params)
         local _, doc = documentAt(params)
         if not doc or not doc.result or not params.position then
