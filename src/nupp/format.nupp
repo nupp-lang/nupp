@@ -1,11 +1,33 @@
 module nupp.format
 
--- Public type computation for wrappers around Lua's string.format.
+--[[
+The type computation behind every wrapper around Lua's `string.format`.
+
+A literal format string is read here, while compiling, and answers the type pack
+its directives call for. That is what makes a missing argument, or a `%d` handed
+a string, a compile error rather than a line that fails at run time.
+
+```nupp
+nupp.log.info("loaded %d entities", count)
+```
+
+A format that is not literal answers an open `any` pack instead, because nothing
+about it can be checked.
+
+See [packs.md](docs/type-system/packs.md) for what a type pack is, and
+[log.md](docs/modules/nupp/log.md) for the surface this checks.
+]]
 
 local format = {}
 
---- Computes the arguments consumed by a literal Lua format string. A broad string
---- produces an open `any` pack. `%?` is reserved for compiler-lowered formatting APIs.
+--- Computes the arguments a literal Lua format string consumes.
+---
+--- A broad string produces an open `any` pack, and `%?` is reserved for
+--- compiler-lowered formatting APIs, so a hand-written wrapper cannot claim it.
+---
+--- @param Format the format string's type
+--- @return one entry per directive, or an open `any` pack when the format is not
+---     literal
 comptime function format.StringFormatSyntax(Format: type): typepack
     local info = nupp.types.describe(Format)
     local value = info.value

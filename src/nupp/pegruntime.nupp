@@ -3,11 +3,11 @@
 module nupp.pegruntime
 
 --[[
-What a compiled PEG matcher is at run time.
+A compiled PEG matcher, as it exists at run time.
 
 The compiler owns the grammar: it parses it, types its result pack, and decides
 whether a shape is one of the few worth emitting as straight-line Lua. What is left
-is this -- the matcher shell every backend answers, the lowering from the compiler's
+is this: the matcher shell every backend answers, the lowering from the compiler's
 graph to native LPeg patterns, the specialization templates, and the runtime
 `compile` a program reaches when its grammar is not static.
 
@@ -20,6 +20,8 @@ A matcher closes over its `run` and `take` rather than storing them, and each on
 its own metatable. That is deliberate and load-bearing: `match` reads an upvalue where
 a shared record method would read a field, and matching is the hot path. So the factory
 below is written as it runs rather than as it would be typed.
+
+See [peg.md](docs/modules/nupp/peg.md) for the surface a program actually writes.
 ]]
 
 -- The backtrack stack limit is not raised here. LPeg's default of 400 frames is too

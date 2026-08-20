@@ -13,12 +13,13 @@ A file's bytes move through the same `Reader` and `Writer` contracts a buffer
 uses, so a parser written against [byte I/O](../io.md) works over a file without
 knowing one is there.
 
-A path argument is a string or a
-[`Path`](../../../concepts/paths-and-uris.md#paths); a path result is a string.
-Operations that fail because of the environment answer `nil, reason` or `false,
-reason`; a malformed argument raises at the call site.
+A path argument is a string or a [`Path`](path.md); a path result is a string.
+An operation that fails because of the environment answers nil or false with a
+reason, and a malformed argument raises at the call site.
 
 ## Querying a name
+
+`info` answers one record of attributes:
 
 ```nupp
 local info, reason = files.info("nupp.lua")
@@ -56,6 +57,8 @@ Only Windows distinguishes the two; elsewhere it is ignored.
 
 ## Listing a directory
 
+`list` answers every entry in a directory, in one call:
+
 ```nupp
 local entries, reason = files.list("src/nupp")
 assert(entries, reason)
@@ -83,6 +86,8 @@ end
 
 ## Creating, moving and removing
 
+These three operations move names rather than bytes, so each answers now:
+
 ```nupp
 assert(files.createDirectory("out/lib/native"))
 assert(files.rename("out/report.tmp", "out/report.json"))
@@ -100,6 +105,9 @@ reason.
 
 ## Temporary names
 
+`createTemporaryFile` and `createTemporaryDirectory` both take options and
+answer a path:
+
 ```nupp
 local scratch, reason = files.createTemporaryDirectory({prefix = "build-"})
 assert(scratch, reason)
@@ -110,9 +118,9 @@ the name between the answer and the use. `directory` selects where, defaulting
 to the platform's temporary directory; `prefix` and `suffix` bracket the
 generated part, which is what puts an extension on a temporary file.
 
-A temporary is an owner: closing it removes what it created, and the checker
-runs that cleanup at the end of the scope whether the block falls through,
-returns early, or raises.
+A temporary is an [owner](../../../concepts/ownership.md): closing it removes
+what it created, and the checker runs that cleanup at the end of the scope
+whether the block falls through, returns early, or raises.
 
 ```nupp
 do
@@ -128,6 +136,8 @@ name nobody else can take, then put it where it belongs, so a reader never sees
 a half-written file under the final name.
 
 ## Reading and writing a whole file
+
+`read` and `write` move a file's complete contents in one call:
 
 ```nupp
 local text, reason = files.read("nupp.lua")
@@ -188,6 +198,9 @@ raising.
 
 ## Platform directories
 
+Two queries answer where the process is and where the platform keeps a user's
+folders:
+
 ```nupp
 print(assert(files.currentDirectory()))
 print(assert(files.userFolder("documents")))
@@ -206,19 +219,28 @@ A whole-file `read`, `write`, `append`, `writeAtomic` or `copy` settles on a
 worker thread rather than on yours, and the call waits for it by suspending.
 What that means depends on where the call runs, and on nothing the call says:
 
-| Where it runs | What waiting means |
+| Where it runs | Effect |
 | --- | --- |
 | an ordinary program | it sleeps, driving the readiness pump |
 | under an installed handler | it parks, and the handler resumes it |
-| inside a `nosuspend` region | NUPP2701, at compile time |
+| inside a `nosuspend` region | [`NUPP2701`](../../../reference/diagnostics.md#diagnostic-index), at compile time |
 
 One call site covers all three. A library that reads a file works inside a game
 frame and inside a command-line program without knowing which it is in, and a
 transfer that settled before it was observed never reaches any of this.
 
-The immediate operations are declared `nosuspend`, so a region that forbids
-waiting still permits asking what a path is, listing a directory, or renaming
-one:
+::: deepdive Names answer now, bytes go to a worker lane
+Anything that moves names rather than bytes answers now, because the platform
+answers it now. Anything that moves a whole file's bytes is submitted to the
+native library's worker lane and waited for, so a program inside a scheduler
+yields instead of blocking its host. Making both suspend would tax every `stat`
+for a wait that never happens; making neither suspend would block a host on a
+transfer it cannot see. See [suspension.md](../../../concepts/suspension.md)
+for how one call takes either path.
+:::
+
+The immediate operations cannot suspend, so a region that forbids waiting still
+permits asking what a path is, listing a directory, or renaming one:
 
 ```nupp
 nosuspend do
@@ -233,10 +255,9 @@ end
 
 Reaching `nupp.io.files` selects a Rust provider, built with only this feature
 and loaded on first use. A program that never reaches it links nothing and
-initializes nothing, which is the rule for every [standard
-facility](../../../concepts/standard-library.md#availability-detection-and-lazy-loading).
-A target that uses it also carries the suspension runtime, because that is what
-answers the wait above.
+initializes nothing, which is the rule for every facility in the [standard
+library](../../../concepts/standard-library.md). A target that uses it also
+carries the suspension runtime, because that is what answers the wait above.
 
 The lane those workers run is bounded three ways: how many transfers may be
 live, how many bytes they may hold between them, and how large one may be. Past
@@ -246,3 +267,11 @@ queue that grows with its callers eventually takes the process with it.
 
 Metadata, listings and cursor reads through an open `File` do not use the lane.
 Scheduling a transfer costs more than those cost to run.
+
+::: seealso
+- [path.md](path.md) for building and taking apart the names this page reads
+- [io.md](../io.md) for the buffers, readers and writers a file's bytes move
+  through
+- [suspension.md](../../../concepts/suspension.md) for what a wait does under a
+  scheduler, and how several compose
+:::

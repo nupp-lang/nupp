@@ -7,15 +7,16 @@ created: 2026-08-19
 ## Summary
 
 An annotation states that a function must compile as one checked ahead-of-time
-unit. The body is ordinary Nupp — same parser, name resolution, type system,
-operators, diagnostics, and source positions — and the annotation adds a
+unit. The body is ordinary Nupp, with the same parser, name resolution, type
+system, operators, diagnostics, and source positions, and the annotation adds a
 compilation and effect constraint after ordinary checking rather than
 reinterpreting anything. Checked views lower to pointer arithmetic where a range
 witness proves them, a second calling convention lets an admitted function build
 a Lua value graph natively, and an advisory analysis finds candidates without
 adding anything to the source.
 
-[Ahead-of-time compilation](../guides/ahead-of-time.md) documents the surface.
+See [ahead-of-time.md](../guides/ahead-of-time.md) for the annotation and the
+build flags a project uses.
 
 ## Goals
 
@@ -37,27 +38,27 @@ adding anything to the source.
 
 ## Motivation
 
-### The failure to avoid is a second language
+### Restricted sublanguages are the failure to avoid
 
 The obvious way to build this is a restricted sublanguage with its own
-semantics — the shape most "compile this part natively" features take. That
-gives two languages to learn, two diagnostic surfaces, and a boundary at which
-ordinary-looking code changes meaning.
+semantics, which is the shape most "compile this part natively" features take.
+That gives two languages to learn, two diagnostic surfaces, and a boundary at
+which ordinary-looking code changes meaning.
 
 Stating it as a *contract over ordinary Nupp* means the body is the same program
 either way. Removing the annotation may change performance and artifacts, not
 the source-level result. Adding it may reject constructs the backend cannot
 represent, and may not make an otherwise invalid operation valid.
 
-### The foundations had to be worth landing on their own
+### Foundations had to be worth landing on their own
 
-Four capabilities landed first — canonical C identities and header export for
+Four capabilities landed first: canonical C identities and header export for
 reified structs, explicit fixed-width scalar arithmetic, richer checked span
-views, and transported allocation and raising guarantees — each required to be
-useful and testable with the backend disabled. A capability justified only by an
-unlanded consumer is designed against a guess.
+views, and transported allocation and raising guarantees. Each was required to
+be useful and testable with the backend disabled, because a capability justified
+only by an unlanded consumer is designed against a guess.
 
-### A checked view that costs more than a pointer does not get used
+### Checked views that cost more than a pointer do not get used
 
 The argument for checked spans is that the safe route should be the only route.
 That holds only if it is also the fast route; otherwise the hot loop is written
@@ -67,13 +68,13 @@ The proof already exists at the range, not at the access: a range witness
 validates every participating view once, so every access in the loop it
 dominates is already proved in bounds.
 
-### The kernel ABI stops where the useful work ends
+### Kernel ABI stops where the useful work ends
 
 A native kernel filling a span returns nothing a program can hand to ordinary
-Lua code. A parser or decoder whose output *is* a Lua value graph must either
-return through a span and rebuild in Lua — paying the cost the native path
-existed to remove — or be excluded. Letting the body call the VM directly
-reintroduces unchecked stack discipline and unverifiable rooting.
+Lua code. A parser or decoder whose output *is* a Lua value graph must either be
+excluded or return through a span and rebuild in Lua, paying the cost the native
+path existed to remove. Letting the body call the VM directly reintroduces
+unchecked stack discipline and unverifiable rooting.
 
 ### Eligibility cannot be determined by reading
 
@@ -114,7 +115,7 @@ nupp build --aot=emit-c    # verify the IR and write private C
 nupp aot --suggest         # advisory candidates
 ```
 
-### Usage
+### Worked example
 
 The annotation is a contract, not a request. A range witness validates once and
 the loop reads and writes through operators:
@@ -153,8 +154,7 @@ end
 The body lowers to verified IR and then to private generated C, with a checked
 wrapper calling it through the FFI:
 
-```c
-/* generated, private */
+```c [Generated C, private]
 void nupp__scaleAdd(float *output, const float *input,
                     uint64_t count, float scale) {
     for (uint64_t i = 0; i < count; i++) {
@@ -163,7 +163,7 @@ void nupp__scaleAdd(float *output, const float *input,
 }
 ```
 
-```lua
+```lua [Generated Lua wrapper]
 local __lib = ffi.load("@lib/libapp_aot.so")
 local function scaleAdd(output, input, scale)
    __lib.nupp__scaleAdd(output.__base + output.__offset,
@@ -180,8 +180,9 @@ local function scaleAdd(output, input, scale)
 end
 ```
 
-Without a range witness each view access carries its own bounds check; inside a
-loop the witness dominates, the accesses lower to ordinary pointer arithmetic:
+Without a range witness, each view access carries its own bounds check. Inside
+a loop the witness dominates, so the accesses lower to ordinary pointer
+arithmetic:
 
 ```lua
 local __out = output.__base + output.__offset - 1
@@ -192,7 +193,7 @@ end
 ```
 
 A non-escaping view root is compiler-owned scalars rather than an allocated
-wrapper — a runtime fat pointer, not a compile-time fiction:
+wrapper, so it is a runtime fat pointer rather than a compile-time fiction:
 
 ```text
 contiguous view = anchor + typed base + offset + count + capability
@@ -218,8 +219,10 @@ static int nupp__parseRow(lua_State *L) {
 
 Where a target has feature tiers, one library carries one translation unit per
 tier, distinguished by symbol suffix. A shared library is mapped rather than
-run, so loading a tier the machine cannot execute is not a hazard — what would
+run, so loading a tier the machine cannot execute is not a hazard. What would
 fault is a call, and selection prevents it.
+
+### Admitted subset widens, never narrows
 
 Within a supported language line, a source function accepted for a target
 remains accepted. The admitted subset may widen and does not silently narrow.
@@ -228,17 +231,19 @@ Without that promise the annotation would be a request rather than a contract,
 and a compiler upgrade could quietly turn a compiled function into an
 interpreted one.
 
-Generated private C compiled by a pinned toolchain is the initial backend. The
-IR remains the safety boundary and the stable architecture. Direct machine-code
-emission is deferred unless measured toolchain, latency, packaging, or
-specialization requirements show generated C cannot meet the release gates.
+### Generated C is the initial backend
+
+Generated private C compiled by a pinned toolchain is the initial backend, and
+the IR remains the safety boundary and the stable architecture. Direct
+machine-code emission is deferred unless measured toolchain, latency, packaging,
+or specialization requirements show generated C cannot meet the release gates.
 
 ### No transitional implementations
 
 One implementation of each capability, with design questions resolved from
-existing behaviour and permanent semantic tests *before* implementation — no
-characterization path committed as a fallback, alternate API, or experimental
-runtime.
+existing behavior and permanent semantic tests written *before* implementation.
+No characterization path was committed as a fallback, an alternate API, or an
+experimental runtime.
 
 Concretely: no temporary named runtime representation for structs to remove
 later; no parallel fixed-width modules; no per-call boxes, per-call scratch
@@ -258,9 +263,9 @@ stable storage. Ordinary metamethods keep ordinary dispatch.
 Contiguous and columnar storage share one checked descriptor and differ in their
 physical adapter, which is what lets the source surface be
 representation-independent without making the two view types interchangeable.
-Columnar storage was a landing condition rather than follow-up work — the change
+Columnar storage was a landing condition rather than follow-up work. The change
 did not land unless its direct field loops stayed within the handwritten FFI
-ceiling and allocated no row proxies — which kept the descriptor from being
+ceiling and allocated no row proxies, which kept the descriptor from being
 shaped around the easy case.
 
 ### Checked object-graph construction
@@ -275,14 +280,15 @@ constructor for a value graph the function itself creates. Which convention a
 function gets follows from what it consumes and produces, not from a second
 annotation.
 
-### The advisor answers three questions separately
+### Advisor questions
 
-**Not built.** Eligibility — can this body lower to verified IR for the selected
-target? That is a proof. Static opportunity — does the admitted body have a
-bulk-loop, fixed-width, lane, or span property making a native comparison
-worthwhile? A deterministic cost-model judgement. Observed importance — did a
-supplied profile see it consuming time or aborting traces? Evidence from one
-workload.
+**Not built.** The advisor answers three questions and keeps them apart.
+Eligibility asks whether this body can lower to verified IR for the selected
+target, which is a proof. Static opportunity asks whether the admitted body has
+a bulk-loop, fixed-width, lane, or span property making a native comparison
+worthwhile, which is a deterministic cost-model judgment. Observed importance
+asks whether a supplied profile saw it consuming time or aborting traces, which
+is evidence from one workload.
 
 None predicts a speedup, and a combined score would imply a claim no input
 supports. The advisor adds no annotation, compiles nothing, changes no generated
@@ -304,7 +310,7 @@ Lua, and does not participate in whether source checks.
   prove the same properties.
 - **Scalar replacement makes escape analysis load-bearing for cost.** A view
   that unexpectedly escapes silently materializes.
-- **The recognised-by-identity subset is brittle to refactoring**, and an
+- **The recognized-by-identity subset is brittle to refactoring**, and an
   equivalent hand-written spelling is not admitted.
 - **Rooting correctness is proved, not tested.** A defect there is a
   collector-visible memory error rather than a wrong answer.

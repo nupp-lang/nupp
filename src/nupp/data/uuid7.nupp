@@ -1,7 +1,13 @@
 module nupp.data.uuid7
 
 --[[
-A time-ordered UUID, version 7, in the usual hyphenated form.
+Generates a time-ordered UUID, version 7, in the usual hyphenated form.
+
+```nupp
+const uuid7 = require("nupp.data.uuid7")
+
+local eventID = uuid7()
+```
 
 Lowercase canonical text, as RFC 9562 writes it. Sorting these sorts them by when
 they were made, which is what makes them usable as keys where

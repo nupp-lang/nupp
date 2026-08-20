@@ -11,11 +11,13 @@ addressable symbol binds directly through the FFI, and a header-only callable
 goes through a deterministic generated bridge. Checked spans are the public
 boundary for pointer-and-count kernels, with a private representation so the
 safe route is the only route. And Nupp is embeddable anywhere a compatible
-LuaJIT is — one state, one heap, a stable C SDK, with the standalone host
-becoming one consumer of the same library.
+LuaJIT is, sharing one state and one heap behind a stable C SDK, with the
+standalone host becoming one consumer of the same library.
 
-[C interoperation](../concepts/c-interop.md) and
-[embedding](../guides/embedding.md) document the surface.
+::: seealso
+- [c-interop.md](../concepts/c-interop.md) for declaring and calling C
+- [embedding.md](../guides/embedding.md) for hosting Nupp from a C application
+:::
 
 ## Goals
 
@@ -44,14 +46,14 @@ Much of a modern C API is `static inline` and function macros. Those have no
 symbol to bind, so an FFI-only approach either cannot reach them or reaches them
 through hand-written shims a human keeps in sync with a header.
 
-### The failure mode to avoid is a compatible-looking lie
+### Compatible-looking lies are the failure to avoid
 
 The easy way to handle an unknown width, calling convention, aggregate, or
-attribute is to substitute something plausible — an untyped value, a generic
+attribute is to substitute something plausible: an untyped value, a generic
 pointer, a guessed ABI. That produces a declaration that checks, compiles,
 links, and is wrong at run time in a way no diagnostic points at.
 
-### A public field is a shorter route around the proof
+### Public fields are a shorter route around the proof
 
 With a span's pointer, offset, and count all public, a caller could pass the
 pointer with the count and *drop the offset*, producing a call that checks
@@ -59,14 +61,15 @@ cleanly and reads the wrong memory. Adding partitioning on top of that would be
 unsound: the guarantee would hold on the path that used it and be trivially
 avoidable beside it.
 
-### The missing embedding boundary
+### Missing embedding boundary
 
-State creation with selected native modules, payload discovery, deterministic
+Every piece was already present and reachable only through command-line paths:
+state creation with selected native modules, payload discovery, deterministic
 bundles enforcing a host ABI, replaceable stubs, suspension handlers that
-already put scheduling in the host, hot reload separating a compiler session
-from a host-chosen commit point — all present, all reachable only through
-command-line paths. What was missing was one reusable lifetime and error
-boundary. An engine could reuse the ideas and could not link one supported SDK.
+already put scheduling in the host, and hot reload separating a compiler session
+from a host-chosen commit point. What was missing was one reusable lifetime and
+error boundary. An engine could reuse the ideas and could not link one supported
+SDK.
 
 ## Overview and specification
 
@@ -97,7 +100,7 @@ engineScripts = {
 }
 ```
 
-### Usage
+### Worked example
 
 Physical facts come from C; ownership contracts are written in Nupp:
 
@@ -133,8 +136,8 @@ nupp_call(component, "game.update", args, 1, NULL, 0, &error);
 
 ### Lowering
 
-A declaration with an externally addressable symbol binds directly — no wrapper,
-no copy:
+A declaration with an externally addressable symbol binds directly, with no
+wrapper and no copy:
 
 ```lua
 ffi.cdef[[int32_t buffer_read(struct nativeBuffer*, uint8_t*, uint64_t);]]
@@ -144,17 +147,14 @@ local written = ffi.C.buffer_read(buffer, out, 1024)
 A header-only callable has no symbol, so a deterministic bridge is generated and
 compiled as part of a declared native dependency:
 
-```c
-/* generated */
+```c [Generated bridge]
 int32_t nupp__mini_scale(int32_t value, int32_t factor) {
     return MINI_SCALE(value, factor);
 }
 ```
 
-Arguments are evaluated once before crossing and arrive as C parameters, so a
-macro mentioning a parameter repeatedly cannot re-evaluate the Nupp expression
-behind it. A declaration Nupp cannot model is skipped with one reported reason
-and emits nothing.
+A declaration Nupp cannot model is skipped with one reported reason and emits
+nothing.
 
 A span's private fields hold an anchor, a typed base, an offset, and a count;
 only the count is reachable from checked source, and every projection applies
@@ -180,6 +180,10 @@ state, on the same heap:
  └── private AOT artifacts, linked
 ```
 
+### Boundary invariants
+
+Every C boundary holds these, whichever path a callable took.
+
 **The FFI remains the direct-call ABI authority.** A direct binding is emitted
 only when the physical declaration is accepted by the selected FFI profile.
 
@@ -190,7 +194,7 @@ generated call for the selected target.
 Those two mean Nupp never adjudicates an ABI question. It asks whichever tool
 actually owns the answer.
 
-**One semantic graph feeds every consumer** — header typing, generated modules,
+**One semantic graph feeds every consumer**: header typing, generated modules,
 manifest bindings, bridge signatures, documentation, editor types, ownership
 auditing, and cache keys. Nothing reconstructs declarations independently, which
 is what keeps them from disagreeing.
@@ -204,7 +208,7 @@ This is the most important one. A header does not contain those facts, so any
 attempt to derive them is invention, and inventing an ownership contract at an
 FFI boundary is worse than having none.
 
-**No optimistic fallback.** An unknown anything is skipped with a stable reason.
+**No optimistic fallback.** Anything unknown is skipped with a stable reason.
 
 **Arguments evaluate once.** A call evaluates every argument once before
 crossing the boundary; a generated macro wrapper receives those values as C
@@ -218,7 +222,7 @@ the build host and relabel the answer.
 ### Privacy makes the span guarantee hold
 
 Module-private record fields exist for this. A count stays public and immutable,
-because a count alone grants no memory access — which is the test for what may
+because a count alone grants no memory access, and that is the test for what may
 be exposed. A shared span stores a const pointer, so only a live writable span
 can project a mutable one.
 
@@ -237,7 +241,7 @@ decline.
 The public API catches every Lua error before returning. Managed values cross
 through the Lua stack, as copied scalars, or as explicitly rooted opaque
 handles. **Raw pointers into collector-managed values do not become a public
-object ABI** — the line an embedding API is most tempted to cross for
+object ABI.** That is the line an embedding API is most tempted to cross for
 performance, and the one that would constrain the runtime permanently.
 
 ## Risks and assumptions
@@ -265,8 +269,8 @@ performance, and the one that would constrain the runtime permanently.
 second copy of the header maintained by hand, and the part that silently goes
 stale.
 
-**Optimistic fallback** — substituting a generic pointer or untyped value for
-anything unmodelled. The central failure mode: declarations that check and link
+**Optimistic fallback**, substituting a generic pointer or untyped value for
+anything unmodeled. The central failure mode: declarations that check and link
 and are wrong at run time.
 
 **Deriving ownership contracts from C annotations.** Headers do not contain the

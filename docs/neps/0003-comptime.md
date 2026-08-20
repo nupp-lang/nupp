@@ -7,19 +7,22 @@ created: 2026-08-19
 ## Summary
 
 `comptime` is deterministic compile-time evaluation of ordinary Nupp, producing
-values the compiler quotes as source. A comptime function returning `type` may be
-called in type position, which *replaced* a separate type-level language rather
-than adding one. A block whose result is not quotable may instead be serialized
-by a closed, compiler-owned materializer selected by an explicitly declared type.
-`@derive` asks for members to be generated onto one declaration, from a provider
-that returns validated data rather than source.
+values the compiler quotes as source. A comptime function returning `type` may
+be called in type position, which *replaced* a separate type-level language
+rather than adding one. A block whose result is not quotable may instead be
+serialized by a closed, compiler-owned materializer selected by an explicitly
+declared type. `@derive` asks for members to be generated onto one declaration,
+from a provider that returns validated data rather than source.
 
 None of it exposes the syntax tree, pastes source text, or generates
 declarations.
 
-[Comptime](../concepts/comptime.md), [comptime
-types](../type-system/type-level-computation.md), and
-[derives](../reference/derives.md) document the surface.
+::: seealso
+- [comptime.md](../concepts/comptime.md) for the construct as a reader meets it
+- [type-level-computation.md](../type-system/type-level-computation.md) for
+  comptime in type position
+- [derives.md](../reference/derives.md) for the derive providers that ship
+:::
 
 ## Goals
 
@@ -34,8 +37,9 @@ types](../type-system/type-level-computation.md), and
 
 ## Non-goals
 
-Excluded from the language, not merely from these features. Each makes a
-program's meaning depend on text a reader cannot see:
+Each of these is excluded from the language rather than merely from comptime and
+derives, because each makes a program's meaning depend on text a reader cannot
+see:
 
 - syntax tree access;
 - quoting or splicing source;
@@ -43,7 +47,8 @@ program's meaning depend on text a reader cannot see:
 - compiler lifecycle hooks;
 - arbitrary filesystem, environment, clock, random, process, or network access.
 
-Outside these features, and possibly separate ones later:
+A second group is outside comptime and derives without being excluded from the
+language, and each may be designed separately later:
 
 - new top-level names, declarations, imports, or modules;
 - automatic specialization of runtime functions;
@@ -56,14 +61,12 @@ Outside these features, and possibly separate ones later:
 The optimizer already folds constants, which makes it look like a smaller
 comptime. It is not, because the two carry opposite obligations:
 
-```text
- Constant folding                   comptime
- ─────────────────────────────────  ────────────────────────────────
- An -O1 rewrite                     A language construct
- Must be invisible                  Must be visible in the result
- Absent at -O0 and under `check`    Present at every level
- May decline silently               Owes a diagnostic when it cannot
-```
+| Constant folding | comptime |
+| --- | --- |
+| An `-O1` rewrite | A language construct |
+| Must be invisible | Must be visible in the result |
+| Absent at `-O0` and under `nupp check` | Present at every level |
+| May decline silently | Owes a diagnostic when it cannot |
 
 Anything whose *meaning* depends on a compile-time value can never be a fold at
 any strength, because `-O0` must still compile the program. A construct that
@@ -81,12 +84,12 @@ declaration was 254 lines, a byte scanner written as a recursive type-state
 machine because type position had no loop. Making types values in the language
 that already had loops removed the second language rather than adding a third.
 
-### Quotable values are a small set for a good reason
+### Quotable values are a small set
 
 Every entry commits to a source spelling permanently. That is right for
 literals, and it leaves a computation whose useful result is a compiled matcher
-or a codec with nowhere to put it. The obvious answer — letting comptime emit
-source — gives up the property everything here rests on.
+or a codec with nowhere to put it. The obvious answer, letting comptime emit
+source, gives up the property everything here rests on.
 
 ## Overview and specification
 
@@ -106,7 +109,7 @@ local record User
 end
 ```
 
-### Usage
+### Worked example
 
 A comptime block runs ordinary Nupp and produces a value:
 
@@ -154,15 +157,16 @@ local WIDTHS = {2, 4, 8, 16}
 ```
 
 Quoting is exact rather than tidy, because the output is parsed back. An
-integral number in range emits as an integer; a non-integral one emits in the
-shortest spelling reading back bit-identically — the runtime's default float
-formatting is not good enough, and a value that cannot round-trip is refused:
+integral number in range emits as an integer, and a non-integral one emits in
+the shortest spelling that reads back bit-identically, because the runtime's
+default float formatting is not good enough. A value that cannot round-trip is
+refused:
 
 ```lua
 local ratios = {0.1, 3.141592653589793, 1e300}
 ```
 
-A type function emits nothing at all — it runs while the program is checked, so
+A type function emits nothing at all. It runs while the program is checked, so
 its call site generates what a hand-written annotation would:
 
 ```lua
@@ -177,7 +181,7 @@ local Codec = __nuppFieldCodec({"x", "y"}, "t:x,y")
 ```
 
 A derived member is a small checked forwarder onto the declaration's table, with
-the behaviour in ordinary exported functions:
+the behavior in ordinary exported functions:
 
 ```lua
 local User = {} User.__index = User
@@ -187,11 +191,12 @@ User.debug = function(self)
 end
 ```
 
-### The quotable set
+### Quotable set
 
 The first quotable set is `nil`, booleans, finite numbers, strings, and acyclic
 metatable-free tables of those. Functions, threads, userdata, cdata, type
-handles, cyclic tables, and tables with metatables are refused.
+handles, cyclic tables, and tables with metatables are refused, because each
+would need a source spelling the language then owns forever.
 
 Materialization adds one parallel exit from the same evaluation:
 
@@ -204,49 +209,48 @@ ordinary Nupp evaluation -> compiler-owned opaque value
 
 Four invariants separate that from a macro system. The provider table is
 **closed and compiler-owned**, so adding one is a language change. The boundary
-is an **explicitly declared runtime type** — never inference from a distant call
-— so removing the declaration reports that an opaque result needs one rather
-than silently selecting different code. The value **cannot observe the program**:
-it is assembled through a sealed typed constructor API. And comptime **does not
-choose the emitter**; the declared type does.
+is an **explicitly declared runtime type** rather than inference from a distant
+call, so removing the declaration reports that an opaque result needs one
+instead of silently selecting different code. The value **cannot observe the
+program**, because it is assembled through a sealed typed constructor API. And
+comptime **does not choose the emitter**; the declared type does.
 
-### The boundary is type-level programming
+### Type-level programming boundary
 
 The replacement removed pattern binding, branching, and recursion expressed in
-type position — `match`, `infer`, template decomposition, guarded recursive
-aliases, and their reducer budgets. It kept bounded structural queries and
-construction whose meaning is visible locally: `keyof T`, `T.[K]`, mapped
-shapes, `unpackof T`. Those remain primitive syntax and reduce directly in the
-checker.
+type position, taking `match`, `infer`, template decomposition, guarded
+recursive aliases, and their reducer budgets with it. It kept bounded structural
+queries and construction whose meaning is visible locally: `keyof T`, `T.[K]`,
+mapped shapes, `unpackof T`. Those remain primitive syntax and reduce directly
+in the checker.
 
 Expressive equivalence is not a reason to replace a small declarative operator
 with a function and builder calls.
 
 Type functions generate types, never declarations, and that boundary is
 permanent: a nominal declaration needs a source-owned name, identity,
-visibility, a recursive shell, a tooling location, an initialization order, and a
-runtime representation, and a type-function result has none of those.
+visibility, a recursive shell, a tooling location, an initialization order, and
+a runtime representation, and a type-function result has none of those.
 
-### Output classes and their mechanisms
+### Output classes and mechanisms
 
-```text
- Desired output                                        Mechanism
- ────────────────────────────────────────────────────  ─────────────────────
- A literal table, string, number, or boolean           comptime quotation
- One executable value with a declared runtime type     closed materialization
- Members or contracts attached to one declaration      derive
- New top-level names, declarations, imports, modules   explicit generator
-```
+| Desired output | Mechanism |
+| --- | --- |
+| A literal table, string, number, or boolean | comptime quotation |
+| One executable value with a declared runtime type | closed materialization |
+| Members or contracts attached to one declaration | derive |
+| New top-level names, declarations, imports, modules | explicit generator |
 
 A derive has enough authority for structural boilerplate and no more. A provider
 names an interface, fills its named requirements, and lets the compiler take
 member signatures, ownership modes, and effects from that contract; it may
-augment only the declaration carrying the annotation, and it returns data —
-never source, private syntax nodes, mutable compiler objects, or lowering IR.
+augment only the declaration carrying the annotation, and it returns data. What
+it never returns is source, private syntax nodes, mutable compiler objects, or
+lowering IR.
 
 Recipe kinds form a capability ladder. Parsed fragments, a public syntax model,
-or a full macro system may be designed later as separate, explicitly powerful
-recipes; adding one does not widen existing providers.
+or a full macro system may be designed later as separate recipes with
+explicitly wider authority; adding one does not widen existing providers.
 
 ### Acceptance gates are frozen before measuring
 
@@ -288,7 +292,7 @@ interface. A framework with one user is a specialization with extra steps.
 
 **Implementing generics by compile-time evaluation**, as Zig and D do. It makes
 a generic API impossible to understand without executing user code, and drags
-comptime into module declaration discovery — so knowing what a module declares
+comptime into module declaration discovery, so knowing what a module declares
 would mean running it.
 
 **Making comptime an optimization** rather than a construct. It would be absent
@@ -333,7 +337,7 @@ derive plus a field annotation, so a provider saved spelling and added no
 semantic capability. Making the external example non-redundant needed an
 arbitrary forwarding-helper operation, which would have required separate
 designs for helper identity, type and effect checking, ownership, suspension,
-runtime feature publication, cache invalidation, and failure attribution — with
+runtime feature publication, cache invalidation, and failure attribution, with
 no evidence about any of them.
 
 What the prototype did establish, and what survived: immutable versioned

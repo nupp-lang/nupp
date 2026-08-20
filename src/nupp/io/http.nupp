@@ -1,13 +1,35 @@
 module nupp.io.http
 
 --[[
-An optional asynchronous HTTP client whose sockets and TLS run in the native
-Reqwest/Tokio provider. Calls suspend through `nupp.suspension`: a CLI blocks on the
-provider's condvar, while a scheduler or SDL host only drives the nonblocking source.
+Sends HTTP requests over the native Reqwest/Tokio provider, without blocking the
+caller's frame.
+
+```nupp
+local http = require("nupp.io.http")
+local uri = require("nupp.io.uri")
+
+local client = assert(http.newClient())
+local response = assert(client:send(new http.Request(
+    url = assert(uri.new("https://example.com/"))
+)))
+print(response.status)
+response:close()
+client:close()
+```
+
+Calls suspend through `nupp.suspension`: a CLI blocks on the provider's condvar,
+while a scheduler or SDL host only drives the nonblocking source. See
+[0005-suspension.md](docs/neps/0005-suspension.md) for why waiting is a
+suspension rather than a block.
 
 Response bodies and generic request readers are progressive and bounded. A response
-status is an answer (including 4xx and 5xx); transport and body failures are returned
+status is an answer, 4xx and 5xx included; transport and body failures are returned
 as reasons.
+
+A client, a response and its body are all owners, so each closes at its lexical
+boundary unless it is transferred. See
+[ownership.md](docs/type-system/ownership.md) for the complete contract
+reference.
 ]]
 
 local suspension = require("nupp.suspension")
@@ -28,8 +50,8 @@ local interface NativeTransfer
     onHead: function(self: NativeTransfer, wake: function()): function()
     onBody: function(self: NativeTransfer, wake: function()): function()
     onUpload: function(self: NativeTransfer, wake: function()): function()
-    -- The version is the wire number -- 10, 11, 20 -- not its spelling; `http.Version`
-    -- is derived from it at the one place a caller sees a response.
+    -- The version is the wire number, 10, 11 or 20, rather than the text form.
+    -- `http.Version` is derived from it at the one place a caller sees a response.
     head: function(self: NativeTransfer): (string, integer?, integer?, string?, string?, string?)
     cancel: nosuspend function(self: NativeTransfer): nil
     close: nosuspend function(self: NativeTransfer): nil
@@ -189,7 +211,7 @@ const READY_SLOTS = 256
 ---
 --- A pointer and a length are passed when the bytes are not a Lua string; otherwise
 --- the string itself is the pointer. Nothing is copied either way, so the value has to
---- outlive the call -- which it does, because every caller holds it across one.
+--- outlive the call, which it does, because every caller holds it across one.
 local function slice(value: any, pointer: any?, length: integer?): any
     local out = native.ffi.new("NuppHttpSlice")
     if pointer ~= nil then
@@ -705,46 +727,130 @@ local function newClient(options: any): (NativeClient?, string?)
     ), nil
 end
 
+--- The protocol version a response arrived over.
 type http.Version = "1.0" | "1.1" | "2"
 
+--- What a client applies to every request it sends.
+---
+--- Every field is optional, so `http.newClient()` with nothing is a client with
+--- the defaults below. A request may override the three limits it also names.
 record http.Options
+    --- The `user-agent` header sent with every request.
     userAgent: string?
+
+    --- Headers sent with every request, which a request's own headers replace by
+    --- name.
     headers: {string: string}?
+
+    --- How long one request may take end to end, 30000 by default.
     timeoutMs: integer?
+
+    --- How long establishing a connection may take, 10000 by default.
     connectTimeoutMs: integer?
+
+    --- How long a transfer may make no progress before it fails, 0 to allow any
+    --- pause and the default.
     stallTimeoutMs: integer?
+
+    --- How many redirects one request may follow, 5 by default.
     maxRedirects: integer?
+
+    --- How many requests may be in flight at once, 256 by default. A request past
+    --- the bound waits for admission rather than failing.
     maxPendingRequests: integer?
+
+    --- How many connections the pool may hold, 16 by default.
     maxConnections: integer?
+
+    --- How many connections the pool may hold to one host, 16 by default.
     maxConnectionsPerHost: integer?
+
+    --- How many response bytes one request may take, 0 for no bound and the
+    --- default.
     maxBytes: integer?
+
+    --- Whether to offer and decode compressed responses, true by default.
     compressed: boolean?
+
+    --- Hosts whose certificates are not verified, each an exact host name or IP
+    --- literal. Naming any of them makes this client follow redirects itself, so
+    --- that the exemption is applied per hop rather than to the whole chain.
     insecureHosts: {string}?
+
+    --- The proxy to reach every host through. Omitted takes the environment's,
+    --- and an empty string deliberately uses none.
     proxy: string?
+
+    --- Hosts to reach directly rather than through the proxy.
     noProxy: string?
+
+    --- Credentials for the proxy, as `user:password`.
     proxyCredentials: string?
 end
 
+--- A request body streamed from a reader rather than held in memory.
+---
+--- Built by [](nupp.io.http.reader). A redirect cannot replay one, so a request
+--- carrying a reader body fails rather than following.
 record http.ReaderBody
+    --- Where the body's bytes come from.
     reader: io.Reader
+
+    --- How many bytes the reader will produce, when that is known ahead of time.
     length: integer?
+
+    --- The `content-type` to send, unless the request names one itself.
     contentType: string?
 end
 
+--- A request body read from a file as it is sent.
+---
+--- Built by [](nupp.io.http.file).
 record http.FileBody
+    --- The file to send.
     path: string | path.Path
+
+    --- The `content-type` to send, unless the request names one itself.
     contentType: string?
 end
 
+--- Everything a request body may be: bytes held in memory, or one of the two
+--- streamed forms.
 type http.RequestBody = string | io.ByteView | io.Buffer | http.ReaderBody | http.FileBody
 
+--- One request, as `http.Client:send` takes it.
+---
+--- Only `url` is required, and it must be `http` or `https`. The three limits
+--- here override the client's for this request alone.
+---
+--- ```nupp
+--- local request = new http.Request(
+---     url = assert(uri.new("https://example.com/upload")),
+---     method = "POST",
+---     headers = {["content-type"] = "application/json"},
+---     body = document
+--- )
+--- ```
 record http.Request
+    --- Where the request goes.
     url: uri.URI
+
+    --- The method to use, `GET` when omitted.
     method: string?
+
+    --- Headers for this request, which replace the client's by name.
     headers: {string: string}?
+
+    --- What to send as the body, or nothing.
     body: http.RequestBody?
+
+    --- How long this request may take end to end, or the client's limit.
     timeoutMs: integer?
+
+    --- How long this request may make no progress, or the client's limit.
     stallTimeoutMs: integer?
+
+    --- How many response bytes this request may take, or the client's limit.
     maxBytes: integer?
 end
 
@@ -990,7 +1096,18 @@ local function fairnessYield(): nil
     )
 end
 
+--- A response's bytes, as a `nupp.io.Reader`.
+---
+--- Progressive: the bytes arrive as the provider produces them, and a read
+--- suspends until there are some. Only one reader may be on a body at a time, and
+--- reading it again after it is closed answers a reason rather than raising.
+---
+--- ```nupp
+--- local total = assert(response.body:transferTo(destination))
+--- ```
 record http.Body is io.Reader
+    --- Releases the body and cancels whatever is still being produced for it.
+    --- @param self this body, spent by the call
     drop: nosuspend function(takes self: http.Body): nil
     _client: BodyClient
     _transfer: NativeTransfer
@@ -1025,11 +1142,32 @@ record http.Body is io.Reader
         end
     end
 
+    --- Reads up to `count` bytes, suspending until some arrive.
+    ---
+    --- An empty answer is the end of the body. A count below one reads one byte,
+    --- which is what `nupp.io.Reader` says a non-positive count does.
+    --- @param self this body
+    --- @param count the most bytes to read
+    --- @return the bytes, or nil when the body is closed or failed
+    --- @return why it could not read, when unsuccessful
+    --- @raises when count is not an integer, or a second reader is on the body
     function read(self, count: integer): (string?, string?)
         local wanted = whole(count, "body read count", -9007199254740991)
         return self:_next(wanted < 1 and 1 or wanted, nil, 0)
     end
 
+    --- Reads into a buffer, suspending until some bytes arrive.
+    ---
+    --- A zero answer is the end of the body. Where the buffer has storage of its
+    --- own, the provider fills it directly rather than through a Lua string.
+    --- @param self this body
+    --- @param destination the buffer to write into
+    --- @param offset where in the destination to start, or the beginning
+    --- @param count the most bytes to read
+    --- @return how many bytes were read, or nil when the body is closed or failed
+    --- @return why it could not read, when unsuccessful
+    --- @raises when an argument is not a whole number, or a second reader is on the
+    ---     body
     function readInto(self, borrows destination: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
         local at = whole(offset or 0, "body destination offset", 0)
         local wanted = whole(count or READ_SIZE, "body read count", 0)
@@ -1045,6 +1183,16 @@ record http.Body is io.Reader
         return value, reason
     end
 
+    --- Writes the whole body to a writer, suspending as often as it has to.
+    ---
+    --- Where the destination can take bytes without a copy through Lua, the
+    --- provider writes into it directly. Everything else falls back to reading and
+    --- writing chunks.
+    --- @param self this body
+    --- @param destination the writer to fill
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    --- @raises when a second reader is on the body
     function transferTo(self, borrows destination: io.Writer): (integer?, string?)
         local total: integer = 0
         local turn: integer = 0
@@ -1101,11 +1249,22 @@ record http.Body is io.Reader
         end
     end
 
+    --- Closes the body as an ownership terminal.
+    ---
+    --- Repeated calls are safe.
+    --- @param self this body, spent by the call
+    --- @return true
+    --- @return nothing
     function close(takes self): (boolean, string?)
         self:release()
         return true
     end
 
+    --- Cancels whatever is still being produced and marks the body closed.
+    ---
+    --- The half of `close` that does not consume the owner, which is what the
+    --- response's own teardown runs.
+    --- @param self this body
     function release(self): nil
         if self._closed then
             return
@@ -1177,15 +1336,41 @@ local function origin(uri: uri.URI): string
     return scheme .. "://" .. (uri:host() or ""):lower() .. ":" .. port
 end
 
+--- One response, with its body still arriving.
+---
+--- A status is an answer, so 4xx and 5xx come back here rather than as a reason.
+--- Closing the response closes the body with it, which is what a caller that only
+--- wanted the status does.
+---
+--- ```nupp
+--- do
+---     local response = assert(client:send(request))
+---     if response:ok() then
+---         print(response:header("content-type"))
+---     end
+--- end
+--- ```
 record http.Response
+    --- The status the server answered with.
     status: integer
+
+    --- The protocol version it arrived over.
     version: http.Version
+
+    --- The URL the response came from, which is the last hop of any redirect
+    --- chain rather than the one the request named.
     url: uri.URI
+
+    --- The response's bytes, owned by this response.
     body: affine(http.Body, destroyBody)
+
     _packed: string
     _values: {[string]: {string}}?
     _headers: {string: string}?
     _closed: boolean
+
+    --- Releases the response and the body with it.
+    --- @param self this response, spent by the call
     drop: nosuspend function(takes self: http.Response): nil
 
     function _decode(self): nil
@@ -1223,10 +1408,22 @@ record http.Response
         self._values = values
     end
 
+    --- Whether the status is in the 2xx range.
+    --- @param self this response
+    --- @return whether the request succeeded
     function ok(self): boolean
         return self.status >= 200 and self.status < 300
     end
 
+    --- Reads one header, matched without regard to case.
+    ---
+    --- Repeats are joined with `, `, which is what HTTP says they mean. The one
+    --- exception is `set-cookie`, where joining would corrupt the values, so the
+    --- first is answered and `getAll` reads the rest.
+    --- @param self this response
+    --- @param name the header to read
+    --- @return the header's value, or nil when the response carries none
+    --- @raises when name is not a string
     function header(self, name: string): string?
         if type(name) ~= "string" then
             error("nupp: HTTP header name must be a string", 2)
@@ -1240,6 +1437,11 @@ record http.Response
         return name:lower() == "set-cookie" and values[1] or table.concat(values, ", ")
     end
 
+    --- Reads every value one header was sent with, in the order they arrived.
+    --- @param self this response
+    --- @param name the header to read
+    --- @return the values, empty when the response carries none
+    --- @raises when name is not a string
     function getAll(self, name: string): {string}
         if type(name) ~= "string" then
             error("nupp: HTTP header name must be a string", 2)
@@ -1254,6 +1456,12 @@ record http.Response
         return out
     end
 
+    --- Copies every header into a fresh table, keyed by lowercase name.
+    ---
+    --- A copy per call, so a caller may keep or change it. Use `header` to read one
+    --- rather than building the whole table for it.
+    --- @param self this response
+    --- @return the headers
     function headers(self): {string: string}
         if self._headers == nil then
             self:_decode()
@@ -1271,6 +1479,12 @@ record http.Response
         return copy
     end
 
+    --- Closes the response and its body.
+    ---
+    --- Repeated calls are safe.
+    --- @param self this response, spent by the call
+    --- @return true
+    --- @return nothing
     function close(takes self): (boolean, string?)
         if self._closed then
             return true
@@ -1320,12 +1534,20 @@ local function makeResponse(
     )
 end
 
+--- One connection pool, and every request in flight through it.
+---
+--- Built by [](nupp.io.http.newClient). A client is worth keeping: connections,
+--- the TLS session cache and the default headers all live on it, so one client
+--- per program beats one per request.
 record http.Client is BodyClient
     _native: NativeClient
     _options: any
     _source: suspension.Source?
     _sourceUsers: integer
     _closed: boolean
+
+    --- Closes the pool and every transfer still in flight.
+    --- @param self this client, spent by the call
     drop: nosuspend function(takes self: http.Client): nil
 
     function _retainSource(self, context: suspension.Context): nil
@@ -1355,6 +1577,28 @@ record http.Client is BodyClient
     end
 end
 
+--- Sends one request and waits for its response headers.
+---
+--- Suspends until the headers arrive, so the body is still being produced when
+--- this returns. Redirects are followed up to the client's `maxRedirects`: a 303,
+--- and a 301 or 302 answering a POST, continue as a GET with no body, and a hop to
+--- a different origin drops the authorization, cookie and host headers. A status is
+--- an answer; only a transport failure comes back as a reason.
+---
+--- ```nupp
+--- do
+---     local response, reason = client:send(new http.Request(
+---         url = assert(uri.new("https://example.com/data.json"))
+---     ))
+---     assert(response, reason)
+---     local text = assert(response.body:read(1 << 20))
+--- end
+--- ```
+---
+--- @param request what to send
+--- @return the response, owned by the caller, or nil on failure
+--- @return a failure reason, when unsuccessful
+--- @raises when the request names no `http` or `https` URL
 function http.Client:send(request: http.Request): (affine(http.Response?, destroyResponse), string?)
     if self._closed then
         return nil, "the HTTP client is closed"
@@ -1626,10 +1870,20 @@ function http.Client:send(request: http.Request): (affine(http.Response?, destro
     return makeResponse(head.status, version, effective, responseBody, head.headers)
 end
 
+--- How many requests this client is still carrying.
+---
+--- A closed client answers zero.
+--- @return the number of transfers in flight
 function http.Client:pending(): integer
     return self._closed and 0 or self._native:pending()
 end
 
+--- Closes the pool and every transfer still in flight.
+---
+--- Repeated calls are safe.
+--- @param self this client, spent by the call
+--- @return true
+--- @return nothing
 function http.Client.close(takes self: http.Client): (boolean, string?)
     if self._closed then
         return true
@@ -1664,6 +1918,25 @@ local function destroyClient(takes self: http.Client): nil
     self:drop()
 end
 
+--- Builds a request body that streams from a reader.
+---
+--- The bytes are sent as the reader produces them, so a large upload never has to
+--- be held in memory. A redirect cannot replay one, so a request carrying this
+--- fails rather than following.
+---
+--- ```nupp
+--- local request = new http.Request(
+---     url = endpoint,
+---     method = "POST",
+---     body = http.reader(source, size, "application/octet-stream")
+--- )
+--- ```
+---
+--- @param reader where the body's bytes come from
+--- @param length how many bytes the reader will produce, when that is known
+--- @param contentType the `content-type` to send, unless the request names one
+--- @return the request body
+--- @raises when length is negative, or contentType is not a string
 function http.reader(reader: io.Reader, length: integer?, contentType: string?): http.ReaderBody
     if length ~= nil then
         whole(length, "reader body length", 0)
@@ -1675,6 +1948,13 @@ function http.reader(reader: io.Reader, length: integer?, contentType: string?):
     return new http.ReaderBody(reader = reader, length = length, contentType = contentType)
 end
 
+--- Builds a request body read from a file as it is sent.
+---
+--- @param path the file to send
+--- @param contentType the `content-type` to send, unless the request names one
+--- @return the request body
+--- @raises when path is neither a string nor a path, or contentType is not a
+---     string
 function http.file(path: string | path.Path, contentType: string?): http.FileBody
     if type(path) ~= "string" and type((path as any).toString) ~= "function" then
         error("nupp: HTTP file body needs a path", 2)
@@ -1686,6 +1966,25 @@ function http.file(path: string | path.Path, contentType: string?): http.FileBod
     return new http.FileBody(path = path, contentType = contentType)
 end
 
+--- Opens a connection pool.
+---
+--- The client is an owner, and closing it closes every transfer still in flight.
+--- Keep one for the program rather than one per request: the connections, the TLS
+--- session cache and the default headers all live on it.
+---
+--- ```nupp
+--- do
+---     local client = assert(http.newClient(new http.Options(
+---         userAgent = "nupp/1",
+---         timeoutMs = 5000
+---     )))
+--- end
+--- ```
+---
+--- @param options what to apply to every request, or nothing for the defaults
+--- @return the client, owned by the caller, or nil on failure
+--- @return a failure reason, when unsuccessful
+--- @raises when an option is of the wrong type or outside its range
 function http.newClient(options: http.Options?): (affine(http.Client?, destroyClient), string?)
     local copied = copiedOptions(options)
     local backend, reason = newClient(copied)

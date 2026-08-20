@@ -1,7 +1,17 @@
 module nupp.io.file
 
 --[[
-Owning wrappers for Lua's file handles.
+Wraps Lua's file handles as owners, so a handle carries the obligation to close
+it.
+
+```nupp
+const file = require("nupp.io.file")
+
+do
+    local handle = file.open("notes.txt")
+    print(handle:read("*a"))
+end
+```
 
 `io.open` hands back a borrowed handle, which means nothing has to close it and
 nothing complains when nobody does. These are the same calls annotated as owners,
@@ -9,9 +19,11 @@ so the checker knows a handle must be discharged and lexical cleanup can do it,
 on fallthrough, on error, and on structured control flow alike.
 
 Holding a runtime number of owners is a separate subject; that is
-[](nupp.owners.set).
+[](nupp.owners.set). For reading and writing bytes through the shared reader and
+writer contracts rather than through Lua's handle methods, see [](nupp.io.files).
 
-See `docs/type-system/ownership.md`.
+See [ownership.md](docs/type-system/ownership.md) for the complete contract
+reference.
 ]]
 
 local file = {}
@@ -25,7 +37,15 @@ end
 
 --- Opens a file and transfers responsibility for closing it to the caller.
 ---
---- The returned handle closes automatically at its lexical boundary.
+--- The returned handle closes automatically at its lexical boundary, so a
+--- caller that wants it to live longer transfers it out of that scope.
+---
+--- ```nupp
+--- local function firstLine(path: string): string?
+---     local handle = file.open(path)
+---     return handle:read("*l")
+--- end
+--- ```
 ---
 --- @export
 --- @param path the path of the file to open
@@ -44,7 +64,8 @@ end
 --- Starts a process and transfers responsibility for closing its pipe to the caller.
 ---
 --- The returned handle closes automatically at its lexical boundary. This is Lua's
---- `io.popen` as an owner; [](nupp.io.process) is the full process API.
+--- `io.popen` as an owner. See [](nupp.io.process) for starting a child whose
+--- streams can be drained without deadlocking.
 ---
 --- @export
 --- @param command the shell command to run

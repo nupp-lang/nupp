@@ -1,9 +1,10 @@
 @!internal
 
---- Private compiler-host primitives used by `nupp.workers`.
+--- Private compiler-host primitives used by [](nupp.workers).
 ---
 --- The public module owns values, framing, suspension, and lifecycle. These
---- functions deliberately expose only opaque handles and serialized bytes.
+--- functions deliberately expose only opaque handles and serialized bytes, so
+--- nothing here can hand a Lua value from one state to another.
 local record native
     channelCreate: function(): any
     channelDestroy: function(any)

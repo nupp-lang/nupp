@@ -1,10 +1,28 @@
 module nupp.mem.indexed
 
 --[[
-One checked inclusive range shared by every compiler-owned indexed view. The public
-checker validates the variadic operands against their trusted descriptors; the
-runtime body deliberately stays representation-neutral and reads the private count
-slot carried by each bundled view implementation.
+One inclusive range, checked once against every view a loop is about to index.
+
+A loop that walks two views together needs the same bounds to hold for both, and
+checking them separately checks them twice and says nothing about the pair.
+`range` takes the views and answers bounds that are valid for all of them.
+
+```nupp
+local indexed = require("nupp.mem.indexed")
+
+const bounds = indexed.range(1, 4, left, right)
+for i = bounds.first, bounds.last do
+    print(left[i], right[i])
+end
+```
+
+The checker validates the variadic operands against their trusted descriptors,
+so only a sealed view contract can be passed. The runtime body stays
+representation-neutral and reads the private count slot each bundled view
+implementation carries.
+
+See [](nupp.mem.span) for the views this validates, and
+[ownership.md](docs/type-system/ownership.md) for the borrow rules they are written against.
 ]]
 
 local indexed = {}
@@ -12,10 +30,29 @@ local indexed = {}
 --- Inclusive integer bounds validated once against every supplied indexed view.
 --- @export
 record indexed.Range
+    --- The one-based first index, inclusive.
     readonly first: integer
+
+    --- The one-based last index, inclusive. One below `first` is an empty range.
     readonly last: integer
 end
 
+--- Validates one inclusive range against every view supplied after it.
+---
+--- At least one view is required: bounds nothing was checked against are not
+--- bounds. The views are borrowed for the call, so this may be written inline in
+--- the `for` header that uses the result.
+---
+--- ```nupp
+--- const bounds = indexed.range(1, 4, left, right)
+--- for i = bounds.first, bounds.last do
+---     print(left[i], right[i])
+--- end
+--- ```
+---
+--- @param first the one-based first index, inclusive
+--- @param last the one-based last index, inclusive
+--- @return the validated bounds
 --- @export
 --- @raises when no view is supplied or the bounds exceed a supplied view
 function indexed.range(first: integer, last: integer, borrows ...: any): indexed.Range

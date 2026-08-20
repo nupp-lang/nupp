@@ -1,34 +1,24 @@
 module nupp.io
 
 --[[
-Bytes: storage for them, and the readers and writers that move them.
+Stores bytes, and hands out the readers and writers that move them.
 
 A buffer owns a malloc-backed array that grows by doubling. Everything else here is a
 view onto bytes that already exist: a snapshot holds a copy, a reader walks one
 forward, a writer appends to a buffer, and the scalar pair reads and writes
 fixed-width numbers over either.
 
-The reader and writer contracts are interfaces rather than the concrete things that
-satisfy them. A buffer's reader, a file's reader and an HTTP response body are all
-`nupp.io.Reader`, so code written against the contract works over any of them without
-knowing which it has.
-
 Each of these is an owner. Closing one is idempotent and answers whether the thing it
 was writing into was still open, so a caller that cares can tell a clean finish from a
-destination that went away first.
+destination that went away first. See
+[ownership.md](docs/type-system/ownership.md) for the complete contract
+reference.
 
 The rest of what `io` means is a module of its own, because each has a luacase name and
 so can have one: [](nupp.io.path) for filesystem paths, [](nupp.io.uri) for resource
 identifiers, [](nupp.io.files) for the filesystem itself. Keeping them apart is what
 lets a program that wants a byte buffer carry a byte buffer, rather than the path and
 URI providers it never reaches.
-
-```nupp
-const io = require("nupp.io")
-
-local buffer = io.newBuffer("hello")
-local reader = buffer:newReader()
-```
 ]]
 
 local ffi = require("ffi")
@@ -127,10 +117,10 @@ export interface ByteView
     _bytes: string
     _closed: boolean
 
-    --- Releases it as an ownership terminal. Repeated calls are safe.
+    --- Releases it as an ownership terminal.
     ---
-    --- Declared rather than written inline: a cleanup contract is `nosuspend`, and an
-    --- inline method cannot carry one.
+    --- Repeated calls are safe. Declared rather than written inline: a cleanup
+    --- contract is `nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
     drop: nosuspend function(takes self: ByteView): nil
 
@@ -182,7 +172,9 @@ export interface ByteView
         return self._closed
     end
 
-    --- Releases the snapshot. Repeated calls are safe.
+    --- Releases the snapshot.
+    ---
+    --- Repeated calls are safe.
     --- @param self this view, spent by the call
     --- @return true
     --- @return nothing
@@ -207,10 +199,10 @@ export interface Buffer
     _capacity: integer
     _closed: boolean
 
-    --- Releases it as an ownership terminal. Repeated calls are safe.
+    --- Releases it as an ownership terminal.
     ---
-    --- Declared rather than written inline: a cleanup contract is `nosuspend`, and an
-    --- inline method cannot carry one.
+    --- Repeated calls are safe. Declared rather than written inline: a cleanup
+    --- contract is `nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
     drop: nosuspend function(takes self: Buffer): nil
 
@@ -364,7 +356,9 @@ export interface Buffer
         return self._closed
     end
 
-    --- Releases the storage. Repeated calls are safe.
+    --- Releases the storage.
+    ---
+    --- Repeated calls are safe.
     --- @param self this buffer, spent by the call
     --- @return true
     --- @return nothing
@@ -383,14 +377,18 @@ local record HeapBuffer is Buffer
     _closed: boolean
 end
 
---- An appending byte sink over a buffer.
+--- An appending byte sink.
+---
+--- The counterpart of `Reader`, and an interface for the same reason: a buffer,
+--- an open file and a request body all satisfy it, and a producer written
+--- against the contract fills any of them.
 --- @export
 export interface Writer
 
-    --- Releases it as an ownership terminal. Repeated calls are safe.
+    --- Releases it as an ownership terminal.
     ---
-    --- Declared rather than written inline: a cleanup contract is `nosuspend`, and an
-    --- inline method cannot carry one.
+    --- Repeated calls are safe. Declared rather than written inline: a cleanup
+    --- contract is `nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
     drop: nosuspend function(takes self: Writer): nil
 
@@ -597,17 +595,24 @@ local record BufferWriter is Writer
 end
 
 --- A forward-only byte source.
+---
+--- An interface rather than the concrete things that satisfy it. A buffer's
+--- reader, a file's reader and an HTTP response body are all one of these, so
+--- code written against the contract works over any of them without knowing
+--- which it has.
 --- @export
 export interface Reader
 
-    --- Releases it as an ownership terminal. Repeated calls are safe.
+    --- Releases it as an ownership terminal.
     ---
-    --- Declared rather than written inline: a cleanup contract is `nosuspend`, and an
-    --- inline method cannot carry one.
+    --- Repeated calls are safe. Declared rather than written inline: a cleanup
+    --- contract is `nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
     drop: nosuspend function(takes self: Reader): nil
 
-    --- Reads up to `count` bytes. An empty answer is the end.
+    --- Reads up to `count` bytes.
+    ---
+    --- An empty answer is the end.
     --- @param self this reader
     --- @param count the most bytes to read
     --- @return the bytes, or nil when the reader is closed
@@ -615,7 +620,9 @@ export interface Reader
     --- @raises when count is not an integer
     read: function(self: Reader, count: integer): (string?, string?)
 
-    --- Reads into a buffer. A zero answer is the end.
+    --- Reads into a buffer.
+    ---
+    --- A zero answer is the end.
     --- @param self this reader
     --- @param destination the buffer to write into
     --- @param offset where in the destination to start, or the beginning
@@ -636,7 +643,9 @@ export interface Reader
     --- @return why it could not, when unsuccessful
     transferTo: function(self: Reader, borrows destination: Writer): (integer?, string?)
 
-    --- Closes the reader. Repeated calls are safe.
+    --- Closes the reader.
+    ---
+    --- Repeated calls are safe.
     --- @param self this reader, spent by the call
     --- @return true
     --- @return nothing
@@ -649,7 +658,9 @@ local record StringReader is Reader
     _at: integer
     _closed: boolean
 
-    --- Reads up to `count` bytes. An empty answer is the end.
+    --- Reads up to `count` bytes.
+    ---
+    --- An empty answer is the end.
     --- @param self this reader
     --- @param count the most bytes to read
     --- @return the bytes, or nil when the reader is closed
@@ -672,7 +683,9 @@ local record StringReader is Reader
         return out, nil
     end
 
-    --- Reads into a buffer. A zero answer is the end.
+    --- Reads into a buffer.
+    ---
+    --- A zero answer is the end.
     --- @param self this reader
     --- @param destination the buffer to write into
     --- @param offset where in the destination to start, or the beginning
@@ -716,7 +729,9 @@ local record StringReader is Reader
         return #remaining, nil
     end
 
-    --- Closes the reader. Repeated calls are safe.
+    --- Closes the reader.
+    ---
+    --- Repeated calls are safe.
     --- @param self this reader, spent by the call
     --- @return true
     --- @return nothing
@@ -795,10 +810,10 @@ local record QueueReader is Reader
         return #rest, nil
     end
 
-    --- Releases it as an ownership terminal. Repeated calls are safe.
+    --- Releases it as an ownership terminal.
     ---
-    --- Declared rather than written inline: a cleanup contract is `nosuspend`, and an
-    --- inline method cannot carry one.
+    --- Repeated calls are safe. Declared rather than written inline: a cleanup
+    --- contract is `nosuspend`, and an inline method cannot carry one.
     --- @param self this reader, spent by the call
     drop: nosuspend function(takes self: QueueReader): nil
 
@@ -821,10 +836,10 @@ export interface ScalarReader
     _queue: any
     _closed: boolean
 
-    --- Releases it as an ownership terminal. Repeated calls are safe.
+    --- Releases it as an ownership terminal.
     ---
-    --- Declared rather than written inline: a cleanup contract is `nosuspend`, and an
-    --- inline method cannot carry one.
+    --- Repeated calls are safe. Declared rather than written inline: a cleanup
+    --- contract is `nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
     drop: nosuspend function(takes self: ScalarReader): nil
 
@@ -882,6 +897,10 @@ export interface ScalarReader
         return taken(self, integer_(count, "io.ScalarReader count", 2))
     end
 
+    --- Reads one unsigned 8-bit integer.
+    --- @param self this reader
+    --- @return the value, 0 through 255
+    --- @raises when the source has no bytes left
     function readUint8(self): uint32
         local raw = taken(self, 1)
         local holder = ffi.new<uint8[1]>()
@@ -896,6 +915,10 @@ export interface ScalarReader
         return nupp.math.u32.wrap(value as integer)
     end
 
+    --- Reads one signed 8-bit integer.
+    --- @param self this reader
+    --- @return the value, -128 through 127
+    --- @raises when the source has no bytes left
     function readInt8(self): int32
         local raw = taken(self, 1)
         local holder = ffi.new<int8[1]>()
@@ -910,6 +933,10 @@ export interface ScalarReader
         return nupp.math.i32.wrap(value as integer)
     end
 
+    --- Reads one unsigned 16-bit integer in the machine's byte order.
+    --- @param self this reader
+    --- @return the value, 0 through 65535
+    --- @raises when fewer than 2 bytes are left
     function readUint16(self): uint32
         local raw = taken(self, 2)
         local holder = ffi.new<uint16[1]>()
@@ -924,6 +951,10 @@ export interface ScalarReader
         return nupp.math.u32.wrap(value as integer)
     end
 
+    --- Reads one signed 16-bit integer in the machine's byte order.
+    --- @param self this reader
+    --- @return the value, -32768 through 32767
+    --- @raises when fewer than 2 bytes are left
     function readInt16(self): int32
         local raw = taken(self, 2)
         local holder = ffi.new<int16[1]>()
@@ -938,6 +969,10 @@ export interface ScalarReader
         return nupp.math.i32.wrap(value as integer)
     end
 
+    --- Reads one unsigned 32-bit integer in the machine's byte order.
+    --- @param self this reader
+    --- @return the value, 0 through 4294967295
+    --- @raises when fewer than 4 bytes are left
     function readUint32(self): uint32
         local raw = taken(self, 4)
         local holder = ffi.new<uint32[1]>()
@@ -952,6 +987,10 @@ export interface ScalarReader
         return nupp.math.u32.wrap(value as integer)
     end
 
+    --- Reads one signed 32-bit integer in the machine's byte order.
+    --- @param self this reader
+    --- @return the value
+    --- @raises when fewer than 4 bytes are left
     function readInt32(self): int32
         local raw = taken(self, 4)
         local holder = ffi.new<int32[1]>()
@@ -966,6 +1005,10 @@ export interface ScalarReader
         return nupp.math.i32.wrap(value as integer)
     end
 
+    --- Reads one unsigned 64-bit integer in the machine's byte order.
+    --- @param self this reader
+    --- @return the value, as `uint64` cdata
+    --- @raises when fewer than 8 bytes are left
     function readUint64(self): uint64
         local raw = taken(self, 8)
         local holder = ffi.new<uint64[1]>()
@@ -980,6 +1023,10 @@ export interface ScalarReader
         return value as uint64
     end
 
+    --- Reads one signed 64-bit integer in the machine's byte order.
+    --- @param self this reader
+    --- @return the value, as `int64` cdata
+    --- @raises when fewer than 8 bytes are left
     function readInt64(self): int64
         local raw = taken(self, 8)
         local holder = ffi.new<int64[1]>()
@@ -994,6 +1041,10 @@ export interface ScalarReader
         return value as int64
     end
 
+    --- Reads one 32-bit float in the machine's byte order.
+    --- @param self this reader
+    --- @return the value, widened to a Lua number
+    --- @raises when fewer than 4 bytes are left
     function readFloat32(self): float
         local raw = taken(self, 4)
         local holder = ffi.new<float[1]>()
@@ -1008,6 +1059,10 @@ export interface ScalarReader
         return nupp.math.f32.narrow(value as number)
     end
 
+    --- Reads one 64-bit float in the machine's byte order.
+    --- @param self this reader
+    --- @return the value
+    --- @raises when fewer than 8 bytes are left
     function readFloat64(self): number
         local raw = taken(self, 8)
         local holder = ffi.new<number[1]>()
@@ -1052,10 +1107,10 @@ export interface ScalarWriter
     _writer: any
     _closed: boolean
 
-    --- Releases it as an ownership terminal. Repeated calls are safe.
+    --- Releases it as an ownership terminal.
     ---
-    --- Declared rather than written inline: a cleanup contract is `nosuspend`, and an
-    --- inline method cannot carry one.
+    --- Repeated calls are safe. Declared rather than written inline: a cleanup
+    --- contract is `nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
     drop: nosuspend function(takes self: ScalarWriter): nil
 
@@ -1072,6 +1127,10 @@ export interface ScalarWriter
         return put(self, bytes)
     end
 
+    --- Writes one unsigned 8-bit integer.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
     function writeUint8(self, value: uint32): ScalarWriter
         local holder = ffi.new<uint8[1]>()
         unsafe do
@@ -1081,6 +1140,10 @@ export interface ScalarWriter
         return put(self, ffi.string(holder, 1))
     end
 
+    --- Writes one signed 8-bit integer.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
     function writeInt8(self, value: int32): ScalarWriter
         local holder = ffi.new<int8[1]>()
         unsafe do
@@ -1090,6 +1153,10 @@ export interface ScalarWriter
         return put(self, ffi.string(holder, 1))
     end
 
+    --- Writes one unsigned 16-bit integer in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
     function writeUint16(self, value: uint32): ScalarWriter
         local holder = ffi.new<uint16[1]>()
         unsafe do
@@ -1099,6 +1166,10 @@ export interface ScalarWriter
         return put(self, ffi.string(holder, 2))
     end
 
+    --- Writes one signed 16-bit integer in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
     function writeInt16(self, value: int32): ScalarWriter
         local holder = ffi.new<int16[1]>()
         unsafe do
@@ -1108,6 +1179,10 @@ export interface ScalarWriter
         return put(self, ffi.string(holder, 2))
     end
 
+    --- Writes one unsigned 32-bit integer in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
     function writeUint32(self, value: uint32): ScalarWriter
         local holder = ffi.new<uint32[1]>()
         unsafe do
@@ -1117,6 +1192,10 @@ export interface ScalarWriter
         return put(self, ffi.string(holder, 4))
     end
 
+    --- Writes one signed 32-bit integer in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
     function writeInt32(self, value: int32): ScalarWriter
         local holder = ffi.new<int32[1]>()
         unsafe do
@@ -1126,6 +1205,10 @@ export interface ScalarWriter
         return put(self, ffi.string(holder, 4))
     end
 
+    --- Writes one unsigned 64-bit integer in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
     function writeUint64(self, value: uint64): ScalarWriter
         local holder = ffi.new<uint64[1]>()
         unsafe do
@@ -1135,6 +1218,10 @@ export interface ScalarWriter
         return put(self, ffi.string(holder, 8))
     end
 
+    --- Writes one signed 64-bit integer in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
     function writeInt64(self, value: int64): ScalarWriter
         local holder = ffi.new<int64[1]>()
         unsafe do
@@ -1144,6 +1231,10 @@ export interface ScalarWriter
         return put(self, ffi.string(holder, 8))
     end
 
+    --- Writes one 32-bit float in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
     function writeFloat32(self, value: float): ScalarWriter
         local holder = ffi.new<float[1]>()
         unsafe do
@@ -1153,6 +1244,10 @@ export interface ScalarWriter
         return put(self, ffi.string(holder, 4))
     end
 
+    --- Writes one 64-bit float in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
     function writeFloat64(self, value: number): ScalarWriter
         local holder = ffi.new<number[1]>()
         unsafe do
@@ -1376,6 +1471,23 @@ local function queueLike(value: any): boolean
 end
 
 --- Creates a buffer, optionally over starting bytes or a starting capacity.
+---
+--- The buffer is an owner, so it closes at its lexical boundary unless it is
+--- transferred out of one. A number is a capacity to allocate rather than
+--- content, and the buffer is still empty afterwards.
+---
+--- ```nupp
+--- const io = require("nupp.io")
+---
+--- do
+---     local buffer = io.newBuffer("hello")
+---     assert(buffer:length() == 5)
+---
+---     local sized = io.newBuffer(4096)
+---     assert(sized:length() == 0 and sized:capacity() == 4096)
+--- end
+--- ```
+---
 --- @param initial the starting bytes, a starting capacity, or nothing
 --- @return the buffer, owned by the caller
 --- @raises when initial is neither bytes nor a capacity
@@ -1402,6 +1514,17 @@ export function newBuffer(initial: integer | string?): affine(Buffer, destroyOwn
 end
 
 --- Opens a reader over bytes held as a string.
+---
+--- The reader is a `Reader` like any other, so a parser written against the
+--- contract reads a string here and a file or a response body elsewhere without
+--- changing:
+---
+--- ```nupp
+--- local reader = io.newStringReader("hello")
+--- assert(reader:read(5) == "hello")
+--- assert(reader:read(1) == "")
+--- ```
+---
 --- @param text the bytes to read
 --- @return the reader, owned by the caller
 --- @raises when text is not a string
@@ -1415,6 +1538,11 @@ export function newStringReader(text: string): affine(Reader, destroyOwner)
 end
 
 --- Opens a reader over a byte queue, which it does not own.
+---
+--- Closing this reader leaves the queue behind it open, because the queue was
+--- never transferred. A process stream and an HTTP response body are both byte
+--- queues without naming this module.
+---
 --- @param source the queue to read from
 --- @return the reader, owned by the caller
 --- @raises when source is not a byte queue
@@ -1476,6 +1604,18 @@ end
 --- reports its `remaining` count. A reader or a queue is consumed in place: the reader
 --- answers no count, the queue answers what it still holds.
 ---
+--- What the source is decides what happens to it. A snapshot or a buffer is
+--- borrowed and outlives the cursor; a reader is taken, and closing the cursor
+--- closes it; a string or a queue carries no obligation either way.
+---
+--- ```nupp
+--- do
+---     local cursor = io.newScalarReader(header)
+---     local magic = cursor:readUint32()
+---     local count = cursor:readUint16()
+--- end
+--- ```
+---
 --- @param source the bytes, snapshot, buffer, reader or queue to read
 --- @return the new reader, owned by the caller
 --- @raises when source is none of those
@@ -1489,6 +1629,14 @@ export const newScalarReader: function(source: string | ByteQueue): affine(Scala
 --- A buffer is appended to, keeping what it already holds. A writer receives the bytes
 --- as they are written. Omitting the destination starts a fresh buffer, which
 --- `ScalarWriter:buffer` hands back.
+---
+--- ```nupp
+--- do
+---     local cursor = io.newScalarWriter()
+---     cursor:writeUint32(0x4d495355):writeUint16(2)
+---     local bytes = assert(cursor:buffer()):getString()
+--- end
+--- ```
 ---
 --- @param destination the buffer or writer to append to, or nothing for a fresh buffer
 --- @return the new writer, owned by the caller

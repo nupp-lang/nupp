@@ -1,12 +1,13 @@
 module nupp.io.path
 
 --[[
-Filesystem paths, as the platform spells them.
+Builds and takes apart filesystem paths the way the platform writes them.
 
 The rules are the native library's, so joining, normalizing and splitting agree with
 what the operating system will actually do rather than with a guess made in Lua. A
 path is an immutable value: every operation answers a new one, and two paths are
-equal when their text is.
+equal when their text is. A path names a place on this machine; see [](nupp.io.uri)
+for identifying a resource that may be somewhere else.
 
 A module rather than an export of [](nupp.io), because a program that wants a byte
 buffer should not carry the path provider to get one. So this is reached as
@@ -26,8 +27,8 @@ const native = require("nupp.native")
 
 -- The struct is declared here rather than in the runtime cdef below, because `ffi.new`
 -- names it and the checker has to know the type to accept that. It reaches LuaJIT as a
--- bare `struct` rather than a typedef, which is why the prototype below spells it that
--- way. The functions stay in the runtime declaration: they are reached through the
+-- bare `struct` rather than a typedef, which is why the prototype below writes it
+-- that way. The functions stay in the runtime declaration: they are reached through the
 -- handle `nupp.native` opened, not the default namespace a `cdef function` binds to.
 cdef struct NuppStringView
     data: cstring
@@ -140,6 +141,9 @@ export record Path
     end
 
     --- Resolves every symbolic link and `..`, which requires the path to exist.
+    ---
+    --- This reads the filesystem, where `normalize` works on the text alone, so
+    --- it fails on a path that is not there.
     --- @param self this path
     --- @return the canonical path, or nil on failure
     --- @return a failure reason, when unsuccessful
@@ -269,8 +273,8 @@ textOf = function(value: string | Path): string
 end
 
 -- The library answers a buffer, or nil with the reason on the error channel. An
--- operation that may legitimately have no answer -- a path with no parent -- passes
--- `optional`, and nil is the answer rather than a failure.
+-- operation that may legitimately have no answer, such as a path with no parent,
+-- passes `optional`, and nil is the answer rather than a failure.
 returned = function(buffer: any, optional: boolean?): Path?
     local text = native.bytes(buffer, optional)
     if text == nil then

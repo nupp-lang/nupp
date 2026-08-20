@@ -299,7 +299,7 @@ Link generously. A page is a node, not a document.
 - Link the first mention of any concept that has a page of its own, then use the
   bare term afterward on that page.
 - Deep-link to the heading that answers the question, not the page top: `[rock
-  dependencies](build.md#rock-dependencies)`.
+  dependencies](guides/build.md#rock-dependencies)`.
 - One page owns each concept; the rest link to it and state only what they need.
   `concepts/ownership.md` states the annotations a caller writes and links
   `type-system/ownership.md` for the model.

@@ -26,10 +26,10 @@ automatically. Writing the file is the whole process.
 
 ## Motivation
 
-Documentation is rewritten whenever behaviour changes, and the reasoning goes
-with it. Later, the constraint that forced an awkward-looking design is no longer
-visible in the tree, and the obvious-looking simplification gets attempted a
-second time.
+Documentation is rewritten whenever behavior changes, and the reasoning goes
+with it. Later, the constraint that forced an awkward-looking design is no
+longer visible in the tree, and the obvious-looking simplification gets
+attempted a second time.
 
 Reasoning ages better than description. "A was chosen over B because B could not
 express a borrowed result" stays true after A is replaced, which is what makes a
@@ -40,9 +40,19 @@ proposal worth keeping without maintaining it.
 ### File layout
 
 One proposal is one file in `docs/neps/`, named `NNNN-short-slug.md` with a
-four-digit number. Numbers are assigned in writing order, never reused, and
-never renumbered. A proposal is published by existing; [NEP 0](index.md) is
-generated from the files themselves and is where they link to each other.
+four-digit number. The numbers run consecutively from this one, with no gaps. A
+proposal is published by existing, and the [index](index.md) is generated from
+the files themselves.
+
+Removing a proposal closes the gap it would leave. A design whose reasoning has
+moved into the documentation records nothing the site does not already carry, so
+its file is deleted and every proposal after it is renumbered down.
+
+That costs what a number is for. A citation written before the change points at
+a different proposal afterwards, a link to the deleted file resolves to nothing,
+and neither failure announces itself. So a removal is a rewrite of every
+reference to every proposal after it, in the same commit, and it is worth that
+only where the reasoning survives on a page a reader reaches by another route.
 
 ### Frontmatter
 
@@ -62,14 +72,13 @@ its first `##`. Do not write an `#` heading, a number, or a status line into it.
 
 ### Statuses
 
-```text
-Draft                 Written down, not decided. Nothing has been built.
-Accepted              Decided. Building it is expected; it may not exist yet.
-Implemented           Decided and built.
-Withdrawn             Decided against, or abandoned.
-Superseded by NEP N   Replaced. Read N instead.
-Active                A process proposal, such as this one.
-```
+- `Draft`: written down but not decided, and nothing has been built.
+- `Accepted`: decided, and building it is expected even though it may not exist
+  yet.
+- `Implemented`: decided and built.
+- `Withdrawn`: decided against, or abandoned.
+- `Superseded by NEP N`: replaced, and NEP N says what replaced it.
+- `Active`: a process proposal, such as this one.
 
 `Draft` and `Accepted` describe things that do not exist yet.
 
@@ -78,27 +87,25 @@ Active                A process proposal, such as this one.
 In this order, as `##` headings. A section with nothing to say is dropped, and
 `FAQ` is optional.
 
-```text
-Summary                 What this decides, in a paragraph.
-Goals                   What the design has to achieve.
-Non-goals               What it deliberately does not attempt.
-Motivation              The problem, and why the obvious answers do not work.
-Overview and            The design: its syntax, its usage, its lowering, and
-  specification         the rules it introduces.
-Risks and assumptions   What this bets on, and what breaks if the bet is wrong.
-Alternatives            The designs that lost, and why each one lost.
-  considered
-FAQ                     Optional. Only questions the rest of the proposal does
-                        not already answer.
-```
+- `Summary`: what this decides, in a paragraph.
+- `Goals`: what the design has to achieve.
+- `Non-goals`: what it deliberately does not attempt.
+- `Motivation`: the problem, and why the obvious answers do not work.
+- `Overview and specification`: the design, its syntax, its usage, its
+  lowering, and the rules it introduces.
+- `Risks and assumptions`: what this bets on, and what breaks if the bet is
+  wrong.
+- `Alternatives considered`: the designs that lost, and why each one lost.
+- `FAQ`: optional, and only for questions the rest of the proposal does not
+  already answer.
 
 ### Syntax, usage, and lowering
 
 `Overview and specification` shows the feature rather than only describing it:
 
-- **Syntax** — the construct as it is written, in a fenced `nupp` block.
-- **Usage** — a short example of it being used.
-- **Lowering** — the generated Lua, or the physical representation, wherever
+- **Syntax** is the construct as it is written, in a fenced `nupp` block.
+- **Worked example** is a short program using the construct.
+- **Lowering** is the generated Lua, or the physical representation, wherever
   lowering is part of what was decided. Where a construct erases entirely, say
   so.
 
@@ -115,28 +122,32 @@ replaced.
 ### Superseding and withdrawing
 
 A replaced design gets `Superseded by NEP N`, and N says what changed. A dropped
-one gets `Withdrawn` and a sentence saying why. Delete a proposal only when it
-records no decision at all.
+one gets `Withdrawn` and a sentence saying why. Both keep their file and their
+number, because both still record a decision.
+
+Delete a proposal only when nothing is left for it to record, either because it
+never held a decision or because the reasoning now lives on a documentation
+page. See [File layout](#file-layout) for what deleting one costs.
 
 ## Risks and assumptions
 
 - **A proposal can be mistaken for documentation.** It sits on the documentation
   site, and a `Draft` describing unbuilt syntax is the case that misleads. The
-  status is the defence.
+  status is the defense.
 - **Bodies drift toward the code.** A body that needs updating to stay true was
-  probably describing behaviour rather than reasoning.
+  probably describing behavior rather than reasoning.
 - **This assumes one author.** Review, sponsorship, and objection handling are
   absent. A second author means revisiting this document.
 
 ## Alternatives considered
 
 **Dated design records outside the site**, with a free-form status line. This is
-what Nupp had. Those files described behaviour as well as reasoning, so they
+what Nupp had. Those files described behavior as well as reasoning, so they
 went wrong when the code moved and nobody could tell which parts had.
 
-**Commit messages.** Dated, attached to the change, and unable to drift — but a
-decision usually spans many commits, and there is nowhere to put the
-alternatives that were never committed.
+**Commit messages.** Dated, attached to the change, and unable to drift. A
+decision usually spans many commits, though, and a commit message has nowhere
+to put the alternatives that were never committed.
 
 **A "why" aside in the documentation.** Keeps one file per topic, and has
 nowhere to put a rejected design, or the reasoning behind a replaced one whose

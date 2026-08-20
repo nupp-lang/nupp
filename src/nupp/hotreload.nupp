@@ -12,6 +12,10 @@ changes until `commit` has a complete candidate vector.
 The state is process-wide so a host and generated modules may require this
 module through different loader paths without splitting the registry. Ordinary
 generated programs never require it.
+
+See [hot-reload.md](docs/guides/hot-reload.md) for what a watch build does with this, and
+[0006-hot-reload.md](docs/neps/0006-hot-reload.md) for why a patch is refused rather than applied
+partially.
 ]]
 
 local hotreload = {}
@@ -189,8 +193,14 @@ local function moduleForSlots(slots: hotreload.Slots): any
     return module
 end
 
---- Returns the direct implementation array for one loaded watch module.
+--- Answers the direct implementation array for one loaded watch module.
 ---
+--- Outside staging, naming a module that has not executed registers it, because
+--- that is a module about to run its own initial chunk. Inside staging it is a
+--- patch naming something that was never loaded, which is refused.
+---
+--- @param name the watch module's name
+--- @return the slot array that module dispatches through
 --- @raises when a patch names a module that has not executed yet
 function hotreload.module(name: string): hotreload.Slots
     local module = state.modules[name]
@@ -210,8 +220,14 @@ function hotreload.module(name: string): hotreload.Slots
     return module.slots
 end
 
---- Records one dynamic-custody policy used by a generated module. During staging the
---- candidate set stays private until every live persistent store admits the change.
+--- Records one dynamic-custody policy a generated module uses.
+---
+--- During staging the candidate set stays private until every live persistent store
+--- admits the change, so a policy that still has entries cannot be changed out from
+--- under them.
+---
+--- @param slots the module's slot array
+--- @param key the stable policy key
 function hotreload.policy(slots: hotreload.Slots, key: string): nil
     local module = moduleForSlots(slots)
     local staging = state.staging
@@ -225,6 +241,8 @@ function hotreload.policy(slots: hotreload.Slots, key: string): nil
 end
 
 --- Marks a module's initial registration complete after its chunk returns.
+---
+--- @param name the watch module's name
 --- @raises when the module is unknown or has already been sealed
 function hotreload.seal(name: string): nil
     local module = state.modules[name]
@@ -235,6 +253,11 @@ function hotreload.seal(name: string): nil
 end
 
 --- Discards an incomplete registration after its initial chunk fails.
+---
+--- A module that already sealed is left alone, so this is safe to call from an
+--- error path that cannot tell how far the chunk got.
+---
+--- @param name the watch module's name
 function hotreload.abort(name: string): nil
     local module = state.modules[name]
     if not module or module.loaded then
@@ -244,8 +267,18 @@ function hotreload.abort(name: string): nil
     state.modules[name] = nil
 end
 
---- Registers an initial implementation or one candidate in the active stage.
+--- Registers an initial implementation, or one candidate in the active stage.
 ---
+--- A candidate must match the live definition's identity, signature, recursive
+--- binding and capture set. Each of those is a change the running process cannot
+--- take, and each is refused by name.
+---
+--- @param slots the module's slot array
+--- @param index which slot this fills
+--- @param id the declaration identity the slot was registered under
+--- @param signature the declaration's signature
+--- @param selfName the recursive binding's name, when the function has one
+--- @param implementation the function body to install
 --- @raises when identity, signature, or captured lexical cells are incompatible
 function hotreload.define(
     slots: hotreload.Slots,
@@ -295,7 +328,13 @@ end
 
 --- Loads and validates a patch without changing any live implementation.
 ---
---- @return the prepared transaction, or nil and the reason it was rejected
+--- Everything fallible happens here, so a transaction that comes back can be
+--- committed without a failure point in the middle of the vector.
+---
+--- @param source the patch chunk
+--- @param baseGeneration the generation the patch was built against
+--- @return the prepared transaction, or nil when it was rejected
+--- @return why it was rejected, when it was
 function hotreload.stage(source: string, baseGeneration: integer): hotreload.Transaction?, string?
     if state.staging then
         return nil, "another patch is already staging"
@@ -341,7 +380,12 @@ end
 
 --- Atomically publishes a prepared candidate vector.
 ---
---- @return the committed generation, or nil and why this transaction is stale
+--- Lua cannot run authored code between the direct array writes below, so no
+--- dispatch can observe half a patch.
+---
+--- @param prepared what `stage` answered
+--- @return the committed generation, or nil when this transaction is stale
+--- @return why it is stale, when it is
 function hotreload.commit(prepared: hotreload.Transaction): integer?, string?
     if type(prepared) ~= "table" or prepared.committed then
         return nil, "patch was already committed or is invalid"
@@ -364,12 +408,12 @@ function hotreload.commit(prepared: hotreload.Transaction): integer?, string?
     return state.generation
 end
 
---- Returns the currently published implementation generation.
+--- Answers the currently published implementation generation.
 function hotreload.generation(): integer
     return state.generation
 end
 
---- Returns whether a module has completed its initial watch execution.
+--- Answers whether a module has completed its initial watch execution.
 function hotreload.loaded(name: string): boolean
     local module = state.modules[name]
     return module ~= nil and module.loaded == true

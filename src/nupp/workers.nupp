@@ -15,6 +15,7 @@ local workers = require("nupp.workers")
 do
     local worker = workers.spawn("jobs.hash")
     local answer = worker:call({bytes = contents})
+    print(answer.length)
 end -- automatic stop
 ```
 
@@ -30,8 +31,11 @@ end)
 
 A ready receive returns inline. A wait blocks efficiently in an ordinary
 program and suspends under an installed handler. Closing is cooperative: it
-wakes a worker blocked in `Self:receive`, but source that ignores the closed
+wakes a worker blocked in `Self:receive`, but a worker that ignores its closed
 inbox can keep `join` and `stop` waiting indefinitely.
+
+See [workers.md](docs/concepts/workers.md) for what may cross the boundary, and
+[suspension.md](docs/concepts/suspension.md) for what a wait does under an installed handler.
 ]]
 
 local buffer = require("string.buffer")
@@ -477,6 +481,12 @@ function workers.Worker.drop(takes self: workers.Worker): nil
     self:stop()
 end
 
+--- Stops and releases a worker, which is what every worker's contract names.
+---
+--- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
+--- scope boundary or an explicit `drop` reaches it.
+---
+--- @param self the worker, spent by this call
 function workers.destroyWorker(takes self: workers.Worker): nil
     self:drop()
 end
@@ -527,9 +537,23 @@ function workers.Self:serve(handler: function(any): any): nil
 end
 
 --- Starts `entry` in a fresh LuaJIT state.
+---
+--- The entry is a module name resolved out of the same stamped payload the spawner
+--- was built from, so a worker needs no separate build. It runs until its module
+--- returns or its inbox closes and drains.
+---
+--- ```nupp
+--- do
+---     local worker = workers.spawn("jobs.hash")
+---     local answer = worker:call({bytes = contents})
+---     print(answer.length)
+--- end -- the worker is closed, joined and released here
+--- ```
+---
+--- @param entry the worker entry module's name
 --- @return an owned worker that is stopped on every structured exit
 --- @raises when the entry is not a nonempty module name, or the worker state cannot
---- be started
+---     be started
 function workers.spawn(entry: string): affine(workers.Worker, workers.destroyWorker)
     if type(entry) ~= "string" or entry == "" then
         error("nupp: a worker entry must be a nonempty module name", 2)
@@ -562,7 +586,18 @@ function workers.spawn(entry: string): affine(workers.Worker, workers.destroyWor
     ) as workers.Worker
 end
 
---- Returns the endpoints installed in the current worker state.
+--- Answers the endpoints installed in the current worker state.
+---
+--- Only a worker entry module has these. The spawner side holds a
+--- [](nupp.workers.Worker) instead.
+---
+--- ```nupp
+--- workers.current():serve(function(job: any): any
+---     return {length = #job.bytes}
+--- end)
+--- ```
+---
+--- @return the inbox and outbox endpoints for this worker
 --- @raises outside a worker state
 function workers.current(): workers.Self
     local inbox, outbox = native.current()

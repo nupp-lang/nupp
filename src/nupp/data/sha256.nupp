@@ -1,7 +1,13 @@
 module nupp.data.sha256
 
 --[[
-SHA-256, rendered as sixty-four lowercase hex digits.
+Hashes bytes with SHA-256, rendered as sixty-four lowercase hex digits.
+
+```nupp
+const sha256 = require("nupp.data.sha256")
+
+local digest = sha256("payload")
+```
 
 A cryptographic digest, unlike [](nupp.data.fnv1a64) and [](nupp.data.crc32), which
 answer faster and promise less.

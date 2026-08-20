@@ -1,7 +1,7 @@
 module nupp.io.uri
 
 --[[
-URIs, parsed and manipulated by the native library.
+Parses URIs and answers new ones from them, over the native library's parser.
 
 A URI is an immutable value over a parsed handle. Every `with` operation answers a
 new URI, and one that would not change anything answers the same one rather than
@@ -13,7 +13,8 @@ was actually written.
 
 A module rather than an export of [](nupp.io), because a program that wants a byte
 buffer should not carry the URI provider to get one. So this is reached as
-`nupp.io.uri`, and the value it answers is a `nupp.io.uri.URI`.
+`nupp.io.uri`, and the value it answers is a `nupp.io.uri.URI`. See [](nupp.io.path)
+for naming a place on this machine rather than a resource anywhere.
 ]]
 
 const native = require("nupp.native")
@@ -307,6 +308,20 @@ export record URI
     end
 
     --- Resolves a reference against this URI, as a browser resolves a link.
+    ---
+    --- The reference decides how much of this URI survives: an absolute one
+    --- replaces all of it, a rooted path keeps the scheme and authority, and a
+    --- relative path is taken from this one's directory.
+    ---
+    --- #### Examples
+    ---
+    --- Resolve a relative reference:
+    ---
+    --- ```nupp
+    --- local page = assert(uri.new("https://example.com/docs/a.html"))
+    --- assert(assert(page:resolve("b.html")):toString()
+    ---     == "https://example.com/docs/b.html")
+    --- ```
     --- @param self this URI
     --- @param reference the reference to resolve
     --- @return the resolved URI, or nil when the reference cannot be resolved
@@ -435,6 +450,9 @@ end
 
 --- Parses absolute URI text, or assembles one from components.
 ---
+--- Text has to be absolute: a relative reference is resolved against a URI that
+--- already exists, through `URI:resolve`.
+---
 --- #### Examples
 ---
 --- Read a URI's parts:
@@ -444,6 +462,17 @@ end
 ---
 --- local address = assert(uri.new("https://example.com/a?b=1"))
 --- assert(address:host() == "example.com" and address:query() == "b=1")
+--- ```
+---
+--- Assemble one from components rather than writing the text out:
+---
+--- ```nupp
+--- local endpoint = assert(uri.new({
+---     scheme = "https",
+---     host = "example.com",
+---     path = "/a",
+---     query = "b=1",
+--- }))
 --- ```
 --- @param value the URI text, or the components to assemble
 --- @return the URI, or nil when it could not be parsed
@@ -465,7 +494,7 @@ export function new(value: string | Components): (URI?, string?)
     return parsed(C.nuppUriParse(source, #source))
 end
 
---- Whether text parses as an absolute URI, without building one.
+--- Reports whether text parses as an absolute URI, without building one.
 --- @param text the text to test
 --- @return whether it parses
 --- @return why it did not, when it did not
@@ -483,7 +512,7 @@ export function validate(text: string): (boolean, string?)
     return true, nil
 end
 
---- Whether a value is a URI.
+--- Reports whether a value is a URI.
 --- @param value the value to test
 --- @return whether it is a URI
 --- @export

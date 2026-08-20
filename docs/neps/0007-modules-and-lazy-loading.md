@@ -8,15 +8,18 @@ created: 2026-08-19
 
 `module` and `export` are declarations. Each declared module is one source file
 with its own private scope, generated chunk, stable export table, runtime
-initialization, and incremental cache entry — and it is its own public
+initialization, and incremental cache entry. It is also its own public
 declaration, with no ambient table or companion declaration file repeating it.
 Complete interfaces are built for a strongly connected component before bodies
 are checked, so type and hoisted-function cycles resolve to real declarations.
 Separately, packages may register roots so a qualified path resolves to a real
 module, with no runtime namespace tree.
 
-[Declarations and modules](../concepts/declarations.md) and
-[the standard library](../concepts/standard-library.md) document the surface.
+::: seealso
+- [modules.md](../concepts/modules.md) for declaring and requiring a module
+- [standard-library.md](../concepts/standard-library.md) for the qualified
+  paths the standard library publishes
+:::
 
 ## Goals
 
@@ -39,17 +42,17 @@ module, with no runtime namespace tree.
 
 ### Access discipline was decided by implementation language
 
-Facilities implemented natively were ambient — present in every generated
-module, costing nothing when unreached. Facilities implemented in Nupp were
-ordinary modules reached by `require`.
+Facilities implemented natively were ambient, present in every generated module
+and costing nothing when unreached. Facilities implemented in Nupp were ordinary
+modules reached by `require`.
 
 Nothing a user cares about distinguishes those two groups. The split was an
 implementation detail of the compiler that had reached the public API, and the
 documentation already described the unified world the implementation did not
-provide — listing a Nupp-implemented namespace beside native ones while every
+provide. It listed a Nupp-implemented namespace beside native ones while every
 actual use required it.
 
-### The bridge cost a second copy
+### Bridging cost a second copy
 
 The one facility that already spanned both worlds was installed at runtime as a
 lazy require and *declared separately by hand*. That duplicate is the thing that
@@ -84,7 +87,7 @@ A qualified path reaches a registered root's descendants:
 nupp.mem.span.fromCarray(pointer, count)
 ```
 
-### Usage
+### Worked example
 
 A module is its own declaration, so nothing repeats its surface:
 
@@ -105,12 +108,9 @@ const {decode, Encoder as JSONEncoder} = require("nupp.data.json")
 
 ### Lowering
 
-A declared module is one generated chunk with a stable export table, and
-qualified paths generate one hidden direct import per containing module — there
-is no runtime namespace tree to walk:
+A declared module is one generated chunk with a stable export table:
 
-```lua
--- app/models.lua
+```lua [app/models.lua]
 local models = {}
 
 models.User = {} models.User.__index = models.User
@@ -122,8 +122,10 @@ end
 return models
 ```
 
-```lua
--- a module writing nupp.mem.span.fromCarray(...)
+A qualified path generates one hidden direct import per containing module, so
+there is no runtime namespace tree to walk:
+
+```lua [Generated for a call to nupp.mem.span.fromCarray]
 local __nuppMod1 = require("nupp.mem.span")
 local view = __nuppMod1.fromCarray(pointer, count)
 ```
@@ -134,7 +136,7 @@ rather than to an uninitialized read. A cycle that reads an export before its
 initialization tier makes it available is rejected rather than observed as
 `nil`.
 
-### A module is its own declaration
+### Modules are their own declarations
 
 There is no ambient table and no companion declaration file. Whatever a module
 exports is what the module says it exports, in the file that implements it.
@@ -149,13 +151,6 @@ Complete interfaces are built for a strongly connected component of the static
 dependency graph before any body in it is checked. Type and hoisted-function
 cycles then resolve to real declarations.
 
-### Initialization tiers
-
-At run time, stable export tables are instantiated and eligible immutable
-exports hoisted before dependencies are evaluated. A cycle that reads an export
-before its initialization tier makes it available is rejected rather than
-observed as a nil.
-
 ### Qualified paths resolve at compile time
 
 A registered root's descendants are real declared modules. An unshadowed
@@ -165,10 +160,10 @@ to walk and nothing to allocate.
 
 Laziness is at selection: a qualified module is selected, generated, staged, and
 initialized only when live checked code reaches it. Once selected, its hidden
-import runs when the containing module initializes — arbitrary first-call
-laziness would have needed a guard on the hot path.
+import runs when the containing module initializes. Arbitrary first-call
+laziness would have needed a guard on the hot path instead.
 
-### Ordering was deliberate
+### Qualified paths came second
 
 Qualified paths were kept out of the module work and added afterwards, once
 module identity, interfaces, and initialization were real. A convenience layer
@@ -198,23 +193,23 @@ them.
 
 **Declare every Nupp-implemented namespace in a prelude declaration file.**
 Cheapest to build; nothing in the resolver changes. Rejected on the constraint
-it breaks: it is a second copy, maintained by hand, once per module — exactly
-the cost the one existing bridge already demonstrated.
+it breaks: it is a second copy, maintained by hand, once per module, which is
+exactly the cost the one existing bridge already demonstrated.
 
-**Single-file semantics** — make a set of files behave as one translation unit
+**Single-file semantics**, making a set of files behave as one translation unit
 with a shared scope, order-independent declarations, and free mutual reference,
 as Go does within a package. Rejected: it changes what a file *is* for every
-Nupp program in order to solve a standard-library problem, and it makes the unit
-of incremental checking a package rather than a file.
+Nupp program to solve a standard-library problem, and it makes the unit of
+incremental checking a package rather than a file.
 
 **Generate the declarations** from the bundled source list as a build step,
 checked in and verified by the self-hosting fixpoint. Bounded drift and no
 resolver change. Still a second copy, and it means a project outside the tree no
 longer reads exactly the source that went into its binary.
 
-**Status quo with better names** — leave the two disciplines and settle
-namespace questions by moving files. Costs nothing and fixes nothing: the
-documentation stays wrong, and every future facility repeats the decision.
+**Status quo with better names**, leaving the two disciplines in place and
+settling namespace questions by moving files. Costs nothing and fixes nothing:
+the documentation stays wrong, and every future facility repeats the decision.
 
 **Resolve namespace members through the module loader**, reusing the mechanism
 that already exists for required modules. This was the recommended option and is

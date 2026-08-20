@@ -1,8 +1,8 @@
 # Switch expressions
 
-A switch selects one value from ordered cases. The selector is evaluated once,
-only the selected arm runs, and the switch itself can appear wherever its
-current placement rules admit an expression.
+A switch selects one value from ordered cases, evaluating its selector once and
+running only the arm that matches. It lowers to two generated locals and an
+ordered `if`/`elseif` chain, and nothing is wrapped in a function.
 
 ::: code-group
 ```nupp [Nupp]
@@ -26,13 +26,27 @@ local label = __nuppT2
 ```
 :::
 
-The selector is bound once, the result once, and the arms become an ordered
-`if`/`elseif` chain. Nothing is wrapped in a function.
-[Performance](../guides/performance.md#switch-dispatch) covers when a static
-switch finishes in one table read instead.
+See [performance.md](../guides/performance.md#switch-dispatch) for when a static
+switch finishes in one table read instead of that chain.
+
+::: deepdive
+A statement-form switch would have been smaller and more familiar, and it was
+rejected because every use then becomes an assignment to a variable declared
+above it. That is the boilerplate the construct removes, and it gives up the
+guarantee that every path produces exactly one value.
+
+The arrow is shared vocabulary with short functions, not a request to allocate
+one. A switch that built an arm closure could not sit in a hot loop, which would
+make it a syntax for cold code. The rest of the design is arranged around that
+invariant: placement is restricted rather than lowered through an immediately
+invoked function, and an optimized lookup replaces the whole decision or
+nothing.
+:::
+
+## Selectors end with `do`
 
 The `do` after the selector is required. It gives the parser an unambiguous end
-to any selector, including a call, table, string, parenthesized expression or
+to any selector, including a call, table, string, parenthesized expression, or
 multiline expression, without reserving `switch` as a keyword:
 
 ::: code-group
@@ -59,14 +73,13 @@ local selected = __nuppT2
 ```
 :::
 
-::: rationale
-The arrow is shared vocabulary with short functions, not a request to allocate
-one: a switch lowers to branches and merge labels so it stays trace-recordable
-in a hot loop. That invariant is why placement is restricted rather than lowered
-through an immediately invoked function, and why an optimized lookup replaces
-the whole decision or nothing.
-
-[NEP 3](../neps/0003-switch-expressions.md) has the full record.
+::: deepdive
+A word that would break an existing program is not a keyword, it is a shape.
+`switch` is recognized only by the `do` that terminates its selector, and
+`yield` only by a same-line operand that does not begin with `(`, `{`, or a
+literal string. Every other use of either name stays an ordinary Lua call, so
+the construct takes no name away from a program that already used one. See
+[syntax.md](syntax.md#keywords-are-contextual) for the other contextual words.
 :::
 
 ## Static cases
@@ -104,11 +117,15 @@ local kind = __nuppT4
 
 Values sharing an arm become an `or` chain against the one selector local.
 
-Cases are values rather than source spellings. `1`, `1.0`, and `1e0` are the
-same case; `0` and `-0` are the same case. Repeating one is `NUPP2138`.
-Operators, calls, indexing, table constructors, cdata literals, and non-finite
-numbers are not static cases (`NUPP2137`). There is no Ruby-style `===` hook or
-user-defined matching protocol.
+Cases are values rather than source forms. `1`, `1.0`, and `1e0` are the same
+case, and `0` and `-0` are the same case, because a case denotes the finite
+binary64 value LuaJIT compares at run time. That rule is local to switch cases
+and does not widen the literal-type or const-generic domains described in
+[unions.md](../type-system/unions.md#literal-unions-are-enums). Repeating a case
+is [`NUPP2138`](../reference/diagnostics.md#diagnostic-index). Operators, calls,
+indexing, table constructors, cdata literals, and non-finite numbers are not
+static cases (`NUPP2137`). There is no
+Ruby-style `===` hook or user-defined matching protocol.
 
 An exact const name is useful when the name communicates more than its value:
 
@@ -137,7 +154,25 @@ local access = __nuppT6
 :::
 
 The parentheses are load-bearing today: a bare `case READ ->` does not parse,
-because the name and arrow are taken for the start of another expression.
+because the name and arrow are taken for the start of a short function.
+
+::: deepdive
+Both pattern families are closed on purpose. A user-extensible case protocol,
+as Ruby's and Crystal's `===`, turns a closed decision into an open one and lets
+a case test run arbitrary code, which is incompatible with reordering tests
+during planning. Guards are the first extension asked for and the hardest to
+refuse, because each one looks small on its own. They are considered once the
+closed forms have stable semantics, diagnostics, and performance data, rather
+than refused forever.
+
+The static grammar deliberately does not reuse the `comptime` evaluator. That
+evaluator exists for const generics: it has integer, string, boolean, and
+function domains, admits operators that are unwanted in case position, and has
+neither `nil` nor binary64 number terms. Reusing it would have meant accepting
+arithmetic and calls in a case, or carving an exception out of a shared
+evaluator, and the exception is the same work as a small grammar without the
+coupling. See [comptime.md](comptime.md) for what that evaluator does own.
+:::
 
 ## Type cases, binding, and destructuring
 
@@ -181,7 +216,9 @@ admits `nil`; a selector proved to be entirely records drops it.
 
 All pattern bindings are const and scoped to their arm. `field as alias` changes
 only the local binding name. Destructuring is direct, with no nested object
-patterns, and a missing field or duplicate binding is `NUPP2137`.
+patterns, and a missing field or duplicate binding is `NUPP2137`. A binding
+shares the selector's ownership identity rather than creating a second
+obligation, so no arm can move an affine selector by matching on it.
 
 Runtime identity follows `is`:
 
@@ -192,7 +229,9 @@ Runtime identity follows `is`:
 
 An interface with no runtime identity cannot be tested (`NUPP3001`). Type cases
 are ordered. A broad case can consume the type a later case needs, making the
-later arm unreachable (`NUPP2139`).
+later arm unreachable (`NUPP2139`). See
+[narrowing.md](../type-system/narrowing.md#switch-arm-narrowing) for the facts
+an arm may rely on.
 
 ## Expression and block arms
 
@@ -254,13 +293,23 @@ local value = __nuppT4
 :::
 
 `yield` is an assignment to the result local, not a call and not a coroutine
-suspension. The `return` stays an ordinary early return out of the function.
+suspension. See [suspension.md](suspension.md) for the construct that does park
+a coroutine.
 
 Every completing path through a block arm must reach one `yield`; a path may
 instead `return` from the enclosing function. Falling through, or placing a
 statement after a switch yield on the same path, is `NUPP2141`.
 
-`yield` is contextual and line-sensitive. These remain ordinary Lua calls:
+::: deepdive
+Giving `return` the switch-result meaning would have been the smaller grammar,
+and it was rejected. An arm is ordinary code, and code that reads as an early
+exit has to be one. `yield` carries the result instead, targeting the nearest
+enclosing arm and never crossing a function boundary.
+:::
+
+### Contextual `yield`
+
+`yield` is line-sensitive. These remain ordinary Lua calls:
 
 ::: code-group
 ```nupp [Nupp]
@@ -276,7 +325,7 @@ yield "value"
 ```
 :::
 
-To return one of those forms from a switch, bind it and yield the name:
+To supply one of those forms as an arm result, bind it and yield the name:
 
 ::: code-group
 ```nupp [Nupp]
@@ -349,13 +398,22 @@ local area = __nuppT4
 An open selector such as `string`, `integer`, or `any` requires `else` unless
 the arms already cover its type. A missing alternative is `NUPP2140`. A value
 outside the selector type, a case after the remaining type is empty, or an
-unnecessary `else` is `NUPP2139`.
+unnecessary `else` is `NUPP2139`. See
+[unions.md](../type-system/unions.md#exhaustiveness) for the union shapes that
+are enumerable.
 
 ## Evaluation and placement
 
 The selector runs once. Cases are tested from top to bottom. Static cases lower
 to equality comparisons and type cases lower to the same predicates as `is`.
 The selected expression or block runs once; other arms do no work.
+
+Switches may nest. An inner switch used as the outer selector finishes first,
+and its result becomes the outer switch's single selector value. An inner switch
+written in an arm stays lazy: it is lowered inside that arm and does not
+evaluate unless the arm is selected.
+
+### Conditionally evaluated positions
 
 The initial placement model accepts switches lifted from local declarations,
 assignments, returns, and call statements when eager left-to-right evaluation
@@ -378,33 +436,69 @@ help: move the switch to a local before this expression
 ```
 :::
 
-Write the switch as a preceding local when eager evaluation is intended. Lazy
-placement awaits general expression normalization rather than silently changing
-when the switch runs.
+Write the switch as a preceding local when eager evaluation is intended.
 
-Switches may nest. An inner switch used as the outer selector finishes first,
-and its result becomes the outer switch's single selector value. An inner
-switch written in an arm remains lazy: it is lowered inside that arm and does
-not evaluate unless the arm is selected.
+::: deepdive
+Lowering a conditionally evaluated position through an immediately invoked
+function would lift the restriction today. It breaks the no-closure invariant
+exactly where it matters, because a switch inside `and` or `or` is usually
+inside an expression inside a loop, and it makes the construct's cost depend on
+where it was written.
+
+The general answer is one normalization layer that turns a checked expression
+and its continuation into lexical control flow while preserving evaluation
+order, conditional evaluation, multi-result rules, scopes, ownership, and
+cleanup. Conditional evaluation is the hard part: a naive statement prefix runs
+the setup unconditionally, so normalization has to put the setup inside the
+branch that reaches it.
+
+```lua
+local value = cached
+if value == nil then
+    local __subject = source
+    if getmetatable(__subject).__index == File then
+        value = readFile(__subject.path)
+    else
+        value = nil
+    end
+end
+```
+
+Solving that once serves every statement-shaped construct that wants an
+expression position, rather than one set of ordering rules, each with its own
+bugs, per construct.
+:::
+
+### Comptime and ahead-of-time subsets
 
 Static cases with expression arms are supported by `comptime`. Comptime type
 cases and block arms receive the targeted unsupported-construct diagnostic.
-String cases, type cases, block arms, and early arm returns remain explicit AOT
-subset boundaries. Regular Lua lowering supports the complete switch described
-above.
+String cases, type cases, block arms, and early arm returns remain explicit
+ahead-of-time subset boundaries. Ordinary Lua lowering supports the complete
+switch described above. See
+[ahead-of-time.md](../guides/ahead-of-time.md#scalar-switch-initializers) for
+what the native backend accepts.
 
-The generated tabs above are the branch lowering every switch gets. When every
-case and result is a compiler-known inert scalar and there are enough of them,
-the chain is replaced by one table read instead; see
-[Performance](../guides/performance.md#switch-dispatch) for those plans, the
-record-identity sharing, and the AOT subset.
+::: deepdive
+An ahead-of-time switch whose selector has an established `int32` or `uint32`
+representation lowers to a native C `switch`, leaving the C compiler to choose
+branches, a search tree, bit tests, or a jump table. The backend gets there by
+annotating the `If` that lowering already emits with the normalized integer
+labels, rather than by adding a scalar-IR switch op. Lowering already produces
+exactly the shape a native switch needs, so the emitter reads a fact instead of
+reconstructing one, and a new op would have needed cases at seven `op == "if"`
+sites plus verification, text, emission, and intensity analysis. Dropping the
+annotation is always safe, which is what makes the lane path desugar before
+rewriting.
+:::
 
 ## Formatting
 
-The formatter preserves two visible nesting boundaries:
+The formatter preserves two visible nesting boundaries: cases sit one level
+inside the switch, and statements in a block arm sit one level inside their
+case.
 
-::: code-group
-```nupp [Nupp]
+```nupp
 local result = switch value do
     case 1 -> "one"
     case 2 -> do
@@ -416,25 +510,49 @@ local result = switch value do
 end
 ```
 
-```lua [Generated Lua]
-local __nuppT3 = value
-local __nuppT4
-if __nuppT3 == 1 then __nuppT4 = "one"
-elseif __nuppT3 == 2 then
-    log("two")
-    local two = "two"
-    __nuppT4 = two
-else __nuppT4 = "other"
-end
-local result = __nuppT4
-```
+An arm `end` aligns with its `case`; the final `end` aligns with the surrounding
+statement. The selector-closing `do` stays on the selector's final logical line,
+and formatting never separates contextual `yield` from the first token of its
+operand. See [fmt.md](../guides/fmt.md#formatting-rules) for the rest of the
+formatter's rules.
+
+::: deepdive
+Switch indentation is language surface here, not presentation. A formatter that
+moved cases back to the containing statement's indentation would make the
+construct read as something it is not, so the boundaries above are fixed rather
+than offered as a style option. That constrains the formatter permanently, which
+is the cost of having the shape carry meaning.
 :::
 
-The arm's operand is bound first because `yield "two"` would be an ordinary
-call, as above.
+## FAQ
 
-Cases and `else` are one level inside the switch. Statements inside a block arm
-are one level inside their case. An arm `end` aligns with its `case`; the final
-`end` aligns with the surrounding statement. The selector-closing `do` stays on
-the selector's final logical line, and formatting never separates contextual
-`yield` from the first token of its operand.
+### Can a case carry a guard condition?
+
+No. A case is a static scalar or a type test, and a condition that depends on
+anything beyond the selector belongs in the arm body or in an `if`. See [Static
+cases](#static-cases) for the values a case accepts.
+
+### Does an arm allocate a closure?
+
+No. The arrow is shared vocabulary with short functions, and a switch lowers to
+branches, generated locals, and merge labels. See
+[performance.md](../guides/performance.md#switch-dispatch) for what that buys in
+a hot loop.
+
+### When does a switch beat an `if` chain?
+
+When one subject is tested the same way by every branch and every path produces
+one value. A switch states the facts an `if` chain leaves both the reader and
+the compiler to recover, which is also what lets the backend replace the ordered
+chain with a table read.
+
+::: seealso
+- [performance.md](../guides/performance.md#switch-dispatch) for the table-read
+  plans and the conditions that keep ordered branches
+- [narrowing.md](../type-system/narrowing.md#switch-arm-narrowing) for what a
+  type case proves inside its arm
+- [unions.md](../type-system/unions.md#exhaustiveness) for the union shapes a
+  switch covers without `else`
+- [ownership.md](../type-system/ownership.md#ownership-in-switch-patterns) for
+  what a pattern binding does to an affine selector
+:::

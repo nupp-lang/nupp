@@ -1,7 +1,8 @@
 module nupp.data.json
 
 --[[
-JSON encoding and decoding, and the values a Lua table cannot express by itself.
+Encodes and decodes JSON, including the values a Lua table cannot express by
+itself.
 
 The work is simdjson's, reached through the `jsonNative` host boundary this module
 loads. Nothing is reimplemented here: the module is the name a program uses and the
@@ -11,7 +12,8 @@ place the load is arranged, so a checked program never names the host.
 this table by the derive runtime when a program derives JSON for a type, because they
 answer in terms of a derived entry rather than a document alone. They are declared
 with the rest of the surface so a caller sees one API, and they raise when nothing
-was derived.
+was derived. See [derives.md](docs/reference/derives.md#json) for what
+deriving JSON for a type installs.
 ]]
 
 -- Normally the rock is on the path and this does nothing. A build that carries the
@@ -35,8 +37,18 @@ const native = require("jsonNative")
 ---
 --- Declared here rather than aliased out of the host boundary, because this is the
 --- name callers write: `derive.JSON` answers a contract in terms of it. `Writer` is
---- not declared here, because nothing names it as a type -- it is reached as a value
+--- not declared here, because nothing names it as a type. It is reached as a value
 --- from `writer()`.
+---
+--- ```nupp
+--- local record Money is nupp.data.json.JSONEncodable
+---     cents: integer
+---
+---     function toJSON(self): string
+---         return nupp.data.json.encode({cents = self.cents})
+---     end
+--- end
+--- ```
 export interface JSONEncodable
     toJSON: function(self): string
 end

@@ -12,6 +12,11 @@ named, not by a project setting or a pragma. The extension is not part of the
 module's name, so tightening a file is a rename and nothing that requires it
 changes.
 
+::: seealso
+- [strictness.md](../concepts/strictness.md) for the floor as a reader meets it
+- [overview.md](../type-system/overview.md) for the type system it sits under
+:::
+
 ## Goals
 
 - Let an existing codebase adopt Nupp without a conversion step, a
@@ -35,7 +40,7 @@ A project-wide setting has one value, so turning it on means fixing every file
 at once. Nobody schedules that, so it stays off, and while it is off nothing
 enforces the parts already finished.
 
-Strictness declared inside the file — a `--!strict` comment, a pragma — is
+Strictness declared inside the file, by a `--!strict` comment or a pragma, is
 invisible in a directory listing, in a review diff that does not include the top
 of the file, and in a code search. It is copied by accident when a file is
 duplicated and dropped by accident when one is rewritten.
@@ -49,37 +54,37 @@ smallest thing a person edits, reviews, and moves.
 
 There is none. The declaration is the file's extension:
 
-```text
-.lua      plain Lua; the typed layer is refused in it
-.g.nupp   typed syntax, no floor
-.d.nupp   declares an interface something else implements
-.nupp     typed syntax, held to the strict floor
-```
+- `.lua`: plain Lua, and the typed layer is refused in it.
+- `.g.nupp`: typed syntax with no floor beneath it.
+- `.d.nupp`: declares an interface something else implements.
+- `.nupp`: typed syntax, held to the strict floor.
 
-### Usage
+### Worked example
 
 The same file under two names is the same program, checked the same way, with
 and without the floor beneath it:
 
-```nupp
--- models.g.nupp: typed syntax, gradual checks
+::: code-group
+```nupp [models.g.nupp]
 local function scale(point, factor)
     return {x = point.x * factor, y = point.y * factor}
 end
+```
 
--- models.nupp: the same code, now a checked boundary
+```nupp [models.nupp]
 local function scale(point: Point, factor: number): Point
     return new Point {x = point.x * factor, y = point.y * factor}
 end
 ```
+:::
 
 Both are the module `models`, and `require("models")` finds either.
 
-### The floor is two rules
+### Floor rules
 
 An unknown variable is an error rather than a global read, and an exported
-declaration needs an annotation. That is the whole difference; keeping it small
-is what makes the cost of a rename predictable before making it.
+declaration needs an annotation. Keeping the difference that small is what makes
+the cost of a rename predictable before making it.
 
 ### Lowering
 
@@ -95,21 +100,23 @@ end
 Two constructs survive, because their runtime representation is the reason
 someone wrote them. A `struct` becomes FFI cdata with a fixed layout:
 
-```nupp
+::: code-group
+```nupp [Nupp]
 local struct Vec2
     x: float
     y: float
 end
 ```
 
-```lua
+```lua [Generated Lua]
 local Vec2 = ffi.metatype(ffi.typeof("struct { float x; float y; }"), Vec2_mt)
 ```
+:::
 
-and `cdef` declarations remain runtime bindings, because they load native
-symbols. Nothing acquires a type registry or a runtime checker.
+A `cdef` declaration is the other, and it stays a runtime binding because it
+loads a native symbol. Nothing acquires a type registry or a runtime checker.
 
-### Refusal in `.lua` is an error
+### Annotations in `.lua` are refused
 
 An annotation written into a `.lua` file reports `NUPP1006`. The extension has
 already settled that the file is Lua, so the annotation would govern nothing,

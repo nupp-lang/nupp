@@ -82,7 +82,7 @@ end
 ---
 --- The result runs under a plain `luajit` with nothing beside it. That is what makes it
 --- worth having on its own, and it is also the payload a stub carries; see
---- [distribution.md](../../../docs/reference/distribution.md).
+--- [distribution.md](docs/reference/distribution.md).
 ---
 --- Resources go in rather than beside, keyed by their path relative to the entry
 --- module's directory, the same key `nupp.compiler.env` reads its own declarations
@@ -604,7 +604,7 @@ end
 --- A selected macOS result is deliberately unsigned. On a Mac, `codesign --sign -`
 --- makes a development artifact runnable; release automation uses a Developer ID and
 --- notarizes the archive. See
---- [distribution.md](../../../docs/reference/distribution.md).
+--- [distribution.md](docs/reference/distribution.md).
 local function stampFile(
     output: string,
     stubText: string,

@@ -1,24 +1,19 @@
 module nupp.data.bitset
 
 --[[
-Multi-word bitsets over GC-managed 32-bit words.
+Holds sets of bit positions across as many GC-managed 32-bit words as they need.
 
-LuaJIT gives one 32-bit word at a time and no population count or trailing-zero
-operation -- those are table lookups here, which is the floor Lua can reach --
-so everything that makes a bitset a bitset lives here: the word loop,
-range masks that span word boundaries, the used-word bound, and counting across
-words. Storage is FFI cdata; the pointer is private, so no caller can hold one
-across a growth that replaces it.
+LuaJIT gives one 32-bit word at a time, and no population count or trailing-zero
+operation. Those two are table lookups here, which is the floor Lua can reach, so
+everything that makes a bitset a bitset lives here: the word loop, range masks
+that span word boundaries, the used-word bound, and counting across words.
+Storage is FFI cdata; the pointer is private, so no caller can hold one across a
+growth that replaces it.
 
 Bit indexes count from 0, because bit `i` lives in word `i / WORD_BITS` and
 fighting that costs correctness. `count` is resolved on demand rather than
 maintained through set algebra: union, intersection and difference are word
 loops whose per-word popcount would otherwise cost more than the operation.
-
-Reached as `nupp.data.bitset`, which the prelude declares and the stdlib
-installer loads. That is the only public spelling a program has. This declared
-implementation module is internal and uses an `impl` suffix because a module at
-`nupp.data.bitset` would shadow the intrinsic member it implements.
 ]]
 
 local bitset = {}
@@ -37,7 +32,7 @@ const tobit = bit.tobit
 --- @export
 const bitset.WORD_BITS = 32
 
--- 5 and 31 are WORD_BITS as a shift and a mask. They are spelled as literals
+-- 5 and 31 are WORD_BITS as a shift and a mask. They are written as literals
 -- because LuaJIT folds a literal shift and would not fold a table read.
 const BITS_PER_WORD = 32
 const WORD_SHIFT = 5
@@ -52,7 +47,7 @@ const HALF_SHIFT = 16
 -- measured 1.58 times faster for the population count and 1.20 for the lowest
 -- bit, against 128KB of static tables and the loop below that fills them. The
 -- multiply-free SWAR population count was a wash, and the usual multiply form
--- cannot be spelled here because a Lua multiply goes through a double and loses
+-- cannot be written here because a Lua multiply goes through a double and loses
 -- the low bits it depends on.
 --
 -- Nothing in Lua closes the rest of the gap: the machine has one instruction for
@@ -130,9 +125,10 @@ record bitset.Bitset
     --- paying two popcounts per word to keep a number most callers never read.
     private stale: boolean
 
-    --- Grows storage so at least `bits` bits fit. Only grows, and never returns
-    --- storage. A growth at least doubles, so repeated small growths stay
-    --- amortised.
+    --- Grows storage so at least `bits` bits fit.
+    ---
+    --- Only grows, and never returns storage. A growth at least doubles, so
+    --- repeated small growths stay amortized.
     --- @param bits how many bits must fit
     function reserve(self, bits: integer): nil
         local needed = wordsFor(bits)
@@ -336,7 +332,9 @@ record bitset.Bitset
         return resolved
     end
 
-    --- Whether nothing is set. Says nothing about capacity.
+    --- Whether nothing is set.
+    ---
+    --- Says nothing about capacity.
     --- @return true when no bit is set
     function isEmpty(self): boolean
         return self:count() == 0
@@ -668,6 +666,23 @@ record bitset.Bitset
 end
 
 --- Creates an empty set.
+---
+--- The capacity is a starting size, not a bound: a set built for one frame's
+--- worth of positions grows into whatever the next frame needs.
+---
+--- ```nupp
+--- const bitset = require("nupp.data.bitset")
+---
+--- local visible = bitset.create(1024)
+--- visible:set(37)
+--- visible:setRange(64, 127)
+---
+--- local index = visible:nextSetBit(0)
+--- while index >= 0 do
+---     index = visible:nextSetBit(index + 1)
+--- end
+--- ```
+---
 --- @param capacityBits how many bits to allocate for. A starting size only:
 ---     setting a position past it grows rather than failing.
 --- @return a set with nothing in it, whatever capacity was asked for

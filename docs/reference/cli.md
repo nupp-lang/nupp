@@ -1,11 +1,21 @@
 # `nupp` command
 
-One executable holds every tool. Each command below carries its own `--help`,
-which is the text `nupp help <command>` prints, and the output it writes when
-it has any.
+One executable holds every tool. Each command carries its own `--help`, which is
+the text `nupp help <command>` prints, and this page shows that text beside the
+output the command writes.
 
+```bash
+nupp check
+nupp build
+nupp run src/main.nupp
+```
+
+The commands, in the order `nupp help` lists them:
+
+- [`init`](#init): create a project from a template
 - [`ast`](#ast): dump a Nupp file's parsed syntax tree
 - [`aot`](#aot): show what the `@aot` functions in a file compile to
+- [`bc`](#bc): show the bytecode a Nupp file compiles to
 - [`check`](#check): type-check source without emitting Lua
 - [`fmt`](#fmt): format Nupp source
 - [`build`](#build): build source files or a configured project target
@@ -29,48 +39,60 @@ it has any.
 - [`lsp`](#lsp): language-server and semantic source operations
 - [`help`](#help): show general or command-specific help
 
-```bash
-nupp check
-nupp build
-nupp run src/main.nupp
-```
+## Universal options
 
-## Options every command takes
+Three options are appended to every command's grammar, so no command can be the
+one that forgot them:
 
 - `--color[=WHEN]`: always, never, or auto, the default
 - `--no-color`: the same as `--color=never`
 - `-h`, `--help`: show that command's help
 
-`--color` never consumes the next argument. Write `--color=never`; a bare
-`--color` means `always`. Passing both `--color` and `--no-color` is an error
-rather than last-wins.
+`--color` never consumes the next argument. A bare `--color` means `always`, and
+a value is attached with `=`, which is what keeps the argument after it from
+being read as the value:
 
-Color is decided by `NO_COLOR`, then `CLICOLOR_FORCE`, then `TERM=dumb`, then
-whether the stream is a terminal. JSON output is never colored.
+```bash
+nupp check --color=never src/greet.nupp
+```
 
-`nupp test` and the `nupp lsp` group forward their arguments, so they take only
-`-h`.
+`--color` and `--no-color` land on one key, so asking for color and refusing it
+on the same command line is an error rather than last-wins.
+
+A given `--color` decides on its own. With none, `NO_COLOR` refuses escapes,
+`CLICOLOR_FORCE` asks for them, and what is left is whether the stream is a
+terminal that understands them, which `TERM=dumb` says it is not. JSON output is
+never colored.
+
+[`test`](#test), [`task`](#task), [`rock`](#rock) and the [`lsp`](#lsp) group
+hand their arguments to another program or parse them per operation, so the
+three are not appended to them. Each of the four takes `-h`, and `lsp` declares
+a grammar of its own.
 
 ## JSON and schemas
 
-Every command that produces data takes `--format json`, spelled `--json`, and
-also `--schema`, which prints the JSON Schema of that output:
+Every command that produces structured data takes `--format json`, shortened to
+`--json`, and `--schema`, which prints the JSON Schema of that output:
 
 ```bash
 nupp check --json
 nupp check --schema
 ```
 
-That covers `ast`, `check`, `fmt`, `build`, `clean`, `tasks`, `lints`,
-`ownership-audit`, `explain`, `test`, `coverage`, `fixpoint`, `import-c`,
-`export-c`, and every `lsp` operation. `doc` reports what it wrote; `run`,
-`task`, `rock` and `completions` produce no structured result and take neither.
+`init`, `ast`, `aot`, `bc`, `check`, `fmt`, `build`, `clean`, `tasks`, `lints`,
+`ownership-audit`, `explain`, `doc`, `fixpoint`, `import-c` and `export-c` take
+all three, and so does every `lsp` operation. `reference` names its
+formats `markdown`, `skill` and `json` instead. `coverage`, `test` and `run`
+take `--json` and `--schema` with no `--format`, because the JSON each writes is
+one particular artifact rather than a rendering of the whole result.
+`completions`, `task` and `rock` produce no structured result and take neither.
 
-A test runs each command for real and validates its output against its own
-`--schema`, so the schema cannot drift from what the command emits.
+A test runs each command for real and validates its output against that
+command's own `--schema`, so a schema cannot drift from what the command emits.
 
-`--format`, `--json`, and `--text` share one setting; giving two of them is an
-error. No option repeats unless it says so, and only `-Zno-opt` does.
+`--format`, `--json` and `--text` share one setting, and giving two of them is
+an error. No option repeats unless it says so, and three do: `--set` on `init`,
+and `--relax` and `-Zno-opt` on `build` and `run`.
 
 A command writes its JSON as one line with no ordering guarantee across keys.
 The `json` blocks on this page are indented so they can be read; the `text`
@@ -78,12 +100,19 @@ blocks are the bytes the command wrote.
 
 ## Exit codes
 
+Every command answers with one of three statuses:
+
 - `0`: success
 - `1`: the work was attempted and failed
 - `2`: usage error, such as an unknown option or the wrong argument count
 
-A usage error prints `nupp: <message>` on stderr and points at
-`nupp help <command>`.
+A usage error is settled before any work starts, names the argument it could not
+use, and points at that command's help:
+
+```text [nupp check --colour]
+nupp: unknown option --colour
+Try 'nupp help check' for more information.
+```
 
 ## Example project
 
@@ -139,195 +168,6 @@ print(greet.greet("world"))
 ```
 
 ## Command reference
-
-### `ast`
-
-```text [nupp ast --help]
-Dump a Nupp file's parsed syntax tree
-
-Usage:
-  nupp ast [--format text|json] <file>
-
-Options:
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to color output: always, never, or auto (default)
-  --no-color       Never color output; the same as --color=never
-  -h, --help       Show this help
-
-The parser produces a lossless concrete syntax tree. Text output is an indented
-outline with quoted tokens; JSON includes structural children, tokens, trivia,
-locations, and parse errors. A recovered tree is still printed when parsing
-fails.
-```
-
-A file that does not parse still prints the tree recovery reached, and then
-exits 1.
-
-```text [nupp ast src/greet.nupp]
-chunk
-  block
-    localFuncStmt
-      local "local"
-      function "function"
-      name "greet"
-      funcbody
-        ( "("
-        param
-          name "name"
-          : ":"
-          tname
-            name "string"
-        ) ")"
-        : ":"
-        tname
-          name "string"
-        block
-          returnStmt
-            return "return"
-            binop
-              string
-                string "\"Hello, \""
-              .. ".."
-              name
-                name "name"
-        end "end"
-    returnStmt
-      return "return"
-      tableExpr
-        { "{"
-        fieldNamed
-          name "greet"
-          = "="
-          name
-            name "greet"
-        } "}"
-  eof ""
-```
-
-### `aot`
-
-```text [nupp aot --help]
-Show what the @aot functions in a file compile to
-
-Usage:
-  nupp aot [--emit ir|c|binding] [--check] [--target TRIPLE] [--features TIER] <file>
-
-Reports what the ahead-of-time backend produces for one file, without writing it. A build emits the same artifacts under `aot = "emit-c"` or `aot = "require"`.
-
-Options:
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --emit ARTIFACT  Print one artifact: ir, c, or binding
-  --check          Exit non-zero for a map loop that wanted lanes and ran one
-                   iteration at a time
-  --target TRIPLE  The target triple to compile for; the host's by default
-  --features TIER  The CPU feature tier to promise: baseline, avx2, avx512f, or
-                   neon
-  --library PATH   Where the compiled object will be found, for the generated
-                   binding
-  --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to color output: always, never, or auto (default)
-  --no-color       Never color output; the same as --color=never
-  -h, --help       Show this help
-```
-
-The bare command says what the backend decided for every `@aot` function in the
-file: how much arithmetic each loop does per byte it touches, and which gang it
-was lowered to, if any.
-
-```text [nupp aot bench/kernel-subset-spike/mandelbrot.nupp]
-bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, 5.19 operations per byte (83 over 16), f64x4, 4 lanes
-```
-
-`--emit` prints one artifact. `ir` is the verified IR with the lane body beside
-the scalar one it was rewritten from, `c` is the generated C, and `binding` is
-the Nupp module that stands in front of it.
-
-`--check` is for the same category `nupp bc --check` covers: a performance
-property no answer depends on, which an ordinary edit can quietly take away. It
-distinguishes three outcomes and fails on one. A loop that lowered is fine. A
-loop that declined is fine too, whether because the arithmetic per byte says
-lanes will not pay or because the source wrote `@aot(lanes = false)`. A loop
-that wanted lanes and ran one iteration at a time exits 1, naming the construct
-that stopped it.
-
-```text [nupp aot --check src/particles.nupp]
-nupp: advance ran one iteration at a time
-  src/particles.nupp:39:5: aot: a nested numeric loop is not lane-controlled yet
-```
-
-### `bc`
-
-```text [nupp bc --help]
-Show the bytecode a Nupp file compiles to
-
-Usage:
-  nupp bc [--check] [--prologue] [--format text|json] <file>
-
-Options:
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --check          Report bytecode a loop cannot compile, and exit non-zero for
-                   it
-  --prologue       Include the generated runtime preamble, folded away by
-                   default
-  --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to color output: always, never, or auto (default)
-  --no-color       Never color output; the same as --color=never
-  -h, --help       Show this help
-
-Source lines are shown against the instructions they produced. The generated
-runtime preamble all lands on line 1 and is folded away unless `--prologue`
-asks for it.
-
-`--check` marks every instruction LuaJIT cannot record that sits inside a loop.
-It exits 1 when every repeatable path reaches one, because that loop cannot
-complete a root trace. A blocker reached on only some paths remains visible as
-advice without claiming every path stays interpreted.
-```
-
-Generated Lua keeps source line numbers one to one, so the listing shows the
-file that was written rather than the file that was generated. The runtime
-preamble all lands on line 1 and is folded away; `--prologue` keeps it.
-
-```text [nupp bc src/greet.nupp]
--- chunk, lines 0-6
-     ... 44 instructions of runtime preamble
-    3 | end
-      0044  FNEW     4   7      ; greet.nupp:1
-    5 | return {greet = greet}
-      0045  TDUP     5   8
-      0046  TSETS    4   5   9  ; "greet"
-      0047  UCLO     0 => 0048
-      0048  RET1     5   2
-
-  -- function, lines 1-3
-      1 | local function greet(name: string): string
-        0000  FUNCF    3 
-      2 |     return "Hello, " .. name
-        0001  KSTR     1   0      ; "Hello, "
-        0002  MOV      2   0
-        0003  CAT      1   1   2
-        0004  RET1     1   2
-```
-
-`--check` reads the bytecode for work LuaJIT cannot record inside a loop, and
-exits 1 when it finds any. Building a function is the usual cause: LuaJIT has
-no recording for it, so the loop holding one aborts recording, is blacklisted
-after enough attempts, and then runs interpreted however hot it gets. Nothing
-else reports that, because the program's answers do not change.
-
-It reads further than the two source lints, which see what was written rather
-than what was generated: [`loop-invariant-closure`](lints.md) reports a
-function that could be lifted out of its loop unchanged, and
-[`jit-loop-closure`](lints.md), off until a project asks for it, reports one
-that reads the iteration and so cannot be. Neither says anything about a closure
-the compiler's own lowerings put in a loop, which is what this reads.
 
 ### `init`
 
@@ -402,24 +242,22 @@ Next:
 That project checks, builds, tests and runs as it stands, which is what the
 template is for.
 
-#### Where a template comes from
+#### Template sources
 
-A `TEMPLATE` argument is read lexically, never by looking at the filesystem: the
-same spelling means the same thing in every directory.
+A `TEMPLATE` argument is read as text, never by looking at the filesystem, so
+the same argument means the same thing in every directory.
 
-```text
- Spelling                     Resolves to
- ───────────────────────────  ──────────────────────────────────────────
- app                          a built-in template of that name
- ./x, ../x, /x, ~/x           a directory on disk
- owner/repo                   https://github.com/owner/repo
- owner/repo@v1.2.0            the same, at that revision
- owner/repo/games/topdown     the games/topdown directory of that repository
- https://…, git@…             used as given, with --rev for a revision
-```
+| Argument | Resolves to |
+| --- | --- |
+| `app` | a built-in template of that name |
+| `./x`, `../x`, `/x`, `~/x` | a directory on disk |
+| `owner/repo` | `https://github.com/owner/repo` |
+| `owner/repo@v1.2.0` | the same, at that revision |
+| `owner/repo/games/topdown` | that repository's `games/topdown` directory |
+| `https://...`, `git@...` | used as given, with `--rev` for a revision |
 
-`--from PATH` forces a directory, for the case where a local path is spelled
-like a repository name. A name with no slash that matches no built-in is
+`--from PATH` forces a directory, for the case where a local path looks like a
+repository name. A name with no slash that matches no built-in is
 refused by name rather than guessed at as a repository.
 
 #### Writing a template
@@ -442,7 +280,7 @@ return {
 }
 ```
 
-`name`, `moduleName` (the name in luacase, with hyphens and underscores removed)
+`name`, `moduleName` (the name with its hyphens and underscores removed)
 and `directory` are always defined. A template may declare `name` to constrain
 it, but its value comes from `--name` or the directory. Anything else is
 declared here or it cannot be used, and is supplied with `--set KEY=VALUE`.
@@ -452,17 +290,231 @@ names post-init steps from a closed set: `git`, `check`, `build` and `test`.
 
 #### Fetched template limits
 
-A repository template is cloned with git, reported by the commit it resolved to,
-and confirmed before anything is written. A run with nothing at the terminal to
-answer is refused rather than assumed; `--yes` accepts it unread.
+A repository template is confirmed before anything is written, and a run with
+nothing at the terminal to answer is refused rather than assumed. `--yes`
+accepts it unread, and either way its `after` steps are reduced to `git init`,
+so the scaffolded project is read before any of it runs.
 
-Its `after` steps are reduced to `git init`. This is not caution about
-`template.lua`, which is loaded in a sandbox with no `io`, `os`, `require` or
-`load` in it. It is that `check`, `build` and `test` all load the `nupp.lua`
-that was just scaffolded, and a manifest is ordinary unrestricted Lua: a
-template allowed to ask for `check` could put its payload in the manifest
-instead, and the sandbox would be decoration. Read the project, then run those
-yourself.
+```bash
+nupp init owner/repo@v1.2.0 game --yes
+```
+
+::: deepdive
+The reduced step list is not caution about `template.lua`, which is loaded in a
+sandbox with no `io`, `os`, `require` or `load` in it. It is that `check`,
+`build` and `test` all load the `nupp.lua` that was just scaffolded, and a
+manifest is ordinary unrestricted Lua. A template allowed to ask for `check`
+could put its payload in the manifest instead, and the sandbox would be
+decoration.
+:::
+
+::: seealso
+- [tour.md](../getting-started/tour.md) for a walk through the scaffolded
+  project
+- [build.md](../guides/build.md) for the `nupp.lua` a template writes
+- [luarocks.md](../guides/luarocks.md) for the layout the `lib` template
+  scaffolds
+:::
+
+### `ast`
+
+```text [nupp ast --help]
+Dump a Nupp file's parsed syntax tree
+
+Usage:
+  nupp ast [--format text|json] <file>
+
+Options:
+  --format FORMAT  Output format: text (default) or json
+  --json           Shorthand for --format json
+  --text           Shorthand for --format text
+  --schema         Print the JSON Schema of --json output and exit
+  --color[=WHEN]   When to color output: always, never, or auto (default)
+  --no-color       Never color output; the same as --color=never
+  -h, --help       Show this help
+
+The parser produces a lossless concrete syntax tree. Text output is an indented
+outline with quoted tokens; JSON includes structural children, tokens, trivia,
+locations, and parse errors. A recovered tree is still printed when parsing
+fails.
+```
+
+The tree is the one [grammar.md](grammar.md) defines, kept lossless down to
+trivia. A file that does not parse still prints the tree recovery reached, and
+then exits 1.
+
+```text [nupp ast src/greet.nupp]
+chunk
+  block
+    localFuncStmt
+      local "local"
+      function "function"
+      name "greet"
+      funcbody
+        ( "("
+        param
+          name "name"
+          : ":"
+          tname
+            name "string"
+        ) ")"
+        : ":"
+        tname
+          name "string"
+        block
+          returnStmt
+            return "return"
+            binop
+              string
+                string "\"Hello, \""
+              .. ".."
+              name
+                name "name"
+        end "end"
+    returnStmt
+      return "return"
+      tableExpr
+        { "{"
+        fieldNamed
+          name "greet"
+          = "="
+          name
+            name "greet"
+        } "}"
+  eof ""
+```
+
+### `aot`
+
+```text [nupp aot --help]
+Show what the @aot functions in a file compile to
+
+Usage:
+  nupp aot [--emit ir|c|binding] [--check] [--target TRIPLE] [--features TIER] <file>
+
+Reports what the ahead-of-time backend produces for one file, without writing it. A build emits the same artifacts under `aot = "emit-c"` or `aot = "require"`.
+
+Options:
+  --format FORMAT  Output format: text (default) or json
+  --json           Shorthand for --format json
+  --text           Shorthand for --format text
+  --emit ARTIFACT  Print one artifact: ir, c, or binding
+  --check          Exit non-zero for a map loop that wanted lanes and ran one
+                   iteration at a time
+  --target TRIPLE  The target triple to compile for; the host's by default
+  --features TIER  The CPU feature tier to promise: baseline, avx2, avx512f, or
+                   neon
+  --library PATH   Where the compiled object will be found, for the generated
+                   binding
+  --schema         Print the JSON Schema of --json output and exit
+  --color[=WHEN]   When to color output: always, never, or auto (default)
+  --no-color       Never color output; the same as --color=never
+  -h, --help       Show this help
+```
+
+The bare command says what the backend decided for every `@aot` function in the
+file: how much arithmetic each loop does per byte it touches, and which
+[gang](../guides/ahead-of-time.md) it was lowered to, if any.
+
+```text [nupp aot bench/kernel-subset-spike/mandelbrot.nupp]
+bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, 5.19 operations per byte (83 over 16), f64x4, 4 lanes
+```
+
+`--emit` prints one artifact. `ir` is the verified IR with the lane body beside
+the scalar one it was rewritten from, `c` is the generated C, and `binding` is
+the Nupp module that stands in front of it.
+
+`--check` covers the same category [`bc --check`](#bc) does: a performance
+property no answer depends on, which an ordinary edit can quietly take away. It
+distinguishes three outcomes and fails on one. A loop that lowered is fine, and
+so is a loop that declined, whether because the arithmetic per byte says lanes
+will not pay or because the source wrote `@aot(lanes = false)`. A loop that
+wanted lanes and ran one iteration at a time exits 1, naming the construct that
+stopped it:
+
+```text [nupp aot --check src/particles.nupp]
+nupp: advance ran one iteration at a time
+  src/particles.nupp:39:5: aot: a nested numeric loop is not lane-controlled yet
+```
+
+See [ahead-of-time.md](../guides/ahead-of-time.md#targets-and-feature-tiers)
+for how a gang is chosen and for the tiers `--features` names.
+
+### `bc`
+
+```text [nupp bc --help]
+Show the bytecode a Nupp file compiles to
+
+Usage:
+  nupp bc [--check] [--prologue] [--format text|json] <file>
+
+Options:
+  --format FORMAT  Output format: text (default) or json
+  --json           Shorthand for --format json
+  --text           Shorthand for --format text
+  --check          Report bytecode a loop cannot compile, and exit non-zero for
+                   it
+  --prologue       Include the generated runtime preamble, folded away by
+                   default
+  --schema         Print the JSON Schema of --json output and exit
+  --color[=WHEN]   When to color output: always, never, or auto (default)
+  --no-color       Never color output; the same as --color=never
+  -h, --help       Show this help
+
+Source lines are shown against the instructions they produced. The generated
+runtime preamble all lands on line 1 and is folded away unless `--prologue`
+asks for it.
+
+`--check` marks every instruction LuaJIT cannot record that sits inside a loop.
+It exits 1 when every repeatable path reaches one, because that loop cannot
+complete a root trace. A blocker reached on only some paths remains visible as
+advice without claiming every path stays interpreted.
+```
+
+Generated Lua keeps source line numbers one to one, so the listing shows the
+file that was written rather than the file that was generated:
+
+```text [nupp bc src/greet.nupp]
+-- chunk, lines 0-6
+     ... 44 instructions of runtime preamble
+    3 | end
+      0044  FNEW     4   7      ; greet.nupp:1
+    5 | return {greet = greet}
+      0045  TDUP     5   8
+      0046  TSETS    4   5   9  ; "greet"
+      0047  UCLO     0 => 0048
+      0048  RET1     5   2
+
+  -- function, lines 1-3
+      1 | local function greet(name: string): string
+        0000  FUNCF    3 
+      2 |     return "Hello, " .. name
+        0001  KSTR     1   0      ; "Hello, "
+        0002  MOV      2   0
+        0003  CAT      1   1   2
+        0004  RET1     1   2
+```
+
+Building a function is the usual thing `--check` finds. LuaJIT has no recording
+for it, so the loop holding one aborts recording, is blacklisted after enough
+attempts, and then runs interpreted however hot it gets. Nothing else reports
+that, because the program's answers do not change.
+
+It reads further than the two source lints, which see what was written rather
+than what was generated:
+[`loop-invariant-closure`](lints.md#loop-invariant-closure) reports a function
+that could be lifted out of its loop unchanged, and
+[`jit-loop-closure`](lints.md#jit-loop-closure), off until a project asks for
+it, reports one that reads the iteration and so cannot be. Neither says
+anything about a closure the compiler's own lowerings put in a loop, which is
+what this reads.
+
+::: seealso
+- [jit-trace-checking.md](../guides/jit-trace-checking.md) for reading a
+  `--check` report and acting on it
+- [performance.md](../guides/performance.md) for where bytecode checking sits
+  among the other measurements
+:::
 
 ### `check`
 
@@ -489,9 +541,9 @@ With no files, checks the default target from nupp.lua. Also reports a `timing` 
 
 A file's extension decides the floor it is held to, with `.nupp` strict and
 `.g.nupp`, `.d.nupp` and `.lua` gradual. `--strict` overrides that, holding
-every file to the strict floor whatever it is called: unknown-variable errors,
-and annotations required on module exports. `--target` cannot be combined with
-explicit files.
+every file to the strict floor whatever it is called: unknown variables are
+errors, and module exports need annotations. `--target` names a manifest target
+and cannot be combined with explicit files.
 
 A clean project writes nothing and exits 0. With
 `local shout: number = greet("world")` added to `src/greet.nupp`:
@@ -502,8 +554,15 @@ src/greet.nupp:6:23: error: NUPP2001: cannot initialize shout: string is not a n
    |                       ^~~~~
 ```
 
-Every diagnostic carries the position, the code, the severity, and the
-`docs` anchor that [`nupp explain`](#explain) and the reference share:
+See [strictness.md](../concepts/strictness.md#strict-floor-rules) for what the
+strict floor holds a file to, and
+[strictness.md](../concepts/strictness.md#file-extensions) for which extension
+carries it.
+
+#### Diagnostics as JSON
+
+Every diagnostic carries the position, the code, the severity, and the `docs`
+anchor that [`explain`](#explain) and the reference share:
 
 ```json [nupp check --json]
 {
@@ -528,17 +587,19 @@ Every diagnostic carries the position, the code, the severity, and the
 ```
 
 A lint carries its `lint` name and a `help` line as well, and a fix carries the
-edits that apply it. See [diagnostics.md](diagnostics.md) for what a
-diagnostic holds and [lints.md](lints.md) for the levels.
+edits that apply it. See [diagnostics.md](diagnostics.md#code-families) for what
+a diagnostic holds and [lints.md](lints.md#severity-levels) for the levels.
 
 `ok` says whether the check ran and found nothing wrong. It is false both for a
 project that reported an error and for a run that never got as far as checking:
 a manifest the command could not use ends the run before any file is read, and
 an empty `diagnostics` cannot tell that apart from a clean project on its own.
 
-With no files named, `--json` also carries a `timing` object -- the same shape
-`build` publishes, minus the parts only generation charges time to -- so a
-repeat check that feels slow can be read rather than waited out:
+#### Check timing
+
+With no files named, `--json` also carries a `timing` object, so a repeat check
+that feels slow can be read rather than waited out. It is the shape
+[`build`](#build) publishes, minus the parts only generation charges time to:
 
 ```json [nupp check --json]
 {
@@ -554,16 +615,24 @@ repeat check that feels slow can be read rather than waited out:
 }
 ```
 
-`compiledModules` is how many modules this run actually reparsed and
-rechecked; `reusedModules` is how many it answered from the last run's cache
-without looking at again. `compiledModules = 0` is the answer to trust that
-nothing was redone. `slowest` ranks modules by wall-clock time spent either
-way, longest first -- confirming a reused module's cache entry is still valid
-costs time too, just less of it, so a check that stayed slow on an unchanged
-project still points at a module to look at rather than asking to be
-trusted. `timing` is absent when a diagnostic stopped the check, the same as
-it is for `build`, since a run that did not finish has no account of itself
-to give.
+`compiledModules` is how many modules this run actually reparsed and rechecked,
+and `reusedModules` is how many it answered from the last run's cache without
+looking at again. `compiledModules = 0` is the answer to trust that nothing was
+redone.
+
+`slowest` ranks modules by wall-clock time spent either way, longest first.
+Confirming a reused module's cache entry is still valid costs time too, so a
+check that stayed slow on an unchanged project still names a module to look at
+rather than asking to be trusted. `timing` is absent when a diagnostic stopped
+the check, the same as it is for `build`, since a run that did not finish has
+no account of itself to give.
+
+::: seealso
+- [lints.md](lints.md#project-configuration) for moving a lint's level in
+  `nupp.lua`
+- [build.md](../guides/build.md#cache-and-failure-behavior) for what the build
+  cache holds between runs
+:::
 
 ### `fmt`
 
@@ -646,7 +715,8 @@ src/messy.nupp
 }
 ```
 
-See [the formatter](../guides/fmt.md) for the rules it applies.
+See [fmt.md](../guides/fmt.md) for the rules the formatter applies and for the
+`fmt` table in `nupp.lua`.
 
 ### `build`
 
@@ -700,16 +770,43 @@ NUPP_PROGRESS says what --progress says, for the builds nothing passes a flag
 to -- including the rebuild bin/nupp runs before every other command.
 ```
 
-`-o` is for explicit source-file builds; `--out-dir` overrides a manifest
+#### Output directories
+
+`-o` is for explicit source-file builds and `--out-dir` overrides a manifest
 target's output directory. They are different options, and using one in the
-other's mode is an error.
+other's mode is an error:
+
+```bash
+nupp build --target app --out-dir dist
+nupp build -o dist src/greet.nupp
+```
+
+#### Optimization levels
 
 `-O0` is the default and performs no rewrite at all. `-O1` and `-O2` currently
-run the same two passes. `--remarks` reports what the optimizer did and what
-it declined to do; `-Zno-opt=CODE` turns off one pass by its stable code, and
-the `-Z` prefix marks that spelling as unstable. Repeatable
-`--relax=GUARANTEE` flags opt in to a named observable tradeoff; no current
-pass requires one.
+run the same six passes, `OPT-1` through `OPT-6`.
+
+```bash
+nupp build -O1 --remarks
+nupp build -O1 -Zno-opt=OPT-3
+```
+
+`--remarks` reports what the optimizer did and what it declined to do.
+`-Zno-opt=CODE` turns off one pass by its stable code, and the `-Z` prefix marks
+it as unstable: the option's name may change or go away. `--relax=GUARANTEE`
+opts in to a named observable tradeoff and may be given more than once; no
+current pass requires one. See
+[performance.md](../guides/performance.md#optimization-passes) for what each
+pass rewrites and what it measured.
+
+::: deepdive
+`-Zno-opt` and `--relax` reach the build key as well, not only `-O`. That is
+what makes `-Zno-opt=CODE` a usable bisection tool: turning a pass off and
+building again produces a tree compiled entirely without it, rather than one
+where whichever modules happened to be cached still carry it.
+:::
+
+#### Progress and timing
 
 To a terminal, a build says which module it is on, on one line it rewrites in
 place, and then how long the whole thing took, which activities that time went
@@ -735,6 +832,8 @@ the report anyway, `-q` refuses it, and `NUPP_PROGRESS` says the same thing for
 the builds nothing passes a flag to, including the rebuild `bin/nupp` runs
 before every other command.
 
+#### JSON report
+
 `--json` says both what failed and what landed, and carries the same timing as
 data rather than as a report:
 
@@ -755,7 +854,18 @@ data rather than as a report:
 }
 ```
 
-See [the build system](../guides/build.md).
+It also reports bounded materialization facts under `materializations`:
+provider, schema, fingerprint, backend, sizes, runtime features, and ABI
+versions.
+
+::: seealso
+- [build.md](../guides/build.md) for `nupp.lua`'s targets, dependencies, and
+  cache
+- [build.md](../guides/build.md#build-progress-and-timing) for reading the
+  progress report
+- [distribution.md](distribution.md) for turning a built target into something
+  to ship
+:::
 
 ### `clean`
 
@@ -781,6 +891,9 @@ With no target, cleans every configured target output. Paths outside the
 project and paths that resolve to the project root are always rejected.
 ```
 
+`--dry-run` names the paths and removes nothing, which is how to see what a
+clean is about to reach:
+
 ```text [nupp clean --dry-run]
 would remove build
 ```
@@ -788,6 +901,11 @@ would remove build
 ```text [nupp clean]
 removed build
 ```
+
+`--platform` narrows one target's outputs and so requires `--target`; giving it
+alone is a usage error. See
+[build.md](../guides/build.md#cache-and-failure-behavior) for what a build
+leaves in the output directory.
 
 ### `tasks`
 
@@ -889,7 +1007,8 @@ undocumented-raise              suspicious   warning  a documented function rais
 unused-binding                  suspicious   warning  a local is declared and nothing reads it
 ```
 
-See [lints.md](lints.md) for moving one and for waving one away.
+See [lints.md](lints.md#project-configuration) for moving one in `nupp.lua`,
+and [lints.md](lints.md#local-suppressions) for waving one away at a statement.
 
 ### `ownership-audit`
 
@@ -953,8 +1072,14 @@ plain `block*` because a `cdef` declaration cannot say it produces an owner; the
 obligation begins at `blockNew`, which is ordinary Nupp and so is not a foreign
 contract to enumerate.
 
-See [ownership.md](../type-system/ownership.md) for the contracts this
-enumerates.
+::: seealso
+- [type-system/ownership.md](../type-system/ownership.md) for the contract each
+  `cdef` declaration states
+- [concepts/ownership.md](../concepts/ownership.md) for the annotations a caller
+  writes
+- [c-interop.md](../concepts/c-interop.md) for what the foreign side of the
+  boundary promises
+:::
 
 ### `explain`
 
@@ -1031,7 +1156,7 @@ explain a diagnostic code -- which is what a reader holding one actually has.
   nupp reference cli
   nupp reference language
   nupp reference --section affine-resources
-  nupp reference --section docs/concepts/declarations.md#modules
+  nupp reference --section docs/concepts/modules.md#modules
   nupp reference --for NUPP2004
   nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
   nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
@@ -1081,32 +1206,56 @@ Run `nupp reference <chapter>` for one chapter, `nupp reference all` for the com
 whichever sections explain a diagnostic.
 ```
 
-A chapter is thousands of words -- `language` is over thirteen thousand -- and
-a reader who knows which construct they are asking about should not have to
-load the rest of it. `--section` prints one:
+#### Printing one section
+
+A chapter is thousands of words, and `language` is over thirteen thousand, so a
+reader who knows which construct they are asking about should not have to load
+the rest of it. `--section` prints one:
 
 ```bash
 nupp reference --section types
 nupp reference --section affine-resources
 ```
 
-A section is named by its heading, or by any `docs` pointer at it, so the anchor
-a diagnostic already carries is a thing that can be followed: `--section
-docs/concepts/declarations.md#modules` prints the same section as `--section
-modules`. `--for CODE` goes the other way and prints whichever sections explain
-a diagnostic, which is what a reader holding one actually has:
+A section is named by its heading or by any `docs` pointer at it, and everything
+before the `#` is ignored, so the anchor a diagnostic already carries can be
+followed straight through:
+
+```bash
+nupp reference --section docs/concepts/modules.md#modules
+```
+
+That prints the same section as `--section modules`. `--for CODE` goes the other
+way and prints whichever sections explain a diagnostic, which is what a reader
+holding one actually has:
 
 ```bash
 nupp reference --for NUPP2004
 ```
 
-A code that no section covers says so and points at `nupp explain`, which is
-where every code answers. The catalogue above names every section, so nothing
+A code that no section covers says so and points at [`explain`](#explain), which
+is where every code answers. The listing above names every section, so nothing
 has to be guessed at.
+
+#### Chapter guarantees
 
 The chapters are generated from the compiler, so they cannot describe a
 construct the compiler does not have. Their examples compile in the test suite,
-and every cited diagnostic code must resolve through `nupp explain`.
+and every cited diagnostic code resolves through `nupp explain`.
+
+::: deepdive
+The reference is compiled into the binary rather than fetched, which is the
+reason it is a command and not only a page on a website. A reader holding a
+reference from a different version is worse off than one holding none, because
+nothing in what they are reading tells them it does not match the compiler they
+are running. Printing it from the binary makes the two the same artifact.
+:::
+
+::: seealso
+- [diagnostics.md](diagnostics.md) for the codes `--for` resolves
+- [tour.md](../getting-started/tour.md) for the same material written for a
+  first read rather than for pasting
+:::
 
 ### `completions`
 
@@ -1126,7 +1275,7 @@ The script is generated from the same command grammar that parses arguments and
 renders help, so a new command and its options appear in it without a second
 edit. Install it for the shell that runs `nupp`:
 
-```sh
+```bash
 # Bash: add this to ~/.bashrc.
 eval "$(nupp completions bash)"
 
@@ -1144,12 +1293,12 @@ _nupp() {
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD - 1]}"
   if (( COMP_CWORD == 1 )); then
-    COMPREPLY=( $(compgen -W 'ast check fmt build clean tasks lints ownership-audit explain reference completions test coverage task doc fixpoint run import-c rock lsp help' -- "$cur") )
+    COMPREPLY=( $(compgen -W 'init ast aot bc check fmt build clean tasks lints ownership-audit explain reference completions test coverage task doc fixpoint run import-c export-c rock lsp help' -- "$cur") )
     return 0
   fi
   command="${COMP_WORDS[1]}"
   case "$command" in
-  ast)
+  init)
 ```
 
 ### `test`
@@ -1204,7 +1353,14 @@ With `--json` the progress marks go to stderr and one document stays on stdout:
 ```
 
 A failing record carries the message and the file and line the error came from.
-See [testing](../guides/testing.md).
+
+::: seealso
+- [testing.md](../guides/testing.md#test-configuration) for the `test` table in
+  `nupp.lua`
+- [testing.md](../guides/testing.md#bringing-your-own-harness) for what a runner
+  other than Nupp's has to write
+- [coverage](#coverage) for running the same suites under instrumentation
+:::
 
 ### `coverage`
 
@@ -1242,8 +1398,8 @@ coverage: lines 16.80%, functions 16.38%, branches 10.19%
 coverage: report written to build/reports/coverage/index.html
 ```
 
-See [testing](../guides/testing.md#coverage) for the report's contents and for
-what a custom runner has to do.
+See [testing.md](../guides/testing.md#coverage) for the report's contents and
+for what a custom runner has to do.
 
 ### `task`
 
@@ -1265,7 +1421,9 @@ See `nupp tasks` for the configured list.
 Hello, world
 ```
 
-The exit code is the task command's own. See [tasks.md](../guides/tasks.md).
+The exit code is the task command's own. See
+[tasks.md](../guides/tasks.md) for declaring a task and for the build it runs
+first.
 
 ### `doc`
 
@@ -1306,7 +1464,8 @@ A successful run writes nothing to the terminal. `--json` names what it wrote:
 }
 ```
 
-See [the documentation generator](../guides/doc.md).
+See [doc.md](../guides/doc.md) for the docblock tags it reads and for
+configuring a documentation target.
 
 ### `fixpoint`
 
@@ -1344,7 +1503,8 @@ fixpoint ok: compiler rebuilds itself byte-identically
 
 `--binary` names the target it stamped and the size the two runs agreed on. A
 mismatch keeps both stages for inspection and exits 1. See
-[distribution](distribution.md).
+[distribution.md](distribution.md) for the payload format whose determinism
+this verifies.
 
 ### `run`
 
@@ -1409,11 +1569,28 @@ file is compiled first; anything else is loaded as Lua directly.
 Hello, world
 ```
 
-`--profile` and `--jit-aborts` take an attached value or none, so `--profile=2`
-rather than `--profile 2`. The defaults are 10 ms, `profile.out`, and
-`jit-aborts.csv`. See [profiling](../guides/profiling.md).
-With `--json`, the default is `jit-aborts.json` and every site carries both the
-raw VM detail and its stable normalized reason identity.
+#### Profiling a run
+
+`--profile` and `--jit-aborts` take an attached value or none, never the next
+argument, so a program name after either is still the program:
+
+```bash
+nupp run --profile=2 --profile-out hot.txt src/main.nupp
+nupp run --jit-aborts src/main.nupp
+```
+
+The defaults are 10 ms, `profile.out`, and `jit-aborts.csv`. With `--json` the
+abort default becomes `jit-aborts.json`, and every site carries both the raw VM
+detail and its stable normalized reason identity.
+
+::: seealso
+- [profiling.md](../guides/profiling.md) for reading a collapsed-stack profile
+  and an abort report
+- [performance.md](../guides/performance.md) for what to measure before
+  changing anything
+- [hot-reload.md](../guides/hot-reload.md) for `--watch` and the poll points a
+  program has to reach
+:::
 
 ### `import-c`
 
@@ -1479,7 +1656,10 @@ pointers remain typed in fields, parameters, results and pointer nesting, and a
 typedef-named anonymous aggregate keeps its typedef identity. A declaration the
 importer cannot type is left out with a readable `-- import-c: skipped` comment.
 
-Inspect a header before writing anything:
+#### Inspecting a header
+
+`--inspect` reports what each declaration would lower to and writes nothing,
+neither the default module nor an `-o` path:
 
 ```bash
 nupp import-c native/image.h --inspect
@@ -1488,13 +1668,15 @@ nupp import-c --schema
 ```
 
 Text inspection prints `direct N, bridged N, skipped N`. JSON also carries the
-warning strings and structured `dispositions`; a skipped `static inline`
-function, for example, has `reason: "bridge-required"`. `direct`, `type-only`,
-`bridge-inline`, `bridge-macro`, and `skipped` distinguish the available
-lowering. Inspection writes neither the default module nor an `-o` path.
+warning strings and structured `dispositions`, where `direct`, `type-only`,
+`bridge-inline`, `bridge-macro` and `skipped` distinguish the lowering
+available. A skipped `static inline` function carries
+`reason: "bridge-required"`.
 
-A `static inline` definition has no symbol for FFI to load. Ask the standalone
-command to emit wrappers beside the editable module:
+#### Bridging static inline functions
+
+A `static inline` definition has no symbol for FFI to load, so ask for wrappers
+beside the editable module:
 
 ```bash
 nupp import-c native/image.h \
@@ -1532,7 +1714,7 @@ their explicit signatures under a C dependency's `bindings.macros`. Combining
 `--bridge-out` with `--inspect` previews which inline functions would bridge but
 still writes no file.
 
-See [C interop](../concepts/c-interop.md#header-only-functions) for complete
+See [c-interop.md](../concepts/c-interop.md#header-only-functions) for complete
 direct and bridge headers, a runnable header-only manifest, macro recipe types,
 emitted C, ownership refinements, and supported limits.
 
@@ -1562,7 +1744,8 @@ compiler host is used. Header generation itself invokes no C compiler.
 The command writes one target-specific header from selected exported structs
 and `cdef` functions. It includes transitive layout dependencies, stable C
 names, layout assertions, and the typed declarations used by native wrappers.
-See [C interop](../concepts/c-interop.md).
+See [c-interop.md](../concepts/c-interop.md#export-ordinary-structs-to-c) for
+what a struct has to be for a header to be exportable from it.
 
 ### `rock`
 
@@ -1582,26 +1765,31 @@ declarations in its versioned `nupp/` directory. `pack` validates and builds tha
 layout; `test` installs the result into a fresh tree and checks a fresh consumer.
 ```
 
-`init` scaffolds the layout:
+`init` scaffolds the layout from the built-in `lib` template, so
+`nupp rock init string-tools` and `nupp init lib string-tools` write the same
+files:
 
 ```text [nupp rock init string-tools]
 Created string-tools
 ```
+
+The rock keeps its hyphens and the module drops them, since the module name is
+what `require` is given:
 
 ```text
  string-tools/
  ├── nupp.lua
  ├── string-tools-dev-1.rockspec
  ├── src/
- │   └── string_tools.nupp
+ │   └── stringtools.nupp
  ├── nupp/
- │   └── string_tools.d.nupp
+ │   └── stringtools.d.nupp
  └── tests/
      └── run.lua
 ```
 
-See [Working with LuaRocks](../guides/luarocks.md) for the declaration's
-contents and for publishing one.
+See [luarocks.md](../guides/luarocks.md) for the declaration's contents and for
+publishing one.
 
 ### `lsp`
 
@@ -1707,10 +1895,32 @@ lint reports:
 quickfix: write `elseif`
 ```
 
+`symbols` searches the workspace, or one document with `--file`. Each line is
+the kind, the name, and where it was declared:
+
+```text [nupp lsp symbols greet]
+function greet src/greet.nupp:2:16
+```
+
+`trace-check` asks the same question for one function that
+[`bc --check`](#bc) asks for a file, reporting the LuaJIT trace blockers and
+risks the reason catalog knows about it:
+
+```bash
+nupp lsp trace-check --json src/greet.nupp 2 16
+```
+
 `nupp help lsp` shows a merged option list; each of `--include-declaration`,
-`--file`, `--only`, and `--write` belongs to exactly one operation. Every
-operation answers `--schema` with its own. See
-[the language server](../guides/lsp.md).
+`--file`, `--only` and `--write` belongs to exactly one operation. Every
+operation answers `--schema` with its own.
+
+::: seealso
+- [lsp.md](../guides/lsp.md) for what the resident server supports
+- [editors.md](../guides/editors.md) for wiring it into an editor
+- [diagnostics.md](diagnostics.md) for the codes a quickfix answers
+- [jit-trace-checking.md](../guides/jit-trace-checking.md) for what
+  `trace-check` reports
+:::
 
 ### `help`
 

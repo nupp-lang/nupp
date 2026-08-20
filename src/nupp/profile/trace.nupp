@@ -1,18 +1,36 @@
 module nupp.profile.trace
 
 --[[
-Stable identities shared by static trace checking and the opt-in runtime collector.
+Stable identities shared by static trace checking and the opt-in runtime
+collector.
 
-The recorder's strings are presentation, not API.  A trace event is first interpreted
-under the exact VM profile that emitted it, then mapped to one of the identities here.
-Static checks use those same records, which is what keeps a bytecode finding, an @jit
-contract error and an observed abort from acquiring three explanations.
+The recorder's strings are presentation, not API. A trace event is first
+interpreted under the exact VM profile that emitted it, then mapped to one of
+the identities here. Static checks use those same records, which is what keeps a
+bytecode finding, an `@jit` contract error and an observed abort from acquiring
+three explanations.
+
+```nupp
+local trace = require("nupp.profile.trace")
+
+local reason = trace.forOpcode("FNEW")
+print(reason.id, reason.repair)
+```
+
+See [jit-trace-checking.md](docs/guides/jit-trace-checking.md) for the static side of this, and
+[](nupp.profile) for the collector that reports the runtime side.
 ]]
 
 local vmdef = require("jit.vmdef")
 
 local trace = {}
 
+--- One stable reason the JIT declined to record, however it was observed.
+---
+--- `class` is what the reason is worth acting on: a `blocker` cannot record at
+--- all, a `risk` may or may not sit on a hot path, and a `stop` is trace formation
+--- working as designed. The three index fields are the routes to it, from a
+--- bytecode name, from a static finding, and from the VM's own runtime text.
 type trace.Reason = {
     id: string,
     class: 'blocker' | 'risk' | 'stop',
@@ -25,6 +43,10 @@ type trace.Reason = {
     contractSeverity: string?
 }
 
+--- The recorder a trace event has to be interpreted under.
+---
+--- Reasons are mapped from VM text and bytecode numbering, and both move between
+--- builds, so an event is only comparable to another taken under the same `id`.
 type trace.Profile = {
     id: string,
     luajitRevision: string,
@@ -140,6 +162,9 @@ local function smallDigest(value: string): string
     return ("%08x"):format(bit.band(digest, 0xffffffff))
 end
 
+--- Describes the recorder this process is running.
+---
+--- @return the profile every event from this process is interpreted under
 function trace.profile(): trace.Profile
     local status = {jit.status()}
     local flags = {}
@@ -169,23 +194,52 @@ function trace.profile(): trace.Profile
     }
 end
 
+--- Answers the record filed under one stable identity.
+---
+--- @param id the identity, as a report or a diagnostic carries it
+--- @return the record, or nil when nothing is filed under it
 function trace.reason(id: string): trace.Reason?
     return byId[id]
 end
 
+--- Answers the record for a bytecode LuaJIT has no recorder for.
+---
+--- @param opcode the bytecode's name, as `opcodeName` renders it
+--- @return the record, or nil when that bytecode records
 function trace.forOpcode(opcode: string): trace.Reason?
     return byOpcode[opcode]
 end
 
+--- Answers the record a static finding maps to.
+---
+--- This is what keeps a checker finding and an observed abort from explaining the
+--- same thing two different ways.
+---
+--- @param source the static finding's name
+--- @return the record, or nil when the finding has no runtime counterpart
 function trace.forSource(source: string): trace.Reason?
     return bySource[source]
 end
 
+--- Renders a bytecode number as the name LuaJIT knows it by.
+---
+--- @param opcode the number the VM reported
+--- @return the trimmed name
 function trace.opcodeName(opcode: integer): string
     local start = opcode * 6 + 1
     return (vmdef.bcnames:sub(start, start + 5):gsub("%s+$", ""))
 end
 
+--- Interprets one raw abort the VM reported.
+---
+--- An abort naming an unrecordable bytecode is routed by that opcode rather than
+--- by its text, so it lands on the same record a static check would have found.
+--- Anything unrecognized answers `jit/runtime-unknown` rather than nothing.
+---
+--- @param errorCode the VM's trace error number, or nil
+--- @param errorArg whatever the VM passed beside it
+--- @return the record it maps to
+--- @return the rendered text, for display
 function trace.runtime(errorCode: integer?, errorArg: number | string | nil): trace.Reason, string
     if not errorCode then
         return byId["jit/runtime-unknown"], "abort"
@@ -207,6 +261,12 @@ function trace.runtime(errorCode: integer?, errorArg: number | string | nil): tr
     return record, ok and detail as string or format
 end
 
+--- Answers every record, in registry order.
+---
+--- The list is a copy, so a caller sorting or filtering it cannot disturb the
+--- registry the checker reads.
+---
+--- @return one entry per known reason
 function trace.records(): {trace.Reason}
     local copy = {}
     for index, record in ipairs(records) do

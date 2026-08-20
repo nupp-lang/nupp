@@ -6,8 +6,8 @@ module nupp.native
 The shared library the native half of the standard library stands on.
 
 This exists so that finding and opening `nupp_native` is written once rather than
-once per facility. It declares only the two things every caller needs -- the error
-channel and the byte buffer the library returns strings through -- and each module
+once per facility. It declares only the two things every caller needs, the error
+channel and the byte buffer the library returns strings through, and each module
 above it declares the symbols it actually calls. Trimming the declarations that way
 falls out of the arrangement rather than being assembled per build.
 
@@ -65,8 +65,8 @@ local library: any = nil
 ---
 --- Opening is deferred to the first symbol read rather than done when this module
 --- loads. A module that stands on the provider is required long before anything calls
---- into it -- the compiler requires `nupp.io.files` to list its own sources, and
---- `nupp help` in a tree that has never built the provider must still answer -- so a
+--- into it. The compiler requires `nupp.io.files` to list its own sources, and
+--- `nupp help` in a tree that has never built the provider must still answer, so a
 --- load-time `ffi.load` would make requiring the module the thing that fails.
 ---
 --- Each symbol is cached on the way through, so a call site pays the miss once and
@@ -84,7 +84,7 @@ native.C = setmetatable({}, {
     end,
 }) as any
 
---- What the library says went wrong, for the call that just failed.
+--- Answers what the library said about the call that just failed.
 ---
 --- @return the message, already copied out of the library's storage
 --- @export

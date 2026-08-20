@@ -1,7 +1,7 @@
 module nupp.data.utf8
 
 --[[
-UTF-8 codepoint operations over strings and byte views.
+Reads, encodes and validates UTF-8 codepoints over strings and byte views.
 
 Encoding and validation are `lua-utf8`'s. Decoding is not: these answer a
 replacement character for malformed input rather than raising, and report where the
@@ -78,7 +78,9 @@ end
 
 local utf8 = {}
 
---- How many codepoints the value holds. A malformed byte counts as one.
+--- Counts the codepoints in the value.
+---
+--- A malformed byte counts as one.
 ---
 --- @param value the bytes to measure
 --- @return the codepoint count
@@ -95,7 +97,21 @@ function utf8.length(value: string | nupp.io.ByteView): integer
     return count
 end
 
---- The codepoint starting at a byte offset, and where the next one starts.
+--- Reads the codepoint starting at a byte offset, and where the next one starts.
+---
+--- Walking a buffer is this call and nothing else, because a malformed byte
+--- answers `0xFFFD` and still advances:
+---
+--- ```nupp
+--- const utf8 = require("nupp.data.utf8")
+---
+--- local at = 1
+--- while true do
+---     local codepoint, nextAt = utf8.decodeAt(text, at)
+---     if codepoint == nil then break end
+---     at = nextAt
+--- end
+--- ```
 ---
 --- @param value the bytes to read
 --- @param byteOffset the 1-based byte to start at; one past the end is allowed
@@ -108,7 +124,7 @@ function utf8.decodeAt(value: string | nupp.io.ByteView, byteOffset: integer): (
     return decode(source, offset(source, byteOffset, true))
 end
 
---- The codepoint ending just before a byte offset, and where it starts.
+--- Reads the codepoint ending just before a byte offset, and where it starts.
 ---
 --- @param value the bytes to read
 --- @param byteOffset the 1-based byte to look back from
@@ -126,8 +142,8 @@ function utf8.decodeBefore(value: string | nupp.io.ByteView, byteOffset: integer
         start = start - 1
     end
     local codepoint, nextAt = decode(source, start)
-    -- Landing anywhere but the offset we walked back from means the bytes between
-    -- are not one sequence, so the byte before the offset stands alone.
+    -- Landing anywhere but the offset walked back from means the bytes between are
+    -- not one sequence, so the byte before the offset stands alone.
     if nextAt ~= at then
         return REPLACEMENT, at - 1
     end
@@ -135,7 +151,7 @@ function utf8.decodeBefore(value: string | nupp.io.ByteView, byteOffset: integer
     return codepoint, start
 end
 
---- The UTF-8 bytes for one codepoint.
+--- Encodes one codepoint as UTF-8 bytes.
 ---
 --- @param codepoint the codepoint to encode
 --- @return its encoding
@@ -143,7 +159,7 @@ function utf8.encode(codepoint: integer): string
     return native.char(codepoint)
 end
 
---- Whether the whole value is well-formed UTF-8.
+--- Reports whether the whole value is well-formed UTF-8.
 ---
 --- @param value the bytes to test
 --- @return whether every sequence is well formed
@@ -151,7 +167,7 @@ function utf8.isValid(value: string | nupp.io.ByteView): boolean
     return native.isvalid(bytes(value))
 end
 
---- The longest well-formed prefix no longer than `maxBytes`.
+--- Measures the longest well-formed prefix no longer than `maxBytes`.
 ---
 --- @param value the bytes to measure
 --- @param maxBytes the most bytes the prefix may use
@@ -166,7 +182,7 @@ function utf8.validPrefixLength(value: string | nupp.io.ByteView, maxBytes: inte
     return limit
 end
 
---- The text cut to at most `maxBytes`, never through a codepoint.
+--- Cuts text to at most `maxBytes`, never through a codepoint.
 ---
 --- @param text the text to cut
 --- @param maxBytes the most bytes the answer may use

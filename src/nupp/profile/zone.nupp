@@ -4,6 +4,17 @@ module nupp.profile.zone
 Gated LuaJIT profiler zones: the stack work is skipped until a profiler asks for
 it.
 
+```nupp
+local zone = require("nupp.profile.zone")
+
+local function render(): nil
+    zone.push("render")
+    drawWorld()
+    drawOverlay()
+    zone.pop()
+end
+```
+
 Stock `jit.zone` pushes and pops whether or not anything is listening. Skipping
 that is worth doing, but it is not the main cost: a zone marker is a call inside
 the code being measured, and calls in a hot path abort traces. Mark warm paths,
@@ -23,6 +34,9 @@ fields below, rather than made, with `pop`'s popped name also needing to be
 discarded. The same call a hot path would otherwise pay for is what the note
 above is about. The fields exist for that generated code to reach; every other
 call site, and every function below, still goes through the ordinary API.
+
+See [profiling.md](docs/guides/profiling.md) for what a zone path does to a report, and
+[](nupp.profile) for the sessions that read one.
 ]]
 
 local zone = {}
@@ -102,6 +116,14 @@ end
 --- Called in statement position on a receiver statically known to be this module,
 --- this is generated inline against the fields above rather than called. See the
 --- module comment.
+---
+--- ```nupp
+--- zone.push("render/overlay")
+--- drawOverlay()
+--- zone.pop()
+--- ```
+---
+--- @param name what to attribute the work below this to
 function zone.push(name: string): nil
     if not zone.__nuppActive then
         return
@@ -165,11 +187,20 @@ function zone.path(): string
     return pathText
 end
 
---- Pushes a zone and returns a token for `leave`, or 0 when inactive.
+--- Pushes a zone and answers a token for `leave`, or 0 when inactive.
 ---
 --- The paired form, for a `leave` that may run after its session ended, usually a
 --- coroutine resumed after a profile stopped. The token carries the generation, so a
 --- late `leave` is discarded rather than popping someone else's zone.
+---
+--- ```nupp
+--- local token = zone.enter("request")
+--- local answer = fetch()
+--- zone.leave(token)
+--- ```
+---
+--- @param name what to attribute the work below this to
+--- @return the token `leave` needs, or 0 when nothing is recording
 function zone.enter(name: string): integer
     if not zone.__nuppActive then
         return 0
@@ -184,6 +215,8 @@ end
 
 --- Closes a zone opened by `enter`. A zero token, a stale generation, or an empty stack
 --- are all ignored.
+---
+--- @param token what the matching `enter` answered
 function zone.leave(token: integer): nil
     if token == 0 or not zone.__nuppActive or token ~= generation then
         return

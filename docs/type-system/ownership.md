@@ -1,9 +1,9 @@
-# Ownership and affine types
+# Ownership and borrowing
 
-An affine result turns a lock into a scope-bound guard: acquiring it creates one
-obligation to unlock, and every way out of the scope discharges it. The guard
-is transparent at runtime; the type system records the cleanup and keeps it
-rooted in the mutex while it is live.
+Ownership tracks which value carries a cleanup obligation and where that
+obligation is discharged. An affine value may be consumed exactly once, moved
+into another affine location, or destroyed by the terminal function carried in
+its type.
 
 ```nupp:playground
 local record Mutex
@@ -16,7 +16,7 @@ local record LockToken
 end
 
 local function unlock(takes held: LockToken): nil
-    held.mutex.locked = false -- Runs once when the guard is consumed.
+    held.mutex.locked = false
 end
 
 local type HeldLock = affine(LockToken, unlock)
@@ -24,71 +24,66 @@ local type HeldLock = affine(LockToken, unlock)
 local function lock(borrows mutex: Mutex): HeldLock borrows (mutex)
     assert(not mutex.locked)
     mutex.locked = true
-    return new LockToken(mutex = mutex) -- Introduces the unlock obligation.
+    return new LockToken(mutex = mutex)
 end
 
 local function update(mutex: Mutex, write: boolean): nil
-    local held = lock(mutex) -- `mutex` cannot move while `held` is live.
+    local held = lock(mutex) -- `mutex` cannot move while `held` is live
     if not write then
-        return -- Lexical destruction calls `unlock(held)` on this path too.
+        return -- lexical destruction calls `unlock(held)` on this path too
     end
 
     print("update while the lock is held")
-end -- Falling through also calls `unlock(held)`.
+end -- falling through also calls `unlock(held)`
 
 local mutex = new Mutex(locked = false)
 update(mutex, false)
 assert(not mutex.locked)
 ```
 
-An affine value may be consumed exactly once, moved into another affine
-location, or destroyed by the terminal function carried in its type. Affinity
-is a public language facility; ownership policy is ordinary Nupp source in
-libraries and user packages.
+Affinity is a public language facility. Ownership policy is ordinary Nupp source
+in libraries and user packages, so nothing here is privileged compiler
+knowledge. See [ownership.md](../concepts/ownership.md) for the annotations a
+caller writes.
 
 ## Declaring affine types
 
+`affine(...)` is a built-in compile-time type-generator call. It takes one
+representation and an optional cleanup, then produces a type:
+
 ```nupp
 local type Owner<T, const cleanup: function> = affine(T, cleanup)
-```
-
-`affine(...)` is a built-in compile-time type-generator call. It takes one
-representation and an optional cleanup, then produces a type; it is not a
-runtime function or method call. It introduces no table, wrapper, tag, vtable,
-or runtime cleanup slot. Two applications with the same canonical
-representation and cleanup declaration are the same type. Equal function
-signatures are insufficient: different cleanup declarations remain different
-identities.
-
-An application without a cleanup is deliberately transfer-only:
-
-```nupp
 local type MustForward<T> = affine(T)
 ```
 
-The optional cleanup is explicit: `affine(T)` is transfer-only, while an invalid
-cleanup name or signature is an error.
+It introduces no table, wrapper, tag, vtable, or runtime cleanup slot. Two
+applications with the same canonical representation and cleanup declaration are
+the same type; equal function signatures are not enough, because different
+cleanup declarations remain different identities. An application without a
+cleanup is deliberately transfer-only, while an invalid cleanup name or
+signature is an error. See [affine-types.md](affine-types.md) for the generator
+in full, including its comptime counterpart.
 
 ## Named resource policies
 
 Packages normally hide a representation and publish the policy they mean:
 
 ```nupp
-local record FileHandle
+local record SocketHandle
     descriptor: integer
 end
 
-local function closeFile(takes file: FileHandle): nil
-    close(file.descriptor)
+local function closeSocket(takes socket: SocketHandle): nil
+    close(socket.descriptor)
 end
 
-global type File = affine(FileHandle, closeFile)
+global type Socket = affine(SocketHandle, closeSocket)
 ```
 
 There is no global `Owned`, `Transfer`, or structural `Drop` policy. A package
 may define a generic method-delegating cleanup as ordinary source, but the
-compiler never recognizes that helper or a method spelling. A foreign pointer
-or type with several valid cleanup policies names one explicitly:
+compiler never recognizes that helper or a method name. A foreign pointer or
+type with several valid cleanup policies names one explicitly:
 
 ```nupp
 cdef function malloc(size: uint64): voidptr
@@ -110,19 +105,22 @@ nosuspend function(takes Representation): nil
 ```
 
 The terminal may raise. Automatic destruction keeps the first failure primary,
-attempts independent remaining cleanups, and attaches later failures as
-suppressed errors. It may not suspend because lexical destruction also runs at
+attempts the independent remaining cleanups, and attaches later failures as
+suppressed errors. It may not suspend, because lexical destruction also runs at
 non-yieldable boundaries.
 
 Generic terminals use ordinary inference and bounds. A terminal is a const
-function identity, not a runtime callback value or a string.
+function identity, not a runtime callback value or a string, which is what makes
+`drop` a statically selected call. `nupp.attemptAll(value, operations...)` is
+the ordinary way to author a single terminal that performs several independent
+operations; the affine type still records only that one terminal identity.
 
-## Introduction and raw boundaries
+## Introducing an owner
 
-Runtime representation equality does not imply an implicit conversion from
-`T` to an affine type over `T`; that would let aliases mint duplicate cleanup
-obligations. Ownership can be introduced by a fresh annotated function result,
-a record constructor result, a declared C output, a transfer, or audited
+Runtime representation equality does not imply an implicit conversion from `T`
+to an affine type over `T`, because that would let aliases mint duplicate
+cleanup obligations. Ownership is introduced by a fresh annotated function
+result, a record constructor result, a declared C output, a transfer, or audited
 adoption:
 
 ```nupp
@@ -143,7 +141,362 @@ local file = new File(nativeOpen("notes.txt"))
 
 The constructor still builds and returns `File`; its result annotation adds the
 obligation at that fresh introduction point. Methods on `File` remain available
-directly because the affine type has the same representation.
+directly, because the affine type has the same representation. See [unsafe
+representation boundaries](#unsafe-representation-boundaries) for audited
+adoption, which is reserved for a boundary no typed producer can describe.
+
+## Consumption and lexical destruction
+
+`drop owner` and `drop(owner)` consume an affine value and invoke its statically
+selected terminal. Passing to `takes`, returning through a matching affine
+result, or moving into another affine location transfers the obligation instead:
+
+```nupp
+local function peek(path: string): string
+    local file = new File(nativeOpen(path))
+    local head = file:read(16)
+    drop file
+    return head
+end
+```
+
+Dropping a terminal-less affine value reports `NUPP2602`, since there is
+nothing to call.
+
+Live terminal-bearing owners are destroyed at every lexical exit: fallthrough,
+return, loop exit, outward `goto`, and errors. Bindings are acquired left to
+right and destroyed right to left, and a successful move deactivates the source
+exactly once:
+
+```nupp
+local function copy(from: string, to: string): nil
+    local source = new File(nativeOpen(from))
+    local sink = new File(nativeOpen(to))
+    sink:write(source:read(4096))
+end -- destroys `sink`, then `source`
+```
+
+An obligation still live on a path that leaves without discharging it is
+`NUPP2603`.
+
+### Exact extents with `with`
+
+`with` gives an owner a stricter extent than its enclosing block. The
+acquisition moves into a hidden slot, the visible binding is a scoped borrow,
+and the same lexical cleanup machinery drops the hidden owner on every exit from
+the body:
+
+```nupp
+with file = new File(nativeOpen("notes.txt")) do
+    print(file:read(16))
+end -- the hidden owner is destroyed here, not at the end of the function
+```
+
+See [exact-affine-scopes.md](../concepts/exact-affine-scopes.md) for what the
+scoped binding may not do.
+
+## Affine aggregates and closures
+
+An affine value may be stored inside another value, and the container inherits
+the obligation.
+
+### Affine aggregates
+
+A record containing affine fields is an affine aggregate:
+
+```nupp
+local record Session
+    inbound: File
+    outbound: File
+end
+```
+
+Its synthesized cleanup plan consumes live fields in reverse declaration order
+and attempts later fields after a failure. Field moves are path-sensitive, so a
+field is tracked apart from the record holding it. A structural
+`drop(takes self)` method may replace the synthesized behavior, but it must
+discharge every affine field on every path.
+
+### Single-shot closures
+
+A closure with `takes (capture)` is an affine, single-shot callable:
+
+```nupp
+local file = new File(nativeOpen("notes.txt"))
+local finish = function(): nil takes (file)
+    print(file:read(16))
+    drop file
+end
+
+finish() -- moves `file` into the invocation frame
+```
+
+Calling it moves captures into its invocation frame; dropping it destroys
+captures without running the body. Borrowed captures use `borrows (source)` and
+remain tied to their roots, and a `scoped` callback parameter proves that
+borrowed captures do not escape the call.
+
+## Borrowing and pinning
+
+Two facilities give access without transferring an obligation, and they are
+independent of each other.
+
+### Borrowing
+
+`borrows` grants call-scoped access without consuming the owner, and `exclusive`
+adds sole-access proof for operations that may invalidate derived views:
+
+```nupp
+local function checksum(borrows file: File): integer
+    return hash(file:read(4096))
+end
+
+local file = new File(nativeOpen("notes.txt"))
+print(checksum(file)) -- `file` is still live and still owed a close
+drop file
+```
+
+`T borrows (source)` records provenance on results and declared fields, and it
+is the only way a rooted value leaves the scope that made it. Without it the
+escape reports `NUPP2608`:
+
+```nupp
+local function leak(borrows value: table): table
+    return borrow(value) -- NUPP2608: a rooted value escapes its lifetime
+end
+
+local function view(borrows value: table): table borrows (value)
+    return borrow(value)
+end
+```
+
+### Pinning
+
+`pinned(T)` pairs a pointer with a strong Lua anchor, so C may retain the
+pointer under declared `retains` and `releases` contracts:
+
+```nupp
+unsafe do
+    local callback = function()
+    end
+    local pointer = ffi.cast<voidptr>(callback)
+    local handle = nupp.pin(pointer, callback)
+end
+```
+
+`pinned(T)` is a built-in compile-time type-generator call, and
+`nupp.pin(pointer, root)` is the runtime operation that proves and installs the
+anchor. Raw pointer indexing and provenance reconstruction remain unsafe unless
+a checked span supplies bounds and a root.
+
+::: deepdive
+Pinning is separate from affinity because the two answer different questions. An
+affine obligation says who calls cleanup and when; a pin says the Lua garbage
+collector may not collect the storage a C pointer names while C still holds
+it. Folding them together would mean every pinned pointer also acquired a
+terminal, which is wrong for the common case of a callback that C releases on
+its own schedule, and it would leave a pointer into a collected buffer as the
+first thing a program discovers with a segfault. See [NEP
+4](../neps/0004-ownership.md) for more information.
+:::
+
+## Public capability contracts
+
+Exported functions need explicit modes only for parameters that may carry a
+nontrivial capability. Ordinary strings, numbers, and GC-managed records stay
+unannotated, but an unconstrained public generic parameter states `takes`,
+`borrows`, `exclusive`, or `scoped`, because callers may instantiate it with a
+capability:
+
+```nupp
+local m = {}
+
+function m.forward<T>(value: T): T -- NUPP2610: the contract is implicit
+    return value
+end
+
+function m.send<T>(takes value: T): T preserves value
+    return value
+end
+
+return m
+```
+
+A public forwarder also writes `preserves source`. Visible-body inference
+remains a private implementation convenience rather than part of an implicit API
+contract.
+
+## Generic preservation
+
+`preserves source` transports a source's complete capability through a result:
+
+```nupp
+local function forward<T>(takes value: T): T preserves value
+    return value
+end
+
+local record Box<T>
+    value: T
+end
+
+local function box<T>(takes value: T): Box<T> preserves value
+    return new Box(value = value)
+end
+```
+
+Movable cleanup obligations, transfer-only obligations, pins, and foreign
+retentions move exactly once. Borrow roots and region provenance are reproduced
+on the result instead, because several shared views may name the same root.
+
+An unconstrained `T` may carry a movable capability, so a preserving public
+function writes `takes`, and `borrows` there reports `NUPP2606`. Copyable values
+still pass through the same function without becoming affine. Preservation
+follows one unambiguous path through records, tuples, optionals, unions,
+intersections, identity-mapped and projected types, callable records, closures,
+and result packs, and callable assignment keeps the exact result-to-parameter
+relation rather than erasing or inventing one. Where the source type appears in
+two result components, the checker reports `NUPP2606` rather than guessing which
+component owns the obligation.
+
+## Regions and loop-carried capabilities
+
+A loan names a place, and the checker decides overlap from the place path rather
+than from the name a method happens to have.
+
+### Loan places
+
+Loans use a general place path: stable fields, tuple slots, dereferences,
+constant or unknown indexes, checked intervals, and audited partitions. Sibling
+fields, tuple slots, different constant indexes, and non-overlapping exact
+intervals are disjoint. A parent overlaps every descendant, and unknown indexes,
+bounds, and pointer arithmetic widen conservatively:
+
+```nupp
+local function pair(exclusive a: table, exclusive b: table): nil
+end
+
+local value = {}
+pair(value, value) -- NUPP2607: two exclusive loans of the same place
+pair({}, {}) -- fine: disjoint places
+```
+
+After validating runtime bounds, audited unsafe library code can attach an exact
+interval to a child view:
+
+```nupp
+unsafe do
+    local left = nupp.region(storage, leftView, 1, 8)
+    local right = nupp.region(storage, rightView, 9, 16)
+    writeBoth(left, right)
+end
+```
+
+`nupp.region(parent, child, first, last)` erases to `child`. It grants no bounds
+check of its own and therefore requires `unsafe do`, and dynamic bounds produce
+an unknown overlapping interval. `nupp.mem.span` splitting uses the same algebra
+rather than receiving ownership privilege from method names.
+
+### Loop-carried capabilities
+
+A loop back edge must re-enter its header with the same obligation, roots,
+access, pin, retention, and live-region shape. Iteration-local borrows end
+before the edge, and consuming an outer owner on a repeating path is
+`NUPP2609`:
+
+```nupp
+local function run(again: boolean): nil
+    local value = new File(nativeOpen("notes.txt"))
+    while again do
+        drop(value) -- NUPP2609: the second iteration has nothing to drop
+    end
+end
+```
+
+Carrying a newly exclusive child into the next iteration reports the same code.
+
+## Ownership in switch patterns
+
+`case is T as whole` and direct field destructuring introduce const views of the
+selector. Matching does not move the selector or duplicate an ownership
+obligation, and the views last for the selected arm:
+
+```nupp
+local size = switch handle do
+    case is File as file -> file:read(16)
+    case is Buffer {length} -> length
+    else -> 0
+end
+```
+
+A block arm may `return` an owner under the ordinary return contract, or `yield`
+a value to the switch merge. When a yield leaves a `with` region, its automatic
+cleanup completes before evaluation resumes after the switch, as it does for
+other control flow.
+
+Pattern aliases are therefore convenient for reading nominal data, but they do
+not create an independent affine owner. Use the explicit move or borrow
+operations when an arm must transfer capability. See
+[switch-expressions.md](../concepts/switch-expressions.md) for the binding forms
+themselves.
+
+## C interop
+
+Affine wrappers erase at the ABI, so a C return can state `affine(T, cleanup)`
+directly and an output slot can state `out value: affine(T, cleanup)*`:
+
+```nupp
+cdef function free(takes value: voidptr)
+cdef function strdup(text: cstring): affine(voidptr, free)
+```
+
+The checker allocates physical output holders, returns logical affine values,
+and preserves C parameter order.
+
+`out view: T* borrows (source)` describes a borrowed output rooted in a shared
+input, and several sources may be named in the parenthesized list. `Success<T,
+N>` and `Failure<T, N>` describe when conditional outputs are initialized. These
+status and borrow contracts are independent of the affine facility. See
+[c-interop.md](../concepts/c-interop.md#describe-lifetime-behavior) for the
+import side of the same contracts.
+
+## Dynamic boundaries
+
+A nontrivial capability cannot disappear into `any` or an untyped call, which
+reports `NUPP2611`. Prefer a typed wrapper for a closed backend set. Truly
+heterogeneous storage uses `nupp.owners.store`:
+
+```nupp
+local stores = require("nupp.owners.store")
+
+local store = stores.new()
+local handle = store:put(openFile()) -- moves the exact cleanup policy in
+local token = stores.erase(handle) -- safe to pass through untyped Lua
+local restored, problem = stores.recover(token, FileState)
+if restored then
+    local file = store:take(restored)
+    if file then use(file) end
+end
+drop(store) -- cleans every entry not taken or removed
+```
+
+Handles contain store identity, slot, generation, and a stable type-policy key.
+`take` and `remove` invalidate every copied handle. Recovery checks a nominal
+representation witness against the complete stored representation-and-cleanup
+key, and `take` restores the exact stored affine policy. Transfer-only values,
+external borrows, pins, and foreign retentions cannot be enrolled, because store
+destruction could not discharge them, which reports `NUPP2612`.
+
+### Stores across a reload
+
+In watch mode, the store that must survive reload belongs to the host rather
+than to the patched module. Generated modules publish their stable policy keys
+to the hot-reload transaction. A cleanup-body edit behind the same declaration
+identity uses the patched function slot. Removing or changing a policy with live
+entries rejects the patch without invalidating its handles, so drain those
+entries first. See [hot-reload.md](../guides/hot-reload.md) for the reload
+transaction that check runs inside.
+
+## Unsafe representation boundaries
 
 Audited adoption is reserved for boundaries where no typed producer can state
 the policy:
@@ -163,204 +516,42 @@ end
 ```
 
 `unsafe` grants only the representation assertion. The resulting affine value
-still participates in normal move, borrow, and lexical-destruction checks.
+still participates in normal move, borrow, and lexical-destruction checks, and
+`unsafe release` consumes an obligation without running its terminal, which
+makes the caller responsible for the resource from that line on.
 
-## Consumption and lexical destruction
+## FAQ
 
-`drop owner` and `drop(owner)` consume an affine value and invoke its statically
-selected terminal. Dropping a terminal-less affine value is an error. Passing
-to `takes`, returning through a matching affine result, or moving into another
-affine location transfers the obligation instead.
+### How does this compare to Rust's borrow checker?
 
-Live terminal-bearing owners are destroyed at every lexical exit: fallthrough,
-return, loop exit, outward `goto`, and errors. Bindings are acquired left to
-right and destroyed right to left. A successful move deactivates the source
-exactly once.
+The model is intentionally smaller. Relationships name ordinary values, so there
+are no named lifetimes, no lifetime parameters, and no read-only shared
+references, and everything not carrying a capability stays freely aliased and
+garbage collected. See [NEP 4](../neps/0004-ownership.md) for what that
+deliberately gives up.
 
-[`with`](../concepts/exact-affine-scopes.md) gives an owner a stricter exact
-extent. The acquisition moves into a hidden slot, the visible binding is a
-scoped borrow, and the same lexical cleanup machinery drops the hidden owner on
-every exit from the body.
+### Can an owner be held across a suspension?
 
-`nupp.attemptAll(value, operations...)` remains the ordinary way to author a
-single terminal that performs several independent operations. The affine type
-still records only that one terminal identity.
+Yes. Affine fields have path-sensitive state, so a field is tracked apart from
+the record holding it and a suspension cannot strand an obligation. A terminal
+itself may not suspend, since lexical destruction also runs at non-yieldable
+boundaries. See [suspension.md](../concepts/suspension.md) for those boundaries.
 
-## Affine aggregates and closures
+### Does an owner have to name its cleanup at every call site?
 
-A record containing affine fields is an affine aggregate. Its synthesized
-cleanup plan consumes live fields in reverse declaration order and attempts
-later fields after a failure. Field moves are path-sensitive. A structural
-`drop(takes self)` method may replace the synthesized behavior, but must
-discharge every affine field on every path.
+No. The terminal is part of the type, so `drop` selects it statically and
+lexical destruction calls it without being written. What a call site does state
+is the mode a parameter uses, and only when the parameter may carry a
+capability.
 
-A closure with `takes (capture)` is an affine, single-shot callable. Calling it
-moves captures into its invocation frame; dropping it destroys captures without
-running the body. Borrowed captures use `borrows (source)` and remain tied to
-their roots. A `scoped` callback parameter proves that borrowed captures do not
-escape the call.
-
-## Generic preservation
-
-`preserves source` transports a source's complete capability through a result.
-Movable cleanup obligations, transfer-only obligations, pins, and foreign
-retentions move exactly once. Borrow roots and region provenance are reproduced
-on the result because several shared views may name the same root.
-
-```nupp
-local function forward<T>(takes value: T): T preserves value
-    return value
-end
-
-local record Box<T>
-    value: T
-end
-
-local function box<T>(takes value: T): Box<T> preserves value
-    return new Box(value = value)
-end
-```
-
-An unconstrained `T` may carry a movable capability, so a preserving public
-function spells `takes`. Ordinary copyable values still pass through the same
-function without becoming affine. `preserves` never copies an obligation and
-never changes runtime representation. Preservation follows one unambiguous path
-through records, tuples, optionals, unions, intersections, identity-mapped and
-projected types, callable records, closures, and result packs. Callable
-assignment keeps the exact result-to-parameter relation: it cannot erase or
-invent preservation. If the source type appears in two result components, the
-checker will not guess which component owns the obligation.
-
-## Regions and loop-carried capabilities
-
-Loans use a general place path: stable fields, tuple slots, dereferences,
-constant or unknown indexes, checked intervals, and audited partitions. Sibling
-fields, tuple slots, different constant indexes, and non-overlapping exact
-intervals are disjoint. A parent overlaps every descendant. Unknown indexes,
-bounds, and pointer arithmetic widen conservatively.
-
-After validating runtime bounds, audited unsafe library code can attach an exact
-interval to a child view:
-
-```nupp
-unsafe do
-    local left = nupp.region(storage, leftView, 1, 8)
-    local right = nupp.region(storage, rightView, 9, 16)
-    writeBoth(left, right)
-end
-```
-
-`nupp.region(parent, child, first, last)` erases to `child`; it grants no bounds
-check of its own and therefore requires `unsafe do`. Dynamic bounds produce an
-unknown overlapping interval. `nupp.mem.span` splitting uses the same algebra
-rather than receiving ownership privilege from method names.
-
-A loop back edge must re-enter its header with the same obligation, roots,
-access, pin, retention, and live-region shape. Iteration-local borrows end
-before the edge. Moving an outer owner only on a repeating path, or carrying a
-newly exclusive child into the next iteration, reports `NUPP2609`.
-
-## Dynamic boundaries
-
-A nontrivial capability cannot disappear into `any` or an untyped call. Prefer a
-typed wrapper for a closed backend set. Truly heterogeneous storage uses
-`nupp.owners.store`:
-
-```nupp
-local stores = require("nupp.owners.store")
-
-local store = stores.new()
-local handle = store:put(openFile()) -- Moves the exact cleanup policy into the store.
-local token = stores.erase(handle)  -- Safe to pass through untyped Lua.
-local restored, problem = stores.recover(token, FileState)
-if restored then
-    local file = store:take(restored)
-    if file then use(file) end
-end
-drop(store) -- Cleans every entry not taken or removed.
-```
-
-Handles contain store identity, slot, generation, and a stable type-policy key.
-`take` and `remove` invalidate every copied handle. Recovery checks a nominal
-representation witness against the complete stored representation-and-cleanup
-key; `take` restores the exact stored affine policy. Transfer-only values,
-external borrows, pins, and foreign retentions cannot be enrolled because store
-destruction could not discharge them. `unsafe release`/`unsafe adopt` remains
-the manual-proof alternative.
-
-In watch mode, the store that must survive reload belongs to the host rather
-than to the patched module. Generated modules publish their stable policy keys
-to the hot-reload transaction. A cleanup-body edit behind the same declaration
-identity uses the patched function slot. Removing or changing a policy with live
-entries rejects the patch without invalidating its handles; drain those entries
-first.
-
-## Public capability contracts
-
-Exported functions need explicit modes only for parameters that may carry a
-nontrivial capability. Ordinary strings, numbers, and GC-managed records remain
-unannotated; an unconstrained public generic parameter spells `takes`,
-`borrows`, `exclusive`, or `scoped` because callers may instantiate it with a
-capability. A public forwarder also writes `preserves source`; visible-body
-inference remains a private implementation convenience rather than part of an
-implicit API contract.
-
-## Borrowing and pinning
-
-`borrows` grants call-scoped access without consuming the owner. `exclusive`
-adds sole-access proof for operations that may invalidate derived views.
-`T borrows (source)` records provenance on results and declared fields.
-
-`pinned(T)` is separate from affinity: it pairs a pointer with a strong Lua
-anchor so C may retain the pointer under declared `retains`/`releases`
-contracts. `pinned(T)` is a built-in compile-time type-generator call;
-`nupp.pin(pointer, root)` is the runtime operation that proves and installs the
-anchor. Raw pointer indexing and provenance reconstruction remain unsafe unless
-a checked span supplies bounds and a root.
-
-## C interop
-
-Affine wrappers erase at the ABI. A C return can directly state
-`affine(T, cleanup)`, and an output slot can state
-`out value: affine(T, cleanup)*`. The checker allocates physical output holders,
-returns logical affine values, and preserves C parameter order.
-
-`out view: T* borrows (source)` describes a borrowed output rooted in a shared
-input. Several sources may be named in the parenthesized list. `Success<T, N>`
-and `Failure<T, N>` describe when conditional outputs are initialized. These
-status and borrow contracts are independent of the affine facility.
-
-## Comptime construction
-
-The direct `affine(...)` form is the built-in generator. A user-defined comptime
-type function can call its programmable counterpart:
-
-```nupp
-local comptime function MakeOwner(
-    T: type,
-    const cleanup: function
-): type
-    return nupp.types.affine(T, cleanup)
-end
-
-local type FileOwner = MakeOwner(File, closeFile)
-```
-
-`nupp.types.affine(T)` constructs the same transfer-only type as `affine(T)`.
-Function const parameters are opaque declaration-identity handles; they cannot
-be forged from runtime values. Both APIs run entirely during checking and add
-nothing to the runtime representation.
-
-## Ownership in switch patterns
-
-`case is T as whole` and direct field destructuring introduce const views of
-the selector; matching does not move the selector or duplicate an ownership
-obligation. Their lifetime is the selected arm. A block arm may `return` an
-owner under the ordinary return contract, or `yield` a value to the switch
-merge. When a yield leaves a `with` region, its automatic cleanup completes
-before evaluation resumes after the switch, just as it does for other control
-flow.
-
-Pattern aliases are therefore convenient for reading nominal data, but they do
-not create an independent affine owner. Use the existing explicit move or
-borrow operations when an arm must transfer capability.
+::: seealso
+- [ownership.md](../concepts/ownership.md) for the annotations a caller writes
+- [affine-types.md](affine-types.md) for constructing the types this page moves
+  around
+- [exact-affine-scopes.md](../concepts/exact-affine-scopes.md) for `with` and
+  its exact extent
+- [c-interop.md](../concepts/c-interop.md#describe-lifetime-behavior) for the
+  native side of a lifetime contract
+- [NEP 4](../neps/0004-ownership.md) for the record of why the model is shaped
+  this way
+:::

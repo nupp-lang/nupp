@@ -1,9 +1,8 @@
 # Tasks
 
-The build tool runs arbitrary build and maintenance commands that the manifest
-names. `nupp task <name>` builds what that task says to build, then runs its
-argv with your arguments appended, and `nupp tasks` lists what the project is
-configured to do and prints any one entry's effective configuration.
+A task is a build or maintenance command the manifest names. `nupp task <name>`
+builds what that task says to build and then runs its argv with your arguments
+appended.
 
 ```bash
 nupp tasks                        # build targets, test, fixpoint, and tasks
@@ -47,7 +46,7 @@ return {
 Any non-empty string is a name. One that is not a Lua identifier is written as
 a key, as `["docs-serve"]` above. The four keys are the whole set, and a key
 that is not among them is refused by name before anything runs, with the
-nearest spelling when there is one:
+nearest one when there is a candidate:
 
 ```text
 nupp: tasks.release has no key "descrption"; did you mean "description"?
@@ -105,8 +104,8 @@ argument: v1.2.0
 A `modules` target works the same way with one more step: it writes
 `build/tools/release.lua` beside the rest of the project's modules, so the
 command needs the output directory on its path, as
-`env = { LUA_PATH = "build/?.lua;;" }`. See
-[project builds](build.md) for what each target kind produces.
+`env = { LUA_PATH = "build/?.lua;;" }`. See [build.md](build.md) for what each
+target kind produces.
 
 ## Building a target first
 
@@ -119,7 +118,9 @@ section can still define and run them.
 
 Naming a target also puts the project's rock tree on `LUA_PATH` and `LUA_CPATH`
 for the command, since a task that built something usually wants to run it, and
-those rocks live in a tree the project owns rather than a global one.
+those rocks live in a tree the project owns rather than a global one. See
+[testing.md](testing.md#test-configuration) for the same arrangement under
+`test`.
 
 ## Environment
 
@@ -138,9 +139,18 @@ envcheck = {
 home=/home/you channel=beta
 ```
 
-Keys and values are strings, and a key has to be a plain identifier, since the
-assignment is written in front of the command. Values are quoted for the
-platform's shell, so spaces and quotes in a value are safe.
+Keys and values are strings, and a key has to be a plain identifier. Values are
+quoted for the platform's shell, so spaces and quotes in a value are safe.
+
+::: deepdive
+A key is restricted to an identifier because the assignment is written in front
+of the command rather than handed to a spawn call. The build tool starts a
+program by giving one string to the system shell, so `cd` and the shell's own
+assignment syntax are what an environment and a working directory can be said
+with, and Windows and POSIX disagree about how to quote both. Callers pass an
+argv and never build a command line, which is what keeps that disagreement in
+one module.
+:::
 
 ## Arguments and exit status
 
@@ -156,9 +166,9 @@ read them. The consequences:
 The command runs with the project root as its working directory, whatever
 directory you invoked `nupp task` from.
 
-## Listing and inspecting
+## Listing tasks and targets
 
-`nupp tasks` covers everything the manifest configured, not just the `tasks`
+`nupp tasks` covers everything the manifest configured, not only the `tasks`
 table: each build target, with the default one marked, the configured test
 command, the self-host action `nupp fixpoint` runs, and each named task.
 
@@ -206,3 +216,10 @@ foreground until it is stopped, exactly as running that command directly would.
 Tasks do not depend on other tasks. The one ordering a task can express is
 `build`, and anything more is the command's own business, which is what a shell
 or a script written in Nupp is for.
+
+::: seealso
+- [cli.md](../reference/cli.md#task) for every option `nupp task` and
+  `nupp tasks` take
+- [build.md](build.md) for the target kinds `build` can name
+- [testing.md](testing.md) for `test`, the one command that always builds
+:::

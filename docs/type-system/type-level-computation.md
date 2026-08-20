@@ -1,10 +1,9 @@
 # Comptime types
 
-Nupp has one general compile-time programming language: ordinary Nupp inside
-`comptime function` declarations. A comptime function may accept compiler-only
-`type` and `typepack` handles and return a structural type or value pack.
-Calling such a function in type position executes it while the program is
-checked and emits no runtime function or data.
+A `comptime function` that accepts compiler-only `type` and `typepack` handles
+and returns a structural type or value pack is a type generator. Calling one in
+type position runs it while the program is checked and emits no runtime
+function or data.
 
 ```nupp:playground
 local comptime function Optional(T: type): type
@@ -22,12 +21,14 @@ end
 ```
 
 The compiled Lua is `local value = nil` followed by the assignment and the
-test. `Optional` itself is not emitted, and nothing calls it at runtime.
+test. `Optional` itself is not emitted, and nothing calls it at runtime. See
+[comptime.md](../concepts/comptime.md) for the value-level half of the same
+construct, where `comptime do ... end` folds a computation into a literal.
 
 Type functions generate types, not declarations. They may construct structural
 shapes, tuples, maps, functions, unions, intersections, wrappers, and packs, or
-return an existing nominal type. They cannot create a record, interface, method,
-module member, name, or runtime identity.
+return an existing nominal type. They cannot create a record, interface,
+method, module member, name, or runtime identity.
 
 ## Inspection and construction
 
@@ -52,16 +53,16 @@ local leaf: DeepElement({{{integer}}}) = 42
 print(leaf + 1)
 ```
 
-`nupp.types.error(message)` deliberately rejects the type application. It is
-distinct from an evaluator crash or timeout and reports the authored message at
-the application with a bounded comptime call trace.
+`nupp.types.error(message)` rejects the type application deliberately. It is
+distinct from an evaluator crash or timeout, and it reports the authored
+message at the application with a bounded comptime call trace.
 
 ## Closed and generic calls
 
-A call whose type, pack, and scalar arguments are concrete executes immediately.
-An application containing a type parameter or const binder remains an open type
-term. Generic substitution executes it as soon as inference makes every argument
-concrete.
+A call whose type, pack, and scalar arguments are concrete executes
+immediately. An application containing a type parameter or const binder remains
+an open type term, and [generic](generics.md) substitution executes it as soon
+as inference makes every argument concrete.
 
 ```nupp
 local comptime function Arguments(Kind: type): typepack
@@ -78,30 +79,32 @@ local function apply<Kind is string>(
 ): string
     return kind
 end
+```
 
--- Kind infers as the literal "pair", which closes Arguments("pair") to
--- (string, number), so this call is checked against exactly those.
+`Kind` infers as the literal `"pair"` at the first call below, which closes
+`Arguments("pair")` to `(string, number)`. Any other literal closes it to
+`(...any)`, so the tail is unconstrained:
+
+```nupp
 local paired = apply("pair", "left", 2)
-
--- Any other literal closes it to (...any), so the tail is unconstrained.
 local loose = apply("other", true, nil, 3)
 ```
 
 Until inference makes `Kind` concrete the application stays open: inside
 `apply`, the tail is only what `unpackof Arguments(Kind)` promises, not what
-either branch happens to return.
-
-`type<Bound>` constrains a generated result. Until an open call closes, ordinary
-type consumers may use only facts promised by that bound. Nupp does not
-symbolically execute arbitrary comptime branches over unresolved types.
+either branch happens to return. `type<Bound>` constrains a generated result,
+and until an open call closes, ordinary type consumers may use only facts
+promised by that bound. Nupp does not symbolically execute arbitrary comptime
+branches over unresolved types. See
+[packs.md](packs.md#pack-compatibility) for how the resulting pack is checked.
 
 ## Direct finite operators
 
 Small, locally readable type operations remain syntax. `keyof T` and
-`writekeyof T` enumerate readable and writable keys. `T.[K]` reads a member type
-and `writeof T.[K]` gives the accepted write type. Mapped structural shapes,
-template construction, const parameters, associated-type projections, and
-`unpackof` are also retained.
+`writekeyof T` enumerate readable and writable keys, `T.[K]` reads a member
+type, and `writeof T.[K]` gives the accepted write type. Mapped structural
+shapes, template construction, const parameters, associated-type projections,
+and `unpackof` are also retained.
 
 ```nupp
 local record Settings
@@ -112,10 +115,12 @@ end
 local type Events<T> = {
     readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil
 }
+```
 
--- Events<Settings> is {readonly themeChanged: function(string): nil,
--- readonly volumeChanged: function(integer): nil}. Each member's parameter
--- comes from the field it was named after.
+`Events<Settings>` is a shape of two read-only members, each named after the
+field it came from and each taking that field's type:
+
+```nupp
 local handlers: Events<Settings> = {
     themeChanged = function(value: string): nil end,
     volumeChanged = function(value: integer): nil end,
@@ -124,15 +129,30 @@ local handlers: Events<Settings> = {
 handlers.themeChanged("dark")
 ```
 
-These bounded operators are preferred when they state the transformation more
-clearly than a function and builder calls. User-authored branching, iteration,
-parsing, and recursion belong in comptime functions.
+Reach for these operators when they state the transformation more clearly than
+a function and a run of builder calls would. User-authored branching,
+iteration, parsing, and recursion belong in comptime functions.
+
+::: deepdive
+Two ways to write a type transformation is a cost, and the operators are kept
+because a general language is the wrong tool for the small cases. A mapped
+shape says the whole transformation in one line a reader checks by eye, where
+the same thing as a comptime function is a loop over `fields`, a template
+concatenation, and a `shape` call, none of which is wrong and all of which have
+to be read to find out.
+
+The split is by what the operation needs. Everything an operator does is finite
+and structural, so the checker computes it directly without entering the
+comptime worker or paying its limits. Anything needing a loop, a branch on a
+value, string processing, or recursion crosses into the worker, and that is
+where the general language earns its budget.
+:::
 
 ## Const parameters
 
 Const parameters admit only `string`, `boolean`, and exactly representable
-`integer` values. They erase at runtime. Integer const expressions admit `+`,
-`-`, `*`, `//`, `%`, and comparisons.
+`integer` values, and they erase at runtime. Integer const expressions admit
+`+`, `-`, `*`, `//`, `%`, and comparisons.
 
 ```nupp
 local record Matrix<T, const Rows: integer, const Columns: integer>
@@ -147,57 +167,80 @@ local cells: float[12] = grid.values
 
 `grid` holds one array at runtime and carries no dimension fields: the consts
 are checked and then erased. They still tell the two shapes apart, so assigning
-a `Matrix<float, 4, 3>` where a `Matrix<float, 3, 4>` is wanted is NUPP2001,
+a `Matrix<float, 4, 3>` where a `Matrix<float, 3, 4>` is wanted is `NUPP2001`,
 reported as `have different const argument 1`.
 
 ## `string.format`
 
-The prelude types `string.format` with a PEG-backed comptime parser. Literal
-formats get exact argument arity and conversion checks; a broad runtime `string`
-retains a gradual `...any` tail.
+The declarations for the Lua standard library type `string.format` with a
+comptime function that reads the format string. A literal format gets exact
+argument arity and conversion checks, and a broad runtime `string` retains a
+gradual `...any` tail.
 
 ```nupp
-local count = string.format("%s has %d messages", "Ada", 3)
+local message = string.format("%s has %d messages", "Ada", 3)
+```
 
+Supported conversions match LuaJIT's bounded formatting surface. This is
+implemented through the same type-function mechanism available to user code,
+not a format-specific checker branch.
+
+### `%?` formats a `Debug` value
+
+`%?` requires `nupp.Debug`, calls `debug()`, and passes the result to Lua's
+`%s`:
+
+```nupp
 @derive(nupp.derive.Debug)
 local record User
     name: string
 end
 
--- `%?` requires nupp.Debug, calls `debug()`, and passes the result to Lua's `%s`.
 local inspected = string.format("user=%?", new User(name = "Ada"))
+```
 
--- A format the checker cannot read is not an error; the call keeps the
--- gradual ...any tail instead of an exact parameter list.
+See [derives.md](../reference/derives.md#debug) for what
+`@derive(nupp.derive.Debug)` generates.
+
+### Formats the checker cannot read
+
+A format that is not a literal is not an error. The call keeps the gradual
+`...any` tail instead of an exact parameter list:
+
+```nupp
 local function report(template: string, name: string, unread: integer): string
     return string.format(template, name, unread)
 end
 ```
 
-Supported conversions match LuaJIT's bounded formatting surface. Invalid,
-missing, surplus, and mismatched arguments report on the ordinary call. This is
-implemented through the same type-function mechanism available to user code,
-not a format-specific checker branch.
+### Format diagnostics
+
+Arity errors report at the call:
 
 ```nupp
 -- NUPP2006: omitted argument 3 supplies nil, not number
 local missing = string.format("%s has %d messages", "Ada")
 
--- NUPP2006: argument 2: string is not a number
-local mismatched = string.format("%d", "three")
-
 -- NUPP2007: too many arguments (expected 2, got 3)
 local surplus = string.format("%s", "Ada", "Grace")
+```
+
+A conversion mismatch reports at the argument that does not fit, and an
+unreadable directive reports where it starts:
+
+```nupp
+-- NUPP2006: argument 2: string is not a number
+local mismatched = string.format("%d", "three")
 
 -- NUPP2006: invalid string.format directive starting at "%y"
 local invalid = string.format("%q %y", 1, 2)
 ```
 
-Arity errors report at the call, and a conversion mismatch reports at the
-argument that does not fit.
+### Typed wrappers
 
-`nupp.format.StringFormatSyntax(Format)` exposes the ordinary Lua directive
-computation to typed wrappers:
+`nupp.format.StringFormatSyntax(Format)` exposes the same directive
+computation, so a wrapper around `string.format` checks its callers the way
+`string.format` checks its own:
 
 ```nupp
 local function format<Format is string>(
@@ -208,33 +251,66 @@ local function format<Format is string>(
 end
 ```
 
-The public computation deliberately rejects `%?`: that directive needs the
-compiler to rewrite the format and call `debug()`, so it is available only on
-direct `string.format`, literal `:format`, and logging calls.
+The public computation rejects `%?`, because that directive needs the compiler
+to rewrite the format and call `debug()`. It is available only on direct
+`string.format`, literal `:format`, and logging calls.
 
 ## Lua string patterns
 
-Literal Lua patterns are parsed by a PEG-backed comptime type function.
-`string.match`, `find`, and `gmatch` receive the pattern's capture pack:
-ordinary captures are `string`, and empty `()` captures are `integer`. `match`
-keeps its first result optional because the pattern may not match; `find`
-retains optional endpoints. `gsub` validates a literal pattern even though its
-return stays `(string, integer)`. A dynamic pattern keeps the ordinary gradual
-result contract.
+A literal pattern is read by a comptime function that counts its captures, and
+`string.match`, `find`, `gmatch`, and `gsub` take their result packs from it.
+Ordinary captures are `string` and empty `()` captures are `integer`. A dynamic
+pattern keeps the ordinary gradual result contract.
+
+`match` keeps its first result optional, because the pattern may not match at
+all:
 
 ```nupp
-local word: string?, at: integer? = string.match("ready", "([a-z]+)()")
-local first, last, name: integer?, integer?, string = string.find("ready", "([a-z]+)")
+local word: string?, at: integer = string.match("ready", "([a-z]+)()")
+```
+
+`find` returns its two endpoints optional and appends the captures after them:
+
+```nupp
+local first: integer?, last: integer?, name: string =
+    string.find("ready", "([a-z]+)")
+```
+
+`gmatch` returns an iterator over the captures, or over the whole match when
+the pattern has none:
+
+```nupp
 local nextWord: function(): string = string.gmatch("one two", "[a-z]+")
 ```
 
+`gsub` validates a literal pattern even though its result stays
+`(string, integer)`. An unparseable literal pattern is rejected wherever it
+appears, with the reason the capture reader found.
+
 ## Limits and isolation
 
-Type functions run in the isolated comptime worker with deterministic iteration,
-step, call-depth, wall-clock, memory, protocol, graph-size, and member limits.
-Results cross the worker boundary as validated structural blueprints; they
-cannot forge nominal identity or escape into generated Lua. Recursive algorithms
-use ordinary comptime calls or loops and are governed by those limits.
+Type functions run in the isolated comptime worker under deterministic
+iteration, step, call-depth, wall-clock, memory, protocol, graph-size, and
+member limits. Results cross the worker boundary as validated structural
+blueprints, so they cannot forge nominal identity or escape into generated Lua.
+Recursive algorithms use ordinary comptime calls or loops and are governed by
+the same limits.
+
+::: deepdive
+Running user code during checking makes the compiler's answer depend on that
+code terminating and on it seeing the same world twice. The worker is what
+makes both true: it is a separate process with its own budgets, so a type
+function that loops forever is a diagnostic on one file rather than a compiler
+that never returns, and it has no ambient access, so nothing it reads can
+differ between two builds of the same source.
+
+The blueprint boundary is the second half. A result is serialized and
+revalidated on the way back rather than handed over as a live handle, which is
+what keeps a type function from constructing checker state the checker would
+then trust.
+Nominal identity cannot cross that boundary at all, which is why a type
+function returns an existing nominal type rather than making one.
+:::
 
 ## FAQ
 
@@ -242,30 +318,34 @@ use ordinary comptime calls or loops and are governed by those limits.
 
 A `comptime function` runs while source is checked and contributes only its
 resulting type or pack. It emits no callable function, cache table, or runtime
-branch. [Const parameters](#const-parameters) erase by the same boundary. The
-two [reified
-exceptions](../concepts/strictness.md#erasure-has-two-exceptions) remain because
-structs carry layout and C declarations bind native symbols.
+branch, and [const parameters](#const-parameters) erase by the same boundary.
+See
+[strictness.md](../concepts/strictness.md#constructs-that-arent-erased) for the
+two things that do survive.
 
 ### Why do type generators use parentheses?
 
 `Optional(string)` calls a compile-time function; `Box<string>` applies a
 declared generic type. The distinction lets built-in and user-defined
-generators share one call syntax. [Affine type
-generation](affine-types.md#why-parentheses-instead-of-angle-brackets) uses the
-same rule rather than introducing ownership-specific generic syntax.
+generators share one call syntax. See
+[affine-types.md](affine-types.md#cleanup-identity-is-part-of-the-type)
+for the same rule applied to ownership.
 
 ### Can a type function create a nominal type?
 
-No. A comptime function is intentionally a type generator rather than a full
-syntax or declaration macro. It can assemble a structural result or return an
-existing nominal type, but it cannot inject a record, interface, method, name,
-or module member. That keeps compile-time code from silently expanding the
-program's public or runtime surface.
-
-Nominal identity comes from an explicit declaration site, which keeps it stable
+No. It can assemble a structural result or return an existing nominal type, but
+it cannot inject a record, interface, method, name, or module member, which
+keeps compile-time code from expanding the program's public or runtime surface.
+Nominal identity comes from an explicit declaration site, so it stays stable
 across repeated evaluation, caches, incremental rebuilds, and module
-boundaries. [Records and structs](records.md) receive identity from those
-declarations. [Associated types](associated-types.md) provide computed answers
-owned by a declaration without granting comptime code control over names,
-visibility, declaration order, runtime tables, metatables, or ABI layouts.
+boundaries. See [associated-types.md](associated-types.md) for computed answers
+that a declaration owns.
+
+::: seealso
+- [comptime.md](../concepts/comptime.md) for `comptime do` and the value-level
+  side of compile-time evaluation
+- [generics.md](generics.md) for the binders an open call waits on
+- [packs.md](packs.md) for `typepack` results and where they may appear
+- [NEP 3](../neps/0003-comptime.md) for the record of why the design is one
+  language rather than two
+:::

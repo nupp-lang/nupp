@@ -1,6 +1,7 @@
-; Nupp formal grammar — normative reference for src/nupp/compiler/parser.nupp
+; Nupp formal grammar: the normative reference for
+; src/nupp/compiler/parser.nupp.
 ;
-; Notation: ABNF per RFC 5234 with RFC 7405 case-sensitivity — every quoted
+; Notation: ABNF per RFC 5234 with RFC 7405 case-sensitivity. Every quoted
 ; terminal here is CASE-SENSITIVE (read "if" as %s"if"). Rule layering encodes
 ; operator precedence and associativity. Context-sensitive constructs that ABNF
 ; cannot express are marked [CS-n] and specified in the Notes section at the
@@ -8,16 +9,16 @@
 ; and are defined in the lexical grammar; the syntactic grammar is written
 ; over the token stream.
 ;
-; LEVEL 0: the untyped base language — LuaJIT 3.0's Lua dialect per the
+; LEVEL 0: untyped base language. LuaJIT 3.0's Lua dialect per the
 ; syntax-extension umbrella issue LuaJIT/LuaJIT#1475, in full: bit
 ; operators, customary operators, floor division, ternary conditional,
 ; safe navigation, nil-coalescing, compound assignment, continue, const,
 ; short functions, named varargs, underscores in numerals, and cdata
 ; number literal suffixes. Nupp adds interpolated strings, `??=`, and
 ; type annotations on short-function parameters; it takes nothing away.
-; LEVEL 1: the typed layer (annotations, generics, record/interface/
-; struct declarations, cdef C declarations, short-function
-; parameter annotations). Both levels are implemented.
+; LEVEL 1: typed layer. Annotations, generics, record/interface/
+; struct declarations, cdef C declarations, and short-function
+; parameter annotations. Both levels are implemented.
 
 ;;; ------------------------------------------------------------------
 ;;; Syntactic grammar
@@ -94,7 +95,7 @@ parlist        = namelist ["," ("..." / "..." Name)]
 namelist       = Name *("," Name)
 explist        = exp *("," exp)
 
-;;; Expressions — precedence encoded by layering, loosest first.
+;;; Expressions. Precedence is encoded by layering, loosest first.
 ;;; Binary layers are left-associative unless stated otherwise.
 
 exp            = condexp
@@ -103,10 +104,10 @@ exp            = condexp
 ; The second arm may not directly contain a method call. [CS-2]
 condexp        = orexp ["?" exp ":" condexp]
 
-; The "customary operators" (! && || !=) are alternate spellings of
+; The "customary operators" (! && || !=) are alternate forms of
 ; not/and/or/~= and mean exactly the same thing, so the grammar names both
 ; and everything after the lexer sees only the classic form. Writing one
-; raises the `customary-operator` lint, which is a house-style judgement a
+; raises the `customary-operator` lint, which is a house-style judgment a
 ; project turns off; it is not a restriction. [CS-19]
 ; Nil-coalescing (LJ 3.0): yields the left unless it is nil, so unlike
 ; "or" it keeps a false value. Binds at the same tier as "or".
@@ -262,7 +263,7 @@ LongBracket    = "[" *"=" "[" *ANYCHAR "]" *"=" "]"
 ANYCHAR        = %x00-10FFFF
 
 ;;; ------------------------------------------------------------------
-;;; LEVEL 1 — typed layer
+;;; LEVEL 1: typed layer
 ;;; ------------------------------------------------------------------
 ; The typed layer is a strict superset: every level-0 program parses
 ; identically under level 1. All new keywords are CONTEXTUAL [CS-5]; no
@@ -498,21 +499,21 @@ packtail       = "..." type / Name "..." / %s"unpackof" type
 packunion      = typepack 1*("|" typepack)
 
 ;;; ------------------------------------------------------------------
-;;; Notes — context-sensitive rules ABNF cannot express
+;;; Notes: context-sensitive rules ABNF cannot express
 ;;; ------------------------------------------------------------------
 ;
 ; [CS-1] Expression statements. The parser reads one suffixedexp, then decides:
 ;   a following "=", "," or a compound operator makes the statement an
 ;   assignment (each var in the varlist must be an lvalue: a bare Name, or a
-;   suffixedexp whose final suffix is "." Name, "[" exp "]", or a "?." index —
+;   suffixedexp whose final suffix is "." Name, "[" exp "]", or a "?." index,
 ;   never a call); otherwise the suffixedexp itself must end in a call suffix
 ;   (callargs, method call, or "?." callargs). Anything else is a syntax error.
 ;
 ; [CS-2] Ternary vs. method call. Inside the SECOND arm of condexp (between
 ;   "?" and ":"), a method-call suffix is not permitted at any depth unless
-;   enclosed in parentheses, brackets, a table constructor, or call arguments —
-;   the ":" would be ambiguous with the ternary's own ":". This covers the
-;   safe-navigation spellings too, "obj?.:m()" included, even though the "?."
+;   enclosed in parentheses, brackets, a table constructor, or call arguments,
+;   because the ":" would be ambiguous with the ternary's own ":". This covers
+;   the safe-navigation forms too, "obj?.:m()" included, even though the "?."
 ;   in front of the ":" would tell them apart: LuaJIT refuses them there, and
 ;   conformity is worth more than the case. Use "cond ? (obj:m()) : e".
 ;   (Follows LuaJIT/LuaJIT#1475.)
@@ -530,7 +531,7 @@ packunion      = typepack 1*("|" typepack)
 ;   declared name sits on the introducer's own line AND the token after it
 ;   fits the form: an alias ("type") continues with "=" or generics, a body
 ;   form ("record"/"interface"/"struct") continues with anything
-;   other than "=" or ",". Two tokens of lookahead are not enough --
+;   other than "=" or ",". Two tokens of lookahead are not enough:
 ;       local record
 ;       i, j = f()
 ;   has a name after the introducer and is still ordinary Lua. "type",
@@ -567,7 +568,7 @@ packunion      = typepack 1*("|" typepack)
 ;
 ; [CS-6] Contextual operators. "as" and "is" act as operators only in binary-
 ;   operator position (after a complete operand) AND only when they appear on
-;   the same line as the preceding token — so the level-0 statement sequence
+;   the same line as the preceding token, so the level-0 statement sequence
 ;   "x = a" / "is(b)" on separate lines keeps its meaning. As identifiers
 ;   they are untouched. Their right operand is a type, not an expression.
 ;
@@ -606,7 +607,7 @@ packunion      = typepack 1*("|" typepack)
 ; [CS-11] Numeric separators. After the initial digit of a Numeral, every
 ;   underscore is ignored before matching DecNumeral, HexNumeral, exponent,
 ;   and suffix syntax. This permits separators anywhere in those components,
-;   including spellings such as "1_000", "0_x_ff", and "1_e_3". A leading
+;   including forms such as "1_000", "0_x_ff", and "1_e_3". A leading
 ;   underscore remains part of a Name, and string-to-number conversions do
 ;   not apply this source-level rule.
 ;
@@ -656,22 +657,22 @@ packunion      = typepack 1*("|" typepack)
 ;   declaration remains a trusted boundary contract, as foreign ownership is.
 ;
 ; [CS-19] Customary operators. "!", "&&", "||" and "!=" are alternate
-;   spellings of "not", "and", "or" and "~=". The lexer emits the classic
+;   forms of "not", "and", "or" and "~=". The lexer emits the classic
 ;   token kind and keeps the written bytes as its text, so precedence,
 ;   associativity, narrowing and code generation know only one form, and only
 ;   the `customary-operator` lint and the formatter can tell which was used.
 ;   "||" is also the empty parameter list of a short function. That is a
-;   position rather than a spelling: at the start of an operand "||" can only
+;   position rather than a form: at the start of an operand "||" can only
 ;   begin "|| -> e", and after a complete operand it can only be "or". So it
 ;   stays one token and the parser, which knows which position it is in,
 ;   decides. The consequence is that "a||b" now reads as "a or b" where it
 ;   used to be a parse error, and that a union type must be written "A | B"
 ;   rather than "A||B", which was never a type either.
 ;   The one place the fold is undone is compound assignment. "~=" and "!=" are
-;   one token kind, but only "~=" is exclusive-or assignment: "!=" spells
+;   one token kind, but only "~=" is exclusive-or assignment: "!=" means
 ;   inequality and nothing else, so "a != b" at statement position stays what
 ;   it was, an expression that is not a statement. Diagnostics likewise quote
-;   the spelling that was written rather than the kind it folded to.
+;   the operator that was written rather than the kind it folded to.
 ;
 ; [CS-20] Construction declarations and expressions. `new` begins a
 ;   construction only when followed on the same line by a Name, and its
@@ -708,8 +709,8 @@ packunion      = typepack 1*("|" typepack)
 ;   when the operand starts on the same line, and not when it starts with `(`,
 ;   `{`, or LiteralString. Those three forms remain ordinary Lua call sugar.
 ;
-; Associativity summary: "..", "^", and the ternary condexp are right-
-; associative; every other binary layer is left-associative. Precedence from
+; Associativity summary: "..", "^", and the ternary condexp are
+; right-associative; every other binary layer is left-associative. Precedence from
 ; loosest to tightest: ternary; or/||/??; and/&&; comparisons; |; ~ (xor); &;
 ; << >> ~>>; ..; + -; * / // %; unary (not ! # - ~); ^; suffixes (. : [] () ?.).
 ; (Bit/shift placement follows Lua 5.3's precedence table for conformity;

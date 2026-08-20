@@ -1,16 +1,21 @@
 module nupp.derive
 
 --[[
-The standard derives, and what they do when they run.
+Both halves of the standard derives: the providers that decide what a derived
+member is, and the runtime that member calls.
 
-`@derive` is a compiler feature: the checker resolves the contract, the materializer
-folds the recipe, and generation writes the member. Both halves are here. The comptime
-providers below decide what a derived member is; the runtime above them is what that
-member calls, so a generated member is an ordinary `derive.forward` call rather than a
-compiler operation.
+`@derive` is a compiler feature: the checker resolves the contract, the
+materializer folds the recipe, and generation writes the member. The comptime
+providers below decide what a derived member is; the runtime above them is what
+that member calls, so a generated member is an ordinary `nupp.derive.forward`
+call rather than a compiler operation.
 
 `install` is what a program's prologue calls to publish the runtime half under
 `nupp.__derive`, which is where generated code addresses it from.
+
+See [derives.md](docs/reference/derives.md) for what each standard derive writes, and
+[reflection.md](docs/concepts/reflection.md) for the descriptors the JSON codec is memoized
+against.
 ]]
 
 local derive = {}
@@ -47,7 +52,7 @@ local derived: any = {}
 
 -- Set by `install`, and nil until then. The JSON codec is memoized as a reflection
 -- extension rather than a field, so a type whose program never installed reflection
--- has no JSON either -- which is the same condition the bootstrap already sequenced,
+-- has no JSON either, which is the same condition the bootstrap already sequenced,
 -- kept here rather than assumed.
 local reflect: any = nil
 
@@ -755,11 +760,26 @@ local function derivedJSON(entry: any): any
 end
 
 --- Renders a derived record the way `@derive(Debug)` promises.
+---
+--- Nothing calls this by hand. `@derive(Debug)` writes the `debug` member that
+--- does, with the type's own registry entry already bound.
+---
+--- @param value the record to render
+--- @param entry the type's registry entry
+--- @return the rendered text
 function derive.debug<T is table>(value: T, entry: derive.Entry): string
     return renderRecord(value, entry.schema.data.debug, nil)
 end
 
 --- Encodes a derived record as a JSON document.
+---
+--- The field list, the renaming and the omission rules all come from the recipe
+--- `@derive(JSON)` folded, so the document is what the declaration asked for rather
+--- than what the runtime table happens to hold.
+---
+--- @param value the record to encode
+--- @param entry the type's registry entry
+--- @return the JSON text
 function derive.toJSON<T is table>(value: T, entry: derive.Entry): string
     derivedJSON(entry)
     local buf = newBuffer()
@@ -769,7 +789,11 @@ function derive.toJSON<T is table>(value: T, entry: derive.Entry): string
 end
 
 --- Decodes a JSON document into a derived record.
---- @return the record, or nil and what was wrong with the document
+---
+--- @param text the document to decode
+--- @param entry the type's registry entry
+--- @return the record, or nil when the document did not fit it
+--- @return what was wrong with the document, when something was
 function derive.fromJSON<T is table>(text: string, entry: derive.Entry): (T?, string?)
     local codec = derivedJSON(entry)
     local ok, value = pcall(entry.decoder.decode, text, entry.decoder.NULL)
@@ -785,6 +809,12 @@ function derive.fromJSON<T is table>(text: string, entry: derive.Entry): (T?, st
 end
 
 --- The field codec a derived type's `fieldCodec` static answers.
+---
+--- Built on first use and memoized as a reflection extension, so every route to it
+--- answers the same codec.
+---
+--- @param entry the type's registry entry
+--- @return the codec, built if this is the first ask
 function derive.fieldCodec(entry: derive.Entry): nupp.reflect.FieldCodec<any>
     return derivedJSON(entry)
 end
@@ -805,6 +835,8 @@ end
 --- The second half is conditional because reflection is its own feature. A program
 --- that derives only Debug has no registry of descriptors, and the JSON codec is
 --- memoized as a reflection extension, so what it does not get is JSON.
+---
+--- @param namespace the program's `nupp` table
 --- @export
 function derive.install(namespace: any): nil
     local runtime = rawget(namespace, "__derive")

@@ -1,36 +1,42 @@
 module nupp.profile
 
 --[[
-Profiling, in two channels.
+Two profiling channels: one for where the time went, one for whether it went
+there compiled.
 
-  * `profile.sample` is the statistical sampler. A timer interrupts the program
-    and writes down where it was; what comes back is collapsed-stack text, the
-    format speedscope.app, FlameGraph.pl and inferno all read. It answers where
-    the time went.
-  * `profile.trace` watches the JIT give up. It aggregates trace aborts, so
-    blacklisted hot code, a bytecode the compiler will not record, and traces
-    that grew past a limit all become rows rather than silence. It answers
-    whether the time went there compiled or interpreted.
+```nupp
+local profile = require("nupp.profile")
 
-The second question is the one a sampler cannot answer and the one that usually
-matters here: code the JIT refused is an order of magnitude slower than code it
-took, and nothing says so out loud.
+local session = profile.sample({intervalMs = 5})
+render()
+local report = session:stop("profile.out")
+print(report.samples, report.stacks)
+```
 
-Both channels attribute work through `nupp.profile.zone`, so a sample or an abort
-carries the zone path that was open when it happened. Both are process-wide
-rather than per-coroutine, and at most one session of each kind runs at a time.
+`profile.sample` is the statistical sampler. A timer interrupts the program and
+writes down where it was; what comes back is collapsed-stack text, the format
+speedscope.app, FlameGraph.pl and inferno all read.
+
+`profile.trace` watches the JIT give up. It aggregates trace aborts, so
+blacklisted hot code, a bytecode the compiler will not record, and traces that
+grew past a limit all become rows rather than silence. That is the question a
+sampler cannot answer and the one that usually matters here: code the JIT
+refused is an order of magnitude slower than code it took, and nothing says so
+out loud.
+
+Both channels attribute work through [](nupp.profile.zone), so a sample or an
+abort carries the zone path that was open when it happened. Both are
+process-wide rather than per-coroutine, and at most one session of each kind
+runs at a time.
 
 Neither is free. A sample session pays a timer interrupt, a stack walk and a
 table write at every interval; a trace session pays a callback at every abort,
 inside the compiler. Stop a session once the question it was opened for has an
 answer.
 
-    local profile = require("nupp.profile")
-
-    local session = profile.sample({intervalMs = 5})
-    render()
-    local report = session:stop("profile.out")
-    print(report.samples, report.stacks)
+See [profiling.md](docs/guides/profiling.md) for reading a report, and
+[jit-trace-checking.md](docs/guides/jit-trace-checking.md) for finding the same aborts without running
+the program.
 ]]
 
 local zone = require("nupp.profile.zone")
@@ -86,10 +92,16 @@ type profile.TraceOptions = {
 --- Sampling and trace-abort sessions share this lifecycle. Generic helpers can use
 --- `S.Report` to preserve the concrete report chosen by a session declaration.
 interface profile.Session
+    --- What `stop` answers, chosen by the session declaration rather than here.
     associated type Report
 
+    --- Stops recording without ending the session. Idempotent.
     pause: function(self)
+
+    --- Resumes recording. Idempotent.
     resume: function(self)
+
+    --- Ends the session and answers what it saw, optionally writing it to a file.
     stop: function(self, filename: string?): self.Report
 end
 
@@ -199,7 +211,12 @@ record profile.AbortSite
     --- Stable compiler identity and classification for the raw VM reason above.
     reasonId: string
 
+    --- What the identity is worth acting on: a `blocker` cannot record at all, a
+    --- `risk` may or may not sit on a hot path, and a `stop` is trace formation
+    --- working as designed.
     reasonClass: 'blocker' | 'risk' | 'stop'
+
+    --- The VM's own text, before the registry mapped it.
     rawReason: string
 
     --- "<file>:<line>" of the function being recorded when it aborted.
@@ -210,14 +227,34 @@ record profile.AbortSite
 end
 
 --- The exact recorder configuration used to normalize a trace report.
+---
+--- Two reports are comparable when their `id` matches. A report taken under an
+--- unsupported recorder still reads, but its reasons were mapped from a VM the
+--- registry was not written against.
 record profile.TraceProfile
+    --- Every field below joined, which is what two reports are compared on.
     id: string
+
+    --- The pinned LuaJIT commit, or "external:<version>" for any other build.
     luajitRevision: string
+
+    --- The snapshot timestamp from the full version string.
     luajitVersion: integer
+
+    --- `jit.arch`.
     architecture: string
+
+    --- `jit.os`.
     operatingSystem: string
+
+    --- The recorder flags `jit.status` reported, sorted.
     enabledRecorderFeatures: {string}
+
+    --- A digest of the VM's bytecode name table, so a renumbered opcode set is
+    --- visible rather than silently remapped.
     bytecodeSchema: string
+
+    --- Whether this is the recorder the reason registry was written against.
     supported: boolean
 end
 
@@ -244,7 +281,10 @@ record profile.TraceReport
     --- The recorder and registry identities under which the events were interpreted.
     traceProfile: profile.TraceProfile
 
+    --- The reason registry the identities came from.
     reasonCatalogId: string
+
+    --- Its version, so a stored report can be reread under a later one.
     reasonCatalogVersion: integer
 
     metamethod __tostring: function(self): string
@@ -428,6 +468,13 @@ end
 local sampling = false
 
 --- Starts sampling.
+---
+--- ```nupp
+--- local session = profile.sample({intervalMs = 5, zone = "frame/render"})
+--- render()
+--- local report = session:stop("render.collapsed")
+--- print(report.samples, report.stacks)
+--- ```
 ---
 --- @param options omitted samples every zone at 10 ms to a depth of 16
 --- @return the handle whose `stop` produces the report
@@ -709,7 +756,7 @@ end
 
 -- A record's namespace table is the metatable its instances are stamped with, so
 -- installing a declared contract is an ordinary assignment to it. The cast is because
--- the contract is not a field: see docs/concepts/metamethods.md.
+-- the contract is not a field: see [metamethods.md](docs/concepts/metamethods.md).
 (profile.TraceReport as {[string]: any}).__tostring = serializeTraceReport;
 
 (profile.SampleReport as {[string]: any}).__tostring = function(report: profile.SampleReport): string
@@ -719,6 +766,13 @@ end
 local tracing = false
 
 --- Starts collecting trace aborts.
+---
+--- ```nupp
+--- local session = profile.trace()
+--- render()
+--- local report = session:stop("aborts.csv")
+--- print(report.blacklisted, report.totalAborts)
+--- ```
 ---
 --- @param options omitted leaves the benign trace-formation events out
 --- @return the handle whose `stop` produces the report

@@ -1,18 +1,18 @@
 @!internal
 
 --[[
-JSON encoding and decoding, and the values a Lua table cannot express by itself.
+Declares the surface of the simdjson-backed host module that
+[](nupp.data.json) re-exports.
 
-This is the surface of the simdjson-backed host module. Programs reach it as
-`nupp.data.json`, which loads this boundary and re-exports it, so the shape is
-declared here and nowhere else.
+Programs reach it as `nupp.data.json`, which loads this boundary and re-exports
+it, so the shape is declared here and nowhere else.
 
 `decodeAs`, `encodeAs` and `encodeRecord` are not the host's. The derive runtime
 installs them onto this table when a program derives JSON for a type, and they raise
 when nothing was derived. They are declared with the rest so a caller sees one API.
 ]]
 
---- Values that can encode themselves as JSON text.
+--- The host module's surface, as `nupp.data.json` hands it out.
 record json
     --- Values that can encode themselves as JSON text.
     interface JSONEncodable
@@ -64,8 +64,14 @@ record json
         finish: function(self: Writer): string
     end
 
-    --- Decodes one JSON document. Null members are dropped unless a replacement
-    --- value is supplied.
+    --- Decodes one JSON document.
+    ---
+    --- Null members are dropped unless a replacement value is supplied.
+    ---
+    --- ```nupp
+    --- local value = nupp.data.json.decode('{"id": 41}')
+    --- assert(value.id == 41)
+    --- ```
     --- @param text the complete JSON document
     --- @param nullValue the value used for JSON null, or nil to drop nulls
     --- @return the decoded Lua value
@@ -107,6 +113,16 @@ record json
     serialize: function(value: any, nullValue: any?): string
 
     --- Creates an incremental JSON writer.
+    ---
+    --- Each call answers the writer again, so a document is built as one chain.
+    --- `flush` hands back the bytes completed so far and `finish` closes the
+    --- document.
+    ---
+    --- ```nupp
+    --- local writer = nupp.data.json.writer()
+    --- writer:startObject():key("id"):write(41):close()
+    --- local text = writer:finish()
+    --- ```
     --- @param nullValue an additional value treated as JSON null
     --- @return a new writer
     writer: function(nullValue: any?): Writer

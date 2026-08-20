@@ -1,60 +1,83 @@
-# Intersection types and overloads
+# Intersections
 
-`A & B` describes values that satisfy both types. Intersections are structural,
-erased at run time, and useful both for composing capabilities and for declaring
-overloaded call contracts.
-
-For the complete guide to callable overloads, repeated method bodies,
-interface defaults, `@override`, and constructors, see
-[Overloads and overrides](overloads.md).
-
-`&` binds more tightly than `|`:
-
-```nupp
-local type Readable = {
-    readonly value: string
-}
-local type Named = {
-    readonly name: string
-}
-local type Both = Readable & Named
-
-local type Result = Error | HasCode & HasMessage
-```
-
-Nested intersections flatten, duplicate members disappear, and member order
-does not affect identity. `unknown` and gradual `any` add no constraint;
-`never` makes the whole intersection `never`.
-
-## Capability composition
-
-An intersection exposes capabilities from every member. A readable property
-available through several members has the intersection of their read types. A
-writable property accepts the union of the types its constituent views accept.
-Read-only and write-only views remain independent. Member completion likewise
-contains the union of the available names.
+`A & B` describes a value that satisfies both types. An intersection is
+structural and erased at run time, so it composes capabilities at a boundary
+without a declaration that names the combination.
 
 ```nupp:playground
 local type Identified = {
     readonly id: integer
 }
-local type Labelled = {
+local type Labeled = {
     readonly label: string
 }
-local type Item = Identified & Labelled
+local type Item = Identified & Labeled
 
 local function describe(item: Item): string
     return tostring(item.id) .. ": " .. item.label
 end
 ```
 
-The same composition applies to methods, property indexers, and metamethod
-contracts. Method receiver specialization preserves every callable member.
+An [interface](interfaces.md) is the other way to combine two contracts. It
+gives the combination a name that implementors declare, where an intersection
+states the combination at the one place that needs it.
+
+## Normalization
+
+`&` binds more tightly than `|`, so an intersection groups before a union does:
+
+```nupp
+local type HasCode = {
+    readonly code: integer
+}
+local type HasMessage = {
+    readonly message: string
+}
+local type Timeout = {
+    readonly timedOut: true
+}
+
+local type Failure = Timeout | HasCode & HasMessage
+```
+
+A `Failure` is a `Timeout`, or a value carrying both a code and a message.
+
+Nested intersections flatten, duplicate members disappear, and member order
+does not affect identity, so `A & (B & A)` and `B & A` are one type. `unknown`
+and gradual `any` add no constraint. `never` makes the whole intersection
+`never`, since nothing can satisfy a member no value inhabits. See [Primitive
+types](primitives.md#never-the-bottom-type) for what `never` means elsewhere.
+
+## Capability composition
+
+An intersection exposes capabilities from every member. A readable property
+available through several members has the intersection of their read types, and
+a writable property accepts the union of the types its constituent views
+accept:
+
+```nupp
+local type NarrowRead = {
+    readonly value: string
+}
+local type WideWrite = {
+    writeonly value: string | integer
+}
+
+local type Cell = NarrowRead & WideWrite
+```
+
+Read-only and write-only views stay independent, and member completion contains
+the union of the available names. See [Property
+capabilities](properties.md#variance) for how the two directions compare.
+
+The same composition applies to methods, property indexers, and [metamethod
+contracts](../concepts/metamethods.md). Method receiver specialization
+preserves every callable member.
 
 ## Subtyping
 
 A value fits `A & B` only when it fits both `A` and `B`. An intersection fits a
-target when one member already proves the target or when the members jointly
+target when one member already proves the target, or when the members jointly
 provide the target's structural surface:
 
 ```nupp
@@ -73,14 +96,15 @@ local function combined(value: A & B): {
 end
 ```
 
-Function parameters remain contravariant and result packs remain covariant.
+Function parameters remain contravariant and result packs remain covariant. See
+[Type packs](packs.md#pack-compatibility) for how a result pack is compared.
 
 ## Provable emptiness
 
 Nupp reports **NUPP2124** when it can prove that no value can satisfy a written
-intersection. Proofs include distinct primitive runtime categories, distinct
-literals, distinct concrete nominal identities, unions whose every arm is
-disjoint, and incompatible required fields:
+intersection. Distinct primitive runtime categories, distinct literals, distinct
+concrete nominal identities, unions whose every arm is disjoint, and
+incompatible required fields are all proofs:
 
 ```nupp
 local type Impossible = string & number
@@ -91,106 +115,70 @@ local type ConflictingTags = {
 }
 ```
 
-This is intentionally incomplete. Interfaces, `any`, `unknown`, and
-unsubstituted type parameters do not prove disjointness merely because the
-compiler cannot currently find a shared implementation.
+Two [records](records.md#records) have distinct nominal identities, so
+`Circle & Square` is empty however similar their fields are. Interfaces, `any`,
+`unknown`, and unsubstituted type parameters prove nothing about
+disjointness.
+
+::: deepdive
+The check is deliberately one-sided: it reports only what it can prove, and
+stays quiet everywhere else. An interface is satisfied structurally by any
+value carrying its members, so two interfaces with unrelated members have a
+perfectly ordinary implementation that the compiler has not been shown, and a
+type parameter has whatever inhabitants its eventual argument has. Reporting
+those as empty would make a generic library that intersects its own parameters
+unwritable, and the failure would arrive at the declaration rather than at the
+instantiation that actually conflicts. The cost is that a genuinely empty
+intersection between two interfaces stays silent until a value is required and
+no value fits.
+:::
 
 ## Overload selection
 
-An intersection containing only function types is an overload set:
+An intersection containing only function types is an overload set, and a call
+selects the single member that accepts the argument pack:
 
 ```nupp
 local type Parse = function(text: string): integer & function(text: string, base: integer): string
 ```
 
-At a call, Nupp:
+The checker infers the argument pack once, probes every member without moving
+affine arguments or establishing borrows, and applies the one member that
+survives. There is no best-match ranking, declaration order never breaks a tie,
+and selection never adds runtime dispatch. **NUPP2125** means no member accepts
+the pack; **NUPP2126** means several do.
 
-1. Applies Lua list adjustment and infers the complete argument pack once.
-2. Probes and specializes every candidate without diagnostics or state changes.
-3. Applies the selected signature only when exactly one candidate survives.
+Everything else about overloading has a page of its own. See [Overloads and
+overrides](overloads.md) for repeated method bodies, generic entries,
+constructors, `@override`, and the diagnostics each of them reports.
 
-The winner supplies its complete result pack, ownership modes, borrowing and
-FFI output provenance, predicate narrowing, and `noreturn` contract. Rejected
-candidates do not move affine arguments or establish borrows.
+## FAQ
 
-There is no best-match ranking and declaration order never breaks a tie.
-**NUPP2125** means no candidate accepts the pack; **NUPP2126** means several do.
-Numeric widening and `any` commonly expose real ambiguities:
+### Should this be an intersection or an interface?
 
-```nupp
-local type Ambiguous = function(integer): string & function(number): boolean
+Write an [interface](interfaces.md) when the combination has a name worth
+declaring and implementors should claim it with `is`. Write an intersection
+when one function needs two contracts at once and nothing else in the program
+cares about the pair.
 
-local f: Ambiguous = nil as any
-local value = f(1) -- NUPP2126: both signatures accept integer
-```
+### Does an intersection cost anything at run time?
 
-A correlated argument-pack union must be accepted by one candidate across all
-of its alternatives. Selection never adds runtime dispatch. APIs such as
-`pcall`, `xpcall`, `select`, `unpack`, and coroutine protocols therefore remain
-pack-native rather than being recast as finite overload sets.
+No. Intersections are erased, exactly as the rest of the structural type layer
+is, so `A & B` lowers to whatever the underlying value already was. See [Type
+system](overview.md#strict-floor) for what does and does not survive to run
+time.
 
-## Overloaded methods
+### Why does intersecting two records report NUPP2124?
 
-The examples below summarize the mechanism. The dedicated
-[overload guide](overloads.md#separate-method-bodies) covers interface
-contracts, per-entry overrides, generics, dynamic facades, and diagnostics.
+A record is nominal, so a value comes from one declaration or another and never
+from both. Intersect the interfaces those records declare instead, or declare a
+third record carrying the members you need.
 
-Repeated method names form an overload set without an annotation:
-
-```nupp
-local record Decoder
-    function decode(self, text: string): string
-        return "text:" .. text
-    end
-
-    function decode(self, value: integer): string
-        return "integer:" .. tostring(value)
-    end
-end
-```
-
-The member's visible type is the intersection of its callable signatures, but
-the compiler retains each declaration as a separate method entry. A call such
-as `decoder:decode("source")` selects exactly one intersection member and emits
-a direct call to that entry's hidden runtime method. It does not generate or
-invoke a dispatcher.
-
-Parameter packs must be distinct; return types cannot distinguish two entries.
-An overloaded method has no single Lua field value, so `decoder.decode` is
-**NUPP2126**. Call it with `:`, which supplies the arguments needed to select an
-entry. An `any` argument is likewise rejected when it leaves several entries
-possible; an explicit cast on the argument can select the intended one.
-
-Interface defaults use the same signature-derived entries. `@override` applies
-to the exact inherited parameter pack it replaces, so one overload may be
-overridden while the other defaults remain inherited. A bodyless interface may
-state the same contract as a callable-intersection field; matching record
-bodies use the same hidden slots. `@override` is only for replacing a default
-body, not for satisfying a bodyless contract.
-
-## Overloaded constructors
-
-A record may declare several constructors with distinct parameter packs:
-
-```nupp
-local record Value
-    text: string
-
-    constructor(self, value: integer)
-        self.text = tostring(value)
-    end
-
-    constructor(self, value: string)
-        self.text = value
-    end
-end
-
-local first = new Value(42)
-local second = new Value("ready")
-```
-
-`new` uses ordinary overload selection. The selected declaration is emitted as
-a direct call to its indexed constructor function; there is no runtime
-dispatcher. Duplicate parameter-pack contracts are **NUPP2208**, as are the
-existing constructor integrity failures. Declaring any constructor continues
-to close named-field construction for that record.
+::: seealso
+- [overloads.md](overloads.md) for calling a callable intersection and for
+  every other form of overload
+- [interfaces.md](interfaces.md) for the named alternative to composing types
+  at a use site
+- [properties.md](properties.md) for the read and write capabilities an
+  intersection composes
+:::

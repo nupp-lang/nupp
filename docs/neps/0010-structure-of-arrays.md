@@ -13,7 +13,8 @@ that changes what the struct means everywhere. Direct indexed field expressions
 keep their ordinary spelling, and the two view types are deliberately not
 interchangeable.
 
-[Structure of arrays](../concepts/structure-of-arrays.md) documents the surface.
+See [structure-of-arrays.md](../concepts/structure-of-arrays.md) for allocating
+and reading a column container.
 
 ## Goals
 
@@ -29,17 +30,17 @@ interchangeable.
 
 ## Motivation
 
-### Declaration needs both layouts
+### Declarations need both layouts
 
 The same struct value passed to C, returned from a function, or stored alone
 wants the canonical layout. A large simulation array wants its columns
 contiguous. Both are correct uses of one declaration.
 
 Putting the choice on the declaration forces one answer on both uses and makes
-the declaration's nominal identity hide two incompatible physical meanings — so
-a value's memory layout would depend on where it came from, invisibly.
+the declaration's nominal identity hide two incompatible physical meanings. A
+value's memory layout would then depend, invisibly, on where it came from.
 
-### The syntax has to stay ordinary
+### Syntax has to stay ordinary
 
 Column storage is worth having only if the code that uses it reads like the code
 that does not. A separate access syntax would make switching layouts a rewrite,
@@ -59,7 +60,7 @@ local rowMajor = heap.allocate(ffi.typeof<Particle>(), count)
 local columns  = soa.allocate(ffi.typeof<Particle>(), count)
 ```
 
-### Usage
+### Worked example
 
 Both load and store ordinary values, and the loop body is identical:
 
@@ -79,8 +80,8 @@ with rows = columns:write() do
 end
 ```
 
-The two view types are not interchangeable — one promises contiguous objects,
-the other contiguous fields — and no cast or structural match erases the
+The two view types are not interchangeable. One promises contiguous objects and
+the other promises contiguous fields, and no cast or structural match erases the
 difference:
 
 ```nupp
@@ -113,35 +114,25 @@ __x[i - 1] = __x[i - 1] + __dx[i - 1] * delta
 ```
 
 The struct itself is unchanged: passed to C, returned, or stored alone, a
-`Particle` has its canonical layout. Changing a container's layout is a storage
-schema change even though the value type is identical, so hot reload restarts or
-invokes an application-owned migration rather than reinterpreting live bytes.
+`Particle` has its canonical layout.
 
-### The container owns the choice
+### Containers own the choice
 
-Allocating row-major and column-major storage are two calls, and both load and
-store ordinary struct values. Their views are *not* interchangeable: one promises
-contiguous objects, the other promises contiguous fields, and no cast or
-structural match may erase the difference.
+A container owns the layout choice, and non-interchangeable views are what make
+that choice mean something. Two things with the same element type and different
+physical meaning must not be substitutable, or the guarantee is decorative and a
+caller that assumed the wrong one gets plausible garbage rather than a
+diagnostic.
 
-That non-interchangeability is the feature. Two things with the same element
-type and different physical meaning must not be substitutable, or the guarantee
-is decorative.
-
-### Ordinary field expressions
-
-Indexed field reads and writes keep their spelling. The lowering knows which
-container it is addressing; the source does not change.
-
-### A layout change is a schema change
+### Layout changes are schema changes
 
 Changing a container from row-major to column-major is a storage-schema change
 even though the value type is unchanged. Hot reload must restart or invoke an
 application-owned migration rather than reinterpret live bytes.
 
-Stating this is what keeps a layout change from being silently unsafe under
-[NEP 7](0007-hot-reload.md): the value type is identical, so nothing else in
-the system would notice.
+Stating that is what keeps a layout change from being silently unsafe. The value
+type is identical, so nothing else in the system would notice. See
+[NEP 6](0006-hot-reload.md) for more information.
 
 ### Pooled element storage
 
@@ -165,27 +156,27 @@ collectgarbage("collect")            -- block is unreachable; held is not
 print(held.offset)                   --> 0, from reused memory
 ```
 
-Not a crash — a read of reused memory returning a plausible value. Chunking
-fixes reallocation and does nothing about this.
+That is not a crash. It is a read of reused memory returning a plausible value,
+and chunking fixes reallocation while doing nothing about this.
 
 Three ways out, none good. A strong registry makes element validity equal pool
 liveness, which is the ownership model applied at the pool rather than the
-element — but use after release is undefined and unchecked, so element access
+element, but use after release stays undefined and unchecked, so element access
 becomes an unsafe operation wearing a typed field's clothes. A reference
 carrying its anchor measured at 217 bytes a token against the table's 264,
 because boxing an eight-byte value as cdata costs about 200. Leaving tokens as
 tables saves nothing.
 
-Proving that every structure storing an element also retains its pool — through
+The third way out is a lifetime system rather than a stage. It would have to
+prove that every structure storing an element also retains its pool, through
 locals, returns, closures, nested nodes, calls, unions, and containers mixing
-pools — is a lifetime system, not a stage.
+pools.
 
 **And the trade has moved.** The pooled design saves 3.6x on lexing allocation,
-which is 38% of what a build allocates. But the collector is 3–5% of build time,
-where the trace compiler is about half, and the escape analysis other
+which is 38% of what a build allocates. But the collector is 3% to 5% of build
+time, where the trace compiler is about half, and the escape analysis other
 optimizations already want attacks that half at no new unsafety. The packed
 booleans and read-computed fields are unaffected and worth building alone.
-
 
 ## Risks and assumptions
 
@@ -209,13 +200,13 @@ every use of the type and makes one nominal identity cover two incompatible
 physical layouts. A value's memory layout would then depend on its declaration
 rather than on where it is stored.
 
-**A distinct element type for column storage** — so a column-stored particle is
+**A distinct element type for column storage**, making a column-stored particle
 a different type from a particle. Rejected: it propagates through every
 signature that touches one, and the value semantics genuinely are the same.
 
 **Interchangeable views**, with the layout as an implementation detail behind a
-common interface. Rejected: the promises are different — contiguous objects
-versus contiguous fields — and code that assumes the wrong one is wrong in a way
+common interface. Rejected: the promises are different, contiguous objects
+against contiguous fields, and code that assumes the wrong one is wrong in a way
 that produces plausible garbage.
 
 **A separate access syntax for columns.** Rejected: switching layouts would

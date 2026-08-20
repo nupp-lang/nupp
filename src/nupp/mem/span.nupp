@@ -3,10 +3,38 @@ module nupp.mem.span
 --[[
 Bounds-carrying borrowed pointer views.
 
-`Span<T>` is a sealed public contract over a private runtime implementation that keeps
-an element count beside a rooted pointer. Indexing and slicing check that count before
-the only unsafe pointer operations in this module. Public code cannot forge the
-contract or dereference or offset its raw pointer.
+`Span<T>` is a sealed public contract over a private runtime implementation that
+keeps an element count beside a rooted pointer. Indexing and slicing check that
+count before the only unsafe pointer operations in this module. Public code
+cannot forge the contract or dereference or offset its raw pointer.
+
+```nupp
+local span = require("nupp.mem.span")
+
+const bytes = span.fromString("hello")
+assert(#bytes == 5 and bytes[1] == 104)
+```
+
+A shared span copies freely and reads. A writable span does neither: it is
+affine, and its live token holds the source under an incompatible-borrow barrier
+until `drop` or a scope boundary consumes it.
+
+```nupp
+local heap = require("nupp.mem.heap")
+
+do
+    local values = heap.allocate(ffi.typeof<int32>(), 4)
+    local writable = values:write()
+    writable[1] = 42 as int32
+    drop writable
+end
+```
+
+Asking one array for a reader while a writer is live reports `NUPP2607`, and so
+does the reverse.
+
+See [ownership.md](docs/type-system/ownership.md) for the borrow rules these views are written
+against, and [c-interop.md](docs/concepts/c-interop.md) for what `ref` hands a C call.
 ]]
 
 local span = {}
@@ -16,6 +44,12 @@ sealed interface span.WriteToken
     drop: nosuspend function(takes self: WriteToken): nil
 end
 
+--- Ends a write range, which is what every writable span's contract names.
+---
+--- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
+--- scope boundary or an explicit `drop` reaches it.
+---
+--- @param writable the write range, spent by this call
 --- @export
 function span.destroyWriteSpan<T is span.WriteToken>(takes writable: T): nil
     nosuspend do
@@ -29,7 +63,23 @@ end
 sealed interface span.Span<T>
     metamethod __len: function(self: Span<T>): integer
     metamethod __index: function(self: Span<T>, index: integer): T
+
+    --- Answers a subspan, inclusive at both ends and borrowed from this one.
+    ---
+    --- Indexes are one-based. Omitting `last` runs through to the end, and
+    --- `first, first - 1` is how an empty subspan is written.
+    ---
+    --- ```nupp
+    --- const values = span.fromCarray(storage, 4)
+    --- const middle = values:slice(2, 3)
+    --- assert(#middle == 2)
+    --- ```
     slice: function(self: Span<T>, first: integer, last: integer?): Span<T> borrows (self)
+
+    --- Answers the checked range as a const pointer and count, for a native call.
+    ---
+    --- The pointer borrows this span, so it cannot outlive the view that proved
+    --- its bounds. This is the one supported way out to C.
     ref: function(self: Span<T>): (const T[?] borrows (self), integer)
 end
 
@@ -127,7 +177,11 @@ end
 --- @export
 record span.WriteSplit<T>
     private readonly anchor: any
+
+    --- The first `mid` elements, writable independently of `right`.
     readonly left: span.WriteSpan<T> borrows (anchor)
+
+    --- Everything after them, writable independently of `left`.
     readonly right: span.WriteSpan<T> borrows (anchor)
 end
 
@@ -139,14 +193,45 @@ sealed interface span.WriteSpan<T> is span.WriteToken
     metamethod __len: function(self: WriteSpan<T>): integer
     metamethod __index: function(borrows self: WriteSpan<T>, index: integer): T
     metamethod __newindex: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
+
+    --- Ends this write range, releasing the barrier on its source.
     drop: nosuspend function(takes self: WriteSpan<T>): nil
+
+    --- Answers the checked range as a mutable pointer and count, for a native call.
+    ---
+    --- The pointer borrows this range, so the barrier on the source outlives the
+    --- call that was handed it.
     ref: function(exclusive self: WriteSpan<T>): (T[?] borrows (self), integer)
+
+    --- Downgrades this writer to a shared view for the lifetime of the result.
+    ---
+    --- The writer is borrowed rather than spent, so it comes back when the shared
+    --- view ends.
     shared: function(borrows self: WriteSpan<T>): span.Span<T> borrows (self)
+
+    --- Answers an affine writable subrange, inclusive at both ends.
+    ---
+    --- The child borrows this range, so the parent is unusable until the child is
+    --- dropped. Two disjoint children at once is what `splitAt` is for.
     slice: function(
         exclusive self: WriteSpan<T>,
         first: integer,
         last: integer?
     ): affine(span.WriteSpan<T>, span.destroyWriteSpan) borrows (self)
+
+    --- Partitions this range at a zero-based boundary count.
+    ---
+    --- The two children are non-overlapping, so both are writable at once, which
+    --- a pair of `slice` calls could not be. `mid` is how many elements go left.
+    ---
+    --- ```nupp
+    --- do
+    ---     local writable = values:write()
+    ---     local split = writable:splitAt(2)
+    ---     split.left[1] = 11 as int32
+    ---     split.right[1] = 22 as int32
+    --- end
+    --- ```
     @partition(left, right)
     splitAt: function(exclusive self: WriteSpan<T>, mid: integer): span.WriteSplit<T> borrows (self)
 end
@@ -382,19 +467,23 @@ function FixedWriteSpanImpl.drop<T, const N: integer>(takes self: FixedWriteSpan
     end
 end
 
---- Backwards-compatible names for the byte-specialized views.
+--- The byte-specialized shared view, which is what `fromString` answers.
 --- @export
 type span.ByteSpan = span.Span<uint8>
 
+--- The byte-specialized write range.
 --- @export
 type span.ByteWriteSpan = span.WriteSpan<uint8>
 
 --- Creates a byte span over a Lua string and keeps that string rooted.
 ---
---- ::: tip Nonescaping views at -O1
---- A nonescaping result can remain virtual, so the compiler allocates no wrapper.
---- An escape or opaque call materializes the same checked span.
---- :::
+--- ```nupp
+--- const bytes = span.fromString("hello")
+--- assert(#bytes == 5 and bytes[1] == 104)
+--- ```
+---
+--- @param source the string the view reads, rooted for the view's lifetime
+--- @return the byte view, borrowed from the string
 --- @export
 function span.fromString(borrows source: string): span.ByteSpan borrows (source)
     local pointer = ffi.cast<const uint8[?]>(source)
@@ -403,10 +492,18 @@ end
 
 --- Creates a checked shared span over a C array and an explicit logical count.
 ---
---- ::: tip Nonescaping views at -O1
---- A nonescaping result can remain virtual, so the compiler allocates no wrapper.
---- An escape or opaque call materializes the same checked span.
---- :::
+--- The count is the caller's claim about the array, so it is the one number this
+--- module cannot check for itself. Everything after it is checked against it.
+---
+--- ```nupp
+--- const storage = carray(int32, 4)
+--- const values = span.fromCarray(storage, 4)
+--- assert(#values == 4)
+--- ```
+---
+--- @param source the array the view reads, rooted for the view's lifetime
+--- @param count how many elements the array holds
+--- @return the view, borrowed from the array
 --- @export
 --- @raises when count is negative
 function span.fromCarray<T>(borrows source: T[?], count: integer): span.Span<T> borrows (source)
@@ -416,13 +513,14 @@ function span.fromCarray<T>(borrows source: T[?], count: integer): span.Span<T> 
     return (new SpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)) as span.Span<T>
 end
 
---- Creates a fixed shared span without a runtime length check. The literal count is
---- both the stored count and the proof that the source has exactly `N` elements.
+--- Creates a fixed shared span without a runtime length check.
 ---
---- ::: tip Nonescaping views at -O1
---- A nonescaping result can remain virtual, so the compiler allocates no wrapper.
---- An escape or opaque call materializes the same checked span.
---- :::
+--- The literal count is both the stored count and the proof that the source has
+--- exactly `N` elements, so there is nothing left to check at run time.
+---
+--- @param source the array the view reads, rooted for the view's lifetime
+--- @param count the literal count, which must be the source's `N`
+--- @return the view, borrowed from the array
 --- @export
 function span.fromFixedCarray<T, const N: integer>(
     borrows source: T[N],
@@ -433,14 +531,26 @@ function span.fromFixedCarray<T, const N: integer>(
     ) as span.FixedSpan<T, N>
 end
 
---- Creates an affine write span. The source is exclusive during construction and the
---- returned dependent owner prevents invalidating operations until it is explicitly
---- committed.
+--- Creates an affine write span over a C array and an explicit logical count.
 ---
---- ::: tip Nonescaping views at -O1
---- A nonescaping result can remain virtual, so the compiler allocates no wrapper.
---- An escape or opaque call materializes the same checked span.
---- :::
+--- The source is exclusive during construction, and the returned owner keeps it
+--- under an incompatible-borrow barrier until `drop` or a scope boundary consumes
+--- the token. Nothing else may read or write the array in between.
+---
+--- ```nupp
+--- const storage = carray(int32, 4)
+--- do
+---     local writable = span.writeCarray(storage, 4)
+---     writable[1] = 42 as int32
+---     drop writable
+--- end
+--- const values = span.fromCarray(storage, 4)
+--- assert(values[1] == 42)
+--- ```
+---
+--- @param source the array the view writes, held exclusively for its lifetime
+--- @param count how many elements the array holds
+--- @return the affine writer, borrowed from the array
 --- @export
 --- @raises when count is negative
 function span.writeCarray<T>(exclusive source: T[?], count: integer): span.Writable<T> borrows (source)
@@ -450,13 +560,14 @@ function span.writeCarray<T>(exclusive source: T[?], count: integer): span.Writa
     return (new WriteSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)) as span.WriteSpan<T>
 end
 
---- Creates a fixed affine write span without a runtime length check. The source array
---- type and literal count must name the same `N`.
+--- Creates a fixed affine write span without a runtime length check.
 ---
---- ::: tip Nonescaping views at -O1
---- A nonescaping result can remain virtual, so the compiler allocates no wrapper.
---- An escape or opaque call materializes the same checked span.
---- :::
+--- The source array type and the literal count must name the same `N`, which is
+--- what stands in for the bounds check.
+---
+--- @param source the array the view writes, held exclusively for its lifetime
+--- @param count the literal count, which must be the source's `N`
+--- @return the affine writer, borrowed from the array
 --- @export
 function span.writeFixedCarray<T, const N: integer>(
     exclusive source: T[N],

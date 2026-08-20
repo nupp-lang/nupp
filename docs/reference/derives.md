@@ -1,7 +1,6 @@
-`@derive` generates a closed set of checked members on a record. It is a
-declaration-augmentation phase, not a text macro: it cannot add imports,
-top-level declarations, modules, records, interfaces, or independently
-nameable types.
+`nupp.derive` holds the two bundled derive providers and the recipe API a
+package uses to publish its own. `@derive` names a provider on a record
+declaration and adds the closed set of checked members that provider returns.
 
 ```nupp:playground
 @derive(nupp.derive.Debug, nupp.derive.JSON)
@@ -18,156 +17,20 @@ local user = new User()
 print(user:debug(), user:toJSON())
 ```
 
-The two bundled comptime providers are:
+Applying a provider is a declaration-augmentation phase, not a text macro: it
+cannot add imports, top-level declarations, modules, records, interfaces, or
+independently nameable types. The two bundled providers are:
 
-- `nupp.derive.Debug`: `debug(self): string` and `nupp.Debug` conformance.
-- `nupp.derive.JSON`: `toJSON`, static `fromJSON`, `fieldCodec`, and
+- [`nupp.derive.Debug`](#debug): `debug(self): string` and `nupp.Debug`
+  conformance.
+- [`nupp.derive.JSON`](#json): `toJSON`, a static `fromJSON`, `fieldCodec`, and
   `nupp.data.json.JSONEncodable` conformance.
 
 Generated members participate in normal member lookup, generic inference, and
 interface checking. A written member of the same name is a compile-time
 conflict. Stacked `@derive` applications combine, but a provider cannot be
-requested twice.
-
-They are ordinary exported `comptime function` declarations implemented in
-`src/nupp/derive.nupp`; the compiler has no provider-name or operation switch
-for them. Both travel through the same sealed comptime worker, immutable
-`Info`, versioned result envelope, cache and recipe lowering used by package
-providers.
-Their schema configuration (`@debug` and `@json`) is included in
-the semantic annotations visible through `Info`; it is not a second planner.
-
-## Package providers
-
-A package may export a derive provider as a `comptime function`. Its exact
-signature names the one existing interface it implements:
-
-```nupp
-comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
-    -- inspect info and return a closed recipe
-end
-```
-
-A consumer applies the resolved exported symbol, not a runtime function value:
-
-```nupp
-local inspect = require("inspect")
-
-@derive(inspect.derive)
-local record Credentials
-    username: string
-    password: string
-end
-```
-
-Applying the provider also claims `M.Inspect`. An equal written
-`is inspect.Inspect` is redundant and coalesced. Interface defaults are
-inherited normally and associated requirements are checked normally. A provider
-can fill a bodyless callable requirement or declare a new function member with a
-closed comptime-built signature. Generic, variadic, overloaded, and effectful
-provider declarations are not part of the first recipe version.
-
-Every provider on an owner receives the same immutable pre-merge `Info` view.
-It contains the owner and interface type handles, ordered stored fields with
-read/write handles, semantic identities, and opaque diagnostic references. It
-contains no tokens, locations, comments, AST, CST, mutable compiler objects, or
-previous provider output. `nupp.derive.claims(T, I)` asks whether a nominal type
-writes or requests contract `I`, which lets mutually recursive derives plan
-without depending on provider execution order.
-
-A generic owner is planned once, not per instantiation. A type parameter
-exposes its bound, or `unknown`, so providers cannot specialize for future
-concrete arguments.
-
-Providers run through the bounded comptime worker. Their sealed source and
-reachable comptime helper closure travel in the module interface; they do not
-remain runtime functions. A provider failure may return
-`nupp.derive.error(message, reference, code)` to point at the owner or
-contributing field without observing a filename or source position. The code
-is optional and defaults to the generic provider diagnostic `NUPP2810`.
-
-### Filesystem inputs
-
-A provider that generates a recipe from a schema or other immutable project
-file reads it with `nupp.derive.file`:
-
-```nupp
-comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
-    local schema = nupp.derive.file("schemas/inspect.txt")
-    return nupp.derive.implement {
-        methods = {
-            inspect = nupp.derive.forward {
-                helper = nupp.derive.helper(M, "renderSchema"),
-                arguments = {nupp.derive.constant(schema)},
-            },
-        },
-    }
-end
-```
-
-The path must be a string literal and remain within the consumer project root.
-The compiler reads it before the isolated worker starts, fingerprints its bytes
-with the provider input, and records it in the incremental dependency graph.
-Changing the file invalidates only provider consumers; watch mode observes the
-canonical path and refuses to patch over changed generated state without a
-restart. Missing files are diagnostics. Providers have no general host I/O, so
-network resources, environment variables, clocks, mutable tables, and hidden
-filesystem reads cannot silently enter a cache or hot-reload guarantee.
-
-## Closed forwarding recipes
-
-`nupp.derive.implement` returns instance methods and static functions. A bare
-`Forward` fills an interface requirement and inherits its signature. A
-`nupp.derive.member` supplies a function type built with `nupp.types` and its
-parameter names, allowing a provider to add a member that is not declared by
-the result interface. Both forms lower through `forward.v1`, which names one
-ordinary runtime helper and supplies a closed argument list:
-
-- `receiver()` passes the generated method receiver.
-- `argument(name)` passes a named interface method parameter.
-- `entry()` passes the derived type's private runtime schema entry.
-- `field(fieldInfo)` directly reads one admitted stored field.
-- `constant(value)` embeds a bounded quotable value.
-- `array(arguments)` constructs a fresh array from argument recipes.
-
-There are no nested calls, operators, branches, assignments, loops, arbitrary
-member accesses, or source fragments in a forwarding recipe. Table-shaped
-constants and arrays are fresh for each call, so mutation by one invocation
-cannot affect the next.
-
-```nupp
-return nupp.derive.implement {
-    methods = {
-        inspect = nupp.derive.forward {
-            helper = nupp.derive.helper(M, "renderRecord"),
-            arguments = {
-                nupp.derive.constant(names),
-                nupp.derive.array(values),
-            },
-        },
-    },
-}
-```
-
-The first version refuses overloaded requirements, interface defaults,
-properties, setters, and metamethods. Those require separate versioned recipe
-capabilities rather than silently widening `forward.v1`.
-
-### Runtime helpers
-
-Runtime behavior stays in ordinary exported Nupp functions. Helpers are type
-checked at their declarations, and the generated call is checked again against
-the interface-owned argument and result packs, ownership, effects, and
-suspension contract. `forward.v1` refuses generic runtime helpers; a later
-recipe version can admit them once symbolic helper identity and caching are
-specified. A helper module becomes an ordinary runtime dependency of the
-consumer even when the comptime provider itself would otherwise erase.
-
-Keeping behavior in the language makes arbitrary runtime control flow,
-optimization, effects, diagnostics, and future generic helpers available
-without turning them into a macro IR. The generated wrapper is a semantic node
-the compiler may inline or sink when ordinary optimization proves that safe;
-such optimization is not part of the provider contract.
+requested twice. See [annotations.md](annotations.md#derive) for where `@derive`
+sits among the built-in annotations.
 
 ## Debug
 
@@ -220,9 +83,11 @@ print(post:debug())
 Post { title = "hello", views = 12, tags = {Tag { name = "a" }, Tag { name = "b" }}, scores = {["alpha"] = 2, ["zeta"] = 1} }
 ```
 
-A field annotation decides what a field contributes. `redact` keeps the name and
-replaces the value, which is what a secret wants; `skip` removes the field from
-the output entirely.
+### Field visibility
+
+A `@debug` field annotation decides what a field contributes. `redact` keeps the
+name and replaces the value, which is what a secret wants; `skip` removes the
+field from the output entirely.
 
 ```nupp
 @derive(nupp.derive.Debug)
@@ -268,6 +133,8 @@ print(decoded and decoded:debug())
 {"user_id":7,"name":"ada"}
 User { id = 7, name = "ada" }
 ```
+
+### Decoding errors
 
 `fromJSON` returns `T?, string?`, and the error names the path that failed
 rather than saying the document was bad:
@@ -353,14 +220,177 @@ preserves null with `nupp.data.json.NULL` while it validates the raw value.
 
 The JSON field codec is allocated lazily as a runtime reflection extension. Use
 `nupp.data.json.encodeRecord`, `encodeAs(User, value)`, and `decodeAs(User,
-text)` when a type-witness API fits better than generated members; the witness
-and allocation model are documented in
-[Reflection](../concepts/reflection.md#runtime-reflection).
+text)` when a type-witness API fits better than generated members. See
+[reflection.md](../concepts/reflection.md#runtime-reflection) for the witness
+and allocation model, and [json.md](../modules/nupp/data/json.md) for the rest
+of the codec.
 
-## Relationship to comptime
+## Package providers
 
-Comptime evaluates closed value-producing programs after normal type checking.
-Derives run as part of declaration checking and may attach only validated
-member recipes. The bundled Debug and JSON providers use that
-same public mechanism; neither derives nor comptime become arbitrary source
-generation.
+A package may export a derive provider as a `comptime function`. Its exact
+signature names the one existing interface it implements:
+
+```nupp
+comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
+    -- inspect info and return a closed recipe
+end
+```
+
+A consumer applies the resolved exported symbol, not a runtime function value:
+
+```nupp
+local inspect = require("inspect")
+
+@derive(inspect.derive)
+local record Credentials
+    username: string
+    password: string
+end
+```
+
+Applying the provider also claims `M.Inspect`. An equal written
+`is inspect.Inspect` is redundant and coalesced. Interface defaults are
+inherited normally and associated requirements are checked normally. A provider
+can fill a bodyless callable requirement or declare a new function member with a
+closed comptime-built signature. Generic, variadic, overloaded, and effectful
+provider declarations are not part of the first recipe version.
+
+::: deepdive
+`Debug` and `JSON` are ordinary exported `comptime function` declarations
+implemented in `src/nupp/derive.nupp`, and the compiler has no provider-name or
+operation switch for them. Both travel through the same sealed comptime worker,
+immutable `Info`, versioned result envelope, cache and recipe lowering a package
+provider uses, and their schema configuration (`@debug` and `@json`) is part of
+the semantic annotations visible through `Info` rather than a second planner.
+
+That is also the boundary against source generation.
+[Comptime](../concepts/comptime.md) evaluates closed value-producing programs
+after normal type checking, and derives run as part of declaration checking and
+may attach only validated member recipes. Neither becomes a way to emit
+arbitrary source.
+:::
+
+### Provider inputs
+
+Every provider on an owner receives the same immutable pre-merge `Info` view. It
+contains the owner and interface type handles, ordered stored fields with
+read/write handles, semantic identities, and opaque diagnostic references. It
+contains no tokens, locations, comments, AST, CST, mutable compiler objects, or
+previous provider output. `nupp.derive.claims(T, I)` asks whether a nominal type
+writes or requests contract `I`, which lets mutually recursive derives plan
+without depending on provider execution order.
+
+A generic owner is planned once, not per instantiation. A type parameter exposes
+its bound, or `unknown`, so providers cannot specialize for future concrete
+arguments.
+
+Providers run through the bounded comptime worker. Their sealed source and
+reachable comptime helper closure travel in the module interface; they do not
+remain runtime functions. A provider failure may return
+`nupp.derive.error(message, reference, code)` to point at the owner or
+contributing field without observing a filename or source position. The code is
+optional and defaults to the generic provider diagnostic
+[`NUPP2810`](diagnostics.md).
+
+### Filesystem inputs
+
+A provider that generates a recipe from a schema or other immutable project file
+reads it with `nupp.derive.file`:
+
+```nupp
+comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
+    local schema = nupp.derive.file("schemas/inspect.txt")
+    return nupp.derive.implement {
+        methods = {
+            inspect = nupp.derive.forward {
+                helper = nupp.derive.helper(M, "renderSchema"),
+                arguments = {nupp.derive.constant(schema)},
+            },
+        },
+    }
+end
+```
+
+The path must be a string literal and remain within the consumer project root.
+The compiler reads it before the isolated worker starts, fingerprints its bytes
+with the provider input, and records it in the incremental dependency graph.
+Changing the file invalidates only provider consumers, and watch mode observes
+the canonical path and refuses to patch over changed generated state without a
+restart. Missing files are diagnostics.
+
+Providers have no general host I/O, so network resources, environment variables,
+clocks, mutable tables, and hidden filesystem reads cannot silently enter a
+cache or a [hot-reload](../guides/hot-reload.md) guarantee.
+
+## Closed forwarding recipes
+
+`nupp.derive.implement` returns instance methods and static functions. A bare
+`Forward` fills an interface requirement and inherits its signature. A
+`nupp.derive.member` supplies a function type built with `nupp.types` and its
+parameter names, allowing a provider to add a member that is not declared by the
+result interface.
+
+```nupp
+return nupp.derive.implement {
+    methods = {
+        inspect = nupp.derive.forward {
+            helper = nupp.derive.helper(M, "renderRecord"),
+            arguments = {
+                nupp.derive.constant(names),
+                nupp.derive.array(values),
+            },
+        },
+    },
+}
+```
+
+Both forms lower through `forward.v1`, which names one ordinary runtime helper
+and supplies a closed argument list:
+
+- `receiver()` passes the generated method receiver.
+- `argument(name)` passes a named interface method parameter.
+- `entry()` passes the derived type's private runtime schema entry.
+- `field(fieldInfo)` directly reads one admitted stored field.
+- `constant(value)` embeds a bounded quotable value.
+- `array(arguments)` constructs a fresh array from argument recipes.
+
+There are no nested calls, operators, branches, assignments, loops, arbitrary
+member accesses, or source fragments in a forwarding recipe. Table-shaped
+constants and arrays are fresh for each call, so mutation by one invocation
+cannot affect the next.
+
+The first version refuses overloaded requirements, interface defaults,
+properties, setters, and metamethods. Those require separate versioned recipe
+capabilities rather than silently widening `forward.v1`.
+
+### Runtime helpers
+
+Runtime behavior stays in ordinary exported Nupp functions. Helpers are type
+checked at their declarations, and the generated call is checked again against
+the interface-owned argument and result packs, ownership, effects, and
+suspension contract. `forward.v1` refuses generic runtime helpers; a later
+recipe version can admit them once symbolic helper identity and caching are
+specified. A helper module becomes an ordinary runtime dependency of the
+consumer even when the comptime provider itself would otherwise erase.
+
+::: deepdive
+Keeping behavior in the language makes arbitrary runtime control flow,
+optimization, effects, diagnostics, and future generic helpers available without
+turning them into a macro IR. A macro IR would have to grow its own version of
+each of those, and every one would then be a second implementation to keep
+agreeing with the first.
+
+The generated wrapper is a semantic node the compiler may inline or sink when
+ordinary optimization proves that safe. Such optimization is not part of the
+provider contract, so a recipe cannot depend on it happening.
+:::
+
+::: seealso
+- [annotations.md](annotations.md#built-in-annotations) for `@derive`, `@json`,
+  and `@debug` beside the rest of the built-ins
+- [comptime.md](../concepts/comptime.md) for the evaluation model a provider
+  runs in
+- [reflection.md](../concepts/reflection.md#runtime-reflection) for the type
+  witnesses generated members are built on
+- [diagnostics.md](diagnostics.md) for the codes a provider failure reports
+:::

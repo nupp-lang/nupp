@@ -1,8 +1,8 @@
 # Structure-of-arrays storage
 
 `nupp.mem.soa` stores every top-level field of a reified struct in its own
-contiguous column. Code still reads and writes ordinary struct fields, while the
-container provides the column layout needed by data-oriented loops.
+contiguous column. Reach for it when a loop walks one or two fields of many
+rows and the ordinary array-of-structures layout brings the rest along.
 
 ```nupp:playground
 local soa = require("nupp.mem.soa")
@@ -21,21 +21,11 @@ with rows = positions:write() do
 end
 ```
 
-::: rationale
-The container owns the layout rather than the declaration, because one
-declaration needs both: a value passed to C wants the canonical layout, and a
-large array wants its columns contiguous. Annotating the declaration would make
-one nominal identity cover two incompatible physical meanings, so a value's
-memory layout would depend invisibly on where it came from.
-
-[NEP 10](../neps/0010-structure-of-arrays.md) has the full record.
-:::
-
 ## Containers select the layout
 
 A struct keeps its ordinary C-compatible array-of-structures layout. Only an
-`soa.Array<T>` splits its fields, so the same `T` can be used as an ordinary
-value, passed through [C interop](c-interop.md), or stored in either layout.
+`soa.Array<T>` splits its fields, so the same `T` can be an ordinary value,
+passed through [C interop](c-interop.md), or stored in either layout.
 
 ```text
 Position[3]                 soa.Array<Position>(3)
@@ -45,10 +35,22 @@ Position[3]                 soa.Array<Position>(3)
 [x2 velocity2]
 ```
 
+::: deepdive
+The container owns the layout rather than the declaration, because one
+declaration needs both: a value passed to C wants the canonical layout, and a
+large array wants its columns contiguous. Annotating the declaration would make
+one nominal identity cover two incompatible physical meanings, so a value's
+memory layout would depend invisibly on where the value came from.
+
+See [NEP 10](../neps/0010-structure-of-arrays.md) for more information.
+:::
+
+### Nested fields stay whole
+
 The container splits top-level fields only. A nested struct or fixed array is
-one column whose element has that field's declared C layout. This keeps struct
-identity, construction, `layoutof(T)`, and FFI calls independent of the storage
-choice.
+one column whose element keeps that field's declared C layout, which is what
+holds struct identity, construction, `layoutof(T)`, and FFI calls independent
+of the storage choice.
 
 ```nupp
 local struct Sample
@@ -65,9 +67,14 @@ assert(layout.fields[2].name == "history")
 ## Owners and row views
 
 `soa.allocate` returns an [affine
-owner](../type-system/ownership.md#declaring-affine-types) of one aligned native
-slab. Its lexical scope closes the allocation. `read()` borrows a shared row
-view, while `write()` borrows an exclusive affine view.
+owner](../type-system/ownership.md#declaring-affine-types) of one aligned
+native slab, and its lexical scope closes the allocation. `read()` borrows a
+shared row view; `write()` borrows an exclusive affine one.
+
+### Row access
+
+Indexing a row supports direct field reads, writes, and compound assignments.
+Reading or writing a whole row gathers from or scatters to every column.
 
 ```nupp
 local struct Particle
@@ -89,18 +96,20 @@ local first: Particle = rows[1]
 print(first.x, rows[2].y)
 ```
 
-Indexing a row supports direct field reads, writes, and compound assignments.
-Reading or writing the whole row gathers from or scatters to every column.
-Whole-row operations preserve value semantics: changing a gathered `Particle`
-does not mutate its source.
+A whole-row operation preserves value semantics: changing a gathered `Particle`
+does not mutate the row it came from.
 
-Ending the `with` scope or explicitly using `drop` on an ordinary writable view
-ends the exclusive borrow; it does not flush or copy data. Stores already wrote
-the columns. Both forms use automatic [lexical
+### Ending an exclusive borrow
+
+Leaving the `with` scope ends the exclusive borrow, and `drop` on an ordinary
+writable view ends it early. Neither flushes or copies anything, because the
+stores already wrote the columns. Both forms use automatic [lexical
 destruction](../type-system/ownership.md#consumption-and-lexical-destruction).
 
-A shared view rejects both direct field stores and whole-row stores. The
-exclusive borrow also prevents another access to the owner until it ends.
+### Shared rows reject writes
+
+A shared view rejects direct field stores and whole-row stores alike, and the
+exclusive borrow prevents any other access to the owner until it ends.
 
 ```nupp
 local shared = particles:read()
@@ -111,28 +120,19 @@ shared[1].x = 4
 NUPP2009: SoA shared rows are read-only
 ```
 
-::: tip Nonescaping row views are allocation-free at -O1
-When the complete use of `read()` or `write()` is static and nonescaping, Nupp
-keeps the slab anchor, columns, offset, count, and capability as compiler-owned
-values instead of allocating a row-view wrapper. Acquisition effects still run
-once, the slab remains rooted, and an escape or opaque call materializes the
-same checked view.
-:::
-
 ## Field spans
 
 `field("name")` projects one resolved field as a normal typed
-[`nupp.mem.span`](../modules/nupp/mem/span.md) view. A shared row view
-returns `span.Span<Field>`, and an exclusive row view returns
-`span.Writable<Field>`.
+[`nupp.mem.span`](../modules/nupp/mem/span.md) view. A shared row view returns
+`span.Span<Field>`, and an exclusive row view returns `span.Writable<Field>`.
 
 ```nupp
 local span = require("nupp.mem.span")
 
 with
     rows = particles:write(),
-    xs: span.WriteSpan<float> = rows:field("x"),
-    ys: span.WriteSpan<float> = rows:field("y")
+    xs: span.Writable<float> = rows:field("x"),
+    ys: span.Writable<float> = rows:field("y")
 do
     xs[1] = 3.5
     ys[1] = 4.5
@@ -142,13 +142,13 @@ local xs: span.Span<float> = particles:read():field("x")
 print(xs[1])
 ```
 
-The field name must be a string literal that resolves to a stored field. That
-lets the checker assign the exact element type and field identity; a dynamic
-string or missing field reports `NUPP2403`.
+The field name must be a string literal that resolves to a stored field, which
+is what lets the checker assign the exact element type and field identity. A
+dynamic string or a missing field reports `NUPP2403`.
 
 ## Slices
 
-Row slices preserve the column layout and adjust the logical row offset. Their
+A row slice preserves the column layout and adjusts the logical row offset. Its
 indexes start at one, like the parent view.
 
 ```nupp
@@ -164,16 +164,9 @@ assert(#tail == 2)
 assert(tail[1].x == 12.5)
 ```
 
-`slice(first, last)` includes both endpoints. Omitting `last` extends the slice
-through the end of the view. Invalid ranges raise before a slice is created.
-With `-O1`, nonescaping const slices used only by proved indexed operations can
-be scalar-replaced: generated code retains the checked bounds and composed
-column offset but creates no row-view wrapper. The same lowering can erase a
-nonescaping writable-to-shared downgrade and a statically resolved `field`
-projection. Any unsupported or escaping use materializes the safe view normally.
-Directly called, nonrecursive local functions in the same module can transport
-the virtual row view; exported, recursive, dynamic, foreign, and cross-module
-boundaries retain the materialized ABI.
+`slice(first, last)` includes both endpoints, and omitting `last` extends the
+slice through the end of the view. An invalid range raises before a slice is
+created.
 
 ## Field-wise row copies
 
@@ -196,16 +189,21 @@ end
 assert(target:read()[3].dy == 8)
 ```
 
-The generic element type requires source and destination to have the same
-struct schema. This operation is the primitive an ECS store can use for growth,
-movement, and same-schema restoration.
+The generic element type requires source and destination to share one struct
+schema. This operation is the primitive an ECS store uses for growth, movement,
+and same-schema restoration.
 
 ## Layout reflection
 
-Runtime layout reflection describes the native slab without exposing its
-pointer. `soa.layoutof` gives declaration-order fields, stable semantic
-identities, C spellings, sizes, alignments, and a versioned fingerprint.
-`forCount` adds the offsets and byte counts for one row count.
+Two descriptions of the same storage are available: one at run time, which
+knows the target's sizes and offsets, and one at compile time, which knows the
+field identities.
+
+### Runtime layout
+
+`soa.layoutof` gives declaration-order fields, stable semantic identities, C
+type names, sizes, alignments, and a versioned fingerprint, without exposing the
+slab pointer. `forCount` adds the offsets and byte counts for one row count.
 
 ```nupp
 local layout = soa.layoutof(ffi.typeof<Particle>())
@@ -220,9 +218,11 @@ assert(layout.fingerprint:match("^soa1|"))
 assert(instance.count == 1024)
 ```
 
-Compile-time [reflection](reflection.md) publishes the semantic half
-of the same description. It reports eligibility and each field's identity,
-ordinal, type-graph edge, and C spelling without choosing a target row count.
+### Comptime reflection
+
+Compile-time [reflection](reflection.md) publishes the semantic half of the
+same description. It reports eligibility and each field's identity, ordinal,
+type-graph edge, and C type name, without choosing a target row count.
 
 ```nupp
 local firstIdentity = comptime do
@@ -240,11 +240,35 @@ matter on the selected target.
 
 ## Hot loops
 
-The canonical loop `for index = 1, #rows` proves every indexed row access is in
-bounds, and an arbitrary index keeps its runtime bounds check. How that proof
-lowers to direct typed-column loads and stores, and what an
-[`@aot`](../guides/ahead-of-time.md) kernel retains, is in
-[Performance](../guides/performance.md#opt-6-indexed-views).
+The canonical loop proves every indexed row access is in bounds, so it lowers
+to direct typed-column loads and stores. An arbitrary index keeps its runtime
+bounds check.
+
+```nupp
+with rows = particles:write() do
+    for index = 1, #rows do
+        rows[index].x += rows[index].dx
+    end
+end
+```
+
+See [`OPT-6`](../guides/performance.md#opt-6-indexed-views) for how that proof
+lowers, and [ahead-of-time.md](../guides/ahead-of-time.md) for what an `@aot`
+kernel retains.
+
+### Row views without a wrapper
+
+At `-O1`, a row view whose complete use is static and nonescaping is
+scalar-replaced: the slab anchor, columns, offset, count, and capability become
+compiler-owned values instead of an allocated wrapper. Acquisition effects
+still run once and the slab stays rooted.
+
+The same lowering covers a nonescaping const slice used only by proved indexed
+operations, a nonescaping writable-to-shared downgrade, and a statically
+resolved `field` projection. A directly called, nonrecursive local function in
+the same module can transport the virtual view. An escape, an opaque call, an
+export, recursion, and a dynamic, foreign, or cross-module boundary materialize
+the same checked view instead.
 
 ## Snapshots and ECS storage
 
@@ -264,10 +288,41 @@ owner.
 
 ## Limits
 
-The first SoA representation accepts reified structs whose top-level fields
-have fixed C storage. It does not accept records, unions, interfaces,
-GC-managed fields, owned fields, borrowed fields, or variable-size fields.
+The first SoA representation accepts a reified struct whose top-level fields
+have fixed C storage. It accepts no records, unions, interfaces, GC-managed
+fields, owned fields, borrowed fields, or variable-size fields.
 
-The container does not expose column pointers, byte offsets, or a `void **`
-descriptor to checked code. Field spans provide typed contiguous access when a
-system needs one column directly.
+The container exposes no column pointer, byte offset, or `void **` descriptor
+to checked code. Field spans provide typed contiguous access when a system
+needs one column directly.
+
+## FAQ
+
+### Does SoA storage change a struct's C layout?
+
+No. The container selects the layout, so `Position` passed to C keeps its
+canonical field order and `soa.Array<Position>` splits the same declaration
+into columns. See [Containers select the
+layout](#containers-select-the-layout) for the two layouts side by side.
+
+### How does a column reach a C function?
+
+Project it with `field("name")` and pass the resulting span, which is the only
+typed contiguous handle on a column. The container itself never yields a column
+pointer. See [span.md](../modules/nupp/mem/span.md) for the span operations a C
+boundary uses.
+
+### Can a record be stored in an SoA array?
+
+No. A record is a table, so it has no fixed C storage to split into columns,
+and `soa.allocate` reports `NUPP2403` for one. Store a reified `struct`
+instead, and see [Limits](#limits) for the other field types the container
+refuses.
+
+::: seealso
+- [span.md](../modules/nupp/mem/span.md) for the views `field` projects
+- [performance.md](../guides/performance.md#opt-6-indexed-views) for the
+  indexed-view lowering
+- [reflection.md](reflection.md) for the comptime description of a struct
+- [NEP 10](../neps/0010-structure-of-arrays.md) for the design record
+:::

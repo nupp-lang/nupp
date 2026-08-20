@@ -1,38 +1,9 @@
 # Overloads and overrides
 
-An overload is one operation with several accepted parameter packs. Nupp uses
-the same exact-one selection rule for callable intersections, repeated method
-bodies, and constructors. Method overloads keep separate bodies and compile to
-direct calls; they are not runtime dispatch functions hidden behind one name.
-
-`@override` answers a different question. It says that one method body replaces
-an inherited interface default with the same parameter pack. Repeated names
-create overloads automatically, so there is no `@overload` annotation.
-
-```nupp
-local record Ast
-    source: string
-end
-
-local type Decode = function(string): Ast & function({string}): Ast
-
-local decode: Decode = nil as any
-const parsed: Ast = decode("name")
-const rebuilt: Ast = decode({"name"})
-```
-
-::: rationale
-There is no ranking because ranking rules are the part of overloading every
-language regrets: each is defensible, the set is unmemorable, and a reader of a
-call site cannot tell which candidate ran without consulting a table. Requiring
-exactly one acceptance trades expressiveness for the property that a call means
-what it appears to mean, and turns a tie into a message rather than a silent
-choice.
-:::
-
-## Callable intersections
-
-An intersection containing only function types is an overload contract:
+An overload is one operation with several accepted parameter packs. A call
+selects the single entry that accepts its arguments, whether those entries come
+from a callable intersection, from repeated method bodies, or from repeated
+constructors.
 
 ```nupp:playground
 local record Token
@@ -51,18 +22,72 @@ local fromTokens: Ast = decode({new Token(kind = "name")})
 return fromText, fromTokens
 ```
 
+Selection is exact: the call is an error unless exactly one entry accepts it.
+Nothing is ranked, and nothing is dispatched at run time.
+
+## Callable intersections
+
+An intersection containing only function types is an overload contract. It
+describes one callable value with several contracts rather than several
+implementations:
+
+```nupp
+local record Ast
+    source: string
+end
+
+local type Decode = function(string): Ast & function({string}): Ast
+
+local decode: Decode = nil as any
+const parsed: Ast = decode("name")
+const rebuilt: Ast = decode({"name"})
+```
+
 The checker infers the complete argument pack once, probes every member without
 changing ownership or borrow state, and accepts the call only when exactly one
-member survives. Declaration order does not break a tie and there is no
-best-match ranking.
+member survives. The winner supplies its whole result pack, ownership modes,
+borrowing and FFI output provenance, predicate narrowing, and `noreturn`
+contract. Rejected candidates move no affine arguments and establish no
+borrows. See [Intersections](intersections.md) for the relation `&` builds and
+for the intersections no value can satisfy.
 
-A callable intersection describes one callable value with several contracts.
-It does not itself create several implementations. Repeated method declarations
-are what give several bodies to one method name.
+::: deepdive
+There is no ranking because ranking rules are the part of overloading every
+language regrets: each rule is defensible, the set is unmemorable, and a reader
+of a call site cannot tell which candidate ran without consulting a table.
+Requiring exactly one acceptance trades expressiveness for the property that a
+call means what it appears to mean, and turns a tie into a message rather than
+a silent choice.
+:::
+
+Subtype overlap is the usual way to write a real tie. An integer satisfies both
+`integer` and `number`, and Nupp does not guess that the narrower type was
+meant:
+
+```nupp
+-- reports: NUPP2126
+local type Render = function(integer): string & function(number): string
+local render: Render = nil as any
+return render(1)
+```
+
+No surviving member is **NUPP2125**:
+
+```nupp
+-- reports: NUPP2125
+local type Parse = function(string): string & function(boolean): string
+local parse: Parse = nil as any
+return parse(1)
+```
+
+A correlated argument-pack union must be accepted by one member across all of
+its alternatives. See [Type packs](packs.md#correlated-alternatives) for how
+such a pack is formed.
 
 ## Separate method bodies
 
-Write each method implementation under the same name:
+Repeated names create overloads on their own, so there is no `@overload`
+annotation. Write each implementation under the same name:
 
 ```nupp
 local record Token
@@ -97,11 +122,21 @@ local tokenAst = decoder:decode({new Token(kind = "name")})
 return textAst, tokenAst
 ```
 
-The visible type of `decode` is an intersection of its callable signatures.
-The compiler also retains two method entries: each entry has its own body,
-effects, source definition, and stable hidden runtime slot. Once the checker
-selects an entry, code generation calls that slot directly with ordinary Lua
-colon semantics. The receiver is evaluated once and no dispatcher runs.
+The visible type of `decode` is an intersection of its callable signatures. The
+compiler also retains two method entries: each entry has its own body, effects,
+source definition, and stable hidden runtime slot. Once the checker selects an
+entry, code generation calls that slot directly with ordinary Lua colon
+semantics. The receiver is evaluated once and no dispatcher runs.
+
+::: deepdive
+Giving each entry its own slot is what keeps an overloaded call as cheap as an
+ordinary one. The alternative is a single Lua function under the source name
+that inspects its arguments and forwards, which costs a call and a chain of
+`type` tests on every invocation, defeats inlining, and turns a static decision
+into a runtime one that can disagree with the checker. The price is that the
+source name has no runtime value, so a reference to it has to say which entry
+it means.
+:::
 
 ### Method groups are not field values
 
@@ -147,7 +182,7 @@ return fromText("ready")
 The adapter is explicit about which parameter pack it exposes and remains an
 ordinary first-class Lua function.
 
-### Ambiguous and rejected calls
+### Ambiguity from `any`
 
 An `any` argument may leave several entries possible:
 
@@ -186,26 +221,7 @@ local input: any = "ready"
 return decoder:decode(input as string)
 ```
 
-Subtype overlap can be ambiguous too. An integer satisfies both `integer` and
-`number`, and Nupp does not guess that the narrower spelling was preferred:
-
-```nupp
--- reports: NUPP2126
-local type Render = function(integer): string & function(number): string
-local render: Render = nil as any
-return render(1)
-```
-
-No surviving member is **NUPP2125**:
-
-```nupp
--- reports: NUPP2125
-local type Parse = function(string): string & function(boolean): string
-local parse: Parse = nil as any
-return parse(1)
-```
-
-### Parameter packs, not results, select
+### Parameter packs select the entry
 
 Two bodies cannot differ only by return type:
 
@@ -228,9 +244,9 @@ bounds, and pack tails participate in entry identity; return packs do not.
 
 ## Bodyless interface contracts
 
-An interface with no implementation writes the method as a callable
-intersection field. Matching record bodies use the same signature-derived
-slots:
+An [interface](interfaces.md) with no implementation writes the method as a
+callable intersection field. Matching record bodies use the same
+signature-derived slots:
 
 ```nupp
 local interface DecoderContract
@@ -270,8 +286,14 @@ end
 
 ## Default implementations and `@override`
 
-An interface may instead provide bodies. A record inherits every default entry
-it does not replace:
+An interface may instead provide bodies, which a record inherits unless it
+replaces them. See [Interfaces](interfaces.md#default-implementations) for
+defaults on a method that is not overloaded.
+
+### Replacing one entry
+
+`@override` matches the exact parameter pack, so one overload may be replaced
+while the other defaults stay inherited:
 
 ```nupp
 local interface Decoder
@@ -295,11 +317,8 @@ local decoder: Decoder = new LoudDecoder()
 return decoder:decode("ready"), decoder:decode(42)
 ```
 
-`@override` matches the exact parameter pack. Here it replaces only the string
-entry; the integer default remains inherited. Omitting `@override` from the
-string body is **NUPP2118**, because replacing inherited behavior must be
-explicit. Putting it on a parameter pack with no inherited body is also
-**NUPP2118**:
+Omitting `@override` from the string body is **NUPP2118**. Putting it on a
+parameter pack with no inherited body is **NUPP2118** as well:
 
 ```nupp
 -- reports: NUPP2118
@@ -321,8 +340,21 @@ local record Wrong is Decoder
 end
 ```
 
-A record may replace one default and add another overload. Only the replacement
-uses `@override`:
+::: deepdive
+Both directions are errors because the annotation is a claim about the
+interface, not a note to the reader. A missing `@override` means a record has
+silently taken over behavior that every caller through the interface still
+expects from the default, and the failure surfaces wherever that default used
+to run. A spurious one means the author believed they were replacing something
+and were not, which is what happens after an interface changes a parameter
+type. Checking the claim against the exact inherited pack catches both at the
+declaration.
+:::
+
+### Adding an overload beside a default
+
+A record may replace one default and add an entry the interface never declared.
+Only the replacement uses `@override`:
 
 ```nupp
 local interface Formatter
@@ -345,6 +377,8 @@ end
 local formatter = new DetailedFormatter()
 return formatter:format("ready"), formatter:format(42)
 ```
+
+### Defaults from several interfaces
 
 Two interfaces can contribute different default entries under the same source
 name. Their distinct parameter packs form one inherited overload group:
@@ -369,14 +403,13 @@ local decoder = new Decoder()
 return decoder:decode("ready"), decoder:decode(42)
 ```
 
-If two interfaces provide the same parameter pack, they provide competing
-bodies for one entry. The record must write a compatible body to resolve the
-conflict.
+Two interfaces providing the same parameter pack provide competing bodies for
+one entry. The record must write a compatible body to resolve the conflict.
 
 ## Generic method overloads
 
-Generic declaration parameters remain part of each entry and specialize at the
-call site without changing its runtime slot:
+[Generic](generics.md) declaration parameters remain part of each entry and
+specialize at the call site without changing its runtime slot:
 
 ```nupp
 local record Codec<T>
@@ -419,22 +452,24 @@ local fromText = new Value("ready")
 return fromNumber.text, fromText.text
 ```
 
-`new Value(...)` applies the same exact-one selection rule and directly invokes
-the selected constructor body. Duplicate constructor parameter packs are
-**NUPP2208**.
+`new Value(...)` applies the same exact-one rule and directly invokes the
+selected constructor body. Duplicate constructor parameter packs are
+**NUPP2208**, and declaring any constructor closes named-field construction for
+that record. See [Records and
+structs](records.md#constructors-and-result-policies) for what a constructor
+may promise.
 
 The selected entry supplies its whole result policy as well as its body. One
-parameter pack may return `File`, while another returns
-`affine(File, File.destroy)`. Results never participate in overload selection:
-the arguments choose an entry first, then that entry's result becomes the type
-of `new File(...)`.
+parameter pack may return `File`, while another returns `affine(File,
+File.destroy)`. Results never take part in selection: the arguments choose an
+entry first, and that entry's result becomes the type of `new File(...)`.
 
-## Untyped callers need an explicit facade
+## Facades for untyped callers
 
 The hidden method slots are compiler ABI, not source-level Lua member names.
 Untyped Lua therefore cannot call `decoder:decode(value)` on an overloaded
-record. Export an ordinary function that performs an explicit runtime decision
-when a dynamic boundary needs one:
+record. Export an ordinary function that makes an explicit runtime decision
+where a dynamic boundary needs one:
 
 ```nupp
 local record Token
@@ -468,4 +503,35 @@ return decodeDynamic("ready")
 ```
 
 That dispatcher exists because the program asked for a dynamic facade. Typed
-method calls do not pay for it.
+method calls do not pay for it. See [Gradual
+typing](../concepts/strictness.md) for the rest of what crosses that boundary.
+
+## FAQ
+
+### Why is my call ambiguous when one signature is more specific?
+
+Nupp has no best-match ranking, so `integer` does not beat `number` and
+declaration order does not break the tie. Narrow the argument with a cast, or
+give the entries parameter packs that do not overlap. See [Callable
+intersections](#callable-intersections) for the selection rule.
+
+### Can untyped Lua call an overloaded method?
+
+No. Each entry lives in a hidden slot rather than under the source name, so an
+untyped caller has nothing to index. Export a facade that decides at run time.
+See [Facades for untyped callers](#facades-for-untyped-callers) for the shape
+one takes.
+
+### Can two overloads differ only by return type?
+
+No, that is **NUPP2118**. The call has to pick a body before there is a result
+to compare, so only parameter packs take part in selection. See [Parameter
+packs select the entry](#parameter-packs-select-the-entry).
+
+::: seealso
+- [intersections.md](intersections.md) for the intersection relation a callable
+  contract is written in, and for provable emptiness
+- [interfaces.md](interfaces.md) for contracts, defaults, and what `is` claims
+- [records.md](records.md) for constructors and inline methods
+- [packs.md](packs.md) for the argument pack selection runs against
+:::

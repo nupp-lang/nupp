@@ -1,5 +1,9 @@
 # Generics
 
+A type parameter stands in for a type the caller supplies. It is written in
+angle brackets after the name it belongs to, and it goes on functions, function
+types, and declarations.
+
 ```nupp:playground
 local function firstOr<T>(items: {T}, fallback: T): T
     if #items > 0 then
@@ -9,28 +13,52 @@ local function firstOr<T>(items: {T}, fallback: T): T
 end
 ```
 
-Type parameters go on functions, function types, and declarations.
+## Parameter positions
+
+A declaration takes parameters after its name, and every member may use them:
 
 ```nupp
 local record Box<T>
     value: T
 end
+```
 
+An alias takes them too, which is how a family of function types gets one name:
+
+```nupp
 local type Handler<E> = function(event: E): boolean
+```
+
+A function type carries its own, so a binding can be generic without a
+declaration standing behind it:
+
+```nupp
 local mapper: function<A, B>(xs: {A}, f: function(A): B): {B}
 ```
 
-A binder ending in `...` is a type-pack parameter. It preserves a heterogeneous
-sequence rather than choosing one element type:
+## Type-pack parameters
+
+A binder ending in `...` is a type-pack parameter. It preserves a
+heterogeneous sequence rather than choosing one element type:
 
 ```nupp
 local function forward<A...>(...: A...): A...
     return ...
 end
+```
 
+Ordinary binders precede pack binders, and explicit pack arguments use
+parentheses to delimit one pack from the next. Those parentheses are type-pack
+syntax, not a tuple allocation:
+
+```nupp
 local type Adapter<A..., R...> = function(A...): R...
 local type PairAdapter = Adapter<(number, string), (boolean, integer)>
+```
 
+Pack parameters work uniformly on aliases, records, interfaces, and functions:
+
+```nupp
 local interface Source<R...>
     read: function(self): R...
 end
@@ -40,13 +68,14 @@ local record Values<R...> is Source<R...>
 end
 ```
 
-Ordinary binders precede pack binders. Explicit pack arguments use parentheses
-to delimit one pack from the next; those parentheses are type-pack syntax, not a
-tuple allocation. Pack parameters work uniformly on aliases, records,
-interfaces, and functions. See [Type packs](packs.md) for list adjustment,
-correlation, and ownership rules.
+See [Type packs](packs.md) for list adjustment, correlation, and ownership
+rules.
 
-A computed tuple or array can supply a pack tail with `unpackof`:
+## Computed pack tails
+
+A computed tuple or array can supply a pack tail with `unpackof`, which is how
+a [comptime](../concepts/comptime.md) function decides what arguments a call
+accepts:
 
 ```nupp
 local comptime function Arguments(Kind: type): typepack
@@ -67,19 +96,28 @@ apply('pair', 'x', 1)
 apply('flag', true)
 ```
 
-Expansion happens after inference and finite type reduction. A tuple contributes
-fixed slots, an array contributes a homogeneous rest tail, and an undecidable
-result becomes `...any`. The trailing comma distinguishes the one-slot tuple
-`{T,}` from the array `{T}`. A concrete result of any other shape is rejected at
-the call.
+Expansion happens after inference and finite type reduction. A tuple
+contributes fixed slots, an array contributes a homogeneous rest tail, and an
+undecidable result becomes `...any`. The trailing comma distinguishes the
+one-slot tuple `{T,}` from the array `{T}`, and a concrete result of any other
+shape is rejected at the call.
 
-Computed tuples can be assembled with the same operator inside a tuple:
-`{Head, unpackof Tail}`. When `Tail` reduces to a tuple, its slots are appended;
-`{never}`, the array that cannot contain an element, contributes zero slots.
+### Assembling a tuple
 
-A comptime type function can instead construct and inspect complete packs.
-`nupp.types.error(message)` rejects a computed contract with an authored
-diagnostic:
+The same operator composes a tuple from a head and a computed tail:
+
+```nupp
+local type Prepend<Value, Values> = {Value, unpackof Values}
+```
+
+When `Values` reduces to a tuple its slots are appended, and `{never}`, the
+array that cannot contain an element, contributes zero slots. See [Type
+packs](packs.md#unpack-and-unpackof) for the runtime operator this mirrors.
+
+### Rejecting a computed contract
+
+A comptime type function can construct and inspect complete packs, and
+`nupp.types.error(message)` rejects one with an authored diagnostic:
 
 ```nupp
 local comptime function Checked(T: type): typepack
@@ -90,11 +128,16 @@ local comptime function Checked(T: type): typepack
 end
 ```
 
+See [Comptime types](type-level-computation.md) for what a type function may
+compute and when it runs.
+
 ## Constraints use `is`
 
+A bound is an [interface](interfaces.md#bounded-generics), named after `is`:
+
 ```nupp
-local function start<T is Callable>(task: T): T
-    return task()
+local interface Named
+    name: string
 end
 
 local record Registry<T is Named>
@@ -106,64 +149,16 @@ Inside the body, the parameter's fields, methods, and metamethods are read from
 its bound, with `self` specialized back to the parameter.
 
 Bounds are checked where a generic is instantiated, not inside the subtyping
-relation. Violating one is NUPP2116:
+relation. Violating one is **NUPP2116**:
 
 ```text
-NUPP2116: type argument string for T: string is not a number
+NUPP2116: type argument integer for T: integer is not a Named
 ```
 
-An `any` argument skips the bound check.
-
-## Refinements
-
-An interface may carry a `matches` block, which names the runtime test that
-decides whether a value is one of these. `x is T` compiles to that test:
-
-```nupp
-local interface Shape
-    kind: string
-end
-
-local interface Circle is Shape
-    kind: string
-    radius: number
-
-    satisfies |self| -> self.kind == "circle"
-end
-```
-
-```lua
--- `s is Circle` becomes
-(type(s) == "table" and s.kind == "circle")
-```
-
-**Only an interface.** A record is identified by the metatable `new` stamps and
-a struct by its ctype, so both already answer `is` exactly. A refinement beside
-either would be a second answer to a settled question, and which answer `is R`
-gave would depend on whether a body happened to carry one. An interface has no
-runtime table at all, so this is the only identity it can have.
-
-That is also what lets an interface answer `is` for values this program did not
-build, such as a table off a decoder or anything an untyped library returned.
-Such a value never received a metatable, so nothing else could identify it.
-
-The test has to run wherever `is` is written, so it reads the declaration's own
-fields through `self` and nothing else: comparisons against literals, `type()`
-tests, and `and` / `or` / `not`. A call, arithmetic, or a name from outside the
-subject is **NUPP2122**, and so is a refinement that always answers the same
-way: always true identifies every value, and always false leaves the type
-uninhabited.
-
-A subject that is not a plain name is evaluated once and handed to the test,
-since a refinement may read it more than once. Reaching through a field guards
-the step before it with `?.`, because the test runs against values that are not
-of the type yet, so `matches self.a.b.c == "x" end` compiles to
-`s.a?.b?.c == "x"`.
-
-A declaration is held to the refinements of the interfaces it declares.
-`record C is Shape` is a claim the checker proves, and Shape's refinement is
-what `is Shape` runs, so fields that provably fail it are **NUPP2122**. The
-alternative is a value the checker calls a `Shape` and `is` calls otherwise.
+An `any` argument skips the bound check, which is what keeps a gradual value
+usable in a bounded position. An interface named as a bound may carry a
+[refinement](refinements.md), which is the test `is` against that interface
+runs.
 
 ## Inference at a call site
 
@@ -177,7 +172,7 @@ Inference is structural unification over parameters against argument types. It
 sees through arrays, tuples, maps, unions, shapes, function types, pointers,
 and nominal applications, and it strips ownership wrappers first.
 
-Three behaviors are worth knowing:
+Unification makes three decisions a partly-inferred call depends on:
 
 - **A binder appearing twice unions the two arguments** rather than failing or
   picking the more specific one.
@@ -193,6 +188,9 @@ residue binds. That is how `assert` is typed:
 local name: string? = maybeName()
 local sure = assert(name) -- sure is string
 ```
+
+See [Narrowing](narrowing.md#narrowing-tests) for the other route from `T?` to
+`T`.
 
 ## Call sites take no explicit type argument
 
@@ -216,22 +214,43 @@ local n = ffi.sizeof<Point>()
 local a = ffi.alignof<Point>()
 ```
 
-When you need to pin a parameter that inference will not reach, annotate the
-binding instead:
+To pin a parameter that inference will not reach, annotate the binding instead:
 
 ```nupp
 local empty: {string} = {}
 ```
 
+::: deepdive
+Nupp's grammar is Lua's grammar with types added, so `f<number>(x)` already has
+a meaning that programs rely on and cannot be reinterpreted. Disambiguating it
+would need unbounded lookahead or a rule about what may follow `>`, and both
+give a reader two readings of a line where Lua has one. Annotating the binding
+reaches every case an explicit argument would, and it puts the type where the
+value is instead of where the call is. The FFI intrinsics are special-cased
+because their argument is a C type that never appears as a value, so no
+comparison is being displaced. See [Calling C safely](../concepts/c-interop.md)
+for what those six do.
+:::
+
 ## Instantiation
 
-`Box<number>` is one type everywhere. Instantiations are memoized, and the cache
-is populated before members are filled in, so a self-referential generic
+`Box<number>` is one type everywhere. Instantiations are memoized, and the
+cache is populated before members are filled in, so a self-referential generic
 terminates.
 
 Generic nominals are **covariant** in every argument, so `Box<integer>` is
-accepted where `Box<number>` is wanted. Like array covariance, this is
-deliberately unsound for mutable contents and chosen for compatibility.
+accepted where `Box<number>` is wanted.
+
+::: deepdive
+Covariance over mutable contents is unsound, and Nupp takes it anyway, for the
+same reason array covariance is taken: the sound alternatives are a variance
+annotation on every parameter or invariance everywhere, and both make ordinary
+Lua-shaped code fail to type-check. A `{Box<integer>}` passed to something
+reading `{Box<number>}` is the common case and it is safe; the write that
+breaks it is rare and visible at the line that performs it. See [Type
+system](overview.md#deliberate-unsoundness) for the other places the same
+trade is made.
+:::
 
 ## `self`
 
@@ -254,8 +273,9 @@ than the declaring type. This is what makes an inherited
 
 ## Generic metamethods
 
-A metamethod contract may carry its own type parameters, which lets a typed key
-determine the result of an index:
+A [metamethod contract](../concepts/metamethods.md#generic-indexing) may carry
+its own type parameters, which lets a typed key determine the result of an
+index:
 
 ```nupp
 local record Key<T>
@@ -274,3 +294,14 @@ store[nameKey] = "saved"
 ```
 
 `T` is inferred from `Key<T>` for both the read and the write.
+
+::: seealso
+- [packs.md](packs.md) for what a type-pack parameter binds to and how a call
+  adjusts to it
+- [interfaces.md](interfaces.md#bounded-generics) for the bounds a parameter
+  can carry
+- [refinements.md](refinements.md) for interfaces that answer `is` with a
+  runtime test
+- [type-level-computation.md](type-level-computation.md) for computing a type
+  rather than binding one
+:::

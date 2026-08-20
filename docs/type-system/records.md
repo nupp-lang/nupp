@@ -1,23 +1,7 @@
 # Records and structs
 
-Two declarations share one syntax and compile to different things. A `record`
-is a Lua table with a nominal name. A `struct` is FFI cdata with a fixed C
-layout. Choosing between them is choosing a representation.
-
-|  | record | struct |
-| --- | --- | --- |
-| `Runtime` | Lua table + metatable | FFI cdata |
-| Field access | Hash lookup | Offset |
-| Field types | `Anything` | C-representable only |
-| `Construction` | new R(x = 1) | new S(x = 1) or S(1, 2) |
-| `Uninitialized` | Not nil-able; needs a val | Zero-initialized |
-| Garbage collected | Yes | Managed by the FFI |
-| Array part {T} | `Allowed` | Rejected |
-| Property capabilitie | `readonly` / `writeonly` | Ordinary fields only |
-| Nested declarations | `Allowed` | Rejected |
-| Inline methods | Yes | Yes, via ffi.metatype |
-| metamethod contracts | Yes | Rejected |
-| `is` runtime test | getmetatable(v)?.__index | R        ffi.istype(S, v) |
+A `record` is a Lua table with a nominal name, and a `struct` is FFI cdata with
+a fixed C layout. Choosing between them is choosing a representation.
 
 ```nupp
 local record Point
@@ -31,16 +15,10 @@ local struct Pixel
 end
 ```
 
-::: rationale
-Choosing between a record and a struct is a declaration rather than an
-optimization the compiler makes, because the two have genuinely different
-runtime meanings: a struct is FFI cdata with a fixed layout and no hash part, and
-a record is a table with a metatable, identity, and dynamism. A compiler that
-picked for you would be choosing your memory representation from a type
-annotation, and would be wrong the first time a value crossed a C boundary.
-:::
-
 ## Records
+
+A record declaration builds one runtime table, uses it as the metatable of
+every instance, and gives the name a nominal type:
 
 ```nupp:playground
 local record Point
@@ -56,24 +34,21 @@ local p = new Point(x = 3, y = 4)
 print(p:length())
 ```
 
-That lowers to what you would have written:
-
-```lua
+```lua [Generated Lua]
 const Point = {} Point.__index = Point
 local p = setmetatable({ x = 3, y = 4 }, Point)
 ```
 
+Construction is by name. A record has no positional form, because field order in
+a table is not meaningful.
+
 The declaration's runtime table is the type's identity, which is what lets
-`p is Point` compile to a `getmetatable` comparison.
-
-An instance is a value that came from the declaration, not only one the
-declaration stamped itself. A constructor may link back rather than stamping,
-giving instances their own metatable whose `__index` is the record, which is how
-a prototype-style registrar builds them. Those are instances too. The test
-reaches the record through `__index` so that both arrive at the same answer,
-which works because a record is its own prototype: `R.__index = R` is emitted
-with it.
-
+`p is Point` lower to a `getmetatable` comparison. An instance is a value that
+came from the declaration, not only one the declaration stamped itself: a
+constructor may link back rather than stamping, giving instances their own
+metatable whose `__index` is the record, which is how a prototype-style
+registrar builds them. The test reaches the record through `__index` so both
+arrive at the same answer, which works because a record is its own prototype.
 A value with no metatable, another record's instance, and the declaration's own
 table all answer `false`.
 
@@ -88,12 +63,12 @@ local p: Point = new Point(x = 3, y = 4)
 ```
 
 Neither stands where the other is wanted. `Point` may be written to when a
-[metamethod contract](../concepts/metamethods.md) is installed; `p` may not. `p`
-may be read for its fields and passed where a `Point` is wanted; `Point` may
-not. A record name is not implicitly a `metatable<Point>`: that type remains for
-an explicit table passed to Lua's metatable functions. `Point is Point` is
-answered without running, because a declaration's own table is never one of the
-values it stamps.
+[metamethod contract](../concepts/metamethods.md#declaring-a-contract) is
+installed; `p` may not. `p` may be read for its fields and passed where a
+`Point` is wanted; `Point` may not. A record name is not implicitly a
+`metatable<Point>`: that type remains for an explicit table passed to Lua's
+metatable functions. `Point is Point` is answered without running, because a
+declaration's own table is never one of the values it stamps.
 
 Reaching a member through the table reaches the record's, so `Point.length`,
 `Point.make(...)` and a nested `Point.Inner` all resolve as they always did. A
@@ -102,9 +77,6 @@ function that takes a declaration's table rather than an instance says so:
 ```nupp
 local function register<P is Shape>(shape: Type<P>)
 ```
-
-Construction is by name. A record has no positional form, because field order
-in a table is not meaningful.
 
 ### Constructors and result policies
 
@@ -139,15 +111,17 @@ because it changes the obligation, not the runtime representation. A different
 record, a borrowed view, a pinned view, or a result pack is rejected.
 
 The cleanup may be an instance method on the same record. Inline signatures are
-hoisted before constructor results resolve, and `File.destroy` is the ordinary
+hoisted before constructor results resolve, so `File.destroy` is the ordinary
 function identity stored on the record table. The affine view remains a `File`
-at runtime and exposes `File`'s methods directly, with no `NativeFile` wrapper
-or shared interface.
+at run time and exposes `File`'s methods directly, with no wrapper record or
+shared interface.
 
 Constructor overload selection includes the complete result policy. Overloads
 still differ by parameter pack, never by result alone; after argument selection,
 the winning overload determines whether the value is ordinary, affine with a
-cleanup, or transfer-only.
+cleanup, or transfer-only. See [affine
+types](affine-types.md#constructors-can-introduce-the-policy) for the complete
+result rule.
 
 ### Field defaults
 
@@ -166,8 +140,8 @@ local settings = new Settings(port = 9000)
 Omitted fields use their declarations; written arguments still win. Defaults are
 explicit, and types do not acquire universal zero values. A default is a closed
 scalar or table literal that fits the field type, so it is stable across module
-and comptime boundaries. Each construction evaluates it freshly; mutable table
-defaults are never shared.
+and comptime boundaries. Each construction evaluates it freshly, so a mutable
+table default is never shared.
 
 A constructor begins with the same defaults already installed, then its body
 runs. The body can read, refine, or replace them, and a defaulted required field
@@ -175,17 +149,10 @@ does not need another assignment merely to satisfy constructor completeness.
 Interfaces describe contracts rather than stored values and therefore cannot
 declare field defaults.
 
-Record fields may expose independent read and write views, including distinct
-types for the two operations. See [property capabilities](properties.md).
-
 ### Private fields
 
 `private` keeps a record field inside the canonical module that declares the
-record. The declaring module may construct, read, and write it; another checked
-module sees the nominal type and its public operations but cannot access or
-initialize the field. Privacy applies through generic instantiation and module
-summaries. It is a checked-language abstraction boundary, not a runtime sandbox
-against generated Lua or explicit gradual/unsafe interop.
+record:
 
 ```nupp
 record model.Box<T>
@@ -197,16 +164,22 @@ record model.Box<T>
 end
 ```
 
-Records alone support private fields. Structs expose C layout and interfaces
-declare public contracts, so both reject the modifier.
+The declaring module may construct, read, and write it; another checked module
+sees the nominal type and its public operations but cannot access or initialize
+the field. Privacy applies through generic instantiation and module summaries.
+It is a checked-language abstraction boundary, not a runtime sandbox against
+generated Lua or explicit gradual interop.
+
+Records alone support private fields, and `NUPP2209` says so anywhere else.
+Structs expose C layout and interfaces declare public contracts, so both reject
+the modifier.
 
 ### Inline methods and static functions
 
-An inline function whose first parameter is named `self` is an instance method
-and is emitted on the ordinary method namespace. Without that parameter it is a
-static function, called through the declaration table with `.`. Inline
-signatures are hoisted before any body is checked, so methods may call each
-other in any order.
+An inline function whose first parameter is named `self` is an instance method,
+emitted on the ordinary method namespace. Without that parameter it is a static
+function, called through the declaration table with `.`. Inline signatures are
+hoisted before any body is checked, so methods may call each other in any order.
 
 ```nupp
 local record Counter
@@ -236,7 +209,8 @@ end
 ```
 
 Inline methods are not metamethod definitions, even when their names begin with
-`__`. Use `metamethod` for that; see [interfaces](interfaces.md).
+`__`. See [metamethod contracts](interfaces.md#metamethod-contracts) for the
+declaration that does install operator behavior.
 
 ### Recursive and nested declarations
 
@@ -268,6 +242,9 @@ local p: m.Shapes.Point = new m.Shapes.Point(x = 1)
 
 ## Structs
 
+A struct declaration builds an FFI type and gives it a metatype, so the fields
+are offsets into real memory rather than hash lookups:
+
 ```nupp
 local struct Vec2
     x: float
@@ -275,24 +252,21 @@ local struct Vec2
 end
 ```
 
-becomes
-
-```lua
+```lua [Generated Lua]
 const __nuppMt_Vec2 = {__index = {}}
 const Vec2 = ffi.metatype(ffi.typeof("struct { float x; float y; }"), __nuppMt_Vec2)
 ```
 
 Real memory, real widths. A `float` field truncates the way a C `float` does.
 
-Three construction forms:
+Construction has three forms, and a struct binding is never nil, so the third is
+complete on its own:
 
 ```nupp
 local a = new Vec2(1.0, 2.0) -- named
 local b = Vec2(1.0, 2.0) -- positional, in field order
 local c: Vec2 -- zero-initialized
 ```
-
-A struct binding is never nil, so the third form is complete on its own.
 
 ### Struct field types
 
@@ -304,10 +278,10 @@ The field type has to be reifiable, meaning something with a C layout:
 - any pointer `T*`, and the nullable `T*?`;
 - a fixed C array `T[N]`.
 
-Everything GC-managed is refused with NUPP2201: `string`, `{T}`, function
+Everything GC-managed is refused with `NUPP2201`: `string`, `{T}`, function
 types, and even `number?`, because an optional needs a representation the C
-layout does not have. `cstring` and `voidptr` are allowed in a `cdef struct`
-but not in a Nupp `struct`, since a GC-managed struct gives them no anchor.
+layout does not have. `cstring` and `voidptr` are allowed in a `cdef struct` but
+not in a Nupp `struct`, since a GC-managed struct gives them no anchor.
 
 #### Fixed arrays
 
@@ -349,7 +323,7 @@ g.cells[3].b = 9
 ```
 
 `T[?]` is **not** a field. A variable-length array has no size, so a struct
-holding one would have none either; that is NUPP2201. Use a pointer and hold
+holding one would have none either; that is `NUPP2201`. Use a pointer and hold
 the count yourself, which is what C does.
 
 #### Pointing at itself
@@ -370,33 +344,67 @@ print(head.next.value)
 ```
 
 By value it cannot, since `next: Node` would have to contain a copy of itself
-and so has no size. That is NUPP2201, and the repair it names is the pointer.
+and so has no size. That is `NUPP2201`, and the repair it names is the pointer.
 
 ### Value or reference
 
 A struct is a value type in memory, and a nested struct field is stored by
-value. But a struct held in a Lua variable is a reference to that cdata, so
-passing one to a function and mutating a field is visible to the caller.
+value. A struct held in a Lua variable is a reference to that cdata, so passing
+one to a function and mutating a field is visible to the caller:
+
+```nupp
+local function move(v: Vec2)
+    v.x = v.x + 1
+end
+
+local origin = new Vec2(0.0, 0.0)
+move(origin)
+print(origin.x) -- 1
+```
+
 Copy explicitly when you want a copy.
 
 ## Choosing
 
 Reach for a **record** when you want identity, dynamism, arbitrary field types,
-metamethod contracts, or ordinary GC. That is most application code.
+metamethod contracts, or ordinary GC. That is most application code. Reach for a
+**struct** when the layout matters: interop with C, a large array of small
+values, or a hot field access you want to be an offset instead of a hash lookup.
 
-Reach for a **struct** when the layout matters: interop with C, a large array
-of small values, or a hot field access you want to be an offset instead of a
-hash lookup.
-
-`layoutof(T)` reports how one is laid out. See [C
-interop](../concepts/c-interop.md). That is what lets a codec, a snapshot writer
-or a GPU vertex-attribute descriptor be derived from the declaration rather than
-maintained beside it, and it is worth knowing about before writing the second
-one by hand.
+|  | `record` | `struct` |
+| --- | --- | --- |
+| Runtime | Lua table plus metatable | FFI cdata |
+| Field access | Hash lookup | Offset |
+| Field types | Anything | C-representable only |
+| Construction | `new R(x = 1)` | `new S(x = 1)` or `S(1, 2)` |
+| Binding with no initializer | Rejected | Zero-initialized |
+| Memory | Garbage collected | Managed by the FFI |
+| Array field `{T}` | Allowed | Rejected |
+| Property capabilities | `readonly` / `writeonly` | Ordinary fields only |
+| Private fields | Allowed | Rejected |
+| Nested declarations | Allowed | Rejected |
+| Inline methods | Yes | Yes, through `ffi.metatype` |
+| Metamethod contracts | Yes | Rejected |
+| `is` test | Reaches the record through `__index` | `ffi.istype(S, v)` |
 
 Both are nominal. Two records with identical fields are different types, and
-neither is assignable to the other. A record does erode into a structural shape
-with the same fields, so width subtyping works one way only.
+neither is assignable to the other. A record is assignable to a structural shape
+with the same fields, so width subtyping works in that direction only.
+
+::: deepdive
+Choosing between a record and a struct is a declaration rather than an
+optimization the compiler makes, because the two have genuinely different
+runtime meanings. A struct is FFI cdata with a fixed layout and no hash part; a
+record is a table with a metatable, identity, and dynamism. A compiler that
+picked for you would be choosing your memory representation from a type
+annotation, and would be wrong the first time a value crossed a C boundary.
+:::
+
+`layoutof(T)` reports how a declaration is laid out, which is what lets a codec,
+a snapshot writer, or a GPU vertex-attribute descriptor be derived from the
+declaration rather than maintained beside it. See
+[c-interop.md](../concepts/c-interop.md#read-a-structs-layout) for what it
+returns.
 
 ## FAQ
 
@@ -404,24 +412,33 @@ with the same fields, so width subtyping works one way only.
 
 A record declaration creates the table and metatable pattern ordinary Lua code
 already uses. It adds a nominal type to checking but no class runtime or hidden
-instance wrapper. The [record lowering](#records) uses a table and
-`setmetatable`, while [metamethod
-contracts](../concepts/metamethods.md#declaring-a-contract) remain explicit when
-an API needs operator behavior.
+instance wrapper. See [records](#records) for the lowering, and [metamethod
+contracts](../concepts/metamethods.md#declaring-a-contract) for the explicit
+declaration an API needs when it wants operator behavior.
 
 ### Do methods require a shared interface?
 
 An instance reaches its inline methods through the record table, so a concrete
-record API does not need an interface merely to call `file:read()`. Use an
-[interface](interfaces.md#satisfaction-is-structural) when several unrelated
-types must satisfy the same structural contract, not as plumbing between a
-record and an ownership view of that record.
+record API does not need an interface merely to call `file:read()`. See
+[satisfaction is structural](interfaces.md#satisfaction-is-structural) for when
+an interface earns its place: several unrelated types satisfying one contract,
+not plumbing between a record and an ownership view of that record.
 
 ### Does an affine constructor wrap the record instance?
 
-An affine constructor result adds a checker obligation to the record it already
-builds. The value keeps the record's methods and runtime identity, while
-[lexical destruction](ownership.md#consumption-and-lexical-destruction)
-discharges its cleanup. [Affine constructor
-policies](affine-types.md#constructors-can-introduce-the-policy) define the
-complete result rule.
+No. An affine constructor result adds a checker obligation to the record it
+already builds, so the value keeps the record's methods and runtime identity.
+See [consumption and lexical
+destruction](ownership.md#consumption-and-lexical-destruction) for where the
+cleanup is discharged.
+
+::: seealso
+- [affine-types.md](affine-types.md#constructors-can-introduce-the-policy) for
+  the result policies a constructor may state
+- [properties.md](properties.md) for independent read and write views of a
+  record field
+- [c-interop.md](../concepts/c-interop.md#export-ordinary-structs-to-c) for
+  passing a struct across the C boundary
+- [structure-of-arrays.md](../concepts/structure-of-arrays.md) for storing many
+  small records field-by-field instead
+:::

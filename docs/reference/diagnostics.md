@@ -1,18 +1,8 @@
 # Diagnostics
 
-Nupp diagnostics are designed for terminals, editors, and automated repair
-agents without requiring prose parsing. Every diagnostic has a stable code,
-severity, complete primary token range, and message. It may also carry:
-
-- `help`: a concrete repair direction;
-- `related`: labeled secondary source ranges, including other files;
-- `fixes`: titled, machine-applicable edit sets;
-- `notes`: context that points at no source. The field is carried end to end
-  and is part of the JSON shape, but nothing in the compiler sets it yet, so it
-  arrives empty.
-
-The first text line keeps the conventional compiler form understood by build
-tools. Source and guidance follow it:
+A diagnostic is a stable code, a severity, a source range, and a message, and
+every one the compiler reports carries all four whether a person or a program
+is reading. This is what one looks like on standard error:
 
 ```text
 src/main.nupp:8:13: error: NUPP2004: no field "horizonal" in Point
@@ -21,47 +11,90 @@ src/main.nupp:8:13: error: NUPP2004: no field "horizonal" in Point
 help: use the suggested field spelling
 ```
 
+## Text report
+
+The first line keeps the conventional compiler form, so a build tool that
+already reads `file:line:column: severity: message` needs no adapter for Nupp.
+Under it come the quoted source line and a caret run marking the primary range,
+then one `note` line per related location, then `help`.
+
+Lines, columns, and offsets are 1-based byte positions. They are `0` when the
+file could not be read at all.
+
+### Lint names
+
 A lint carries its name after the code, so the thing a project would configure
 is visible in the line it printed:
 
 ```text
-src/main.nupp:4:5: warning: NUPP2107 exhaustiveness: every branch
-returns, so this handles "blue" | "green" | "red" and leaves "blue" unhandled
-help: add branches for "blue" or add an else clause
+src/main.nupp:4:5: warning: NUPP2107 exhaustiveness: every branch returns, so this handles "blue" | "green" | "red" and leaves "red" unhandled
+help: add branches for "red" or add an else clause
 ```
 
-Written to a terminal, the same report is colored: the severity and the caret
-run share a color, the code is dimmed, and the rail beside the quoted source is
-its own. Written anywhere else it is exactly the text above, byte for byte, so
-nothing that reads compiler output has to strip anything. `--color=always`
-forces the escapes on for a pager that wants them, `--no-color` (or
-`--color=never`) forces them off, and `NO_COLOR`, `CLICOLOR_FORCE` and
-`TERM=dumb` are honoured in that order before the terminal is asked.
+That name is what an `@allow` suppression or a `nupp.lua` entry writes. See
+[lints.md](lints.md) for the built-in lints, their categories, and their default
+levels.
 
-Use `nupp check --json` when consuming diagnostics programmatically, and
-`nupp check --schema` for the JSON Schema of that output. Lines, columns, and
-offsets in this CLI format are 1-based byte positions, and are `0` when the
-file could not be read at all.
+### Color
 
-Each diagnostic contains `file`, `severity`, `code`, `message`, `range`,
-`fixes`, `notes`, and `related`. `lint` is present only when the code names a
-lint, and `help` only when there is one; the other fields are always there and
-may be empty. A fix is all-or-nothing and contains one or more byte-ranged
-edits. The language server converts the same data to UTF-16 LSP ranges,
-`relatedInformation`, diagnostic `data`, and code actions.
+Written to a terminal the same report is colored: the severity and the caret run
+share a color, the code and lint name are dimmed, the file position and the
+message have their own, and so does the rail beside the quoted source. Written
+anywhere else it is exactly the text above, byte for byte.
+
+`--color=always` and `--color=never` answer without looking at the stream.
+Failing an explicit flag, `NO_COLOR` refuses escapes, `CLICOLOR_FORCE` demands
+them, and failing both the stream is asked whether it is a terminal that
+understands them, which `TERM=dumb` answers no for.
+
+::: deepdive
+Color never changes the bytes. A styled report is the plain report with escapes
+wrapped around spans of it, so a tool that reads compiler output has nothing to
+strip and no second format to learn, and a person who pipes a failing build into
+a file gets the same thing they saw.
+
+That constraint is why `NO_COLOR` is one-way. The convention gives a user a way
+to refuse escapes and no way to ask for them, so the variable that forces them
+on is a separate one, and a terminal that has announced itself as incapable
+through `TERM=dumb` is still asked last rather than first.
+:::
+
+## Diagnostic fields
+
+Every diagnostic carries `severity`, `message`, and `range`, plus `fixes`,
+`notes`, and `related`, which are always present and may be empty. The rest
+appear when there is something to say:
+
+- `file` and `code`, on anything with a source position and a code of its own.
+- `help`: a concrete repair direction, in one sentence.
+- `related`: labeled secondary ranges, including ranges in other files.
+- `fixes`: titled edit sets a tool can apply without reading the prose.
+- `notes`: context that points at no source, such as the trace classification a
+  [JIT trace check](../guides/jit-trace-checking.md) attaches to its finding.
+- `lint`: the lint name, when the code names one.
+- `docs`: the reference section covering the code, as a path and an anchor.
+
+The language server converts the same data to UTF-16 LSP ranges,
+`relatedInformation`, diagnostic `data`, and code actions, so an editor and a
+terminal disagree about presentation and about nothing else.
 
 ## Explaining a code
+
+`nupp explain` prints the rule behind a code, a program that reports it, the
+same program corrected, related codes, and a reference into these documents:
 
 ```bash
 nupp explain NUPP2119
 ```
 
-prints the rule behind a code, a program that reports it, the same program
-corrected, related codes, and a reference into these documents. Every
-diagnostic code that has an entry can be looked up this way, which is usually
-faster than searching for the number.
+Every code with an entry can be looked up this way, which is faster than
+searching for the number. The [diagnostic index](#diagnostic-index) below is the
+same content rendered as a page.
 
 ## Code families
+
+The leading digit is the family, and every code falls in one, so a code with no
+entry of its own can still be resolved this far.
 
 | Codes | Meaning |
 | --- | --- |
@@ -75,443 +108,192 @@ faster than searching for the number.
 | `NUPP3xxx` | Code generation cannot represent a checked construct. |
 | `NUPP4001` | Formatting could not safely produce the requested result. |
 | `NUPP5xxx` | A development-time change requires a restart. |
-| OPT-n | An optimization pass reporting what it did or declined to do. |
+| `OPT-n` | An optimization pass reporting what it did or declined to do. |
 
-`OPT-n` is the one family that does not describe a problem. A pass emits it to
-say that it rewrote something, or that it looked at something and could not,
-which is the answer a language owes its user when a declared intention did not
-reach the generated code. The severity is always `note`, so a remark is reported
-and stepped over and never fails a build.
+`OPT-n` is the one family that does not describe a problem. A pass reports one
+to say that it rewrote something, or that it looked at something and could not.
+The severity is always `note`, so a remark is reported and stepped over and
+never fails a build.
 
 Remarks are off unless `--remarks` is passed, and they come from `nupp build`
 and `nupp run` rather than `nupp check`, which does not optimize. The code is
 stable across a pass being renamed, split, or merged, so it can be cited in a
-bug report or passed to `-Zno-opt`. See the
-[performance guide](../guides/performance.md).
-
-## Diagnostic index
-
-This page is the canonical index of diagnostic summaries. Feature pages
-explain their rules in context; use `nupp explain CODE` for a failing and
-corrected program.
-
-### [Calling C safely](../concepts/c-interop.md)
-
-- **NUPP2201**: a struct field is not reifiable, which a `T[?]` field reports
-  because a struct whose size depends on a runtime count has none.
-- **NUPP2402**: `layoutof` was asked about something with no layout, such as a
-  `record`, which is a table rather than C memory.
-- **NUPP2403**: [structure-of-arrays storage](
-  ../concepts/structure-of-arrays.md) was asked to store a non-reified or
-  unsupported element, or a field projection did not resolve one stored struct
-  field.
-
-### [Named and plucked arguments](../concepts/calls.md)
-
-- **NUPP2004**: a plucked name is not a field of the operand.
-- **NUPP2006**: an argument does not fit the parameter it fills.
-- **NUPP2125**: no overload accepts the call the arguments build.
-
-### [Comptime](../concepts/comptime.md)
-
-- **NUPP2410** / **NUPP2411** / **NUPP2412**: the block cannot be evaluated at
-  compile time.
-- **NUPP2413**: a result table is reachable by two paths, so it has no literal
-  spelling.
-- **NUPP2414**: an opaque provider result reached a binding that cannot
-  materialize it.
-- **NUPP2415**: a declared type has no registered materialization for the
-  opaque result, or a worker payload failed the provider's checks.
-- **NUPP2416** / **NUPP2419**: a provider rejected the request.
-- **NUPP2420**: a comptime type function deliberately rejected its application
-  through `nupp.types.error`.
-- **NUPP2421**: a type-position comptime call has an invalid callee, signature,
-  argument, result kind, or result bound.
-
-### [Declared modules](../concepts/declarations.md)
-
-- **NUPP1002** reports invalid module declarations, non-canonical names,
-  duplicate canonical modules, reserved compiler-name collisions, and
-  parent-export/child-module collisions.
-- **NUPP2004** reports a missing selected field or exported member.
-- **NUPP2101** reports an unknown type.
-- **NUPP2105** reports an unknown value in strict source.
-- **NUPP2119** reports a typed declaration with no visibility in a legacy
-  module. In a declared module, use `local` or `export`.
-
-### [Effect contracts](../concepts/effects.md)
-
-- **NUPP2710**: a `noalloc` region can reach a modeled allocation.
-- **NUPP2711**: a `noraise` region can reach a catchable error path.
-
-- **NUPP2112**: an effect annotation member is not one the contract accepts, or
-  a boolean member is not literally `true` or `false`.
-
-### [Metamethod contracts](../concepts/metamethods.md)
-
-The principal diagnostics are:
-
-- `NUPP2003`: no applicable primitive operation or metamethod contract.
-- `NUPP2005`: a value has no callable type or `__call` contract.
-- `NUPP2006` / `NUPP2007`: contract argument or arity mismatch.
-- `NUPP2116`: a generic argument violates its `is` bound.
-- `NUPP2117`: an invalid contract parent after `is`.
-- `NUPP2118`: an invalid, duplicate, misspelled, or unsupported metamethod or
-  inline method declaration.
-
-### [Reflection](../concepts/reflection.md)
-
-- **NUPP2414**: an opaque reflection result reached a binding that cannot
-  materialize it.
-- **NUPP2415**: a declared materialization boundary or provider result failed
-  validation.
-- **NUPP2416** / **NUPP2418**: reflection or its provider rejected the request.
-
-### [Gradual typing](../concepts/strictness.md)
-
-- **NUPP1006**: the typed layer appears in a `.lua` file, which is plain Lua.
-- **NUPP2105**: an unknown variable, in a strict file only.
-- **NUPP2106**: an exported declaration needs a type annotation.
-
-### [Structure-of-arrays storage](../concepts/structure-of-arrays.md)
-
-- **NUPP2009**: code writes through a shared SoA row view.
-- **NUPP2403**: an allocation element is not SoA-eligible, or `field` does not
-  name one resolved stored field.
-
-### [Suspension](../concepts/suspension.md)
-
-- **NUPP2701** reports a call in a `nosuspend` region or cleanup contract that
-  may suspend.
-- **NUPP2702** reports a suspending callback invoked through a non-yieldable C
-  boundary.
-- **NUPP2706** reports a jump into a `handle suspension` region.
-- **NUPP2603** reports a raw coroutine yield that would strand a live ownership
-  or borrowing obligation.
-
-### [Switch expressions](../concepts/switch-expressions.md)
-
-- `NUPP2137`: invalid static case, field, or binding.
-- `NUPP2138`: duplicate static value after normalization.
-- `NUPP2139`: unreachable or selector-incompatible case.
-- `NUPP2140`: non-exhaustive switch.
-- `NUPP2141`: invalid block-arm completion or switch yield.
-- `NUPP2142`: placement would change conditional evaluation.
-- `NUPP3001`: a type case has no runtime identity.
-
-### [Tour of Nupp](../getting-started/tour.md)
-
-- **NUPP2107**: the `exhaustiveness` lint, where a dispatch leaves members of a
-  closed set unhandled.
-- **NUPP2119**: a declaration says neither `local`, `global`, nor a table to
-  attach to.
-
-### [Ahead-of-time compilation](../guides/ahead-of-time.md)
-
-| Code | Meaning |
-| --- | --- |
-| NUPP2901 | `@aot` stacked with `@jit`, promising one body to two compilers |
-| NUPP2902 | `@aot` on something that is not a whole function |
-| NUPP2903 | A construct in an `@aot` body with no AOT IR form |
-
-A closure, interpolated string, vararg, `goto`, dynamic call or unsafe operation
-inside an `@aot` body reports NUPP2903 at the construct. Fresh table
-construction is admitted; unsupported table reads or mutations are refused by
-the value-level AOT lowering with a source position.
-
-### [Formatter](../guides/fmt.md)
-
-- **NUPP4001**: formatting could not safely produce a result, so the input is
-  left untouched. The formatter refuses whatever it cannot prove it would
-  preserve.
-
-### [LuaJIT trace checking](../guides/jit-trace-checking.md)
-
-- **NUPP2707**: an `@jit` body, or a checked callee it reaches, holds a
-  catalogued unconditional recorder blocker.
-- **NUPP2515** / **NUPP2505**: a loop builds a function, capturing the
-  iteration or not.
-- **NUPP2514**: a variadic FFI call cannot run on a compiled trace.
-- **NUPP2502**: a Lua function passed to C becomes an FFI callback.
-
-### [`nupp.io.files`](../modules/nupp/io/files.md)
-
-- **NUPP2701**: a non-suspending region can reach suspension, which a
-  filesystem call inside `nosuspend` reports at compile time.
-
-### [`nupp.log`](../modules/nupp/log.md)
-
-- **NUPP2006**: a logging call's arguments do not fit the format it names,
-  which an omitted argument supplying nil also reports.
-
-### [`nupp.math`](../modules/nupp/math.md)
-
-- **NUPP2011**: a `float`, `int32`, or `uint32` claim lacks an establishing
-  literal, load, conversion, or fixed-width source.
-- **NUPP2012**: a physical storage width is used where an ordinary value type is
-  required.
-
-See [the standard-library overview](../concepts/standard-library.md) for
-selection and lazy-loading rules.
-
-### [`nupp.mem.span`](../modules/nupp/mem/span.md)
-
-- **NUPP2001**: an element, count, or result does not fit the span's declared
-  type.
-- **NUPP2004**: a requested operation is not present on the shared or writable
-  view being used.
-- **NUPP2602**: an ownership or exclusive-access operation is invalid for the
-  live span regions.
-- **NUPP2604**: raw pointer arithmetic, indexing, or a region assertion lacks
-  the required proof or `unsafe` boundary.
-
-### [Annotations](annotations.md)
-
-- **NUPP2108**: an `@allow` names a lint that does not exist, and the error it
-  was meant to suppress still stands.
-- **NUPP2112**: an annotation argument is outside the closed set the annotation
-  accepts, which is what a misspelled `@relax` guarantee reports.
-- **NUPP2113**: a reserved annotation parsed and resolved, and is not yet
-  implemented.
-- **NUPP2707**: an `@jit` function crosses a variadic or callback FFI boundary.
-- **NUPP2119**: a declaration does not say where it lives.
-- **NUPP2901**: a declaration carries both `@aot` and `@jit`.
-- **NUPP2902**: `@aot` decorates a constructor or an inline requirement,
-  neither of which is a whole function to compile.
-- **NUPP2903**: an `@aot` body uses a construct the backend has no IR for --
-  a closure, table, interpolated string, vararg, `goto`, dynamic call, or
-  unsafe operation.
-
-### [Derives](derives.md)
-
-- **NUPP2810**: a derive provider failed or returned an invalid blueprint,
-  and named no code of its own.
-
-### [Affine types](../type-system/affine-types.md)
-
-- **NUPP2606**: a result has two possible `T` components, so conservation is
-  ambiguous.
-
-### [Associated types](../type-system/associated-types.md)
-
-- **NUPP2127**: a declaration does not answer an associated type it owes, or
-  answers otherwise than a `==` fixes it, or two contracts default it
-  differently.
-- **NUPP2128**: an associated type member cannot mean anything where it is
-  written. Answering a name no contract declares, restating a bound, or stating
-  a requirement outside an interface.
-- **NUPP2129**: an associated type collides with a nested alias or declaration.
-- **NUPP2134**: a projection names something that cannot be projected.
-- **NUPP2135**: an associated type answers through itself, reported once per
-  component.
-- **NUPP2511**: the `gradual-projection` lint, where inference did not reach a
-  projection's head and it was erased to `any`.
-
-### [Generics](../type-system/generics.md)
-
-- **NUPP2003**: an operator is applied to types it does not accept, which an
-  unbounded type parameter reports before a bound admits the operation.
-- **NUPP2116**: a type argument violates its bound, checked where the generic is
-  instantiated.
-- **NUPP2122**: a refinement cannot be enforced.
-
-### [Interfaces](../type-system/interfaces.md)
-
-- **NUPP2116**: a generic argument violates its bound.
-- **NUPP2117**: `is` names something that is not an interface.
-- **NUPP2118**: an invalid, duplicate, or unsupported metamethod contract, or
-  an interface method given a body.
-- **NUPP2136**: a sealed interface is implemented outside its owning module.
-- **NUPP3001**: `is` used against a type with no runtime identity.
-
-### [Intersection types and overloads](../type-system/intersections.md)
-
-- **NUPP2124**: an intersection is provably uninhabited, so no value could
-  satisfy it.
-- **NUPP2125**: no overload accepts the call's adjusted argument pack.
-- **NUPP2126**: several overloads accept it, and source order does not break
-  the tie.
-- **NUPP2208**: a constructor does not hold up its declaration, which duplicate
-  parameter-pack contracts also report.
-
-### [Narrowing](../type-system/narrowing.md)
-
-- **NUPP2002**: a returned value does not fit the declared result, which is
-  what a union that was never narrowed reports.
-- **NUPP2109**: a narrowing test cannot hold, because the type tested for is
-  not one the subject could be.
-- **NUPP2110**: a parameter could not hold the type a test narrows it to.
-
-### [Overloads and overrides](../type-system/overloads.md)
-
-- **NUPP2125**: no callable-intersection member accepts the argument pack.
-- **NUPP2126**: several members accept it, or an overloaded method was read as
-  one field value.
-- **NUPP2118**: a method parameter pack is duplicated, an interface entry is
-  missing or incompatible, or `@override` does not match exactly one inherited
-  default.
-- **NUPP2208**: constructor overloads duplicate a parameter pack or violate
-  constructor integrity.
-
-For the underlying intersection relation, including capability composition and
-provable emptiness, see [Intersection types](../type-system/intersections.md).
-For general interface inheritance and runtime defaults, see
-[Interfaces](../type-system/interfaces.md).
-
-### [Type system](../type-system/overview.md)
-
-- **NUPP2001**: a value does not fit the type it is bound to.
-- **NUPP2004**: the field does not exist on that type.
-- **NUPP2011**: a fixed-width value was claimed without being established.
-- **NUPP2012**: a physical storage width was used as an ordinary value type.
-- **NUPP2105**: an unknown variable, in a strict file only.
-- **NUPP2106**: an exported declaration needs a type annotation.
-
-### [Ownership and affine types](../type-system/ownership.md)
-
-- **NUPP2601**: use after an affine value or field was moved.
-- **NUPP2602**: an ownership operation is invalid, such as dropping a
-  terminal-less value.
-- **NUPP2603**: an affine obligation leaves a path without being consumed or
-  transferred.
-- **NUPP2606**: a preservation relation loses, duplicates, or names the wrong
-  capability source.
-- **NUPP2607**: shared and exclusive regions overlap incompatibly.
-- **NUPP2608**: a rooted or scoped value escapes its permitted lifetime.
-- **NUPP2609**: a loop back edge changes a live capability or region.
-- **NUPP2610**: a capability-bearing public parameter omits its mode.
-- **NUPP2611**: a nontrivial capability is implicitly erased.
-- **NUPP2612**: a dynamic-store value is not self-contained and droppable.
-- **NUPP2613**: dynamic recovery requests the wrong type policy.
-- **NUPP2614**: a dynamic handle is stale or names a different or destroyed
-  store.
-- **NUPP2615**: a terminal is missing or does not exactly match its
-  representation.
-
-See also [C interop](../concepts/c-interop.md),
-[effects](../concepts/effects.md), and [checked
-spans](../modules/nupp/mem/span.md).
-
-### [Type packs](../type-system/packs.md)
-
-- **NUPP2007**: a call's results do not fit where they land, which a two-result
-  call into a one-parameter function still reports.
-- **NUPP2010**: a complete value pack does not fit the required sequence,
-  covering incompatible heads, tails, alternatives and `select` indices.
-- **NUPP2121**: a type pack is used where only one value type can appear.
-- **NUPP2605**: adjusting a value pack would discard an affine value.
-
-### [Primitive types](../type-system/primitives.md)
-
-- **NUPP2001**: a value does not fit the type it is bound to, which is what a
-  widening arithmetic result reports when it is bound back to `integer`.
-- **NUPP2004**: the field does not exist on that type, which is what reading a
-  field of `unknown` reports before it is narrowed.
-- **NUPP2006**: a call's arguments are not arranged in a way it can be given,
-  which is what an extra argument to a `never` variadic reports.
-- **NUPP2002**: a returned value does not fit the declared result sequence.
-- **NUPP2106**: a strict exported declaration is not fully annotated.
-- **NUPP2115**: an alias is defined in terms of itself.
-
-### [Property capabilities](../type-system/properties.md)
-
-- **NUPP2009**: a property view does not grant the access asked of it, which a
-  read through a write-only view and an assignment through a read-only one both
-  report.
-- **NUPP2118**: a duplicate capability, or an ordinary property combined with a
-  separated one.
-
-### [Records and structs](../type-system/records.md)
-
-- **NUPP2201**: a struct field is not reifiable, or a struct nests a
-  declaration.
-- **NUPP2202**: a construction problem: an unknown field, a missing one, or a
-  positional argument to a record.
-- **NUPP2204** / **NUPP2205**: array-part problems.
-- **NUPP2118**: a duplicate member, or a metamethod contract on a struct.
-
-### [Refinements](../type-system/refinements.md)
-
-- **NUPP2122**: a refinement cannot be enforced. It reads something other than
-  `self`, always answers the same way, sits on a record or struct, or a
-  declaration's own fields provably fail an interface it declares.
-
-### [Comptime types](../type-system/type-level-computation.md)
-
-- **NUPP2001**: two applications of one generic differ in a const argument.
-
-### [Unions](../type-system/unions.md)
-
-- **NUPP2001**: a value is not a member of the union it is bound to.
-- **NUPP2107**: the `exhaustiveness` lint, where a dispatch leaves members of a
-  closed set unhandled.
-- **NUPP2138**: two switch case spellings normalize to the same scalar value.
-- **NUPP2139**: a switch case cannot match the remaining selector type.
-- **NUPP2140**: a value-producing switch does not cover its selector type.
+bug report or passed to `-Zno-opt`. See the [performance
+guide](../guides/performance.md) for what each pass reports.
+
+::: deepdive
+An optimizer is the one part of the compiler whose silence is ambiguous. A pass
+that declined to inline a call and a pass that was never reached both produce a
+program with the call still in it, and nothing in the output says which
+happened. `OPT-n` is the answer a language owes its user when a declared
+intention did not reach the generated code.
+
+Giving remarks codes rather than free text is what makes them usable twice. The
+same identifier that names a remark in a bug report turns the pass off through
+`-Zno-opt`, and it survives the pass being renamed or split, so neither use
+breaks when the optimizer is rearranged.
+:::
+
+## Codes by area
+
+A code is explained in full by the [diagnostic index](#diagnostic-index) below,
+and in context by the page that owns the rule. This is the map from an area to
+that page:
+
+| Area | Page | Codes |
+| --- | --- | --- |
+| Affine types | [affine-types.md](../type-system/affine-types.md) | `NUPP2606` |
+| Ahead-of-time compilation | [ahead-of-time.md](../guides/ahead-of-time.md) | `NUPP2901`, `NUPP2902`, `NUPP2903` |
+| Annotations | [annotations.md](annotations.md) | `NUPP2108`, `NUPP2112`, `NUPP2113`, `NUPP2119`, `NUPP2707`, `NUPP2901`, `NUPP2902`, `NUPP2903` |
+| Associated types | [associated-types.md](../type-system/associated-types.md) | `NUPP2127`, `NUPP2128`, `NUPP2129`, `NUPP2134`, `NUPP2135`, `NUPP2511` |
+| C interop | [c-interop.md](../concepts/c-interop.md) | `NUPP2201`, `NUPP2402`, `NUPP2403` |
+| Checked spans | [span.md](../modules/nupp/mem/span.md) | `NUPP2001`, `NUPP2004`, `NUPP2602`, `NUPP2604` |
+| Comptime | [comptime.md](../concepts/comptime.md) | `NUPP2410` through `NUPP2416`, `NUPP2419`, `NUPP2420`, `NUPP2421` |
+| Comptime types | [type-level-computation.md](../type-system/type-level-computation.md) | `NUPP2001` |
+| Derives | [derives.md](derives.md) | `NUPP2810` |
+| Effect contracts | [effects.md](../concepts/effects.md) | `NUPP2112`, `NUPP2710`, `NUPP2711` |
+| Files | [files.md](../modules/nupp/io/files.md) | `NUPP2701` |
+| Formatter | [fmt.md](../guides/fmt.md) | `NUPP4001` |
+| Generics | [generics.md](../type-system/generics.md) | `NUPP2003`, `NUPP2116`, `NUPP2122` |
+| Gradual typing | [strictness.md](../concepts/strictness.md) | `NUPP1006`, `NUPP2105`, `NUPP2106` |
+| Hot reload | [hot-reload.md](../guides/hot-reload.md) | `NUPP5001` |
+| Interfaces | [interfaces.md](../type-system/interfaces.md) | `NUPP2116`, `NUPP2117`, `NUPP2118`, `NUPP2136`, `NUPP3001` |
+| Intersections and overloads | [intersections.md](../type-system/intersections.md) | `NUPP2124`, `NUPP2125`, `NUPP2126`, `NUPP2208` |
+| Lints | [lints.md](lints.md) | `NUPP2107`, `NUPP2120`, `NUPP2501`, `NUPP2502`, `NUPP2504` through `NUPP2515` |
+| Logging | [log.md](../modules/nupp/log.md) | `NUPP2006` |
+| LuaJIT trace checking | [jit-trace-checking.md](../guides/jit-trace-checking.md) | `NUPP2502`, `NUPP2505`, `NUPP2514`, `NUPP2515`, `NUPP2707` |
+| Math | [math.md](../modules/nupp/math.md) | `NUPP2011`, `NUPP2012` |
+| Metamethods | [metamethods.md](../concepts/metamethods.md) | `NUPP2003`, `NUPP2005`, `NUPP2006`, `NUPP2007`, `NUPP2116`, `NUPP2117`, `NUPP2118` |
+| Modules | [modules.md](../concepts/modules.md) | `NUPP1002`, `NUPP2004`, `NUPP2101`, `NUPP2105`, `NUPP2119` |
+| Named and plucked arguments | [calls.md](../concepts/calls.md) | `NUPP2004`, `NUPP2006`, `NUPP2125` |
+| Narrowing | [narrowing.md](../type-system/narrowing.md) | `NUPP2002`, `NUPP2109`, `NUPP2110` |
+| Overloads and overrides | [overloads.md](../type-system/overloads.md) | `NUPP2118`, `NUPP2125`, `NUPP2126`, `NUPP2208` |
+| Ownership | [ownership.md](../type-system/ownership.md) | `NUPP2601`, `NUPP2602`, `NUPP2603`, `NUPP2606` through `NUPP2615` |
+| Primitive types | [primitives.md](../type-system/primitives.md) | `NUPP2001`, `NUPP2002`, `NUPP2004`, `NUPP2006`, `NUPP2106`, `NUPP2115` |
+| Property capabilities | [properties.md](../type-system/properties.md) | `NUPP2009`, `NUPP2118` |
+| Records and structs | [records.md](../type-system/records.md) | `NUPP2118`, `NUPP2201`, `NUPP2202`, `NUPP2204`, `NUPP2205` |
+| Reflection | [reflection.md](../concepts/reflection.md) | `NUPP2414`, `NUPP2415`, `NUPP2416`, `NUPP2418` |
+| Refinements | [refinements.md](../type-system/refinements.md) | `NUPP2122` |
+| Structure-of-arrays storage | [structure-of-arrays.md](../concepts/structure-of-arrays.md) | `NUPP2009`, `NUPP2403` |
+| Suspension | [suspension.md](../concepts/suspension.md) | `NUPP2603`, `NUPP2701`, `NUPP2702`, `NUPP2706` |
+| Switch expressions | [switch-expressions.md](../concepts/switch-expressions.md) | `NUPP2137` through `NUPP2142`, `NUPP3001` |
+| Type packs | [packs.md](../type-system/packs.md) | `NUPP2007`, `NUPP2010`, `NUPP2121`, `NUPP2605` |
+| Type system | [overview.md](../type-system/overview.md) | `NUPP2001`, `NUPP2004`, `NUPP2011`, `NUPP2012`, `NUPP2105`, `NUPP2106` |
+| Unions | [unions.md](../type-system/unions.md) | `NUPP2001`, `NUPP2107`, `NUPP2138`, `NUPP2139`, `NUPP2140` |
+
+A code appears in several rows when several rules can report it. `NUPP2004` is
+one code for "that field is not there", and which page explains it depends on
+what was being reached for.
 
 ## Repairs
 
-Checker-provided fixes cover misspelled variables, type names, fields,
-methods, and metamethods; missing module qualifications and `require`
-statements; declaration visibility; and explicit casts for intended lossy
-narrowing.
+A fix is a title and a set of byte-ranged edits into one file, and applying it
+is all-or-nothing. Only unambiguous rewrites qualify: where a message lists
+alternatives, each alternative is its own fix rather than a guess between them.
 
-A diagnostic gives help rather than an edit when the compiler cannot choose a
-program on the author's behalf. Enum exhaustiveness cannot invent branch
-bodies, an ambiguous global cannot decide which public declaration should
-change visibility, and a resource without cleanup metadata cannot guess which
-function owns that responsibility.
+The checker offers fixes for misspelled variables, type names, fields, methods,
+and metamethods; missing module qualifications and `require` statements;
+declaration visibility; a customary operator replaced with Lua's word; explicit
+casts for intended lossy narrowing; and the conversion that establishes a
+fixed-width value.
+
+A diagnostic gives `help` rather than an edit when the compiler cannot choose a
+program on the author's behalf. Enum exhaustiveness cannot invent branch bodies,
+an ambiguous global cannot decide which public declaration should change
+visibility, and a resource without cleanup metadata cannot guess which function
+owns that responsibility.
 
 ## Machine-readable output
 
 Every command whose result is data rather than a side effect takes
-`--format json` (or `--json`), and every command that takes it also takes
-`--schema`, which prints the JSON Schema of what `--json` writes and exits. The
-schema is declared beside the code that writes it and a test validates real
-output against it, so the two cannot drift.
+`--format json`, with `--json` as its shorthand, and every command that takes it
+also takes `--schema`, which prints the JSON Schema of what `--json` writes and
+exits. The schema is declared beside the code that writes it and a test
+validates real output against it, so the two cannot drift.
 
-| Command | --json reports |
+| Command | `--json` reports |
 | --- | --- |
-| `check` | diagnostics |
-| `build` | diagnostics, the target, and every path written |
-| `fmt` | unformatted, written, and failed, kept apart |
-| `test` | totals and a record per test, with file and line |
-| `lints` | every lint, its level here, and its default |
-| `tasks` | the task list, or one task's configuration |
+| `aot` | what every `@aot` function in one file lowered to |
 | `ast` | the lossless syntax tree |
+| `bc` | the bytecode of one file, instruction by instruction |
+| `build` | diagnostics, the target, and every path written |
+| `check` | diagnostics, and where the check's time went |
 | `clean` | the paths removed, or that would be |
-| `fixpoint` | whether it reproduced, and why not |
-| import-c | the module written and any warnings |
+| `coverage` | the aggregate coverage summary |
+| `doc` | the resolved format, the output, and every path written |
 | `explain` | a code's rule and worked examples |
+| `export-c` | the header written and the declarations in it |
+| `fixpoint` | whether it reproduced, and why not |
+| `fmt` | unformatted, written, and failed, kept apart |
+| `import-c` | the module written and any warnings |
+| `init` | what the template resolved to and what it wrote |
+| `lints` | every lint, its level here, and its default |
 | `lsp` | per operation; each has its own schema |
+| `ownership-audit` | foreign pointer contracts and unsafe assertion sites |
+| `reference` | the reference, section by section |
+| `tasks` | the task list, or one task's configuration |
+| `test` | totals and a record per test, with file and line |
 
-`nupp run` is absent because the program's own output is the output, and
-`nupp doc` because it writes a site rather than an answer.
+`nupp run` is the exception. Its `--json` writes the `--jit-aborts` record as
+JSON instead of CSV, because the program's own output is the run's output.
+
+Read `ok` before `diagnostics`. An empty list means the project is clean only
+when `ok` is true, since a run that could not use the manifest never reached a
+file and reports the same empty list.
 
 ## Agent workflow
 
-1. Run `./bin/nupp check --json --strict`. Read `ok` before `diagnostics`: an
-   empty list means the project is clean only when `ok` is true, since a run
-   that could not use the manifest never reached a file and reports the same
-   empty list.
+1. Run `nupp check --json --strict`, and read `ok` first.
 2. Apply a complete fix from `diagnostics[].fixes` when its title matches the
-   intended repair.
-3. Read `docs` on a diagnostic, or run `./bin/nupp explain <code> --json`, when
-   the message alone does not say what the rule is. `explain` gives the rule, a
-   program that reports the code, and the same program corrected. For the
-   surrounding prose rather than the rule, `./bin/nupp reference --for <code>`
-   prints the sections that cover it, and `--section` takes the `docs` pointer
-   itself — a few hundred words either way, where the chapter is thousands.
+   intended repair. Never take individual edits out of one.
+3. Read `docs` on a diagnostic, or run `nupp explain <code> --json`, when the
+   message alone does not say what the rule is. For the surrounding prose rather
+   than the rule, `nupp reference --for <code>` prints the sections that cover
+   it, and `nupp reference --section <anchor>` takes the `docs` pointer itself.
+   Either is a few hundred words where the chapter is thousands.
 4. Inspect `related` locations before changing cross-file declarations or
    ownership transfers.
-5. Use `./bin/nupp lsp inspect`, `definition`, and `references` when more
-   semantic context is needed.
-6. Re-run the check after each edit group, then `./bin/nupp test --json` before
-   commit, which reports the failing test's name, message, file and line rather
-   than a wall of progress text.
-7. When a check of an unchanged project is not answering as fast as expected,
-   read `timing.compiledModules` and `timing.slowest` in the same `--json`
-   answer rather than waiting the next one out: `compiledModules = 0` means
-   nothing was actually redone, and `slowest` names whichever modules cost
-   the most wall-clock time regardless -- confirming a cache entry is still
-   valid costs time too, just less of it on a project this size.
+5. Use `nupp lsp inspect`, `nupp lsp definition`, and `nupp lsp references` when
+   more semantic context is needed.
+6. Re-run the check after each edit group, then `nupp test --json` before
+   committing, which reports each failing test's name, message, file, and line
+   rather than a wall of progress text.
+7. Read `timing.compiledModules` and `timing.slowest` when a check of an
+   unchanged project is slower than expected. `compiledModules = 0` is the
+   authoritative answer that nothing was redone, and `slowest` ranks modules by
+   time actually spent either way, since confirming that a cache entry is still
+   valid costs time too.
+
+## FAQ
+
+### How do I stop the checker reporting a lint I do not want?
+
+Set the lint to `off` by name or by category in the `lints` table in `nupp.lua`,
+or decorate the one statement with `@allow("lint-name")`. See
+[lints.md](lints.md) for the resolution order, which runs registry default, then
+category, then name, then the `@allow`.
+
+### Why did a diagnostic give me `help` and no fix?
+
+Because more than one program would satisfy the rule and the compiler will not
+pick one. An unhandled enum member needs a branch body only the author knows,
+so the message says what is missing and stops. See [Repairs](#repairs) for the
+repairs that are unambiguous enough to be offered as edits.
+
+### Why is `diagnostics` empty when the command still failed?
+
+The run never reached a file. A manifest that could not be used ends a check
+before anything is parsed, and that answers with the same empty list a clean
+project does, which is why `ok` is a separate field. See [Machine-readable
+output](#machine-readable-output).
+
+### Why did `@allow` not silence an error?
+
+`@allow` reaches lints and nothing else, so naming a type error in one leaves
+the error standing and reports `NUPP2108` for the name. See
+[lints.md](lints.md) for what counts as a lint.
+
+::: seealso
+- [cli.md](cli.md) for every command, its options, and its exit codes
+- [lsp.md](../guides/lsp.md) for the same diagnostics inside an editor
+:::

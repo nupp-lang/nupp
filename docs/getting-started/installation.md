@@ -12,12 +12,19 @@ cd nupp
 
 ## Requirements
 
+A build needs LuaJIT, LPeg, and simdjson present before it starts. Everything
+after them buys one feature each.
+
+### LuaJIT
+
 **LuaJIT 2.1.1784535649 or newer.** Generated Nupp is written in the LuaJIT 3.0
 syntax that 2.1 backported, meaning `?.`, `??`, `?:`, the bit operators and
 compound assignment, rather than in a lowering of it. That rolling version is
 the first build carrying those extensions. `bin/nupp` reads `luajit -v` and says
 which build is wanted, so an older interpreter fails with a sentence instead of
 a syntax error on a line nobody wrote.
+
+### LPeg
 
 **LPeg 1.1.** The compiler reads its own doc comments and manifests with
 `nupp.peg`, which resolves native LPeg, so the module is loaded before the first
@@ -27,55 +34,81 @@ build rather than by a later command:
 luarocks install lpeg
 ```
 
+### simdjson
+
 **simdjson 4.6.4 or newer.** The compiler's JSON runtime links the installed
 library through pkg-config. For example, `brew install simdjson` or your system
 package manager's simdjson development package.
 
-Everything else is optional and buys one feature each:
+### Optional components
 
 | Component | Needed for | Installed by |
 | --- | --- | --- |
-| `lunamark` | nupp doc | nupp doc |
-| `Scintillua` | highlighting in generated sites | nupp doc |
-| Rust toolchai | building the binary host stub | rustup |
+| `lunamark` | `nupp doc` | `nupp doc` |
+| `Scintillua` | highlighting in generated sites | `nupp doc` |
+| Rust toolchain | building the binary host stub | `rustup` |
 
-That table is about a **checkout**. A stamped binary carries all three of the
-first ones already, as [the binary](#self-contained-binary) describes, and
-needs nothing installed to check, compile, run or document a project.
+That table is about a checkout. A stamped binary carries all three of the first
+ones already and needs nothing installed to check, compile, run or document a
+project. See [self-contained binary](#self-contained-binary) for what it carries
+and how to build one.
 
-## From a checkout
+## Building from a checkout
 
 `bin/nupp` is the entry point and it builds on demand: it runs
 `build/nupp/compiler` when that exists and no source is newer, and compiles the
 compiler first when it does not. An edit to the compiler is picked up by the
 next command rather than by the next person who remembers to build.
 
+```bash
+./bin/nupp check    # builds the compiler first if a source is newer
+```
+
+### Shared native target directory
+
 Git worktrees share the native Rust target in a repository cache derived from
-Git's common directory, so each worktree does not rebuild the same
-dependencies. Set
-`NUPP_NATIVE_TARGET_DIR` to override that location; a relative value is resolved
-from the checkout root. `scripts/worktree BRANCH PATH [START_POINT]` also seeds
-the new worktree with content-validated compiler caches and the test runner's
-last suite timings. Generated outputs remain local to each worktree.
+Git's common directory, so each worktree does not rebuild the same dependencies.
+Two environment variables move those caches:
+
+```bash
+export NUPP_NATIVE_TARGET_DIR=/var/cache/nupp/target
+export NUPP_NATIVE_CACHE_DIR=/var/cache/nupp/crates
+```
+
+A relative `NUPP_NATIVE_TARGET_DIR` is resolved from the checkout root.
+`scripts/worktree BRANCH PATH [START_POINT]` also seeds a new worktree with
+content-validated compiler caches and the test runner's last suite timings.
+Generated outputs remain local to each worktree.
 
 The crates a build stages for a project are the compiler's rather than the
-project's, both the native providers behind `nupp.io.files` and its siblings and
-the executable a binary target is stamped into, so cargo keeps their target
+project's, both the native providers behind
+[`nupp.io.files`](../modules/nupp/io/files.md) and its siblings and the
+executable a binary target is stamped into, so cargo keeps their target
 directories in that same repository cache rather than under each project's
-output directory. One directory per crate and feature set, because cargo names
-what it uplifts after the crate: two feature sets sharing a directory overwrite
-each other's library. `NUPP_NATIVE_CACHE_DIR` names the root. Without this,
-every project that reached a native facility compiled that facility's
-dependencies from nothing, which for the http provider means `reqwest`, `rustls`
-and `tokio`.
+output directory. `NUPP_NATIVE_CACHE_DIR` names its root.
+
+::: deepdive
+The cache holds one directory per crate and feature set, because cargo names
+what it uplifts after the crate rather than after the feature set that built it.
+Two feature sets sharing a directory overwrite each other's library.
+
+The alternative is the project-local layout cargo gives by default, a target
+directory under each project's output. Without the shared cache, every project
+that reaches a native facility compiles that facility's dependencies from
+nothing, which for the http provider means `reqwest`, `rustls` and `tokio`.
+:::
+
+### Build locking
 
 Only one build runs in a tree at a time. A build removes the completion stamp
-before it writes anything, so a second command starting in that window used to
-see a tree that looked unbuilt and start its own build over the same files; now
-it waits for the one already running and uses what that produces.
+before it writes anything, so a second command starting inside that window sees
+a tree that looks unbuilt; rather than starting its own build over the same
+files, it waits for the one already running and uses what that produces.
 
-The one thing it cannot do is start from nothing, since compiling Nupp needs a
-Nupp compiler. `bootstrap/nupp.lua` is that compiler, tracked in the
+### Bootstrap compiler
+
+The one thing a checkout cannot do is start from nothing, since compiling Nupp
+needs a Nupp compiler. `bootstrap/nupp.lua` is that compiler, tracked in the
 repository, and it is what a fresh clone uses for its first build.
 
 ## Optional libraries
@@ -119,12 +152,12 @@ alongside:
 | Carried | How | For |
 | --- | --- | --- |
 | `LuaJIT` | linked into the stub | running anything |
-| simdjson | detected and linked | JSON, --json, and the LSP |
+| simdjson | detected and linked | JSON, `--json`, and the LSP |
 | LPeg 1.1 | detected and linked | general PEG and direct LPeg patterns |
 | LPeg `re.lua` | in the payload | runtime textual grammars |
 | Nupp PEG matcher shell | emitted in the payload | typed matching, search, and replacement |
-| `luautf8` | detected and linked | nupp doc's entities |
-| `lunamark` | in the payload | nupp doc's markdown |
+| `luautf8` | detected and linked | `nupp doc`'s entities |
+| `lunamark` | in the payload | `nupp doc`'s markdown |
 | Scintillua (45) | in the payload | highlighting fences |
 
 The lexers are a chosen set rather than all hundred and sixty Scintillua ships.
@@ -132,10 +165,10 @@ They are the languages a technical document actually fences, listed at the top
 of `nupp.lua`. A fence in something else renders as escaped text, which is what
 it does with no Scintillua at all. See
 [distribution](../reference/distribution.md) for the stub-and-payload format,
-and [rock dependencies](../guides/build.md#carrying-a-rock-into-a-bundle) for
-carrying your own.
+and [carrying a rock into a
+bundle](../guides/build.md#carrying-a-rock-into-a-bundle) for carrying your own.
 
-## Checking that it works
+## Running checks
 
 ```bash
 ./bin/nupp check
@@ -197,7 +230,12 @@ nupp build                  # compile the default target
 nupp run src/app/main.nupp  # compile and run one file
 ```
 
-Check the whole project rather than the file you just edited. That is what lets
+Check the whole project rather than the file you edited. That is what lets
 Nupp verify module boundaries, ownership contracts, and lint settings together.
 
-[Build system](../guides/build.md) documents every manifest key.
+::: seealso
+- [build.md](../guides/build.md) for every manifest key, target kind, and cache
+- [tour.md](tour.md) for the language itself, one construct at a time
+- [tooling.md](tooling.md) for what the rest of the binary does
+- [testing.md](../guides/testing.md) for configuring a suite of your own
+:::

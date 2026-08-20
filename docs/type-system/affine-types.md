@@ -2,9 +2,13 @@
 
 An affine type is a compile-time-generated view of an existing representation.
 It adds a move or cleanup obligation to the checker without adding a runtime
-wrapper:
+wrapper.
 
 ```nupp
+local record Mutex
+    locked: boolean
+end
+
 local record LockToken
     mutex: Mutex
 end
@@ -16,6 +20,8 @@ end
 local type HeldLock = affine(LockToken, unlock)
 ```
 
+## Cleanup identity is part of the type
+
 `affine(LockToken, unlock)` looks like a function call because it is a built-in
 compile-time type-generator call. It is never a runtime call:
 
@@ -24,13 +30,25 @@ compile-time type-generator call. It is never a runtime call:
   stored in each value.
 - the result has the same runtime representation as `LockToken`.
 
-The cleanup identity is part of the generated type. Two functions with the same
-signature still create different affine types. Aliasing a generated type does
-not create a new nominal identity:
+Two functions with the same signature therefore create different affine types,
+and aliasing a generated type does not create a new nominal identity:
 
 ```nupp
-local type AlsoHeld = affine(LockToken, unlock) -- The same type as HeldLock.
+local type AlsoHeld = affine(LockToken, unlock) -- the same type as HeldLock
 ```
+
+::: deepdive
+Angle brackets apply a declared generic type such as `Box<T>`, and parentheses
+call a compile-time type generator. Keeping those two operations visibly
+distinct is what lets one syntax serve both the built-in generators and
+user-defined comptime type functions, so a package that wants its own policy
+constructor writes an ordinary `comptime function` rather than asking for a
+language keyword. The cost is that `affine(T, cleanup)` reads like a call at a
+glance, and the payment for it is that `nupp.types.affine` and every user
+generator are written the same way. See
+[type-level-computation.md](type-level-computation.md) for the rest of the
+comptime type surface.
+:::
 
 ## Cleanup and transfer-only forms
 
@@ -41,15 +59,18 @@ local type Owner<T, const cleanup: function> = affine(T, cleanup)
 local type MustForward<T> = affine(T)
 ```
 
-`affine(T, cleanup)` carries one obligation to invoke exactly `cleanup`. The
-function must be a `nosuspend function(takes T): nil`. `affine(T)` carries an
+`affine(T, cleanup)` carries one obligation to invoke exactly `cleanup`, whose
+type must be `nosuspend function(takes T): nil`. `affine(T)` carries an
 obligation that may be moved, returned, released through an unsafe boundary, or
 placed into another affine value, but it has no local cleanup and therefore
 cannot be dropped.
 
-Both forms erase to `T`; neither evaluates `T` or calls `cleanup` when the type
-is constructed. Cleanup runs only when a runtime value of the generated type is
-explicitly dropped or reaches automatic lexical destruction.
+Both forms erase to `T`. Neither evaluates `T` nor calls `cleanup` when the type
+is constructed, and cleanup runs only when a runtime value of the generated type
+is explicitly dropped or reaches automatic lexical destruction. See
+[consumption and lexical
+destruction](ownership.md#consumption-and-lexical-destruction) for when that
+happens.
 
 ## Constructors can introduce the policy
 
@@ -74,28 +95,28 @@ end
 
 do
     local file = new File(nativeOpen("notes.txt"))
-    print(file:read(128)) -- The affine value uses File directly.
-end -- Calls File.destroy exactly once.
+    print(file:read(128))
+end -- calls File.destroy exactly once
 ```
 
 The result annotation does not replace `File` with a wrapper. It says that this
 constructor introduces one `File.destroy` obligation on the `File` it already
-builds. Consequently `file:read(...)` needs no common interface, forwarding
-object, or conversion. `File.destroy` is a normal method declaration whose
-function identity is used by the type and whose function value is registered
-for lexical destruction.
+builds, so `file:read(...)` needs no common interface, forwarding object, or
+conversion. `File.destroy` is a normal method declaration whose function
+identity is used by the type and whose function value is registered for lexical
+destruction.
 
 The annotation must contain exactly one result and erase to the record being
 constructed. Omitting it preserves ordinary GC-managed construction. Constructor
-overloads may state different policies; argument overload selection happens
-first, and the selected entry supplies its result policy.
+overloads may state different policies: argument overload selection happens
+first, and the selected entry supplies its result policy. See [constructors and
+result policies](records.md#constructors-and-result-policies) for what else a
+constructor result may say.
 
-## Why parentheses instead of angle brackets
+## Comptime type generators
 
-Angle brackets apply a declared generic type such as `Box<T>`. Parentheses call
-a compile-time type generator. Keeping those operations visibly distinct means
-the same syntax works for built-in generators and user-defined comptime type
-functions:
+A user-defined comptime type function can call the programmable counterpart of
+the direct form:
 
 ```nupp
 local comptime function MakeOwner(
@@ -108,9 +129,9 @@ end
 local type HeldAgain = MakeOwner(LockToken, unlock)
 ```
 
-`nupp.types.affine` is the programmable comptime builder corresponding to the
-direct `affine(...)` type form. Its cleanup argument must come from a const
-function parameter so declaration identity remains static and unforgeable.
+`nupp.types.affine` builds the same types `affine(...)` does, including the
+transfer-only `nupp.types.affine(T)`. Its cleanup argument must come from a
+const function parameter, so declaration identity stays static and unforgeable.
 
 ## Generic capability preservation
 
@@ -125,84 +146,74 @@ end
 ```
 
 For an ordinary value this is an ordinary pass-through. For an affine value its
-single obligation moves to the result; it is not copied. This lets generic APIs
-work with both affine and ordinary types without overloads or an `Affine`
-interface special case. The same relation is compositional:
+single obligation moves to the result rather than being copied, which is what
+lets one generic API serve affine and ordinary types without overloads or an
+`Affine` interface special case.
 
-```nupp
-local record Box<T>
-    value: T
-end
+The relation reaches inside a type the result wraps, so a constructor that
+stores its argument preserves the capability into the unique `T` component of
+the result. See [generic
+preservation](ownership.md#generic-preservation) for the complete set of shapes
+it follows and the ambiguity it refuses.
 
-local function box<T>(takes value: T): Box<T> preserves value
-    return new Box(value = value)
-end
-```
-
-The checker substitutes the complete capability into the unique `T` component of
-`Box<T>`. It recursively handles records, tuples, optionals, unions,
-intersections, identity-mapped and projected types, callable records, closures,
-and result packs. Cleanup obligations, pins, and retentions move once; root and
-region provenance remains available to derived views. Callable assignment
-preserves this relation exactly. A result with two possible `T` components is
-ambiguous and reports `NUPP2606` instead of guessing.
-
-This does not require higher-kinded generics. `Box<T>` is an ordinary
-first-order application, while `preserves` supplies the separate conservation
-proof. HKT would only be relevant to an API abstracting over `Box` itself as a
-constructor and would not replace that proof.
+::: deepdive
+Preservation is a separate relation rather than a property of the type, because
+it is linear flow information and not a subtyping fact. A generic record is an
+ordinary first-order application, and `preserves` supplies the conservation
+proof beside it, which is why none of this needs higher-kinded generics. HKT
+would only be relevant to an API abstracting over the container itself as a type
+constructor, and it would still not supply the proof that the obligation moved
+exactly once. See [NEP 4](../neps/0004-ownership.md) for more information.
+:::
 
 ## FAQ
 
-### Why does Nupp need ownership tracking when LuaJIT already has GC finalizers?
+### Why track ownership when LuaJIT already has GC finalizers?
 
 `ffi.gc` attaches runtime finalization to every resource and makes the garbage
 collector discover and dispatch its cleanup. `luajit bench/ownership.lua`
-compares that path with explicit cleanup around the same `malloc` and `free`.
-On LuaJIT 2.1 for arm64, finalization costs roughly an order of magnitude more
-per resource. Nupp's affine policy exists only during checking, and
-[lexical destruction](ownership.md#consumption-and-lexical-destruction)
-performs like the equivalent explicit cleanup within measurement noise. It
-adds no per-value wrapper, finalizer registration, or tracing work.
+compares that path with explicit cleanup around the same `malloc` and `free`; on
+LuaJIT 2.1 for arm64, finalization costs roughly an order of magnitude more per
+resource. Nupp's affine policy exists only during checking, adds no per-value
+wrapper, finalizer registration, or tracing work, and [lexical
+destruction](ownership.md#consumption-and-lexical-destruction) performs like the
+equivalent explicit cleanup within measurement noise.
 
 Cleanup timing also controls capacity. The garbage collector sees a small Lua
-wrapper, not the file descriptor, socket, lock, or native allocation behind it.
-A program can exhaust its file-descriptor limit before enough wrappers trigger
-collection, or keep another task waiting on a lock whose unreachable guard has
-not been finalized. An affine terminal runs at the scope boundary; a finalizer
-remains useful only as a last-resort safety net. The [C and FFI
-contracts](../concepts/c-interop.md#describe-lifetime-behavior) describe who
-owns each native resource, while [borrowing and
-pinning](ownership.md#borrowing-and-pinning) keep derived pointers attached to
-their backing storage.
+wrapper, not the file descriptor, socket, lock, or native allocation behind it,
+so a program can exhaust its file-descriptor limit before enough wrappers
+trigger collection, or keep another task waiting on a lock whose unreachable
+guard has not been finalized. An affine terminal runs at the scope boundary; a
+finalizer remains useful only as a last-resort safety net.
 
 ### Why not call cleanup manually?
 
 Calling `close`, `unlock`, or `free` directly works only when every return,
-raised error, and transfer follows the protocol. An
-[affine terminal](ownership.md#terminal-contract) makes that protocol part of
-the type. The checker then rejects a forgotten obligation, a second consumption,
-or a use after the value moved, while
-[automatic lexical
-destruction](ownership.md#consumption-and-lexical-destruction) handles each
-scope exit.
+raised error, and transfer follows the protocol. An [affine
+terminal](ownership.md#terminal-contract) makes that protocol part of the type,
+so the checker rejects a forgotten obligation, a second consumption, or a use
+after the value moved.
 
 ### Does every Nupp value use ownership?
 
-Ownership is opt-in. Strings, numbers, tables, and records without a
-nontrivial capability retain ordinary Lua behavior and need no ownership
-annotation. Explicit
-[public capability contracts](ownership.md#public-capability-contracts)
-apply only when an API carries an obligation, root, exclusive access, pin, or
-retention. A record constructor likewise remains ordinary unless its [result
-introduces a
-policy](records.md#constructors-and-result-policies).
+No. Strings, numbers, tables, and records without a nontrivial capability retain
+ordinary Lua behavior and need no annotation, and a record constructor stays
+ordinary unless its result introduces a policy. See [public capability
+contracts](ownership.md#public-capability-contracts) for the parameters that do
+need a mode.
 
 ### Does an affine type change the runtime representation?
 
-An affine type adds no runtime wrapper, cleanup field, tag, or vtable. It erases
-to its representation, so a C pointer remains a C pointer and a struct keeps the
+No. It adds no wrapper, cleanup field, tag, or vtable, and erases to its
+representation, so a C pointer remains a C pointer and a struct keeps the
 [layout declared at the boundary](../concepts/c-interop.md#type-mapping).
-Imported functions can state their [lifetime
-behavior](../concepts/c-interop.md#describe-lifetime-behavior) directly, and the
-checker enforces the contract around the same LuaJIT FFI call.
+
+::: seealso
+- [ownership.md](ownership.md) for moves, borrows, pins, and lexical
+  destruction
+- [ownership.md](../concepts/ownership.md) for the annotations a caller writes
+- [c-interop.md](../concepts/c-interop.md#describe-lifetime-behavior) for
+  stating an imported function's lifetime behavior
+- [NEP 4](../neps/0004-ownership.md) for the record of why the model is shaped
+  this way
+:::

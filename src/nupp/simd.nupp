@@ -1,11 +1,34 @@
 module nupp.simd
 
--- Target-selected packed values that exist only inside an AOT compilation.
---
--- The interfaces deliberately have no implementation. The checker gives calls
--- their ordinary types, then the AOT lowerer replaces every operation before a
--- runtime value could exist. Calling `preferred` outside that boundary raises a
--- direct explanation instead of manufacturing a boxed vector.
+--[[
+Target-selected packed values that exist only inside an AOT compilation.
+
+Reach for this where the register is itself the data structure and the answer
+depends on cross-lane masks, as structural indexing and block validation do. An
+ordinary map loop needs none of it: `@aot` already chooses a width for one.
+
+```nupp
+local simd = require("nupp.simd")
+
+@aot(lanes = false)
+local function quotes(source: string): uint32
+    const species = simd.preferredU8()
+    const block = species:loadString(source, nupp.math.u32.wrap(0))
+
+    return block:equal(34):count()
+end
+```
+
+The interfaces deliberately have no implementation. The checker gives calls
+their ordinary types, then the AOT lowerer replaces every operation before a
+runtime value could exist, so nothing here is ever boxed. A target built with
+`aot = "off"` reports `NUPP2903` for `preferredU8` rather than compiling a call
+that would have to manufacture a vector, and reaching one of these functions at
+run time raises for the same reason.
+
+See [ahead-of-time.md](docs/guides/ahead-of-time.md) for what an `@aot` boundary admits, and
+[0011-simd.md](docs/neps/0011-simd.md) for why the vocabulary is shaped this way.
+]]
 
 local simd = {}
 

@@ -1,5 +1,8 @@
 # Documentation generator
 
+`nupp doc` renders a project's API reference from its source, together with the
+handwritten Markdown pages the manifest lists. This site is built by it.
+
 ```bash
 nupp doc site -o build/docs src
 nupp doc markdown -o docs/api.md src
@@ -7,11 +10,11 @@ nupp doc json -o build/docs.json src
 nupp doc both -o build/docs
 ```
 
-This site is built by it.
-
-`nupp doc` reads the parser's lossless CST and never invokes the checker or the
-code generator, so a documentation build costs parsing and rendering alone.
+The generator reads the parser's lossless CST and never invokes the checker or
+the code generator, so a documentation build costs parsing and rendering alone.
 Unchanged output files are left untouched.
+
+## Choosing a format and a target
 
 ```text
 nupp doc [site|markdown|json|both] [-o PATH] [--target NAME] [--title TITLE] [--all] [path...]
@@ -22,18 +25,20 @@ The format is a positional word rather than a flag, and `md` is accepted for
 it has none. Anything in first position that is not a format word is a path.
 
 `--target` names which docs target to render, the way `nupp build --target`
-names which target to build. It is needed only by a manifest that has more than
-one: with no top-level `docs` table and several `kind = "docs"` targets, the one
-`build.default` names is rendered, and if that names something else `nupp doc`
-asks which was meant rather than choosing. Two docs targets are two
-deliverables, usually writing to two directories, and a run that picks between
-them on its own writes somewhere nobody asked for.
+names which target to build. Only a manifest carrying more than one needs it:
+with no top-level `docs` table and several `kind = "docs"` targets, the one
+`build.default` names is rendered, and a `build.default` naming something else
+makes `nupp doc` ask which was meant. Two docs targets are two deliverables,
+usually writing to two directories, so a run that chooses between them on its
+own writes somewhere nobody asked for.
+
+### Renderer dependencies
 
 `nupp doc` needs [lunamark](https://github.com/jgm/lunamark) and stops with a
 message if it is missing. Scintillua is optional: without it, a fence in a
-language it cannot load renders as escaped text. Both are ordinary
-[rock dependencies](build.md#rock-dependencies), so a docs target that declares
-them has them installed by the command that renders:
+language it cannot load renders as escaped text. Both are ordinary [rock
+dependencies](build.md#rock-dependencies), so a docs target that declares them
+has them installed by the command that renders:
 
 ```lua
 docs = {
@@ -45,7 +50,7 @@ docs = {
 
 ## Doc comments
 
-Two forms, and they are different.
+Two forms document a file, and they are different.
 
 **A long comment at the very top of a file** is that file's module
 documentation, kept as Markdown. Only whitespace may precede it, and an
@@ -78,47 +83,74 @@ documentation.
 
 | Tag | Shape |
 | --- | --- |
-| @param <name> <text> | Named, by parameter |
-| @field <name> <text> | Named, by field |
-| @typearg <name> <text> | Named, by type parameter |
-| @return <text> | Listed, one per occurrence, in order |
-| @returns <text> | The same tag |
-| @raises <text> | Listed, one per occurrence, in order |
-| @module [text] | Overrides the file's module blurb |
+| `@param <name> <text>` | Named, by parameter |
+| `@field <name> <text>` | Named, by field |
+| `@typearg <name> <text>` | Named, by type parameter |
+| `@return <text>` | Listed, one per occurrence, in order |
+| `@returns <text>` | The same tag |
+| `@raises <text>` | Listed, one per occurrence, in order |
+| `@module [text]` | Overrides the file's module blurb |
 | `@export`, `@public` | Force a declaration public |
-| `@local` | Keep a declaration out; --all brings it back |
-| @namespace [prefix] | Document a shape's own fields as modules |
+| `@local` | Keep a declaration out; `--all` brings it back |
+| `@namespace [prefix]` | Document a shape's own fields as modules |
 
 A tag's description continues onto any following indented line. Any other
 `@name` is kept as a tag with its value.
-
-`@namespace` is for a shape with no file of its own to be documented from: an
-compiler-provided intrinsic namespace declared once, whose fields are the
-surface a reader actually reaches. On a `local name: {...}` declaration it
-replaces that one item with a module per field, named `prefix.field` (the
-enclosing module's own name, when `prefix` is omitted). A field inside one of
-those modules may carry `@namespace` too; it becomes a nested module instead of
-a value on its parent. A field written inline (`data: {...}`) documents its own
-fields directly; a field spelled as a name (`math: nupp.MathLibrary`) is
-followed to a record of that name declared in the same file. Documentation never
-resolves a type the way the checker does, so a field answering to neither is
-left out rather than guessed at. This is how the standard library's own `nupp`
-global, covering `nupp.data`, `nupp.io`, and `nupp.math`, gets pages nested
-under `nupp` without a file to require any of them by, since native members have
-none.
-
-`@raises` says what makes a function raise, one line per condition. Lua has no
-signature to find that out from, so it is written down. The
-`undocumented-raise` lint asks a documented function that calls `error` to say
-so; it judges only documented functions, `assert` does not count, and it does
-not propagate through calls, because documenting what a callee raises is a
-claim the checker cannot verify.
 
 Tags are read wherever a function is declared, including the typed bindings and
 function-typed record fields that declaration files are written with, so
 `local ipairs: function<V>(t: {V}): ...` documents its arguments like any other
 function. The checker reports `NUPP1007` when an `@param` name does not match a
 real parameter.
+
+### Raised errors
+
+`@raises` says what makes a function raise, one line per condition. Lua has no
+signature to find that out from, so it is written down:
+
+```nupp
+--- Reads the whole file at `path`.
+---
+--- @raises when the file cannot be opened
+--- @raises when a read fails partway through
+local function slurp(path: string): string
+```
+
+The `undocumented-raise` lint asks a documented function that calls `error` to
+say so. It judges only documented functions, `assert` does not count, and it
+does not propagate through calls, because documenting what a callee raises is a
+claim the checker cannot verify. See [lints.md](../reference/lints.md) for
+configuring it.
+
+### Namespaces
+
+`@namespace` is for a shape with no file of its own to be documented from: a
+compiler-provided intrinsic namespace declared once, whose fields are the
+surface a reader actually reaches. On a `local name: {...}` declaration it
+replaces that one item with a module per field, named `prefix.field`, or the
+enclosing module's own name when `prefix` is omitted.
+
+```nupp
+--- @namespace nupp
+local nupp: {
+    --- @namespace
+    data: {
+        --- Hashes bytes with SHA-256.
+        sha256: function(bytes: string): string
+    },
+    math: nupp.MathLibrary,
+}
+```
+
+A field inside one of those modules may carry `@namespace` too; it becomes a
+nested module instead of a value on its parent. A field written inline, as
+`data` above, documents its own fields directly, and a field written as a type
+name, as `math: nupp.MathLibrary`, is followed to a record of that name
+declared in the same file. Documentation never resolves a type the way the
+checker does, so a field answering to neither is left out rather than guessed
+at. This is how the [`nupp` standard
+library](../concepts/standard-library.md), whose native members have no file to
+require them by, gets pages nested under `nupp`.
 
 ## Public surface
 
@@ -139,13 +171,13 @@ anything marked `@export`. Private by default:
 A hidden member leaves the rendered declaration too, not only the member
 table: the signature block a page shows for a record is the record's public
 surface, so a reader never sees a name the documentation refuses to describe.
+`includePrivate = true` on the docs target includes them.
 
 Metamethods are the one exception to the `_` rule. A metamethod is named for
 the Lua operation it implements, so `__index` says which operator this is
 rather than that it is private, and a declared `metamethod` is documented like
-any other member. `@internal` still opts one out.
-
-`includePrivate = true` on the docs target includes them.
+any other member. `@internal` still opts one out. See
+[metamethods.md](../concepts/metamethods.md) for declaring them.
 
 `@!internal` is a file-level inner annotation, not a docblock tag. Put it first
 in a namespace's `init.nupp` to keep that module and every descendant out of
@@ -178,18 +210,21 @@ The argument is replaced rather than dropped, because `affine(Reader)` is a
 different type: transfer-only, with deliberately no terminal at all. `_` keeps
 the type honest about the obligation the value carries while saying the name
 behind it is not the reader's to write. A cleanup the documentation does
-describe prints as written.
+describe prints as written. See
+[ownership.md](../type-system/ownership.md#terminal-contract) for what the
+terminal promises.
 
 ## Markdown pages
 
-A docs target can carry handwritten pages alongside the generated API. Beyond
-ordinary Markdown, five things are available in a fenced block. Every fence is
-highlighted, static code until one asks to be an editor.
-Backtick and tilde fences are both accepted. A closer uses the same character
-and at least as many of it as the opener, so a longer fence can show a shorter
-one literally.
+A docs target can carry handwritten pages alongside the generated API, written
+in ordinary Markdown with the additions below. Every fence is highlighted,
+static code until one asks to be an editor, and backtick and tilde fences are
+both accepted: a closer uses the same character and at least as many of it as
+the opener, so a longer fence can show a shorter one literally.
 
-**A caption**, which also becomes a tab label:
+### Captions
+
+A caption names a block, and becomes a tab label inside a code group:
 
 ````markdown
 ```lua [Generated Lua]
@@ -197,7 +232,9 @@ local x = 1
 ```
 ````
 
-**Line numbers**, optionally starting partway into a file:
+### Line numbers
+
+Numbering may start partway into a file:
 
 ````markdown
 ```nupp:line-numbers=41
@@ -208,7 +245,9 @@ local offset = true
 The numbers sit in their own gutter, so selecting the block copies the code
 without them.
 
-**Code groups**, which need no JavaScript:
+### Code groups
+
+A code group renders several blocks as tabs, and needs no JavaScript:
 
 ````markdown
 ::: code-group
@@ -219,12 +258,14 @@ end
 ```
 
 ```lua [Generated Lua]
-const Point = {} Point.__index = Point
+local Point = {} Point.__index = Point
 ```
 :::
 ````
 
-**Admonitions**, whose bodies remain ordinary Lunamark Markdown:
+### Admonitions
+
+An admonition is a titled aside whose body remains ordinary Lunamark Markdown:
 
 ````markdown
 ::: note Optional title
@@ -232,12 +273,38 @@ Use **normal Markdown** here, including links, lists, and fenced code.
 :::
 ````
 
-The supported kinds are `note`, `info`, `tip`, `warning`, and `danger`. Omit
-the title to use the capitalized kind. Containers may nest, and a fenced code
-block containing `:::` does not close its admonition.
+The kinds are `note`, `info`, `tip`, `warning`, `danger`, `seealso`, and
+`deepdive`. Omit the title to use the kind's own: `See also` for `seealso`,
+`Dive deeper` for `deepdive`, and the capitalized kind for the rest. Containers
+may nest, and a fenced code block containing `:::` does not close its
+admonition.
 
-**A playground**, which is also the editor rather than a picture of one. A Nupp
-fence asks for one with `:playground`:
+`seealso` renders as an always-open aside in its own color, holding the pages a
+reader who finished a section goes to next:
+
+````markdown
+::: seealso
+- [ownership.md](../type-system/ownership.md) for the contract reference
+- [c-interop.md](../concepts/c-interop.md) for what a C boundary adds to it
+:::
+````
+
+`deepdive` renders collapsed, because it answers a question the page did not
+raise: why a design is shaped the way it is, and what that cost. A reader
+following a task scrolls past it, and a reader who stopped to wonder opens it
+in one click.
+
+````markdown
+::: deepdive Why the CST
+Rendering from the checker's output would make a documentation build cost a
+type-check, and a project that does not check would document nothing.
+:::
+````
+
+### Playgrounds
+
+A playground is the editor rather than a picture of one. A Nupp fence asks for
+one with `:playground`:
 
 ````markdown
 ```nupp:playground
@@ -247,72 +314,73 @@ local p: Priority = "urgent"
 ````
 
 The program is checked in the reader's browser, as they type, by the real
-compiler. See
-[`editors/playground`](https://github.com/nupp-lang/nupp/tree/main/editors/playground)
-for how that works and what it cannot do. A caption becomes the editor's
-accessible label, and `:line-numbers` outranks the ask, so a numbered excerpt
-keeps the starting line it requested and stays text.
-
-Asking is how a page gets an editor because most examples on it should not be
-one: a fragment, one step of a sequence, or a program the page has already
-shown checks as an error the prose has already explained. The usual number is
-one, the example a reader would try first. ` ```playground ` remains the
-explicit spelling, and an empty block of it opens on the playground's own
-example menu instead of a program:
+compiler. A caption becomes the editor's accessible label, and `:line-numbers`
+outranks the ask, so a numbered excerpt keeps the starting line it requested
+and stays text. ` ```playground ` is the explicit form, and an empty block of it
+opens on the playground's own example menu instead of a program:
 
 ````markdown
 ```playground
 ```
 ````
 
-The block is an inline `<nupp-playground>` custom element, not an iframe. A site
-using it serves the playground's `dist/` at `/playground/`, the way
+The block is an inline `<nupp-playground>` custom element, not an iframe. A
+site using it serves the playground's `dist/` at `/playground/`, the way
 `nupp task docs-serve` does, so the page can load `doc-app.js`, its shared
-compiler worker, and the browser-safe compiler. Editors size from their content;
-long programs scroll after 28rem. Because the editor lives in the page,
-CodeMirror popups are not clipped at an iframe boundary. A fence with authored
-source also carries it as ordinary fallback markup, and an upgraded example menu
-keeps the same markup in sync with its current program. Reader Mode therefore
-sees source rather than the editor's line-number gutter; a browser without
-scripting sees authored source as a static code block.
+compiler worker, and the browser-safe compiler. Editors size from their
+content; long programs scroll after 28rem. A fence with authored source also
+carries it as ordinary fallback markup, and an upgraded example menu keeps that
+markup in sync with its current program, so Reader Mode and a browser without
+scripting both see source rather than an editor. See
+[`editors/playground`](https://github.com/nupp-lang/nupp/tree/main/editors/playground)
+for how the editor works and what it cannot do.
 
-**File embeds**, which read a file at build time:
+::: deepdive
+Asking is how a page gets an editor, because most examples on one should not be
+editors. A fragment does not check on its own, a step in a sequence checks as
+an error the prose has already explained, and a program the page has shown
+before teaches nothing a second time. Opting in keeps the editor on the example
+a reader would actually try, which is usually the first one on the page.
+:::
+
+### File embeds
+
+An embed reads a file at build time, guessing the language from its extension:
 
 ```markdown
 <<< @docs/grammar.abnf
 ```
 
-The language is guessed from the extension. This page's [grammar
-reference](../reference/grammar.md) is written this way, so it cannot drift from
-the file it documents.
+This site's [grammar reference](../reference/grammar.md) is written this way,
+so it cannot drift from the file it documents.
+
+### Highlighting
 
 Use `nupp` as the language for Nupp source. It is highlighted by the compiler's
 own parser and lexer, which agree about tokens and contextual syntax and can
-turn a name into a link into the API reference. A `:playground` fence is checked
-instead, by the compiler itself, once the reader engages with the frame. Every
-other language goes to Scintillua.
+turn a name into a link into the API reference. A `:playground` fence is
+checked instead, by the compiler itself, once the reader engages with the
+frame. Every other language goes to Scintillua.
 
-Links between pages are written as ordinary relative Markdown paths to the
-source file, as in `[ownership](../type-system/ownership.md)`, and are rewritten to
-the page's public route at build time. Fragments survive.
+### Links between pages
 
-A page source may open with `---`-delimited front matter, which is stripped.
+Links are written as ordinary relative Markdown paths to the source file, as in
+`[ownership](../type-system/ownership.md)`, and are rewritten to the page's
+public route at build time. Fragments survive. A page source may open with
+`---`-delimited front matter, which is stripped.
+
+## Outline and sidebar
 
 A page's outline follows its own structure: a heading written under a section
 is listed under that section, the way a module page lists a declaration under
-its group. A long generated page opens as the handful of sections it is made
-of rather than as a list of everything on it.
+its group. A long generated page therefore opens as the handful of sections it
+is made of rather than as a list of everything on it.
 
-The sidebar behaves the same way across pages. Its sections are collapsed
-except the one holding the page being read, and the API reference is open only
-on a module page, where the branches leading to that module are the ones
-expanded.
-
-Inside the API reference, every top-level branch stands open on every page. A
-top-level branch is a library, and there are few enough of them that naming
-them costs no room; it is the nesting below one that a reader has to be looking
-for. Those deeper branches stay shut except along the path to the module being
-read.
+The sidebar's sections are collapsed except the one holding the page being
+read, and the API reference is open only on a module page. Inside it, every
+top-level branch stands open on every page: a top-level branch is a library,
+and there are few enough of them that naming them costs no room. The deeper
+branches stay shut except along the path to the module being read.
 
 ## Moved pages
 
@@ -331,7 +399,6 @@ still arrives:
 
 The stub is a meta refresh with a canonical link and a plain anchor, so a
 bookmark, a search result and a reader with scripting off all reach the page.
-
 A former route is cleaned the way `path` is, so `tooling/build`,
 `/tooling/build` and `tooling/build/index.html` all name the same one. An empty
 route is refused rather than written to the site root.
@@ -341,44 +408,57 @@ redirects move onto the module's own page with it. That is what lets a page
 that documented a module from somewhere else keep its former address after it
 is filed under the module.
 
-Links inside the documentation do not need this. They name the source file and
+Links inside the documentation need none of this. They name the source file and
 are rewritten to whatever route it is published at, so moving a page leaves
 them working. Redirects are for addresses this project does not control:
 bookmarks, search results, and links from other sites.
 
-## Diagnostic index
+## Generated index pages
 
-`diagnostics` generates a page holding every diagnostic code, at the route it
-names:
+Two pages are generated from the compiler itself rather than from a project's
+sources, each configured by the route it should answer at.
+
+### Diagnostic index
+
+`diagnostics` generates a page holding every diagnostic code:
 
 ```lua
-diagnostics = {path = "diagnostics", title = "Diagnostic index"},
+diagnostics = {
+   path = "reference/diagnostics",
+   title = "Diagnostics",
+   source = "docs/reference/diagnostics.md",
+},
 ```
 
-The page is the compiler's own explanations, so nothing lists the codes and
+With a `source`, that file's prose opens the page and the generated index is
+appended to it under a `## Diagnostic index` heading; a page that writes that
+heading itself would give the route two. Without a `source`, the generated
+index is the whole page.
+
+The entries are the compiler's own explanations, so nothing lists the codes and
 nothing goes stale when one is added. Each code is a section that states the
 rule, shows the program that reports it, and shows the same program corrected.
 A lint's section also says its name, category, and default level. Sections are
 grouped by family, and a code links to its related codes by anchor.
 
+A code gets a section when the compiler knows it specifically: it has an
+example pair of its own, or it is a lint. A code that resolves only through its
+family does not, because the family answers for all of them at once. Where such
+a code appears among another section's related codes it is named rather than
+linked. The area reference a code carries is linked when the docs target
+publishes that file and named as a path when it does not, so a page the site
+does not build never becomes a dead link.
+
+::: deepdive
 One page rather than one per code, because an index is searched: the browser's
 find reaches every code, rule and program at once. That is also why no program
 there asks for an editor, since text inside an editor frame is not findable.
-Each reported program carries a link that opens it in the playground.
+Each reported program instead carries a link that opens it in the playground.
+:::
 
-A code gets a section when the compiler knows it specifically: it has an example
-pair of its own, or it is a lint. A code that resolves only through its family
-does not, because the family answers for all of them at once. Where such a code
-appears among another section's related codes it is named rather than linked.
+### LuaJIT standard library
 
-The area reference a code carries is linked when the docs target publishes that
-file and named as a path when it does not, so a page the site does not build
-never becomes a dead link.
-
-## Standard library index
-
-`stdlib` generates a page holding the LuaJIT standard library, at the route it
-names:
+`stdlib` generates a page holding the LuaJIT standard library:
 
 ```lua
 stdlib = {path = "luajit", title = "LuaJIT standard library"},
@@ -392,26 +472,19 @@ the signature the checker enforces, because the two read the same file.
 The compiler-provided globals come first, then one section per library table,
 `string`, `table`, `math` and the rest, then the modules `require` loads, then
 the types those signatures name, and last the `Layout` graph a reified `struct`
-is measured by. The semantic descriptor graph a `comptime` block walks is
-documented with the callable `nupp.reflect` namespace instead of leaking ambient
-types onto this page.
-
-A name on the page is the name a program writes. `print` is a global and
-`string.format` is a member, so that is what each one's heading, anchor and
-search entry say, and `#print` and `#string.format` both address what they look
-like they address.
-
-Every code block on the page is static, as on the diagnostic index and for the
-same reason: an index is searched, and the browser's own find cannot reach text
-inside an editor frame. A signature is a declaration rather than a program
-besides, so there is nothing there for an editor to check.
+is measured by. A name on the page is the name a program writes: `print` is a
+global and `string.format` is a member, so `#print` and `#string.format` both
+address what they look like they address. Every code block is static, for the
+same reason the diagnostic index's blocks are.
 
 What `nupp` itself provides is not on the page. Those are modules with pages of
-their own, and the prelude declares them only so that checked code can see them.
-
-The page needs no `sources` entry, and a project's own manifest cannot point it
-at other files: the declarations belong to the compiler rendering the site,
-which is what makes the page true of the toolchain a reader is holding.
+their own, and the prelude declares them only so that checked code can see
+them; the semantic descriptor graph a `comptime` block walks is documented with
+the callable [`nupp.reflect`](../concepts/reflection.md) namespace instead of
+leaking ambient types here. The page needs no `sources` entry, and a project's
+own manifest cannot point it at other files: the declarations belong to the
+compiler rendering the site, which is what makes the page true of the toolchain
+a reader is holding.
 
 ## Cross-references
 
@@ -443,7 +516,7 @@ only as program text.
 
 In `markdown` output the same references resolve to anchors within the
 document. A module's own `llms.txt` holds one module, so a reference to a
-neighbour keeps its name and drops its link.
+neighbor keeps its name and drops its link.
 
 ## Module pages
 
@@ -478,9 +551,9 @@ The route is `modules/` followed by the module name with its dots as slashes.
 This is where prose longer than a blurb belongs, being a page a doc comment
 would have to hold. It is ordinary page Markdown, so cross-references, links to
 other pages, code groups, and admonitions all work, and its headings join the
-page outline above the generated ones. `title` overrides the generated `Module:`
-or `Namespace:` one. A module with both an overview and a blurb shows the
-overview first.
+page outline above the generated ones. `title` overrides the generated
+`Module:` or `Namespace:` one. A module with both an overview and a blurb shows
+the overview first.
 
 ## Output
 
@@ -506,7 +579,7 @@ concatenated. A successful site build records the files it owns and removes any
 that the next successful build no longer produces, including pages whose route
 changed or whose source disappeared.
 
-## As a build target
+## Docs target
 
 ```lua
 docs = {
@@ -520,5 +593,36 @@ docs = {
 ```
 
 Then `nupp build --target docs`, and `nupp check --target docs` parses and
-validates every source without writing output. [The build
-system](build.md#documentation-targets) documents every key.
+validates every source without writing output. See [documentation
+targets](build.md#documentation-targets) for every key one takes.
+
+## FAQ
+
+### Why is a declaration missing from the reference?
+
+It is private by default: a name starting with `_`, a file or module under
+`internal`, or a file marked `@!internal`. Render with `--all`, or set
+`includePrivate = true` on the target, to see them. See [Public
+surface](#public-surface) for the whole rule.
+
+### Does `nupp doc` type-check the sources it reads?
+
+No. It renders from the parser's CST, so a project whose check fails still
+documents, and a signature on a page is the one that was written rather than
+one the checker confirmed. Run `nupp check --target docs` to parse and validate
+a docs target without writing output.
+
+### How does a directory of pages get published without listing each one?
+
+A page entry names a `directory` instead of a `source`, and every `.md` file
+under it is published, with an index generated at the entry's own path. See
+[page directories](build.md#page-directories) for frontmatter, numbering, and
+how the index is built.
+
+::: seealso
+- [cli.md](../reference/cli.md#doc) for the command's flags and JSON report
+- [annotations.md](../reference/annotations.md) for `@!internal` and the rest of
+  the file-level annotations
+- [diagnostics.md](../reference/diagnostics.md) for the page the `diagnostics`
+  key generates
+:::

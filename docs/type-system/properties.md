@@ -1,8 +1,8 @@
 # Property capabilities
 
 Properties and indexers declared `readonly` or `writeonly` grant read and write
-access independently. This lets a type describe the authority an API actually
-needs instead of turning every member into a read-write slot.
+access independently. A type then describes the authority an API needs instead
+of turning every member into a read-write slot.
 
 ```nupp:playground
 local interface Snapshot
@@ -15,15 +15,24 @@ end
 ```
 
 A `Snapshot` can read `value` but cannot assign it. An `Output` can assign the
-member but cannot observe its current value. The same syntax works in records
-and structural shapes:
+member but cannot observe its current value. See
+[Interfaces](interfaces.md) for the rest of what an interface declares.
+
+## Declaring a capability
+
+The same syntax works in a [record](records.md#records):
 
 ```nupp
 local record Cell
     readonly value: string
     writeonly value: string | integer
 end
+```
 
+It works in a structural shape too, which is how a caller states the authority
+it needs without naming the declaration that supplies it:
+
+```nupp
 local input: {
     readonly value: string
 } = Cell{value = "ready"}
@@ -34,43 +43,67 @@ local output: {
 
 The two declarations name one runtime property. They may use different types:
 here a write accepts `string | integer`, while every read produces `string`.
-This models normalizing setters and declaration-file APIs without weakening
-reads to the setter's broader input type. Construction may initialize a
-read-only record field; the capability governs access through the constructed
-view, not creation of the value.
+Construction may initialize a read-only record field, because the capability
+governs access through the constructed view rather than creation of the value.
 
-An unmodified property is shorthand for matching read and write capabilities:
+An unmodified property is shorthand for matching read and write capabilities,
+so `Ordinary` and `Expanded` describe the same authority:
 
 ```nupp
 local type Ordinary = {
     value: string
 }
--- Equivalent capabilities:
+
 local type Expanded = {
     readonly value: string,
     writeonly value: string
 }
 ```
 
+::: deepdive
+Splitting the read type from the write type is what lets a normalizing setter
+be described rather than approximated. A property that accepts `string |
+integer` and stores a `string` has one honest signature, and collapsing the
+pair to a single type has to pick which half to lie about: widening reads makes
+every consumer test a type the value never has, and narrowing writes rejects
+calls the implementation accepts. Declaration files for untyped Lua hit this on
+almost every setter, which is why the pair is part of the property rather than
+a separate declaration form.
+:::
+
 ## Variance
 
-Readonly types are covariant. If `Dog` fits `Animal`, a
-`{readonly value: Dog}` fits a `{readonly value: Animal}` because every value
-read is still an animal.
+Readonly types are covariant. If `Dog` fits `Animal`, then
+`{readonly value: Dog}` fits `{readonly value: Animal}`, because every value
+read through it is still an animal.
 
-Writeonly types are contravariant. A `{writeonly value: Animal}` fits a
-`{writeonly value: Dog}` because it accepts every dog the narrower view may
+Writeonly types are contravariant. A `{writeonly value: Animal}` fits
+`{writeonly value: Dog}`, because it accepts every dog the narrower view may
 write.
 
-An ordinary property has both constraints, so it is invariant. A stored
-`{value: Dog}` does not fit `{value: Animal}`: code using the latter view could
-write another kind of animal and break the former type. Fresh table literals
-may initialize a contextual type because no narrower stored view exists yet.
+An ordinary property has both constraints, so it is invariant:
+
+```nupp
+local interface Animal
+    name: string
+end
+
+local record Dog is Animal
+    name: string
+end
+
+local kennel: {value: Dog} = {value = new Dog(name = "rex")}
+-- NUPP2001: {value: Dog} is not a {value: Animal}
+local pen: {value: Animal} = kennel
+```
+
+Code holding `pen` could write another kind of animal and break the type
+`kennel` has. Fresh table literals may initialize a contextual type, because no
+narrower stored view exists yet.
 
 ## Indexers
 
-Indexers use the same capabilities and may appear in shapes, interfaces, and
-records:
+Indexers take the same capabilities, in shapes, interfaces, and records:
 
 ```nupp
 local interface ByteView
@@ -80,32 +113,62 @@ end
 local interface ByteSink
     writeonly [integer]: uint8
 end
+```
 
+A split pair works here too, so a normalizing map states what it accepts apart
+from what it returns:
+
+```nupp
 local type Normalizing = {
     readonly [string]: string,
     writeonly [string]: string | integer
 }
 ```
 
-Reading a map-like indexer remains optional because a key may be absent. The
-write type describes a present value accepted by assignment.
+Reading a map-like indexer stays optional because a key may be absent. The
+write type describes a present value accepted by assignment. See [Primitive
+types](primitives.md#collections) for how map and array types are written.
 
-## Relationship to other qualifiers
+## Other qualifiers
 
-Property capabilities are member-level access views:
+Property capabilities are member-level access views. The qualifiers written
+next to them answer different questions:
 
-- `const T` makes the whole value read-only rather than selecting members.
+- `const T` makes the whole value read-only rather than selecting members. See
+  [Primitive types](primitives.md#const) for the view it produces.
 - `borrows` and `exclusive` govern lifetime and aliasing, not whether a member
-  may be read or written.
-- A `const` binding prevents rebinding the local name; it does not by itself
+  may be read or written. See [Ownership and affine
+  types](ownership.md#borrowing-and-pinning) for the model.
+- A `const` binding prevents rebinding the local name. It does not by itself
   make the referenced table immutable.
 
 ## Access diagnostics
 
-NUPP2009 reports a read through a write-only view or an assignment through a
-read-only view. Compound assignment needs both capabilities because it first
-reads the old value and then writes the result.
+**NUPP2009** reports a read through a write-only view or an assignment through
+a read-only view. Compound assignment needs both capabilities, because it first
+reads the old value and then writes the result:
 
-NUPP2118 reports duplicate capabilities, an ordinary property combined with a
-separate capability of the same name, and capability properties on structs.
-Struct fields are fixed C memory slots and remain ordinary invariant fields.
+```nupp
+local record Counter
+    value: integer
+end
+
+local sink: {writeonly value: integer} = new Counter(value = 0)
+sink.value = 1
+sink.value += 1 -- NUPP2009: `+=` reads `value` through a write-only view
+```
+
+[**NUPP2118**](../reference/diagnostics.md#diagnostic-index) reports duplicate
+capabilities, an ordinary property combined with a separate capability of the
+same name, and capability properties on structs. Struct fields are fixed C
+memory slots, so they remain ordinary invariant fields. See [Records and
+structs](records.md#structs) for what a struct field may hold.
+
+::: seealso
+- [interfaces.md](interfaces.md) for the declaration these members most often
+  appear on
+- [records.md](records.md) for record and struct members, and the fields a
+  struct refuses
+- [ownership.md](ownership.md) for the qualifiers that govern lifetime rather
+  than access
+:::

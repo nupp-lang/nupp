@@ -4,10 +4,35 @@ module nupp.suspension
 Waiting, as an operation with an installable handler.
 
 A library that must wait performs `suspend`, and does not decide how waiting
-happens. Where a handler is installed -- a scheduler, a game frame -- the handler
+happens. Where a handler is installed, a scheduler or a game frame, the handler
 answers; where none is, the built-in one drives the registered sources. One call
-site, no `async` colouring, and no policy parameter threaded through an API that
+site, no `async` coloring, and no policy parameter threaded through an API that
 did not want one.
+
+```nupp
+local suspension = require("nupp.suspension")
+
+local function waitUntil(ready: function(): boolean): nil
+    suspension.suspend("example.wait", function(
+        resume: function(boolean),
+        context: suspension.Context
+    ): function()
+        const source = context:source("example.wait", 50, function(): integer
+            if ready() then
+                resume(true)
+
+                return 1
+            end
+
+            return 0
+        end)
+
+        return function(): nil
+            source:release()
+        end
+    end)
+end
+```
 
 The shape is tecs's, whose `taskruntime` has done this by hand inside one library
 for years: subscribe for a resumption, be resumed once, be cancellable. What is
@@ -22,20 +47,22 @@ silent bug rather than a loud one:
   `resume` the runtime made, so the guard against a second resumption cannot be
   walked around.
 - **A park is always cancellable.** A subscription that did not resume during
-  the call must answer a cancellation, because a handler that has to abandon a
-  wait -- a cancelled task, a shutdown -- otherwise has no way to tell the
-  library. Only a subscription that already completed may answer nil, having
-  nothing left to cancel.
+  the call must answer a cancellation. A handler that has to abandon a wait,
+  because its task was cancelled or the process is shutting down, otherwise has
+  no way to tell the library. Only a subscription that already completed may
+  answer nil, having nothing left to cancel.
 - **The context is available before subscribing.** A library registers its
   readiness pump with whoever is handling suspensions, which means it has to
   know who that is at subscription time rather than after.
 
 Measured against tecs's own numbers (`bench/suspension-baseline.lua`), the row
-that matters is the *ready* path -- an await whose subscription completes during
+that matters is the *ready* path, an await whose subscription completes during
 the call, which is most of the cost of waiting even when waiting really happens.
 That path allocates no park and never wakes a handler.
 
-See `docs/neps/0005-suspension.md`.
+See [suspension.md](docs/concepts/suspension.md) for what a caller writes, and
+[0005-suspension.md](docs/neps/0005-suspension.md) for the record of why the protocol has these
+three properties.
 ]]
 
 local suspension = {}
@@ -88,8 +115,8 @@ record suspension.Context
     --- Shared clients use this so one source may serve several simultaneous parks.
     uses: function(suspension.Context, suspension.Source): nil
 
-    --- Whether a suspension may happen here at all. A host with regions of its own --
-    --- tecs's barriers -- answers false inside them.
+    --- Whether a suspension may happen here at all. A host with regions of its
+    --- own, as tecs's barriers are, answers false inside them.
     canPark: function(suspension.Context): boolean
 end
 
@@ -114,9 +141,9 @@ record suspension.Handler
     --- Waits until `waiting:ready()`. Returning before that is a broken handler and
     --- `suspend` reports it rather than handing back a value nobody produced.
     ---
-    --- `cancel` abandons the subscription. A handler that gives up on a park -- a
-    --- cancelled task, a shutdown -- must call it, and must then raise rather than
-    --- return.
+    --- `cancel` abandons the subscription. A handler that gives up on a park, for
+    --- a cancelled task or a shutdown, must call it, and must then raise rather
+    --- than return.
     park: function(suspension.Handler, suspension.Waiting, function(): nil): nil
 
     --- Whether a suspension may happen here. False inside a host's own barrier, which
@@ -130,10 +157,10 @@ end
 
 -- The installation in force, per coroutine, and the parks each one has accepted.
 --
--- Keyed by *installation* rather than by handler. One handler may be installed twice --
--- nested extents, or a scheduler reused across frames -- and keying on it would let the
--- inner extent cancel the outer's parks on its way out, and discard the bookkeeping the
--- outer still needed.
+-- Keyed by *installation* rather than by handler. One handler may be installed twice,
+-- by nested extents or by a scheduler reused across frames, and keying on it would let
+-- the inner extent cancel the outer's parks on its way out, and discard the bookkeeping
+-- the outer still needed.
 --
 -- Weak-keyed so a finished coroutine's entry goes with it. The main thread has no
 -- coroutine object in LuaJIT, so it gets its own slot rather than a sentinel key.
@@ -150,8 +177,8 @@ local function effectiveInstallation()
     local current = co == nil and mainInstalled or installed[co]
     -- A coroutine created under an extent may not start until after that extent has
     -- ended. Using its handler then would add parks to bookkeeping nobody will ever
-    -- release, so a closed installation is stepped over in favour of whatever it
-    -- restored -- which is what the coroutine would have inherited had it been made a
+    -- release, so a closed installation is stepped over in favor of whatever it
+    -- restored, which is what the coroutine would have inherited had it been made a
     -- moment later.
     --
     -- The test is `restored`, not `released`: an extent whose drain failed is still
@@ -221,6 +248,12 @@ end
 --- Inside one, prefer the context's `source`: a pump registered there belongs to the
 --- handler answering that wait, and a handler that owns its pumps can shut them down.
 ---
+--- ```nupp
+--- const source = suspension.source("example.timers", 50, function(): integer
+---     return fireDueTimers()
+--- end)
+--- ```
+---
 --- @param name what this is, for diagnostics and ordering ties
 --- @param priority where in a pass it runs, lowest first
 --- @param poll answers how many things it settled
@@ -234,10 +267,12 @@ function suspension.source(
     return addSource(name, priority, poll, wait) as suspension.Source
 end
 
---- Drives every registered pump once. Answers how many things settled.
+--- Drives every registered pump once, and answers how many things settled.
 ---
---- Public because a host with its own loop drives the same pumps rather than a private
---- copy of them.
+--- Public because a host with its own loop drives the same pumps rather than a
+--- private copy of them.
+---
+--- @return how many things the pass settled
 function suspension.poll(): integer
     local settled = 0
     -- Copied, because a pump may register or release one while it runs.
@@ -385,10 +420,23 @@ end
 --- Performs a suspension.
 ---
 --- `subscribe` is handed a one-shot `resume` and the context of whoever is handling
---- suspensions here, and answers a cancellation. It may answer nil only when it resumed
---- during the call, having nothing left to cancel; otherwise a cancellation is
---- required,
---- because a handler that has to abandon the wait needs a way to say so.
+--- suspensions here, and answers a cancellation. It may answer nil only when it
+--- resumed during the call, having nothing left to cancel. Otherwise a cancellation
+--- is required, because a handler that has to abandon the wait needs a way to say
+--- so.
+---
+--- ```nupp
+--- const line = suspension.suspend("io.readLine", function(
+---     resume: function(string),
+---     context: suspension.Context
+--- ): function()
+---     const subscription = reader:onLine(resume)
+---
+---     return function(): nil
+---         subscription:release()
+---     end
+--- end)
+--- ```
 ---
 --- @param operation what is being waited for, which is what a stuck host reports
 --- @param subscribe hands over the resumption and the context, answers a cancellation
@@ -449,7 +497,7 @@ function suspension.suspend<T>(
     end
 
     -- Registered against the *installation* that accepted it, so an extent ending with
-    -- this park outstanding can find it -- and so a nested extent sharing the handler
+    -- this park outstanding can find it, and so a nested extent sharing the handler
     -- cannot.
     local ticket = nil
     if current ~= nil then
@@ -607,8 +655,7 @@ record suspension.Installed
         --
         -- Abandoning unsubscribes *and* wakes the park with a cancellation, so the
         -- suspended stack resumes, `suspend` raises, and every cleanup region between
-        -- there and
-        -- the park runs its cleanup.
+        -- there and the park runs its cleanup.
         for ticket in pairs(self.parks or {}) do
             attempt(ticket.abandon, "the handled extent ended")
         end
@@ -638,7 +685,7 @@ record suspension.Installed
         -- A ticket comes off when its `suspend` returns, so anything still here is a
         -- park told to abandon that has not finished. Returning successfully would
         -- report a scope closed while a coroutine is still suspended inside it with its
-        -- obligations undischarged -- and clearing the tickets would leave those
+        -- obligations undischarged. Clearing the tickets would leave those
         -- continuations owned by nobody, with no way to try again.
         if remaining ~= nil then
             local names = {}
@@ -661,28 +708,36 @@ function suspension.Installed.drop(takes self: suspension.Installed): nil
     self:release()
 end
 
+--- Releases an installation, which is what an install's contract names.
+---
+--- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
+--- scope boundary or an explicit `drop` reaches it.
+---
+--- @param self the installation, spent by this call
 function suspension.destroyInstalled(takes self: suspension.Installed): nil
     self:drop()
 end
 
 --- Installs `handler` for suspensions performed on this coroutine.
 ---
---- A scope rather than a callback, deliberately. Wrapping a body would make the extent
---- a
---- closure boundary -- which costs the caller its multi-value results and puts the
---- resource model's closure rules in the way of something that has nothing to do with
---- them -- so this hands back the obligation and lexical cleanup discharges it:
+--- A scope rather than a callback, deliberately. Wrapping a body would make the
+--- extent a closure boundary, which costs the caller its multi-value results and
+--- puts the resource model's closure rules in the way of something that has nothing
+--- to do with them. So this hands back the obligation and lexical cleanup
+--- discharges it.
 ---
----     do
----         local handling = suspension.install(scheduler)
----         runFrame()
----     end
+--- ```nupp
+--- do
+---     local handling = suspension.install(scheduler)
+---     runFrame()
+--- end -- the previous handler is restored, and every park it accepted is settled
+--- ```
 ---
 --- The extent is dynamic and per-coroutine: a suspension at any depth, through any
 --- library, reaches the innermost handler installed on the coroutine performing it.
 ---
 --- @param handler what answers suspensions inside the scope
---- @return the installation, which must be released
+--- @return the installation, owned by the caller
 function suspension.install(handler: suspension.Handler): affine(suspension.Installed, suspension.destroyInstalled)
     local co = running()
     local previous
@@ -712,14 +767,15 @@ end
 
 --- Creates a coroutine that inherits the handler installed where it was created.
 ---
---- Stock `coroutine.create` gives the new thread no handler, so a library that spawns
---- one -- a worker, a pipeline stage -- would find itself blocking inside a frame that
---- was handling suspensions perfectly well. Inheritance is what makes a handled extent
---- mean the work started inside it rather than only the frames literally below it.
+--- Stock `coroutine.create` gives the new thread no handler, so a library that
+--- spawns one, for a worker or a pipeline stage, would find itself blocking inside a
+--- frame that was handling suspensions perfectly well. Inheritance is what makes a
+--- handled extent mean the work started inside it rather than only the frames
+--- literally below it.
 ---
 --- Inherited at creation rather than at resumption. What answers is the handler that
 --- was in force where the coroutine was made, which is the lexical reading and the one
---- a reader can point at; a resumption-time rule would make a coroutine's behaviour
+--- a reader can point at; a resumption-time rule would make a coroutine's behavior
 --- depend on who happened to resume it.
 ---
 --- @param body what the coroutine runs
@@ -747,7 +803,7 @@ end
 --
 -- It is also the better reading. What answers a suspension is the handler in force
 -- where the work was started, which a reader can point at; a resumption-time rule would
--- make a coroutine's behaviour depend on whoever happened to resume it, which nobody
+-- make a coroutine's behavior depend on whoever happened to resume it, which nobody
 -- can see from the coroutine.
 
 --- Whether a handler is installed here, which is what `blocking` against `cooperative`
@@ -774,7 +830,7 @@ end
 ----------------------------------------------------------------------------
 
 --[[
-One driver wearing four faces.
+One driver behind `all`, `gather`, `race` and `batch`.
 
 `create` hands out a coroutine that inherits a handler, which is what a caller
 needs to *start* concurrent work; nothing here said what to do next. Driving it
@@ -799,15 +855,15 @@ raises, and the branch unwinds through whatever cleanup it had. Dropping the
 coroutine instead would leave a pump polling for a wait nobody is doing.
 ]]
 
---- Raised inside a branch being abandoned. It never escapes: the driver recognises this
+--- Raised inside a branch being abandoned. It never escapes: the driver recognizes this
 --- one and reports the winner instead.
 local ABANDONED = {}
 
 --- Runs `bodies` concurrently, at most `limit` at a time, and reports what each did.
 ---
 --- The shared machinery. `stopEarly` is asked after each branch settles whether the
---- rest
---- are still wanted; the four public forms differ only in that and in what they return.
+--- rest are still wanted, and the four public forms differ only in that and in what
+--- they answer.
 ---
 --- @param bodies what to run
 --- @param limit how many may be in flight, or nil for all of them
@@ -872,8 +928,7 @@ local function drive<T>(
     )
 
     --- Starts the next body that has not been started. Counting inside is what keeps
-    --- the
-    --- index an integer rather than one arithmetic step away from being one.
+    --- the index an integer rather than one arithmetic step away from being one.
     local function startNext()
         started = started + 1
         local index = started
@@ -931,7 +986,7 @@ local function drive<T>(
                     end
                     if stopEarly ~= nil and stopEarly() then
                         -- Every branch still going is resumed once so its park can
-                        -- cancel and unwind. One that never started simply never does.
+                        -- cancel and unwind. One that never started never does.
                         for other = 1, count do
                             local victim = threads[other]
                             if victim ~= nil then
@@ -966,9 +1021,9 @@ local function drive<T>(
             break
         end
         if not ran then
-            -- Nothing can run and something is still waiting, so the driver waits too
-            -- --
-            -- on the handler above it, which is what lets this nest inside a frame.
+            -- Nothing can run and something is still waiting, so the driver waits
+            -- too, on the handler above it, which is what lets this nest inside a
+            -- frame.
             suspension.suspend("suspension.all", parkDriver)
         end
     end
@@ -978,9 +1033,16 @@ end
 
 --- Runs every body concurrently and answers their values in order.
 ---
---- A branch that fails decides the whole call, but not until every branch has settled:
---- unwinding while siblings are still parked would strand their subscriptions, and a
---- caller who asked for all of them has no use for some of them.
+--- A branch that fails decides the whole call, but not until every branch has
+--- settled: unwinding while siblings are still parked would strand their
+--- subscriptions, and a caller who asked for all of them has no use for some of them.
+---
+--- ```nupp
+--- const pages = suspension.all({
+---     function(): string return fetch("/a") end,
+---     function(): string return fetch("/b") end,
+--- })
+--- ```
 ---
 --- @param bodies what to run
 --- @return each body's value, indexed as `bodies` was
@@ -998,11 +1060,13 @@ end
 
 --- Runs every body concurrently and answers what each of them did, failures included.
 ---
---- `all` for a caller who wants the failures rather than the first of them. Both arrays
---- are indexed as `bodies` was, and exactly one of them holds an entry per branch.
+--- `all` for a caller who wants the failures rather than the first of them. Both
+--- arrays are indexed as `bodies` was, and exactly one of them holds an entry per
+--- branch.
 ---
 --- @param bodies what to run
---- @return each body's value where it returned, and each body's error where it raised
+--- @return each body's value, where it returned
+--- @return each body's error, where it raised
 function suspension.gather<T>(bodies: {function(): T}): {T?}, {any}
     local values, errors = drive(bodies, nil, nil)
 
@@ -1012,10 +1076,19 @@ end
 --- Runs every body concurrently and answers the first one to settle.
 ---
 --- The losers are abandoned rather than forgotten: each is resumed once so its park
---- cancels and its branch unwinds. A loser that had not started never starts.
+--- cancels and its branch unwinds. A loser that had not started never starts, and an
+--- affine body that never ran is dropped rather than leaked.
+---
+--- ```nupp
+--- const answer, which = suspension.race({
+---     function(): string return fetch(primary) end,
+---     function(): string return fetch(mirror) end,
+--- })
+--- ```
 ---
 --- @param bodies what to run
---- @return the winner's value, and which body won
+--- @return the winner's value
+--- @return which body won
 --- @raises the winner's error, when the first to settle settled by failing
 local function raceImpl<T>(takes bodies: {function(): T}): T?, integer?
     local rawBodies: {function(): T}
@@ -1043,12 +1116,15 @@ end
 suspension.race = race
 
 --- Runs every body concurrently with at most `limit` in flight, and answers their
---- values
---- in order.
+--- values in order.
 ---
---- `all` with a ceiling, for fanning out over more work than the thing underneath will
---- take at once -- child processes against cores, requests against a pool. A branch
---- finishing is what lets the next one start.
+--- `all` with a ceiling, for fanning out over more work than the thing underneath
+--- will take at once: child processes against cores, requests against a pool. A
+--- branch finishing is what lets the next one start.
+---
+--- ```nupp
+--- const results = suspension.batch(jobs, 8)
+--- ```
 ---
 --- @param bodies what to run
 --- @param limit how many may be in flight at once; below one is treated as one

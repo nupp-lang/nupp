@@ -3,13 +3,14 @@
 module nupp.reflectruntime
 
 --[[
-What reflection is at run time.
+Reflection as it exists at run time.
 
 The compiler does the describing. A type that is reflected on carries a blueprint the
 checker built from its declaration, and generated code hands that blueprint over with
 `_G.nupp.__reflect.register`. What is left for run time is holding the blueprints,
-answering `reflect()` from one, and running the extensions a program layers on top --
-and, separately, the keyed codec a materialized `nupp.reflect.fieldCodec` calls.
+answering `reflect()` from one, and running the extensions a program layers on top.
+Separately, it holds the keyed codec a materialized `nupp.reflect.fieldCodec`
+calls.
 
 A descriptor is deliberately not the declaration table. A record's declaration stays
 its own metatable, and everything reflection knows lives in weak side tables keyed by
@@ -17,6 +18,8 @@ the type, so reflecting on a type does not change it and a type that goes out of
 takes its descriptor with it. The descriptor a program sees is an empty table whose
 metatable reads through to that state, which is how it stays immutable without any
 field on it to write over.
+
+See [reflection.md](docs/concepts/reflection.md) for what a program does with a descriptor.
 ]]
 
 local reflectruntime = {}
@@ -41,7 +44,7 @@ end
 ---
 --- A materialized codec calls this with the field names the compiler settled on and
 --- the fingerprint it checked them under, so encoding is a copy of the named fields
---- and nothing else -- a field that is absent stays absent rather than becoming an
+--- and nothing else. A field that is absent stays absent rather than becoming an
 --- explicit nil, which is what makes the result round-trip.
 --- @export
 function reflectruntime.installFieldCodec(namespace: any): nil

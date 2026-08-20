@@ -1,27 +1,36 @@
 module nupp.io.process
 
 --[[
-Running a child process.
+Starts a child process and drains its streams without deadlocking.
 
-The lifecycle, the streams, and the draining, written once against a backend
+```nupp
+local process = require("nupp.io.process")
+
+local child = assert(process.new({args = {"cc", "--version"}}))
+local result = assert(child:communicate())
+print(result.output)
+child:close()
+```
+
+The lifecycle, the streams, and the draining are written once against a backend
 that answers in bytes and opaque handles. Platform providers differ in how they
 spawn and how they read; they do not differ in what a process is, so nothing
 about what a process is lives in any one of them.
 
-Two vocabularies, kept apart inside the one module.
+Two vocabularies are kept apart inside the one module.
 
 The first is the one callers use: options, streams, an exit. It is tecs's
 surface, deliberately, so that `tecs.io.Process`'s call sites compile against
-this module with the import changed and nothing else -- the API is good, it was
+this module with the import changed and nothing else. The API is good, it was
 learned from a real workload, and re-deriving it would be re-learning the same
 lessons more slowly.
 
 The second is `Backend`: the smallest set of operations a platform has to
 answer, expressed in bytes and opaque handles and nothing else. Everything above
-it -- the lifecycle, draining two pipes without deadlocking, deadlines, what
-`communicate` means -- is the state machine below, written once. A design that
-let providers differ in more than spawning and reading would end up with two of
-every bug.
+it is the state machine below, written once: the lifecycle, draining two pipes
+without deadlocking, deadlines, and what `communicate` means. A design that let
+providers differ in more than spawning and reading would end up with two of every
+bug.
 
 They share a module because nothing wants one without the other. A caller needs
 the first and reaches it here; a platform provider needs `Backend` and reaches
@@ -31,14 +40,13 @@ Nothing in the caller-facing half mentions a file descriptor, a HANDLE, errno,
 or a signal number. A caller that has to know which platform it is on has been
 handed a leak.
 
-Waiting is a suspension. Under a handler -- a scheduler, a game frame -- reading
-a pipe parks the caller and the frame keeps running; with none installed the
+Waiting is a suspension. Under a handler, a scheduler or a game frame, reading a
+pipe parks the caller and the frame keeps running; with none installed the
 built-in handler drives the pumps and blocks. The same call either way, which is
 the whole reason `nupp.suspension` exists.
 
 Three details are worth stating, because they are the ones a first
-implementation gets wrong and this one got two of them wrong before they were
-pointed out.
+implementation gets wrong.
 
 **`communicate` makes one combined step.** Not "write all the input, then read
 stdout to the end, then read stderr". A child that reads its input in pieces
@@ -48,13 +56,16 @@ output the parent is not reading. The loop attempts all three every pass and
 suspends only when none of them moved.
 
 **A deadline has to be checked while suspended.** Checking it before parking and
-never again means a quiet child -- one producing nothing at all -- waits past its
+never again means a quiet child, one producing nothing at all, waits past its
 deadline forever, which is precisely the case a deadline is for.
 
 **A killed child is not immediately reapable.** Terminating takes as long as it
 takes, so closing waits for the exit rather than reaping something still dying.
 
-See `docs/neps/0005-suspension.md`.
+See [ownership.md](docs/type-system/ownership.md) for the contract a child
+and its streams are handed out under, and
+[0005-suspension.md](docs/neps/0005-suspension.md) for why waiting is a
+suspension rather than a block.
 ]]
 
 local suspension = require("nupp.suspension")
@@ -65,7 +76,7 @@ local process = {}
 --- descriptor, or nothing at all.
 type process.StreamMode = "pipe" | "inherit" | "null"
 
---- The same, plus stderr's option to join stdout.
+--- Where standard error goes, which adds the option to join standard output.
 type process.ErrorMode = "pipe" | "inherit" | "null" | "stdout"
 
 --- How a child was asked to be started.
@@ -84,13 +95,13 @@ type process.Options = {
     --- Whether to start from an empty environment rather than this process's.
     clearEnv: boolean?,
 
-    --- Defaults to `"pipe"`.
+    --- Where the child's standard input comes from, `"pipe"` by default.
     stdin: process.StreamMode?,
 
-    --- Defaults to `"pipe"`.
+    --- Where the child's standard output goes, `"pipe"` by default.
     stdout: process.StreamMode?,
 
-    --- Defaults to `"pipe"`.
+    --- Where the child's standard error goes, `"pipe"` by default.
     stderr: process.ErrorMode?,
 
     --- Kill the child after this many milliseconds. The clock starts when it is
@@ -100,10 +111,14 @@ type process.Options = {
 
 --- Controls a complete duplex exchange.
 type process.CommunicateOptions = {
-    --- Complete standard input. Omitted input sends EOF immediately.
+    --- Complete standard input.
+    ---
+    --- Omitted input sends EOF immediately.
     input: (string | nupp.io.Buffer | nupp.io.ByteView)?,
 
-    --- Maximum stdout and stderr bytes together. Defaults to 256 MiB.
+    --- Maximum stdout and stderr bytes together.
+    ---
+    --- Defaults to 256 MiB.
     maxOutputBytes: integer?
 }
 
@@ -141,7 +156,7 @@ record process.Result
     end
 end
 
---- What a wait is waiting for.
+--- The things one wait can be advanced by.
 ---
 --- A child handle on its own does not say. "The child has exited", "its stdout has
 --- bytes" and "its stdin will take some" are three different questions, and a platform
@@ -152,7 +167,7 @@ end
 --- So each wait says what would actually let its own caller continue. Draining
 --- everything at once asks about all three; waiting for the child to end asks only
 --- about the child, and accepts that a caller who does that without reading the output
---- can fill a pipe and stall -- which is why `communicate` exists.
+--- can fill a pipe and stall, which is why `communicate` exists.
 record process.Interest
     --- The child, when its termination is one of the things being waited for, and nil
     --- when this wait would not be advanced by it.
@@ -165,7 +180,8 @@ record process.Interest
     write: {any}
 end
 
---- What a platform must answer. Bytes and opaque handles; no policy.
+--- The operations a platform must answer, in bytes and opaque handles and no
+--- policy.
 ---
 --- Every operation is non-blocking except `waitReady`, and that one exists precisely so
 --- that the blocking case is a deliberate call rather than a loop. Waiting is otherwise
@@ -186,15 +202,15 @@ record process.Backend
     --- Reads what is available without waiting, at most `limit` bytes. Answers the
     --- bytes, or "" when nothing is ready, or nil at end of stream.
     ---
-    --- `limit` is always one or more; the state machine normalises what its callers
+    --- `limit` is always one or more; the state machine normalizes what its callers
     --- ask for, so a backend never converts a zero or a negative into a buffer size.
     ---
     --- The limit is part of the seam rather than something above it, because the
     --- contract above promises one: `nupp.io.Reader.read(count)` answers at most
     --- `count` bytes, and a platform that always handed back whatever a pipe held would
-    --- leave the completion-oriented method holding a surplus buffer of its own -- a
-    --- second place where bytes wait, with its own emptiness to reason about, to work
-    --- around a limit the kernel accepts perfectly well.
+    --- leave the completion-oriented method holding a surplus buffer of its own.
+    --- That is a second place where bytes wait, with its own emptiness to reason
+    --- about, and it works around a limit the kernel accepts perfectly well.
     read: function(process.Backend, any, integer): (string?)
 
     --- Writes what it can without waiting. Answers how many bytes went, and whether
@@ -203,9 +219,10 @@ record process.Backend
     --- Zero bytes has two meanings and they are opposites: the pipe is full and will
     --- take more later, or nobody is reading and it never will. A backend that reports
     --- only the count leaves a writer unable to tell waiting from finished, so it waits
-    --- forever. The second result separates them -- `EPIPE` or `EAGAIN` on POSIX,
-    --- `ERROR_BROKEN_PIPE` or a zero-length overlapped write on Win32 -- and once it is
-    --- true the bytes reported alongside it are the last that will ever go.
+    --- forever. The second result separates them, through `EPIPE` or `EAGAIN` on
+    --- POSIX and `ERROR_BROKEN_PIPE` or a zero-length overlapped write on Win32.
+    --- Once it is true, the bytes reported alongside it are the last that will ever
+    --- go.
     ---
     --- A POSIX backend has to earn the right to see `EPIPE` at all. Under the default
     --- disposition the kernel raises `SIGPIPE` first and kills the whole Nupp host
@@ -213,7 +230,7 @@ record process.Backend
     --- becomes "the program that spawned it died". The signal must therefore be
     --- suppressed, and the obvious suppression is the wrong one. Ignoring `SIGPIPE`
     --- process-wide is permanent and global, so a library that installs it silently
-    --- changes the behaviour of the host and of every other library in it. That is not
+    --- changes the behavior of the host and of every other library in it. That is not
     --- this module's policy to set.
     ---
     --- What it may do instead is scoped to what it owns. The per-descriptor route is
@@ -241,12 +258,12 @@ record process.Backend
     ---   4. If the write reported `EPIPE` and `SIGPIPE` was not already pending at step
     ---      2, consume the one it raised with `sigtimedwait` and a zero timeout,
     ---      retrying while it fails with `EINTR`. A consume abandoned on `EINTR` leaves
-    ---      the signal pending, and step 5 then delivers it -- the default disposition
+    ---      the signal pending, and step 5 then delivers it. The default disposition
     ---      kills the host, which is the exact outcome all of this exists to avoid.
     ---   5. Restore the mask, on every path out including the failing ones. A `write`
     ---      that raised, an unexpected errno, a consume that could not be completed:
     ---      each still owes the caller the mask it arrived with, because leaving
-    ---      `SIGPIPE` blocked changes the behaviour of every later write in the host
+    ---      `SIGPIPE` blocked changes the behavior of every later write in the host
     ---      just as surely as `SIG_IGN` would.
     ---
     ---   Step 4's condition is the careful part. Standard signals are not queued, so a
@@ -265,12 +282,12 @@ record process.Backend
     --- failure mode in either case is not a wrong answer but no host left to read one.
     write: function(process.Backend, any, string): (integer, boolean)
 
-    --- Closes one stream. Idempotent.
+    --- Closes one stream.
     ---
-    --- Answers whether the descriptor is *released*, and separately why the attempt
-    --- complained. Two answers because they are two facts and POSIX produces every
-    --- combination of them: `close(2)` can report `EIO` having already given the
-    --- descriptor up, and it can fail with the descriptor still ours.
+    --- Idempotent. Answers whether the descriptor is *released*, and separately why
+    --- the attempt complained. Two answers because they are two facts and POSIX
+    --- produces every combination of them: `close(2)` can report `EIO` having already
+    --- given the descriptor up, and it can fail with the descriptor still ours.
     ---
     --- Which matters because of what a caller does next. A descriptor still held may
     --- be closed again; one already released must never be, since the number is free
@@ -278,9 +295,9 @@ record process.Backend
     --- descriptor belonging to something else entirely. Conflating the two makes that
     --- bug reachable from an ordinary error path.
     ---
-    --- So: `(true, nil)` closed cleanly, `(true, reason)` released but the platform
-    --- complained -- report it, never retry -- and `(false, reason)` still ours and
-    --- worth another attempt.
+    --- So: `(true, nil)` closed cleanly; `(true, reason)` released but the platform
+    --- complained, which is to be reported and never retried; and `(false, reason)`
+    --- still ours and worth another attempt.
     ---
     --- A backend over a handle layer that cannot tell these apart must say released,
     --- since leaking a descriptor costs one descriptor and closing a stranger's costs
@@ -289,9 +306,9 @@ record process.Backend
     --- **Never raises.** This and `reap` are return-only, and that is a contract rather
     --- than a preference: an error carries no release state, so a caller that catches
     --- one knows something went wrong and nothing about whether the descriptor is still
-    --- theirs -- which is exactly the fact it needs in order to decide whether trying
-    --- again is safe or catastrophic. Every outcome, including a failure the backend
-    --- did not expect, comes back as `(released, reason)`.
+    --- theirs, which is exactly the fact it needs to decide whether trying again is
+    --- safe or catastrophic. Every outcome, including a failure the backend did not
+    --- expect, comes back as `(released, reason)`.
     ---
     --- A backend that raises anyway has broken this, and the state machine assumes the
     --- descriptor was released, because between leaking one and closing someone else's
@@ -304,8 +321,8 @@ record process.Backend
     --- the same reason: a pid is reused as readily as a descriptor, so a caller has to
     --- know whether this one is still theirs to ask about.
     ---
-    --- `waitpid` alone does not produce all three answers -- it reports the pid on
-    --- success and an error separately -- and the mapping is the backend's to make.
+    --- `waitpid` alone does not produce all three answers, since it reports the pid
+    --- on success and an error separately, so the mapping is the backend's to make.
     --- `ECHILD` says the child is already gone: released, do not retry. `EINTR` says
     --- nothing was consumed: still ours, ask again. The third, released with something
     --- to report, is what a handle layer answers when it gives ownership up and the
@@ -325,21 +342,19 @@ record process.Backend
     --- The one operation here that is allowed to block, and it exists so that a caller
     --- with no scheduler does not spin. Every other operation is non-blocking because
     --- waiting belongs to the state machine; *this* is the state machine asking the
-    --- platform to wait efficiently on its behalf -- `poll(2)` on POSIX,
-    --- `WaitForMultipleObjects` on Win32 -- rather than polling in a loop.
+    --- platform to wait efficiently on its behalf, through `poll(2)` on POSIX or
+    --- `WaitForMultipleObjects` on Win32, rather than polling in a loop.
     ---
     --- Never called while a suspension handler is installed. Under a scheduler the
     --- frame must keep running, so the state machine parks instead and the handler
     --- decides when to come back.
     ---
-    --- `timeoutMs` is a Nupp number and reaches a platform as a fixed-width integer, so
-    --- a backend converts it. Clamp before converting, not after: a negative can be
-    --- repaired on the far side -- it is a deadline already passed, and means no wait
-    --- --
-    --- but a number too large to fit has already wrapped or truncated by the time
-    --- anything over there sees it, and what arrives may be a short wait, or a long
-    --- one,
-    --- or a negative meaning forever. Nothing downstream can tell which.
+    --- `timeoutMs` is a Nupp number and reaches a platform as a fixed-width integer,
+    --- so a backend converts it. Clamp before converting, not after. A negative can
+    --- be repaired on the far side, since it is a deadline already passed and means
+    --- no wait. A number too large to fit has already wrapped or truncated by the
+    --- time anything over there sees it, and what arrives may be a short wait, a long
+    --- one, or a negative meaning forever. Nothing downstream can tell which.
     waitReady: function(process.Backend, process.Interest, number): integer
 end
 
@@ -359,7 +374,7 @@ local defaultBackend: process.Backend? = nil
 ---
 --- Its blocking `read` and its nonblocking `poll` are both here on purpose. A caller
 --- draining several streams at once cannot use the blocking form on any of them,
---- because waiting on one is exactly what starves the others -- which is the whole
+--- because waiting on one is exactly what starves the others, which is the whole
 --- reason `communicate` can drain three pipes without deadlocking.
 ---
 --- The completion-oriented `nupp.io.Reader` methods are the public tecs-compatible
@@ -368,10 +383,10 @@ local defaultBackend: process.Backend? = nil
 ---
 --- The tolerance that does exist is narrow and worth naming exactly: closing the same
 --- *live opaque handle* twice is harmless, because the second call finds the descriptor
---- already gone and says so. Retrying the raw descriptor underneath is the opposite --
---- that number belongs to whatever the platform has since handed it to. And destroying
---- a handle while a borrowed reference still exists leaves that reference reading freed
---- memory, which no amount of care at the call site can make safe.
+--- already gone and says so. Retrying the raw descriptor underneath is the opposite,
+--- because that number belongs to whatever the platform has since handed it to. And
+--- destroying a handle while a borrowed reference still exists leaves that reference
+--- reading freed memory, which no amount of care at the call site can make safe.
 ---
 --- Borrowing the record through `asReader` keeps a single owner and makes its lifetime
 --- a question about Nupp values, which the checker can answer.
@@ -394,14 +409,14 @@ record process.Reader is nupp.io.Reader
         return self.closed
     end
 
-    --- Closes this end. Idempotent.
+    --- Closes this end.
     ---
-    --- `closed` follows ownership rather than success. A platform that gave the
-    --- descriptor up and then complained has still given it up, so this end is shut and
-    --- the complaint is only reported; a platform that failed with the descriptor still
-    --- ours leaves this end open, and another attempt is right. Marking a released
-    --- descriptor open again is how a retry comes to close whichever unrelated thing
-    --- has since been given that number.
+    --- Idempotent. `closed` follows ownership rather than success. A platform that
+    --- gave the descriptor up and then complained has still given it up, so this end
+    --- is shut and the complaint is only reported; a platform that failed with the
+    --- descriptor still ours leaves this end open, and another attempt is right.
+    --- Marking a released descriptor open again is how a retry comes to close
+    --- whichever unrelated thing has since been given that number.
     ---
     --- @raises when the platform reported a problem, released or not
     function release(self): nil
@@ -693,9 +708,9 @@ record process.Writer is nupp.io.Writer
         end
 
         -- Both of these are written above the loop rather than in it, so the loop holds
-        -- no function to build -- one that does is a loop LuaJIT never compiles. What
-        -- the pass they belong to varies by is `sent` and `before`, and a name declared
-        -- out here is the same cell every pass.
+        -- no function to build. A loop that builds one is a loop LuaJIT never compiles.
+        -- What the pass they belong to varies by is `sent` and `before`, and a name
+        -- declared out here is the same cell every pass.
         local function offered(): boolean
             if self.closed or self.gone then
                 return true
@@ -847,7 +862,7 @@ record process.Process
     --- Whether the child *handle* has been given back, which is a smaller fact than
     --- `reaped` and has to be tracked apart from it. A teardown where a stream close
     --- complained still has a child to release, and a retry that had already released
-    --- it must not ask again -- a pid is reused as readily as a descriptor.
+    --- it must not ask again, because a pid is reused as readily as a descriptor.
     childReleased: boolean
 
     --- Whether a teardown is in progress. Separate from `reaped`, which means it
@@ -887,7 +902,9 @@ record process.Process
         return self.exit == nil
     end
 
-    --- Waits for it to end and answers how. Suspends while it runs.
+    --- Waits for it to end and answers how.
+    ---
+    --- Suspends while it runs.
     function wait(self): process.Exit
         await(
             self,
@@ -969,7 +986,7 @@ record process.Process
             -- Everything a quiet pass would have used: the streams still worth
             -- draining, room for whatever input is left, and the child. This is the one
             -- wait that may ask about the outputs, because it is the one that reads
-            -- them every pass -- so a ready stream leads to work rather than straight
+            -- them every pass, so a ready stream leads to work rather than straight
             -- back here.
             --
             -- Written here rather than at the wait it belongs to, because that wait is
@@ -1039,10 +1056,9 @@ record process.Process
                 end
                 if not moved then
                     -- All three quiet. This is a *retry*, not a condition wait. Only
-                    -- the
-                    -- next read can say whether it would now succeed; waiting for a
-                    -- predicate only this caller can test is how this deadlocked. Give
-                    -- the pumps one pass, then come back.
+                    -- the next read can say whether it would now succeed; waiting for
+                    -- a predicate only this caller can test is how this deadlocked.
+                    -- Give the pumps one pass, then come back.
                     if idle() then
                         break
                     end
@@ -1074,7 +1090,7 @@ record process.Process
             if runner == self.closingBy then
                 -- The same frame come back around: the waits below drive the pump, and
                 -- something it drives has called in here. One teardown is enough, and
-                -- this one is it -- returning is the only option, since waiting would
+                -- this one is it. Returning is the only option, since waiting would
                 -- be waiting on itself.
                 return true
             end
@@ -1082,9 +1098,9 @@ record process.Process
             if not suspension.handled() then
                 -- Another coroutine, and nothing to schedule it back. The teardown
                 -- holding this child belongs to a frame that is somewhere below this
-                -- one on the stack -- it can only have got here by being resumed from
-                -- inside that teardown -- so waiting would be waiting for a frame that
-                -- cannot run until this one returns. Saying so beats hanging.
+                -- one on the stack, since it can only have got here by being resumed
+                -- from inside that teardown, so waiting would be waiting for a frame
+                -- that cannot run until this one returns. Saying so beats hanging.
                 error(
                     "nupp: process close arrived from another coroutine while a teardown was "
                     .. "running, with no handler to schedule it",
@@ -1097,7 +1113,7 @@ record process.Process
             -- lets the owner's scope end, and the scope ending is what runs `drop`, so
             -- a premature yes has the next toucher on a handle already given back. It
             -- waits for whoever holds the teardown, then answers on the same terms as
-            -- any other close -- finished, or free to try again.
+            -- any other close, either finished or free to try again.
             await(
                 self,
                 "process close",
@@ -1159,8 +1175,8 @@ record process.Process
                 self.backend:kill(self.handle, true)
                 -- Terminating takes as long as it takes, so this waits for the exit
                 -- rather than asking the platform to reap something still dying. Every
-                -- stream close has been attempted by now -- attempted, not necessarily
-                -- done, since one may have refused and stayed ours -- so the child is
+                -- stream close has been attempted by now. Attempted, not necessarily
+                -- done, since one may have refused and stayed ours, so the child is
                 -- what this waits on and the only thing that can advance it.
                 await(
                     self,
@@ -1180,7 +1196,7 @@ record process.Process
 
         -- Attempted whatever went before it, and this is the whole point of attempting
         -- every step. Skipping the reap because a stream complained leaves a child
-        -- handle held by a process that has finished with it -- and under an automatic
+        -- handle held by a process that has finished with it, and under an automatic
         -- drop there is no binding left to retry through, so "unreaped" would mean
         -- "unreaped forever". A child that has not exited is a different matter: it is
         -- not reapable yet, and asking would be the error.
@@ -1258,7 +1274,7 @@ end
 -- Whether the deadline has passed, killing the child if it has.
 local function enforceDeadline(self: any): boolean
     -- Once. `timedOut` is the guard, and it has to be, because terminating takes as
-    -- many polls as it takes: a deadline re-enforced every pump would go on signalling
+    -- many polls as it takes: a deadline re-enforced every pump would go on signaling
     -- a process that is already dying, and a backend that treats a second kill as a
     -- fresh request would never get to finish.
     if self.deadline == nil or self.exit ~= nil or self.timedOut then
@@ -1276,7 +1292,7 @@ end
 -- One pass of everything that could make progress for this child.
 --
 -- The deadline is enforced here rather than only before parking, so a child producing
--- nothing at all -- the case a deadline exists for -- still reaches it.
+-- nothing at all, the case a deadline exists for, still reaches it.
 pumpOnce = function(self: any): integer
     local moved = progressed(self)
     if enforceDeadline(self) then
@@ -1382,7 +1398,7 @@ await = function(
     if not suspension.handled() then
         -- The same reasoning as `awaitTick`: with nobody to yield to, the platform is
         -- asked to sleep rather than the loop asked to spin. Every wait needs this, not
-        -- just the drain loop -- `wait`, a stream read, a stream write and `close` all
+        -- just the drain loop. `wait`, a stream read, a stream write and `close` all
         -- end up here, and each of them polling flat out is the cost this avoids.
         while not ready() do
             if stopAt ~= nil and self.backend:now() >= stopAt then
@@ -1591,7 +1607,7 @@ the symbols the native crate exports.
 
 It used to be a string in the compiler, installed as `nupp.io.processnative` through
 `package.preload` and reached from here by a cast, because a module of its own could
-not name `Backend` -- naming it would have made the two require each other, and a
+not name `Backend`. Naming it would have made the two require each other, and a
 resolved cycle answers `any` without reporting one. Written here it names `Backend`
 directly and is checked against it, which is what the cast was standing in for.
 ]]
@@ -1630,7 +1646,7 @@ double nuppProcessMonotonicMs(void);
 
 const C = native.C
 
--- How a stdio mode is spelled to the crate.
+-- How a stdio mode is written for the crate.
 const MODE: {[string]: integer} = {pipe = 0, inherit = 1, ["null"] = 2, stdout = 3}
 
 -- What a nonblocking read or write answers instead of a count.
@@ -1931,6 +1947,20 @@ end
 
 --- Starts a child.
 ---
+--- The child is an owner: closing it ends the process, waits for the exit, and
+--- releases every stream, and the same runs when its scope ends. Reading a stream
+--- or waiting for the exit suspends, so a caller under a scheduler keeps its
+--- frame.
+---
+--- ```nupp
+--- local child = assert(process.new({
+---     args = {"grep", "-c", "nupp"},
+---     stderr = "stdout",
+--- }))
+--- local result = assert(child:communicate({input = text}))
+--- child:close()
+--- ```
+---
 --- @param options what to run and how to connect it
 --- @return the child, which must be closed
 function process.new(options: process.Options): (affine(process.Process?, process.destroyProcess), string?)
@@ -1951,8 +1981,8 @@ end
 
 --- The exit a backend reports, with `succeeded` attached.
 ---
---- Backends build these, so the one judgement every caller makes -- did this work --
---- has one definition rather than one per platform.
+--- Backends build these, so the one judgment every caller makes, whether this
+--- worked, has one definition rather than one per platform.
 function process.exited(exitCode: integer, killed: boolean, timedOut: boolean): process.Exit
     return {
         exitCode = exitCode,

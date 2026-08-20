@@ -3,6 +3,12 @@ module nupp.log
 --[[
 Leveled logging over a swappable destination.
 
+```nupp
+nupp.log.level("info")
+nupp.log.info("loaded %d entities", count)
+nupp.log.debug("state=%s", state) -- filtered, so state is never rendered
+```
+
 Logging is the one facility whose disabled path is its hot path, so the shape here
 answers to what a filtered call costs rather than to what an emitted one does. `on`
 is an array the rewritten call site indexes directly, `emit` is reached only once a
@@ -31,9 +37,11 @@ type log.Level = "off" | "error" | "warn" | "info" | "debug"
 --- @export
 type log.Severity = integer
 
---- Receives one emitted line, already formatted. Replacing this replaces the back
---- end, so a host logging through its own facility pays for nothing it discards --
---- no timestamp is passed, because a sink that wants one asks.
+--- Receives one emitted line, already formatted.
+---
+--- Replacing this replaces the back end, so a host logging through its own
+--- facility pays for nothing it discards. No timestamp is passed, because a sink
+--- that wants one asks.
 --- @export
 type log.Sink = function(level: log.Severity, module: string, line: integer, message: string): nil
 
@@ -152,6 +160,10 @@ log.on = on
 log.emit = emit
 
 --- The view a generated chunk binds once, so a site carries only severity and line.
+---
+--- Generated code calls this in a module's prologue. Nothing written by hand needs
+--- it: a severity call in statement position is already lowered to a test against
+--- the view's `on` array around a direct `emit`.
 ---
 --- @param module the module name its lines carry
 --- @return the view, whose `on` a site indexes and whose `emit` it calls
@@ -301,6 +313,16 @@ local function restamp(): nil
 end
 
 --- A logger with a fixed name. Repeating a name answers the same logger.
+---
+--- Reach for one where the intrinsic cannot rewrite the call: a format built at run
+--- time, a call in expression position, a subsystem that wants its own name on every
+--- line. The methods are restamped whenever the level or the target moves, so a
+--- filtered call reaches an empty function rather than a test.
+---
+--- ```nupp
+--- const log = nupp.log.named("renderer")
+--- log:info("loaded %d entities", count)
+--- ```
 ---
 --- @param name the name its lines carry
 --- @return the logger

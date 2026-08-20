@@ -10,14 +10,19 @@ Nupp's ownership model is garbage collection plus opt-in affine capabilities.
 Ordinary Lua values stay freely aliased, mutable, and collected; only values
 carrying a cleanup obligation, a rooted view, an exclusive region, or a pinned
 anchor participate. Ownership is written where a result is, using a type
-constructor rather than a recognised name, and a binding still holding an
+constructor rather than a recognized name, and a binding still holding an
 obligation at lexical scope exit is destroyed automatically. Relationships name
-ordinary values — there are no named lifetimes, no lifetime parameters, and no
+ordinary values, so there are no named lifetimes, no lifetime parameters, and no
 read-only shared references.
 
-[Ownership](../concepts/ownership.md),
-[ownership types](../type-system/ownership.md), and
-[exact affine scopes](../concepts/exact-affine-scopes.md) document the surface.
+::: seealso
+- [concepts/ownership.md](../concepts/ownership.md) for the annotations a caller
+  writes
+- [type-system/ownership.md](../type-system/ownership.md) for the model behind
+  them
+- [exact-affine-scopes.md](../concepts/exact-affine-scopes.md) for the explicit
+  one-extent form
+:::
 
 ## Goals
 
@@ -25,7 +30,7 @@ read-only shared references.
 - Give every checked resource one statically accountable cleanup obligation.
 - Prevent a view from outliving or invalidating any value that roots it.
 - Make the shortest accepted program the error-safe one.
-- Let a library express ownership without the compiler recognising its names.
+- Let a library express ownership without the compiler recognizing its names.
 - Keep checked Nupp-to-Nupp paths erased and allocation-free.
 
 ## Non-goals
@@ -40,15 +45,16 @@ read-only shared references.
 
 ## Motivation
 
-### Importing Rust's model whole is the wrong default here
+### Importing Rust's model whole is the wrong default
 
 Rust's model gets its reach by making references, mutation, and lifetime
 parameters part of nearly every API. Importing it would make ordinary Lua tables
 participate in borrow checking, turn shared access into read-only access, and
-expose named lifetime plumbing in generic code that needs none of it — in a
-language whose ordinary values are garbage-collected and freely aliased.
+expose named lifetime plumbing in generic code that needs none of it. All of
+that lands in a language whose ordinary values are garbage-collected and freely
+aliased.
 
-### Every neighbouring model solves a different problem
+### Every neighboring model solves a different problem
 
 Reference counting and tracing solve reachability, and do not prove that a file
 closes once or that a native view dies before its backing allocation. Region and
@@ -64,11 +70,11 @@ identities answer resource obligations, hidden root sets answer view lifetime,
 and regions answer invalidating access. The checker pays that complexity only
 where an API introduces one of those facts.
 
-### An annotation above a signature has nowhere to name a position
+### Annotations above a signature cannot name a position
 
 Ownership used to be stated above the signature, so it could only ever describe
-the first result — the checker literally tested for position one — and a C
-output parameter had to be addressed by a string naming it.
+the first result, and the checker literally tested for position one. A C output
+parameter had to be addressed by a string naming it.
 
 ### Cleanup on the type alone would close stdout
 
@@ -81,12 +87,12 @@ every producer.
 ### Restating cleanup stopped supplying proof
 
 The original design kept ordinary ownership fully erased and made an explicit
-construct the only opt-in to protected cleanup. Once the checker knew, for every
-value slot, whether an obligation was live, moved, discharged, retained, or
-opaque — with the producer-specific operations, every borrow root, and
-capability transport through generics, packs, narrowing, fields, modules, and
-foreign results — requiring the programmer to restate the terminal supplied only
-*timing*.
+construct the only opt-in to protected cleanup. Then the checker came to know,
+for every value slot, whether an obligation was live, moved, discharged,
+retained, or opaque, along with the producer-specific operations, every borrow
+root, and capability transport through generics, packs, narrowing, fields,
+modules, and foreign results. Once it knew all of that, requiring the programmer
+to restate the terminal supplied only *timing*.
 
 A compile error is a good backstop and still costs a repair cycle. This matters
 most for generated and machine-written FFI code.
@@ -115,7 +121,7 @@ with binding = acquire() do ... end     -- one exact borrowed extent
 function(): R takes (names) borrows (names)   -- closure capture
 ```
 
-### Usage
+### Worked example
 
 Ordinary Lua stays outside the system:
 
@@ -178,8 +184,8 @@ end
 ### Lowering
 
 Every checked Nupp-to-Nupp path is erased and allocation-free. Roots, regions,
-and provenance exist only during checking — no capability object, no borrow
-token, no runtime registry:
+and provenance exist only during checking, so there is no capability object, no
+borrow token, and no runtime registry:
 
 ```lua
 local function fill(out, src)
@@ -210,7 +216,8 @@ end
 ```
 
 The declaring module writes the registration immediately after binding the
-function — later than the declaration, earlier than any top-level acquisition:
+function, which is later than the declaration and earlier than any top-level
+acquisition:
 
 ```lua
 local function free(value) ... end
@@ -232,10 +239,10 @@ do
 end
 ```
 
-Code with no owner is byte-identical to output from before the feature existed —
-no region, no guard, no cleanup frame. Capture is Lua's own upvalue capture, so
-a borrowing closure generates what an untyped one would; a taking closure is an
-affine value whose drop runs the drop of everything it took.
+Code with no owner is byte-identical to output from before the feature existed,
+with no region, no guard, and no cleanup frame. Capture is Lua's own upvalue
+capture, so a borrowing closure generates what an untyped one would; a taking
+closure is an affine value whose drop runs the drop of everything it took.
 
 ### Capabilities are opt-in and invisible
 
@@ -251,16 +258,16 @@ Preservation through a generic result is a *conservation* relation: cleanup
 obligations, transfer-only obligations, pin anchors, and foreign-retention
 tokens move, while roots, access, and region provenance are reproduced on the
 result. Stating it that way keeps it inside ordinary first-order type
-parameters — no higher-kinded types, generic associated types, or lifetime
+parameters, with no higher-kinded types, generic associated types, or lifetime
 parameters.
 
 ### Regions are an algebra over places
 
 A region identifies a root plus a path of field, slot, dereference, index, or
 checked-range segments. Shared regions block invalidation; exclusive regions
-grant sole checked access. This replaced overlap rules that recognised
-particular span spellings — correct for spans, and re-derived for every other
-shape wanting the same guarantee.
+grant sole checked access. This replaced overlap rules that recognized
+particular span spellings. Those rules were correct for spans, and re-derived
+for every other shape wanting the same guarantee.
 
 ### Nothing nontrivial disappears into a dynamic boundary
 
@@ -286,7 +293,7 @@ every pointer in the project.
 
 An ordinary copyable closure may be called twice, never called, or stored past
 the scope that was to discharge what it captured. A closure with a take list is
-affine by the rule that already makes a record with an affine field affine — so
+affine by the rule that already makes a record with an affine field affine, so
 nothing new is asserted about closures, and dropping one discharges what it
 took.
 
@@ -294,17 +301,17 @@ Borrow is the default because a borrow can be turned into a move by writing a
 clause, where the reverse would mean the enclosing scope silently lost a value
 by mentioning it.
 
-## General typestate
+### Typestate protocols
 
 A separate audit asked whether token-shaped protocols need a general typestate
 feature on top of this model. They do not.
 
-Every shape examined — open/close, begin/end, map/unmap, reserve/commit,
-register/unregister, acquire/submit/cancel, clone/release, and dynamic
-retirement — is representable by possession of a nominal affine token. A
-consuming transition destroys that token and may return a different one; a
-dependent token keeps its parent root live; an explicit clone creates a new
-obligation rather than copying one.
+Every shape examined is representable by possession of a nominal affine token:
+open/close, begin/end, map/unmap, reserve/commit, register/unregister,
+acquire/submit/cancel, clone/release, and dynamic retirement. A consuming
+transition destroys that token and may return a different one; a dependent token
+keeps its parent root live; an explicit clone creates a new obligation rather
+than copying one.
 
 **What ownership deliberately does not prove**, and what needs ordinary
 validation or a separate design:
@@ -313,15 +320,15 @@ validation or a separate design:
   level;
 - that one of several legal terminal transitions is the business-correct one;
 - protocol liveness or fairness;
-- the semantic behaviour of native implementations.
+- the semantic behavior of native implementations.
 
 Adding them would weaken the useful theorem by conflating linear resource
 accounting with arbitrary runtime state. Each protocol shape also leaves exactly
-one trusted fact at its boundary — that an external producer is fresh, that a
-bodyless declaration is truthful, that C stops retaining on release — and naming
-those is more honest than a system appearing to prove them.
+one trusted fact at its boundary, such as that an external producer is fresh,
+that a bodyless declaration is truthful, or that C stops retaining on release.
+Naming those is more honest than a system appearing to prove them.
 
-## Divergence from the original design
+### Divergence from the original design
 
 This was first shipped with a named generic wrapper and an annotation
 registering a type's terminal. Neither exists now: the capability work
@@ -330,22 +337,22 @@ above with concrete resource names in place of a shipped vocabulary. Both source
 records still described the retired spelling as current.
 
 The exact-extent construct was also *removed* once automatic destruction covered
-the general case, and then restored — it guarantees something automatic
-destruction cannot, that the value is inaccessible and cannot escape over one
+the general case, and then restored, because it guarantees something automatic
+destruction cannot: that the value is inaccessible and cannot escape over one
 exact extent. A general feature subsumes a specific one only if it provides the
 specific one's guarantee, not merely its common use case.
 
-## Constraints found during implementation
+### Constraints found during implementation
 
 **The code emitter sits at Lua's 60-upvalue ceiling.** Adding state for it to
 consult reports that the function captures too many names, so any design where
 emission consults new per-node state is blocked. That is why duplicate registry
-writes are tolerated rather than tracked — writing the same key to the same
+writes are tolerated rather than tracked, since writing the same key to the same
 function twice is the same assignment.
 
 **A self-hosting build blocks its own replacement.** A compiler generating
 invalid code cannot compile the fix; the launcher falls back to the last one
-that built and silently answers with the previous behaviour, and cleaning drops
+that built and silently answers with the previous behavior, and cleaning drops
 to the tracked bootstrap, which predates the feature and reports a *different*
 error. Read which compiler answered before believing an error.
 
@@ -412,9 +419,9 @@ resolving a cleanup name during *type* resolution, which inverts a layer.
 both in order stops where the first raises, turning one failed cleanup into
 skipped obligations, and would make a composed terminal behave unlike automatic
 destruction and unlike a resource set, both of which attempt everything. The
-behaviour was kept as an ordinary intrinsic instead.
+behavior was kept as an ordinary intrinsic instead.
 
-**Compiler-recognised policy names.** A constructor plus ordinary declarations
+**Compiler-recognized policy names.** A constructor plus ordinary declarations
 lets a project define its own policy aliases rather than working around a fixed
 set.
 

@@ -6,38 +6,49 @@ without a `require`; each implementation loads only if the checked program
 actually uses it. A binding called `nupp` shadows it deliberately, the way a
 binding called `string` would.
 
-This is compiler-provided language surface, not an ambient source module.
-This file supplies its generated API overview; it is not loaded as the runtime
+```nupp
+local text = nupp.data.json.encode({ok = true})
+nupp.log.info("wrote %d bytes", #text)
+```
+
+This is compiler-provided language surface, not an ambient source module. This
+file supplies its generated API overview; it is not loaded as the runtime
 implementation. Declaring `module nupp` here would turn the intrinsic root into
 an ordinary module and make `nupp.data`, `nupp.io`, and the other intrinsic
 members ambiguous with real descendants.
+
 Its public namespaces are [](nupp.data) (JSON, UTF-8, UUIDs, hashes and
 checksums), [](nupp.io) (buffers, byte views, readers, writers, and the typed
-scalar cursors over them),
-`nupp.io.path` and `nupp.io.uri` (filesystem paths and resource identifiers),
-[](nupp.math) (scalar helpers and two-dimensional vectors), `nupp.peg` (textual
-parsing-expression grammars compiled at either phase), and `nupp.reflect`
-(semantic type descriptors and reflection-driven keyed codecs).
+scalar cursors over them), [](nupp.io.path) and [](nupp.io.uri) (filesystem
+paths and resource identifiers), [](nupp.math) (scalar helpers and
+two-dimensional vectors), `nupp.peg` (textual parsing-expression grammars
+compiled at either phase), and `nupp.reflect` (semantic type descriptors and
+reflection-driven keyed codecs).
 
 Borrowing operations also live under this global: `nupp.borrow`,
-`nupp.borrowFrom`, `nupp.region`, and `nupp.pin`. `nupp.region` is the unsafe audited
-bridge from runtime-validated bounds to a checked child interval. Ownership itself is expressed by built-in
-compile-time type-generator calls such as `affine(T, cleanup)`, `affine(T)`,
-and `pinned(T)`, while `drop`, `unsafe adopt`, and `unsafe release` are language
-operations over affine values.
+`nupp.borrowFrom`, `nupp.region`, and `nupp.pin`. `nupp.region` is the unsafe
+audited bridge from runtime-validated bounds to a checked child interval.
+Ownership itself is expressed by built-in compile-time type-generator calls such
+as `affine(T, cleanup)`, `affine(T)`, and `pinned(T)`, while `drop`, `unsafe
+adopt`, and `unsafe release` are language operations over affine values.
 
 The source files shipped beside it are declared modules, reached with `require`
-or qualified module paths and separate from the intrinsic table: [](nupp.profile)
-and the [](nupp.profile.zone) markers it reads, the `nupp.mem` storage family
-(`nupp.mem.span`, `nupp.mem.heap`, `nupp.mem.soa`, and the `nupp.mem.indexed` range
-they share), the `nupp.owners` custody pair ([](nupp.owners.set) and
-[](nupp.owners.store)), [](nupp.io.file), and `nupp.compiler`, which holds the
-self-hosted compiler implementation and is hidden from public API documentation by
-its `@!internal` namespace root.
+or qualified module paths and separate from the intrinsic table:
 
 ```nupp
 local zone = require("nupp.profile.zone")
 ```
+
+Those are [](nupp.profile) and the [](nupp.profile.zone) markers it reads, the
+[](nupp.mem) storage family ([](nupp.mem.span), [](nupp.mem.heap),
+[](nupp.mem.soa), and the [](nupp.mem.indexed) range they share), the
+[](nupp.owners) custody pair ([](nupp.owners.set) and [](nupp.owners.store)),
+[](nupp.io.file), and `nupp.compiler`, which holds the self-hosted compiler
+implementation and is hidden from public API documentation by its `@!internal`
+namespace root.
+
+See [standard-library.md](docs/concepts/standard-library.md) for what belongs here and what does not,
+and [modules.md](docs/concepts/modules.md) for how a declared module is reached.
 ]]
 
 const nupp = {}

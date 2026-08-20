@@ -3,18 +3,34 @@ module nupp.owners.set
 --[[
 A container for as many owners as a program turns out to need.
 
-How many owners a set holds, and of what types, is known only while running, so the
-proof of discharge cannot stay in the checker: it is carried into the entry as the
-witness `adopt` is handed. Surrendering an owner to that storage is what `unsafe
-release` is for, and the two `unsafe` blocks below are the whole of what this module
-asks to be trusted about. `nupp ownership-audit` lists them.
+How many owners a set holds, and of what types, is known only while running, so
+the proof of discharge cannot stay in the checker: it is carried into the entry
+as the witness `adopt` is handed.
 
-This is the simple half of owner custody: entries are erased, discharge is LIFO, and
-a borrow lives as long as the set. [](nupp.owners.store) is the same idea with
-generation and type-policy checks, so an individual owner can cross untyped storage
-and be recovered.
+```nupp
+local set = require("nupp.owners.set")
+local file = require("nupp.io.file")
 
-See `docs/type-system/ownership.md`.
+do
+    local open = set.new("open files")
+    for _, path in ipairs({"a.txt", "b.txt"}) do
+        local handle = open:adopt(file.open(path))
+        print(handle:read("*a"))
+    end
+end -- every adopted handle closes here, in reverse
+```
+
+Surrendering an owner to that storage is what `unsafe release` is for, and the
+two `unsafe` blocks below are the whole of what this module asks to be trusted
+about. `nupp ownership-audit` lists them.
+
+This is the simple half of owner custody: entries are erased, discharge is LIFO,
+and a borrow lives as long as the set. [](nupp.owners.store) is the same idea
+with generation and type-policy checks, so an individual owner can cross untyped
+storage and be recovered.
+
+See [ownership.md](docs/type-system/ownership.md) for the complete contract reference, and
+[ownership.md](docs/concepts/ownership.md) for the annotations a caller writes.
 ]]
 
 local set = {}
@@ -59,6 +75,16 @@ record set.Set
     --- The second argument is the discharge witness. A caller never writes it: the
     --- checker reifies the adopted value's own cleanup contract at the call site, and
     --- asks for an explicit terminal consumer only where there is no contract to reify.
+    --- An owner declared `affine(T)`, carrying no contract to reify, reports
+    --- `NUPP2602` until one is passed.
+    ---
+    --- ```nupp
+    --- do
+    ---     local group = set.new("requests")
+    ---     local request = group:adopt(beginRequest())
+    ---     print(request.id) -- the set owns it; this is a borrow of it
+    --- end
+    --- ```
     ---
     --- @param value the owner the set takes responsibility for
     --- @param terminal what discharges an opaque owner, which carries no contract
@@ -74,6 +100,18 @@ record set.Set
     end
 
     --- Deletes one registration and returns the original capability exactly once.
+    ---
+    --- The value comes back owned, so `close` will no longer discharge it and the
+    --- caller carries the obligation again.
+    ---
+    --- ```nupp
+    --- do
+    ---     local group = set.new("requests")
+    ---     local borrowed = group:adopt(beginRequest())
+    ---     local returned = group:remove(borrowed)
+    ---     drop(returned)
+    --- end
+    --- ```
     ---
     --- @param value a value a previous `adopt` returned
     --- @return that value, owned by the caller again
@@ -140,6 +178,14 @@ end
 ---
 --- The set closes automatically at its lexical boundary, discharging what it still
 --- holds.
+---
+--- ```nupp
+--- do
+---     local group = set.new("requests")
+---     local request = group:adopt(beginRequest())
+---     print(request.id)
+--- end -- close runs here, in reverse
+--- ```
 ---
 --- @export
 --- @param label what the set is for, in diagnostics; omitted names it "resource"

@@ -1,10 +1,7 @@
 `nupp.mem.span` gives a C array a rooted, one-based, bounds-checked view. A
 shared `Span<T>` reads contiguous elements; a writable span adds exclusive
-access and an affine lifetime, so the pointer cannot outlive or overlap its
-owner.
-
-Use spans at checked boundaries. Direct indexing through a pointer or
-variable-length C array remains an `unsafe` operation.
+access and an [affine lifetime](../../../concepts/ownership.md), so the pointer
+cannot outlive or overlap its owner.
 
 ```nupp
 local span = require("nupp.mem.span")
@@ -13,6 +10,10 @@ const text = "hello"
 const bytes = span.fromString(text)
 assert(#bytes == 5)
 ```
+
+Use spans at checked boundaries. Direct indexing through a pointer or
+variable-length C array remains an [`unsafe`
+operation](../../../concepts/ownership.md#unsafe-representation-boundaries).
 
 ## Creating a shared span
 
@@ -38,9 +39,10 @@ Indexes start at one. `view[index]` raises when the index is outside `1` through
 `#view`. `slice(first, last)` includes both endpoints and borrows the parent;
 omitting `last` extends through the end. An empty slice uses `first, first - 1`.
 
-The operator surface replaces the former element methods and public count field:
+The operator surface replaces the former element methods and public count
+field. Each former member is a migration error, not a deprecated alternative:
 
-| Former spelling | Current spelling |
+| Removed | Replacement |
 | --- | --- |
 | `view.count` | `#view` |
 | `view:get(index)` | `view[index]` |
@@ -48,14 +50,13 @@ The operator surface replaces the former element methods and public count field:
 | `view:getMut(index).field` | `view[index].field` |
 | `span.range(first, last, ...)` | `indexed.range(first, last, ...)` |
 
-The former spellings are migration errors, not deprecated alternate APIs.
-
-::: tip Nonescaping spans are allocation-free at -O1
+::: deepdive Nonescaping spans allocate nothing at -O1
 When the complete use of an exact standard Span constructor is static and
 nonescaping, Nupp keeps its anchor, pointer, offset, count, and capability as
 compiler-owned values instead of allocating a wrapper. Constructor validation
 and bounds checks still run, and the source remains strongly rooted through the
-last access. An escape or opaque call materializes the same checked span.
+last access, so the checked meaning does not change with the optimization
+level. An escape or an opaque call materializes the same checked span.
 :::
 
 `fromFixedCarray(source, count)` returns `FixedSpan<T, N>` when the array and
@@ -117,7 +118,9 @@ overlap.
 ## Shared range for several spans
 
 `indexed.range(first, last, ...)` checks one inclusive range against every
-trusted Span or SoA view and returns ordinary `first` and `last` integers:
+trusted Span or [SoA
+view](../../../concepts/structure-of-arrays.md) and answers a record whose
+`first` and `last` are ordinary integers:
 
 ```nupp
 local span = require("nupp.mem.span")
@@ -149,7 +152,7 @@ range check proves matching indexed reads and writes non-raising inside
 the dominated numeric loop. This proof is part of checking at every optimization
 level: it is what permits those calls inside `noraise` code.
 
-[Performance](../../../guides/performance.md#opt-6-indexed-views) says how that
+See [`OPT-6`](../../../guides/performance.md#opt-6-indexed-views) for how that
 proof is spent at `-O1`, as direct FFI element access and virtual slices that
 allocate no wrapper.
 
@@ -163,4 +166,13 @@ escape independently.
 A declarative C binding can use
 [`countedBy(count)`](../../../concepts/c-interop.md#counted-pointer-adapters)
 instead. Its checked call surface accepts spans, verifies shared counts, and
-projects the physical pointer/count arguments automatically.
+projects the physical pointer and count arguments automatically.
+
+::: seealso
+- [ownership.md](../../../concepts/ownership.md) for what makes a writable span
+  affine and when its access ends
+- [exact-affine-scopes.md](../../../concepts/exact-affine-scopes.md) for the
+  `with` block the writable examples use
+- [c-interop.md](../../../concepts/c-interop.md) for the boundary `ref` and
+  `countedBy` sit on
+:::

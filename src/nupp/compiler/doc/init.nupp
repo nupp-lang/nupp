@@ -483,6 +483,65 @@ local function embedFiles(root, markdown)
     return table.concat(out, "\n")
 end
 
+-- A doc comment is markdown written in a source file rather than on a page, so a link
+-- in one names a repository path: `docs/type-system/ownership.md`. The API page it ends
+-- up on is routed somewhere else entirely, so those paths are resolved against the
+-- site's routes exactly as a configured page's are, once, before anything renders.
+--
+-- Every prose field is rewritten rather than only the leading text, because a `@param`
+-- description carries a link as readily as the sentence above it does.
+local function rewriteModuleDocLinks(
+    module: nupp.compiler.doc.extract.Module,
+    pages: {nupp.compiler.doc.urls.Page},
+    file: string
+): nil
+    local page: nupp.compiler.doc.urls.Page = {path = ""}
+    local function rewrite(text: string?): string
+        if not text or text == "" then
+            return text or ""
+        end
+
+        return rewriteConfiguredPageLinks(text, page, pages, file)
+    end
+    local function rewriteParts(
+        params: {nupp.compiler.doc.extract.Param},
+        returns: {nupp.compiler.doc.extract.Result}
+    ): nil
+        for _, param in ipairs(params) do
+            param.text = rewrite(param.text)
+        end
+        for _, result in ipairs(returns) do
+            result.text = rewrite(result.text)
+        end
+    end
+    local rewriteMembers: (function(members: {nupp.compiler.doc.extract.Member}?): nil)
+    rewriteMembers = function(members)
+        for _, member in ipairs(members or {}) do
+            member.text = rewrite(member.text)
+            rewriteParts(member.params, member.returns)
+            rewriteMembers(member.members)
+        end
+    end
+    module.text = rewrite(module.text)
+    for _, item in ipairs(module.items) do
+        item.doc.text = rewrite(item.doc.text)
+        for name, text in pairs(item.doc.params) do
+            item.doc.params[name] = rewrite(text)
+        end
+        for index, text in ipairs(item.doc.returns) do
+            item.doc.returns[index] = rewrite(text)
+        end
+        for index, text in ipairs(item.doc.raises) do
+            item.doc.raises[index] = rewrite(text)
+        end
+        rewriteParts(item.params, item.returns)
+        for _, typearg in ipairs(item.typeargs) do
+            typearg.text = rewrite(typearg.text)
+        end
+        rewriteMembers(item.members)
+    end
+end
+
 local function configuredPages(root, settings, title)
     local pages, seen, home = {}, {}, false
     for index, configured in ipairs(settings.pages or {}) do
@@ -778,6 +837,11 @@ local function renderSite(root, outDir, modules, title, settings)
         }
     end
     pages = ordered
+    for _, candidate in ipairs(pages) do
+        if candidate.module then
+            rewriteModuleDocLinks(candidate.module, pages, routeFile(candidate.path))
+        end
+    end
 
     local allMarkdown, linkIndex, searchEntries = {}, symbolLinkIndex(modules), {}
     for _, candidate in ipairs(pages) do
@@ -857,6 +921,13 @@ local function renderSite(root, outDir, modules, title, settings)
             local links = symbolLinks(linkIndex, nil, relativePrefix(file))
             appendOutline(items, markdown)
             body[#body + 1] = homeHero(candidate, links)
+            -- A page whose markdown opens on a heading has named its own subject. One
+            -- that does not is a file written for somewhere else, most often a module
+            -- overview reused at a second route, and it would otherwise render with no
+            -- top-level heading at all.
+            if candidate.path ~= "" and markdown ~= "" and not markdown:match("^#%s") then
+                body[#body + 1] = "<h1>" .. htmlEscape(candidate.title) .. "</h1>"
+            end
             local renderedMarkdown = rewriteConfiguredPageLinks(markdown, candidate, pages, file)
             local featureStart, featureEnd
             if candidate.path == "" then

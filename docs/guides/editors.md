@@ -1,12 +1,14 @@
 # Editors
 
-Both integrations start the same language server:
+The repository carries a Visual Studio Code extension and a Claude Code plugin,
+and both are clients for one server that any other LSP client can start the
+same way:
 
 ```bash
 nupp lsp serve
 ```
 
-See [the language server](lsp.md) for what it provides.
+See [lsp.md](lsp.md#lsp-features) for the capabilities that server answers.
 
 ## Visual Studio Code
 
@@ -23,25 +25,24 @@ npm install
 
 Then open the repository root in VS Code and run the **Run Nupp extension**
 launch configuration. The development extension finds `bin/nupp` in the
-workspace automatically.
-
-For other workspaces, install `nupp` on `PATH` or point the extension at it.
+workspace automatically. For other workspaces, install `nupp` on `PATH` or
+point the extension at it.
 
 ### Settings
 
-| Setting | Default |
-| --- | --- |
-| `nupp.serverPath` | The checkout's bin/nupp, else nupp on PATH |
-| `nupp.serverArgs` | ["lsp", "serve", "${workspaceFolder}"] |
-| `nupp.serverCwd` | ${workspaceFolder} |
-| `nupp.serverEnvironment` | {} |
+Four settings configure the process, and all four restart the server when
+changed:
 
-All four expand `${workspaceFolder}` and `${env:NAME}`, and all four restart
-the server when changed. Arguments are passed without shell interpretation.
+- `nupp.serverPath`: empty, which resolves to this repository's `bin/nupp` when
+  the workspace is the checkout and to `nupp` on `PATH` otherwise.
+- `nupp.serverArgs`: `["lsp", "serve", "${workspaceFolder}"]`.
+- `nupp.serverCwd`: `${workspaceFolder}`.
+- `nupp.serverEnvironment`: `{}`.
 
-The extension runs one client per workspace folder, each watching `**/*.nupp`
-so an edit from Git, a generator, or another editor invalidates the incremental
-graph.
+All four expand `${workspaceFolder}` and `${env:NAME}`, and arguments are
+passed without shell interpretation. The extension runs one client per
+workspace folder, each watching `**/*.nupp` so an edit from Git, a generator,
+or another editor invalidates the incremental graph.
 
 ### Highlighting without the server
 
@@ -49,8 +50,9 @@ The TextMate grammar covers the shebang line, `---` doc comments as their own
 scope, with nested ```` ```nupp ```` fences inside them highlighted as Nupp,
 block comments, every string form including backtick interpolation with `${...}`
 regions, numerics with `_` separators and `ULL`/`i` suffixes, and the
-declaration forms. It is hand-scoped rather than generated from the ABNF,
-because ABNF defines syntax and a grammar file defines editor scope intent.
+declaration forms. It is hand-scoped rather than generated from the ABNF in
+[grammar.md](../reference/grammar.md), because ABNF defines syntax and a
+grammar file defines editor scope intent.
 
 Semantic highlighting from the server layers on top of it.
 
@@ -73,13 +75,19 @@ Any LSP client works. Point it at `nupp lsp serve` over stdio for files with
 the `.nupp` extension. The repository carries no Vim, Neovim, Emacs, Sublime,
 Helix, or Zed configuration.
 
-## Without an editor
+## Command-line forms
 
-Every navigation and refactoring operation has a CLI form that runs the same
-in-process session, which is what makes them scriptable:
+Every navigation and refactoring operation also runs from a shell, in the same
+in-process session an editor gets, which is what makes them scriptable:
 
 ```bash
 nupp lsp inspect --json src/app/main.nupp 12 9
 ```
 
-See [command-line language-server operations](lsp.md#command-line-operations).
+::: seealso
+- [lsp.md](lsp.md#command-line-operations) for every operation and the
+  positions it takes
+- [tooling.md](../getting-started/tooling.md) for the rest of the tools a
+  project uses day to day
+- [fmt.md](fmt.md) for the formatter behind the editor's format command
+:::

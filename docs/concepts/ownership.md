@@ -4,40 +4,9 @@ A file, socket, C allocation, or any other value that needs one final action can
 carry that obligation in its type. Nupp checks moves, borrows, explicit drops,
 and automatic lexical destruction.
 
-The [ownership reference](../type-system/ownership.md) covers the complete
-model.
-
-```nupp
-local record File
-    closed: boolean
-
-    function drop(takes self): nil
-        self.closed = true
-    end
-end
-```
-
-::: rationale
-Ownership is garbage collection plus opt-in affine capabilities: a value
-participates only once an API gives it an obligation, a root, a region, or an
-anchor, so ordinary Lua pays nothing. Cleanup attaches to a producer rather than
-to a type alone because the same file type covers a handle you must close and
-one you must not — attaching it to the type would close `stdout`.
-
-[NEP 4](../neps/0004-ownership.md) has the full record.
-:::
-
-## Exact cleanup policies
-
-An affine type names one exact cleanup function:
-
 ```nupp:playground
 local record File
     closed: boolean
-
-    function drop(takes self): nil
-        self.closed = true
-    end
 end
 
 local function closeFile(takes file: File): nil
@@ -47,17 +16,24 @@ end
 local function openFile(): affine(File, closeFile)
     return new File(closed = false)
 end
+
+local function readOnce(): nil
+    local file = openFile()
+    print(file.closed)
+end -- `closeFile(file)` runs here.
+
+readOnce()
 ```
 
-The cleanup identity is part of the static type and is erased from each runtime
-value. A package may delegate a cleanup to a method, but no method name or
-generic ownership alias is compiler-known.
+Ownership is opt in. A value takes part only once an API hands it an obligation,
+a root, a region, or an anchor, so ordinary Lua code pays nothing for the
+machinery.
 
-The parentheses are compile-time call syntax: `affine(File, closeFile)` invokes
-a built-in type generator while checking and produces a transparent type. It
-does not call `closeFile` or construct a runtime wrapper.
+## Exact cleanup policies
 
-A type with no canonical method names an explicit terminal instead:
+An affine type names one exact cleanup function, called its terminal. The
+terminal identity is part of the static type and is erased from every runtime
+value:
 
 ```nupp
 local record Session
@@ -74,7 +50,21 @@ end
 ```
 
 The terminal must be a non-suspending function that takes the represented value
-and returns `nil`. It may raise.
+and returns `nil`. It may raise. A package may delegate cleanup to a method, but
+no method name or generic ownership alias is compiler-known.
+
+The parentheses are compile-time call syntax: `affine(Session, closeSession)`
+invokes a built-in type generator while checking and produces a transparent
+type. It does not call `closeSession` or construct a runtime wrapper.
+
+::: deepdive
+Cleanup attaches to a producer rather than to a type alone. One `File` type
+covers a handle that has to be closed and a handle that must not be, so putting
+the obligation on the type would close `stdout`. A function returning
+`affine(File, closeFile)` states which of the two it made, and a function
+returning a plain `File` states that nothing is owed. See [NEP
+4](../neps/0004-ownership.md) for more information.
+:::
 
 ## Discharging an owner
 
@@ -90,7 +80,9 @@ drop(another)
 ```
 
 Passing it to a `takes` parameter or returning it through an affine result moves
-the same obligation. A second use or move is rejected.
+the same obligation. A second use or move is rejected. See
+[ownership.md](../type-system/ownership.md#consumption-and-lexical-destruction)
+for the exact destruction order.
 
 Use [`with`](exact-affine-scopes.md) when the value should instead have one
 exact extent:
@@ -104,9 +96,9 @@ end
 The visible `session` is a non-escaping borrow. Its hidden owner always drops at
 the end of the body and cannot be moved or ended early.
 
-`affine(T)` is deliberately terminal-less. It may be forwarded to another
-owner or consuming parameter, returned, or released in `unsafe`; it cannot be
-dropped locally.
+`affine(T)` is deliberately terminal-less. It may be forwarded to another owner
+or consuming parameter, returned, or released in `unsafe`; it cannot be dropped
+locally, because there is no function to call.
 
 ## Borrowing
 
@@ -125,13 +117,13 @@ drop session
 
 `borrows` is a lifetime and aliasing contract, not a const qualifier. Use
 `exclusive` for a call that needs sole access because it may invalidate views.
+See [ownership.md](../type-system/ownership.md#borrowing-and-pinning) for how a
+borrow pins its root.
 
 ## Resource fields
 
 A record containing affine fields is itself affine. Its synthesized terminal
-destroys still-live fields in reverse declaration order. A structural
-`function drop(takes self): nil` may override that behavior, but must discharge
-every affine field on every path.
+destroys still-live fields in reverse declaration order:
 
 ```nupp
 local record Bundle
@@ -145,6 +137,11 @@ local bundle = new Bundle(
 )
 drop bundle
 ```
+
+A structural `function drop(takes self): nil` may replace that behavior, but it
+must discharge every affine field on every path. See
+[ownership.md](../type-system/ownership.md#affine-aggregates-and-closures) for
+aggregates and for affine closures.
 
 ## Unsafe representation boundaries
 
@@ -177,5 +174,13 @@ local type MustForward<T> = affine(T)
 ```
 
 An affine type's static identity is its representation plus the exact terminal
-function identity, or deliberate terminal absence. The declaration name does
-not add runtime or nominal identity.
+function identity, or deliberate terminal absence. The declaration name adds no
+runtime or nominal identity.
+
+::: seealso
+- [ownership.md](../type-system/ownership.md) for the complete model, including
+  regions, loop-carried capabilities, and generic preservation
+- [affine-types.md](../type-system/affine-types.md#faq) for the questions
+  readers arrive with from a garbage-collected language
+- [c-interop.md](c-interop.md) for what a C boundary adds to an obligation
+:::

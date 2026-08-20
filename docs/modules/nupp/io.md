@@ -1,58 +1,72 @@
-`nupp.io` supplies in-memory byte I/O without requiring a stream framework. A
-buffer holds its bytes in a LuaJIT FFI array, so using it adds no native
-dependency. Files and processes build on the same reader and writer contracts
-when their native features are selected; sockets and general asynchronous
-streams remain separate future layers.
+`nupp.io` is bytes: storage for them, and the readers and writers that move
+them. Reach for it when a program needs a growable buffer, an immutable
+snapshot of one, or a parser that works the same over a buffer, a file and an
+HTTP response body.
 
-The rest of what io means is a module of its own: [`nupp.io.path`](../../concepts/paths-and-uris.md#paths)
-for filesystem paths, [`nupp.io.uri`](../../concepts/paths-and-uris.md#uris) for
-resource identifiers, and [`nupp.io.files`](io/files.md) for the filesystem. Each
-has a luacase name and so can be one, and keeping them apart is what lets a
-program that wants a byte buffer carry only a byte buffer.
-
-```nupp
+```nupp:playground
 local bytes = nupp.io.newBuffer("hello")
 local reader = bytes:newReader()
 assert(reader:read(5) == "hello")
 ```
 
+A buffer holds its bytes in a LuaJIT FFI array, so a program that uses one adds
+no native dependency. `Reader` and `Writer` are interfaces rather than the
+concrete things that satisfy them, which is what lets code written against the
+contract work over any of them without knowing which it has.
+
+The rest of what `io` means is a module of its own, because each has a luacase
+name and so can have one. See [path.md](io/path.md) for filesystem names,
+[uri.md](io/uri.md) for resource identifiers, [files.md](io/files.md) for the
+filesystem itself, [](nupp.io.process) for running a child process, and
+[](nupp.io.http) for the asynchronous HTTP client. Keeping them apart is what
+lets a program that wants a byte buffer carry a byte buffer rather than every
+provider behind the name.
+
+The last three move their bytes through the `Reader` and `Writer` contracts on
+this page, so a parser written against byte I/O reads a file, a child's output,
+or a response body without knowing which it has.
+
+Every value here is an owner. `close` is safe to call repeatedly and answers
+whether the thing it was writing into was still open, so a caller that cares can
+tell a clean finish from a destination that went away first. `isReleased`
+reports that state without changing it.
+
 ## Buffers
 
-`newBuffer()` creates an empty growable buffer. A string supplies initial bytes;
-an integer reserves capacity without changing the length.
+`newBuffer()` creates an empty growable buffer. A string supplies initial
+bytes; an integer reserves capacity without changing the length.
 
-```nupp:playground
+```nupp
 local bytes = nupp.io.newBuffer("hello")
 bytes:setString("!", bytes:length())
 assert(bytes:getString() == "hello!")
+```
 
+Buffer offsets are zero-based, as they are wherever a count is an offset into
+storage rather than a position in a Lua string. See [Byte
+positions](../../concepts/standard-library.md#byte-positions) for the rule and
+where the other convention applies.
+
+`getString(offset, count)` copies a range. `setString` overwrites from an
+offset and grows the buffer as needed, filling any gap with zero bytes. `clear`
+sets the length to zero without discarding capacity, and `resize` truncates or
+zero-fills:
+
+```nupp
+local bytes = nupp.io.newBuffer("hello")
 bytes:ensureCapacity(4096)
 assert(bytes:capacity() >= 4096)
 bytes:resize(3)
 assert(bytes:getString() == "hel")
 ```
 
-Buffer offsets are zero-based. `getString(offset, count)` copies a range.
-`setString` overwrites from an offset and grows the buffer as needed; a gap is
-filled with zero bytes. `clear` sets the length to zero without discarding
-capacity. `resize` truncates or zero-fills.
-
 Capacity is the allocation, not a recorded number. Growing at least doubles it,
 so appending through a writer costs amortized constant time per byte and
 `capacity()` reports bytes that are actually held. `ensureCapacity` reserves at
 least the minimum asked for.
 
-`close()` releases the buffer, is safe to call repeatedly, and makes later
-operations raise. `isReleased()` reports that state.
-
-- `length()`, `capacity()`: inspect logical and reserved byte counts.
-- `clear()`, `resize(length)`: remove bytes, truncate, or zero-extend.
-- `ensureCapacity(minimum)`: reserve without changing logical length.
-- `getString(offset?, count?)`: copy all bytes or a zero-based range.
-- `setString(bytes, offset?)`: overwrite and grow from a zero-based offset.
-- `view(offset?, count?)`: retain an immutable snapshot range.
-- `newReader()`, `newWriter()`: open directional in-memory I/O.
-- `isReleased()`, `close()`: inspect or release ownership.
+`close()` releases the buffer's storage, and an operation on a released buffer
+raises rather than answering a reason.
 
 ## Byte views
 
@@ -67,13 +81,10 @@ assert(header:getString() == "header")
 header:close()
 ```
 
-A view can make a smaller view, open its own snapshot reader with `newReader`,
-report its byte length, copy to a string, and be closed. Data and UTF-8
-functions accept views so callers can avoid coupling those APIs to a mutable
-buffer.
-
-`ByteView` provides `newReader`, `length`, `getString`, `view`, `isReleased`,
-and `close`. Its `view` offsets are zero-based like Buffer offsets.
+A view can make a smaller view, open its own snapshot reader, report its byte
+length, copy to a string, and be closed. Its offsets are zero-based like a
+buffer's. The data and UTF-8 modules accept views, which is what keeps those
+APIs from being coupled to a mutable buffer.
 
 ## Readers
 
@@ -92,16 +103,11 @@ assert(reader:read(8) == "f")
 assert(reader:read(8) == "") -- EOF
 ```
 
-`read(count)` returns at most `max(1, count)` bytes, so zero and negative counts
-still make progress. It returns an empty string at EOF and `nil, reason` after
-close. `readInto(buffer, offset, count)` returns zero at EOF. Its default count
-is 64 KiB. `transferTo(writer)` copies the entire remaining source and returns
-the byte count.
-
-- `read(count)`: `string?, reason?`.
-- `readInto(buffer, offset?, count?)`: `integer?, reason?`.
-- `transferTo(writer)`: `integer?, reason?`.
-- `close()`: `boolean, reason?`.
+`read(count)` returns at most `max(1, count)` bytes, so zero and negative
+counts still make progress. It returns an empty string at EOF and nil with a
+reason after close. `readInto(buffer, offset, count)` returns zero at EOF and
+reads 64 KiB when given no count. `transferTo(writer)` copies the entire
+remaining source and returns the byte count.
 
 ## Writers
 
@@ -119,20 +125,11 @@ assert(writer:flush())
 assert(destination:getString() == "prefix:body")
 ```
 
-`write` returns a boolean. `writeFrom` and `writeView` return the byte count.
-All return a reason when closed or when the destination was released. Writing a
-buffer into itself is rejected. `flush` is a no-op for memory but is part of the
-common writer contract, allowing a later file or socket writer to implement the
-same interface.
-
-- `write(bytes)`: `boolean, reason?`.
-- `writeFrom(buffer, offset?, count?)`: `integer?, reason?`.
-- `writeView(view, offset?, count?)`: `integer?, reason?`.
-- `flush()`: `boolean, reason?`.
-- `close()`: `boolean, reason?`.
-
-For filesystem names rather than file contents, see
-[`nupp.io.path.Path`](../../concepts/paths-and-uris.md#paths).
+`write` answers a boolean; `writeFrom` and `writeView` answer the byte count.
+All three answer a reason when the writer is closed or the destination was
+released, and writing a buffer into itself is rejected. `flush` does nothing
+for memory and is part of the contract so that a later file or socket writer
+implements the same interface.
 
 ## Typed scalars
 
@@ -150,42 +147,55 @@ assert(reader:readFloat64() == 1.5)
 assert(reader:atEnd())
 ```
 
-Both read and write host-endian, the only order LuaJIT ships, so that is the
-honest default. A format fixed to one byte order casts and swaps explicitly;
-there are no LE and BE variants here until something needs them.
+Every write answers the writer, so calls chain. A short read raises rather than
+answering a reason, which is the one place this pair departs from the reader
+and writer contracts above: a scalar either landed whole or the source was not
+what the format said, and there is no partial value to hand back.
 
-A short read raises rather than answering a reason: a scalar either landed whole
-or the source was not what the format said, and there is no partial value to
-hand back. That is the one place this module departs from the reader and writer
-contracts above, and it is the same choice `Buffer:get` makes.
+::: deepdive Host byte order
+Both directions read and write host-endian, the only order LuaJIT ships, so
+that is the honest default. A format fixed to one byte order casts and swaps
+explicitly, and there are no LE and BE variants here until something needs
+them. Adding a second set without a caller would double the surface and leave
+half of it untested.
+:::
+
+### Scalar sources
 
 `newScalarReader` takes whatever holds the bytes. A string, a `ByteView` or a
 `Buffer` is read from a copy taken there and then, so `remaining()` knows the
-count. A `Reader` is consumed as it goes, which is what lets a file or an HTTP
-body be read a field at a time; it cannot say how much is left, so `remaining()`
+count:
+
+```nupp
+local reader = nupp.io.newScalarReader("\1\2\3\4")
+assert(reader:remaining() == 4)
+```
+
+A `Reader` is consumed as it goes, which is what lets a file or an HTTP body be
+read a field at a time. It cannot say how much is left, so `remaining()`
 answers nil and `atEnd()` is the question to ask instead.
 
-`newScalarWriter` appends to a `Buffer`, keeping what that buffer already holds,
-or writes through a `Writer`. Given nothing it starts a buffer of its own, which
-`buffer()` hands back; a writer pointed at somebody else's `Writer` answers nil
-there, since the bytes are already gone. Every write answers the writer, so
-calls chain.
+### Scalar destinations
 
-- `remaining()`: `integer?`, nil when the source cannot say.
-- `atEnd()`: `boolean`.
-- `skip(count)`, `readBytes(count)`: move past or take raw bytes.
-- `readUint8`…`readUint64`, `readInt8`…`readInt64`, `readFloat32`,
-  `readFloat64`.
-- `writeBytes(bytes)`, and one `write*` matching each read.
-- `buffer()`: the destination `Buffer`, or nil.
-- `flush()`, `close()`: `boolean, reason?`.
+`newScalarWriter` appends to a `Buffer`, keeping what that buffer already
+holds, or writes through a `Writer`. Given nothing it starts a buffer of its
+own, which `buffer()` hands back:
 
-## Reading a LuaJIT string buffer
+```nupp
+local destination = nupp.io.newBuffer("header:")
+nupp.io.newScalarWriter(destination):writeUint8(33 as uint32)
+assert(destination:getString() == "header:!")
+```
+
+A writer pointed at somebody else's `Writer` answers nil from `buffer()`, since
+the bytes are already gone.
+
+## Byte queues
 
 A `string.buffer` is a byte queue: `put` appends to the back and `get` consumes
-from the front. `newScalarReader` accepts one directly, so bytes assembled there
-are read without copying everything in it first, and the queue's own `get` stays
-usable over the same bytes.
+from the front. `newScalarReader` accepts one directly, so bytes assembled
+there are read without copying everything in it first, and the queue's own
+`get` stays usable over the same bytes.
 
 ```nupp
 local buffer = require("string.buffer")
@@ -216,55 +226,11 @@ assert(destination:getString() == "payload")
 ```
 
 Neither takes the queue over. Nothing here frees or closes it, and one read to
-empty is an empty queue rather than a released one.
+empty leaves an empty queue rather than a released one.
 
-## Child processes
-
-`nupp.io.process` starts a child without exposing descriptors, platform handles,
-or signals. Reaching the module selects the native process provider and the
-suspension runtime it needs.
-
-```nupp
-local process = require("nupp.io.process")
-
-local child, spawnReason = process.new({args = {"cc", "--version"}, stdin = "null",})
-assert(child, spawnReason)
-local result, communicateReason = child:communicate()
-assert(result, communicateReason)
-assert(result:succeeded(), result.errorOutput)
-print(result.output)
-assert(child:close())
-```
-
-`args[1]` is the program and the remaining entries are its arguments. `cwd`
-changes the child's directory. `env` overlays inherited variables unless
-`clearEnv` starts from an empty environment. Standard streams default to
-`"pipe"` and may instead be `"inherit"` or `"null"`; stderr alone may be
-`"stdout"` to share stdout's actual destination. `timeoutMs` is measured from
-spawn, not from the first wait.
-
-`communicate({input?, maxOutputBytes?})` is the safe whole-process operation: it
-feeds stdin while draining stdout and stderr together, closes stdin to deliver
-EOF, and waits for the exit. Doing those operations sequentially can deadlock
-when a child fills one output pipe while waiting for more input.
-
-The concrete `Reader` and `Writer` satisfy the shared completion-oriented
-`nupp.io.Reader` and `nupp.io.Writer` contracts and also expose the nonblocking
-`poll` and `offer` operations needed by that combined drain. `asReader` and
-`asWriter` borrow the same records through their shared interfaces; they do not
-allocate or duplicate the native handle. The owning `Process` retains and
-eventually destroys that handle, so a borrow may not outlive it.
-
-Every wait is contextual. With no [suspension
-handler](../../concepts/suspension.md#hosts-supply-scheduling-policy) installed,
-it sleeps in the platform readiness wait. Under a scheduler handler, the same
-call parks the current task while the scheduler keeps running. Ready operations
-do neither.
-
-[Suspension](../../concepts/suspension.md) explains how the same ordinary call
-takes those paths and how several waits compose with `all`, `race`, or `batch`.
-
-`Process.drop()` is its structural `Drop` operation: it attempts
-every stream release, terminates a child still running, waits for it to finish,
-and releases the child handle. An `Exit` reports `exitCode`, `killed`, and
-`timedOut`; `succeeded()` is true only for an ordinary zero exit.
+::: seealso
+- [files.md](io/files.md) for the same contracts over a file on disk
+- [path.md](io/path.md) for filesystem names rather than file contents
+- [standard-library.md](../../concepts/standard-library.md) for the errors,
+  ownership and byte-position conventions every facility shares
+:::

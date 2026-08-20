@@ -1,77 +1,73 @@
 # Lints
 
 A lint is advice the compiler is confident enough to give but not entitled to
-force. It is separate from a type error, and the difference is the whole design:
-
-- A **type error** says the program does not mean what it says it means. It is
-  not configurable, not suppressible, and always stops the build. `NUPP2001`
-  and its neighbours are these.
-- A **lint** says the program means something you probably did not intend. It
-  has a name, a default level, and both project-wide and per-statement
-  overrides. Being wrong about one costs you a suppression, not a fork.
-
-Clippy's split between `rustc` errors and `clippy::` lints is the same line.
-
-One annotation turns any of them off for one statement:
+force. One annotation turns any of them off for one statement:
 
 ```nupp
 @allow("unused-binding")
 local pending = 1
 ```
 
+A type error says the program does not mean what it says it means, so it is not
+configurable, not suppressible, and always stops the build. A lint says the
+program means something you probably did not intend, so it has a name, a default
+level, and both project-wide and per-statement overrides. Being wrong about one
+costs a suppression, not a fork. Clippy's split between `rustc` errors and
+`clippy::` lints is the same line.
+
 ## Severity levels
 
-| level | reported | build | @allow | editor |
+A level sets more than whether the build stops, so the columns below vary
+independently rather than following from one switch.
+
+| Level | Reported | Build | `@allow` | Editor |
 | --- | --- | --- | --- | --- |
 | `off` | no | - | - | - |
 | `note` | yes | continue | yes | Information (3) |
 | `warning` | yes | continue | yes | Warning (2) |
-| `error` | yes | FAILS | yes | Error (1) |
+| `error` | yes | fails | yes | Error (1) |
 
-Three things vary independently, which is why they are three columns rather
-than one switch:
-
-- **Whether the build stops.** Only `error`.
 - **Whether it can be waved away.** Every lint can, at any level. A lint is a
-  judgement call by definition; a project that disagrees says so. This is what
-  separates a lint at `error` from a type error, which nothing silences.
+  judgement call by definition, and a project that disagrees says so. That is
+  what separates a lint at `error` from a type error, which nothing silences.
 - **How loudly an editor says it.** A file being typed into is half-written, so
   a lint may be shown more quietly than it is enforced. `missing-require` is an
   error in a build and a warning in an editor.
 
 ## Lint names and codes
 
-Every lint has a name and a stable code:
+Every lint has a name and a stable code.
 
-| name | code | category | default |
+| Name | Code | Category | Default |
 | --- | --- | --- | --- |
-| missing-require | `NUPP2120` | correctness | error |
+| `missing-require` | `NUPP2120` | correctness | error |
 | `exhaustiveness` | `NUPP2107` | correctness | warning |
-| string-pointer | `NUPP2501` | suspicious | warning |
-| jit-callback | `NUPP2502` | suspicious | warning |
-| customary-operator | `NUPP2504` | style | warning |
-| loop-invariant-closure | `NUPP2505` | suspicious | warning |
-| undocumented-raise | `NUPP2506` | suspicious | warning |
-| unused-binding | `NUPP2507` | suspicious | warning |
-| discarded-result | `NUPP2508` | suspicious | warning |
-| reifiable-record | `NUPP2509` | performance | off |
-| gradual-projection | `NUPP2511` | suspicious | warning |
-| else-if | `NUPP2510` | style | warning |
-| positional-record-construction | `NUPP2512` | style | warning |
-| deprecated | `NUPP2513` | suspicious | warning |
-| jit-boundary | `NUPP2514` | suspicious | warning |
-| jit-loop-closure | `NUPP2515` | performance | off |
+| `string-pointer` | `NUPP2501` | suspicious | warning |
+| `jit-callback` | `NUPP2502` | suspicious | warning |
+| `customary-operator` | `NUPP2504` | style | warning |
+| `loop-invariant-closure` | `NUPP2505` | suspicious | warning |
+| `undocumented-raise` | `NUPP2506` | suspicious | warning |
+| `unused-binding` | `NUPP2507` | suspicious | warning |
+| `discarded-result` | `NUPP2508` | suspicious | warning |
+| `reifiable-record` | `NUPP2509` | performance | off |
+| `else-if` | `NUPP2510` | style | warning |
+| `gradual-projection` | `NUPP2511` | suspicious | warning |
+| `positional-record-construction` | `NUPP2512` | style | warning |
+| `deprecated` | `NUPP2513` | suspicious | warning |
+| `jit-boundary` | `NUPP2514` | suspicious | warning |
+| `jit-loop-closure` | `NUPP2515` | performance | off |
 
 The name is what you write in configuration and suppressions; the code is what
 survives renaming and what tooling keys on. Either is accepted everywhere.
 
 `nupp lints` prints each lint's name, category, effective level and summary,
 marking any the project has moved. The text table has no code column;
-`nupp lints --json` carries `code`, `default` and `moved` as well.
+`nupp lints --json` carries `code`, `default` and `moved` as well. See
+[cli.md](cli.md#lints) for the command's options.
 
 ## Built-in lints
 
-These outputs were captured from `nupp check --no-color`.
+The captures below are `nupp check --no-color` output.
 
 ### `missing-require`
 
@@ -116,6 +112,9 @@ help: add branches for "blue", "green" or add an else clause
 ```
 :::
 
+See [narrowing.md](../type-system/narrowing.md) for how a closed set is narrowed
+in the first place.
+
 ### `string-pointer`
 
 A pointer into a temporary Lua string cannot be kept after the cast.
@@ -131,6 +130,9 @@ src/string-pointer.nupp:1:17: warning: NUPP2501 string-pointer: a pointer taken 
    |                 ^~~
 ```
 :::
+
+See [c-interop.md](../concepts/c-interop.md) for the lifetimes a C boundary
+gives a Lua value.
 
 ### `jit-callback`
 
@@ -181,7 +183,7 @@ help: move the call into a function disabled with jit.off, or remove @jit from t
 
 ### `customary-operator`
 
-C-style operators work, but the lint prefers Lua's word spellings.
+C-style operators work, but the lint prefers Lua's words.
 
 ::: code-group
 ```nupp [src/customary-operator.nupp]
@@ -229,9 +231,6 @@ the same table. Naming the fields says at the call site which value lands where;
 leaving it to the order says it in the declaration, so a reader has to go there,
 and adding a field silently changes what an existing call means.
 
-A struct is exempt. It is its C layout, the ctype takes its values in that
-layout's order, and naming them is an error rather than a preference.
-
 ::: code-group
 ```nupp [src/positional-record-construction.nupp]
 local record Point
@@ -251,6 +250,10 @@ src/positional-record-construction.nupp:6:15: warning: NUPP2512 positional-recor
 help: write new Point(field = value, ...) to name the fields
 ```
 :::
+
+A struct is exempt. It is its C layout, the ctype takes its values in that
+layout's order, and naming them is an error rather than a preference. See
+[records.md](../type-system/records.md#structs) for the difference.
 
 ### `loop-invariant-closure`
 
@@ -276,25 +279,18 @@ help: declare it once above the loop and pass the name
 The wasted allocation is the smaller half. LuaJIT has no recording for the
 bytecode that builds a function, so a loop containing one aborts recording every
 time it is tried, and after enough attempts the loop is blacklisted and never
-compiled again. The cost is not a closure per iteration; it is the whole
-enclosing loop running interpreted, however hot it gets and whatever else is in
-it.
+compiled again. The cost is the whole enclosing loop running interpreted,
+however hot it gets and whatever else is in it.
 
 That is why this reads a function *built* in a loop rather than one that
-outlives it, and why it is worth heeding where the allocation alone would look
-too small to bother with.
-
-It reports only what it can prove pointless: a function reading nothing from the
-iteration, which therefore lifts out with no change in meaning. One that does
-read the iteration costs the same trace and cannot be lifted, so it is
-`jit-loop-closure` below rather than this.
+outlives it. It reports only what it can prove pointless: a function reading
+nothing from the iteration, which therefore lifts out with no change in meaning.
+One that does read the iteration costs the same trace and cannot be lifted, so
+it is [`jit-loop-closure`](#jit-loop-closure) below rather than this.
 
 ### `jit-loop-closure`
 
-The other half of the pair, for a function that reads the iteration. There is
-nothing to lift and no mechanical edit to suggest, so this is off until a
-project asks for it. The loop does not compile either way, which is worth being
-able to ask about.
+The other half of the pair, for a function that reads the iteration.
 
 ::: code-group
 ```nupp [src/jit-loop-closure.nupp]
@@ -313,18 +309,21 @@ help: hand what varies to a function declared outside the loop, so the loop call
 ```
 :::
 
-The way out, where there is one, is to change what varies rather than where the
-function sits: declare one function above the loop that takes the varying part
-as an argument, so the loop calls it instead of building one. Where the closure
-really has to be built per iteration, the honest answer is that the loop runs
-interpreted, and the choice belongs to whoever wrote it.
+There is nothing to lift and no mechanical edit to suggest, so this is off until
+a project asks for it. The way out, where there is one, is to change what varies
+rather than where the function sits: declare one function above the loop that
+takes the varying part as an argument, so the loop calls it instead of building
+one. Where the closure really has to be built per iteration, the honest answer
+is that the loop runs interpreted, and the choice belongs to whoever wrote it.
 
 Two things report it without being asked. Inside an `@jit` function it is the
 non-suppressible `NUPP2707`, because that annotation promised the absence of
 catalogued recorder blockers; `jit.off` on the enclosing function silences it,
 since a function taken off the JIT has no trace to lose. And `nupp bc --check`
 reads the bytecode of any file and reports the same loops, together with the
-ones the compiler's own lowerings could introduce.
+ones the compiler's own lowerings could introduce. See [Function construction in
+a loop](../guides/jit-trace-checking.md#function-construction-in-a-loop) for the
+bytecode this rests on.
 
 ### `undocumented-raise`
 
@@ -358,7 +357,8 @@ help: add an @raises line saying what makes it raise
 Only functions with a `---` documentation run are judged. `error` counts but
 `assert` does not, nested functions own their raises, and the lint does not
 propagate through calls. `nupp lsp inspect` shows a callee's documented
-`@raises` at its use site.
+`@raises` at its use site. See [doc.md](../guides/doc.md#raised-errors) for the
+tag itself.
 
 ### `unused-binding`
 
@@ -429,22 +429,38 @@ help: use the result, or delete the call
 ```
 :::
 
-Rust needs `#[must_use]` on each function to say this. Nupp does not: effects
-are inferred for every visible function already, so being nothing but a result
-is proved rather than declared. Nothing has to be annotated.
-
-The proof is two questions. Whether the callee reaches anything the compiler
-cannot see is answered by its effect summary, which is file-local. A callee that
-reaches another module, or makes an unresolved call, widens to `top` and is left
-alone. Whether it writes is answered separately and syntactically, because a
-summary treats a write through a non-parameter local as staying local, and a
-local read out of a parameter is not scratch. See
-[effects](../concepts/effects.md#calls-and-fixed-point-propagation).
-
 Reads and allocation are not reasons to call: reading state and dropping the
 answer is the mistake being described. Writes, shape and metatable changes,
 escapes, declared callees, yielding and raising all are. A function returning
 nothing, including one returning only `nil`, discards nothing and is not judged.
+
+::: deepdive
+Rust needs `#[must_use]` on each function to say this. Nupp does not, because
+[effects](../concepts/effects.md) are inferred for every visible function
+already, so being nothing but a result is proved rather than declared.
+
+The proof is two questions. Whether the callee reaches anything the compiler
+cannot see is answered by its effect summary, which is file-local: a callee that
+reaches another module, or makes an unresolved call, widens to `top` and is left
+alone. Whether it writes is answered separately and syntactically, because a
+summary treats a write through a non-parameter local as staying local, and a
+local read out of a parameter is not scratch. See
+[effects.md](../concepts/effects.md#calls-and-fixed-point-propagation) for the
+propagation those answers come from.
+:::
+
+### `gradual-projection`
+
+A projection whose head inference never worked out is checked as `any`, and the
+lint reports the erasure once per call and member:
+
+```nupp
+local erased = collect(nil as any) -- warning: gradual-projection
+```
+
+An answer somebody wrote as `any` is a different thing and does not report. See
+[associated-types.md](../type-system/associated-types.md#gradual-projections)
+for what a projection is and when its head settles.
 
 ### `reifiable-record`
 
@@ -470,31 +486,6 @@ note: an instance is cdata, not a table: `pairs` needs a `__pairs` metamethod, a
 ```
 :::
 
-The judgement is one-directional and stays a suggestion, because the two are not
-interchangeable at runtime. A struct has a fixed layout and gives up the
-prototype a record stamps on what it builds. More to the point, an instance
-stops being a table: `type` answers `"cdata"`, `is` tests for cdata, and any
-code that walks the value by its keys has to be told how.
-
-That last cost is the one worth checking before taking the suggestion, because
-it reaches further than the declaration:
-
-| what | on a record | on a struct |
-| --- | --- | --- |
-| `type(v)` | "table" | "cdata" |
-| `pairs(v)` | iterates fields | needs a __pairs metamethod |
-| `string.buffer.encode(v)` | encodes | raises, and takes no hook |
-| a table-walking serializer | works | sees no keys |
-
-`__pairs` is dispatched on a `ffi.metatype`, so iteration can be restored by
-declaring one. Serialization cannot be patched the same way, because LuaJIT's
-serializer refuses cdata outright with no extension point, so a struct that has
-to cross a serialization boundary needs a conversion written for it.
-
-[`NUPP2201`](diagnostics.md) is the other half of the pair. It fires once
-`struct` is written and a field cannot live in C memory, so between them a
-declaration is told both what it could gain and what it may not do.
-
 A record is a candidate only when every entry is one a struct also accepts: a
 field whose type reifies, a constructor, or a method. An indexer, a Lua array
 part, a declaration-only metamethod, a nested declaration, a property
@@ -507,6 +498,28 @@ The lint is off until a project asks for it:
 ```lua
 lints = { performance = "note" }
 ```
+
+#### Struct conversion costs
+
+The judgement stays a suggestion, because the two are not interchangeable at
+runtime. A struct has a fixed layout and gives up the prototype a record stamps
+on what it builds, and an instance stops being a table.
+
+| Operation | On a record | On a struct |
+| --- | --- | --- |
+| `type(v)` | `"table"` | `"cdata"` |
+| `pairs(v)` | iterates fields | needs a `__pairs` metamethod |
+| `string.buffer.encode(v)` | encodes | raises, and takes no hook |
+| a table-walking serializer | works | sees no keys |
+
+`__pairs` is dispatched on an `ffi.metatype`, so iteration can be restored by
+declaring one. Serialization cannot be patched the same way, because LuaJIT's
+serializer refuses cdata outright with no extension point, so a struct that has
+to cross a serialization boundary needs a conversion written for it.
+
+[`NUPP2201`](diagnostics.md) is the other half of the pair. It fires once
+`struct` is written and a field cannot live in C memory, so between them a
+declaration is told both what it could gain and what it may not do.
 
 ### `deprecated`
 
@@ -532,31 +545,36 @@ help: use current instead
 ```
 :::
 
+See [annotations.md](annotations.md#deprecated) for what the annotation accepts.
+
 ## Categories
 
-Every lint declares one of four, which is what a project
-configures when it wants to move a group of them at once:
+Every lint declares one of four, which is what a project configures when it
+wants to move a group of them at once.
 
 - **correctness**: the program is very likely wrong. A project rarely turns
   these off.
 - **suspicious**: legal, and probably not meant.
 - **style**: it works and reads badly.
-- **performance**: the code pays for something it did not have to. The only
-  opt-in category: its members default to `off`, and a project asks for them as
-  a class. What is being paid for is real; whether it is worth changing depends
-  on how hot the code is, which the source does not state, so reported
-  unprompted these would fire on code that is not hot and teach their reader to
-  silence the category before meeting the case they were written for.
-  `nupp lints` lists them whatever their level, which is where they are
-  discovered.
+- **performance**: the code pays for something it did not have to. Its members
+  default to `off` and a project asks for them as a class.
 
 A category is a grouping, not a level: the default comes from each lint's own
-registry entry, and a category setting in `nupp.lua` moves every member at
-once. That is how a project opts into a whole category without listing it.
+registry entry, and a category setting in `nupp.lua` moves every member at once.
+That is how a project opts into a whole category without listing it.
+
+::: deepdive
+Performance is the only opt-in category. What its members describe is real, but
+whether it is worth changing depends on how hot the code is, which the source
+does not state. Reported unprompted they would fire on code that is not hot and
+teach their reader to silence the category before ever meeting the case they
+were written for. `nupp lints` lists them whatever their level, which is where
+they are discovered instead.
+:::
 
 ## Project configuration
 
-In `nupp.lua`:
+A project moves levels in `nupp.lua`, by name or by category:
 
 ```lua
 return {
@@ -573,21 +591,23 @@ return {
 }
 ```
 
-Resolution runs registry default → category setting → name setting → the
-`@allow` on the statement. The most specific wins.
+Resolution runs registry default, then category setting, then name setting, then
+the `@allow` on the statement. The most specific wins. See
+[build.md](../guides/build.md) for the rest of the manifest.
 
 ## Local suppressions
+
+`@allow` takes lint names or codes, applies to the statement it decorates and
+nothing beyond it, and reaches any lint at any level:
 
 ```nupp
 @allow("missing-require")
 local doubled = mathutil.double(21)
 ```
 
-`@allow` takes lint names or codes, applies to the statement it decorates and
-nothing beyond it, and reaches any lint at any level. Bare `@allow` silences
-every lint on that statement.
-
-It does not reach a type error. Naming one is `NUPP2108`, and the error stands.
+Bare `@allow` silences every lint on that statement. It does not reach a type
+error: naming one reports `NUPP2108`, and the error stands. See
+[annotations.md](annotations.md#allow) for the annotation's own reference entry.
 
 ## Adding a lint
 
@@ -616,13 +636,6 @@ new lints.Lint(
 - `summary`: one line, lowercase, no full stop. It is what `nupp lints`
   prints.
 
-`everyLintIsWellFormed` in `tests/allowtest.lua` checks the shape of every
-entry, covering name, code, category, level, uniqueness, and that both spellings
-resolve, so a misspelled category is a failing test rather than a lint nothing
-can configure. It is a test rather than a load-time assertion on purpose: an
-assertion in the compiler would brick a build tree over a typo until it was
-deleted.
-
 **2. Raise it** wherever the checker already knows enough to say so:
 
 ```nupp
@@ -633,9 +646,15 @@ diag("missing-require", node, advice)
 diagnostic carries the canonical code either way. Prefer the name at the call
 site: it reads as what is being said rather than as a number.
 
-That is the whole of it. The level resolves through the registry, the project's
-`lints` table and any surrounding `@allow`; `nupp lints` picks the new row up;
-`@allow("your-lint")` works; and `nupp.lua` can move it.
+::: deepdive
+`everyLintIsWellFormed` in `tests/allowtest.lua` checks the shape of every
+entry, covering name, code, category, level, uniqueness, and that both forms
+resolve, so a misspelled category is a failing test rather than a lint nothing
+can configure.
+
+It is a test rather than a load-time assertion on purpose: an assertion in the
+compiler would brick a build tree over a typo until it was deleted.
+:::
 
 ### Editor severity
 
@@ -649,7 +668,8 @@ local EDITOR_ADVICE = {["NUPP2120"] = "warning", -- a project module used withou
 ```
 
 The build still enforces the registry level. Only the protocol severity
-changes.
+changes. See [lsp.md](../guides/lsp.md#diagnostics-in-an-editor) for what an
+editor does with it.
 
 ### Lint tests
 
@@ -662,3 +682,11 @@ differs wants an LSP session in `tests/lsptest.lua`.
 
 Assert the `severity` as well as the code. A lint that reports at the wrong
 level is a lint that fails the wrong builds.
+
+::: seealso
+- [diagnostics.md](diagnostics.md) for every code the compiler reports, lint or
+  not
+- [annotations.md](annotations.md#allow) for `@allow` beside the other built-in
+  annotations
+- [cli.md](cli.md#lints) for `nupp lints` and its JSON output
+:::

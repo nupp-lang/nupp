@@ -20,8 +20,9 @@ nupp_runtime_shutdown(runtime, &error);
 nupp_runtime_free(runtime);
 ```
 
-This fragment shows the ownership order. The complete host checks every
-returned status and releases its error values as shown below.
+This fragment shows the ownership order. A complete host also checks every
+returned status and releases its error values; see [Errors](#errors) for that
+boundary.
 
 Embedding and [checked C interop](../concepts/c-interop.md) point in opposite
 directions. Embedding starts with a C application and brings Nupp into it.
@@ -33,16 +34,6 @@ The current SDK is built from a Nupp source checkout. It does not yet ship as
 an installed package with CMake or `pkg-config` metadata. The
 `host/include/nupp.h` header and the library built from `host/Cargo.toml` are
 the public embedding surface.
-:::
-
-::: rationale
-Nupp runs in the host's own state, on the host's own heap. A second embedded VM
-would mean two collectors, two object models, and a marshalling layer between
-code that is the same language. Raw pointers into collector-managed values are
-never exposed as a public object ABI, which is the line an embedding API is most
-tempted to cross and the one that would constrain the runtime permanently.
-
-[NEP 8](../neps/0008-c-interop-and-embedding.md) has the full record.
 :::
 
 ## Complete example
@@ -81,9 +72,10 @@ end
 ```
 
 `nupp build` writes `build/component.nuppc`. A component records its format,
-compiler host ABI, entry module, public exports, layout target, required host
-features, modules, and resources. It is application data, not a shared library
-and not a stable C ABI for Nupp records or closures.
+[compiler host ABI](../reference/distribution.md#compiler-host-abi), entry
+module, public exports, layout target, required host features, modules, and
+resources. It is application data, not a shared library and not a stable C ABI
+for Nupp records or closures.
 
 Build `libnupp` and the C host from the repository root:
 
@@ -204,6 +196,12 @@ Loading, starting, and releasing are separate operations.
 4. `nupp_component_release` releases the C wrapper, not the modules installed
    in the runtime.
 
+```c
+nupp_component_load(runtime, bytes, length, "game.nuppc", &component, &error);
+nupp_export_find(runtime, component, "game.answer", &answer, &error);
+nupp_component_start(runtime, component, argc, argv, &error);
+```
+
 The compiler-owned descriptor runs during loading, but application module top
 levels do not. An exported module loads lazily on its first export call. The
 entry module loads only when the host starts the component, unless another
@@ -299,6 +297,18 @@ rooting a value solve different lifetime problems: the pin protects a native
 relationship described to the checker, while the registry handle keeps a Lua
 value reachable for the C host.
 
+::: deepdive
+Nupp runs in the host's own state, on the host's own heap. A second embedded VM
+would mean two collectors, two object models, and a marshaling layer between
+code that is the same language. Raw pointers into collector-managed values are
+never exposed as a public object ABI, which is the line an embedding API is most
+tempted to cross and the one that would constrain the runtime permanently: a
+published address is a promise about object layout that every later change to
+the runtime has to keep.
+
+See [NEP 8](../neps/0008-c-interop-and-embedding.md) for more information.
+:::
+
 ## Errors
 
 Every fallible public function returns `nupp_status` and accepts an optional
@@ -383,7 +393,15 @@ The current embedding release has these deliberate limits:
 - the managed number kind is binary64 rather than an exact integer family;
 - `nupp_runtime_poll` does not provide a scheduler;
 - `nupp build` does not package `@aot` output into components yet;
-- the in-process compiler and host-driven hot-reload APIs are not exposed yet;
-- CMake, `pkg-config`, and prebuilt multi-platform SDK packages are not shipped.
+- the in-process compiler and host-driven hot-reload APIs are not exposed yet.
 
 The current C header remains the authority for the implemented ABI.
+
+::: seealso
+- [c-interop.md](../concepts/c-interop.md#type-mapping) for how C types cross
+  into checked Nupp source
+- [build.md](build.md#compiler-native-features) for what a component target
+  stages beside the payload
+- [distribution.md](../reference/distribution.md#payload) for the container a
+  stamped binary uses instead
+:::

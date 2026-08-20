@@ -1,7 +1,13 @@
 module nupp.data.uuid4
 
 --[[
-A random UUID, version 4, in the usual hyphenated form.
+Generates a random UUID, version 4, in the usual hyphenated form.
+
+```nupp
+const uuid4 = require("nupp.data.uuid4")
+
+local id = uuid4()
+```
 
 Lowercase canonical text, as RFC 9562 writes it. Nothing native is exposed: the
 answer is a string. [](nupp.data.uuid7) orders by creation time instead, which is

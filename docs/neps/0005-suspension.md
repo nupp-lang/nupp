@@ -8,12 +8,14 @@ created: 2026-08-19
 
 Suspension is a first-class, checked, handled effect: an operation a library
 performs, a handler a host installs, and a fact the checker tracks. One call
-site suspends into a scheduler where one exists and blocks where none does —
-with no second API, no `async` colouring, and no library carrying a policy
-parameter it did not want.
+site suspends into a scheduler where one exists and blocks where none does, with
+no second API, no `async` coloring, and no library carrying a policy parameter
+it did not want.
 
-[Suspension](../concepts/suspension.md) and [effects](../concepts/effects.md)
-document the surface.
+::: seealso
+- [suspension.md](../concepts/suspension.md) for waiting as a caller meets it
+- [effects.md](../concepts/effects.md) for the contracts the checker tracks
+:::
 
 ## Goals
 
@@ -30,17 +32,17 @@ document the surface.
 - **A scheduler.** Nupp supplies the seam and one blocking handler. Task
   scheduling, fairness, and priority belong to whoever installs a handler.
 - **Multi-shot continuations.** LuaJIT's are one-shot; a handler resumes once.
-- **Async colouring**, preemption, or making compile-time evaluation suspend.
+- **Async coloring**, preemption, or making compile-time evaluation suspend.
 
 ## Motivation
 
-### The alternative is two of every API
+### Without handlers a library ships two APIs
 
-Without this, a library that might wait either blocks — making it unusable under
-a scheduler — or exposes a second asynchronous surface, doubling its API and
-splitting its callers into two populations that cannot share code. The third
-option, taking a policy parameter, pushes the decision onto every caller and
-into every signature between them.
+Without this, a library that might wait either blocks, which makes it unusable
+under a scheduler, or exposes a second asynchronous surface, which doubles its
+API and splits its callers into two populations that cannot share code. The
+third option, taking a policy parameter, pushes the decision onto every caller
+and into every signature between them.
 
 ### Mechanism already built at library scope
 
@@ -48,10 +50,10 @@ The motivating consumer had hand-rolled the whole mechanism: a mode query
 answering *blocking* outside a scheduler, *cooperative* inside a task, and
 *forbidden* inside a barrier; a check turning the third into a runtime error
 naming the operation; a cooperative wait parking on a gate; a scheduler polling
-sources and completing it; a cancelled wait unwinding.
+sources and completing it; a canceled wait unwinding.
 
 That is an effect handler, confined to one library. Everything in it is
-machinery the language can supply once — and the library becomes a handler
+machinery the language can supply once, and the library then becomes a handler
 rather than being replaced.
 
 ## Overview and specification
@@ -68,7 +70,7 @@ nosuspend do ... end
 local f: nosuspend function(): nil
 ```
 
-### Usage
+### Worked example
 
 A waiting library has one API and no policy parameter:
 
@@ -104,7 +106,7 @@ ordinary call.
 
 An operation that is already ready never reaches the suspension point. One that
 does reads the current coroutine's handler slot and either calls it or takes the
-built-in blocking path — one context read at an actual wait:
+built-in blocking path, which costs one context read at an actual wait:
 
 ```lua
 local ready, value = subscription:poll()
@@ -129,12 +131,6 @@ Where the value comes from is not its business, and the innermost installed
 handler answers. With no handler installed the built-in one blocks, so ordinary
 programs behave exactly as they did.
 
-### Context read at an actual wait
-
-Effect propagation and the forbidding region are compile-time only. An operation
-already ready never reaches the suspension point; one that does reads the
-current coroutine's handler slot and either calls it or takes the blocking path.
-
 ### Handled suspension is not a raw coroutine yield
 
 This is the largest change, and the resource rule is where it shows.
@@ -145,29 +141,27 @@ yield has nobody responsible for it, where a handled suspension transfers
 responsibility to a handler that owns the continuation and its cancellation
 until the park returns or unwinds.
 
-```text
- Suspension form         Obligation live?   Verdict
- ──────────────────────  ─────────────────  ────────────────────
- raw yield               yes                rejected, unchanged
- raw yield               no                 allowed, unchanged
- handled suspension      yes                allowed — new
- handled suspension      no                 allowed
-```
+| Suspension form | Obligation live? | Verdict |
+| --- | --- | --- |
+| raw yield | yes | rejected, unchanged |
+| raw yield | no | allowed, unchanged |
+| handled suspension | yes | allowed, and new |
+| handled suspension | no | allowed |
 
 The new row rests on a **trusted handler contract**, not on a fact the checker
-proves about an arbitrary scheduler. The invariant is not that a wait eventually
-completes — a wait may legitimately remain pending forever while its handler is
-live — but that the continuation cannot be abandoned without being woken far
-enough to run deterministic cleanup.
+proves about an arbitrary scheduler. The invariant is that the continuation
+cannot be abandoned without being woken far enough to run deterministic cleanup.
+It is not that a wait eventually completes, because a wait may legitimately
+remain pending forever while its handler is live.
 
 Being explicit that this is trust rather than proof is the honest form of the
 claim, and it is what makes the boundary auditable.
 
-### The forbidding region becomes load-bearing
+### Forbidding regions become load-bearing
 
-The effect was already inferred. Giving it a rule — a region may forbid it, and
-a suspending call inside one is refused — required the fact to cross module
-boundaries and resolved function values, where the analysis had been
+The effect was already inferred. Giving it a rule, so that a region may forbid
+it and a suspending call inside one is refused, required the fact to cross
+module boundaries and resolved function values, where the analysis had been
 deliberately file-local.
 
 ## Risks and assumptions
@@ -175,8 +169,8 @@ deliberately file-local.
 - **The handler contract is trusted, and it is the safety argument.** A handler
   that abandons a continuation without waking it for cleanup silently breaks the
   resource guarantee, and nothing detects it. The contract is stated as a
-  requirement on handler authors, of whom there will be few — which is the only
-  reason this is acceptable.
+  requirement on handler authors, of whom there will be few, and that scarcity
+  is the only reason this is acceptable.
 - **One effect, hard-coded.** If a second effect ever wants handlers, this
   design has no room for it and the choice is between a special case and the
   general algebraic effects rejected above.
@@ -190,11 +184,11 @@ deliberately file-local.
 ## Alternatives considered
 
 **General algebraic effects**, with user-defined operations and effect rows.
-Rejected as a much larger language than anything here needs. Nupp borrows the
-useful discipline — a handler owns the continuation it accepts — without the
+Rejected as a much larger language than anything here needs. Nupp borrows one
+useful discipline, that a handler owns the continuation it accepts, without the
 generality.
 
-**Async colouring**, with a keyword and a parallel API surface. Rejected: it
+**Async coloring**, with a keyword and a parallel API surface. Rejected: it
 splits every library into two, and the split propagates up through every caller.
 The property this design exists for is that one call site works both ways.
 
@@ -213,6 +207,6 @@ one-shot.
 is what makes the resource reasoning local.
 
 **Keeping the blanket refusal of suspension with live obligations.** Rejected
-once handled suspension existed — the refusal was reasoning about raw
-coroutines, and applying it to a form with a responsible handler would have made
-the feature useless for exactly the code that needs it.
+once handled suspension existed. The refusal was reasoning about raw coroutines,
+and applying it to a form with a responsible handler would have made the feature
+useless for exactly the code that needs it.

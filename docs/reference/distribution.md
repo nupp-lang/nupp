@@ -1,74 +1,75 @@
-# Distribution: stubs and payloads
+# Stubs and payloads
 
-A distributed program is a **stub** with a **payload** appended to it. The stub
-is an ordinary executable, a host that embeds LuaJIT and knows how to find and
-run a payload. The payload is one Lua chunk carrying everything the program
-needs. Making a binary is copying a stub, appending a payload, and writing a
-trailer that says where the payload starts.
-
-Nothing about that is specific to Nupp's own compiler, and that is the point.
-Nupp is the first stub, not the only one: an engine or framework can publish its
-own host, one that opens a window or owns an event loop, and Nupp will stamp
-programs into it without knowing what it is.
+A distributed program is a stub with a payload appended to it. The stub is an
+executable embedding LuaJIT that knows how to find a payload, and the payload is
+one Lua chunk carrying everything the program needs.
 
 ```text
 [ stub executable ][ payload chunk ][ trailer ]
 ```
 
-## Contract before code
-
-Everything else here can be revised. This cannot: once somebody publishes a stub
-built against it, the format is load-bearing in a repository nobody here
-controls. So it is specified first, and the first two consumers are both ours,
-the trivial test host and Nupp itself, before any third party is invited.
+Making a binary is copying a stub, appending a payload, and writing a trailer
+that says where the payload starts. Nothing in that is specific to Nupp's own
+compiler: an engine or framework can publish a host that opens a window or owns
+an event loop, and [`nupp build`](../guides/build.md) stamps programs into it
+without knowing what it is.
 
 ## Container
 
-The payload is **appended to the stub file**, followed by a fixed trailer. Not a
-platform section: an ELF section, a Mach-O section and a PE resource are three
-formats and three writers, and the payload contract does not need any of them.
+The payload is appended to the stub file, followed by a fixed trailer. An
+unsigned file ends at the trailer. A signed Mach-O carries Apple's
+code-signature blob after it, with any zero alignment padding in between, and
+the stub finds that boundary through `LC_CODE_SIGNATURE`.
 
-An unsigned file ends at the trailer. A signed Mach-O has Apple's code-signature
-blob after it, with any zero alignment padding in between. The stub finds that
-boundary through `LC_CODE_SIGNATURE`; the payload and trailer remain covered by
-the signature because the packager extends `__LINKEDIT` over them before the
-native signer runs. See "Signing for macOS" below.
+| Region | Contents | Present |
+| --- | --- | --- |
+| stub executable | an ordinary ELF, Mach-O, or PE image | always |
+| payload | one Lua chunk | once stamped |
+| trailer | 48 fixed bytes | once stamped |
+| Mach-O signature | Apple's code-signature blob | signed macOS only |
 
-    ┌──────────────────────┐
-    │ stub executable      │  an ordinary ELF / Mach-O / PE
-    ├──────────────────────┤
-    │ payload              │  one Lua chunk, see below
-    ├──────────────────────┤
-    │ trailer (48 bytes)   │  fixed size
-    ├──────────────────────┤
-    │ Mach-O signature     │  signed macOS only; absent elsewhere
-    └──────────────────────┘
+The payload and trailer stay covered by the signature because the packager
+extends `__LINKEDIT` over them before the native signer runs. See [Signing for
+macOS](#signing-for-macos) for the order that makes that work.
+
+::: deepdive
+An appended chunk rather than a platform section: an ELF section, a Mach-O
+section and a PE resource are three formats and three writers, and the payload
+contract needs nothing any of them supplies.
+
+The format is specified before its consumers because it stops being revisable
+the moment somebody publishes a stub built against it, in a repository nobody
+here controls. The first two consumers are both Nupp's own, the trivial test
+host and the compiler itself, and the [packaging fixpoint](#packaging-fixpoint)
+is the last gate before a third party is invited to publish one.
+:::
 
 ### Trailer
 
 48 bytes, little-endian, at the end of an unsigned file. For a signed Mach-O it
-is immediately before the zero alignment padding and code-signature offset
-named by `LC_CODE_SIGNATURE`. A stub checks only those format-defined
-boundaries; it does not search arbitrary executable bytes for the magic.
+is immediately before the zero alignment padding and code-signature offset named
+by `LC_CODE_SIGNATURE`. A stub checks only those format-defined boundaries; it
+does not search arbitrary executable bytes for the magic.
 
-     offset  size  field
-     ──────  ────  ─────────────────────────────────────────────────────
-     0       8     magic, the ASCII bytes "NUPPLOAD"
-     8       4     format version, currently 1
-     12      4     reserved, zero
-     16      8     payload offset from the start of the file
-     24      8     payload length in bytes
-     32      8     first 8 bytes of the payload's SHA-256
-     40      8     trailer length, currently 48
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | 8 | magic, the ASCII bytes `NUPPLOAD` |
+| 8 | 4 | format version, currently 1 |
+| 12 | 4 | reserved, zero |
+| 16 | 8 | payload offset from the start of the file |
+| 24 | 8 | payload length in bytes |
+| 32 | 8 | first 8 bytes of the payload's SHA-256 |
+| 40 | 8 | trailer length, currently 48 |
 
 The magic is last-resort identification, not a search key: a stub that finds no
 magic has no payload and says so, and one that finds a version it does not know
-refuses rather than guessing. The truncated digest is a corruption check, not a
-security boundary. A stub that wanted integrity guarantees would need a
-signature over the payload, and appending one is a version-2 question.
+refuses rather than guessing. Reserved bytes are zero and are checked to be
+zero, so a later version can use them and an older stub will refuse rather than
+misread.
 
-Reserved bytes are zero and are checked to be zero, so a later version can use
-them and an older stub will refuse rather than misread.
+The truncated digest is a corruption check, not a security boundary. A stub that
+wanted integrity guarantees would need a signature over the payload, and
+appending one is a version-2 question.
 
 ### Compiler host ABI
 
@@ -92,21 +93,8 @@ change payload bytes or make unused modules observable.
 
 ## Payload
 
-One Lua chunk, exactly as `nupp build` with a `bundle` target produces it. The
-chunk is plain Lua and can run under a compatible `luajit` when that runtime
-also supplies every native feature the target resolved. A target with no native
-effects needs no stub; `nupp.peg`, for example, resolves native LPeg and
-therefore needs a feature-matched host or an LPeg module on LuaJIT's module
-path.
-
-"Plain" has a floor. Generated Nupp is written in the LuaJIT 3.0 syntax that 2.1
-backported, meaning `?.`, `??`, `?:`, the bit operators and compound assignment,
-rather than in a lowering of it, so a payload needs LuaJIT 2.1.1784535649 or
-newer. A stub is therefore not free to embed whichever LuaJIT its build system
-had lying around: `host/build.rs` pins one by revision and digest, and the pin
-is a requirement rather than a preference.
-
-Its shape:
+One Lua chunk, exactly as `nupp build` with a `bundle` target produces it. Its
+shape:
 
 ```lua
 package.preload["some.module"] = function(...) --[[ compiled module ]] end
@@ -116,6 +104,21 @@ package.preload["nupp.embedded"] = function()
 end
 -- the entry module's code, last, as the chunk's own body
 ```
+
+The chunk is plain Lua and runs under a compatible `luajit` when that runtime
+also supplies every native feature the target resolved. A target with no native
+effects needs no stub; [`nupp.peg`](../modules/nupp/peg.md), for example,
+resolves native LPeg and therefore needs a feature-matched host or an LPeg
+module on LuaJIT's module path.
+
+"Plain" has a floor. Generated Nupp is written in the LuaJIT 3.0 syntax that 2.1
+backported, meaning `?.`, `??`, `?:`, the bit operators and compound assignment,
+rather than in a lowering of it, so a payload needs LuaJIT 2.1.1784535649 or
+newer. A stub is therefore not free to embed whichever LuaJIT its build system
+had lying around: `host/build.rs` pins one by revision and digest, and the pin
+is a requirement rather than a preference.
+
+### Resources and rock modules
 
 Resources ride in `package.preload["nupp.embedded"]` as a table of path to
 content. That is the same mechanism the compiler uses to carry its own standard
@@ -130,12 +133,16 @@ on its [rock dependencies](../guides/build.md#rock-dependencies); a rock tree
 also holds test scripts, command-line programs and lexers nobody asked for, and
 a payload that swept the tree would carry all of it.
 
-The payload is **deterministic**: modules and resources are emitted in sorted
-order, and nothing records a timestamp, a path from the building machine, or a
-build counter. Two builds of one tree produce byte-identical payloads. This is
-not tidiness. The packaging fixpoint below depends on it.
+### Determinism
+
+Modules and resources are emitted in sorted order, and nothing records a
+timestamp, a path from the building machine, or a build counter. Two builds of
+one tree produce byte-identical payloads, which is what the [packaging
+fixpoint](#packaging-fixpoint) below rests on.
 
 ## Stub requirements
+
+A stub does six things, in this order.
 
 1. Locate its own executable. Not `arg[0]`, which is whatever the caller typed:
    `/proc/self/exe`, `_NSGetExecutablePath`, `GetModuleFileNameW`.
@@ -146,7 +153,7 @@ not tidiness. The packaging fixpoint below depends on it.
 5. Set `arg` from the command line, dropping nothing the program should see.
 6. Run it. The program's exit status is the process's.
 
-A stub with **no** payload is a plain interpreter: it runs the file named as its
+A stub with no payload is a plain interpreter: it runs the file named as its
 first argument. That is what makes a stub testable before anything is stamped
 into it, and what makes `nupp` itself usable during development.
 
@@ -208,18 +215,24 @@ miss is an error and does not invoke `curl` or another system downloader.
 Cross-target POSIX results include a deterministic `.tar` containing the raw
 binary at mode `0755`, so a Windows build host cannot erase the executable bit.
 PE results need no mode operation. Cross-stamped macOS binaries are unsigned
-development artifacts. Run `codesign --force --sign - <binary>` on macOS to
-make one locally executable. Release CI uses a Developer ID identity and
-notarizes the final stamped bytes.
+development artifacts, and an ad-hoc signature on macOS makes one locally
+executable:
+
+```bash
+codesign --force --sign - <binary>
+```
+
+Release CI uses a Developer ID identity and notarizes the final stamped bytes.
 
 ## Third-party notices
 
 The compiler-owned stub links LuaJIT and, where the features are on, simdjson,
 LPeg, and luautf8. Simdjson is Apache-2.0, and the other three are MIT. A
 stamped binary is a distribution of them, so their notices ship in
-[`host/NOTICE.md`](../../host/NOTICE.md) and `host/notices/`, which carry the
-notice files as they arrive in the pinned sources, byte for byte. Hand them over
-with the binary the way a release archive carries a README.
+[`host/NOTICE.md`](https://github.com/nupp-lang/nupp/blob/main/host/NOTICE.md)
+and `host/notices/`, which carry the notice files as they arrive in the pinned
+sources, byte for byte. Hand them over with the binary the way a release archive
+carries a README.
 
 The sources are fetched at build time rather than committed, so nothing else in
 the tree carries those notices. `host/build.rs` compares each committed copy
@@ -229,13 +242,16 @@ false statement rather than a stale file.
 
 ## Signing for macOS
 
-The catalog stub arrives ad-hoc signed from its linker. Appending after that
-signature produces trailing bytes Apple's signer refuses. The packager instead:
+The catalog stub arrives ad-hoc signed from its linker, and appending after that
+signature produces trailing bytes Apple's signer refuses. The packager takes the
+signature off, appends, and leaves the result for a native signer.
 
-1. validates and removes the final `LC_CODE_SIGNATURE` command and blob;
-2. appends the payload and trailer;
-3. extends `__LINKEDIT` through the trailer; and
-4. leaves explicit cross-target output unsigned for a native signer.
+### Packager steps
+
+1. Validate and remove the final `LC_CODE_SIGNATURE` command and blob.
+2. Append the payload and trailer.
+3. Extend `__LINKEDIT` through the trailer.
+4. Leave explicit cross-target output unsigned for a native signer.
 
 `codesign` then appends a new signature blob in the ordinary Apple-supported
 layout. The host reads the trailer just before that blob, including the small
@@ -245,9 +261,10 @@ therefore covers the payload instead of tolerating it as unsealed trailing data.
 A source-built current-macOS target is ad-hoc signed automatically with a fixed
 identifier and no timestamp so it runs immediately and remains deterministic.
 Explicit cross-target output is the same unsigned bytes regardless of compiler
-host. Release CI applies a timestamped Developer ID signature and submits the
-archive for notarization. Windows developer artifacts remain unsigned unless a
-release policy supplies Authenticode; ELF needs no signing step.
+host. Windows developer artifacts remain unsigned unless a release policy
+supplies Authenticode; ELF needs no signing step.
+
+### Release credentials
 
 Tagged release CI requires these GitHub Actions secrets:
 
@@ -266,32 +283,38 @@ The compiler proves it can compile itself, byte for byte, on every change. The
 packager proves the same thing about itself: a Nupp binary, run, stamps out a
 Nupp binary identical to itself.
 
-That is the acceptance test for everything above. It fails if the payload is not
+```bash
+nupp fixpoint --binary
+```
+
+That stamps the target named by `selfHost.binary`, then has the binary that came
+out stamp another, and compares them. Stage one is kept beside the output so
+stage two writes where stage one did, and the comparison is of two files made
+the same way rather than of one file and a memory of another.
+
+It is the acceptance test for everything above. It fails if the payload is not
 deterministic, if the trailer does not round-trip, if the emitter's idea of
 where a payload starts disagrees with the stub's, or if signing is not
-reproducible. It is deliberately the last gate before a third party is allowed
+reproducible. It passes, and it is the last gate before a third party is allowed
 to publish a stub, because after that the format cannot move.
 
-**It passes**, and it is a command rather than a story: `nupp fixpoint --binary`
-stamps the target named by `selfHost.binary`, then has the binary that came out
-stamp another, and compares them. Stage one is kept beside the output so stage
-two writes where stage one did, and the comparison is of two files made the same
-way rather than of one file and a memory of another.
+::: deepdive
+Two things the fixpoint caught, both of which would otherwise have been found by
+somebody else.
 
-Two things it caught on the way, both of which would otherwise have been found
-by somebody else:
+A bundle was carrying every `.lua` under the output directory, which is also
+where native dependencies build, and a dependency tree can contain example
+scripts that are not valid preload modules. A bundle now carries what the build
+compiled and nothing else.
 
-- A bundle was carrying every `.lua` under the output directory, which is also
-  where native dependencies build. Dependency trees can contain example scripts
-  that are not valid preload modules. A bundle now carries what the build
-  compiled and nothing else.
-- The stub could not provide JSON until the native opener was linked and
-  registered in `package.preload`, because the compiler uses JSON before it does
-  most work.
+The stub could not provide JSON until the native opener was linked and
+registered in `package.preload`, because the compiler uses JSON before it does
+most work.
+:::
 
 ## Limits
 
-Four things a distributed binary deliberately is not:
+A distributed binary is deliberately none of these things.
 
 - **It does not replace the bootstrap.** `bootstrap/nupp.lua` exists so a source
   checkout can build a compiler; a distributed binary is what comes out the
@@ -310,3 +333,12 @@ Four things a distributed binary deliberately is not:
   format has no opinion.
 - **It does not make Nupp a Rust project.** The host is a component, built by
   the same machinery that already builds a project's other native dependencies.
+
+::: seealso
+- [build.md](../guides/build.md#rock-dependencies) for the targets and rock
+  globs a payload is assembled from
+- [embedding.md](../guides/embedding.md) for running Nupp inside a host you own
+  rather than one the packager stamps
+- [NEP 8](../neps/0008-c-interop-and-embedding.md) for the design record behind
+  the C boundary a stub sits on
+:::

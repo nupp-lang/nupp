@@ -3,11 +3,11 @@
 module nupp.mathruntime
 
 --[[
-What `nupp.math` does when it is not inlined.
+The Lua half of `nupp.math`, for every read the compiler did not inline.
 
 Most reads of `nupp.math` never reach here. The compiler recognizes the qualified
-paths -- `nupp.math.i32.wrap`, `nupp.math.u32.popcount`, `nupp.math.f32.narrow` and
-the rest -- and lowers them to operations, and the AOT backend emits them as machine
+paths, `nupp.math.i32.wrap`, `nupp.math.u32.popcount`, `nupp.math.f32.narrow` and
+the rest, and lowers them to operations, and the AOT backend emits them as machine
 instructions. What is left for run time is every other way of getting at one: taking
 it as a value, calling it through a local, or reaching a part that has no operation
 behind it.

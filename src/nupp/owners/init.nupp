@@ -7,10 +7,13 @@ The checker discharges what it can see. These hold what it cannot: owners of typ
 a container never learns, each stored beside the cleanup witness its call site
 reified.
 
-`nupp.owners.set` discharges them together, in reverse, at one lexical boundary.
-`nupp.owners.store` adds generation and type-policy checks, so a single owner can be
-erased through untyped Lua and claimed back, and a stale handle fails before the
-value behind it is touched.
+[](nupp.owners.set) discharges them together, in reverse, at one lexical
+boundary. [](nupp.owners.store) adds generation and type-policy checks, so a
+single owner can be erased through untyped Lua and claimed back, and a stale
+handle fails before the value behind it is touched.
 
 Nothing is re-exported here; each is reached by the name it has.
+
+See [ownership.md](docs/type-system/ownership.md) for the complete contract reference, and
+[ownership.md](docs/concepts/ownership.md) for the annotations a caller writes.
 ]]

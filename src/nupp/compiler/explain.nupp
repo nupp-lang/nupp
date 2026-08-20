@@ -436,7 +436,7 @@ local ENTRIES: {any} = {
         right = "local mathutil = require(\"mathutil\")\n"
         .. "local answer: number = mathutil.double(21)\nreturn answer\n",
         related = {"NUPP2101", "NUPP2105"},
-        docs = "docs/concepts/declarations.md#naming-a-member-from-another-file",
+        docs = "docs/concepts/modules.md#naming-a-member-from-another-file",
     },
     {
         code = "NUPP2121",
@@ -478,7 +478,7 @@ local ENTRIES: {any} = {
         .. "    satisfies |self| -> self.kind == \"circle\"\nend\n\n"
         .. "return Circle\n",
         related = {"NUPP2116"},
-        docs = "docs/type-system/generics.md",
+        docs = "docs/type-system/refinements.md",
     },
     {
         code = "NUPP2123",
@@ -644,7 +644,7 @@ local ENTRIES: {any} = {
         right = "local n: integer = 2\nlocal value = switch n do\n"
         .. "    case 2 -> 'two'\n    else -> 'other'\nend\nreturn value\n",
         related = {"NUPP2138", "NUPP2140"},
-        docs = "docs/reference.md#switch-expressions",
+        docs = "docs/concepts/switch-expressions.md#switch-expressions",
     },
     {
         code = "NUPP2138",
@@ -656,7 +656,7 @@ local ENTRIES: {any} = {
         right = "local n: number = 1\nlocal value = switch n do\n"
         .. "    case 1 -> 'one'\n    else -> 'other'\nend\nreturn value\n",
         related = {"NUPP2137", "NUPP2139"},
-        docs = "docs/reference.md#switch-expressions",
+        docs = "docs/concepts/switch-expressions.md#switch-expressions",
     },
     {
         code = "NUPP2139",
@@ -669,7 +669,7 @@ local ENTRIES: {any} = {
         right = "local n: number = 1\nlocal value = switch n do\n"
         .. "    case 2 -> 'two'\n    else -> 'other'\nend\nreturn value\n",
         related = {"NUPP2138", "NUPP2140"},
-        docs = "docs/reference.md#switch-expressions",
+        docs = "docs/concepts/switch-expressions.md#switch-expressions",
     },
     {
         code = "NUPP2140",
@@ -683,7 +683,7 @@ local ENTRIES: {any} = {
         .. "local value = switch mode do\n    case 'read' -> 1\n"
         .. "    case 'write' -> 2\nend\nreturn value\n",
         related = {"NUPP2139", "NUPP2141"},
-        docs = "docs/reference.md#switch-expressions",
+        docs = "docs/concepts/switch-expressions.md#switch-expressions",
     },
     {
         code = "NUPP2141",
@@ -696,7 +696,7 @@ local ENTRIES: {any} = {
         right = "local value = switch 1 do\n    else -> do\n"
         .. "        local answer = 1\n        yield answer\n    end\nend\nreturn value\n",
         related = {"NUPP2140", "NUPP2142"},
-        docs = "docs/reference.md#switch-expressions",
+        docs = "docs/concepts/switch-expressions.md#switch-expressions",
     },
     {
         code = "NUPP2142",
@@ -707,7 +707,7 @@ local ENTRIES: {any} = {
         .. "waits for general expression normalization. Bind the switch in a preceding "
         .. "statement instead.",
         related = {"NUPP2140"},
-        docs = "docs/reference.md#switch-expressions",
+        docs = "docs/concepts/switch-expressions.md#switch-expressions",
     },
     {
         code = "NUPP2511",

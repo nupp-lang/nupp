@@ -1,40 +1,55 @@
-`nupp.data.json` is Nupp's strict, simdjson-backed JSON runtime. It parses,
-selectively pulls, serializes, and streams JSON without exposing a third-party
-Lua module:
+`nupp.data.json` is a strict, simdjson-backed JSON codec. It parses, pulls
+selected fields, serializes, and streams, without exposing a third-party Lua
+module.
 
-```nupp
+```nupp:playground
 local encoded = nupp.data.json.encode({name = "Nupp", ready = true})
 local decoded = nupp.data.json.decode(encoded)
 assert(decoded.name == "Nupp")
 ```
 
 The codec accepts one complete UTF-8 JSON document and rejects invalid numbers,
-sparse arrays, mixed-key containers, cycles, and excessive nesting. A plain
-empty Lua table encodes as `{}`. Use `asArray({})` or `EMPTY_ARRAY` when it must
-encode as `[]`; `EMPTY_OBJECT` is the corresponding explicit object value.
+sparse arrays, mixed-key containers, cycles, and excessive nesting.
+`serialize` is an alias of `encode`.
 
-JSON null is dropped during decoding by default, including from arrays. Pass a
-replacement value to preserve it. `NULL` is the standard round-trippable choice:
+## Empty containers
+
+A plain empty Lua table has no shape to read, so it encodes as `{}`. Mark it
+when it must encode as an array, or use the two sentinels:
 
 ```nupp
-local json = nupp.data.json
+const json = nupp.data.json
+
+assert(json.encode({}) == "{}")
+assert(json.encode(json.asArray({})) == "[]")
+assert(json.encode(json.EMPTY_ARRAY) == "[]")
+assert(json.encode(json.EMPTY_OBJECT) == "{}")
+```
+
+`asObject` is the corresponding mark for a table that must encode as an object.
+
+## JSON null
+
+Decoding drops JSON null by default, including from inside an array. Pass a
+replacement value to preserve it. `NULL` is the round-trippable choice, because
+it encodes back as null:
+
+```nupp
+const json = nupp.data.json
+
 local value = json.decode([[{"items":[1,null,2]}]], json.NULL)
 assert(value.items[2] == json.NULL)
 assert(json.encode(value) == [[{"items":[1,null,2]}]])
 ```
 
-| Member | Result | Purpose |
-| --- | --- | --- |
-| `encode(value, nullValue?)` | string | Serialize one Lua value. |
-| `serialize(value, nullValue?)` | string | Alias of `encode`. |
-| `decode(text, nullValue?)` | any | Materialize one complete document. |
-| `pull(text, shape, nullValue?)` | any | Materialize only selected fields. |
-| `arrayOf(shape?)` | table | Apply a pull shape to every array member. |
-| `asArray(table)` | table | Mark a table as an array, including while empty. |
-| `asObject(table)` | table | Mark a table as an object. |
-| `writer(nullValue?)` | Writer | Create an incremental streaming writer. |
-| `NULL` | value | Preserve and serialize JSON null. |
-| `EMPTY_ARRAY`, `EMPTY_OBJECT` | values | Explicit empty containers. |
+::: deepdive Dropping null by default
+A Lua table cannot hold nil as a value, so a decoded null has to become either
+an absence or a sentinel. An absence is what most callers mean, and it keeps a
+decoded document indexable without every read testing against a sentinel first.
+A sentinel is what a caller round-tripping somebody else's document means, and
+that caller says so once, at the `decode` call, rather than everywhere the
+value is read.
+:::
 
 ## Pulling selected values
 
@@ -43,7 +58,8 @@ shape selects named fields, and `arrayOf(shape)` applies a shape to every member
 of an array. Missing and unselected fields are omitted:
 
 ```nupp
-local json = nupp.data.json
+const json = nupp.data.json
+
 local users = json.pull(source, json.arrayOf({id = true, profile = {name = true}}))
 ```
 
@@ -52,9 +68,9 @@ input but constructs only the Lua values the shape asks for.
 
 ## Streaming output
 
-The writer emits checked JSON without first building a Lua DOM. `flush()`
-returns the completed bytes since the previous flush; `finish()` closes the
-document and returns the final bytes.
+The writer emits checked JSON without first building a Lua table to encode.
+`flush()` returns the completed bytes since the previous flush, and `finish()`
+closes the document and returns the final bytes:
 
 ```nupp
 local writer = nupp.data.json.writer()
@@ -62,14 +78,17 @@ writer:startObject():key("items"):startArray():write(1):write(2):close():close()
 local text = writer:finish()
 ```
 
-Part of the [`nupp.data`](../data.md) namespace, which also holds UUIDs, hashes,
-and checksums.
-
 ## Derived records
 
 For a record deriving `nupp.derive.JSON`, `encodeRecord(value)` discovers the
 record's type witness from the value. `encodeAs(Record, value)` and
-`decodeAs(Record, text)` accept the visible record name directly. The derived
-schema and generated `toJSON`/`fromJSON` members are documented once in
-[Reflection](../../../concepts/reflection.md#json-through-a-type-witness) and
-[Declaration derives](../../../reference/derives.md#json).
+`decodeAs(Record, text)` accept the visible record name directly.
+
+::: seealso
+- [reflection.md](../../../concepts/reflection.md#json-through-a-type-witness)
+  for the derived schema and the generated `toJSON` and `fromJSON` members
+- [derives.md](../../../reference/derives.md#json) for what `nupp.derive.JSON`
+  adds to a declaration
+- [data.md](../data.md) for the rest of the namespace, which also holds UUIDs,
+  hashes and checksums
+:::

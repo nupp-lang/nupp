@@ -3,9 +3,36 @@ module nupp.mem.heap
 --[[
 Owned, malloc-backed C arrays.
 
-The returned array is affine and is released with `free` at scope exit. Its logical
-element count moves with the allocation and its pointer is available only through
-checked span views.
+The returned array is affine and is released with `free` at scope exit. Its
+logical element count moves with the allocation and its pointer is available
+only through checked span views.
+
+```nupp
+local heap = require("nupp.mem.heap")
+
+do
+    local values = heap.allocate(ffi.typeof<int32>(), 4)
+    local writable = values:write()
+    writable[1] = 42 as int32
+    drop writable
+    local readable = values:read()
+    print(readable[1], #readable)
+end -- free runs here
+```
+
+An allocation here sits outside LuaJIT's GC allocation limit, which is the
+reason to reach for one over a `carray`. Reading and writing are the operations
+[](nupp.mem.span) defines, and a live reader and a live writer over one array
+report `NUPP2607`.
+
+::: tip Nonescaping views at -O1
+A nonescaping `read` or `write` can remain virtual, so no span wrapper is
+allocated. An escape or an opaque call materializes the same checked span.
+:::
+
+See [c-interop.md](docs/concepts/c-interop.md#c-arrays) for how this sits beside
+`carray`, and [ownership.md](docs/type-system/ownership.md) for the borrow rules
+the views are written against.
 ]]
 
 local heap = {}
@@ -30,6 +57,12 @@ sealed interface heap.ArrayToken
     close: nosuspend function(takes self: ArrayToken): nil
 end
 
+--- Frees an allocation, which is what every heap array's contract names.
+---
+--- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
+--- scope boundary or an explicit `drop` reaches it.
+---
+--- @param self the array, spent by this call
 --- @export
 function heap.destroyArray<T is heap.ArrayToken>(takes self: T): nil
     self:close()
@@ -40,27 +73,26 @@ end
 --- @export
 record heap.Array<T> is heap.ArrayToken
     private pointer: T[?]
+
+    --- How many elements the allocation holds.
     readonly count: integer
 
     --- Releases the allocation. Scope exit invokes this automatically.
     drop: nosuspend function(takes self: Array<T>): nil
 
+    --- Frees the allocation. `drop` and scope exit both reach this.
     close: nosuspend function(takes self: Array<T>): nil
 
     --- Borrows the whole allocation as a shared checked span.
     ---
-    --- ::: tip Nonescaping views at -O1
-    --- A nonescaping result can remain virtual, so no span wrapper is allocated.
-    --- An escape or opaque call materializes the same checked span.
-    --- :::
+    --- The borrow lasts as long as the span does, so a writer cannot be taken out
+    --- while one is live.
     read: function(borrows self: Array<T>): span.Span<T> borrows (self)
 
     --- Borrows the whole allocation as an affine checked write span.
     ---
-    --- ::: tip Nonescaping views at -O1
-    --- A nonescaping result can remain virtual, so no span wrapper is allocated.
-    --- An escape or opaque call materializes the same checked span.
-    --- :::
+    --- Exclusive for as long as the writer is live, so `read` reports `NUPP2607`
+    --- until the writer is dropped.
     write: function(exclusive self: Array<T>): span.Writable<T> borrows (self)
 end
 
@@ -81,7 +113,22 @@ function heap.Array.write<T>(exclusive self: heap.Array<T>): span.Writable<T> bo
 end
 
 --- Allocates `count` contiguous values of `element` outside LuaJIT's GC allocation
---- limit. The result owns the allocation and is automatically freed.
+--- limit.
+---
+--- The result owns the allocation and frees it at its lexical boundary. The bytes
+--- are not zeroed, so a program that reads before it writes reads whatever was
+--- there.
+---
+--- ```nupp
+--- do
+---     local values = heap.allocate(ffi.typeof<int32>(), 1000000)
+---     print(values.count)
+--- end
+--- ```
+---
+--- @param element the ctype of one element
+--- @param count how many elements to allocate
+--- @return the array, owned by the caller
 --- @export
 --- @raises when count is negative, the byte size overflows a Lua integer, or malloc
 ---     fails

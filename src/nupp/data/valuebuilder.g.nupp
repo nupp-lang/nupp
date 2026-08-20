@@ -1,11 +1,11 @@
 module nupp.data.valuebuilder
 
 --[[
-Ordinary Lua values, built straight out of parsed bytes.
+Builds ordinary Lua values straight out of parsed bytes.
 
 A parser written against this module never assembles Lua tables itself. It
-reports the shape it found -- open an array, take this source range as a key,
-this one as a number -- and the module assembles the value behind it. The
+reports the shape it found, opening an array, taking this source range as a key
+and that one as a number, and the module assembles the value behind it. The
 ordinary implementation here does that with plain Lua state and is the
 `aot = "off"` behavioral oracle. Under `require`, the same calls inside an
 `@aot` function lower to one native construction pass: tables are presized from
@@ -17,8 +17,9 @@ That lowering is the whole reason the module exists. It is the one construction
 boundary an AOT builder may cross, and it stays a narrow one: no `lua_State`, no
 stack index, no collector object appears in any signature here. Outside `@aot`
 the module still works and still answers the same, but it buys nothing over
-writing the tables directly. See [the AOT guide](../../docs/guides/ahead-of-time.md) for
-what the generated code is allowed to do.
+writing the tables directly. See
+[ahead-of-time.md](docs/guides/ahead-of-time.md) for what the generated code
+is allowed to do.
 
 Two shapes are offered, and a parser picks one.
 
@@ -169,17 +170,15 @@ end
 --- object's run alternates key node and value node. A node's `tag` says what it
 --- is, and `flags` picks between the two recipes a tag may carry:
 ---
---- ```
----  tag  node     value
----  ───  ───────  ────────────────────────────────────────────────
----  0    null     nullValue
----  1    true     true
----  2    false    false
----  3    number   flags 1: node.number; flags 0: parse the source range
----  4    string   flags 0: the source range; flags 1: an escape recipe
----  5    array    the link run, in order
----  6    object   the link run, alternating key and value
---- ```
+--- | Tag | Node | Value |
+--- | --- | --- | --- |
+--- | 0 | null | `nullValue` |
+--- | 1 | true | `true` |
+--- | 2 | false | `false` |
+--- | 3 | number | flags 1: `node.number`; flags 0: parse the source range |
+--- | 4 | string | flags 0: the source range; flags 1: an escape recipe |
+--- | 5 | array | the link run, in order |
+--- | 6 | object | the link run, alternating key and value |
 ---
 --- Every size, id, range, and tag is checked before it is used, so a truncated
 --- or hostile blob raises rather than reading out of bounds. Recursion depth is
@@ -422,8 +421,8 @@ end
 
 --- Reads one native-endian uint32 at a zero-based word index.
 ---
---- This is how a parser reads a packed side table -- a structural index, a tape
---- -- back out of a rooted string instead of a Lua array of numbers. The word at
+--- This is how a parser reads a packed side table, a structural index or a tape,
+--- back out of a rooted string instead of a Lua array of numbers. The word at
 --- `index` begins at byte offset `index * 4`.
 --- @param bytes the rooted string to read
 --- @param index the zero-based word index
@@ -522,8 +521,8 @@ end
 
 --- Allocates a bounded byte work buffer local to one decode.
 ---
---- This is where a codec assembles bytes that are not a range of the source --
---- an unescaped string, a decoded field -- before publishing them. Write with
+--- This is where a codec assembles bytes that are not a range of the source, an
+--- unescaped string or a decoded field, before publishing them. Write with
 --- [](nupp.data.valuebuilder.setScratchByte), read with
 --- [](nupp.data.valuebuilder.scratchByte), empty it between values with
 --- [](nupp.data.valuebuilder.resetByteScratch), and publish a finished range with

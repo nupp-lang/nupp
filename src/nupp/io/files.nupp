@@ -1,18 +1,23 @@
 module nupp.io.files
 
 --[[
-The filesystem: metadata, directory contents, open files, and whole-file transfers.
+Reads and changes the filesystem: metadata, directory contents, open files, and
+whole-file transfers.
 
 Two shapes of operation live here and they are deliberately different. Anything that
-moves names rather than bytes -- stat, rename, remove, symlinks, listing a directory
--- is a direct call that answers now, because the platform answers it now. Anything
-that moves a whole file's bytes -- read, write, append, copy -- is submitted to the
-native library's worker lane and waited for through `nupp.suspension`, so a program
-inside a scheduler yields instead of blocking its host.
+moves names rather than bytes, such as stat, rename, remove, symlinks and listing a
+directory, is a direct call that answers now, because the platform answers it now.
+Anything that moves a whole file's bytes, meaning read, write, append and copy, is
+submitted to the native library's worker lane and waited for through
+`nupp.suspension`, so a program inside a scheduler yields instead of blocking its
+host. See [0005-suspension.md](docs/neps/0005-suspension.md) for why waiting
+is a suspension rather than a block.
 
 An open file and a created temporary path are both owners. Closing either is
 idempotent; a temporary path is settled by `persist` instead when the point of making
 it was to write somewhere nobody else could take and then put it where it belongs.
+See [ownership.md](docs/type-system/ownership.md) for the complete contract
+reference.
 
 The reader and writer an open file hands out satisfy the same contracts a buffer's
 do, so code written against those works over a file without knowing one is there.
@@ -35,7 +40,7 @@ const io = require("nupp.io")
 -- The record is declared here rather than in the runtime cdef below, because
 -- `ffi.new` names it and the checker has to know the type to accept that. It reaches
 -- LuaJIT as a bare `struct` rather than a typedef, which is why the prototype below
--- spells it that way. The functions stay in the runtime declaration: they are reached
+-- writes it that way. The functions stay in the runtime declaration: they are reached
 -- through the handle `nupp.native` opened, not the default namespace a `cdef
 -- function` binds to.
 cdef struct NuppFileInfo
@@ -152,7 +157,7 @@ export record Entry
     kind: Kind
 end
 
---- The generated part of a temporary name.
+--- Where a temporary is created, and what surrounds its generated name.
 --- @export
 export record TemporaryOptions
     --- Where to create it, or the platform's temporary directory when omitted.
@@ -334,14 +339,17 @@ export record File
         return self._closed
     end
 
-    --- Closes the file as an ownership terminal. Repeated calls are safe.
+    --- Closes the file as an ownership terminal.
     ---
-    --- Declared rather than written inline because the cleanup contract needs the
-    --- `nosuspend`, and an inline method cannot carry one.
+    --- Repeated calls are safe. Declared rather than written inline because the
+    --- cleanup contract needs the `nosuspend`, and an inline method cannot carry
+    --- one.
     --- @param self this file, spent by the call
     drop: nosuspend function(takes self: File): nil
 
-    --- Closes the file and reports whether it succeeded. Repeated calls are safe.
+    --- Closes the file and reports whether it succeeded.
+    ---
+    --- Repeated calls are safe.
     --- @param self this file, spent by the call
     --- @return whether the close succeeded
     function close(takes self): boolean
@@ -382,14 +390,16 @@ export record FileReader
     private _capacity: integer
     private _closed: boolean
 
-    --- Releases it as an ownership terminal. Repeated calls are safe.
+    --- Releases it as an ownership terminal.
     ---
-    --- Declared rather than written inline: a cleanup contract is `nosuspend`, and an
-    --- inline method cannot carry one.
+    --- Repeated calls are safe. Declared rather than written inline: a cleanup
+    --- contract is `nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
     drop: nosuspend function(takes self: FileReader): nil
 
-    --- Reads up to `count` bytes. An empty answer is the end of the file.
+    --- Reads up to `count` bytes.
+    ---
+    --- An empty answer is the end of the file.
     --- @param self this reader
     --- @param count the most bytes to read
     --- @return the bytes, or nil when the reader or its file is closed
@@ -416,7 +426,9 @@ export record FileReader
         return ffi.string(into, got as integer), nil
     end
 
-    --- Reads into a buffer. A zero answer is the end of the file.
+    --- Reads into a buffer.
+    ---
+    --- A zero answer is the end of the file.
     --- @param self this reader
     --- @param destination the buffer to write into
     --- @param offset where in the destination to start, or the beginning
@@ -433,8 +445,8 @@ export record FileReader
         if wanted == 0 then
             return 0, nil
         end
-        -- A destination with no storage of its own -- anything that is not this
-        -- library's buffer -- is filled through a Lua string instead. One copy more,
+        -- A destination with no storage of its own, meaning anything that is not
+        -- this library's buffer, is filled through a Lua string instead. One copy more,
         -- and the same answer.
         if destination:storage() == nil then
             local chunk, why = self:read(wanted)
@@ -510,10 +522,10 @@ export record FileWriter
     private _file: any
     private _closed: boolean
 
-    --- Releases it as an ownership terminal. Repeated calls are safe.
+    --- Releases it as an ownership terminal.
     ---
-    --- Declared rather than written inline: a cleanup contract is `nosuspend`, and an
-    --- inline method cannot carry one.
+    --- Repeated calls are safe. Declared rather than written inline: a cleanup
+    --- contract is `nosuspend`, and an inline method cannot carry one.
     --- @param self this owner, spent by the call
     drop: nosuspend function(takes self: FileWriter): nil
 
@@ -671,7 +683,7 @@ export record TemporaryPath
     private _directory: boolean
     private _closed: boolean
 
-    --- Answers the created path.
+    --- Returns the created path.
     --- @param self this temporary path
     --- @return the path text
     function toString(self): string
@@ -704,16 +716,17 @@ export record TemporaryPath
         return self._closed
     end
 
-    --- Removes the path as an ownership terminal. Repeated calls, and a call after
-    --- `persist`, are safe and do nothing.
+    --- Removes the path as an ownership terminal.
     ---
-    --- Declared rather than written inline because the cleanup contract needs the
-    --- `nosuspend`, and an inline method cannot carry one.
+    --- Repeated calls, and a call after `persist`, are safe and do nothing. Declared
+    --- rather than written inline because the cleanup contract needs the `nosuspend`,
+    --- and an inline method cannot carry one.
     --- @param self this temporary path, spent by the call
     drop: nosuspend function(takes self: TemporaryPath): nil
 
-    --- Removes the path and reports whether it succeeded. Repeated calls, and a call
-    --- after `persist`, are safe and do nothing.
+    --- Removes the path and reports whether it succeeded.
+    ---
+    --- Repeated calls, and a call after `persist`, are safe and do nothing.
     --- @param self this temporary path, spent by the call
     --- @return whether the removal succeeded
     function close(takes self): boolean
@@ -1086,7 +1099,9 @@ export function setReadOnly(path: string | paths.Path, readOnly: boolean): (bool
     return done(C.nuppFilesSetReadOnly(text, #text, readOnly and true or false))
 end
 
---- Creates a directory and every missing parent. An existing directory succeeds.
+--- Creates a directory and every missing parent.
+---
+--- An existing directory succeeds.
 --- @param path the directory to create
 --- @return whether the directory exists afterwards
 --- @return a failure reason, when unsuccessful
@@ -1164,6 +1179,16 @@ end
 --- `*` and `?` match within one path component, character classes use `[abc]` or
 --- `[!abc]`, and `**` crosses directory boundaries. The returned paths are sorted, and
 --- no matches is an empty list.
+---
+--- #### Examples
+---
+--- Walk every source file under a directory:
+---
+--- ```nupp
+--- for _, match in ipairs(assert(nupp.io.files.glob("src/**/*.nupp"))) do
+---     print(match)
+--- end
+--- ```
 --- @param pattern the filesystem pattern to expand
 --- @return the matching paths, or nil when the pattern or walk fails
 --- @return a failure reason, when unsuccessful
@@ -1238,6 +1263,9 @@ end
 
 --- Writes a whole file through a temporary beside it, so an interrupted write leaves
 --- the destination as it was rather than half replaced.
+---
+--- Prefer this to `write` wherever a reader may be looking at the destination
+--- while it is being replaced, since `write` truncates in place.
 --- @param path the file to write
 --- @param bytes the contents
 --- @return whether the write succeeded
@@ -1373,6 +1401,21 @@ end
 ---
 --- The file is created rather than merely proposed, so no second caller can take the
 --- name in between.
+---
+--- Closing the returned path removes it. `persist` settles it instead, which is
+--- what makes the pair a replacement for writing over a destination in place.
+---
+--- #### Examples
+---
+--- Write somewhere nobody else can take, then move it into place:
+---
+--- ```nupp
+--- do
+---     local scratch = assert(nupp.io.files.createTemporaryFile({directory = "build"}))
+---     assert(nupp.io.files.write(scratch:toString(), bytes))
+---     assert(scratch:persist("build/output.bin"))
+--- end
+--- ```
 --- @param options where to create it and how to name it
 --- @return the created path, or nil on failure
 --- @return a failure reason, when unsuccessful
