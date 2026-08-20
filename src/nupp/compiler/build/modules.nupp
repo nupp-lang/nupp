@@ -803,7 +803,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
             code, genDiags, coverage, emittedEffects = gen.generate(
                 result.result,
                 path,
-                config._coverage and {path = path} or nil
+                config._coverage and {path = path} or nil,
+                nil,
+                config._target and config._target.runtimeProviders or nil
             )
             -- Generation is the last word on runtime reachability: it has now seen
             -- which checked nodes survived folding, comptime erasure, materialization,

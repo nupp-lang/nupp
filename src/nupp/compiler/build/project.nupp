@@ -22,6 +22,7 @@ local packaging = require("nupp.compiler.build.package")
 local storeMod = require("nupp.compiler.build.store")
 local native = require("nupp.compiler.build.native")
 local nativeFeatures = require("nupp.compiler.native")
+local runtimeProviders = require("nupp.compiler.providers")
 local stdlib = require("nupp.compiler.stdlib")
 local materializeObserve = require("nupp.compiler.materialize.observe")
 local progressMod = require("nupp.compiler.build.progress")
@@ -422,6 +423,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
 
     local detectedEffects = native.dependencyEffects(root, config, target, result.effects)
     local resolvedEffects = native.resolve(detectedEffects, target.nativeFeatures)
+    runtimeProviders.withoutNative(resolvedEffects, target.runtimeProviders)
     if resolvedEffects["native.workers"] and (target.kind ~= "binary" or target.stub ~= "nupp") then
         io.stderr:write(
             "nupp: workers currently require a binary target with stub = \"nupp\"; "

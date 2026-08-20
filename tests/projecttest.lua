@@ -749,6 +749,69 @@ return {include = {"src"}, build = {targets = {app = {
       "nativeFeatures.json must be true or false", 1, true), tostring(wrongType))
 end
 
+function M.runtimeProvidersAreValidatedAndReported()
+   local function load(selected)
+      local dir = tempProject({["nupp.lua"] = [[
+return {include = {"src"}, build = {targets = {app = {
+   entries = {"main"}, runtimeProviders = ]] .. selected .. [[
+}}}}
+]]})
+      local config, err = project.loadManifest(dir)
+      local task = config and project.describeTasks(dir, "app") or nil
+      remove(dir)
+      return config, err, task
+   end
+
+   local config, err, task = load("{json = 'acme.portable_json'}")
+   assert(config, "a named runtime provider is accepted: " .. tostring(err))
+   assertEq(task.runtimeProviders.json, "acme.portable_json",
+      "task output reports the provider requirement")
+
+   local _, unknown = load("{jsoon = 'acme.portable_json'}")
+   assert(unknown and unknown:find(
+      "runtimeProviders names no provider contract jsoon", 1, true), tostring(unknown))
+   local _, wrongType = load("{json = true}")
+   assert(wrongType and wrongType:find(
+      "runtimeProviders.json must be a non-empty module name", 1, true), tostring(wrongType))
+   local _, recursive = load("{json = 'jsonNative'}")
+   assert(recursive and recursive:find(
+      "must name an adapter module", 1, true), tostring(recursive))
+end
+
+function M.selectedRuntimeJsonProviderBuildsAndRuns()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {include = {"src"}, build = {outDir = "out", entries = {"main"},
+   runtimeProviders = {json = "portable_json"}}}
+]],
+      ["src/main.nupp"] = [[
+local json = require("nupp.data.json")
+return json.encode({answer = 42})
+]],
+   })
+   assertEq(project.build(dir, {}), 0, "the provider-selected project builds")
+   write(dir .. "/out/portable_json.lua", [[
+local json = {NULL = {}, EMPTY_ARRAY = {}, EMPTY_OBJECT = {}}
+local function same(value) return value end
+json.arrayOf, json.asArray, json.asObject = same, same, same
+json.decode, json.pull = same, same
+function json.encode(value) return "portable:" .. tostring(value.answer) end
+json.serialize = json.encode
+json.writer = same
+return json
+]])
+
+   local generated = read(dir .. "/out/main.lua")
+   assert(generated:find("portable_json", 1, true),
+      "the reached standard module records the provider")
+   local script = ("package.path=%q..package.path;io.write(require('main'))")
+      :format(dir .. "/out/?.lua;build/?.lua;")
+   local status, output = process.capture({"luajit", "-e", script})
+   assertEq(status, 0, "the built artifact loads the runtime provider: " .. tostring(output))
+   assertEq(output, "portable:42", "the standard module delegates to the selected provider")
+   remove(dir)
+end
+
 function M.sharedNativeFacilitiesBuildOneFeatureGatedProvider()
    local originalCapture, originalCopy = process.capture, fs.copyFile
    local originalCompilerRoot = compilerEnv.compilerRoot
