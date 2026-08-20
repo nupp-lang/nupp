@@ -38,17 +38,6 @@ work makes sense in.
         The one piece that has to land before then: `scripts/stub-catalog.py`
         has `record` and `catalog` but nothing that turns a published
         `stub-catalog.json` back into `stub_catalog.nupp`
-- [x] **Multiversion the feature tier.** An x86-64 build carries baseline, AVX2
-      and AVX-512F translation units up to its configured ceiling, and its
-      generated wrapper binds the widest entry the destination reports at load.
-      The shape is recorded in
-      [NEP 10](docs/neps/0010-ahead-of-time-compilation.md): one translation
-      unit per `(source, tier)`, all of them linked into the one library that
-      already travels, tier-suffixed symbols, and one baseline detector the
-      emitter writes in C. The single-unit alternative --
-      `target("avx2")` per function -- was tried rather than assumed away: it
-      compiles clean only with the attribute on every helper too, which is the
-      cost the flag route does not have.
 ## Dialect interop (`import-tl`)
 
 - [ ] source translator CLI (eject model, visible residue comments, `any`
