@@ -1001,8 +1001,6 @@ end
 function M.hostBoundariesDeclareThemselvesInternal()
    local boundaries = {
       "src/nupp/data/jsonnative.d.nupp",
-      "src/nupp/io/processnative.d.nupp",
-      "src/nupp/io/httpnative.d.nupp",
       "src/nupp/workers/native.d.nupp",
    }
    for _, relative in ipairs(boundaries) do

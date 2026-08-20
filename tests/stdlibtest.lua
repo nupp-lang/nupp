@@ -533,35 +533,26 @@ end
 -- Two facilities still reach C through the bootstrap's shared loader, and each carries
 -- only the declarations it calls. Everything else declares its own ABI in the module
 -- that calls it, and the bootstrap carries nothing for it at all.
-function M.nativeBootstrapDeclaresOnlyTheSelectedAbi()
-   for _, moved in ipairs({"native.uuid", "native.sha256", "native.path", "native.uri", "native.files"}) do
-      local installed = stdlib.bootstrap({[moved] = true})
-      for _, absent in ipairs({
-         "nuppUuid4", "nuppSha256", "nuppPathJoin", "nuppUriParse", "NuppFileInfo",
-         "nuppBytesData",
-      }) do
+-- No native ABI reaches the bootstrap at all. Every facility declares the symbols it
+-- calls in the module that calls them, so a program's prologue is the same whichever
+-- native feature it selected -- which is also what makes the declarations trimmed
+-- rather than assembled: nothing has to decide what to leave out.
+function M.theBootstrapCarriesNoNativeAbi()
+   local abi = {
+      "nuppUuid4", "nuppSha256", "nuppPathJoin", "nuppUriParse", "NuppFileInfo",
+      "nuppBytesData", "nuppProcessSpawnBegin", "nuppHttpClientCreate",
+      "typedef struct NuppUri NuppUri",
+   }
+   for _, feature in ipairs({
+      "native.uuid", "native.sha256", "native.path", "native.uri", "native.files",
+      "native.process", "native.http",
+   }) do
+      local installed = stdlib.bootstrap({[feature] = true})
+      for _, absent in ipairs(abi) do
          assert(not installed:find(absent, 1, true),
-            moved .. " leaves " .. absent .. " to the module that calls it")
+            feature .. " leaves " .. absent .. " to the module that calls it")
       end
    end
-
-   local process = stdlib.bootstrap({["native.process"] = true})
-   assert(process:find("nuppProcessSpawnBegin", 1, true),
-      "process declares its own ABI")
-   assert(not process:find("nuppBytesData", 1, true),
-      "process omits the unused byte-return ABI and helper")
-   assert(not process:find("NuppFileInfo", 1, true),
-      "process omits the files ABI")
-
-   local http = stdlib.bootstrap({["native.http"] = true})
-   assert(http:find("typedef struct NuppUri NuppUri", 1, true),
-      "HTTP retains the opaque URI dependency in its request ABI")
-   assert(http:find("nuppHttpClientCreate", 1, true),
-      "HTTP declares its own ABI")
-   assert(not http:find("nuppUriParse", 1, true),
-      "HTTP omits the URI implementation ABI")
-   assert(not http:find("nuppProcessSpawnBegin", 1, true),
-      "HTTP omits the process ABI")
 end
 
 function M.pureAndNativeRuntimeFeaturesComposeAsLua()

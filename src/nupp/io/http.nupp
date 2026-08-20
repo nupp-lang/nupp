@@ -28,7 +28,9 @@ local interface NativeTransfer
     onHead: function(self: NativeTransfer, wake: function()): function()
     onBody: function(self: NativeTransfer, wake: function()): function()
     onUpload: function(self: NativeTransfer, wake: function()): function()
-    head: function(self: NativeTransfer): (string, integer?, string?, string?, string?, string?)
+    -- The version is the wire number -- 10, 11, 20 -- not its spelling; `http.Version`
+    -- is derived from it at the one place a caller sees a response.
+    head: function(self: NativeTransfer): (string, integer?, integer?, string?, string?, string?)
     cancel: nosuspend function(self: NativeTransfer): nil
     close: nosuspend function(self: NativeTransfer): nil
     offer: function(self: NativeTransfer, value: any, final: boolean, count: integer?): string
@@ -62,8 +64,678 @@ local interface BodyClient
     _releaseSource: function(self: BodyClient): nil
 end
 
-local type NativeBackend = {newClient: function(any): (NativeClient?, string?)}
-local native = require("nupp.io.httpnative") as NativeBackend
+--[[
+The platform binding.
+
+Everything below is platform-neutral: it owns the affine policy, the suspension, and
+the shapes a caller sees. This is the other side of `NativeClient` and
+`NativeTransfer` for the machine the program is on, over the symbols the native crate
+exports.
+
+It used to be a string in the compiler, installed as `nupp.io.httpnative` through
+`package.preload` and reached from here by a cast onto those two interfaces. Written
+here it implements them, so the contracts above are checked against the code that
+answers them rather than asserted about a module the checker could not see.
+
+The library is not opened by requiring this module: `nupp.native` opens on the first
+symbol read, and nothing here reads one until a client is created.
+]]
+
+const native = require("nupp.native")
+
+-- `NuppUri` is not declared here: it is `nupp.io.uri`'s handle, that module declares
+-- it, and this one requires it above. The loader that used to install this carried a
+-- copy of the typedef because it had no module to depend on.
+native.ffi.cdef[[
+typedef struct NuppHttpClient NuppHttpClient;
+typedef struct NuppHttpTransfer NuppHttpTransfer;
+
+typedef struct { const uint8_t *data; size_t length; } NuppHttpSlice;
+typedef struct { NuppHttpSlice name; NuppHttpSlice value; } NuppHttpHeader;
+
+typedef struct {
+    uint64_t connect_timeout_ms;
+    uint32_t max_redirects;
+    uint32_t max_pending_requests;
+    uint32_t max_connections;
+    uint32_t max_connections_per_host;
+    int compressed;
+    int has_insecure_hosts;
+    int proxy_mode;
+    NuppHttpSlice proxy;
+    int no_proxy_set;
+    NuppHttpSlice no_proxy;
+    NuppHttpSlice proxy_credentials;
+} NuppHttpClientOptions;
+
+typedef struct {
+    const NuppUri *uri;
+    NuppHttpSlice method;
+    const NuppHttpHeader *headers;
+    size_t header_count;
+    NuppHttpSlice body;
+    uint32_t body_kind;
+    int64_t body_length;
+    uint64_t timeout_ms;
+    uint64_t stall_timeout_ms;
+    uint64_t max_bytes;
+    int insecure;
+} NuppHttpRequest;
+
+typedef struct {
+    uint16_t status;
+    uint8_t version;
+    const uint8_t *url;
+    size_t url_length;
+    const uint8_t *headers;
+    size_t headers_length;
+} NuppHttpResponseHead;
+
+typedef struct { const NuppHttpTransfer *transfer; uint32_t tokens; } NuppHttpReady;
+
+NuppHttpClient *nuppHttpClientCreate(const NuppHttpClientOptions *);
+void nuppHttpClientDestroy(NuppHttpClient *);
+const NuppHttpTransfer *nuppHttpClientSend(NuppHttpClient *, const NuppHttpRequest *);
+void nuppHttpTransferCancel(const NuppHttpTransfer *);
+void nuppHttpTransferDestroy(const NuppHttpTransfer *);
+int nuppHttpTransferOffer(const NuppHttpTransfer *, const uint8_t *, size_t, bool);
+uint32_t nuppHttpTransferPollHeaders(const NuppHttpTransfer *, NuppHttpResponseHead *);
+const char *nuppHttpTransferError(const NuppHttpTransfer *);
+const NuppHttpTransfer *nuppHttpTransferTakeBody(const NuppHttpTransfer *);
+bool nuppHttpBodyArm(const NuppHttpTransfer *);
+bool nuppHttpBodyPeek(const NuppHttpTransfer *, const uint8_t **, size_t *, uint32_t *);
+bool nuppHttpBodyConsume(const NuppHttpTransfer *, size_t);
+const char *nuppHttpBodyError(const NuppHttpTransfer *);
+void nuppHttpBodyDestroy(const NuppHttpTransfer *);
+size_t nuppHttpClientPoll(NuppHttpClient *, NuppHttpReady *, size_t, bool *);
+size_t nuppHttpClientWait(NuppHttpClient *, uint64_t, NuppHttpReady *, size_t, bool *);
+void nuppHttpReadyRelease(const NuppHttpTransfer *);
+size_t nuppHttpClientPending(const NuppHttpClient *);
+double nuppHttpMonotonicMs(void);
+]]
+
+const C = native.C
+
+-- What polling the headers answers.
+const HEAD_PENDING = 0
+const HEAD_FAILED = 2
+
+-- What peeking at the body answers.
+const BODY_PENDING = 2
+const BODY_EOF = 3
+const BODY_FAILED = 4
+const BODY_CLOSED = 5
+
+-- Which of a transfer's waiters a readiness event should wake. A bit set, because one
+-- event commonly moves more than one of them.
+const TOKEN_HEADERS = 1
+const TOKEN_BODY = 2
+const TOKEN_UPLOAD = 4
+const TOKEN_FAILED = 8
+
+-- How a request body is supplied.
+const BODY_INLINE = 1
+const BODY_UPLOAD = 2
+const BODY_FILE = 3
+
+-- What offering upload bytes answers.
+const UPLOAD_BACKPRESSURE = 0
+const UPLOAD_ACCEPTED = 1
+
+-- How many readiness events one poll collects.
+const READY_SLOTS = 256
+
+--- Fills the borrowed byte span the crate reads its strings through.
+---
+--- A pointer and a length are passed when the bytes are not a Lua string; otherwise
+--- the string itself is the pointer. Nothing is copied either way, so the value has to
+--- outlive the call -- which it does, because every caller holds it across one.
+local function slice(value: any, pointer: any?, length: integer?): any
+    local out = native.ffi.new("NuppHttpSlice")
+    if pointer ~= nil then
+        out.data = pointer
+        out.length = length
+    elseif value ~= nil then
+        out.data = value
+        out.length = #(value as string)
+    end
+
+    return out
+end
+
+--- What the crate said, or what to say when it said nothing.
+local function reason(pointer: any, fallback: string): string
+    if pointer == nil then
+        return fallback
+    end
+    local text = native.ffi.string(pointer)
+
+    return text ~= "" and text or fallback
+end
+
+--- Wakes everything waiting on one channel and answers how many moved.
+---
+--- Backwards, because a woken waiter may add itself again and appending while
+--- iterating forwards would wake the new one in the same pass.
+local function dispatch(self: any, field: string): integer
+    local waiters = self[field]
+    if waiters == nil then
+        return 0
+    end
+    self[field] = nil
+    local count = #waiters
+    for index = count, 1, -1 do
+        waiters[index]()
+    end
+
+    return count
+end
+
+--- Wakes the longest-waiting one, and only that one.
+---
+--- Admission is one-at-a-time: waking every waiter when a single slot opened would
+--- have all of them retry and all but one fail.
+local function dispatchOne(self: any, field: string): integer
+    local waiters = self[field]
+    if waiters == nil or #waiters == 0 then
+        return 0
+    end
+    local wake = table.remove(waiters, 1)
+    if #waiters == 0 then
+        self[field] = nil
+    end
+    wake()
+
+    return 1
+end
+
+--- Adds a waiter and answers the function that takes it back off.
+---
+--- The forget is idempotent, because a waiter that has already been woken will still
+--- have its scope leave and call this.
+local function addWaiter(self: any, field: string, wake: function()): function()
+    local waiters = self[field]
+    if waiters == nil then
+        waiters = {}
+        self[field] = waiters
+    end
+    waiters[#waiters + 1] = wake
+    local active = true
+
+    return function(): nil
+        if not active then
+            return
+        end
+        active = false
+        for index = 1, #waiters do
+            if waiters[index] == wake then
+                table.remove(waiters, index)
+                break
+            end
+        end
+    end
+end
+
+--- One request in flight.
+---
+--- Deliberately not declared `is NativeTransfer`, and `Client.send` casts onto that
+--- interface instead. Two of these operations write body bytes straight into the
+--- caller's destination without a copy, which means reaching the private storage of
+--- whichever writer it is -- and a borrow cannot be handed to something that takes it
+--- as `any`, which is the rule that keeps a capability from being erased. The cast is
+--- where that is admitted. What would remove it is a capability on `io.Writer` saying
+--- "here is somewhere to write directly, or nothing", which is a change to a contract
+--- three modules implement rather than to this binding.
+---
+--- `_client` is also loose: the client's own record names this one, so typing the
+--- back-pointer would have the two name each other.
+local record Transfer
+    _client: any
+    _handle: any
+    _body: any
+    _closed: boolean
+    _headWaiters: {function()}?
+    _bodyWaiters: {function()}?
+    _uploadWaiters: {function()}?
+
+    --- Wakes whatever this event moved, and answers how many waiters that was.
+    function _ready(self: Transfer, tokens: integer): integer
+        local moved: integer = 0
+        -- A failure is reported as the headers arriving, because that is where the
+        -- caller is waiting and the head call is what will report it.
+        if bit.band(tokens, TOKEN_HEADERS + TOKEN_FAILED) ~= 0 then
+            moved = moved + dispatch(self, "_headWaiters")
+        end
+        if bit.band(tokens, TOKEN_BODY) ~= 0 then
+            moved = moved + dispatch(self, "_bodyWaiters")
+        end
+        if bit.band(tokens, TOKEN_UPLOAD) ~= 0 then
+            moved = moved + dispatch(self, "_uploadWaiters")
+        end
+
+        return moved
+    end
+
+    function onHead(self: Transfer, wake: function()): function()
+        return addWaiter(self, "_headWaiters", wake)
+    end
+
+    function onBody(self: Transfer, wake: function()): function()
+        local forget = addWaiter(self, "_bodyWaiters", wake)
+        -- Arming is what tells the crate somebody is waiting on body bytes; without it
+        -- a body that is already complete never produces another readiness event.
+        if self._body ~= nil then
+            C.nuppHttpBodyArm(self._body)
+        end
+
+        return forget
+    end
+
+    function onUpload(self: Transfer, wake: function()): function()
+        return addWaiter(self, "_uploadWaiters", wake)
+    end
+
+    function head(self: Transfer): (string, integer?, integer?, string?, string?, string?)
+        local out = native.ffi.new("NuppHttpResponseHead[1]")
+        local state = C.nuppHttpTransferPollHeaders(self._handle, out)
+        if state == HEAD_PENDING then
+            return "pending", nil, nil, nil, nil, nil
+        end
+        if state == HEAD_FAILED then
+            return "failed", nil, nil, nil, nil, reason(C.nuppHttpTransferError(self._handle), "HTTP transfer failed")
+        end
+        local head = out[0]
+        local url: string? = nil
+        if head.url ~= nil then
+            url = native.ffi.string(head.url, tonumber(head.url_length) as integer)
+        end
+
+        return "ready", tonumber(
+            head.status
+        ) as integer, tonumber(
+            head.version
+        ) as integer, url, native.ffi.string(head.headers, tonumber(head.headers_length) as integer), nil
+    end
+
+    function offer(self: Transfer, value: any, final: boolean, count: integer?): string
+        local data: any = nil
+        local length = 0
+        if value ~= nil then
+            -- A buffer hands over its storage directly; anything else is bytes.
+            local raw = type(value) == "table" and rawget(value, "_data") or nil
+            if raw ~= nil then
+                data = raw
+                length = count or rawget(value, "_length")
+            else
+                data = value
+                length = count or #(value as string)
+            end
+        end
+        local answer = C.nuppHttpTransferOffer(self._handle, data, length, final == true)
+        if answer == UPLOAD_ACCEPTED then
+            return "accepted"
+        end
+        if answer == UPLOAD_BACKPRESSURE then
+            return "backpressure"
+        end
+
+        return "closed"
+    end
+
+    function takeBody(self: Transfer): (boolean?, string?)
+        if self._body == nil then
+            local handle = C.nuppHttpTransferTakeBody(self._handle)
+            if handle == nil then
+                return nil, "the HTTP response has no body"
+            end
+            self._body = native.ffi.gc(handle, C.nuppHttpBodyDestroy)
+        end
+
+        return true, nil
+    end
+
+    --- Reads body bytes, into a buffer when one was given and as a string otherwise.
+    ---
+    --- The crate lends the bytes rather than copying them, so this consumes only what
+    --- it took and leaves the rest for the next call.
+    function bodyRead(self: Transfer, count: integer, destination: any, offset: integer): (string, any?, string?)
+        local data = native.ffi.new("const uint8_t*[1]")
+        local length = native.ffi.new("size_t[1]")
+        local state = native.ffi.new("uint32_t[1]")
+        if not C.nuppHttpBodyPeek(self._body, data, length, state) then
+            return "failed", nil, native.error()
+        end
+        local kind = tonumber(state[0])
+        if kind == BODY_PENDING then
+            return "pending", nil, nil
+        end
+        if kind == BODY_EOF then
+            return "eof", nil, nil
+        end
+        if kind == BODY_FAILED then
+            return "failed", nil, reason(C.nuppHttpBodyError(self._body), "HTTP response body failed")
+        end
+        if kind == BODY_CLOSED then
+            return "closed", nil, "the body is closed"
+        end
+        local take = math.min(count, tonumber(length[0]) as integer)
+        if destination ~= nil then
+            local raw = rawget(destination, "_data")
+            local capacity = rawget(destination, "_capacity")
+            if raw ~= nil or capacity ~= nil then
+                destination:ensureCapacity(offset + take)
+                raw = rawget(destination, "_data")
+                local old = rawget(destination, "_length")
+                -- Writing past the end leaves a gap, which is zeroed rather than left
+                -- holding whatever the buffer grew over.
+                if offset > old then
+                    native.ffi.fill(raw + old, (offset - old) as integer, 0)
+                end
+                native.ffi.copy(raw + offset, data[0], take)
+                if offset + take > old then
+                    rawset(destination, "_length", offset + take)
+                end
+                if not C.nuppHttpBodyConsume(self._body, take) then
+                    return "failed", nil, native.error()
+                end
+
+                return "data", take, nil
+            end
+        end
+        local bytes = native.ffi.string(data[0], take)
+        if not C.nuppHttpBodyConsume(self._body, take) then
+            return "failed", nil, native.error()
+        end
+
+        return "data", bytes, nil
+    end
+
+    --- Whether this destination can take body bytes without a copy through Lua.
+    function directDestination(self: Transfer, destination: any): boolean
+        local buffer = rawget(destination, "_buffer")
+        if buffer ~= nil and rawget(destination, "_at") ~= nil and rawget(buffer, "_capacity") ~= nil then
+            return true
+        end
+        local file = rawget(destination, "_file")
+
+        return file ~= nil and rawget(file, "_handle") ~= nil
+    end
+
+    --- Moves body bytes straight into a writer, when the writer has storage to take
+    --- them; "unsupported" when it does not, so the caller falls back to `bodyRead`.
+    function bodyWrite(self: Transfer, destination: any, count: integer): (string, integer?, string?)
+        if rawget(destination, "_closed") then
+            return "failed", nil, "the writer is closed"
+        end
+        local buffer = rawget(destination, "_buffer")
+        if buffer ~= nil and rawget(destination, "_at") ~= nil and rawget(buffer, "_capacity") ~= nil then
+            local at = rawget(destination, "_at")
+            local state, value, why = self:bodyRead(count, buffer, at)
+            if state == "data" then
+                rawset(destination, "_at", at + (value as integer))
+            end
+
+            return state, value as integer?, why
+        end
+        local file = rawget(destination, "_file")
+        local handle = file and rawget(file, "_handle") or nil
+        if handle == nil then
+            return "unsupported", nil, nil
+        end
+        local data = native.ffi.new("const uint8_t*[1]")
+        local length = native.ffi.new("size_t[1]")
+        local state = native.ffi.new("uint32_t[1]")
+        if not C.nuppHttpBodyPeek(self._body, data, length, state) then
+            return "failed", nil, native.error()
+        end
+        local kind = tonumber(state[0])
+        if kind == BODY_PENDING then
+            return "pending", nil, nil
+        end
+        if kind == BODY_EOF then
+            return "eof", nil, nil
+        end
+        if kind == BODY_FAILED then
+            return "failed", nil, reason(C.nuppHttpBodyError(self._body), "HTTP response body failed")
+        end
+        if kind == BODY_CLOSED then
+            return "closed", nil, "the body is closed"
+        end
+        local take = math.min(count, tonumber(length[0]) as integer)
+        -- `nuppFileWrite` belongs to the files binding. Reaching it here needs no
+        -- declaration of its own, because a writer can only be holding a file handle
+        -- if that module is what made it.
+        local wrote = tonumber(C.nuppFileWrite(handle, data[0], take)) as integer
+        if wrote < 0 then
+            return "failed", nil, native.error()
+        end
+        if not C.nuppHttpBodyConsume(self._body, wrote) then
+            return "failed", nil, native.error()
+        end
+
+        return "data", wrote, nil
+    end
+
+    function cancel(self: Transfer): nil
+        if self._handle ~= nil then
+            C.nuppHttpTransferCancel(self._handle)
+        end
+    end
+
+    --- Releases the transfer and its body.
+    ---
+    --- The finalizer is cleared before each destroy so the collector does not free a
+    --- handle this call already freed. A transfer with no body taken is cancelled
+    --- first, because the crate keeps producing for one that was not.
+    function close(self: Transfer): nil
+        if self._closed then
+            return
+        end
+        self._closed = true
+        self._client._byHandle[tostring(self._handle)] = nil
+        if self._body ~= nil then
+            local body = self._body
+            self._body = nil
+            native.ffi.gc(body, nil)
+            C.nuppHttpBodyDestroy(body)
+        else
+            C.nuppHttpTransferCancel(self._handle)
+        end
+        local handle = self._handle
+        self._handle = nil
+        native.ffi.gc(handle, nil)
+        C.nuppHttpTransferDestroy(handle)
+    end
+end
+
+--- One connection pool, and the transfers it is carrying.
+local record Client is NativeClient
+    _handle: any
+    _closed: boolean
+
+    --- Every live transfer, keyed by its handle's address, because a readiness event
+    --- names the handle and this is what turns that back into the object.
+    _byHandle: {[string]: Transfer}
+
+    _admissionWaiters: {function()}?
+    _maxPending: integer
+    _ready: any
+    _more: any
+
+    function onAdmission(self: Client, wake: function()): function()
+        if self._closed or (tonumber(C.nuppHttpClientPending(self._handle)) as integer) < self._maxPending then
+            wake()
+
+            return function(): nil
+            end
+        end
+
+        return addWaiter(self, "_admissionWaiters", wake)
+    end
+
+    function send(self: Client, descriptor: any): (NativeTransfer?, string?, boolean?)
+        local headers = descriptor.headers or {}
+        local count = #headers
+        local packed = count > 0 and native.ffi.new("NuppHttpHeader[?]", count) or nil
+        for index = 1, count do
+            local item = headers[index]
+            packed[index - 1].name = slice(item[1])
+            packed[index - 1].value = slice(item[2])
+        end
+        local bodyPointer: any = nil
+        local bodyLength: integer = 0
+        local value = descriptor.body
+        if descriptor.bodyKind == BODY_INLINE then
+            if type(value) == "string" then
+                bodyPointer = value
+                bodyLength = #(value as string)
+            else
+                local raw = rawget(value, "_data")
+                if raw ~= nil then
+                    bodyPointer = raw
+                    bodyLength = rawget(value, "_length")
+                else
+                    local bytes = rawget(value, "_bytes") or value:getString()
+                    bodyPointer = bytes
+                    bodyLength = #(bytes as string)
+                end
+            end
+        elseif descriptor.bodyKind == BODY_FILE then
+            -- The path, which the crate opens for itself.
+            bodyPointer = value
+            bodyLength = #(value as string)
+        end
+        local request = native.ffi.new("NuppHttpRequest")
+        request.uri = rawget(descriptor.uri, "_handle")
+        request.method = slice(descriptor.method)
+        request.headers = packed
+        request.header_count = count
+        request.body = slice(nil, bodyPointer, bodyLength)
+        request.body_kind = descriptor.bodyKind
+        request.body_length = descriptor.bodyLength or -1
+        request.timeout_ms = descriptor.timeoutMs
+        request.stall_timeout_ms = descriptor.stallTimeoutMs
+        request.max_bytes = descriptor.maxBytes
+        request.insecure = descriptor.insecure and 1 or 0
+        local handle = C.nuppHttpClientSend(self._handle, request)
+        if handle == nil then
+            local why = native.error()
+
+            return nil, why, why == "the HTTP client has reached maxPendingRequests"
+        end
+        handle = native.ffi.gc(handle, C.nuppHttpTransferDestroy)
+        local transfer = new Transfer(_client = self, _handle = handle, _body = nil, _closed = false)
+        self._byHandle[tostring(handle)] = transfer
+
+        return transfer as any as NativeTransfer, nil, nil
+    end
+
+    --- Collects readiness events and wakes what they moved.
+    ---
+    --- A wake is run under `pcall` so that one waiter raising still lets the event be
+    --- released; the crate is holding the transfer until it is, and leaking that would
+    --- outlast the error.
+    --- @raises with whatever a woken waiter raised, once its event has been released
+    function poll(self: Client, waitMs: integer): integer
+        local count: any
+        local moved: integer = 0
+        if waitMs > 0 then
+            count = C.nuppHttpClientWait(self._handle, waitMs, self._ready, READY_SLOTS, self._more)
+        else
+            count = C.nuppHttpClientPoll(self._handle, self._ready, READY_SLOTS, self._more)
+        end
+        for index = 0, (tonumber(count) as integer) - 1 do
+            local item = self._ready[index]
+            local transfer = self._byHandle[tostring(item.transfer)]
+            local ok, problem = true, nil
+            if transfer ~= nil then
+                ok, problem = pcall(function(): nil
+                    moved = moved + transfer:_ready(tonumber(item.tokens) as integer)
+                end)
+            end
+            C.nuppHttpReadyRelease(item.transfer)
+            if not ok then
+                error(problem, 0)
+            end
+        end
+        if self._admissionWaiters ~= nil and (
+            tonumber(C.nuppHttpClientPending(self._handle)) as integer
+        ) < self._maxPending then
+            moved = moved + dispatchOne(self, "_admissionWaiters")
+        end
+
+        return moved
+    end
+
+    function pending(self: Client): integer
+        if self._closed then
+            return 0
+        end
+
+        return tonumber(C.nuppHttpClientPending(self._handle)) as integer
+    end
+
+    function now(self: Client): number
+        return tonumber(C.nuppHttpMonotonicMs()) as number
+    end
+
+    --- Closes every transfer still in flight, then the pool.
+    ---
+    --- The transfers are listed before any is closed, because closing one takes it out
+    --- of the table being walked.
+    function close(self: Client): nil
+        if self._closed then
+            return
+        end
+        self._closed = true
+        dispatch(self, "_admissionWaiters")
+        local transfers: {Transfer} = {}
+        for _, transfer in pairs(self._byHandle) do
+            transfers[#transfers + 1] = transfer
+        end
+        for index = 1, #transfers do
+            transfers[index]:close()
+        end
+        local handle = self._handle
+        self._handle = nil
+        native.ffi.gc(handle, nil)
+        C.nuppHttpClientDestroy(handle)
+    end
+end
+
+--- Opens a connection pool.
+local function newClient(options: any): (NativeClient?, string?)
+    -- Three proxy modes rather than two: unset means take the environment's, and empty
+    -- means deliberately none, which is not the same answer.
+    local proxyMode = options.proxy == nil and 0 or (options.proxy == "" and 1 or 2)
+    local settings = native.ffi.new("NuppHttpClientOptions")
+    settings.connect_timeout_ms = options.connectTimeoutMs
+    settings.max_redirects = options.maxRedirects
+    settings.max_pending_requests = options.maxPendingRequests
+    settings.max_connections = options.maxConnections
+    settings.max_connections_per_host = options.maxConnectionsPerHost
+    settings.compressed = options.compressed and 1 or 0
+    settings.has_insecure_hosts = next(options.insecureHosts) and 1 or 0
+    settings.proxy_mode = proxyMode
+    settings.proxy = slice(options.proxy or "")
+    settings.no_proxy_set = options.noProxy ~= nil and 1 or 0
+    settings.no_proxy = slice(options.noProxy or "")
+    settings.proxy_credentials = slice(options.proxyCredentials or "")
+    local handle = C.nuppHttpClientCreate(settings)
+    if handle == nil then
+        return nil, native.error()
+    end
+
+    return new Client(
+        _handle = native.ffi.gc(handle, C.nuppHttpClientDestroy),
+        _closed = false,
+        _byHandle = {},
+        _admissionWaiters = nil,
+        _maxPending = options.maxPendingRequests,
+        _ready = native.ffi.new("NuppHttpReady[?]", READY_SLOTS),
+        _more = native.ffi.new("bool[1]")
+    ), nil
+end
 
 type http.Version = "1.0" | "1.1" | "2"
 
@@ -113,7 +785,6 @@ local UPLOAD_SIZE: integer = 512 * 1024
 local UPLOAD_PAGE: integer = 64 * 1024
 local COALESCE_BELOW: integer = 8 * 1024
 local COPY_TURN: integer = 16 * 1024 * 1024
-local BODY_INLINE, BODY_UPLOAD, BODY_FILE = 1, 2, 3
 
 local function whole(value: any, what: string, minimum: integer, maximum: integer?): integer
     if type(
@@ -1015,8 +1686,8 @@ function http.Client.drop(takes self: http.Client): nil
                 self._source = nil
                 self._sourceUsers = 0
             end
-            local native = self._native as {close: nosuspend function(any): nil}
-            native:close()
+            local client = self._native as {close: nosuspend function(any): nil}
+            client:close()
         end
     end
 end
@@ -1049,7 +1720,7 @@ end
 
 function http.newClient(options: http.Options?): (affine(http.Client?, destroyClient), string?)
     local copied = copiedOptions(options)
-    local backend, reason = native.newClient(copied)
+    local backend, reason = newClient(copied)
     if backend == nil then
         return nil, reason
     end

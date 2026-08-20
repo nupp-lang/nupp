@@ -11,7 +11,7 @@ local M = {}
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local root, http, buffers, process, port, server
-local priorPreload, priorLoaded, priorProcessPreload, priorProcessLoaded, unavailable
+local priorPreload, priorLoaded, unavailable
 
 local function temporaryRoot()
    local base = os.getenv("TMPDIR") or "/tmp"
@@ -39,6 +39,22 @@ local function startServer()
    return nil, "the loopback server did not become ready"
 end
 
+-- The library the provider opens is chosen by `nupp.native`, which reads
+-- `NUPP_NATIVE_LIBRARY` on the first symbol it is asked for. A suite cannot set an
+-- environment variable for its own process, so it preloads that module with the
+-- lookup already answered -- the same substitution this made against the bootstrap
+-- string back when the loader was generated into it.
+local function preloadProvider(libraryPath)
+   local found = assert(package.searchpath("nupp.native", package.path),
+      "nupp.native is not on the path")
+   local text = assert(io.open(found, "rb")):read("*a"):gsub(
+      'os%.getenv%("NUPP_NATIVE_LIBRARY"%)', function()
+         return ("%q"):format(libraryPath)
+      end)
+   package.loaded["nupp.native"] = nil
+   package.preload["nupp.native"] = assert(loadstring(text, "@nupp.native"))
+end
+
 function M.beforeAll()
    math.randomseed(os.time())
    root = temporaryRoot()
@@ -62,16 +78,10 @@ function M.beforeAll()
       ["native.http"] = true,
       ["native.process"] = true,
    })
-   local library = ("%q"):format(libraryPath)
-   local source = stdlib.bootstrap(effects):gsub(
-      'os%.getenv%("NUPP_NATIVE_LIBRARY"%)', function() return library end)
-   priorPreload = package.preload["nupp.io.httpnative"]
-   priorLoaded = package.loaded["nupp.io.httpnative"]
-   priorProcessPreload = package.preload["nupp.io.processnative"]
-   priorProcessLoaded = package.loaded["nupp.io.processnative"]
-   package.loaded["nupp.io.httpnative"] = nil
-   package.loaded["nupp.io.processnative"] = nil
-   assert(loadstring(source))()
+   priorPreload = package.preload["nupp.native"]
+   priorLoaded = package.loaded["nupp.native"]
+   preloadProvider(libraryPath)
+   assert(loadstring(stdlib.bootstrap(effects)))()
    process = require("nupp.io.process")
    http = require("nupp.io.http")
    buffers = require("nupp.io")
@@ -80,10 +90,8 @@ end
 
 function M.afterAll()
    if server then server:close() end
-   package.preload["nupp.io.httpnative"] = priorPreload
-   package.loaded["nupp.io.httpnative"] = priorLoaded
-   package.preload["nupp.io.processnative"] = priorProcessPreload
-   package.loaded["nupp.io.processnative"] = priorProcessLoaded
+   package.preload["nupp.native"] = priorPreload
+   package.loaded["nupp.native"] = priorLoaded
    if root then
       os.execute("chmod -R u+w '" .. root .. "' 2>/dev/null")
       os.execute("rm -rf '" .. root .. "'")
@@ -346,17 +354,18 @@ end
 function M.thePublicModuleSelectsItsFeatureClosure()
    ready():close()
    test.equal(native.forModule("nupp.io.http"), "native.http")
-   test.equal(native.forModule("nupp.io.httpnative"), nil)
    local feature = assert(native.feature("native.http"))
    test.equal(feature.cargoFeature, "http")
    local expanded = native.expand({["native.http"] = true})
    assert(expanded["runtime.suspension"])
    assert(expanded["native.uri"])
    assert(expanded["stdlib.io"])
-   local bootstrap = stdlib.bootstrap(expanded)
-   assert(bootstrap:find('package.preload["nupp.io.httpnative"]', 1, true))
-   assert(not stdlib.bootstrap({["stdlib.io"] = true}):find(
-      "nuppHttpClientCreate", 1, true), "unused programs carry no HTTP ABI")
+   -- The binding is part of the module now, so what a program receives is the module
+   -- rather than a preload the bootstrap carried, and a program that does not select
+   -- the feature never sees the module at all.
+   test.equal(feature.runtimeModule, "nupp.io.http")
+   assert(not stdlib.bootstrap(expanded):find(
+      "nuppHttpClientCreate", 1, true), "the ABI is the module's, not the bootstrap's")
 end
 
 return M
