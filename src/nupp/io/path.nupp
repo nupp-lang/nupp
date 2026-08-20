@@ -1,0 +1,311 @@
+module nupp.io.path
+
+--[[
+Filesystem paths, as the platform spells them.
+
+The rules are the native library's, so joining, normalizing and splitting agree with
+what the operating system will actually do rather than with a guess made in Lua. A
+path is an immutable value: every operation answers a new one, and two paths are
+equal when their text is.
+
+A module rather than an export of [](nupp.io), because a program that wants a byte
+buffer should not carry the path provider to get one. So this is reached as
+`nupp.io.path`, and a path is built with the language's own `new`:
+
+```nupp
+const {Path} = require("nupp.io.path")
+
+local source = new Path("src", "main.nupp")
+```
+
+`currentDirectory` and `separator` are functions here beside the record, because
+neither builds a path out of components.
+]]
+
+const native = require("nupp.native")
+
+-- The struct is declared here rather than in the runtime cdef below, because `ffi.new`
+-- names it and the checker has to know the type to accept that. It reaches LuaJIT as a
+-- bare `struct` rather than a typedef, which is why the prototype below spells it that
+-- way. The functions stay in the runtime declaration: they are reached through the
+-- handle `nupp.native` opened, not the default namespace a `cdef function` binds to.
+cdef struct NuppStringView
+    data: cstring
+    length: uint64
+end
+
+native.ffi.cdef[[
+NuppBytes *nuppPathJoin(const struct NuppStringView *, size_t);
+NuppBytes *nuppPathNormalize(const uint8_t *, size_t);
+NuppBytes *nuppPathAbsolute(const uint8_t *, size_t);
+NuppBytes *nuppPathCanonicalize(const uint8_t *, size_t);
+NuppBytes *nuppPathRelative(const uint8_t *, size_t, const uint8_t *, size_t);
+NuppBytes *nuppPathPart(const uint8_t *, size_t, uint32_t);
+NuppBytes *nuppPathWith(const uint8_t *, size_t, const uint8_t *, size_t, bool);
+bool nuppPathIsAbsolute(const uint8_t *, size_t);
+]]
+
+local ffi = native.ffi
+local C = native.C
+
+-- Declared ahead of the record because its constructor and methods call them, and
+-- defined below it because they name the record. The types are the contract either way.
+local textOf: function(value: string | Path): string
+local joined: function(first: string | Path, count: integer, ...: string | Path): string
+local raw: function(text: string): Path
+local returned: function(buffer: any, optional: boolean?): Path?
+
+--- A filesystem path.
+--- @export
+export record Path
+    --- The native UTF-8 path text.
+    private _text: string
+
+    --- Creates a path by joining one or more components using the platform's rules.
+    ---
+    --- #### Examples
+    ---
+    --- Build a path from components:
+    ---
+    --- ```nupp
+    --- const path = require("nupp.io.path")
+    --- const {Path} = path
+    ---
+    --- local source = new Path("src", "main.nupp")
+    --- assert(source:toString() == "src" .. path.separator() .. "main.nupp")
+    --- ```
+    ---
+    --- Normalize the path after joining its components:
+    ---
+    --- ```nupp
+    --- const {Path} = require("nupp.io.path")
+    ---
+    --- local source = (new Path("src", "app", "..", "main.nupp")):normalize()
+    --- assert(source:fileName() == "main.nupp")
+    --- ```
+    --- @param self the path being built
+    --- @param first the first path component
+    --- @param ... the remaining path components
+    constructor(self, first: string, ...: string)
+        self._text = joined(first, select("#", ...), ...)
+    end
+
+    --- Returns the native UTF-8 path text.
+    --- @param self this path
+    --- @return the path text
+    function toString(self): string
+        return self._text
+    end
+
+    --- Appends path components using the current platform's rules.
+    --- @param self this path
+    --- @param ... the components to append
+    --- @return the joined path
+    function join(self, ...: string | Path): Path
+        return raw(joined(self, select("#", ...), ...))
+    end
+
+    --- Removes lexical `.` and `..` components without accessing the filesystem.
+    --- @param self this path
+    --- @return the normalized path
+    function normalize(self): Path
+        return returned(C.nuppPathNormalize(self._text, #self._text)) as Path
+    end
+
+    --- Resolves this path against the process's current working directory.
+    --- @param self this path
+    --- @return the absolute path, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    function absolute(self): (Path?, string?)
+        local out = C.nuppPathAbsolute(self._text, #self._text)
+        if out == nil then
+            return nil, native.error()
+        end
+
+        return returned(out), nil
+    end
+
+    --- Makes this path absolute, appends components, and normalizes the result.
+    --- @param self this path
+    --- @param ... the components to append
+    --- @return the resolved path, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    function resolve(self, ...: string | Path): (Path?, string?)
+        local absolute, reason = self:absolute()
+        if not absolute then
+            return nil, reason
+        end
+
+        return absolute:join(...):normalize(), nil
+    end
+
+    --- Resolves every symbolic link and `..`, which requires the path to exist.
+    --- @param self this path
+    --- @return the canonical path, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    function canonicalize(self): (Path?, string?)
+        local out = C.nuppPathCanonicalize(self._text, #self._text)
+        if out == nil then
+            return nil, native.error()
+        end
+
+        return returned(out), nil
+    end
+
+    --- Expresses this path relative to another.
+    --- @param self this path
+    --- @param base the path to express this one against
+    --- @return the relative path, or nil when there is no relative form
+    --- @return a failure reason, when unsuccessful
+    function relativeTo(self, base: string | Path): (Path?, string?)
+        local other = textOf(base)
+        local out = C.nuppPathRelative(self._text, #self._text, other, #other)
+        if out == nil then
+            return nil, native.error()
+        end
+
+        return returned(out), nil
+    end
+
+    --- The path without its final component.
+    --- @param self this path
+    --- @return the parent, or nil when there is none
+    function parent(self): Path?
+        return returned(C.nuppPathPart(self._text, #self._text, 0), true)
+    end
+
+    --- The final component, extension included.
+    --- @param self this path
+    --- @return the file name, or nil when the path ends in a directory component
+    function fileName(self): string?
+        return native.bytes(C.nuppPathPart(self._text, #self._text, 1), true)
+    end
+
+    --- The final component without its extension.
+    --- @param self this path
+    --- @return the stem, or nil when there is no file name
+    function stem(self): string?
+        return native.bytes(C.nuppPathPart(self._text, #self._text, 2), true)
+    end
+
+    --- The final component's extension, without the dot.
+    --- @param self this path
+    --- @return the extension, or nil when there is none
+    function extension(self): string?
+        return native.bytes(C.nuppPathPart(self._text, #self._text, 3), true)
+    end
+
+    --- The path with its final component replaced.
+    --- @param self this path
+    --- @param name the file name to use
+    --- @return the new path
+    function withFileName(self, name: string): Path
+        return returned(C.nuppPathWith(self._text, #self._text, name, #name, false)) as Path
+    end
+
+    --- The path with its extension replaced.
+    --- @param self this path
+    --- @param extension the extension to use, without the dot
+    --- @return the new path
+    function withExtension(self, extension: string): Path
+        return returned(C.nuppPathWith(self._text, #self._text, extension, #extension, true)) as Path
+    end
+
+    --- Whether the path is anchored at a root.
+    --- @param self this path
+    --- @return whether the path is absolute
+    function isAbsolute(self): boolean
+        return C.nuppPathIsAbsolute(self._text, #self._text)
+    end
+
+    --- Whether the path is interpreted against a working directory.
+    --- @param self this path
+    --- @return whether the path is relative
+    function isRelative(self): boolean
+        return not self:isAbsolute()
+    end
+
+    metamethod __tostring: function(self): string
+    metamethod __eq: function(self, any): boolean
+end
+
+-- Wraps text the library already answered, without putting it back through the join
+-- the constructor performs. `parent`, `withExtension` and the rest answer exact text,
+-- and rejoining it is not the same operation. Declaring a constructor closes ordinary
+-- construction, so this stamps the record's own metatable the way `new` would.
+raw = function(text: string): Path
+    return setmetatable({_text = text,} as any, Path as any) as Path
+end
+
+-- Joins one leading component with `count` more, using the platform's rules. Shared by
+-- the constructor and by `join`, which differ only in where the first component
+-- comes from.
+joined = function(first: string | Path, count: integer, ...: string | Path): string
+    local views = ffi.new<NuppStringView[?]>(count + 1)
+    local keep = {textOf(first),}
+    for index = 1, count do
+        keep[index + 1] = textOf(select(index, ...) as string | Path)
+    end
+    -- LuaJIT converts each Lua string to a borrowed `const uint8_t *` for the duration
+    -- of the call, and `keep` holds every one of them alive across it. The bound is
+    -- `#keep` by construction, so there is no span to check against.
+    unsafe do
+        for index = 1, #keep do
+            views[index - 1].data = keep[index] as any
+            views[index - 1].length = #keep[index]
+        end
+    end
+
+    return native.bytes(C.nuppPathJoin(views, #keep)) as string
+end
+
+--- The text of a path, or of a string left as it is.
+textOf = function(value: string | Path): string
+    if type(value) == "string" then
+        return value as string
+    end
+
+    return (value as Path)._text
+end
+
+-- The library answers a buffer, or nil with the reason on the error channel. An
+-- operation that may legitimately have no answer -- a path with no parent -- passes
+-- `optional`, and nil is the answer rather than a failure.
+returned = function(buffer: any, optional: boolean?): Path?
+    local text = native.bytes(buffer, optional)
+    if text == nil then
+        return nil
+    end
+
+    return raw(text as string)
+end
+
+    ;
+(Path as {[string]: any}).__tostring = function(self: Path): string
+    return self:toString()
+end
+
+    ;
+(Path as {[string]: any}).__eq = function(left: Path, right: Path): boolean
+    return left:toString() == right:toString()
+end
+
+--- Reads the process's current working directory.
+--- @return the current directory, or nil on failure
+--- @return a failure reason, when unsuccessful
+--- @export
+export function currentDirectory(): (Path?, string?)
+    local out = C.nuppPathAbsolute("", 0)
+    if out == nil then
+        return nil, native.error()
+    end
+
+    return returned(out), nil
+end
+
+--- Returns the current platform's primary path separator.
+--- @return the path separator
+--- @export
+export function separator(): string
+    return package.config:sub(1, 1)
+end

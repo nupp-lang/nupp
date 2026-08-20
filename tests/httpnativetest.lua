@@ -74,7 +74,7 @@ function M.beforeAll()
    assert(loadstring(source))()
    process = require("nupp.io.process")
    http = require("nupp.io.http")
-   buffers = _G.nupp.io
+   buffers = require("nupp.io")
    port, unavailable = startServer()
 end
 
@@ -102,7 +102,7 @@ local function ready()
 end
 
 local function endpoint(path)
-   return assert(_G.nupp.io.URI.new("http://127.0.0.1:" .. port .. path))
+   return assert(require("nupp.io.uri").new("http://127.0.0.1:" .. port .. path))
 end
 
 local function readAll(body, chunkSize)

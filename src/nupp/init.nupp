@@ -14,7 +14,7 @@ members ambiguous with real descendants.
 Its public namespaces are [](nupp.data) (JSON, UTF-8, UUIDs, hashes and
 checksums), [](nupp.io) (buffers, byte views, readers, writers, and the typed
 scalar cursors over them),
-`nupp.io.Path` and `nupp.io.URI` (filesystem paths and resource identifiers),
+`nupp.io.path` and `nupp.io.uri` (filesystem paths and resource identifiers),
 [](nupp.math) (scalar helpers and two-dimensional vectors), `nupp.peg` (textual
 parsing-expression grammars compiled at either phase), and `nupp.reflect`
 (semantic type descriptors and reflection-driven keyed codecs).

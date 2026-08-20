@@ -13,6 +13,9 @@ asked for and did not get, which is a rule worth explaining every time it costs
 somebody something rather than only in the documentation.
 ]]
 
+-- The temporary-path options are named by the module that declares them rather than
+-- through `nupp.io`, which re-exports them.
+local files = require("nupp.io.files")
 local ansi = require("nupp.compiler.ansi")
 local spec = require("nupp.compiler.cli.spec")
 
@@ -325,7 +328,7 @@ local function run(parsed: any): integer
     -- finished scaffold all leave the same nothing behind. One creation and one
     -- close, with the work between them, because the handle is affine.
     local owned, scratchErr = nupp.io.files.createTemporaryDirectory(
-        {prefix = "nupp-template-"} as nupp.io.Files.TemporaryOptions
+        {prefix = "nupp-template-"} as files.TemporaryOptions
     )
     if not owned then
         return fail("cannot create a temporary directory: " .. tostring(scratchErr))

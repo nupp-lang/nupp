@@ -59,9 +59,30 @@ local function open(): any
     return ffi.load(root .. "/.." .. library)
 end
 
+local library: any = nil
+
 --- The opened library, for a caller that has declared its symbols.
+---
+--- Opening is deferred to the first symbol read rather than done when this module
+--- loads. A module that stands on the provider is required long before anything calls
+--- into it -- the compiler requires `nupp.io.files` to list its own sources, and
+--- `nupp help` in a tree that has never built the provider must still answer -- so a
+--- load-time `ffi.load` would make requiring the module the thing that fails.
+---
+--- Each symbol is cached on the way through, so a call site pays the miss once and
+--- reads an ordinary field afterwards.
 --- @export
-native.C = open()
+native.C = setmetatable({}, {
+    __index = function(self: any, symbol: string): any
+        if library == nil then
+            library = open()
+        end
+        local found = library[symbol]
+        rawset(self, symbol, found)
+
+        return found
+    end,
+}) as any
 
 --- What the library says went wrong, for the call that just failed.
 ---

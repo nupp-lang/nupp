@@ -939,6 +939,25 @@ local function buildMembers(
                 isFunction = true,
                 annotations = annotationsOf(entry)
             )
+        elseif entry.kind == "constructorDecl" and entryVisible then
+            -- A constructor has no name of its own, because a caller does not write
+            -- one: `new T(...)` is the spelling. It documents under the keyword, so
+            -- what it says about its parameters has somewhere to be read.
+            local constructorInfo = entryInfo
+            local details = functionDetails(entry, constructorInfo)
+            members[
+                #members + 1
+            ] = new extract.Member(
+                name = "constructor",
+                type = functionSignature(entry, "constructor"),
+                text = constructorInfo.text,
+                path = basePath .. ".constructor",
+                params = details.params,
+                returns = details.returns,
+                raises = constructorInfo.raises,
+                isFunction = true,
+                annotations = annotationsOf(entry)
+            )
         elseif entry.kind == "recordDecl" and entryVisible then
             local nestedPath = basePath .. "." .. entry.name.text
             members[

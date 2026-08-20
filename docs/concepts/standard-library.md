@@ -35,7 +35,7 @@ namespaces and declared modules:
   typed scalar reads and writes over them.
 - [`nupp.io.files`](../modules/nupp/io/files.md) owns filesystem metadata and
   directories.
-- [`nupp.io.Path` and `nupp.io.URI`](paths-and-uris.md) model paths and resource
+- [`nupp.io.path.Path` and `nupp.io.uri.URI`](paths-and-uris.md) model paths and resource
   names.
 - [`nupp.log`](../modules/nupp/log.md) owns leveled logging over a swappable
   destination.

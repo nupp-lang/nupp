@@ -40,13 +40,13 @@ local FEATURES: {[string]: native.Feature} = {
     ["stdlib.peg.compile"] = {name = "peg_compile", globals = {"nupp.peg.compile"}, requires = {"native.lpeg"},},
     ["stdlib.fieldcodec"] = {name = "fieldcodec", globals = {"nupp.reflect.fieldCodec"},},
     ["stdlib.derives"] = {name = "derives", globals = {},},
-    ["stdlib.io"] = {name = "io", globals = {"nupp.io.newBuffer", "nupp.io.newStringReader"},},
+    ["stdlib.io"] = {name = "io", modules = {"nupp.io"},},
     ["stdlib.math"] = {name = "math", globals = {"nupp.math"},},
     [
         "native.path"
     ] = {
         name = "path",
-        globals = {"nupp.io.Path.new", "nupp.io.Path.currentDirectory", "nupp.io.Path.separator"},
+        modules = {"nupp.io.path"},
         cargo = "runtime/native/Cargo.toml",
         cargoFeature = "path",
         library = "nupp_native",
@@ -56,7 +56,7 @@ local FEATURES: {[string]: native.Feature} = {
         "native.uri"
     ] = {
         name = "uri",
-        globals = {"nupp.io.URI.new", "nupp.io.URI.validate", "nupp.io.URI.isURI"},
+        modules = {"nupp.io.uri"},
         cargo = "runtime/native/Cargo.toml",
         cargoFeature = "uri",
         library = "nupp_native",
@@ -74,7 +74,7 @@ local FEATURES: {[string]: native.Feature} = {
     },
     ["native.files"] = {
         name = "files",
-        globals = {"nupp.io.files"},
+        modules = {"nupp.io.files"},
         cargo = "runtime/native/Cargo.toml",
         cargoFeature = "files",
         host = "native-files",
@@ -193,10 +193,9 @@ function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: st
                 local qualified = globals[table.concat(parts, ".", 1, index - 1)]
                 decorate(qualified and qualified.t, parts[index], effect)
             end
-            -- A static reached through the type that owns it --
-            -- `nupp.io.Path.separator` -- steps through a nested declaration rather
-            -- than a field, so the walk asks `nestedTypes` wherever `byname` has
-            -- nothing.
+            -- A static reached through the type that owns it steps through a nested
+            -- declaration rather than a field, so the walk asks `nestedTypes`
+            -- wherever `byname` has nothing.
             t = t and (t.byname and t.byname[parts[index]] or t.nestedTypes and t.nestedTypes[parts[index]]) or nil
         end
     end

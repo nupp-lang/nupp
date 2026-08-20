@@ -11,6 +11,13 @@ as reasons.
 ]]
 
 local suspension = require("nupp.suspension")
+-- The byte contracts, paths and URIs are reached through the modules that declare
+-- them rather than through `nupp.io`, which re-exports them: this is one of the
+-- modules `nupp.io` is assembled from, and naming the assembly from inside it would
+-- be a cycle.
+local io = require("nupp.io")
+local path = require("nupp.io.path")
+local uri = require("nupp.io.uri")
 local http = {}
 
 -- The native provider is intentionally loaded through a dynamic Lua module, but its
@@ -29,11 +36,15 @@ local interface NativeTransfer
     bodyRead: function(
         self: NativeTransfer,
         count: integer,
-        destination: nupp.io.Buffer?,
+        borrows destination: io.Buffer?,
         offset: integer
     ): (string, any?, string?)
-    directDestination: function(self: NativeTransfer, destination: nupp.io.Writer): boolean
-    bodyWrite: function(self: NativeTransfer, destination: nupp.io.Writer, count: integer): (string, integer?, string?)
+    directDestination: function(self: NativeTransfer, borrows destination: io.Writer): boolean
+    bodyWrite: function(
+        self: NativeTransfer,
+        borrows destination: io.Writer,
+        count: integer
+    ): (string, integer?, string?)
 end
 
 local interface NativeClient
@@ -75,20 +86,20 @@ record http.Options
 end
 
 record http.ReaderBody
-    reader: nupp.io.Reader
+    reader: io.Reader
     length: integer?
     contentType: string?
 end
 
 record http.FileBody
-    path: string | nupp.io.Path
+    path: string | path.Path
     contentType: string?
 end
 
-type http.RequestBody = string | nupp.io.ByteView | nupp.io.Buffer | http.ReaderBody | http.FileBody
+type http.RequestBody = string | io.ByteView | io.Buffer | http.ReaderBody | http.FileBody
 
 record http.Request
-    url: nupp.io.URI
+    url: uri.URI
     method: string?
     headers: {string: string}?
     body: http.RequestBody?
@@ -136,7 +147,7 @@ local function canonicalHost(text: string, level: integer): string
         error("nupp: HTTP insecureHosts entries must be exact host names or IP literals", level)
     end
     local spelling = text:sub(-1) == "." and text:sub(1, -2) or text
-    local uri = nupp.io.URI.new("https://" .. spelling .. "/")
+    local uri = uri.new("https://" .. spelling .. "/")
     if uri == nil or uri:username() ~= "" or uri:password() ~= nil or uri:port() ~= nil or uri:path() ~= "/" then
         error("nupp: HTTP insecureHosts entries must not contain a scheme, port, path, or user information", level)
     end
@@ -340,14 +351,14 @@ local function fairnessYield(): nil
     )
 end
 
-record http.Body is nupp.io.Reader
+record http.Body is io.Reader
     drop: nosuspend function(takes self: http.Body): nil
     _client: BodyClient
     _transfer: NativeTransfer
     _closed: boolean
     _reading: boolean
 
-    function _next(self, count: integer, destination: nupp.io.Buffer?, offset: integer): (any?, string?)
+    function _next(self, count: integer, borrows destination: io.Buffer?, offset: integer): (any?, string?)
         if self._closed then
             return nil, "the body is closed"
         end
@@ -380,7 +391,7 @@ record http.Body is nupp.io.Reader
         return self:_next(wanted < 1 and 1 or wanted, nil, 0)
     end
 
-    function readInto(self, destination: nupp.io.Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(self, borrows destination: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
         local at = whole(offset or 0, "body destination offset", 0)
         local wanted = whole(count or READ_SIZE, "body read count", 0)
         if wanted == 0 then
@@ -395,7 +406,7 @@ record http.Body is nupp.io.Reader
         return value, reason
     end
 
-    function transferTo(self, destination: nupp.io.Writer): (integer?, string?)
+    function transferTo(self, borrows destination: io.Writer): (integer?, string?)
         local total: integer = 0
         local turn: integer = 0
         if self._transfer:directDestination(destination) then
@@ -521,7 +532,7 @@ local function packedHeader(bytes: string, wanted: string): string?
     return nil
 end
 
-local function origin(uri: nupp.io.URI): string
+local function origin(uri: uri.URI): string
     local scheme = uri:scheme()
     local port = uri:port() or (scheme == "https" and 443 or 80)
     return scheme .. "://" .. (uri:host() or ""):lower() .. ":" .. port
@@ -530,7 +541,7 @@ end
 record http.Response
     status: integer
     version: http.Version
-    url: nupp.io.URI
+    url: uri.URI
     body: affine(http.Body, destroyBody)
     _packed: string
     _values: {[string]: {string}}?
@@ -654,7 +665,7 @@ end
 local function makeResponse(
     status: integer,
     version: http.Version,
-    url: nupp.io.URI,
+    url: uri.URI,
     takes body: http.Body,
     packed: string
 ): affine(http.Response, destroyResponse)
@@ -725,7 +736,7 @@ function http.Client:send(request: http.Request): (affine(http.Response?, destro
     end
     local requestBody = given.body
     local body, bodyKind, bodyLength = requestBody, 0, nil
-    local reader: nupp.io.Reader? = nil
+    local reader: io.Reader? = nil
     local contentType = nil
     if body ~= nil then
         local concrete: any = body
@@ -814,10 +825,8 @@ function http.Client:send(request: http.Request): (affine(http.Response?, destro
     end
     local head, problem
     if reader ~= nil then
-        local scratch = nupp.io.newBuffer(UPLOAD_SIZE)
-        local uploadTransfer = transfer as {
-            offer: function(any, borrows source: nupp.io.Buffer, boolean, integer): string
-        }
+        local scratch = io.newBuffer(UPLOAD_SIZE)
+        local uploadTransfer = transfer as {offer: function(any, borrows source: io.Buffer, boolean, integer): string}
         local function uploadAndWait(): any takes (scratch)
             local transferred: integer = 0
             while true do
@@ -967,7 +976,7 @@ function http.Client:send(request: http.Request): (affine(http.Response?, destro
         transfer:close()
         return nil, bodyReason
     end
-    local effective = head.url == nil and given.url or nupp.io.URI.new(head.url)
+    local effective = head.url == nil and given.url or uri.new(head.url)
     if effective == nil then
         transfer:close()
         return nil, "the HTTP provider returned an invalid effective URL"
@@ -1016,7 +1025,7 @@ local function destroyClient(takes self: http.Client): nil
     self:drop()
 end
 
-function http.reader(reader: nupp.io.Reader, length: integer?, contentType: string?): http.ReaderBody
+function http.reader(reader: io.Reader, length: integer?, contentType: string?): http.ReaderBody
     if length ~= nil then
         whole(length, "reader body length", 0)
     end
@@ -1027,7 +1036,7 @@ function http.reader(reader: nupp.io.Reader, length: integer?, contentType: stri
     return new http.ReaderBody(reader = reader, length = length, contentType = contentType)
 end
 
-function http.file(path: string | nupp.io.Path, contentType: string?): http.FileBody
+function http.file(path: string | path.Path, contentType: string?): http.FileBody
     if type(path) ~= "string" and type((path as any).toString) ~= "function" then
         error("nupp: HTTP file body needs a path", 2)
     end

@@ -174,13 +174,11 @@ function M.nativeFeaturesAreResolvedEffects()
    }, "\n"))
    assert(not shadowed["native.sha256"], "a local nupp is not the global facility")
 
-   -- Same shadow, through a qualified declaration nested deeper
-   -- (nupp.io.Path.new) rather than an ordinary field (nupp.data.sha256) --
-   -- the qualified-declaration shortcut in dotIndex used to trust the path
-   -- text alone and ignore the shadow entirely.
+   -- Same shadow, one segment deeper: the qualified-path shortcut used to trust the
+   -- path text alone and ignore the shadow entirely.
    local shadowedIO = effectsOf(table.concat({
-      "local nupp = {io = {Path = {new = function() end}}}",
-      "nupp.io.Path.new()",
+      "local nupp = {io = {path = {separator = function() end}}}",
+      "nupp.io.path.separator()",
    }, "\n"))
    assert(not shadowedIO["native.path"], "a local nupp.io is not the global facility")
 
@@ -198,8 +196,8 @@ function M.nativeFeaturesAreResolvedEffects()
       ["nupp.io.newBuffer('hello')"] = "stdlib.io",
       ["nupp.math.lerp(10, 20, 0.25)"] = "stdlib.math",
       ["nupp.math.vec2.length(3, 4)"] = "stdlib.math",
-      ["nupp.io.Path.new('hello')"] = "native.path",
-      ["nupp.io.URI.new('https://example.com')"] = "native.uri",
+      ["nupp.io.path.separator()"] = "native.path",
+      ["nupp.io.uri.new('https://example.com')"] = "native.uri",
       ["nupp.data.uuid7()"] = "native.uuid",
       ["nupp.data.sha256('hello')"] = "native.sha256",
    }
@@ -212,10 +210,14 @@ function M.nativeFeaturesAreResolvedEffects()
    end
 
    assertClean(table.concat({
-      "local newPath: function(first: string, ...: string): nupp.io.Path = nupp.io.Path.new",
-      "local components: nupp.io.URI.Components = nil as any",
-      "local newURI: function(value: string | nupp.io.URI.Components): (nupp.io.URI?, string?) = nupp.io.URI.new",
-      "local uri: nupp.io.URI? = newURI(components)",
+      "const {Path} = require('nupp.io.path')",
+      "local source: nupp.io.path.Path = new Path('src', 'main.nupp')",
+      "local components: nupp.io.uri.Components = nil as any",
+      "local newURI: function(",
+      "    value: string | nupp.io.uri.Components",
+      "): (nupp.io.uri.URI?, string?) = nupp.io.uri.new",
+      "local address: nupp.io.uri.URI? = newURI(components)",
+      "print(source, address)",
    }, "\n"))
 
    -- A namespace that is entirely modules cannot be bound to a local: there is no
@@ -314,21 +316,23 @@ function M.generatedBootstrapFollowsWhatCodegenEmits()
    assertEq(#diagnostics, 0, "the optimized feature fragment generates")
    assert(not emitted["native.sha256"] and emitted["native.uuid"],
       "generation reports only features whose consumers it wrote")
-   assert(not code:find("nuppSha256", 1, true),
-      "the first line omits the dead SHA-256 installer")
-   assert(code:find("nuppUuid4", 1, true),
-      "the first line retains the live UUID installer")
+   -- Both facilities are modules, so what generation drops is the require rather than
+   -- an installer: the folded-away branch leaves nothing behind to load.
+   assert(not code:find("nupp.data.sha256", 1, true),
+      "the dead SHA-256 branch takes its require with it")
+   assert(code:find("nupp.data.uuid4", 1, true),
+      "the live UUID branch keeps its require")
 end
 
+-- What the bootstrap still installs, which is the maths and nothing else: buffers,
+-- hashes and the rest are modules a program requires.
 function M.compilerProvidedPureLibraries()
-   local bootstrap = stdlib.bootstrap({
-      ["stdlib.io"] = true,
-      ["stdlib.math"] = true,
-   })
+   local bootstrap = stdlib.bootstrap({["stdlib.math"] = true,})
    local previous = rawget(_G, "nupp")
    _G.nupp = nil
    local chunk = assert(loadstring(bootstrap .. [[
-      local buffer = nupp.io.newBuffer("hello")
+      local io = require("nupp.io")
+      local buffer = io.newBuffer("hello")
       local writer = buffer:newWriter()
       assert(writer:write("world"))
       assert(buffer:getString() == "world")
@@ -396,9 +400,9 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
    local gen = require("nupp.compiler.gen")
 
    assertClean(table.concat({
-      "local files = nupp.io.files",
+      "const files = require('nupp.io.files')",
       "do",
-      "    local file = files.open('input.txt') as nupp.io.Files.File",
+      "    local file = files.open('input.txt') as nupp.io.files.File",
       "    local reader = file:newReader()",
       "    local writer = file:newWriter()",
       "    local bytes: string? = reader:read(16)",
@@ -417,15 +421,14 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
    assertEq((diagsOf("local n: number = nupp.io.files.read('x')")), "NUPP2001:1")
    assertClean("local paths: {string} = assert(nupp.io.files.glob('src/**/*.nupp'))")
    assertEq((diagsOf("nupp.io.files.info(42)")), "NUPP2006:1")
-   -- An owner nobody binds has nowhere to be cleaned up from, and `open` is the
-   -- first prelude member for which that is true.
+   -- An owner nobody binds has nowhere to be cleaned up from.
    assertEq((diagsOf("nupp.io.files.open('x')")), "NUPP2605:1")
    assertEq((diagsOf("nupp.io.files.createTemporaryFile()")), "NUPP2605:1")
 
-   -- The prelude gives `open` and the temporaries owning results, so a binding the
-   -- program drops is dropped where it goes out of scope rather than leaking.
+   -- `open` and the temporaries answer owning results, so a binding the program drops
+   -- is dropped where it goes out of scope rather than leaking.
    local source = table.concat({
-      "local file = nupp.io.files.open('input.txt') as nupp.io.Files.File",
+      "local file = nupp.io.files.open('input.txt') as nupp.io.files.File",
       "print(file)",
    }, "\n")
    local parsed = parser.parse(source, "owned.g.nupp")
@@ -433,16 +436,17 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
    sharedEnv.loaded = {}
    check.check(parsed, "owned.g.nupp", sharedEnv)
    local code = gen.generate(parsed, "owned")
-   assert(code:find(":close()", 1, true),
-      "an open file is dropped at the end of its scope")
+   -- The terminal belongs to the module that hands the owner out, so scope exit
+   -- reaches it through the cleanup registry under that module's key rather than
+   -- calling a method the prelude used to publish.
+   assert(code:find("nupp.io.files#destroyOwner", 1, true),
+      "an open file is dropped at the end of its scope, through its module's terminal")
 end
 
 function M.bufferAppendsInAmortizedConstantTime()
-   local bootstrap = stdlib.bootstrap({["stdlib.io"] = true})
-   local previous = rawget(_G, "nupp")
-   _G.nupp = nil
-   local chunk = assert(loadstring(bootstrap .. [[
-      local buffer = nupp.io.newBuffer()
+   local chunk = assert(loadstring([[
+      local io = require("nupp.io")
+      local buffer = io.newBuffer()
       local writer = buffer:newWriter()
       local piece = string.rep("x", 64)
       for _ = 1, 100000 do assert(writer:write(piece)) end
@@ -457,7 +461,6 @@ function M.bufferAppendsInAmortizedConstantTime()
          "a gap past the length reads as zeros, not as stale bytes")
    ]]))
    local ok, problem = pcall(chunk)
-   _G.nupp = previous
    assert(ok, problem)
 end
 
@@ -508,50 +511,39 @@ function M.theJsonModuleOpensItsHostOnRequire()
    assert(ok, problem)
 end
 
-function M.nativeGlobalMembersLoadOnFirstAccess()
+-- Nothing native is a lazily installed field on an ambient table any more. A facility
+-- is a module, so what used to be proved about the lazy loader is proved about the
+-- require: naming the feature stages its provider, and nothing opens it until the
+-- module is loaded.
+function M.nativeProvidersOpenOnlyWhenTheirModuleLoads()
    local bootstrap = stdlib.bootstrap({["native.path"] = true})
-   assert(bootstrap:find('__nuppLazy(__nuppIO,"Path"', 1, true),
-      "Path is registered as a lazy global member")
-   local previous = rawget(_G, "nupp")
-   local loadedFFI = package.loaded.ffi
-   _G.nupp = nil
-   package.loaded.ffi = nil
-   local chunk = assert(loadstring(bootstrap
-      .. " return nupp, rawget(nupp.io, 'Path')"))
-   local namespace, Path = chunk()
-   assert(type(namespace) == "table", "nupp is always present")
-   assertEq(Path, nil, "registering Path does not load its Rust provider")
-   assertEq(package.loaded.ffi, nil, "native FFI initializes only on first access")
+   assert(not bootstrap:find("__nuppIO", 1, true),
+      "the bootstrap no longer reserves an io namespace")
+   assert(not bootstrap:find("nuppPathJoin", 1, true),
+      "the path ABI belongs to the module that calls it")
 
-   package.loaded.ffi = {
-      cdef = function() end,
-      load = function() return {} end,
-   }
-   assert(type(_G.nupp.io.Path.new) == "function",
-      "reading Path dispatches its registered lazy loader")
-   package.loaded.ffi = loadedFFI
-   _G.nupp = previous
+   local loadedFFI = package.loaded.ffi
+   local loadedPath = package.loaded["nupp.io.pathimpl"]
+   package.loaded["nupp.io.pathimpl"] = nil
+   local chunk = assert(loadstring(bootstrap .. " return package.loaded.ffi"))
+   assertEq(chunk(), loadedFFI, "installing the bootstrap opens no provider")
+   package.loaded["nupp.io.pathimpl"] = loadedPath
 end
 
+-- Two facilities still reach C through the bootstrap's shared loader, and each carries
+-- only the declarations it calls. Everything else declares its own ABI in the module
+-- that calls it, and the bootstrap carries nothing for it at all.
 function M.nativeBootstrapDeclaresOnlyTheSelectedAbi()
-   local uuid = stdlib.bootstrap({["native.uuid"] = true})
-   assert(uuid:find("nuppUuid4", 1, true), "UUID declares its own ABI")
-   for _, absent in ipairs({
-      "nuppSha256", "nuppPathJoin", "nuppUriParse", "NuppFileInfo",
-      "nuppProcessSpawnBegin", "nuppBytesData",
-   }) do
-      assert(not uuid:find(absent, 1, true),
-         "UUID omits unrelated native declaration " .. absent)
+   for _, moved in ipairs({"native.uuid", "native.sha256", "native.path", "native.uri", "native.files"}) do
+      local installed = stdlib.bootstrap({[moved] = true})
+      for _, absent in ipairs({
+         "nuppUuid4", "nuppSha256", "nuppPathJoin", "nuppUriParse", "NuppFileInfo",
+         "nuppBytesData",
+      }) do
+         assert(not installed:find(absent, 1, true),
+            moved .. " leaves " .. absent .. " to the module that calls it")
+      end
    end
-
-   local files = stdlib.bootstrap({["native.files"] = true})
-   assert(files:find("NuppFileInfo", 1, true), "files declares its own ABI")
-   assert(files:find("nuppBytesData", 1, true),
-      "files retains the byte-return dependency it uses")
-   assert(not files:find("nuppProcessSpawnBegin", 1, true),
-      "files omits the process ABI")
-   assert(not files:find("nuppPathJoin", 1, true),
-      "files omits the path ABI")
 
    local process = stdlib.bootstrap({["native.process"] = true})
    assert(process:find("nuppProcessSpawnBegin", 1, true),
@@ -582,12 +574,12 @@ function M.pureAndNativeRuntimeFeaturesComposeAsLua()
    local previous = rawget(_G, "nupp")
    _G.nupp = nil
    local chunk = assert(loadstring(bootstrap
-      .. " return type(nupp.peg), next(nupp.peg), rawget(nupp.io, 'Path')"))
-   local pegType, pegField, path = chunk()
+      .. " return type(nupp.peg), next(nupp.peg), rawget(nupp, 'io')"))
+   local pegType, pegField, io = chunk()
    _G.nupp = previous
    assertEq(pegType, "table", "the pure PEG runtime is installed")
    assertEq(pegField, nil, "internal PEG helpers are not public fields")
-   assertEq(path, nil, "the native Path runtime stays lazy")
+   assertEq(io, nil, "selecting a native facility installs no ambient io namespace")
 end
 
 function M.lpegAndReUseTheNativeRuntime()

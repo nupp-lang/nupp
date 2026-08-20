@@ -1,24 +1,32 @@
 # Paths and URIs
 
-`nupp.io.Path` and `nupp.io.URI` are immutable value objects, nested under
-`nupp.io` alongside the other byte and filesystem facilities. Their public API
-contains only Nupp values; parsing and normalization are delegated to a
-feature-gated Rust provider. Selecting either builds the shared provider once
-with only the required Cargo features.
+`nupp.io.path` and `nupp.io.uri` are modules of their own beside `nupp.io`, each
+answering an immutable value object. Their public API contains only Nupp values;
+parsing and normalization are delegated to a feature-gated Rust provider.
+Selecting either builds the shared provider once with only the required Cargo
+features -- and a program that reaches neither carries neither, which is why they
+are modules rather than members of `nupp.io`.
 
 ```nupp
-local source = nupp.io.Path.new("src", "main.nupp")
+const {Path} = require("nupp.io.path")
+
+local source = new Path("src", "main.nupp")
 assert(source:extension() == "nupp")
 ```
 
 ## Paths
 
-A path is platform-native UTF-8 text. Constructing joins components using the
-current platform's rules:
+A path is platform-native UTF-8 text, and `new Path(...)` joins its components
+using the current platform's rules. `path.currentDirectory` and
+`path.separator` are functions on the module beside it, because neither builds
+a path from components:
 
 ```nupp:playground
-local source = nupp.io.Path.new("src", "app", "..", "main.nupp"):normalize()
-assert(source:toString() == "src" .. nupp.io.Path.separator() .. "main.nupp")
+const path = require("nupp.io.path")
+const {Path} = path
+
+local source = (new Path("src", "app", "..", "main.nupp")):normalize()
+assert(source:toString() == "src" .. path.separator() .. "main.nupp")
 local name, stem, extension = source:fileName(), source:stem(), source:extension()
 assert(name == "main.nupp")
 assert(stem == "main")
@@ -38,21 +46,21 @@ component and reject separators in the replacement. `isAbsolute` and
 `isRelative` classify without accessing the filesystem.
 
 ```nupp
-local current, reason = nupp.io.Path.currentDirectory()
+local current, reason = nupp.io.path.currentDirectory()
 assert(current, reason)
 local log = current:join("var", "app.log"):withExtension("jsonl")
 ```
 
-- `Path.new(first, parts...)`: `nupp.io.Path`.
-- `Path.currentDirectory()`: `nupp.io.Path?, reason?`.
-- `Path.separator()`: platform separator string.
+- `new Path(first, parts...)`: `nupp.io.path.Path`.
+- `path.currentDirectory()`: `nupp.io.path.Path?, reason?`.
+- `path.separator()`: platform separator string.
 - `toString()`, `tostring(path)`: native UTF-8 path string.
-- `join(parts...)`, `normalize()`: `nupp.io.Path`.
-- `absolute()`, `resolve(parts...)`, `canonicalize()`: `nupp.io.Path?, reason?`.
-- `relativeTo(base)`: `nupp.io.Path?, reason?`.
-- `parent()`: `nupp.io.Path?`.
+- `join(parts...)`, `normalize()`: `nupp.io.path.Path`.
+- `absolute()`, `resolve(parts...)`, `canonicalize()`: `nupp.io.path.Path?, reason?`.
+- `relativeTo(base)`: `nupp.io.path.Path?, reason?`.
+- `parent()`: `nupp.io.path.Path?`.
 - `fileName()`, `stem()`, `extension()`: component `string?`.
-- `withFileName(name)`, `withExtension(extension)`: `nupp.io.Path`.
+- `withFileName(name)`, `withExtension(extension)`: `nupp.io.path.Path`.
 - `isAbsolute()`, `isRelative()`: `boolean`.
 
 Path equality compares its native text. `tostring(path)` and `path:toString()`
@@ -60,13 +68,13 @@ are equivalent.
 
 ## URIs
 
-`nupp.io.URI.new` parses and normalizes one absolute URI. It returns
-`nil, reason` for malformed input. `nupp.io.URI.validate` checks without
-retaining an object; `nupp.io.URI.isURI` distinguishes URI objects from strings
+`nupp.io.uri.new` parses and normalizes one absolute URI. It returns
+`nil, reason` for malformed input. `nupp.io.uri.validate` checks without
+retaining an object; `nupp.io.uri.isURI` distinguishes URI objects from strings
 and records.
 
 ```nupp
-local endpoint, reason = nupp.io.URI.new("https://user:pass@example.com:8443/api?q=1#top")
+local endpoint, reason = nupp.io.uri.new("https://user:pass@example.com:8443/api?q=1#top")
 assert(endpoint, reason)
 assert(endpoint:scheme() == "https")
 assert(endpoint:host() == "example.com")
@@ -105,7 +113,7 @@ A component record can be passed instead of text:
 
 ```nupp
 local uri = assert(
-    nupp.io.URI.new({
+    nupp.io.uri.new({
         scheme = "https",
         userInfo = "reader:secret",
         host = "example.com",
@@ -115,11 +123,11 @@ local uri = assert(
 )
 ```
 
-The input record type is `nupp.io.URI.Components`. Components are URI text, not
+The input record type is `nupp.io.uri.Components`. Components are URI text, not
 filesystem paths. Use
 [Path](#paths) for filesystem semantics and URI for network/resource identity.
 
-- `URI.new(textOrComponents)`: `nupp.io.URI?, reason?`.
+- `uri.new(textOrComponents)`: `nupp.io.uri.URI?, reason?`.
 - `URI.validate(text)`: `boolean, reason?`.
 - `URI.isURI(value)`: `boolean`.
 - `toString()`, `tostring(uri)`: normalized absolute URI string.
@@ -128,10 +136,10 @@ filesystem paths. Use
   string.
 - `port()`: `integer?`.
 - `query()`, `fragment()`: optional component string.
-- `withScheme`, `withUserInfo`, `withHost`, `withPort`: modified `nupp.io.URI`.
-- `withPath`, `withQuery`, `withFragment`, `concatPath`: modified `nupp.io.URI`.
-- `withEndpoint(endpoint)`: endpoint-rerouted `nupp.io.URI`.
-- `resolve(reference)`: `nupp.io.URI?, reason?`.
+- `withScheme`, `withUserInfo`, `withHost`, `withPort`: modified `nupp.io.uri.URI`.
+- `withPath`, `withQuery`, `withFragment`, `concatPath`: modified `nupp.io.uri.URI`.
+- `withEndpoint(endpoint)`: endpoint-rerouted `nupp.io.uri.URI`.
+- `resolve(reference)`: `nupp.io.uri.URI?, reason?`.
 
 URI equality compares normalized values, so case normalization in a host or
 scheme does not make two otherwise identical URIs unequal.

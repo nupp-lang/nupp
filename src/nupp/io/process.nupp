@@ -75,7 +75,7 @@ type process.Options = {
     args: {string},
 
     --- The child's working directory, or nil to inherit this one.
-    cwd: (string | nupp.io.Path)?,
+    cwd: (string | nupp.io.path.Path)?,
 
     --- Variables overlaid on the inherited environment, or the whole environment
     --- when `clearEnv` is set.

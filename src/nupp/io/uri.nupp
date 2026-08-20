@@ -1,0 +1,492 @@
+module nupp.io.uri
+
+--[[
+URIs, parsed and manipulated by the native library.
+
+A URI is an immutable value over a parsed handle. Every `with` operation answers a
+new URI, and one that would not change anything answers the same one rather than
+reparsing. The handle is released by the collector, so nothing has to be closed.
+
+Reading a component is reading the parse rather than a substring: `host` on a URI
+with no authority is nil, not an empty string, and `port` is a number only when one
+was actually written.
+
+A module rather than an export of [](nupp.io), because a program that wants a byte
+buffer should not carry the URI provider to get one. So this is reached as
+`nupp.io.uri`, and the value it answers is a `nupp.io.uri.URI`.
+]]
+
+const native = require("nupp.native")
+
+-- Only the handle type is declared here, because `ffi.new` names the out-parameters
+-- and the checker has to know those. The functions are reached through the handle
+-- `nupp.native` opened rather than the default namespace a `cdef function` binds to.
+native.ffi.cdef[[
+typedef struct NuppUri NuppUri;
+NuppUri *nuppUriParse(const uint8_t *, size_t);
+const uint8_t *nuppUriPart(const NuppUri *, uint32_t, size_t *);
+bool nuppUriPort(const NuppUri *, uint16_t *);
+NuppUri *nuppUriWithText(const NuppUri *, uint32_t, const uint8_t *, size_t, bool);
+NuppUri *nuppUriWithPort(const NuppUri *, int32_t);
+NuppUri *nuppUriConcatPath(const NuppUri *, const uint8_t *, size_t);
+NuppUri *nuppUriResolve(const NuppUri *, const uint8_t *, size_t);
+NuppUri *nuppUriWithEndpoint(const NuppUri *, const NuppUri *);
+void nuppUriDestroy(NuppUri *);
+]]
+
+local ffi = native.ffi
+local C = native.C
+
+--- The parts a URI is built from when it is not written out as text.
+--- @export
+export record Components
+    --- The scheme, which is required and may not be empty.
+    scheme: string
+
+    --- The user information before `@`, when there is any.
+    userInfo: string?
+
+    --- The host, when there is an authority.
+    host: string?
+
+    --- The port, 0 through 65535.
+    port: integer?
+
+    --- The path, which may be empty.
+    path: string?
+
+    --- The query after `?`, without the `?`.
+    query: string?
+
+    --- The fragment after `#`, without the `#`.
+    fragment: string?
+end
+
+-- Declared ahead of the record because its methods call them, and defined below it
+-- because they name the record. The types are the contract either way.
+local parsed: function(handle: any): (URI?, string?)
+local changed: function(handle: any): URI
+local part: function(self: URI, kind: integer): string?
+local required: function(value: any, what: string): string
+local withText: function(self: URI, kind: integer, value: string?): URI
+local compose: function(components: any): (string?, string?)
+
+--- A parsed URI.
+--- @export
+export record URI
+    --- The parsed handle, released by the collector.
+    private _handle: any
+
+    --- The whole URI as text.
+    --- @param self this URI
+    --- @return the URI text
+    function toString(self): string
+        return part(self, 0) as string
+    end
+
+    --- The scheme, without the colon.
+    --- @param self this URI
+    --- @return the scheme
+    function scheme(self): string
+        return part(self, 1) as string
+    end
+
+    --- The authority between `//` and the path.
+    --- @param self this URI
+    --- @return the authority, or nil when there is none
+    function authority(self): string?
+        return part(self, 2)
+    end
+
+    --- The user name before any password.
+    --- @param self this URI
+    --- @return the user name, empty when there is none
+    function username(self): string
+        return part(self, 3) as string
+    end
+
+    --- The password after the user name.
+    --- @param self this URI
+    --- @return the password, or nil when there is none
+    function password(self): string?
+        return part(self, 4)
+    end
+
+    --- The host.
+    --- @param self this URI
+    --- @return the host, or nil when there is no authority
+    function host(self): string?
+        return part(self, 5)
+    end
+
+    --- The path, which is empty rather than nil when absent.
+    --- @param self this URI
+    --- @return the path
+    function path(self): string
+        return part(self, 6) as string
+    end
+
+    --- The query, without the `?`.
+    --- @param self this URI
+    --- @return the query, or nil when there is none
+    function query(self): string?
+        return part(self, 7)
+    end
+
+    --- The fragment, without the `#`.
+    --- @param self this URI
+    --- @return the fragment, or nil when there is none
+    function fragment(self): string?
+        return part(self, 8)
+    end
+
+    --- The user information as written, user name and password together.
+    --- @param self this URI
+    --- @return the user information, or nil when there is none
+    function userInfo(self): string?
+        local username = self:username()
+        local password = self:password()
+        if username == "" and password == nil then
+            return nil
+        end
+
+        return password and (username .. ":" .. (password as string)) or username
+    end
+
+    --- The port, when one was written.
+    --- @param self this URI
+    --- @return the port, or nil when the URI names none
+    function port(self): integer?
+        local value = ffi.new<uint16[1]>()
+        if not C.nuppUriPort(self._handle, value) then
+            return nil
+        end
+        local found = 0
+        unsafe do
+            found = tonumber(value[0]) or 0
+        end
+
+        return found as integer
+    end
+
+    --- The URI with its scheme replaced.
+    --- @param self this URI
+    --- @param scheme the scheme to use, without the colon
+    --- @return the new URI, or this one when nothing changes
+    --- @raises when the scheme cannot be used here
+    function withScheme(self, scheme: string): URI
+        local value = required(scheme, "URI scheme")
+        if value == self:scheme() then
+            return self
+        end
+
+        return withText(self, 0, value)
+    end
+
+    --- The URI with its user information replaced.
+    --- @param self this URI
+    --- @param userInfo the user information, or nil to remove it
+    --- @return the new URI, or this one when nothing changes
+    --- @raises when the user information cannot be used here
+    function withUserInfo(self, userInfo: string?): URI
+        if userInfo ~= nil then
+            required(userInfo, "URI userInfo")
+        end
+        if userInfo == self:userInfo() then
+            return self
+        end
+
+        return withText(self, 1, userInfo)
+    end
+
+    --- The URI with its host replaced.
+    --- @param self this URI
+    --- @param host the host, or nil to remove the authority
+    --- @return the new URI, or this one when nothing changes
+    --- @raises when the host cannot be used here
+    function withHost(self, host: string?): URI
+        if host ~= nil then
+            required(host, "URI host")
+        end
+        if host == self:host() then
+            return self
+        end
+
+        return withText(self, 2, host)
+    end
+
+    --- The URI with its path replaced.
+    --- @param self this URI
+    --- @param path the path
+    --- @return the new URI, or this one when nothing changes
+    --- @raises when the path cannot be used here
+    function withPath(self, path: string): URI
+        local value = required(path, "URI path")
+        if value == self:path() then
+            return self
+        end
+
+        return withText(self, 3, value)
+    end
+
+    --- The URI with its query replaced.
+    --- @param self this URI
+    --- @param query the query, without the `?`, or nil to remove it
+    --- @return the new URI, or this one when nothing changes
+    --- @raises when the query cannot be used here
+    function withQuery(self, query: string?): URI
+        if query ~= nil then
+            required(query, "URI query")
+        end
+        if query == self:query() then
+            return self
+        end
+
+        return withText(self, 4, query)
+    end
+
+    --- The URI with its fragment replaced.
+    --- @param self this URI
+    --- @param fragment the fragment, without the `#`, or nil to remove it
+    --- @return the new URI, or this one when nothing changes
+    --- @raises when the fragment cannot be used here
+    function withFragment(self, fragment: string?): URI
+        if fragment ~= nil then
+            required(fragment, "URI fragment")
+        end
+        if fragment == self:fragment() then
+            return self
+        end
+
+        return withText(self, 5, fragment)
+    end
+
+    --- The URI with its port replaced.
+    --- @param self this URI
+    --- @param port the port, 0 through 65535, or nil to remove it
+    --- @return the new URI, or this one when nothing changes
+    --- @raises when port is not a port number
+    function withPort(self, port: integer?): URI
+        if port ~= nil and (
+            port ~= math.floor(port as integer) or (port as integer) < 0 or (port as integer) > 65535
+        ) then
+            error("nupp: URI port must be an integer from 0 through 65535 or nil", 2)
+        end
+        if port == self:port() then
+            return self
+        end
+
+        return changed(C.nuppUriWithPort(self._handle, port or -1))
+    end
+
+    --- The URI with more appended to its path.
+    --- @param self this URI
+    --- @param path the path to append
+    --- @return the new URI, or this one when path is empty
+    --- @raises when the path cannot be appended
+    function concatPath(self, path: string): URI
+        local value = required(path, "URI path")
+        if value == "" then
+            return self
+        end
+
+        return changed(C.nuppUriConcatPath(self._handle, value, #value))
+    end
+
+    --- The URI with another's scheme and authority.
+    --- @param self this URI
+    --- @param endpoint the URI to take the endpoint from
+    --- @return the new URI
+    --- @raises when endpoint is not a URI
+    function withEndpoint(self, endpoint: URI): URI
+        if type(endpoint) ~= "table" or getmetatable(endpoint) ~= URI then
+            error("nupp: URI endpoint must be an io.URI", 2)
+        end
+
+        return changed(C.nuppUriWithEndpoint(self._handle, endpoint._handle))
+    end
+
+    --- Resolves a reference against this URI, as a browser resolves a link.
+    --- @param self this URI
+    --- @param reference the reference to resolve
+    --- @return the resolved URI, or nil when the reference cannot be resolved
+    --- @return a failure reason, when unsuccessful
+    function resolve(self, reference: string): (URI?, string?)
+        if type(reference) ~= "string" then
+            return nil, "nupp: URI reference needs a string"
+        end
+
+        return parsed(C.nuppUriResolve(self._handle, reference, #reference))
+    end
+
+    metamethod __tostring: function(self): string
+    metamethod __eq: function(self, any): boolean
+end
+
+local function adopt(handle: any): URI
+    return new URI(_handle = ffi.gc(handle, C.nuppUriDestroy))
+end
+
+-- A parse that failed answers nil and the reason, because bad input is an ordinary
+-- answer. A modification that failed raises, because the input was already a URI and
+-- the caller asked for something the grammar cannot express.
+parsed = function(handle: any): (URI?, string?)
+    if handle == nil then
+        return nil, native.error()
+    end
+
+    return adopt(handle), nil
+end
+
+--- @raises when the library cannot express the change
+changed = function(handle: any): URI
+    if handle == nil then
+        error("nupp: cannot modify URI: " .. native.error(), 3)
+    end
+
+    return adopt(handle)
+end
+
+-- The library numbers the components: 0 whole, 1 scheme, 2 authority, 3 username,
+-- 4 password, 5 host, 6 path, 7 query, 8 fragment.
+part = function(self: URI, kind: integer): string?
+    local length = ffi.new<uint64[1]>()
+    local data = C.nuppUriPart((self as any)._handle, kind, length)
+    if data == nil then
+        return nil
+    end
+    local size = 0
+    unsafe do
+        size = tonumber(length[0]) or 0
+    end
+
+    return ffi.string(data, size as integer)
+end
+
+--- @raises when value is not a string
+required = function(value: any, what: string): string
+    if type(value) ~= "string" then
+        error("nupp: " .. what .. " needs a string", 3)
+    end
+
+    return value as string
+end
+
+-- The library numbers the settable components the same way it numbers the readable
+-- ones, minus the whole-URI slot: 0 scheme, 1 user information, 2 host, 3 path,
+-- 4 query, 5 fragment.
+withText = function(self: URI, kind: integer, value: string?): URI
+    return changed(
+        C.nuppUriWithText((self as any)._handle, kind, value or "", value and #(value as string) or 0, value ~= nil)
+    )
+end
+
+-- Components are assembled into text and then parsed, so one grammar decides what is
+-- valid rather than two.
+compose = function(components: any): (string?, string?)
+    if type(components) ~= "table" then
+        return nil, "nupp: io.URI.new needs absolute text or URI components"
+    end
+    local scheme = components.scheme
+    if type(scheme) ~= "string" or scheme == "" then
+        return nil, "nupp: URI components need a non-empty scheme"
+    end
+    for _, name in ipairs({"userInfo", "host", "path", "query", "fragment",}) do
+        local value = components[name]
+        if value ~= nil and type(value) ~= "string" then
+            return nil, "nupp: URI component " .. name .. " must be a string or nil"
+        end
+    end
+    local port = components.port
+    if port ~= nil and (type(port) ~= "number" or port ~= math.floor(port) or port < 0 or port > 65535) then
+        return nil, "nupp: URI component port must be an integer from 0 through 65535 or nil"
+    end
+    local out = scheme .. ":"
+    if components.host or components.userInfo or port then
+        out = out .. "//"
+        if components.userInfo then
+            out = out .. components.userInfo .. "@"
+        end
+        out = out .. (components.host or "")
+        if port then
+            out = out .. ":" .. tostring(port)
+        end
+    end
+    out = out .. (components.path or "")
+    if components.query then
+        out = out .. "?" .. components.query
+    end
+    if components.fragment then
+        out = out .. "#" .. components.fragment
+    end
+
+    return out, nil
+end
+
+    ;
+(URI as {[string]: any}).__tostring = function(self: URI): string
+    return self:toString()
+end
+
+    ;
+(URI as {[string]: any}).__eq = function(left: URI, right: URI): boolean
+    return left:toString() == right:toString()
+end
+
+--- Parses absolute URI text, or assembles one from components.
+---
+--- #### Examples
+---
+--- Read a URI's parts:
+---
+--- ```nupp
+--- const uri = require("nupp.io.uri")
+---
+--- local address = assert(uri.new("https://example.com/a?b=1"))
+--- assert(address:host() == "example.com" and address:query() == "b=1")
+--- ```
+--- @param value the URI text, or the components to assemble
+--- @return the URI, or nil when it could not be parsed
+--- @return a failure reason, when unsuccessful
+--- @export
+export function new(value: string | Components): (URI?, string?)
+    local text: string? = nil
+    if type(value) == "string" then
+        text = value as string
+    else
+        local composed, problem = compose(value)
+        if not composed then
+            return nil, problem
+        end
+        text = composed
+    end
+    local source = text as string
+
+    return parsed(C.nuppUriParse(source, #source))
+end
+
+--- Whether text parses as an absolute URI, without building one.
+--- @param text the text to test
+--- @return whether it parses
+--- @return why it did not, when it did not
+--- @export
+export function validate(text: string): (boolean, string?)
+    if type(text) ~= "string" then
+        return false, "nupp: io.URI.validate needs a string"
+    end
+    local handle = C.nuppUriParse(text, #text)
+    if handle == nil then
+        return false, native.error()
+    end
+    C.nuppUriDestroy(handle)
+
+    return true, nil
+end
+
+--- Whether a value is a URI.
+--- @param value the value to test
+--- @return whether it is a URI
+--- @export
+export function isURI(value: any): boolean
+    return type(value) == "table" and getmetatable(value) == URI
+end

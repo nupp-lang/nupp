@@ -52,7 +52,7 @@ function M.beforeAll()
    package.loaded["nupp.io.processnative"] = nil
    assert(loadstring(source))()
    process = require("nupp.io.process")
-   buffers = _G.nupp.io
+   buffers = require("nupp.io")
 end
 
 function M.afterAll()

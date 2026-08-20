@@ -44,8 +44,8 @@ function M.beforeAll()
    previous = rawget(_G, "nupp")
    _G.nupp = nil
    assert(loadstring(source))()
-   provider = _G.nupp.io.files
-   buffers = _G.nupp.io
+   provider = require("nupp.io.files")
+   buffers = require("nupp.io")
 end
 
 function M.afterAll()
@@ -497,16 +497,20 @@ function M.aPathObjectIsAcceptedWhereverAStringIs()
 end
 
 function M.theProviderIsSelectedOnlyByReachingIt()
-   local recorded = native.forGlobal("nupp.io.files")
+   local recorded = native.forModule("nupp.io.files")
    test.equal(recorded, "native.files")
    local feature = assert(native.feature("native.files"))
    test.equal(feature.cargoFeature, "files")
    test.equal(feature.library, "nupp_native")
-   local bootstrap = stdlib.bootstrap({["native.files"] = true})
-   assert(bootstrap:find("nuppFilesInfo", 1, true),
-      "the files declarations reach a program that uses them")
-   assert(not stdlib.bootstrap({["stdlib.io"] = true}):find("nuppFilesInfo", 1, true),
-      "a program that does not use them carries none of it")
+   -- The declarations belong to the module that calls them rather than to the
+   -- bootstrap, so selecting the feature stages the provider and installs nothing.
+   assert(not stdlib.bootstrap({["native.files"] = true}):find("nuppFilesInfo", 1, true),
+      "the files ABI is the module's, not the bootstrap's")
+   local handle = assert(io.open("src/nupp/io/files.nupp", "rb"))
+   local source = handle:read("*a")
+   handle:close()
+   assert(source:find("nuppFilesInfo", 1, true),
+      "the module declares the ABI it calls")
 end
 
 return M

@@ -834,97 +834,77 @@ function M.standardDataApiHasCompleteDocumentation()
    end
 end
 
+-- io is four modules now rather than one record in the prelude, so what used to be
+-- asserted about nested declarations is asserted about each module's own surface.
 function M.standardIOApiHasCompleteDocumentation()
-   local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
-   local module, errors = doc.extract(source,
-      "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude")
-   assert(module, errors and errors[1] and errors[1].msg)
-
-   -- `item.kind == "record"` disambiguates from the unrelated, unqualified
-   -- `local io: {...}` declaration this same file gives Lua's own io library
-   -- — a raw doc.extract call sees both as bare "io", but the real site build
-   -- hoists qualified declarations like this one to their own nupp.io path.
-   local io
-   for _, item in ipairs(module.items) do
-      if item.name == "io" and item.kind == "record" then io = item end
-   end
-   assert(io, "the prelude did not document nupp.io")
-
-   -- Buffer, ByteView, Reader, Writer, Path, URI and Files all nest without a
-   -- rename. Path and URI carry their own statics (new/currentDirectory/
-   -- separator, new/validate/isURI), reached through the type that owns them
-   -- rather than flattened onto nupp.io beside it.
-   local expectedTypes = {
-      Buffer = true, ByteView = true, Reader = true, Writer = true,
-      Path = true, URI = true, Files = true,
+   local modules = {
+      ["src/nupp/io/init.nupp"] = {
+         types = {
+            Buffer = true, ByteView = true, Reader = true, Writer = true,
+            ScalarReader = true, ScalarWriter = true,
+         },
+         functions = {newBuffer = true, newStringReader = true,},
+      },
+      ["src/nupp/io/path.nupp"] = {
+         types = {Path = true,},
+         functions = {currentDirectory = true, separator = true,},
+      },
+      ["src/nupp/io/uri.nupp"] = {
+         types = {URI = true, Components = true,},
+         functions = {new = true, validate = true, isURI = true,},
+      },
+      ["src/nupp/io/files.nupp"] = {
+         types = {File = true, TemporaryPath = true, Info = true, Entry = true,},
+         functions = {info = true, open = true, read = true, glob = true,},
+      },
    }
-   local expectedFunctions = {newBuffer = true, newStringReader = true,}
-   local expectedStatics = {
-      Path = {new = true, currentDirectory = true, separator = true},
-      URI = {new = true, validate = true, isURI = true},
-   }
-   local foundTypes, foundFunctions = {}, {}
-   local path, uri
-   for _, member in ipairs(io.members) do
-      local prefix = "nupp.io." .. member.name
-      if expectedTypes[member.name] then
-         foundTypes[member.name] = true
-         assert(member.isType, prefix .. " must document as a nested type")
-         if member.name == "Path" then path = member end
-         if member.name == "URI" then uri = member end
-         assert(member.text ~= "", prefix .. " has no documentation")
-         local statics = expectedStatics[member.name] or {}
-         for _, sub in ipairs(member.members or {}) do
-            assert(sub.text ~= "", prefix .. "." .. sub.name .. " has no documentation")
-            if statics[sub.name] then
-               statics[sub.name] = nil
-               assert(sub.isFunction, prefix .. "." .. sub.name
-                  .. " must document as a static function")
-               for _, param in ipairs(sub.params) do
-                  assert(param.text ~= "", prefix .. "." .. sub.name .. " parameter "
-                     .. param.name .. " has no documentation")
-               end
-               for index, result in ipairs(sub.returns) do
-                  assert(result.text ~= "", prefix .. "." .. sub.name .. " return "
-                     .. index .. " has no documentation")
-               end
-            end
-         end
-         for name in pairs(statics) do
-            error("the prelude did not document " .. prefix .. "." .. name)
-         end
-      elseif expectedFunctions[member.name] then
-         foundFunctions[member.name] = true
-         assert(member.text ~= "", prefix .. " has no documentation")
-         for _, param in ipairs(member.params) do
+   for relative, expected in pairs(modules) do
+      local source = assert(readFile(HERE .. "/../" .. relative), "no module at " .. relative)
+      local name = relative:match("src/nupp/(.+)%.nupp"):gsub("/", "."):gsub("%.init$", "")
+      local module, errors = doc.extract(source, relative, "nupp." .. name)
+      assert(module, errors and errors[1] and errors[1].msg)
+      assert(module.text ~= "", "nupp." .. name .. " has no module documentation")
+      local foundTypes, foundFunctions = {}, {}
+      for _, item in ipairs(module.items) do
+         local prefix = "nupp." .. name .. "." .. item.name
+         assert(item.doc.text ~= "", prefix .. " has no documentation")
+         if expected.types[item.name] then foundTypes[item.name] = true end
+         if expected.functions[item.name] then foundFunctions[item.name] = true end
+         for _, param in ipairs(item.params) do
             assert(param.text ~= "", prefix .. " parameter " .. param.name
                .. " has no documentation")
          end
-         for index, result in ipairs(member.returns) do
+         for index, result in ipairs(item.returns) do
             assert(result.text ~= "", prefix .. " return " .. index
                .. " has no documentation")
          end
       end
-   end
-   for name in pairs(expectedTypes) do
-      assert(foundTypes[name], "the prelude did not document nupp.io." .. name)
-   end
-   for name in pairs(expectedFunctions) do
-      assert(foundFunctions[name], "the prelude did not document nupp.io." .. name)
+      for member in pairs(expected.types) do
+         assert(foundTypes[member], "nupp." .. name .. " did not document " .. member)
+      end
+      for member in pairs(expected.functions) do
+         assert(foundFunctions[member], "nupp." .. name .. " did not document " .. member)
+      end
    end
 
-   assert(path, "the prelude did not document nupp.io.Path")
-   for _, sub in ipairs(path.members or {}) do
-      assert(sub.name ~= "Library", "Path's statics belong on Path itself")
+   -- A path is built with the language's own `new`, so the examples belong to the
+   -- record's constructor rather than to a function beside it.
+   local path = assert(readFile(HERE .. "/../src/nupp/io/path.nupp"))
+   local module = assert(doc.extract(path, "src/nupp/io/path.nupp", "nupp.io.path"))
+   local record
+   for _, item in ipairs(module.items) do
+      if item.name == "Path" then record = item end
    end
-   assert(uri, "the prelude did not document nupp.io.URI")
-   local uriHasComponents = false
-   for _, sub in ipairs(uri.members or {}) do
-      assert(sub.name ~= "Library", "URI's statics belong on URI itself")
-      if sub.name == "Components" then uriHasComponents = true end
+   assert(record, "nupp.io.path did not document Path")
+   local constructor
+   for _, member in ipairs(record.members or {}) do
+      if member.name == "constructor" then constructor = member end
    end
-   assert(uriHasComponents, "nupp.io.URI must nest Components")
-   assert(not io.signature:find("record Library", 1, true), io.signature)
+   assert(constructor, "nupp.io.path.Path did not document its constructor")
+   assert(constructor.text:find("#### Examples", 1, true),
+      "the Path constructor has no examples")
+   assert(constructor.text:find('new Path("src", "main.nupp")', 1, true),
+      "the Path constructor has no component-joining example")
 end
 
 function M.standardPegApiDocumentsItsTypesExpressionsAndExamples()
@@ -1041,7 +1021,6 @@ function M.standardLibraryBackingRecordsStayInternal()
    assert(module, errors and errors[1] and errors[1].msg)
 
    local expected = {
-      ["nupp.io.files"] = "info",
       ["nupp.math.vec2"] = "add",
       ["nupp.peg"] = "compile",
    }
@@ -1060,31 +1039,10 @@ function M.standardLibraryBackingRecordsStayInternal()
       error("the prelude did not synthesize " .. name)
    end
 
-   -- Path and URI carry their statics themselves and nest no Library of their
-   -- own; Path.new carries the constructor's examples.
-   local io
    for _, item in ipairs(module.items) do
-      if item.name == "io" and item.kind == "record" then io = item end
       assert(not item.name:match("Library$"), "nupp." .. item.name
          .. " leaked its backing record")
    end
-   assert(io, "the prelude did not document nupp.io")
-   local newPath
-   for _, member in ipairs(io.members) do
-      if member.name == "Path" or member.name == "URI" then
-         for _, sub in ipairs(member.members or {}) do
-            assert(sub.name ~= "Library", "nupp.io." .. member.name
-               .. ".Library leaked into public docs")
-            if member.name == "Path" and sub.name == "new" then newPath = sub end
-         end
-      end
-   end
-   assert(newPath, "the prelude did not document nupp.io.Path.new")
-   assert(newPath.text:find("#### Examples", 1, true), "nupp.io.Path.new has no examples")
-   assert(newPath.text:find('nupp.io.Path.new("src", "main.nupp")', 1, true),
-      "nupp.io.Path.new has no component-joining example")
-   assert(newPath.text:find(":normalize()", 1, true),
-      "nupp.io.Path.new has no normalization example")
 
    local private = assert(doc.extract(source,
       "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude",
@@ -1099,12 +1057,11 @@ function M.standardLibraryBackingRecordsStayInternal()
          end
       end
    end
-   -- Math, Vec2 and the three fixed-width namespaces retain private top-level
-   -- backing records. Path, URI and Log have folded theirs away, and UTF8Library
-   -- left with utf8 when it became a module; only Files.Library, nested two levels
-   -- down under nupp.io, remains.
+   -- Math, Vec2 and the three fixed-width namespaces retain private top-level backing
+   -- records. Nothing nests one any more: Files.Library was the last, and it left with
+   -- io.
    assert(topLevelLibraries == 5, "private docs lost top-level backing records")
-   assert(nestedLibraries == 1, "private docs lost nested backing records")
+   assert(nestedLibraries == 0, "private docs grew a nested backing record")
 end
 
 function M.standardMathApiHasCompleteDocumentation()

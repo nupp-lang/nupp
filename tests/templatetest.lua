@@ -272,7 +272,7 @@ function M.aSymlinkIsReportedRatherThanFollowed()
    -- is right to carry -- so the case this names cannot be built there, and
    -- asserting on it would be asserting on the copy.
    local linked = false
-   for _, entry in ipairs(assert(nupp.io.files.list(dir))) do
+   for _, entry in ipairs(assert(require("nupp.io.files").list(dir))) do
       linked = linked or (entry.name == "link.txt" and entry.kind == "symlink")
    end
    if not linked then

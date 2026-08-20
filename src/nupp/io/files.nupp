@@ -1,0 +1,1392 @@
+module nupp.io.files
+
+--[[
+The filesystem: metadata, directory contents, open files, and whole-file transfers.
+
+Two shapes of operation live here and they are deliberately different. Anything that
+moves names rather than bytes -- stat, rename, remove, symlinks, listing a directory
+-- is a direct call that answers now, because the platform answers it now. Anything
+that moves a whole file's bytes -- read, write, append, copy -- is submitted to the
+native library's worker lane and waited for through `nupp.suspension`, so a program
+inside a scheduler yields instead of blocking its host.
+
+An open file and a created temporary path are both owners. Closing either is
+idempotent; a temporary path is settled by `persist` instead when the point of making
+it was to write somewhere nobody else could take and then put it where it belongs.
+
+The reader and writer an open file hands out satisfy the same contracts a buffer's
+do, so code written against those works over a file without knowing one is there.
+They read and write a `nupp.io.Buffer`'s storage directly where the
+destination has any, which is what lets a native read land in the destination rather
+than in a Lua string on the way to it. A destination without that storage still
+works, one copy slower.
+
+A module rather than an export of [](nupp.io), the same as [](nupp.io.path) and
+[](nupp.io.uri): a program that wants a byte buffer should not carry the filesystem
+provider to get one. So this is reached as `nupp.io.files`, and the types it declares
+are `nupp.io.files.File` and `nupp.io.files.Info`.
+]]
+
+const native = require("nupp.native")
+const suspension = require("nupp.suspension")
+const paths = require("nupp.io.path")
+const io = require("nupp.io")
+
+-- The record is declared here rather than in the runtime cdef below, because
+-- `ffi.new` names it and the checker has to know the type to accept that. It reaches
+-- LuaJIT as a bare `struct` rather than a typedef, which is why the prototype below
+-- spells it that way. The functions stay in the runtime declaration: they are reached
+-- through the handle `nupp.native` opened, not the default namespace a `cdef
+-- function` binds to.
+cdef struct NuppFileInfo
+    kind: uint32
+    readOnly: boolean
+    size: uint64
+    modified: number
+end
+
+native.ffi.cdef[[
+bool nuppFilesInfo(const uint8_t *, size_t, bool, struct NuppFileInfo *);
+NuppBytes *nuppFilesReadLink(const uint8_t *, size_t);
+NuppBytes *nuppFilesGlob(const uint8_t *, size_t);
+bool nuppFilesCreateSymlink(const uint8_t *, size_t, const uint8_t *, size_t, bool);
+bool nuppFilesSetReadOnly(const uint8_t *, size_t, bool);
+bool nuppFilesCreateDirectory(const uint8_t *, size_t);
+bool nuppFilesRemove(const uint8_t *, size_t, bool);
+bool nuppFilesRename(const uint8_t *, size_t, const uint8_t *, size_t);
+NuppBytes *nuppFilesList(const uint8_t *, size_t);
+NuppBytes *nuppFilesCreateTemporary(
+    const uint8_t *, size_t, const uint8_t *, size_t, const uint8_t *, size_t, bool);
+NuppBytes *nuppFilesCurrentDirectory(void);
+NuppBytes *nuppFilesUserFolder(uint32_t);
+typedef struct NuppFile NuppFile;
+NuppFile *nuppFileOpen(const uint8_t *, size_t, uint32_t);
+int64_t nuppFileRead(NuppFile *, uint8_t *, size_t);
+int64_t nuppFileWrite(NuppFile *, const uint8_t *, size_t);
+int64_t nuppFileSeek(NuppFile *, int64_t, uint32_t);
+int64_t nuppFileSize(NuppFile *);
+bool nuppFileFlush(NuppFile *);
+bool nuppFileClose(NuppFile *);
+typedef struct NuppRequest NuppRequest;
+NuppRequest *nuppFsSubmitRead(const uint8_t *, size_t);
+NuppRequest *nuppFsSubmitWrite(const uint8_t *, size_t, const uint8_t *, size_t, uint32_t);
+NuppRequest *nuppFsSubmitCopy(const uint8_t *, size_t, const uint8_t *, size_t);
+int32_t nuppFsStatus(const NuppRequest *);
+const uint8_t *nuppFsData(const NuppRequest *);
+size_t nuppFsLength(const NuppRequest *);
+const char *nuppFsError(const NuppRequest *);
+bool nuppFsCancel(NuppRequest *);
+void nuppFsDestroy(NuppRequest *);
+size_t nuppFsPoll(void);
+size_t nuppFsWait(uint64_t);
+size_t nuppFsPending(void);
+]]
+
+local ffi = native.ffi
+local C = native.C
+
+-- The library numbers what a path is, what an entry is, which user folder, how a file
+-- is opened, and what a seek is measured from. Each of these is its side of one of
+-- those enumerations.
+local KINDS = {[1] = "file", [2] = "directory", [3] = "other", [4] = "symlink",}
+local ENTRIES = {f = "file", d = "directory", l = "symlink", o = "other",}
+local FOLDERS = {home = 0, documents = 1, downloads = 2, desktop = 3, pictures = 4, music = 5, videos = 6,}
+local MODES = {r = 0, w = 1, a = 2, ["r+"] = 3, ["w+"] = 4, ["a+"] = 5,}
+local ORIGINS = {set = 0, current = 1, ["end"] = 2,}
+
+local READ_SIZE: integer = 65536
+local PENDING, READY = 0, 1
+
+-- The readiness pump this module registers with whoever is handling suspensions. The
+-- priority puts it with the other completion-oriented sources rather than ahead of
+-- them; nothing here is latency-critical.
+local SOURCE, PRIORITY = "nupp-files", 20
+
+--- What a resolved path refers to. A `symlink` answer only ever comes from
+--- `isSymlink`, since every other operation follows the link first.
+--- @export
+export type Kind = "file" | "directory" | "symlink" | "other"
+
+--- A well-known user folder. Resolved from the environment, so a desktop that records
+--- its folders elsewhere is not consulted.
+--- @export
+export type UserFolder = "home" | "documents" | "downloads" | "desktop" | "pictures" | "music" | "videos"
+
+--- How an open file may be used. The three update modes read and write: `r+` needs an
+--- existing file, `w+` truncates one, and `a+` appends.
+--- @export
+export type Mode = "r" | "w" | "a" | "r+" | "w+" | "a+"
+
+--- What a seek offset is measured from.
+--- @export
+export type Origin = "set" | "current" | "end"
+
+--- Answers each line in turn, and nil at the end of the file.
+--- @export
+export type LineIterator = function(): string?
+
+--- One resolved path's attributes.
+--- @export
+export record Info
+    --- What the path refers to, after following symbolic links.
+    kind: Kind
+
+    --- The byte length of a file's contents.
+    size: integer
+
+    --- Seconds since the Unix epoch, with a fractional part where the platform
+    --- records one.
+    modified: number
+
+    --- Whether the platform refuses writes to this path.
+    readOnly: boolean
+end
+
+--- One directory child, as the directory itself describes it.
+--- @export
+export record Entry
+    --- The child's name, without any directory part.
+    name: string
+
+    --- What the entry itself is, without following a symbolic link.
+    kind: Kind
+end
+
+--- The generated part of a temporary name.
+--- @export
+export record TemporaryOptions
+    --- Where to create it, or the platform's temporary directory when omitted.
+    directory: (string | paths.Path)?
+
+    --- Text before the generated part.
+    prefix: string?
+
+    --- Text after the generated part, such as an extension.
+    suffix: string?
+end
+
+-- A terminal has to be a declared function wherever a contract names it, and these
+-- records hand each other out: an open file answers a reader and a writer. Written one
+-- per record, each terminal would have to follow the record it takes and precede the
+-- record that hands it out, and no such order exists. One generic terminal over the
+-- shape they all share is written once, ahead of them.
+local interface Owner
+    drop: nosuspend function(takes self: Owner): nil
+end
+
+--- Releases any of this module's owners. Every one of them is handed out under this
+--- exact cleanup, which is why a caller never names it.
+local function destroyOwner<T is Owner>(takes self: T): nil
+    self:drop()
+end
+
+-- Declared ahead of the records because their methods reach them, and defined below
+-- because they name the records. The types are the contract either way.
+local newReaderOver: function(file: File): affine(FileReader, destroyOwner)
+local newWriterOver: function(file: File): affine(FileWriter, destroyOwner)
+local scratch: function(self: FileReader, count: integer): any
+local usable: function(self: FileReader): (File?, string?)
+local writable: function(self: FileWriter): (File?, string?)
+
+--- @raises when value is neither a path nor a string
+local function named(value: any, what: string, level: integer): string
+    if type(value) == "string" then
+        return value as string
+    end
+    if type(value) == "table" and (value as any).toString ~= nil then
+        return (value as paths.Path):toString()
+    end
+    error("nupp: io.files " .. what .. " must be a path or a string", level)
+end
+
+--- @raises when value is not an integer
+local function whole(value: any, what: string, level: integer): integer
+    if type(value) ~= "number" or value ~= math.floor(value as number) then
+        error("nupp: io.files " .. what .. " must be an integer", level)
+    end
+
+    return value as integer
+end
+
+--- @raises when value is not a non-negative integer
+local function counted(value: any, what: string, level: integer): integer
+    if whole(value, what, level + 1) < 0 then
+        error("nupp: io.files " .. what .. " must not be negative", level)
+    end
+
+    return value as integer
+end
+
+-- A direct call answers a boolean, and the reason for a false lives on the error
+-- channel rather than in the result.
+local function done(answered: boolean): (boolean, string?)
+    if answered then
+        return true, nil
+    end
+
+    return false, native.error()
+end
+
+-- A direct call that answers a byte buffer reports failure with a nil buffer.
+local function answer(handle: any): (string?, string?)
+    if handle == nil then
+        return nil, native.error()
+    end
+
+    return native.bytes(handle), nil
+end
+
+--- An open file, and the obligation to close it.
+--- @export
+export record File
+    private _handle: any
+    private _closed: boolean
+
+    --- Opens a forward-only reader at the file's current position.
+    --- @param self this file
+    --- @return the new reader
+    --- @raises when the file is closed
+    function newReader(self): affine(FileReader, destroyOwner)
+        if self._closed then
+            error("nupp: io.files File is closed", 2)
+        end
+
+        return newReaderOver(self)
+    end
+
+    --- Opens a forward-only writer at the file's current position.
+    --- @param self this file
+    --- @return the new writer
+    --- @raises when the file is closed
+    function newWriter(self): affine(FileWriter, destroyOwner)
+        if self._closed then
+            error("nupp: io.files File is closed", 2)
+        end
+
+        return newWriterOver(self)
+    end
+
+    --- Answers the file's byte length without moving the cursor.
+    --- @param self this file
+    --- @return the byte length, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    --- @raises when the file is closed
+    function size(self): (integer?, string?)
+        if self._closed then
+            error("nupp: io.files File is closed", 2)
+        end
+        local size = tonumber(C.nuppFileSize(self._handle)) or -1
+        if size < 0 then
+            return nil, native.error()
+        end
+
+        return size as integer, nil
+    end
+
+    --- Moves the cursor and answers where it landed.
+    --- @param self this file
+    --- @param offset the distance to move
+    --- @param origin what the offset is measured from, defaulting to the start
+    --- @return the new position, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    --- @raises when origin names no seek origin
+    function seek(self, offset: integer?, origin: Origin?): (integer?, string?)
+        if self._closed then
+            error("nupp: io.files File is closed", 2)
+        end
+        local whence = ORIGINS[origin or "set"]
+        if whence == nil then
+            error("nupp: io.files has no seek origin named " .. tostring(origin), 2)
+        end
+        local at = tonumber(C.nuppFileSeek(self._handle, whole(offset or 0, "seek offset", 2), whence)) or -1
+        if at < 0 then
+            return nil, native.error()
+        end
+
+        return at as integer, nil
+    end
+
+    --- Answers the cursor's current position.
+    --- @param self this file
+    --- @return the position, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    function position(self): (integer?, string?)
+        return self:seek(0, "current")
+    end
+
+    --- Pushes buffered writes at the operating system.
+    --- @param self this file
+    --- @return whether the flush succeeded
+    --- @return a failure reason, when unsuccessful
+    --- @raises when the file is closed
+    function flush(self): (boolean, string?)
+        if self._closed then
+            error("nupp: io.files File is closed", 2)
+        end
+
+        return done(C.nuppFileFlush(self._handle))
+    end
+
+    --- Whether this file has been closed.
+    --- @param self this file
+    --- @return whether it is closed
+    function isReleased(self): boolean
+        return self._closed
+    end
+
+    --- Closes the file as an ownership terminal. Repeated calls are safe.
+    ---
+    --- Declared rather than written inline because the cleanup contract needs the
+    --- `nosuspend`, and an inline method cannot carry one.
+    --- @param self this file, spent by the call
+    drop: nosuspend function(takes self: File): nil
+
+    --- Closes the file and reports whether it succeeded. Repeated calls are safe.
+    --- @param self this file, spent by the call
+    --- @return whether the close succeeded
+    function close(takes self): boolean
+        self:drop()
+
+        return true
+    end
+end
+
+function File.drop(takes self: File): nil
+    local state = unsafe release self
+    if state._closed then
+        return
+    end
+    state._closed = true
+    local handle = state._handle
+    state._handle = nil
+    C.nuppFileClose(handle)
+end
+
+-- Closes a file without consuming an owner, which is what the line iterator needs: it
+-- holds a file the caller never sees and closes it from inside a closure.
+local function closeFile(file: File): nil
+    if file._closed then
+        return
+    end
+    file._closed = true
+    local handle = file._handle
+    file._handle = nil
+    C.nuppFileClose(handle)
+end
+
+--- A forward-only reader over an open file.
+--- @export
+export record FileReader
+    private _file: any
+    private _scratch: any
+    private _capacity: integer
+    private _closed: boolean
+
+    --- Releases it as an ownership terminal. Repeated calls are safe.
+    ---
+    --- Declared rather than written inline: a cleanup contract is `nosuspend`, and an
+    --- inline method cannot carry one.
+    --- @param self this owner, spent by the call
+    drop: nosuspend function(takes self: FileReader): nil
+
+    --- Reads up to `count` bytes. An empty answer is the end of the file.
+    --- @param self this reader
+    --- @param count the most bytes to read
+    --- @return the bytes, or nil when the reader or its file is closed
+    --- @return why it could not read, when unsuccessful
+    --- @raises when count is not an integer
+    function read(self, count: integer): (string?, string?)
+        local file, reason = usable(self)
+        if file == nil then
+            return nil, reason
+        end
+        local wanted = whole(count, "FileReader:read count", 2)
+        if wanted < 1 then
+            wanted = 1
+        end
+        local into = scratch(self, wanted)
+        local got = tonumber(C.nuppFileRead((file as File)._handle, into, wanted)) or -1
+        if got < 0 then
+            return nil, native.error()
+        end
+        if got == 0 then
+            return "", nil
+        end
+
+        return ffi.string(into, got as integer), nil
+    end
+
+    --- Reads into a buffer. A zero answer is the end of the file.
+    --- @param self this reader
+    --- @param destination the buffer to write into
+    --- @param offset where in the destination to start, or the beginning
+    --- @param count the most bytes to read
+    --- @return how many bytes were read, or nil on failure
+    --- @return why it could not read, when unsuccessful
+    function readInto(self, borrows destination: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
+        local file, reason = usable(self)
+        if file == nil then
+            return nil, reason
+        end
+        local from = counted(offset or 0, "FileReader:readInto offset", 2)
+        local wanted = counted(count or READ_SIZE, "FileReader:readInto count", 2)
+        if wanted == 0 then
+            return 0, nil
+        end
+        -- A destination with no storage of its own -- anything that is not this
+        -- library's buffer -- is filled through a Lua string instead. One copy more,
+        -- and the same answer.
+        if destination:storage() == nil then
+            local chunk, why = self:read(wanted)
+            if chunk == nil then
+                return nil, why
+            end
+            if #(chunk as string) == 0 then
+                return 0, nil
+            end
+            destination:setString(chunk as string, from)
+
+            return #(chunk as string), nil
+        end
+        destination:ensureCapacity(from + wanted)
+        local length = destination:length()
+        if from > length then
+            -- Zero the gap the way any other writer would, so the buffer's own length
+            -- moves with it rather than being corrected afterwards.
+            destination:setString(("\0"):rep(from - length), length)
+        end
+        -- Read after the growth, because growing replaces the allocation.
+        local data = destination:storage()
+        local got = tonumber(C.nuppFileRead((file as File)._handle, data + from, wanted)) or -1
+        if got < 0 then
+            return nil, native.error()
+        end
+        destination:setLength(from + (got as integer))
+
+        return got as integer, nil
+    end
+
+    --- Reads the rest of the file into a writer.
+    --- @param self this reader
+    --- @param destination the writer to fill
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    function transferTo(self, borrows destination: io.Writer): (integer?, string?)
+        local file, reason = usable(self)
+        if file == nil then
+            return nil, reason
+        end
+        local total: integer = 0
+        while true do
+            local chunk, why = self:read(READ_SIZE)
+            if chunk == nil then
+                return nil, why
+            end
+            if #(chunk as string) == 0 then
+                return total, nil
+            end
+            local wrote, failure = destination:write(chunk as string)
+            if not wrote then
+                return nil, failure
+            end
+            total = total + #(chunk as string)
+        end
+    end
+
+    --- Closes the reader without closing the file behind it.
+    --- @param self this reader, spent by the call
+    --- @return true
+    --- @return nothing
+    function close(takes self): (boolean, string?)
+        self:drop()
+
+        return true, nil
+    end
+end
+
+--- An appending writer over an open file.
+--- @export
+export record FileWriter
+    private _file: any
+    private _closed: boolean
+
+    --- Releases it as an ownership terminal. Repeated calls are safe.
+    ---
+    --- Declared rather than written inline: a cleanup contract is `nosuspend`, and an
+    --- inline method cannot carry one.
+    --- @param self this owner, spent by the call
+    drop: nosuspend function(takes self: FileWriter): nil
+
+    --- Writes bytes at the file's current position.
+    --- @param self this writer
+    --- @param bytes the bytes to write
+    --- @return whether they were written
+    --- @return why they were not, when unsuccessful
+    --- @raises when bytes is not a string
+    function write(self, bytes: string): (boolean, string?)
+        local file, reason = writable(self)
+        if file == nil then
+            return false, reason
+        end
+        if type(bytes) ~= "string" then
+            error("nupp: io.files FileWriter:write needs a string", 2)
+        end
+        if (tonumber(C.nuppFileWrite((file as File)._handle, bytes, #bytes)) or -1) < 0 then
+            return false, native.error()
+        end
+
+        return true, nil
+    end
+
+    --- Writes part of a buffer.
+    --- @param self this writer
+    --- @param source the buffer to copy from
+    --- @param offset the zero-based start, or the beginning
+    --- @param count the byte count, or the rest
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    --- @raises when the range is past the end of the buffer
+    function writeFrom(self, borrows source: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
+        local file, reason = writable(self)
+        if file == nil then
+            return nil, reason
+        end
+        local length = source:length()
+        local from = counted(offset or 0, "FileWriter:writeFrom offset", 2)
+        local taking = counted(count == nil and length - from or count, "FileWriter:writeFrom count", 2)
+        if from + taking > length then
+            error("nupp: io.files FileWriter:writeFrom range is past the end", 2)
+        end
+        if taking == 0 then
+            return 0, nil
+        end
+        local data = source:storage()
+        if data == nil then
+            local wrote, failure = self:write(source:getString(from, taking))
+            if not wrote then
+                return nil, failure
+            end
+
+            return taking, nil
+        end
+        if (tonumber(C.nuppFileWrite((file as File)._handle, data + from, taking)) or -1) < 0 then
+            return nil, native.error()
+        end
+
+        return taking, nil
+    end
+
+    --- Writes part of a snapshot.
+    --- @param self this writer
+    --- @param source the snapshot to copy from
+    --- @param offset the zero-based start, or the beginning
+    --- @param count the byte count, or the rest
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    --- @raises when the range is past the end of the snapshot
+    function writeView(self, borrows source: io.ByteView, offset: integer?, count: integer?): (integer?, string?)
+        local file, reason = writable(self)
+        if file == nil then
+            return nil, reason
+        end
+        local length = source:length()
+        local from = counted(offset or 0, "FileWriter:writeView offset", 2)
+        local taking = counted(count == nil and length - from or count, "FileWriter:writeView count", 2)
+        if from + taking > length then
+            error("nupp: io.files FileWriter:writeView range is past the end", 2)
+        end
+        local wrote, failure = self:write(source:getString():sub(from + 1, from + taking))
+        if not wrote then
+            return nil, failure
+        end
+
+        return taking, nil
+    end
+
+    --- Pushes the file's buffered writes at the operating system.
+    --- @param self this writer
+    --- @return whether the flush succeeded
+    --- @return why it did not, when it did not
+    function flush(self): (boolean, string?)
+        local file, reason = writable(self)
+        if file == nil then
+            return false, reason
+        end
+
+        return (file as File):flush()
+    end
+
+    --- Closes the writer without closing the file behind it.
+    --- @param self this writer, spent by the call
+    --- @return true
+    --- @return nothing
+    function close(takes self): (boolean, string?)
+        self:drop()
+
+        return true, nil
+    end
+end
+
+--- A created temporary path, and the obligation to settle it.
+---
+--- Closing removes it. `persist` moves it somewhere permanent instead and discharges
+--- the obligation, which is the whole reason to make one: write to a name nobody else
+--- can take, then put it where it belongs.
+--- @export
+export record TemporaryPath
+    private _text: string
+    private _directory: boolean
+    private _closed: boolean
+
+    --- Answers the created path.
+    --- @param self this temporary path
+    --- @return the path text
+    function toString(self): string
+        return self._text
+    end
+
+    --- Moves this path to a permanent destination, replacing what is there.
+    --- @param self this temporary path
+    --- @param destination where to move it
+    --- @return whether the move happened
+    --- @return a failure reason, when unsuccessful
+    function persist(self, destination: string | paths.Path): (boolean, string?)
+        if self._closed then
+            return false, "the temporary path is released"
+        end
+        local to = named(destination, "destination path", 2)
+        local moved, reason = done(C.nuppFilesRename(self._text, #self._text, to, #to))
+        if not moved then
+            return false, reason
+        end
+        self._closed = true
+
+        return true, nil
+    end
+
+    --- Whether this path has been removed or persisted.
+    --- @param self this temporary path
+    --- @return whether it is settled
+    function isReleased(self): boolean
+        return self._closed
+    end
+
+    --- Removes the path as an ownership terminal. Repeated calls, and a call after
+    --- `persist`, are safe and do nothing.
+    ---
+    --- Declared rather than written inline because the cleanup contract needs the
+    --- `nosuspend`, and an inline method cannot carry one.
+    --- @param self this temporary path, spent by the call
+    drop: nosuspend function(takes self: TemporaryPath): nil
+
+    --- Removes the path and reports whether it succeeded. Repeated calls, and a call
+    --- after `persist`, are safe and do nothing.
+    --- @param self this temporary path, spent by the call
+    --- @return whether the removal succeeded
+    function close(takes self): boolean
+        local state = unsafe release self
+        if state._closed then
+            return true
+        end
+        state._closed = true
+
+        return C.nuppFilesRemove(state._text, #state._text, state._directory)
+    end
+
+    metamethod __tostring: function(self): string
+end
+
+function TemporaryPath.drop(takes self: TemporaryPath): nil
+    local state = unsafe release self
+    if state._closed then
+        return
+    end
+    state._closed = true
+    C.nuppFilesRemove(state._text, #state._text, state._directory)
+end
+
+    ;
+(TemporaryPath as {[string]: any}).__tostring = function(self: TemporaryPath): string
+    return self:toString()
+end
+
+function FileReader.drop(takes self: FileReader): nil
+    local state = unsafe release self
+    state._closed = true
+    state._scratch = nil
+    state._capacity = 0
+end
+
+function FileWriter.drop(takes self: FileWriter): nil
+    local state = unsafe release self
+    state._closed = true
+end
+
+newReaderOver = function(file: File): affine(FileReader, destroyOwner)
+    return new FileReader(_file = file, _scratch = nil, _capacity = 0, _closed = false)
+end
+
+newWriterOver = function(file: File): affine(FileWriter, destroyOwner)
+    return new FileWriter(_file = file, _closed = false)
+end
+
+-- Grown by doubling with a floor at one read, so a caller that asks for one byte at a
+-- time does not reallocate for each of them.
+scratch = function(self: FileReader, count: integer): any
+    local state = self as any
+    if count > (state._capacity as integer) then
+        local size = (state._capacity as integer) * 2
+        if size < count then
+            size = count
+        end
+        if size < READ_SIZE then
+            size = READ_SIZE
+        end
+        state._scratch = ffi.new<uint8[?]>(size)
+        state._capacity = size
+    end
+
+    return state._scratch
+end
+
+-- A reader and its file are closed independently, and either being closed is an
+-- ordinary answer rather than a failure.
+usable = function(self: FileReader): (File?, string?)
+    local state = self as any
+    if state._closed then
+        return nil, "the reader is closed"
+    end
+    local file = state._file as File
+    if (file as any)._closed then
+        return nil, "the file is closed"
+    end
+
+    return file, nil
+end
+
+writable = function(self: FileWriter): (File?, string?)
+    local state = self as any
+    if state._closed then
+        return nil, "the writer is closed"
+    end
+    local file = state._file as File
+    if (file as any)._closed then
+        return nil, "the file is closed"
+    end
+
+    return file, nil
+end
+
+--- Describes one path, following symbolic links unless asked not to.
+local function described(path: string | paths.Path, follow: boolean, level: integer): any
+    local text = named(path, "path", level + 1)
+    local record = ffi.new<NuppFileInfo[1]>()
+    if not C.nuppFilesInfo(text, #text, follow, record) then
+        return nil
+    end
+    local found: any = nil
+    -- A pointer is not indexable in checked code, so the one-element array the library
+    -- filled is read through its own index.
+    unsafe do
+        found = record[0]
+    end
+
+    return found
+end
+
+-- Every whole-file transfer this program submitted and has not yet consumed. The
+-- lane that runs them is bounded, so a program that submits more than it waits for is
+-- something a caller can ask about.
+local waits: {any} = {}
+
+-- Moves every settled request off the wait list and resumes whoever was waiting for
+-- it. Answers how many moved, which is what a readiness pump owes its driver.
+local function harvest(): integer
+    local moved: integer = 0
+    local index = #waits
+    while index > 0 do
+        local entry = waits[index]
+        if C.nuppFsStatus(entry.handle) ~= PENDING then
+            waits[index] = waits[#waits]
+            waits[#waits] = nil
+            moved = moved + 1
+            entry.resume(true)
+        end
+        index = index - 1
+    end
+
+    return moved
+end
+
+local function polled(): integer
+    C.nuppFsPoll()
+
+    return harvest()
+end
+
+local function slept(waitMs: integer): integer
+    C.nuppFsWait(waitMs)
+
+    return harvest()
+end
+
+local function forget(entry: any): nil
+    for index = 1, #waits do
+        if waits[index] == entry then
+            waits[index] = waits[#waits]
+            waits[#waits] = nil
+
+            return
+        end
+    end
+end
+
+-- A request that has already settled is not waited for at all, so the common small
+-- read never reaches the suspension machinery.
+local function await(handle: any): nil
+    if C.nuppFsStatus(handle) ~= PENDING then
+        return
+    end
+    suspension.suspend("file transfer", function(resume: function(boolean), context: any): function()?
+        local entry = {handle = handle, resume = resume,}
+        context:source(SOURCE, PRIORITY, polled, slept)
+        waits[#waits + 1] = entry
+        -- Settled between the status check above and the subscription: resume now and
+        -- answer no cancellation, which is what a subscription that did not park owes.
+        if C.nuppFsStatus(handle) ~= PENDING then
+            forget(entry)
+            resume(true)
+
+            return nil
+        end
+
+        return function(): nil
+            forget(entry)
+            C.nuppFsCancel(handle)
+        end
+    end)
+end
+
+-- Waits for one submitted request and answers the handle when it is ready. A failed
+-- request is destroyed here, because nothing else will read it.
+local function settled(handle: any): (any?, string?)
+    if handle == nil then
+        return nil, native.error()
+    end
+    await(handle)
+    if C.nuppFsStatus(handle) ~= READY then
+        local reason = ffi.string(C.nuppFsError(handle))
+        C.nuppFsDestroy(handle)
+
+        return nil, reason
+    end
+
+    return handle, nil
+end
+
+local function transferred(handle: any): (boolean, string?)
+    local ready, reason = settled(handle)
+    if ready == nil then
+        return false, reason
+    end
+    C.nuppFsDestroy(ready)
+
+    return true, nil
+end
+
+local function fetched(handle: any): (string?, string?)
+    local ready, reason = settled(handle)
+    if ready == nil then
+        return nil, reason
+    end
+    local out = ffi.string(C.nuppFsData(ready), tonumber(C.nuppFsLength(ready)) as integer)
+    C.nuppFsDestroy(ready)
+
+    return out, nil
+end
+
+--- @raises when value is neither a string nor a field of that name
+local function optional(options: TemporaryOptions?, field: string, level: integer): string
+    local value = options ~= nil and (options as any)[field] or nil
+    if value == nil then
+        return ""
+    end
+    if type(value) ~= "string" then
+        error("nupp: io.files temporary " .. field .. " must be a string", level)
+    end
+
+    return value as string
+end
+
+--- @raises when the options name something that is not a path or a string
+local function temporary(options: TemporaryOptions?, directory: boolean, level: integer): (string?, string?)
+    local where = options ~= nil and (options as TemporaryOptions).directory or nil
+    local root = where ~= nil and named(where, "temporary directory", level + 1) or ""
+    local prefix = optional(options, "prefix", level + 1)
+    local suffix = optional(options, "suffix", level + 1)
+
+    return answer(C.nuppFilesCreateTemporary(root, #root, prefix, #prefix, suffix, #suffix, directory))
+end
+
+--- @raises when value is neither bytes nor a byte view
+local function payload(value: any, what: string, level: integer): string
+    if type(value) == "string" then
+        return value as string
+    end
+    if type(value) == "table" and (value as any).getString ~= nil then
+        return (value as io.ByteView):getString()
+    end
+    error("nupp: io.files " .. what .. " must be bytes or a byte view", level)
+end
+
+--- Describes one path, following symbolic links.
+---
+--- #### Examples
+---
+--- Read a file's size:
+---
+--- ```nupp
+--- local info = assert(nupp.io.files.info("nupp.lua"))
+--- assert(info.kind == "file" and info.size > 0)
+--- ```
+--- @param path the path to describe
+--- @return the attributes, or nil when the path cannot be read
+--- @return a failure reason, when unsuccessful
+--- @export
+export function info(path: string | paths.Path): (Info?, string?)
+    local found = described(path, true, 2)
+    if found == nil then
+        return nil, native.error()
+    end
+
+    return new Info(
+        kind = KINDS[tonumber(found.kind)] or "other",
+        size = tonumber(found.size) as integer,
+        modified = found.modified as number,
+        readOnly = found.readOnly as boolean
+    ), nil
+end
+
+--- Whether a path resolves to anything at all.
+--- @param path the path to test
+--- @return whether it resolves
+--- @export
+export function exists(path: string | paths.Path): boolean
+    return described(path, true, 2) ~= nil
+end
+
+--- Whether a path resolves to a regular file.
+--- @param path the path to test
+--- @return whether it is a file
+--- @export
+export function isFile(path: string | paths.Path): boolean
+    local found = described(path, true, 2)
+
+    return found ~= nil and found.kind == 1
+end
+
+--- Whether a path resolves to a directory.
+--- @param path the path to test
+--- @return whether it is a directory
+--- @export
+export function isDirectory(path: string | paths.Path): boolean
+    local found = described(path, true, 2)
+
+    return found ~= nil and found.kind == 2
+end
+
+--- Whether a path is itself a symbolic link, without following it.
+--- @param path the path to test
+--- @return whether it is a symbolic link
+--- @export
+export function isSymlink(path: string | paths.Path): boolean
+    local found = described(path, false, 2)
+
+    return found ~= nil and found.kind == 4
+end
+
+--- Reads a symbolic link's target without resolving it.
+--- @param path the link to read
+--- @return the target text, or nil on failure
+--- @return a failure reason, when unsuccessful
+--- @export
+export function readLink(path: string | paths.Path): (string?, string?)
+    local text = named(path, "path", 2)
+
+    return answer(C.nuppFilesReadLink(text, #text))
+end
+
+--- Creates a symbolic link.
+---
+--- `kind` selects Windows's directory link and is ignored elsewhere, because only
+--- Windows distinguishes the two.
+--- @param target what the link points at
+--- @param link where to create the link
+--- @param kind the link kind, defaulting to a file link
+--- @return whether the link was created
+--- @return a failure reason, when unsuccessful
+--- @raises when kind names neither a file nor a directory link
+--- @export
+export function createSymlink(
+    target: string | paths.Path,
+    link: string | paths.Path,
+    kind: ("file" | "directory")?
+): (boolean, string?)
+    local to = named(target, "symlink target", 2)
+    local at = named(link, "symlink path", 2)
+    if kind ~= nil and kind ~= "file" and kind ~= "directory" then
+        error("nupp: io.files symlink kind must be 'file' or 'directory'", 2)
+    end
+
+    return done(C.nuppFilesCreateSymlink(to, #to, at, #at, kind == "directory"))
+end
+
+--- Sets or clears a path's read-only attribute.
+--- @param path the path to change
+--- @param readOnly whether to refuse writes
+--- @return whether the attribute was set
+--- @return a failure reason, when unsuccessful
+--- @export
+export function setReadOnly(path: string | paths.Path, readOnly: boolean): (boolean, string?)
+    local text = named(path, "path", 2)
+
+    return done(C.nuppFilesSetReadOnly(text, #text, readOnly and true or false))
+end
+
+--- Creates a directory and every missing parent. An existing directory succeeds.
+--- @param path the directory to create
+--- @return whether the directory exists afterwards
+--- @return a failure reason, when unsuccessful
+--- @export
+export function createDirectory(path: string | paths.Path): (boolean, string?)
+    local text = named(path, "path", 2)
+
+    return done(C.nuppFilesCreateDirectory(text, #text))
+end
+
+--- Removes a file, a symbolic link, or a directory.
+--- @param path the path to remove
+--- @param recursive whether to remove a directory's contents with it
+--- @return whether the path was removed
+--- @return a failure reason, when unsuccessful
+--- @export
+export function remove(path: string | paths.Path, recursive: boolean?): (boolean, string?)
+    local text = named(path, "path", 2)
+
+    return done(C.nuppFilesRemove(text, #text, recursive and true or false))
+end
+
+--- Renames a path, replacing an existing destination.
+--- @param from the path to rename
+--- @param to the new path
+--- @return whether the rename happened
+--- @return a failure reason, when unsuccessful
+--- @export
+export function rename(from: string | paths.Path, to: string | paths.Path): (boolean, string?)
+    local source = named(from, "source path", 2)
+    local destination = named(to, "destination path", 2)
+
+    return done(C.nuppFilesRename(source, #source, destination, #destination))
+end
+
+--- Lists a directory's immediate children.
+---
+--- #### Examples
+---
+--- Count the modules beside a file:
+---
+--- ```nupp
+--- local entries = assert(nupp.io.files.list("src"))
+--- for _, entry in ipairs(entries) do
+---     print(entry.kind, entry.name)
+--- end
+--- ```
+--- @param path the directory to list
+--- @return the children in the platform's order, or nil on failure
+--- @return a failure reason, when unsuccessful
+--- @export
+export function list(path: string | paths.Path): ({Entry}?, string?)
+    local text = named(path, "path", 2)
+    local handle = C.nuppFilesList(text, #text)
+    if handle == nil then
+        return nil, native.error()
+    end
+    -- The library answers one blob: a kind byte, the name, and a NUL, repeated.
+    local blob = native.bytes(handle) as string
+    local entries: {Entry} = {}
+    local at = 1
+    while at <= #blob do
+        local stop = blob:find("\0", at + 1, true) as integer
+        entries[
+            #entries + 1
+        ] = new Entry(kind = ENTRIES[blob:sub(at, at)] or "other", name = blob:sub(at + 1, stop - 1))
+        at = stop + 1
+    end
+
+    return entries, nil
+end
+
+--- Expands a filesystem pattern into matching paths.
+---
+--- `*` and `?` match within one path component, character classes use `[abc]` or
+--- `[!abc]`, and `**` crosses directory boundaries. The returned paths are sorted, and
+--- no matches is an empty list.
+--- @param pattern the filesystem pattern to expand
+--- @return the matching paths, or nil when the pattern or walk fails
+--- @return a failure reason, when unsuccessful
+--- @export
+export function glob(pattern: string | paths.Path): ({string}?, string?)
+    local text = named(pattern, "glob pattern", 2)
+    local handle = C.nuppFilesGlob(text, #text)
+    if handle == nil then
+        return nil, native.error()
+    end
+    local blob = native.bytes(handle) as string
+    local matches: {string} = {}
+    local at = 1
+    while at <= #blob do
+        local stop = blob:find("\0", at, true)
+        if stop == nil then
+            matches[#matches + 1] = blob:sub(at)
+            break
+        end
+        matches[#matches + 1] = blob:sub(at, (stop as integer) - 1)
+        at = (stop as integer) + 1
+    end
+
+    return matches, nil
+end
+
+--- Reads a whole file.
+---
+--- #### Examples
+---
+--- Read a file's bytes, or report why not:
+---
+--- ```nupp
+--- local text, reason = nupp.io.files.read("nupp.lua")
+--- assert(text, reason)
+--- ```
+--- @param path the file to read
+--- @return the contents, or nil on failure
+--- @return a failure reason, when unsuccessful
+--- @export
+export function read(path: string | paths.Path): (string?, string?)
+    local text = named(path, "path", 2)
+
+    return fetched(C.nuppFsSubmitRead(text, #text))
+end
+
+--- Writes a whole file, replacing its contents.
+--- @param path the file to write
+--- @param bytes the contents
+--- @return whether the write succeeded
+--- @return a failure reason, when unsuccessful
+--- @export
+export function write(path: string | paths.Path, bytes: string | io.ByteView): (boolean, string?)
+    local text = named(path, "path", 2)
+    local out = payload(bytes, "contents", 2)
+
+    return transferred(C.nuppFsSubmitWrite(text, #text, out, #out, 0))
+end
+
+--- Adds to the end of a file, creating it when it does not exist.
+--- @param path the file to extend
+--- @param bytes what to add
+--- @return whether the write succeeded
+--- @return a failure reason, when unsuccessful
+--- @export
+export function append(path: string | paths.Path, bytes: string | io.ByteView): (boolean, string?)
+    local text = named(path, "path", 2)
+    local out = payload(bytes, "contents", 2)
+
+    return transferred(C.nuppFsSubmitWrite(text, #text, out, #out, 1))
+end
+
+--- Writes a whole file through a temporary beside it, so an interrupted write leaves
+--- the destination as it was rather than half replaced.
+--- @param path the file to write
+--- @param bytes the contents
+--- @return whether the write succeeded
+--- @return a failure reason, when unsuccessful
+--- @export
+export function writeAtomic(path: string | paths.Path, bytes: string | io.ByteView): (boolean, string?)
+    local text = named(path, "path", 2)
+    local out = payload(bytes, "contents", 2)
+
+    return transferred(C.nuppFsSubmitWrite(text, #text, out, #out, 2))
+end
+
+--- Copies a file's contents over a destination.
+--- @param from the file to copy
+--- @param to where to copy it
+--- @return whether the copy succeeded
+--- @return a failure reason, when unsuccessful
+--- @export
+export function copy(from: string | paths.Path, to: string | paths.Path): (boolean, string?)
+    local source = named(from, "source path", 2)
+    local destination = named(to, "destination path", 2)
+
+    return transferred(C.nuppFsSubmitCopy(source, #source, destination, #destination))
+end
+
+--- How many whole-file transfers this program is still holding.
+---
+--- Whole-file reads, writes and copies settle on worker threads, and the lane that
+--- runs them is bounded. This answers what it holds, which is what a program that
+--- submitted more than it consumed needs to see.
+--- @return the number of live transfers
+--- @export
+export function pendingTransfers(): integer
+    return tonumber(C.nuppFsPending()) as integer
+end
+
+--- Opens a file and hands over the obligation to close it.
+---
+--- #### Examples
+---
+--- Read a header without holding the whole file:
+---
+--- ```nupp
+--- do
+---     local file = assert(nupp.io.files.open("image.png"))
+---     print(file:newReader():read(8))
+--- end
+--- ```
+--- @param path the file to open
+--- @param mode how it may be used, defaulting to reading
+--- @return the open file, or nil on failure
+--- @return a failure reason, when unsuccessful
+--- @raises when mode names no open mode
+--- @export
+export function open(path: string | paths.Path, mode: Mode?): (affine(File?, destroyOwner), string?)
+    local text = named(path, "path", 2)
+    local selected = MODES[mode or "r"]
+    if selected == nil then
+        error("nupp: io.files has no mode named " .. tostring(mode), 2)
+    end
+    local handle = C.nuppFileOpen(text, #text, selected)
+    if handle == nil then
+        return nil, native.error()
+    end
+
+    return new File(_handle = handle, _closed = false), nil
+end
+
+--- Iterates a file's lines, closing it at the end.
+---
+--- A trailing carriage return is removed, so a file written on either platform reads
+--- the same. The iterator stops at the end of the file; abandoning it early leaves the
+--- file open until it is collected.
+--- @param path the file to read
+--- @return an iterator answering each line, or nil on failure
+--- @return a failure reason, when unsuccessful
+--- @export
+export function lines(path: string | paths.Path): (LineIterator?, string?)
+    -- The file is opened here rather than through `open`, because `open` hands back an
+    -- obligation and this function has nobody to hand it to: the iterator is what owns
+    -- the file, and closes it when it reaches the end. Releasing an owner the caller
+    -- never sees would leave the discharge the scope machine already wrote behind it,
+    -- closing the file before the first line is read.
+    local text = named(path, "path", 2)
+    local handle = C.nuppFileOpen(text, #text, MODES.r)
+    if handle == nil then
+        return nil, native.error()
+    end
+    local opened = new File(_handle = handle, _closed = false)
+    local reader = unsafe release opened:newReader()
+    local held = ""
+    local finished = false
+    local function trimmed(line: string): string
+        if line:sub(-1) == "\r" then
+            return line:sub(1, -2)
+        end
+
+        return line
+    end
+
+    return function(): string?
+        if finished then
+            return nil
+        end
+        while true do
+            local stop = held:find("\n", 1, true)
+            if stop ~= nil then
+                local line = held:sub(1, (stop as integer) - 1)
+                held = held:sub((stop as integer) + 1)
+
+                return trimmed(line)
+            end
+            local chunk = reader:read(READ_SIZE)
+            if chunk == nil or chunk == "" then
+                finished = true
+                closeFile(opened)
+                if #held > 0 then
+                    local line = held
+                    held = ""
+
+                    return trimmed(line)
+                end
+
+                return nil
+            end
+            held = held .. (chunk as string)
+        end
+    end, nil
+end
+
+--- Creates a uniquely named empty file and hands over the obligation to remove or
+--- persist it.
+---
+--- The file is created rather than merely proposed, so no second caller can take the
+--- name in between.
+--- @param options where to create it and how to name it
+--- @return the created path, or nil on failure
+--- @return a failure reason, when unsuccessful
+--- @export
+export function createTemporaryFile(options: TemporaryOptions?): (affine(TemporaryPath?, destroyOwner), string?)
+    local text, reason = temporary(options, false, 2)
+    if text == nil then
+        return nil, reason
+    end
+
+    return new TemporaryPath(_text = text as string, _directory = false, _closed = false), nil
+end
+
+--- Creates a uniquely named empty directory and hands over the obligation to remove or
+--- persist it.
+--- @param options where to create it and how to name it
+--- @return the created path, or nil on failure
+--- @return a failure reason, when unsuccessful
+--- @export
+export function createTemporaryDirectory(options: TemporaryOptions?): (affine(TemporaryPath?, destroyOwner), string?)
+    local text, reason = temporary(options, true, 2)
+    if text == nil then
+        return nil, reason
+    end
+
+    return new TemporaryPath(_text = text as string, _directory = true, _closed = false), nil
+end
+
+--- Reads the process's current working directory.
+--- @return the current directory, or nil on failure
+--- @return a failure reason, when unsuccessful
+--- @export
+export function currentDirectory(): (string?, string?)
+    return answer(C.nuppFilesCurrentDirectory())
+end
+
+--- Answers a well-known user folder.
+--- @param which the folder to locate
+--- @return the folder, or nil when the platform has no such folder
+--- @return a failure reason, when unsuccessful
+--- @raises when which names no user folder
+--- @export
+export function userFolder(which: UserFolder): (string?, string?)
+    local index = FOLDERS[which]
+    if index == nil then
+        error("nupp: io.files has no user folder named " .. tostring(which), 2)
+    end
+
+    return answer(C.nuppFilesUserFolder(index))
+end

@@ -142,7 +142,7 @@ function M.theToolFingerprintDoesNotDependOnHowTheCompilerWasFound()
       local code, out = process.capture({"luajit", "-e", script})
       return code == 0 and out:match("[^\r\n]+") or nil
    end
-   local here = assert(nupp.io.files.currentDirectory())
+   local here = assert(require("nupp.io.files").currentDirectory())
    here = here:gsub("^/([A-Za-z])(/)", "%1:%2")
    local relative = fingerprintUnder("")
    assert(relative and relative ~= "", "the relative run produced a digest")
@@ -1601,7 +1601,7 @@ end
 -- answered. The tree is named absolutely and the working directory is somewhere
 -- else, so no part of the answer can come from where the process was started.
 local function answerFrom(tree, cwd)
-   local here = assert(nupp.io.files.currentDirectory())
+   local here = assert(require("nupp.io.files").currentDirectory())
    here = here:gsub("^/([A-Za-z])(/)", "%1:%2")
    local script = ("package.path = %q .. %q .. package.path "
       .. "print('VALUE ' .. tostring(require('main')))")

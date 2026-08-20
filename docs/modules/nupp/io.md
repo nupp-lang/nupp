@@ -4,6 +4,12 @@ dependency. Files and processes build on the same reader and writer contracts
 when their native features are selected; sockets and general asynchronous
 streams remain separate future layers.
 
+The rest of what io means is a module of its own: [`nupp.io.path`](../../concepts/paths-and-uris.md#paths)
+for filesystem paths, [`nupp.io.uri`](../../concepts/paths-and-uris.md#uris) for
+resource identifiers, and [`nupp.io.files`](io/files.md) for the filesystem. Each
+has a luacase name and so can be one, and keeping them apart is what lets a
+program that wants a byte buffer carry only a byte buffer.
+
 ```nupp
 local bytes = nupp.io.newBuffer("hello")
 local reader = bytes:newReader()
@@ -126,7 +132,7 @@ same interface.
 - `close()`: `boolean, reason?`.
 
 For filesystem names rather than file contents, see
-[`nupp.io.Path`](../../concepts/paths-and-uris.md#paths).
+[`nupp.io.path.Path`](../../concepts/paths-and-uris.md#paths).
 
 ## Typed scalars
 
