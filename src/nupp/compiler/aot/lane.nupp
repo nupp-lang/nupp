@@ -20,8 +20,10 @@ verified, before anything is emitted -- so this module answers to the ownership
 and alias facts the checker proved, and invents none of its own.
 
 A vector type is written `<element>x<lanes>`: `f64x4` is four binary64 lanes,
-`m32x8` is a mask over eight 32-bit ones. Every gang is 32 bytes wide, so the
-lane count follows the element width and the two are never independent.
+`m32x8` is a mask over eight 32-bit ones. A gang fixes the number of iterations;
+each value then occupies however many bytes its element width needs. Most gangs
+fit in 16 or 32 bytes, while an eight-lane gang carrying binary64 needs a
+64-byte vector and therefore exists only at the AVX-512 tier.
 ]]
 
 local scalarIR = require("nupp.compiler.aot.scalar")
@@ -51,8 +53,7 @@ type aotLane.Vector = string
 type aotLane.Element = 'f64' | 'f32' | 'i32' | 'u32' | 'bool'
 
 --- One gang: how many iterations run at once, and which vector type each element
---- is carried in. Within one width, a binary64 gang and a 32-bit gang cost the
---- same registers and differ only in how many iterations they hold.
+--- is carried in.
 record aotLane.Shape
     --- The name this shape is known by, and what a diagnostic calls it.
     name: string
@@ -390,22 +391,30 @@ end
 
 --- The gangs this backend chooses between.
 ---
---- Two widths, and within each width a binary64 gang and a 32-bit one. Ordinary
---- Nupp arithmetic is binary64, so a loop written with operators takes the
---- binary64 gang; one whose values the source established as `float` and `int32`
---- through `nupp.math` takes the 32-bit one and gets twice the lanes for the
---- same registers.
+--- Ordinary Nupp arithmetic is binary64, so a loop written with operators takes
+--- a mixed gang; one whose values the source established as `float` and `int32`
+--- through `nupp.math` can take a 32-bit-only gang. At the AVX-512 tier both run
+--- eight iterations, with each value occupying the vector width its element
+--- needs: 64 bytes for binary64 and 32 for binary32.
 ---
 --- The 16-byte pair exists because the widest vector a target has a register
 --- class for is not always 32 bytes. x86-64 without AVX has 16, and until these
 --- were here that meant no lanes at all rather than half as many -- which made
 --- the most common target the one the lowering did nothing for.
 ---
---- Selection is all-or-nothing within a width: a single binary64 varying value
---- drops the whole loop to the binary64 gang. The rule it stands in for is a
---- gang size chosen from aggregate register pressure, with each value occupying
---- however many registers its element needs, which wants mask widths to convert.
+--- The eight-lane mixed shape exists only where a 64-byte vector has a register
+--- class. Clang reports `-Wpsabi` for it below AVX-512 even when every helper is
+--- `static inline`, so AVX2 and baseline x86-64 retain the 32- and 16-byte pairs.
 const aotLane.SHAPES = {
+    new aotLane.Shape(
+        name = "mixed8",
+        lanes = 8,
+        bytes = 64,
+        mask = "m64x8",
+        vectorFor = {["f64"] = "f64x8", ["f32"] = "f32x8", ["i32"] = "f64x8", ["u32"] = "f64x8", ["bool"] = "m64x8"},
+        maskFor = {["f32"] = "m32x8"},
+        bits = "u32x8"
+    ),
     new aotLane.Shape(
         name = "mixed4",
         lanes = 4,

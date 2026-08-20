@@ -205,7 +205,7 @@ end
 --- @param selected the target, which decides whether a gang exists at all
 function compile.lanes(program: scalarIR.Program, filename: string, selected: targets.Target): nil
     if program.usesSimd == true then
-        program.simdWidth = selected.tier == "avx2" and 32 or 16
+        program.simdWidth = (selected.tier == "avx2" or selected.tier == "avx512f") and 32 or 16
     end
     if program.loop == nil then
         program.wantsLanes = false

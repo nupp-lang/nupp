@@ -93,6 +93,19 @@ jobs:
           NUPP_CHECK_CFLAGS: " "
         run: bench/kernel-subset-spike/crosscheck.sh
 
+      # No hosted runner promises AVX-512. Compile the mixed-width differential
+      # at that tier without executing it, so the 64-byte vector ABI and every
+      # helper call are still held warning-clean by the same -Werror boundary.
+      - name: Compile the eight-lane mixed gang at AVX-512
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          NUPP_CHECK_KERNELS: mixedwidth
+          NUPP_CHECK_GANG_FEATURES: avx512f
+          NUPP_CHECK_CFLAGS: -mavx512f
+          NUPP_CHECK_COMPILE_ONLY: 1
+        run: bench/kernel-subset-spike/crosscheck.sh
+
       # Windows is a supported target for this backend and MSVC is not a
       # supported compiler for it: the generated C needs `vector_size` and
       # `__builtin_convertvector`, which Clang and MinGW GCC have and MSVC has

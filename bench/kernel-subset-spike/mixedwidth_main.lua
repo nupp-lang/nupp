@@ -1,16 +1,12 @@
--- The mixed-width differential: explicit binary32 in binary64 lanes.
+-- The mixed-width differential: binary32 and binary64 in one gang.
 --
 -- `mixedwidth.nupp` carries every value as binary32 except one running total,
--- which is binary64. Neither gang can carry that as it stands -- the 32-bit one
--- refuses the total and the binary64 one refuses the explicit binary32
--- operations -- so the binary64 gang performs each binary32 operation in its own
--- lanes and rounds the result once.
+-- which is binary64. Each value occupies lanes at its own element width, and an
+-- AVX-512 target gives both widths eight iterations at once.
 --
--- Whether that is the same answer is the whole question, and it is not a matter
--- of tolerance. A binary32 operation over binary32 operands computed in binary64
--- and rounded once is bit-identical to the native single-precision instruction,
--- because 53 is at least twice 24 plus 2. If that argument is wrong, or the
--- lowering does not implement it, these three bodies disagree on some input.
+-- Whether converting values and masks where widths meet preserves the answer is
+-- the whole question, and it is not a matter of tolerance. If the lowering gets
+-- one boundary wrong, these three bodies disagree on some input.
 --
 -- Three bodies from one source: the lane-parallel C, the forced-scalar C, and
 -- the ordinary Nupp the same file compiles to with the backend off.

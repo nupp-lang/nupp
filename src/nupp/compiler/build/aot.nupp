@@ -97,7 +97,7 @@ const aot.DIALECT_FLAGS = {["clang"] = {"-Wno-parentheses-equality"}, ["gcc"] = 
 --- an oversight: `target` already decided whether a gang exists, and a flag
 --- here that decided it a second time could disagree with the code it is
 --- compiling.
-const aot.TIER_FLAGS = {["avx2"] = "-mavx2"}
+const aot.TIER_FLAGS = {["avx2"] = "-mavx2", ["avx512f"] = "-mavx512f"}
 
 --- Which backend produced an artifact.
 ---

@@ -3,11 +3,11 @@ module nupp.compiler.aot.target
 --[[
 What a target can hold, which decides what a gang can be.
 
-A gang is 16 or 32 bytes. 32 is one AVX register on x86-64 and two NEON registers
-on aarch64; 16 is one SSE2 register, which every x86-64 has. A target takes the
-widest shapes that fit its register class and no wider: a 32-byte vector on
-x86-64 without AVX still compiles, because the compiler splits it, but it has no
-stable ABI at a function boundary. Clang says so through `-Wpsabi`, and it is
+A gang is 16, 32 or 64 bytes. 16 is one SSE2 register, which every x86-64 has;
+32 is one AVX register; and 64 is one AVX-512 register. A target takes the
+widest shapes that fit its register class and no wider: a vector wider than the
+selected x86-64 tier still compiles, because the compiler splits it, but it has
+no stable ABI at a function boundary. Clang says so through `-Wpsabi`, and it is
 right to.
 
 So this is where lane lowering finds out how wide it may be. The answer used to
@@ -50,6 +50,9 @@ const target.TIERS = {
 
     --- x86-64 with AVX2, where a 32-byte vector is one register.
     ["avx2"] = 32,
+
+    --- x86-64 with AVX-512F, where a 64-byte vector is one register.
+    ["avx512f"] = 64,
 
     --- aarch64, whose 16-byte NEON registers are mandatory rather than optional
     --- and which pairs them for a 32-byte value without an ABI question.
@@ -109,6 +112,8 @@ end
 function target.tiers(architecture: string): {string}
     if architecture == "aarch64" then
         return {"neon"}
+    elseif architecture == "x86_64" then
+        return {"baseline", "avx2", "avx512f"}
     end
 
     return {"baseline", "avx2"}

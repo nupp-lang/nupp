@@ -15,7 +15,7 @@ process and lowers that same annotated CST; it does not re-decide `@aot`,
 The selected source surface is scalar Nupp:
 
 ```nupp
-@aot(simd = true)
+@aot
 local function advance(
     exclusive output: span.WriteSpan<Particle>,
     borrows input: span.Span<Particle>,
@@ -62,20 +62,17 @@ explicit verified pure-and-total effect fact. Branch masks are captured before
 their bodies execute, so changing a condition operand cannot change which
 lanes execute later statements in that branch.
 
-The gang width follows the widths the loop's own varying values need. Ordinary
-Nupp arithmetic is binary64, so a loop written with operators gets four binary64
-lanes; physical `float`, `int32`, and `uint32` fields widen to binary64 lane
-values for that arithmetic and narrow independently at stores.
+The gang width follows the widths the loop's own varying values need and the
+target tier it is built for. Ordinary Nupp arithmetic is binary64, so a loop
+written with operators gets two lanes at the x86-64 baseline, four at AVX2, and
+eight at AVX-512.
 
-A loop whose varying values are all 32-bit gets eight lanes for the same
-registers. That happens only when the source says so, through the released
-`nupp.math.f32` and `nupp.math.i32` operations, and it is a different program
-with different answers. The pass tries the eight-lane shape first and falls back
-to four the moment a varying value turns out to be binary64; set
-`NUPP_SPIKE_SHAPES=1` to see why a shape declined. An explicit binary32 or
-wrapping int32 operation refuses a gang without lanes of its width rather than
-computing it wider, because that would drop a rounding point the source asked
-for.
+A loop whose varying values are all 32-bit gets four lanes at baseline and eight
+at every wider tier. That happens only when the source says so, through the
+released `nupp.math.f32` and `nupp.math.i32` operations, and it is a different
+program with different answers. At AVX-512 a mixed loop also gets eight lanes:
+binary64 values occupy `f64x8`, binary32 values occupy `f32x8`, and masks convert
+between their widths. Set `NUPP_SPIKE_SHAPES=1` to see why a shape declined.
 
 Bitwise operations on flag words lower too, because an entity query is made of
 them. A gang that carries integers in binary64 lanes converts a lane out to a
@@ -249,11 +246,10 @@ bench/kernel-subset-spike/mandelbrot.sh uniform
 luajit bench/kernel-subset-spike/uniform_main.lua
 ```
 
-Run the mixed-width differential, which is what admits an explicit binary32
-operation to a gang that carries binary32 in binary64 lanes. Its kernel is
-everything-binary32 except one binary64 running total, which is the shape
-neither gang could take before: the 32-bit one refuses the total and the
-binary64 one refused the explicit binary32 operations.
+Run the mixed-width differential, whose kernel is everything-binary32 except one
+binary64 running total. Each value stays in lanes of its own width. At AVX-512
+both widths hold eight iterations; AVX2 and baseline retain four and two because
+`f64x8` has no register class there.
 
 ```sh
 bench/kernel-subset-spike/mandelbrot.sh mixedwidth

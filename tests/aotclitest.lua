@@ -712,10 +712,10 @@ function M.everyAotFunctionInAFileIsCompiled()
       "the generated module exports both wrappers: " .. binding:sub(-200))
 end
 
--- A gang is 16 or 32 bytes. The tier decides which fit: 32 is one AVX register
--- and two NEON registers, 16 is the SSE2 register every x86-64 has. The tier is
--- selected rather than measured, because a build that probed the machine in
--- front of it would produce an artifact that only runs there.
+-- A gang is 16, 32, or 64 bytes. The tier decides which fit: those are one SSE2,
+-- AVX, or AVX-512 register. The tier is selected rather than measured, because a
+-- build that probed the machine in front of it would produce an artifact that
+-- only runs there.
 function M.theBaselineX86TierGetsTheNarrowGang()
    local dir = project{["compute.nupp"] = COMPUTE}
    local out, code = run(dir, "--json --target x86_64-unknown-linux-gnu compute.nupp")
@@ -739,6 +739,31 @@ function M.aWiderTierGetsTheWiderGang()
    test.equal(decoded.target.tier, "avx2", "the tier is reported, because it changed the answer")
    test.equal(decoded.functions[1].lanes.shape, "mixed4")
    test.equal(decoded.functions[1].lanes.lanes, 4)
+end
+
+function M.theAvx512TierGetsEightMixedLanes()
+   local dir = project{["compute.nupp"] = COMPUTE}
+   local out, code = run(dir,
+      "--json --target x86_64-unknown-linux-gnu --features avx512f compute.nupp")
+   test.equal(code, 0, out)
+   local decoded = require("testjson").decode(out)
+   test.equal(decoded.target.tier, "avx512f")
+   test.equal(decoded.functions[1].lanes.shape, "mixed8")
+   test.equal(decoded.functions[1].lanes.lanes, 8)
+   assert(decoded.c:find("ks_f64x8", 1, true) and decoded.c:find("ks_m64x8", 1, true),
+      "the eight-lane gang carries binary64 values and masks at 64 bytes")
+end
+
+function M.anAll32BitLoopDoesNotTakeTheWiderTie()
+   local dir = project{["classify.nupp"] = BYTE_CLASSIFIER}
+   local out, code = run(dir,
+      "--json --target x86_64-unknown-linux-gnu --features avx512f classify.nupp")
+   test.equal(code, 0, out)
+   local decoded = require("testjson").decode(out)
+   test.equal(decoded.functions[1].lanes.shape, "f32x8",
+      "eight lanes in 32 bytes win over mixed8 when no binary64 value needs it")
+   test.equal(decoded.c:find("ks_f64x8", 1, true), nil,
+      "the narrower tie does not emit an unused 64-byte vector")
 end
 
 function M.theWidestGangThatFitsWins()

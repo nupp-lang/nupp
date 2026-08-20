@@ -496,13 +496,12 @@ layout nor element width moves that. What separates them is how much arithmetic
 there is to amortize assembling and taking apart the vectors, so the estimate is
 arithmetic operations per byte the body touches, with a threshold of 1.0.
 
-**How wide.** Gangs come in two widths, and within a width a group costs the
-same registers either way and only the lane count differs. Ordinary Nupp
-arithmetic is binary64, so a loop written with operators gets four lanes. A loop
-whose varying values are all 32-bit gets eight, which happens when the source
-asked for binary32 or wrapping int32 through the released `nupp.math`
-namespaces. The widest gang is tried first and refuses the moment any varying
-value turns out to be binary64.
+**How wide.** Gangs come in 16-, 32-, and 64-byte shapes. Ordinary Nupp
+arithmetic is binary64, so a loop written with operators gets two lanes at the
+x86-64 baseline, four at AVX2, and eight at AVX-512. A loop whose varying values
+are all 32-bit gets four lanes at baseline and eight at every wider tier. At
+equal lane counts the narrower shape is tried first, so an all-32-bit loop does
+not pay for 64-byte values it does not use.
 
 You can see both answers per kernel:
 
@@ -551,18 +550,19 @@ so `@aot(lanes = false)` and a body below the intensity threshold both pass.
 
 ### Targets and feature tiers
 
-A gang is 16 or 32 bytes. 32 is one AVX register on x86-64 and two NEON
-registers on aarch64; 16 is one SSE2 register, which every x86-64 has. A target
-takes the widest shapes that fit its register class and no wider. A 32-byte
-vector on x86-64 without AVX compiles only by being split and has no stable ABI
-at a function boundary.
+A gang is 16, 32, or 64 bytes. Those are one SSE2, AVX, or AVX-512 register on
+x86-64. A target takes the widest shapes that fit its register class and no
+wider. A wider vector still compiles by being split, but has no stable ABI at a
+function boundary; Clang reports that through `-Wpsabi` even at a `static
+inline` helper's call site.
 
 ```text
- Tier      Widest vector   Gangs             Default for
- ────────  ─────────────   ───────────────   ───────────
- baseline  16 bytes        mixed2, f32x4     x86-64, i686
- avx2      32 bytes        all four
- neon      32 bytes        all four          aarch64
+ Tier      Widest vector   Gangs                         Default for
+ ────────  ─────────────   ───────────────────────────   ───────────
+ baseline  16 bytes        mixed2, f32x4                 x86-64, i686
+ avx2      32 bytes        mixed2/4, f32x4/8
+ avx512f   64 bytes        mixed2/4/8, f32x4/8
+ neon      32 bytes        mixed2/4, f32x4/8             aarch64
 ```
 
 A `mixed` gang carries each value at its own element width, binary64 in 64-bit
@@ -595,9 +595,9 @@ nupp aot --target x86_64-unknown-linux-gnu --features avx2 src/kernel.nupp
 The tier is part of the artifact key, so changing it rebuilds rather than
 reusing what the other tier produced.
 
-Within a tier, the widest gang that admits the loop wins: a body with any
-binary64 varying value takes the binary64 gang, and one whose values the source
-established as `float` and `int32` takes the 32-bit gang and twice the lanes.
+Within a tier, the gang with the most lanes that admits the loop wins. At
+AVX-512 a mixed body and an all-32-bit body both get eight lanes, but the latter
+takes the 32-byte `f32x8` shape instead of the 64-byte `mixed8` one.
 
 A target too narrow for even the 16-byte pair refuses rather than going quietly
 scalar, and says what would give it a gang:
@@ -632,31 +632,27 @@ never the answer. Removing `@relax` changes the answer.
 
 ### Mixing widths
 
-A loop whose values are all binary32 gets eight lanes; one whose values are all
-binary64 gets four. A loop that mixes them gets four, the usual mixture being
-everything binary32 except one running total that needs binary64, and the
-binary64 gang performs each explicit binary32 operation in its own lanes and
-rounds the result once. That is bit-identical to the native single-precision
-instruction, by the same argument the whole binary32 surface rests on.
-
-It costs three instructions where an exact operation is one, so such a body
-gains about 1.14× over scalar where a body in a gang that carries its element
-exactly gains about 2×. `nupp aot` says when a body paid it, because the
-operations-per-byte number counts operations and would otherwise imply a gain
-this body does not get:
+A mixed gang carries each value at its own width: binary32 operations use
+`f32xN`, binary64 operations use `f64xN`, and masks convert immediately after a
+comparison and immediately before a select. Baseline and AVX2 still limit a
+mixed loop to two or four lanes because `f64x8` has no register class there.
+AVX-512 admits `mixed8`, so one binary64 running total no longer halves the lane
+count:
 
 ```text
-mixedwidth.nupp: integrate, 5.67 operations per byte (136 over 24), f64x4, 4 lanes, rounding explicit fixed-width work
+mixedwidth.nupp: integrate, 5.67 operations per byte (136 over 24), mixed8, 8 lanes
 ```
 
-If you see that and want the other 0.9×, the answer is in the source: a running
-total that can be binary32 makes the whole loop 32-bit and doubles the lanes.
-Whether it can is a question about your algorithm, not about the backend.
+The 64-byte shape is AVX-512-only. Compiling the same source for AVX2 reports
+`mixed4`, and the x86-64 baseline reports `mixed2`; selecting a tier never
+promises instructions the target did not name.
 
-**The fourth lever is the source itself**, and it is the strongest one. Writing
-the arithmetic through `nupp.math.f32` doubles the lane count, because it tells
-the backend the values are genuinely 32-bit rather than binary64 values that
-happen to be small. That changes the program's meaning, giving different
+**The fourth lever is the source itself**, and it is the strongest one. On the
+baseline and AVX2 tiers, writing the arithmetic through `nupp.math.f32` doubles
+the lane count because it tells the backend the values are genuinely 32-bit
+rather than binary64 values that happen to be small. AVX-512 carries eight of
+either, using the narrower shape when every value is 32-bit. The source choice
+still changes the program's meaning, giving different
 roundings and different results, which is exactly why the compiler will not do
 it for you.
 
@@ -728,7 +724,7 @@ the arithmetic is specified to be the same work in the same order:
 bench/kernel-subset-spike/simd.sh                     # lane rewrite vs scalar
 luajit bench/kernel-subset-spike/corrected_main.lua   # binary32 min/max/fma
 luajit bench/kernel-subset-spike/tecsbits_main.lua    # bitwise lanes over entities
-luajit bench/kernel-subset-spike/mixedwidth_main.lua  # binary32 rounded into binary64 lanes
+luajit bench/kernel-subset-spike/mixedwidth_main.lua  # binary32 and binary64 in one gang
 luajit bench/kernel-subset-spike/mandelbrot_main.lua  # every pixel, three ways
 ```
 
@@ -1053,12 +1049,6 @@ Named so you can tell what you are looking at:
   is still named with the path the build wrote, so it has the problem `@aot`
   code no longer has. The `@` mechanism is general and would fix it; nothing has
   been changed there yet.
-- **Eight lanes with a binary64 value in the loop.** A binary64 value needs
-  64-bit lanes, so four is what fits in 32 bytes. Reaching eight means either a
-  wider register file or letting one value span two registers, which is a
-  decision nobody has taken. Measured on
-  `bench/kernel-subset-spike/mixedwidth.sh`, that is the remaining 1.9× between
-  a mixed gang and an all-binary32 one.
 - **Multiversioning.** A build pins one feature tier. Dispatching between
   several at run time, so one binary uses AVX2 where it is present and the
   baseline where it is not, is a separate decision nobody has taken.

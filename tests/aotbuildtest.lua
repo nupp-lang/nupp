@@ -420,15 +420,30 @@ function M.anUnknownFeatureTierIsRejected()
       "and the tiers this architecture does have, which is the actionable part: " .. out)
 end
 
+function M.theAvx512TierReachesTheNativeCompiler()
+   local targets = require("nupp.compiler.aot.target")
+   local selected = assert(targets.select("x86_64-unknown-linux-gnu", "avx512f"))
+   local flags = aot.compileFlags(selected, {
+      command = "clang",
+      version = "test clang",
+      dialect = "clang",
+   })
+   local found = false
+   for _, flag in ipairs(flags) do
+      if flag == "-mavx512f" then found = true end
+   end
+   assert(found, "the tier must promise AVX-512F to the C compiler")
+end
+
 --- The widest tier this host's architecture has, and whether asking for it
---- changes anything. x86-64 defaults to `baseline` and widens to `avx2`;
+--- changes anything. x86-64 defaults to `baseline` and widens to `avx512f`;
 --- aarch64 has one tier, so naming it is accepted and changes nothing.
 local function widestTier()
    local pipe = assert(io.popen("uname -m"))
    local machine = pipe:read("*l")
    pipe:close()
    if machine == "x86_64" or machine == "amd64" then
-      return "avx2", true
+      return "avx512f", true
    end
    return "neon", false
 end
@@ -450,7 +465,7 @@ function M.theFeatureTierReachesTheBackend()
    out, code = build(dir)
    test.equal(code, 0, "the manifest key is accepted\n" .. out)
    local after = assert(read(dir .. "/build/native/aot/src/kernel.c"))
-   assert(after:find("vector_size(32)", 1, true),
+   assert(after:find(widens and "vector_size(64)" or "vector_size(32)", 1, true),
       "the widest tier gets the widest gang: " .. after:sub(1, 200))
 
    if widens then

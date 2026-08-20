@@ -1836,15 +1836,17 @@ function rewrite.select(program: scalarIR.Program, shapes: {lane.Shape}): {rewri
     for _, shape in ipairs(shapes) do
         ordered[#ordered + 1] = shape
     end
-    -- More lanes wins; at equal lanes the wider gang wins, because it is the one
-    -- that admits binary64 and so refuses less. Sorted by name last so two gangs
-    -- that tie on both order the same way in every process.
+    -- More lanes wins. At equal lanes the narrower gang goes first, so an
+    -- all-32-bit loop takes f32x8 without making its masks and values 64 bytes;
+    -- it refuses a binary64 value and the mixed8 attempt then follows. Sorted
+    -- by name last so two gangs that tie on both order the same way in every
+    -- process.
     table.sort(ordered, function(a: lane.Shape, b: lane.Shape): boolean
         if a.lanes ~= b.lanes then
             return a.lanes > b.lanes
         end
         if a.bytes ~= b.bytes then
-            return a.bytes > b.bytes
+            return a.bytes < b.bytes
         end
 
         return a.name < b.name

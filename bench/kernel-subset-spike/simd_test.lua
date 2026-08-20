@@ -1,4 +1,4 @@
--- Differential oracle for `@aot(simd = true)` and its scalar epilogue.
+-- Differential oracle for automatic `@aot` lane lowering and its scalar epilogue.
 local ffi = require("ffi")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))

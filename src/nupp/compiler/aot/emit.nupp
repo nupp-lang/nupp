@@ -960,6 +960,7 @@ end
 --- A mask lane is as wide as the values it selects between, so a binary64 gang
 --- masks with 64-bit lanes and a 32-bit gang with 32-bit ones.
 const emit.MASK_C = {
+    ["m64x8"] = "long long",
     ["m64x4"] = "long long",
     ["m32x8"] = "int",
     ["m64x2"] = "long long",

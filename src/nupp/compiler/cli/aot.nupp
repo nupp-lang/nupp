@@ -65,7 +65,7 @@ local function aotOptions(): {any}
         name = "--features",
         key = "features",
         value = "TIER",
-        help = "The CPU feature tier to promise: baseline, avx2, or neon",
+        help = "The CPU feature tier to promise: baseline, avx2, avx512f, or neon",
     }
     list[
         #list + 1

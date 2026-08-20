@@ -19,6 +19,10 @@
 # NUPP_CHECK_CFLAGS adds flags, which is how a feature tier is selected. A
 # 32-byte vector is two SSE registers and one AVX2 register, so the two lower to
 # different instruction sequences and both are worth running.
+#
+# NUPP_CHECK_COMPILE_ONLY=1 stops after producing the executable. That covers a
+# tier CI can compile but its runners cannot execute, which is the case for the
+# 64-byte AVX-512 gang.
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -46,14 +50,10 @@ if [ -n "${NUPP_CHECK_TARGET:-}" ]; then
     ARCH=${NUPP_CHECK_TARGET%%-*}
 fi
 
-# A gang is 32 bytes. That is one AVX register on x86-64 and two NEON registers
-# on arm64, so arm64 has nothing to select and x86-64 has to ask for AVX.
-#
-# Below AVX a 32-byte vector has no register class on x86-64: it still compiles,
-# because the compiler splits it, but it has no stable ABI at a function
-# boundary and says so. Rather than silence that, this targets the tier the gang
-# shapes were designed for -- and a build that forces a lower one gets the
-# warning, which is the honest answer.
+# The default exercises AVX2's 32-byte gangs on x86-64 and NEON's shapes on
+# arm64. Baseline and AVX-512 runs select their gang and compiler flags
+# explicitly below; keeping those two choices separate is what lets this script
+# expose a mismatch as `-Wpsabi` under `-Werror`.
 case $ARCH in
     x86_64|amd64) DEFAULT_CFLAGS="-mavx2" ;;
     *) DEFAULT_CFLAGS="" ;;
@@ -106,7 +106,9 @@ for kernel in $KERNELS; do
         $TARGET_FLAGS ${NUPP_CHECK_CFLAGS:-$DEFAULT_CFLAGS} -DKERNEL_C="\"$ROOT/$OUT/$kernel.c\"" \
         -DKERNEL_NAME="\"$kernel\"" \
         "$SPIKE/checks/$kernel.c" $MATH -o "$OUT/$kernel$EXE"
-    if ${NUPP_CHECK_RUNNER:-} "$OUT/$kernel$EXE"; then
+    if [ "${NUPP_CHECK_COMPILE_ONLY:-}" = "1" ]; then
+        :
+    elif ${NUPP_CHECK_RUNNER:-} "$OUT/$kernel$EXE"; then
         :
     else
         status=1
