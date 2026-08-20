@@ -87,25 +87,35 @@ string, and the numeric `uint64_t` conversion beside them. Reading
 little-endian words out of a string is not C-ABI work — there is no layout, no
 alignment, and no offset the platform gets to decide — so it is one of the few
 things this VM can answer exactly rather than guess at, and Lua 5.3's own
-64-bit integers wrap where LuaJIT's `uint64` does. Everything else on `ffi`
-still fails loudly.
+64-bit integers wrap where LuaJIT's `uint64` does. The compiler lexer's
+zero-based `uint32_t` arena and its byte-counted copies are implemented for the
+same reason: their representation is fixed rather than platform-dependent.
+Everything else on `ffi` still fails loudly.
 
 That aside, `ffi` is the one stand-in that can't be a working implementation, because it
 would need to be one: real struct/cdata layout (size, alignment, offsets)
 depends on an actual C ABI, which requires a C compiler and a live process —
 neither exists in a browser sandbox. Per the project's README, Nupp leans on
-this directly: `record`/`struct` declarations are checked and lowered against
+this directly: `struct` declarations are checked and lowered against
 *real* `ffi.typeof`/`ffi.cast` results, not a reimplementation of C's layout
 rules, so the checker gets exactly what LuaJIT would compile rather than a
 guess at it.
 
 So the playground's `ffi` stub fails loudly instead of guessing: any checked
-program that reaches real C-type machinery — a `record` or `struct`
-declaration, `ffi.cdef`, `import-c` — surfaces a clear message rather than a
-wrong layout or a silent crash. Everything else — functions, generics, union
-and gradual types, ownership over plain values, modules, control flow — type
-checks with the same fidelity as `nupp check` on the command line, because
-it *is* `nupp check`.
+program that reaches real C-type machinery — a `struct` declaration,
+`ffi.cdef`, `import-c` — surfaces a clear message rather than a wrong layout or
+a silent crash. Plain `record` declarations are ordinary Lua tables and work
+normally. Everything else — functions, generics, union and gradual types,
+ownership over plain values, modules, control flow — type checks with the same
+fidelity as `nupp check` on the command line, because it *is* `nupp check`.
+
+The compiler bundle also installs `nupp.peg`, whose startup raises LPeg's
+process-global backtrack limit. The host supplies that no-op setup call, and
+the driver implements the checker's fixed documentation-line and `%?`
+format-string recognizers directly, so the compiler can load without a fake
+general pattern implementation. Native-build syntax stays unavailable because
+the playground has neither build inputs nor a filesystem. It only checks and
+compiles source and never executes its generated Lua.
 
 This mirrors the tradeoff [Luau's browser playground](https://luau.org) makes
 running its C++ implementation compiled to WebAssembly: real execution stops

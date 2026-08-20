@@ -129,11 +129,11 @@ test("documentation playgrounds check only after the reader engages", () => {
 });
 
 test("playground codegen drops effects removed by optimization", () => {
-  const worker = readFileSync(new URL("../src/worker.js", import.meta.url), "utf8");
-  assert.match(worker, /pcall\(optimize\.run, result,/);
-  assert.match(worker, /result\.effects = optimize\.liveEffects\(result\)/);
+  const driver = readFileSync(new URL("../src/driver.lua", import.meta.url), "utf8");
+  assert.match(driver, /pcall\(optimize\.run, result,/);
+  assert.match(driver, /result\.effects = optimize\.liveEffects\(result\)/);
   assert.ok(
-    worker.indexOf("optimize.liveEffects(result)") < worker.indexOf("gen.generate, result"),
+    driver.indexOf("optimize.liveEffects(result)") < driver.indexOf("gen.generate, result"),
     "live effects must be recomputed before generation",
   );
 });

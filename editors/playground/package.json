@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --test test/*.test.js",
+    "test": "node build.mjs && node --test test/*.test.js",
     "watch": "node build.mjs --watch",
     "serve": "npm run build && node serve.mjs"
   },

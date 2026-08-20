@@ -4,10 +4,13 @@ handful of LuaJIT-only pieces the compiler's own implementation leans on, not
 just the code it generates for a checked program.
 
 `bit` and `string.buffer` are real, working implementations — the checker's
-C-declaration decoder and the project-index cache actually call them.  `ffi`
-is a stub that fails loudly rather than silently-wrong: nothing here can offer
-real C-ABI introspection, so code that declares or imports real C types is
-the one thing this playground cannot check. `io.open`/`io.popen` and
+C-declaration decoder and the project-index cache actually call them. `lpeg`
+supplies the no-op global setup needed to load the compiler; generated matchers
+are not run by this compile-only playground. The `jit` identity and opcode
+names let static trace metadata initialize without claiming a live recorder.
+`ffi` implements the fixed-width byte and word storage the compiler itself uses
+and fails loudly for real C-ABI introspection, so code that declares or imports
+C types is the one thing this playground cannot check. `io.open`/`io.popen` and
 `nupp.io.files` are wired to "not found" rather than left absent, so the
 project index and manifest lookups take the same empty-filesystem path they
 did before the compiler moved directory walks onto its native files API.
@@ -101,6 +104,51 @@ end
 -- it needs the 5.1 spelling even though fengari only provides table.unpack.
 unpack = unpack or table.unpack
 
+-- Lua 5.3 removed LuaJIT's math.frexp spelling. The checker uses it to decide
+-- whether a numeric literal is exactly representable as float32.
+math.frexp = math.frexp or function(value)
+    if value == 0 then return value, 0 end
+    local magnitude = math.abs(value)
+    local exponent = math.floor(math.log(magnitude, 2)) + 1
+    local significand = value / 2 ^ exponent
+    if math.abs(significand) < 0.5 then
+        significand, exponent = significand * 2, exponent - 1
+    elseif math.abs(significand) >= 1 then
+        significand, exponent = significand / 2, exponent + 1
+    end
+    return significand, exponent
+end
+
+-- Static trace metadata is part of the checker even when no code will run. It
+-- needs the target identity and LuaJIT's packed bytecode names, but never VM
+-- introspection in this compile-only process. Present the standard 64-bit Linux
+-- target, report the recorder disabled, and keep every mutating JIT control a
+-- no-op. The packed names are stable for the LuaJIT snapshot Nupp targets.
+do
+    jit = {
+        version = "LuaJIT 2.1.1785763465",
+        version_num = 20199,
+        os = "Linux",
+        arch = "x64",
+        status = function() return false end,
+        on = function() end,
+        off = function() end,
+        flush = function() end,
+        opt = {start = function() end},
+    }
+    local vmdef = {
+        bcnames = "ISLT  ISGE  ISLE  ISGT  ISEQV ISNEV ISEQS ISNES ISEQN ISNEN ISEQP ISNEP ISTC  ISFC  IST   ISF   ISTYPEISNUM MOV   NOT   UNM   LEN   ADDVN SUBVN MULVN DIVVN MODVN ADDNV SUBNV MULNV DIVNV MODNV ADDVV SUBVV MULVV DIVVV MODVV POW   CAT   KSTR  KCDATAKSHORTKNUM  KPRI  KNIL  UGET  USETV USETS USETN USETP UCLO  FNEW  TNEW  TDUP  GGET  GSET  TGETV TGETS TGETB TGETR TSETV TSETS TSETB TSETM TSETR CALLM CALL  CALLMTCALLT ITERC ITERN VARG  ISNEXTRETM  RET   RET0  RET1  FORI  JFORI FORL  IFORL JFORL ITERL IITERLJITERLLOOP  ILOOP JLOOP JMP   BNOT  BAND  BOR   BXOR  BSHL  BSHR  BSAR  FUNCF IFUNCFJFUNCFFUNCV IFUNCVJFUNCVFUNCC FUNCCW",
+        irnames = "",
+        traceerr = {},
+        ffnames = {},
+        ircall = {},
+        irfield = {},
+        irfpm = {},
+    }
+    package.preload["jit"] = function() return jit end
+    package.preload["jit.vmdef"] = function() return vmdef end
+end
+
 -- The compiler's project index now walks through nupp.io.files. Preinstalling
 -- the empty browser implementation keeps bootstrap's lazy native installer
 -- from replacing it, which would reach ffi.cdef just to discover that the
@@ -138,6 +186,7 @@ do
     nupp = nupp or {}
     nupp.io = nupp.io or {}
     nupp.io.files = files
+    package.loaded["nupp.io.files"] = files
 end
 
 -- fengari only registers the "io" global when it thinks it's running under
@@ -353,12 +402,30 @@ do
     package.preload["jsonNative"] = function() return json end
 end
 
+-- Loading a compiler built with PEG support installs nupp.peg and raises LPeg's
+-- process-global backtrack limit. The playground checks and compiles programs;
+-- it never executes the generated matchers, so the only LPeg operation driver
+-- startup needs is that harmless setup call. Keep every pattern operation
+-- unavailable rather than pretending Fengari has a native LPeg implementation.
+do
+    local function unavailable(name)
+        return function()
+            error("lpeg." .. name .. " is not available in the browser " ..
+                "playground: generated programs are not executed here.", 0)
+        end
+    end
+    local lpeg = setmetatable({
+        setmaxstack = function() end,
+    }, {__index = function(_, key) return unavailable(key) end})
+    package.preload["lpeg"] = function() return lpeg end
+end
+
 -- LuaJIT's "ffi": needs a real C compiler and a live process to back struct
--- and cdata introspection, which a browser Lua VM does not have. The checker
--- only reaches into it for programs that declare or import real C types
--- (`ffi.cdef`, `import-c`, struct field layout); ordinary Nupp/Lua source
--- never touches it, so this fails loudly and specifically instead of
--- returning wrong answers.
+-- and cdata introspection, which a browser Lua VM does not have. Fixed-width
+-- arrays are different: the compiler's lexer keeps trivia in a uint32_t block,
+-- whose width and indexing are defined without asking a platform ABI. That
+-- small exact subset is implemented here; programs that declare or import real
+-- C types still fail loudly and specifically instead of getting wrong answers.
 do
     local function unsupported(name)
         return function()
@@ -367,14 +434,14 @@ do
                 "affects code that declares or imports real C types.", 0)
         end
     end
-    -- `ffi.cast` is the one member with a real implementation here, for the four
-    -- shapes nupp.compiler.build.hash's XXH64 asks for and nothing else. Reading
+    -- `ffi.cast` has a real implementation for the four shapes
+    -- nupp.compiler.build.hash's XXH64 asks for and nothing else. Reading
     -- little-endian words out of a Lua string is not C-ABI work -- no layout, no
     -- alignment, no offset the platform decides -- so unlike struct introspection
     -- it is something this VM can answer exactly, and Lua 5.3's own 64-bit
     -- integers wrap the way LuaJIT's uint64 does. Every other spelling still
-    -- fails loudly, which is what keeps a real `record`-with-C-types or an
-    -- `import-c` honest.
+    -- fails loudly, which is what keeps a real `struct` or an `import-c`
+    -- honest.
     -- Eight bytes are read as two four-byte halves and put back together, not
     -- as one "<I8": Lua 5.3's unpack raises on an unsigned 64-bit value past the
     -- signed range rather than wrapping, and half of every hash word is past it.
@@ -406,11 +473,43 @@ do
         end})
     end
 
+    -- The lossless lexer grows a zero-based uint32_t arena and copies the live
+    -- prefix when it does. A Lua table is the same indexed word store here:
+    -- uint32_t fixes the element width, every written value is already in range,
+    -- and hidden length metadata lets copy reject an out-of-bounds request
+    -- instead of silently standing in for any other cdata operation.
+    local ARRAY_LENGTH = {}
+    local ZEROED = {__index = function(_, index)
+        if type(index) == "number" then return 0 end
+    end}
+    local function new(spec, count)
+        count = math.tointeger(count)
+        if spec ~= "uint32_t[?]" or count == nil or count < 0 then
+            return unsupported("new")()
+        end
+        return setmetatable({[ARRAY_LENGTH] = count}, ZEROED)
+    end
+    local function copy(target, source, bytes)
+        bytes = math.tointeger(bytes)
+        local targetLength = type(target) == "table" and rawget(target, ARRAY_LENGTH)
+        local sourceLength = type(source) == "table" and rawget(source, ARRAY_LENGTH)
+        if bytes == nil or bytes < 0 or bytes % 4 ~= 0
+            or targetLength == nil or sourceLength == nil
+            or bytes > targetLength * 4 or bytes > sourceLength * 4 then
+            return unsupported("copy")()
+        end
+        for index = 0, bytes / 4 - 1 do
+            target[index] = source[index]
+        end
+    end
+
     local ffilib = setmetatable({
         os = "Browser",
         arch = "wasm",
         istype = function() return false end,
         cast = cast,
+        new = new,
+        copy = copy,
     }, {__index = function(_, key) return unsupported(key) end})
     -- Global too, for the same reason as `bit` above. This one matters less --
     -- reaching it at all is the error -- but a nil global reports "attempt to

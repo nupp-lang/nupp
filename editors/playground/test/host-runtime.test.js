@@ -4,6 +4,8 @@ import test from "node:test";
 import { lauxlib, lua, lualib, to_luastring } from "fengari";
 
 const hostRuntime = readFileSync(new URL("../src/host-runtime.lua", import.meta.url), "utf8");
+const driver = readFileSync(new URL("../src/driver.lua", import.meta.url), "utf8");
+const bootstrap = readFileSync(new URL("../dist/nupp-bootstrap.lua", import.meta.url), "utf8");
 
 function run(L, source) {
   const status = lauxlib.luaL_dostring(L, to_luastring(source));
@@ -153,11 +155,77 @@ test("provides an empty filesystem without loading the native ABI", () => {
   lualib.luaL_openlibs(L);
   run(L, hostRuntime);
   run(L, [
+    'assert(require("nupp.io.files") == nupp.io.files)',
     "assert(#nupp.io.files.list('.') == 0)",
     "assert(nupp.io.files.info('nupp.lua') == nil)",
     "assert(nupp.io.files.isDirectory('.') == false)",
     "assert(nupp.io.files.pendingTransfers() == 0)",
   ].join("\n"));
+  lua.lua_close(L);
+});
+
+test("provides the fixed-width word arena used by the compiler lexer", () => {
+  const L = lauxlib.luaL_newstate();
+  lualib.luaL_openlibs(L);
+  run(L, hostRuntime);
+  run(L, [
+    'local ffi = require("ffi")',
+    'local source = ffi.new("uint32_t[?]", 2)',
+    "source[0], source[1] = 17, 29",
+    'local target = ffi.new("uint32_t[?]", 4)',
+    "assert(target[0] == 0 and target[3] == 0)",
+    "ffi.copy(target, source, 8)",
+    "assert(target[0] == 17 and target[1] == 29 and target[2] == 0)",
+    'assert(not pcall(ffi.new, "char[1]"))',
+    "assert(not pcall(ffi.copy, target, source, 12))",
+  ].join("\n"));
+  lua.lua_close(L);
+});
+
+test("boots the real compiler driver and checks the calls documentation example", () => {
+  const L = lauxlib.luaL_newstate();
+  lualib.luaL_openlibs(L);
+  run(L, hostRuntime);
+  run(L, bootstrap);
+  run(L, driver);
+  run(L, `
+    local docSyntax = require("nupp.compiler.doc.syntax")
+    local ticks = string.rep(string.char(96), 3)
+    local prefix, fence, options = docSyntax.markdownFence:match(" " .. ticks .. "nupp:playground")
+    assert(prefix == " " and fence == ticks and options == "nupp:playground")
+    assert(docSyntax.lineNumber:match("nupp:line-numbers=7") == "7")
+
+    local luaFormat = require("nupp.compiler.luaformat")
+    local parsed, why = luaFormat.analyze("%-+#09.2f %q %% %d %?")
+    assert(why == nil, why)
+    assert(parsed.format == "%-+#09.2f %q %% %d %s", parsed.format)
+    assert(parsed.debugArguments[1] == false and parsed.debugArguments[4] == true)
+    local missing, invalid = luaFormat.analyze("%..f")
+    assert(missing == nil and invalid ==
+      'invalid string.format directive starting at "%..f"', tostring(invalid))
+
+    local source = [=[
+local record Vec3
+    x: number
+    y: number
+    z: number
+end
+
+local function draw(x: number, y: number, color: string?): nil
+    print(x, y, color)
+end
+
+local function render(position: Vec3): nil
+    draw({x, y} = position, color = "blue")
+end
+]=]
+    local response = __playground_check(source, "playground.nupp", "strict=1,optimize=0")
+    assert(response:find('"diagnostics"', 1, true), response)
+    assert(not response:find('"severity":"error"', 1, true), response)
+    local compiled = __playground_compile(source, "playground.nupp", "strict=1,optimize=0")
+    assert(compiled:find('"code"', 1, true), compiled)
+    assert(not compiled:find('"reason"', 1, true), compiled)
+  `);
   lua.lua_close(L);
 });
 
