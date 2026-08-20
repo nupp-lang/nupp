@@ -7,16 +7,17 @@ Declares the surface of the simdjson-backed host module that
 Programs reach it as `nupp.data.json`, which loads this boundary and re-exports
 it, so the shape is declared here and nowhere else.
 
-`decodeAs`, `encodeAs` and `encodeRecord` are not the host's. The derive runtime
-installs them onto this table when a program derives JSON for a type, and they raise
-when nothing was derived. They are declared with the rest so a caller sees one API.
+`decodeAs`, `writeAs`, `writeRecord`, `encodeAs` and `encodeRecord` are not the
+host's. The derive runtime installs them onto this table when a program derives JSON
+for a type, and they raise when nothing was derived. They are declared with the rest
+so a caller sees one API.
 ]]
 
 --- The host module's surface, as `nupp.data.json` hands it out.
 record json
-    --- Values that can encode themselves as JSON text.
+    --- Values that append their JSON encoding to a caller-owned byte buffer.
     interface JSONEncodable
-        toJSON: function(self): string
+        writeJSON: function(self, exclusive out: string.buffer.Buffer): nil
     end
 
     --- A checked incremental JSON writer.
@@ -134,13 +135,24 @@ record json
     --- @return why it did not fit, when unsuccessful
     decodeAs: function<T>(type: Type<T>, text: string): (T?, string?)
 
-    --- Encodes a nominal record after explicitly supplying its type witness.
+    --- Appends a nominal record after explicitly supplying its type witness.
+    --- @param type the record's type witness
+    --- @param value the record to encode
+    --- @param out the caller-owned destination
+    writeAs: function<T>(type: Type<T>, value: T, exclusive out: string.buffer.Buffer): nil
+
+    --- Appends a nominal record using the metatable its value already carries.
+    --- @param value the record to encode
+    --- @param out the caller-owned destination
+    writeRecord: function<T>(value: T, exclusive out: string.buffer.Buffer): nil
+
+    --- Encodes a nominal record into a new string after supplying its type witness.
     --- @param type the record's type witness
     --- @param value the record to encode
     --- @return the encoded JSON document
     encodeAs: function<T>(type: Type<T>, value: T): string
 
-    --- Encodes a nominal record using the metatable its value already carries.
+    --- Encodes a nominal record into a new string using its own metatable.
     --- @param value the record to encode
     --- @return the encoded JSON document
     encodeRecord: function<T>(value: T): string

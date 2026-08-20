@@ -773,12 +773,13 @@ function M.standardJsonApiHasCompleteDocumentation()
       JSONEncodable = true, Writer = true, decode = true, pull = true,
       arrayOf = true, asArray = true, asObject = true, encode = true,
       serialize = true, writer = true, decodeAs = true, encodeAs = true,
-      encodeRecord = true, NULL = true, EMPTY_ARRAY = true, EMPTY_OBJECT = true,
+      encodeRecord = true, writeAs = true, writeRecord = true, NULL = true,
+      EMPTY_ARRAY = true, EMPTY_OBJECT = true,
    }
    local callable = {
       decode = true, pull = true, arrayOf = true, asArray = true, asObject = true,
       encode = true, serialize = true, writer = true, decodeAs = true, encodeAs = true,
-      encodeRecord = true,
+      encodeRecord = true, writeAs = true, writeRecord = true,
    }
    local writer
    for _, item in ipairs(module.items) do

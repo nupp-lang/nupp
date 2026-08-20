@@ -8,12 +8,13 @@ The work is simdjson's, reached through the `jsonNative` host boundary this modu
 loads. Nothing is reimplemented here: the module is the name a program uses and the
 place the load is arranged, so a checked program never names the host.
 
-`decodeAs`, `encodeAs` and `encodeRecord` are not the host's. They are installed onto
-this table by the derive runtime when a program derives JSON for a type, because they
-answer in terms of a derived entry rather than a document alone. They are declared
-with the rest of the surface so a caller sees one API, and they raise when nothing
-was derived. See [derives.md](docs/reference/derives.md#json) for what
-deriving JSON for a type installs.
+`decodeAs`, `writeAs`, `writeRecord`, `encodeAs` and `encodeRecord` are not the
+host's. They are installed onto this table by the derive runtime when a program
+derives JSON for a type, because they answer in terms of a derived entry rather than
+a document alone. They are declared with the rest of the surface so a caller sees
+one API, and they raise when nothing was derived. See
+[derives.md](docs/reference/derives.md#json) for what deriving JSON for a type
+installs.
 ]]
 
 -- Normally the rock is on the path and this does nothing. A build that carries the
@@ -33,7 +34,7 @@ end
 
 const native = require("jsonNative")
 
---- Values that can encode themselves as JSON text.
+--- Values that can append their JSON encoding to a caller-owned byte buffer.
 ---
 --- Declared here rather than aliased out of the host boundary, because this is the
 --- name callers write: `derive.JSON` answers a contract in terms of it. `Writer`
@@ -43,16 +44,19 @@ const native = require("jsonNative")
 --- local record Money is nupp.data.json.JSONEncodable
 ---     cents: integer
 ---
----     function toJSON(self): string
----         return nupp.data.json.encode({cents = self.cents})
+---     function writeJSON(self, exclusive out: string.buffer.Buffer): nil
+---         out:put('{"cents":', self.cents, "}")
 ---     end
 --- end
 --- ```
 export interface JSONEncodable
-    --- Encodes this value as one complete JSON document.
+    --- Appends this value as one complete JSON document.
+    ---
+    --- Bytes already appended remain in `out` if encoding raises. Reset or discard
+    --- the buffer when an all-or-nothing result is required.
     --- @param self the value being encoded
-    --- @return the JSON document
-    toJSON: function(self): string
+    --- @param out the caller-owned destination
+    writeJSON: function(self, exclusive out: string.buffer.Buffer): nil
 end
 
 --- A checked incremental JSON writer.
@@ -320,7 +324,48 @@ export function decodeAs<T>(type: Type<T>, text: string): (T?, string?)
     error("nupp: JSON was not derived for this type", 2)
 end
 
---- Encodes a nominal record named by a type witness.
+--- Appends a nominal record after explicitly supplying its type witness.
+---
+--- ```nupp
+--- @derive(nupp.derive.JSON)
+--- local record User
+---     id: integer
+--- end
+---
+--- local out = string.buffer.new()
+--- nupp.data.json.writeAs(User, new User(id = 41), out)
+--- assert(out:tostring() == [[{"id":41}]])
+--- ```
+--- @param type the record type being encoded
+--- @param value the record value
+--- @param out the caller-owned destination
+--- @raises when JSON was not derived for the type
+--- @export
+export function writeAs<T>(type: Type<T>, borrows value: T, exclusive out: string.buffer.Buffer): nil
+    error("nupp: JSON was not derived for this type", 2)
+end
+
+--- Appends a nominal record using its own metatable as the type witness.
+---
+--- ```nupp
+--- @derive(nupp.derive.JSON)
+--- local record User
+---     id: integer
+--- end
+---
+--- local out = string.buffer.new()
+--- nupp.data.json.writeRecord(new User(id = 41), out)
+--- assert(out:tostring() == [[{"id":41}]])
+--- ```
+--- @param value the record value
+--- @param out the caller-owned destination
+--- @raises when JSON was not derived for the type
+--- @export
+export function writeRecord<T>(borrows value: T, exclusive out: string.buffer.Buffer): nil
+    error("nupp: JSON was not derived for this type", 2)
+end
+
+--- Encodes a nominal record named by a type witness into a new string.
 ---
 --- ```nupp
 --- @derive(nupp.derive.JSON)
@@ -340,7 +385,7 @@ export function encodeAs<T>(type: Type<T>, borrows value: T): string
     error("nupp: JSON was not derived for this type", 2)
 end
 
---- Encodes a nominal record using its own metatable as the type witness.
+--- Encodes a nominal record using its own metatable into a new string.
 ---
 --- ```nupp
 --- @derive(nupp.derive.JSON)

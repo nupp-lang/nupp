@@ -14,7 +14,9 @@ local record User
 end
 
 local user = new User()
-print(user:debug(), user:toJSON())
+local out = string.buffer.new()
+user:writeJSON(out)
+print(user:debug(), out:tostring())
 ```
 
 Applying a provider is a declaration-augmentation phase, not a text macro: it
@@ -23,7 +25,8 @@ independently nameable types. The two bundled providers are:
 
 - [`nupp.derive.Debug`](#debug): `debug(self): string` and `nupp.Debug`
   conformance.
-- [`nupp.derive.JSON`](#json): `toJSON`, a static `fromJSON`, `fieldCodec`, and
+- [`nupp.derive.JSON`](#json): `writeJSON(out)`, a static `fromJSON`,
+  `fieldCodec`, and
   `nupp.data.json.JSONEncodable` conformance.
 
 Generated members participate in normal member lookup, generic inference, and
@@ -109,10 +112,13 @@ Credentials { user = "ada", password = <redacted> }
 
 ## JSON
 
-`JSON` generates `toJSON`, a static `fromJSON`, a `fieldCodec`, and
-`nupp.data.json.JSONEncodable` conformance. Encoding is deterministic: record
-and shape fields follow declaration order and string map keys sort by byte
-order, so the same value always produces the same bytes.
+`JSON` generates `writeJSON(out)`, a static `fromJSON`, a `fieldCodec`, and
+`nupp.data.json.JSONEncodable` conformance. Encoding appends directly to the
+caller-owned `string.buffer.Buffer`; it does not allocate a complete result
+string. Record and shape fields follow declaration order and string map keys
+sort by byte order, so the same value always produces the same bytes.
+If encoding fails, bytes appended before the failure remain in the buffer;
+reset or discard it when the surrounding operation needs atomic output.
 
 ```nupp
 @derive(nupp.derive.JSON, nupp.derive.Debug)
@@ -123,7 +129,9 @@ local record User
 end
 
 local user = new User(id = 7, name = "ada")
-print(user:toJSON())
+local out = string.buffer.new()
+user:writeJSON(out)
+print(out:tostring())
 
 local decoded = User.fromJSON('{"user_id": 7, "name": "ada"}')
 print(decoded and decoded:debug())
@@ -189,8 +197,11 @@ local record User
 end
 
 local user = new User(id = 7, tags = {})
-print(user:toJSON())
-print(select(2, User.fromJSON(user:toJSON())))
+local out = string.buffer.new()
+user:writeJSON(out)
+local text = out:tostring()
+print(text)
+print(select(2, User.fromJSON(text)))
 ```
 
 ```text
@@ -219,8 +230,10 @@ JSON path that reached it. Decoding uses Nupp's strict simdjson-backed codec and
 preserves null with `nupp.data.json.NULL` while it validates the raw value.
 
 The JSON field codec is allocated lazily as a runtime reflection extension. Use
-`nupp.data.json.encodeRecord`, `encodeAs(User, value)`, and `decodeAs(User,
-text)` when a type-witness API fits better than generated members. See
+`nupp.data.json.writeRecord`, `writeAs(User, value, out)`, and `decodeAs(User,
+text)` when a type-witness API fits better than generated members. The
+allocating `encodeRecord` and `encodeAs` wrappers remain available when a
+complete string is specifically required. See
 [reflection.md](../concepts/reflection.md#runtime-reflection) for the witness
 and allocation model, and [json.md](../modules/nupp/data/json.md) for the rest
 of the codec.

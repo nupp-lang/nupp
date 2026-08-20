@@ -130,8 +130,11 @@ local record User
 end
 
 local user = new User(id = 7, name = "ada")
-local text = user:toJSON()
-local sameText = nupp.data.json.encodeAs(User, user)
+local out = string.buffer.new()
+user:writeJSON(out)
+local text = out:get()
+nupp.data.json.writeAs(User, user, out)
+local sameText = out:get()
 local restored, problem = nupp.data.json.decodeAs(User, text)
 
 assert(text == sameText)
@@ -139,8 +142,8 @@ assert(problem == nil)
 assert(restored and restored.id == 7)
 ```
 
-`toJSON` and the static `fromJSON` discover the declaration from the value's own
-metatable. `encodeAs` and `decodeAs` take the `Type<T>` witness explicitly,
+`writeJSON` and the static `fromJSON` discover the declaration from the value's
+own metatable. `writeAs` and `decodeAs` take the `Type<T>` witness explicitly,
 which is what an API boundary wants, or code that runs before a value exists.
 See [Declaration derives](../reference/derives.md#json) for the options, wire
 format, and validation rules, and [JSON](../modules/nupp/data/json.md) for the

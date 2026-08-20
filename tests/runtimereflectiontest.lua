@@ -116,11 +116,30 @@ local record User
     id: integer
 end
 local user = new User(id = 7)
+local out = string.buffer.new()
+out:put("prefix:")
+nupp.data.json.writeRecord(user, out)
+local inferredWrite = out:get()
+nupp.data.json.writeAs(User, user, out)
+local explicitWrite = out:get()
+user:writeJSON(out)
+local memberWrite = out:get()
 local text = nupp.data.json.encodeRecord(user)
 local explicit = nupp.data.json.encodeAs(User, user)
 local restored, problem = nupp.data.json.decodeAs(User, text)
-return {text = text, explicit = explicit, id = restored and restored.id, problem = problem}
+return {
+    inferredWrite = inferredWrite,
+    explicitWrite = explicitWrite,
+    memberWrite = memberWrite,
+    text = text,
+    explicit = explicit,
+    id = restored and restored.id,
+    problem = problem,
+}
 ]])
+   assertEq(result.inferredWrite, 'prefix:{"id":7}', "inferred JSON write")
+   assertEq(result.explicitWrite, '{"id":7}', "explicit JSON write")
+   assertEq(result.memberWrite, '{"id":7}', "member JSON write")
    assertEq(result.text, '{"id":7}', "inferred JSON encode")
    assertEq(result.explicit, result.text, "explicit JSON encode")
    assertEq(result.id, 7, "type witness decode")

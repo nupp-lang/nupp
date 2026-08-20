@@ -427,8 +427,8 @@ record nupp.derive
     --- ```
     Debug: Provider
 
-    --- Generates `toJSON`, a static `fromJSON(text): T?, string?`, a `fieldCodec`, and
-    --- `nupp.data.json.JSONEncodable` conformance.
+    --- Generates `writeJSON(out)`, a static `fromJSON(text): T?, string?`, a
+    --- `fieldCodec`, and `nupp.data.json.JSONEncodable` conformance.
     ---
     --- Encoding is deterministic: fields follow declaration order and string map keys
     --- sort by byte order, so one value always produces the same bytes. A decode error
@@ -443,7 +443,9 @@ record nupp.derive
     --- end
     ---
     --- local user = new User(id = 7, name = "ada")
-    --- assert(user:toJSON() == '{"user_id":7,"name":"ada"}')
+    --- local out = string.buffer.new()
+    --- user:writeJSON(out)
+    --- assert(out:tostring() == '{"user_id":7,"name":"ada"}')
     ---
     --- local decoded, failure = User.fromJSON('{"name": "ada"}')
     --- assert(decoded == nil and failure == '$.user_id: required field is absent')

@@ -171,7 +171,9 @@ local models = require("runtime_derive_models")
 local record Outer inner: models.Inner end
 local value = new Outer(inner = new models.Inner())
 print(value:debug())
-print(value:toJSON())
+local out = string.buffer.new()
+value:writeJSON(out)
+print(out:tostring())
 ]],
       ["src/runtime_derive_models.nupp"] = [[
 local models = {}

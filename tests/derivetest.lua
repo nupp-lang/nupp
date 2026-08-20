@@ -79,7 +79,9 @@ end
 local user: User = new User()
 local printable: nupp.Debug = user
 local encodable: nupp.data.json.JSONEncodable = user
-local text = encodable:toJSON()
+local out = string.buffer.new()
+encodable:writeJSON(out)
+local text = out:tostring()
 local decoded, err = User.fromJSON(text)
 assert(decoded and not err)
 local restored = decoded as User
@@ -144,6 +146,8 @@ local codec = Payload.fieldCodec()
 local checked, checkedErr = codec:decode({name = "ok", labels = {"a"}})
 local payload = new Payload(name = "x", secret = "hidden", labels = {})
 local keyed = codec:encode(payload)
+local out = string.buffer.new()
+payload:writeJSON(out)
 return {
     name = decoded and decoded.name,
     secret = decoded and decoded.secret,
@@ -157,7 +161,7 @@ return {
     keyedName = keyed.name,
     keyedSecret = keyed.secret,
     keyedLabels = keyed.labels,
-    text = payload:toJSON(),
+    text = out:tostring(),
 }
 ]])
    assertEq(result.name, "missing")
@@ -185,7 +189,8 @@ end
 local root = new Node(value = 1, next = nil)
 root.next = root
 local debugged = root:debug()
-local encoded, cycle = pcall(function(): string return root:toJSON() end)
+local out = string.buffer.new()
+local encoded, cycle = pcall(function(): nil root:writeJSON(out) end)
 local decoded, err = Node.fromJSON('{"value":1,"next":{"value":2,"next":null}}')
 return {
     debugged = debugged,
@@ -247,7 +252,9 @@ local record Envelope
 end
 
 local envelope = new Envelope(pet = new Cat(kind = "cat", lives = 9))
-local text = envelope:toJSON()
+local out = string.buffer.new()
+envelope:writeJSON(out)
+local text = out:tostring()
 local decoded, err = Envelope.fromJSON('{"pet":{"kind":"dog","barks":true}}')
 assert(decoded and not err)
 local pet = (decoded as Envelope).pet
@@ -380,7 +387,7 @@ end
    local nominal = assert(firstDeclaration(parsed).hoistedType)
    local defs = {
       nominal.derivedDefinitions.debug,
-      nominal.derivedDefinitions.toJSON,
+      nominal.derivedDefinitions.writeJSON,
       nominal.derivedStaticDefinitions.fromJSON,
       nominal.derivedStaticDefinitions.fieldCodec,
    }

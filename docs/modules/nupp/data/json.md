@@ -80,13 +80,19 @@ local text = writer:finish()
 
 ## Derived records
 
-For a record deriving `nupp.derive.JSON`, `encodeRecord(value)` discovers the
-record's type witness from the value. `encodeAs(Record, value)` and
-`decodeAs(Record, text)` accept the visible record name directly.
+For a record deriving `nupp.derive.JSON`, `writeRecord(value, out)` discovers
+the record's type witness from the value and appends to caller-owned storage.
+`writeAs(Record, value, out)` and `decodeAs(Record, text)` accept the visible
+record name directly. `encodeRecord` and `encodeAs` allocate and return a
+complete string for callers that specifically need one.
+
+The generated `writeJSON(out)` member takes the same `string.buffer.Buffer`.
+It is the direct-emission path for a statically known schema; the checked
+`Writer` above is the separate API for assembling a document dynamically.
 
 ::: seealso
 - [reflection.md](../../../concepts/reflection.md#json-through-a-type-witness)
-  for the derived schema and the generated `toJSON` and `fromJSON` members
+  for the derived schema and the generated `writeJSON` and `fromJSON` members
 - [derives.md](../../../reference/derives.md#json) for what `nupp.derive.JSON`
   adds to a declaration
 - [data.md](../data.md) for the rest of the namespace, which also holds UUIDs,

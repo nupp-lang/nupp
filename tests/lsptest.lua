@@ -3092,7 +3092,9 @@ local record Model
     value: integer = 0
 end
 local model = new Model()
-local json = model:toJSON()
+local out = string.buffer.new()
+model:writeJSON(out)
+local json = out:tostring()
 local restored, why = Model.fromJSON(json)
 local codec = Model.fieldCodec()
 local shown = model:debug()
@@ -3111,15 +3113,15 @@ return restored, why, codec, shown
          textDocument = { uri = uri, languageId = "nupp", version = 1,
             text = source } } },
       { jsonrpc = "2.0", id = 10, method = "textDocument/hover", params = {
-         textDocument = { uri = uri }, position = at("toJSON()", 1) } },
+         textDocument = { uri = uri }, position = at("writeJSON(out)", 1) } },
       { jsonrpc = "2.0", id = 11, method = "$/nupp/inspect", params = {
-         textDocument = { uri = uri }, position = at("toJSON()", 1) } },
+         textDocument = { uri = uri }, position = at("writeJSON(out)", 1) } },
       { jsonrpc = "2.0", id = 12, method = "textDocument/definition", params = {
-         textDocument = { uri = uri }, position = at("toJSON()", 1) } },
+         textDocument = { uri = uri }, position = at("writeJSON(out)", 1) } },
       { jsonrpc = "2.0", id = 13, method = "textDocument/definition", params = {
          textDocument = { uri = uri }, position = at("fromJSON(json)", 1) } },
       { jsonrpc = "2.0", id = 14, method = "textDocument/references", params = {
-         textDocument = { uri = uri }, position = at("toJSON()", 1),
+         textDocument = { uri = uri }, position = at("writeJSON(out)", 1),
          context = { includeDeclaration = true } } },
       { jsonrpc = "2.0", id = 15, method = "textDocument/references", params = {
          textDocument = { uri = uri }, position = at("fromJSON(json)", 1),
@@ -3127,14 +3129,14 @@ return restored, why, codec, shown
       { jsonrpc = "2.0", id = 16, method = "textDocument/completion", params = {
          textDocument = { uri = uri }, position = at("Model.fromJSON", #"Model.") } },
       { jsonrpc = "2.0", id = 17, method = "textDocument/completion", params = {
-         textDocument = { uri = uri }, position = at("model:toJSON", #"model:") } },
+         textDocument = { uri = uri }, position = at("model:writeJSON", #"model:") } },
       { jsonrpc = "2.0", id = 18, method = "textDocument/documentSymbol", params = {
          textDocument = { uri = uri } } },
       { jsonrpc = "2.0", id = 19, method = "textDocument/rename", params = {
-         textDocument = { uri = uri }, position = at("toJSON()", 1),
+         textDocument = { uri = uri }, position = at("writeJSON(out)", 1),
          newName = "encode" } },
       { jsonrpc = "2.0", id = 20, method = "textDocument/prepareRename", params = {
-         textDocument = { uri = uri }, position = at("toJSON()", 1) } },
+         textDocument = { uri = uri }, position = at("writeJSON(out)", 1) } },
       { jsonrpc = "2.0", id = 2, method = "shutdown" },
       { jsonrpc = "2.0", method = "exit" },
    }, projectDir)
@@ -3158,7 +3160,7 @@ return restored, why, codec, shown
    assert(toDefinition.range.start.line == 0 and fromDefinition.range.start.line == 0,
       "generated members navigate to their written derive request")
    assert(#responseWithId(out, 14).result == 2,
-      "toJSON references contain only its origin and use")
+      "writeJSON references contain only its origin and use")
    assert(#responseWithId(out, 15).result == 2,
       "fromJSON references contain only its origin and use")
 
@@ -3167,7 +3169,7 @@ return restored, why, codec, shown
    for _, item in ipairs(responseWithId(out, 17).result) do instance[item.label] = item end
    assert(static.fromJSON and static.fieldCodec and not static.default,
       "record completion offers generated static members")
-   assert(instance.debug and instance.toJSON,
+   assert(instance.debug and instance.writeJSON,
       "instance completion offers generated instance members")
    assertContains(static.fromJSON.documentation, "@derive(nupp.derive.JSON)",
       "completion provenance")
@@ -3179,7 +3181,7 @@ return restored, why, codec, shown
    assert(model, "document symbols include the derived record")
    local children = {}
    for _, child in ipairs(model.children or {}) do children[child.name] = true end
-   assert(children["debug (generated)"] and children["toJSON (generated)"]
+   assert(children["debug (generated)"] and children["writeJSON (generated)"]
       and children["fromJSON (generated, static)"]
       and children["fieldCodec (generated, static)"],
       "document symbols expose generated members without source ranges")

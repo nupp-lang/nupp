@@ -87,8 +87,10 @@ local corpora = {
 }
 local bytes = {}
 local accepted = true
+local out = string.buffer.new()
 for index, value in ipairs(corpora) do
-    bytes[index] = value:toJSON()
+    value:writeJSON(out)
+    bytes[index] = out:get()
     local decoded, why = ModuleCache.fromJSON(bytes[index])
     accepted = accepted and decoded ~= nil and why == nil
         and (decoded as ModuleCache).sourceHash == value.sourceHash
@@ -136,8 +138,10 @@ local corpus = {
 }
 local bytes, debugged = {}, {}
 local accepted = true
+local out = string.buffer.new()
 for index, request in ipairs(corpus) do
-    bytes[index] = request:toJSON()
+    request:writeJSON(out)
+    bytes[index] = out:get()
     debugged[index] = request:debug()
     local decoded, why = TecsMCPRequest.fromJSON(bytes[index])
     accepted = accepted and decoded ~= nil and why == nil

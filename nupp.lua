@@ -373,7 +373,9 @@ local record User
 end
 
 local user = new User(id = 42, name = "Ada")
-print(user:debug(), user:toJSON())]],
+local out = string.buffer.new()
+user:writeJSON(out)
+print(user:debug(), out:tostring())]],
                      },
                      {
                         title = "Async that works like blocking code",
