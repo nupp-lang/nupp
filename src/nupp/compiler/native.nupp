@@ -36,8 +36,15 @@ local FEATURES: {[string]: native.Feature} = {
     [
         "native.lua_utf8"
     ] = {name = "lua_utf8", module = "lua-utf8", modules = {"nupp.data.utf8"}, host = "lua-utf8", binary = true,},
-    ["stdlib.peg"] = {name = "peg", requires = {"native.lpeg"},},
-    ["stdlib.peg.compile"] = {name = "peg_compile", globals = {"nupp.peg.compile"}, requires = {"native.lpeg"},},
+    ["stdlib.peg"] = {name = "peg", runtimeModule = "nupp.pegruntime", requires = {"native.lpeg"},},
+    [
+        "stdlib.peg.compile"
+    ] = {
+        name = "peg_compile",
+        globals = {"nupp.peg.compile"},
+        runtimeModule = "nupp.pegruntime",
+        requires = {"native.lpeg"},
+    },
     ["stdlib.fieldcodec"] = {name = "fieldcodec", globals = {"nupp.reflect.fieldCodec"},},
     ["stdlib.derives"] = {name = "derives", globals = {},},
     ["stdlib.io"] = {name = "io", modules = {"nupp.io"},},

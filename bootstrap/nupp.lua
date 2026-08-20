@@ -24568,7 +24568,7 @@ const __nuppExportValue= stubs ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.build.stubs"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.build.stubs"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.compiler.build.syntax"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppPeg=rawget(__nupp,"peg")or{};rawset(__nupp,"peg",__nuppPeg) local __nuppLpeg=require("lpeg");__nuppLpeg.setmaxstack(10000) local function __nuppPegInit(subject,init,level) if type(subject)~="string"then error("nupp: PEG subject must be a string",level)end;if init==nil then init=1 elseif type(init)~="number"or init~=math.floor(init)then error("nupp: PEG init must be an integer",level)elseif init<0 then init=#subject+init+1 end;if init<1 then init=1 end;if init>#subject+1 then return nil end;return init end local function __nuppPegFindAt(run,take,captureful,subject,init,search) if search and search.direct then local first,last=subject:find(search.direct,init,search.directPlain);if first==nil then return nil end;local nextPosition=last+1;if search.result=="string"then return first,nextPosition,subject:sub(first,last)end;return first,nextPosition,nextPosition end local position=init;while position<=#subject+1 do if search then position=subject:find(search.value,position,search.plain);if position==nil then return nil end end;local nextPosition=run(subject,position);if nextPosition~=nil then if captureful then return position,nextPosition,take()end;return position,nextPosition,nextPosition end;position=position+1 end end local function __nuppPegCallbackReplacement(replacement,first,nextPosition,...) local out=replacement(first,nextPosition,...);if type(out)~="string"then error("nupp: PEG replacement callback must return a string",3)end;return out end local function __nuppPegVisit(visitor,first,nextPosition,...) if first~=nil then visitor(first,nextPosition,...);return first,nextPosition end end local function __nuppPegReplacementAt(replacement,first,nextPosition,...) if first~=nil then return first,nextPosition,__nuppPegCallbackReplacement(replacement,first,nextPosition,...)end end local function __nuppPegMatcher(run,take,captureful,search,generatedFind,directReplaceAll,generatedTraverse) local Matcher={};Matcher.__index=Matcher local function findAt(subject,init)if generatedFind then return generatedFind(subject,init)end;return __nuppPegFindAt(run,take,captureful,subject,init,search)end function Matcher:match(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;local nextPosition=run(subject,init);if nextPosition==nil then return nil end;if captureful then return take()end;return nextPosition end function Matcher:find(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;return findAt(subject,init)end function Matcher:isMatch(subject,init)init=__nuppPegInit(subject,init,2);return init~=nil and findAt(subject,init)~=nil end function Matcher:forEachMatch(subject,visitor,init)if type(visitor)~="function"then error("nupp: PEG match visitor must be a function",2)end;local cursor=__nuppPegInit(subject,init,2);if cursor==nil then return 0 end;if generatedTraverse then return generatedTraverse(subject,visitor,cursor)end;local count=0;while cursor<=#subject+1 do local first,nextPosition=__nuppPegVisit(visitor,findAt(subject,cursor));if first==nil then break end;count=count+1;cursor=nextPosition>first and nextPosition or first+1 end;return count end function Matcher:__nuppPegReplaceLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition=findAt(subject,init);if first==nil then return subject end;return subject:sub(1,first-1)..replacement..subject:sub(nextPosition)end function Matcher:__nuppPegReplaceCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,init));if first==nil then return subject end;return subject:sub(1,first-1)..value..subject:sub(nextPosition)end function Matcher:replace(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end function Matcher:__nuppPegReplaceAllLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;if directReplaceAll then return directReplaceAll(subject,replacement,init)end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition=findAt(subject,cursor);if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=replacement;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end function Matcher:__nuppPegReplaceAllCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,cursor));if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=value;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end function Matcher:replaceAll(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceAllLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceAllCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end Matcher.__call=Matcher.match;return setmetatable({},Matcher) end local function __nuppPegPattern(program,definitions) definitions=definitions or{};for _,name in ipairs(program.actions or{})do if rawget(definitions,name)==nil then error("nupp: missing PEG definition "..tostring(name),3)end end local P,S,V,C,Ct,Cg,Cb,Cp,Cs,Cmt,Cf=__nuppLpeg.P,__nuppLpeg.S,__nuppLpeg.V,__nuppLpeg.C,__nuppLpeg.Ct,__nuppLpeg.Cg,__nuppLpeg.Cb,__nuppLpeg.Cp,__nuppLpeg.Cs,__nuppLpeg.Cmt,__nuppLpeg.Cf local nodes,memo,targets=program.graph.nodes,{},{} local function equalcap(subject,position,captured)if type(captured)~="string"then return nil end;local ending=position+#captured;if subject:sub(position,ending-1)==captured then return ending end;return nil end local build;build=function(index)local prior=memo[index];if prior then return prior end;local node=nodes[index];local op=node[1];local pattern if op=="literal"then pattern=P(node[2])elseif op=="set"then pattern=S(node[2])elseif op=="any"then pattern=P(1)elseif op=="eof"then pattern=-P(1) elseif op=="sequence"then pattern=P(true);for child=2,#node do pattern=pattern*build(node[child])end elseif op=="choice"then pattern=P(false);for child=2,#node do pattern=pattern+build(node[child])end elseif op=="difference"then pattern=build(node[2])-build(node[3]) elseif op=="zeroOrMore"then pattern=build(node[2])^0 elseif op=="oneOrMore"then pattern=build(node[2])^1 elseif op=="optional"then pattern=build(node[2])^-1 elseif op=="and"then pattern=#build(node[2])elseif op=="not"then pattern=-build(node[2]) elseif op=="capture"then pattern=C(build(node[2]))elseif op=="collect"or op=="tableCapture"then pattern=Ct(build(node[2])) elseif op=="group"then pattern=node[3]~=nil and Cg(build(node[2]),node[3])or Cg(build(node[2])) elseif op=="substitution"then pattern=Cs(build(node[2]))elseif op=="position"then pattern=Cp() elseif op=="backReference"then pattern=Cmt(Cb(node[2]),equalcap) elseif op=="external"then pattern=P(definitions[node[2]]) elseif op=="transform"then local spec=node[3];local target=spec[1]=="definition"and definitions[spec[2]]or spec[2];pattern=build(node[2])/target elseif op=="matchTime"then pattern=Cmt(build(node[2]),definitions[node[3]]) elseif op=="accumulate"then pattern=build(node[2])%definitions[node[3]] elseif op=="fold"then pattern=Cf(build(node[2]),definitions[node[3]]) elseif op=="action"then local callback=definitions[node[3]];pattern=C(build(node[2])/0)/function(text)return callback(text)end elseif op=="reference"then targets[node[2]]=true;pattern=V("n"..node[2]) else error("nupp: unknown PEG graph operation "..tostring(op),3)end;memo[index]=pattern;return pattern end local pattern=build(program.graph.root);if next(targets)then local grammar={pattern};local done={};while true do local target;for candidate in pairs(targets)do if not done[candidate]then target=candidate;break end end;if not target then break end;done[target]=true;grammar["n"..target]=build(target)end;pattern=P(grammar)end;return pattern end local function __nuppPegFromPattern(pattern) local pack=function(...)return{n=select("#",...),...}end;local resultValues;local execution=pattern*__nuppLpeg.Cp() local function run(subject,position)local values=pack(__nuppLpeg.match(execution,subject,position));local nextPosition=values[values.n];if nextPosition==nil then return nil end;values[values.n]=nil;values.n=values.n-1;if values.n==0 then values.n=1;values[1]=nextPosition end;resultValues=values;return nextPosition end local function take()local values=resultValues;resultValues=nil;return unpack(values,1,values.n)end return __nuppPegMatcher(run,take,true,nil) end local function __nuppPegLpeg(program,definitions)return __nuppPegFromPattern(__nuppPegPattern(program,definitions))end local function __nuppPegFastScan9Run(plan,sets) local keys=plan.packedKeys;local k1,k2,k3,k4,k5,k6,k7,k8=keys[1],keys[2],keys[3],keys[4],keys[5],keys[6],keys[7],keys[8] local delimiter,separatorLength=plan.separator:byte(),#plan.separator local scanByte,scanClass;if plan.scan<256 then scanByte=plan.scan else scanClass=sets[plan.scan-255]end local suffix,minimum=plan.suffix,plan.minimum;local suffixHead=((suffix[1]*256+suffix[2])*256+suffix[3])*256+suffix[4];local suffixTail=((suffix[5]*256+suffix[6])*256+suffix[7])*256+suffix[8] local lastByte,lastClass;if suffix[9]<256 then lastByte=suffix[9]else lastClass=sets[suffix[9]-255]end local function run(subject,position) local a,b,c,d,e,f,g=subject:byte(position,position+6);if not a then return nil end local key,prefixLength;if b==delimiter then prefixLength=1;key=a*8+1 elseif c==delimiter then prefixLength=2;key=(a*256+b)*8+2 elseif d==delimiter then prefixLength=3;key=((a*256+b)*256+c)*8+3 elseif e==delimiter then prefixLength=4;key=(((a*256+b)*256+c)*256+d)*8+4 elseif f==delimiter then prefixLength=5;key=((((a*256+b)*256+c)*256+d)*256+e)*8+5 elseif g==delimiter then prefixLength=6;key=(((((a*256+b)*256+c)*256+d)*256+e)*256+f)*8+6 else return nil end if not(key==k1 or key==k2 or key==k3 or key==k4 or key==k5 or key==k6 or key==k7 or key==k8)then return nil end position=position+prefixLength+separatorLength;local suffixStart=#subject-8;if suffixStart-position<minimum then return nil end if scanClass then for index=position,suffixStart-1 do local byte=subject:byte(index);if scanClass:byte(byte+1)==0 then return nil end end else for index=position,suffixStart-1 do if subject:byte(index)~=scanByte then return nil end end end local q,r,s,t,u,v,w,x,y=subject:byte(suffixStart,#subject);if ((q*256+r)*256+s)*256+t==suffixHead and((u*256+v)*256+w)*256+x==suffixTail and((lastByte and y==lastByte)or(lastClass and lastClass:byte(y+1)~=0))then return #subject+1 end;return nil end return run end local function __nuppPegCheckSource(encoded,expression)if encoded<256 then return expression.."=="..encoded end;return"sets["..(encoded-255).."]:byte("..expression.."+1)~=0"end local function __nuppPegRepeatSource(plan)local head=__nuppPegCheckSource(plan.head,"byte");local tail=__nuppPegCheckSource(plan.tail,"byte");local accept=plan.eof and"if position~=#subject+1 then return nil end;"or"";local result=plan.result=="string"and"lastSubject,lastFirst,lastNext=subject,first,position;return position"or"return position";local visitValue=plan.result=="string"and"subject:sub(first,position-1)"or"position";local visit=plan.eof and"if position==length+1 then count=count+1;visitor(first,position,"..visitValue..");return count end"or"count=count+1;visitor(first,position,"..visitValue..")";local state=plan.result=="string"and"local lastSubject,lastFirst,lastNext;local function take()return lastSubject:sub(lastFirst,lastNext-1)end;"or"";local take=plan.result=="string"and"take"or"nil";return"return function(sets)"..state.."local function run(subject,position)local first=position;local byte=subject:byte(position);if not byte or not("..head..")then return nil end;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..accept..result.." end;local function traverse(subject,visitor,position)local count,length=0,#subject;while position<=length do local byte=subject:byte(position);if "..head.." then local first=position;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..visit.." else position=position+1 end end;return count end;return run,"..take..",traverse end"end local function __nuppPegFixedSource(checks)local conditions={"position+"..#checks.."==#subject+1"};for index,encoded in ipairs(checks)do local expression="subject:byte(position+"..(index-1)..")";conditions[#conditions+1]=__nuppPegCheckSource(encoded,expression)end;return"return function(sets)return function(subject,position)if "..table.concat(conditions," and ").." then return position+"..#checks.." end end end"end local function __nuppPegCodegen(program,definitions) if program.fastScan and program.fastScan.packedKeys and program.fastScan.maximum<=6 and #program.fastScan.keys<=8 then local suffix=program.fastScan.suffix;if #suffix==9 and suffix[1]<256 and suffix[2]<256 and suffix[3]<256 and suffix[4]<256 and suffix[5]<256 and suffix[6]<256 and suffix[7]<256 and suffix[8]<256 then return __nuppPegMatcher(__nuppPegFastScan9Run(program.fastScan,program.sets),nil,false,program.search)end end local source;if program.fastRepeat then source=__nuppPegRepeatSource(program.fastRepeat)elseif program.fastFixed then source=__nuppPegFixedSource(program.fastFixed)else return __nuppPegLpeg(program,definitions)end local chunk,why=loadstring(source,"=nupp PEG specialization");if not chunk then error("nupp: PEG specialization failed: "..tostring(why),2)end;local run,take,traverse=chunk()(program.sets);return __nuppPegMatcher(run,take,program.captureful,program.search,nil,nil,traverse) end package.loaded.re=nil package.preload.re=function() local tonumber,type,print,error=tonumber,type,print,error local setmetatable=setmetatable local m=require"lpeg" local mm=m local mt=getmetatable(mm.P(0)) local version=_VERSION local any=m.P(1) local Predef={nl=m.P"\n"} local mem;local fmem;local gmem local function updatelocale() mm.locale(Predef) Predef.a=Predef.alpha;Predef.c=Predef.cntrl;Predef.d=Predef.digit Predef.g=Predef.graph;Predef.l=Predef.lower;Predef.p=Predef.punct Predef.s=Predef.space;Predef.u=Predef.upper;Predef.w=Predef.alnum Predef.x=Predef.xdigit Predef.A=any-Predef.a;Predef.C=any-Predef.c;Predef.D=any-Predef.d Predef.G=any-Predef.g;Predef.L=any-Predef.l;Predef.P=any-Predef.p Predef.S=any-Predef.s;Predef.U=any-Predef.u;Predef.W=any-Predef.w Predef.X=any-Predef.x mem={};fmem={};gmem={};local weak={__mode="v"} setmetatable(mem,weak);setmetatable(fmem,weak);setmetatable(gmem,weak) end updatelocale() local function patt_error(s,i)local msg=(#s<i+20)and s:sub(i)or s:sub(i,i+20).."...";error(("pattern error near '%s'"):format(msg),2)end local function mult(p,n)local np=mm.P(true);while n>=1 do if n%2>=1 then np=np*p end;p=p*p;n=n/2 end;return np end local function equalcap(s,i,c)if type(c)~="string"then return nil end;local e=#c+i;if s:sub(i,e-1)==c then return e end;return nil end local S=(Predef.space+"--"*(any-Predef.nl)^0)^0 local name=m.R("AZ","az","__")*m.R("AZ","az","__","09")^0 local arrow=S*"<-" local seq_follow=m.P"/"+")"+"}"+":}"+"~}"+"|}"+(name*arrow)+-1 name=m.C(name) local Def=name*m.Carg(1) local function getdef(id,defs)local c=defs and defs[id];if not c then error("undefined name: "..id)end;return c end local function defwithfunc(f)return m.Cg(Def/getdef*m.Cc(f))end local num=m.C(m.R"09"^1)*S/tonumber local String="'"*m.C((any-"'")^0)*"'"+'"'*m.C((any-'"')^0)*'"' local defined="%"*Def/function(c,Defs)local cat=Defs and Defs[c]or Predef[c];if not cat then error("name '"..c.."' undefined")end;return cat end local Range=m.Cs(any*(m.P"-"/"")*(any-"]"))/mm.R local item=(defined+Range+m.C(any))/m.P local Class="["*(m.C(m.P"^"^-1))*(item*((item%mt.__add)-"]")^0)/function(c,p)return c=="^"and any-p or p end*"]" local function adddef(t,k,exp)if t[k]then error("'"..k.."' already defined as a rule")else t[k]=exp end;return t end local function firstdef(n,r)return adddef({n},n,r)end local function NT(n,b)if not b then error("rule '"..n.."' used outside a grammar")else return mm.V(n)end end local exp=m.P{"Exp", Exp=S*(m.V"Grammar"+m.V"Seq"*("/"*S*m.V"Seq"%mt.__add)^0), Seq=(m.Cc(m.P"")*(m.V"Prefix"%mt.__mul)^0)*(#seq_follow+patt_error), Prefix="&"*S*m.V"Prefix"/mt.__len+"!"*S*m.V"Prefix"/mt.__unm+m.V"Suffix", Suffix=m.V"Primary"*S*((m.P"+"*m.Cc(1,mt.__pow)+m.P"*"*m.Cc(0,mt.__pow)+m.P"?"*m.Cc(-1,mt.__pow)+"^"*(m.Cg(num*m.Cc(mult))+m.Cg(m.C(m.S"+-"*m.R"09"^1)*m.Cc(mt.__pow)))+"->"*S*(m.Cg((String+num)*m.Cc(mt.__div))+m.P"{}"*m.Cc(nil,m.Ct)+defwithfunc(mt.__div))+"=>"*S*defwithfunc(mm.Cmt)+">>"*S*defwithfunc(mt.__mod)+"~>"*S*defwithfunc(mm.Cf))%function(a,b,f)return f(a,b)end*S)^0, Primary="("*m.V"Exp"*")"+String/mm.P+Class+defined+"{:"*(name*":"+m.Cc(nil))*m.V"Exp"*":}"/function(n,p)return mm.Cg(p,n)end+"="*name/function(n)return mm.Cmt(mm.Cb(n),equalcap)end+m.P"{}"/mm.Cp+"{~"*m.V"Exp"*"~}"/mm.Cs+"{|"*m.V"Exp"*"|}"/mm.Ct+"{"*m.V"Exp"*"}"/mm.C+m.P"."*m.Cc(any)+(name*-arrow+"<"*name*">")*m.Cb("G")/NT, Definition=name*arrow*m.V"Exp", Grammar=m.Cg(m.Cc(true),"G")*((m.V"Definition"/firstdef)*(m.V"Definition"%adddef)^0)/mm.P } local pattern=S*m.Cg(m.Cc(false),"G")*exp/mm.P*(-any+patt_error) local function compile(p,defs)if mm.type(p)=="pattern"then return p end;local cp=pattern:match(p,1,defs);if not cp then error("incorrect pattern",3)end;return cp end local function match(s,p,i)local cp=mem[p];if not cp then cp=compile(p);mem[p]=cp end;return cp:match(s,i or 1)end local function find(s,p,i)local cp=fmem[p];if not cp then cp=compile(p)/0;cp=mm.P{mm.Cp()*cp*mm.Cp()+1*mm.V(1)};fmem[p]=cp end;local first,ending=cp:match(s,i or 1);if first then return first,ending-1 end;return first end local function gsub(s,p,rep)local g=gmem[p]or{};gmem[p]=g;local cp=g[rep];if not cp then cp=compile(p);cp=mm.Cs((cp/rep+1)^0);g[rep]=cp end;return cp:match(s)end local re={compile=compile,match=match,find=find,gsub=gsub,updatelocale=updatelocale} if version=="Lua 5.1"then _G.re=re end return re end local __nuppPegPatternCache=setmetatable({},{__mode="v"}) function __nuppPeg.compile(source,options) if type(source)~="string"then error("nupp: PEG compile source must be a string",2)end;if options~=nil and type(options)~="table"then error("nupp: PEG compile options must be a table",2)end;options=options or{};local backend=options.backend or"auto";if backend~="auto"and backend~="lpeg"then error("nupp: PEG compile backend must be 'auto' or 'lpeg'",2)end local definitions=options.definitions or options.defs or options.actions;local pattern;if definitions==nil then pattern=__nuppPegPatternCache[source];if not pattern then pattern=require("re").compile(source);__nuppPegPatternCache[source]=pattern end else pattern=require("re").compile(source,definitions)end;return __nuppPegFromPattern(pattern) end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppPegRuntime=require("nupp.pegruntime") require("lpeg").setmaxstack(10000) local __nuppPeg=rawget(__nupp,"peg")or{};rawset(__nupp,"peg",__nuppPeg) local __nuppPegCodegen,__nuppPegLpeg=__nuppPegRuntime.codegen,__nuppPegRuntime.lpegBackend package.loaded.re=nil package.preload.re=function() local tonumber,type,print,error=tonumber,type,print,error local setmetatable=setmetatable local m=require"lpeg" local mm=m local mt=getmetatable(mm.P(0)) local version=_VERSION local any=m.P(1) local Predef={nl=m.P"\n"} local mem;local fmem;local gmem local function updatelocale() mm.locale(Predef) Predef.a=Predef.alpha;Predef.c=Predef.cntrl;Predef.d=Predef.digit Predef.g=Predef.graph;Predef.l=Predef.lower;Predef.p=Predef.punct Predef.s=Predef.space;Predef.u=Predef.upper;Predef.w=Predef.alnum Predef.x=Predef.xdigit Predef.A=any-Predef.a;Predef.C=any-Predef.c;Predef.D=any-Predef.d Predef.G=any-Predef.g;Predef.L=any-Predef.l;Predef.P=any-Predef.p Predef.S=any-Predef.s;Predef.U=any-Predef.u;Predef.W=any-Predef.w Predef.X=any-Predef.x mem={};fmem={};gmem={};local weak={__mode="v"} setmetatable(mem,weak);setmetatable(fmem,weak);setmetatable(gmem,weak) end updatelocale() local function patt_error(s,i)local msg=(#s<i+20)and s:sub(i)or s:sub(i,i+20).."...";error(("pattern error near '%s'"):format(msg),2)end local function mult(p,n)local np=mm.P(true);while n>=1 do if n%2>=1 then np=np*p end;p=p*p;n=n/2 end;return np end local function equalcap(s,i,c)if type(c)~="string"then return nil end;local e=#c+i;if s:sub(i,e-1)==c then return e end;return nil end local S=(Predef.space+"--"*(any-Predef.nl)^0)^0 local name=m.R("AZ","az","__")*m.R("AZ","az","__","09")^0 local arrow=S*"<-" local seq_follow=m.P"/"+")"+"}"+":}"+"~}"+"|}"+(name*arrow)+-1 name=m.C(name) local Def=name*m.Carg(1) local function getdef(id,defs)local c=defs and defs[id];if not c then error("undefined name: "..id)end;return c end local function defwithfunc(f)return m.Cg(Def/getdef*m.Cc(f))end local num=m.C(m.R"09"^1)*S/tonumber local String="'"*m.C((any-"'")^0)*"'"+'"'*m.C((any-'"')^0)*'"' local defined="%"*Def/function(c,Defs)local cat=Defs and Defs[c]or Predef[c];if not cat then error("name '"..c.."' undefined")end;return cat end local Range=m.Cs(any*(m.P"-"/"")*(any-"]"))/mm.R local item=(defined+Range+m.C(any))/m.P local Class="["*(m.C(m.P"^"^-1))*(item*((item%mt.__add)-"]")^0)/function(c,p)return c=="^"and any-p or p end*"]" local function adddef(t,k,exp)if t[k]then error("'"..k.."' already defined as a rule")else t[k]=exp end;return t end local function firstdef(n,r)return adddef({n},n,r)end local function NT(n,b)if not b then error("rule '"..n.."' used outside a grammar")else return mm.V(n)end end local exp=m.P{"Exp", Exp=S*(m.V"Grammar"+m.V"Seq"*("/"*S*m.V"Seq"%mt.__add)^0), Seq=(m.Cc(m.P"")*(m.V"Prefix"%mt.__mul)^0)*(#seq_follow+patt_error), Prefix="&"*S*m.V"Prefix"/mt.__len+"!"*S*m.V"Prefix"/mt.__unm+m.V"Suffix", Suffix=m.V"Primary"*S*((m.P"+"*m.Cc(1,mt.__pow)+m.P"*"*m.Cc(0,mt.__pow)+m.P"?"*m.Cc(-1,mt.__pow)+"^"*(m.Cg(num*m.Cc(mult))+m.Cg(m.C(m.S"+-"*m.R"09"^1)*m.Cc(mt.__pow)))+"->"*S*(m.Cg((String+num)*m.Cc(mt.__div))+m.P"{}"*m.Cc(nil,m.Ct)+defwithfunc(mt.__div))+"=>"*S*defwithfunc(mm.Cmt)+">>"*S*defwithfunc(mt.__mod)+"~>"*S*defwithfunc(mm.Cf))%function(a,b,f)return f(a,b)end*S)^0, Primary="("*m.V"Exp"*")"+String/mm.P+Class+defined+"{:"*(name*":"+m.Cc(nil))*m.V"Exp"*":}"/function(n,p)return mm.Cg(p,n)end+"="*name/function(n)return mm.Cmt(mm.Cb(n),equalcap)end+m.P"{}"/mm.Cp+"{~"*m.V"Exp"*"~}"/mm.Cs+"{|"*m.V"Exp"*"|}"/mm.Ct+"{"*m.V"Exp"*"}"/mm.C+m.P"."*m.Cc(any)+(name*-arrow+"<"*name*">")*m.Cb("G")/NT, Definition=name*arrow*m.V"Exp", Grammar=m.Cg(m.Cc(true),"G")*((m.V"Definition"/firstdef)*(m.V"Definition"%adddef)^0)/mm.P } local pattern=S*m.Cg(m.Cc(false),"G")*exp/mm.P*(-any+patt_error) local function compile(p,defs)if mm.type(p)=="pattern"then return p end;local cp=pattern:match(p,1,defs);if not cp then error("incorrect pattern",3)end;return cp end local function match(s,p,i)local cp=mem[p];if not cp then cp=compile(p);mem[p]=cp end;return cp:match(s,i or 1)end local function find(s,p,i)local cp=fmem[p];if not cp then cp=compile(p)/0;cp=mm.P{mm.Cp()*cp*mm.Cp()+1*mm.V(1)};fmem[p]=cp end;local first,ending=cp:match(s,i or 1);if first then return first,ending-1 end;return first end local function gsub(s,p,rep)local g=gmem[p]or{};gmem[p]=g;local cp=g[rep];if not cp then cp=compile(p);cp=mm.Cs((cp/rep+1)^0);g[rep]=cp end;return cp:match(s)end local re={compile=compile,match=match,find=find,gsub=gsub,updatelocale=updatelocale} if version=="Lua 5.1"then _G.re=re end return re end __nuppPeg.compile=__nuppPegRuntime.compile;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -73525,7 +73525,7 @@ const __nuppExportValue= strings ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.doc.strings"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.doc.strings"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.compiler.doc.syntax"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppPeg=rawget(__nupp,"peg")or{};rawset(__nupp,"peg",__nuppPeg) local __nuppLpeg=require("lpeg");__nuppLpeg.setmaxstack(10000) local function __nuppPegInit(subject,init,level) if type(subject)~="string"then error("nupp: PEG subject must be a string",level)end;if init==nil then init=1 elseif type(init)~="number"or init~=math.floor(init)then error("nupp: PEG init must be an integer",level)elseif init<0 then init=#subject+init+1 end;if init<1 then init=1 end;if init>#subject+1 then return nil end;return init end local function __nuppPegFindAt(run,take,captureful,subject,init,search) if search and search.direct then local first,last=subject:find(search.direct,init,search.directPlain);if first==nil then return nil end;local nextPosition=last+1;if search.result=="string"then return first,nextPosition,subject:sub(first,last)end;return first,nextPosition,nextPosition end local position=init;while position<=#subject+1 do if search then position=subject:find(search.value,position,search.plain);if position==nil then return nil end end;local nextPosition=run(subject,position);if nextPosition~=nil then if captureful then return position,nextPosition,take()end;return position,nextPosition,nextPosition end;position=position+1 end end local function __nuppPegCallbackReplacement(replacement,first,nextPosition,...) local out=replacement(first,nextPosition,...);if type(out)~="string"then error("nupp: PEG replacement callback must return a string",3)end;return out end local function __nuppPegVisit(visitor,first,nextPosition,...) if first~=nil then visitor(first,nextPosition,...);return first,nextPosition end end local function __nuppPegReplacementAt(replacement,first,nextPosition,...) if first~=nil then return first,nextPosition,__nuppPegCallbackReplacement(replacement,first,nextPosition,...)end end local function __nuppPegMatcher(run,take,captureful,search,generatedFind,directReplaceAll,generatedTraverse) local Matcher={};Matcher.__index=Matcher local function findAt(subject,init)if generatedFind then return generatedFind(subject,init)end;return __nuppPegFindAt(run,take,captureful,subject,init,search)end function Matcher:match(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;local nextPosition=run(subject,init);if nextPosition==nil then return nil end;if captureful then return take()end;return nextPosition end function Matcher:find(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;return findAt(subject,init)end function Matcher:isMatch(subject,init)init=__nuppPegInit(subject,init,2);return init~=nil and findAt(subject,init)~=nil end function Matcher:forEachMatch(subject,visitor,init)if type(visitor)~="function"then error("nupp: PEG match visitor must be a function",2)end;local cursor=__nuppPegInit(subject,init,2);if cursor==nil then return 0 end;if generatedTraverse then return generatedTraverse(subject,visitor,cursor)end;local count=0;while cursor<=#subject+1 do local first,nextPosition=__nuppPegVisit(visitor,findAt(subject,cursor));if first==nil then break end;count=count+1;cursor=nextPosition>first and nextPosition or first+1 end;return count end function Matcher:__nuppPegReplaceLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition=findAt(subject,init);if first==nil then return subject end;return subject:sub(1,first-1)..replacement..subject:sub(nextPosition)end function Matcher:__nuppPegReplaceCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,init));if first==nil then return subject end;return subject:sub(1,first-1)..value..subject:sub(nextPosition)end function Matcher:replace(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end function Matcher:__nuppPegReplaceAllLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;if directReplaceAll then return directReplaceAll(subject,replacement,init)end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition=findAt(subject,cursor);if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=replacement;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end function Matcher:__nuppPegReplaceAllCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,cursor));if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=value;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end function Matcher:replaceAll(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceAllLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceAllCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end Matcher.__call=Matcher.match;return setmetatable({},Matcher) end local function __nuppPegPattern(program,definitions) definitions=definitions or{};for _,name in ipairs(program.actions or{})do if rawget(definitions,name)==nil then error("nupp: missing PEG definition "..tostring(name),3)end end local P,S,V,C,Ct,Cg,Cb,Cp,Cs,Cmt,Cf=__nuppLpeg.P,__nuppLpeg.S,__nuppLpeg.V,__nuppLpeg.C,__nuppLpeg.Ct,__nuppLpeg.Cg,__nuppLpeg.Cb,__nuppLpeg.Cp,__nuppLpeg.Cs,__nuppLpeg.Cmt,__nuppLpeg.Cf local nodes,memo,targets=program.graph.nodes,{},{} local function equalcap(subject,position,captured)if type(captured)~="string"then return nil end;local ending=position+#captured;if subject:sub(position,ending-1)==captured then return ending end;return nil end local build;build=function(index)local prior=memo[index];if prior then return prior end;local node=nodes[index];local op=node[1];local pattern if op=="literal"then pattern=P(node[2])elseif op=="set"then pattern=S(node[2])elseif op=="any"then pattern=P(1)elseif op=="eof"then pattern=-P(1) elseif op=="sequence"then pattern=P(true);for child=2,#node do pattern=pattern*build(node[child])end elseif op=="choice"then pattern=P(false);for child=2,#node do pattern=pattern+build(node[child])end elseif op=="difference"then pattern=build(node[2])-build(node[3]) elseif op=="zeroOrMore"then pattern=build(node[2])^0 elseif op=="oneOrMore"then pattern=build(node[2])^1 elseif op=="optional"then pattern=build(node[2])^-1 elseif op=="and"then pattern=#build(node[2])elseif op=="not"then pattern=-build(node[2]) elseif op=="capture"then pattern=C(build(node[2]))elseif op=="collect"or op=="tableCapture"then pattern=Ct(build(node[2])) elseif op=="group"then pattern=node[3]~=nil and Cg(build(node[2]),node[3])or Cg(build(node[2])) elseif op=="substitution"then pattern=Cs(build(node[2]))elseif op=="position"then pattern=Cp() elseif op=="backReference"then pattern=Cmt(Cb(node[2]),equalcap) elseif op=="external"then pattern=P(definitions[node[2]]) elseif op=="transform"then local spec=node[3];local target=spec[1]=="definition"and definitions[spec[2]]or spec[2];pattern=build(node[2])/target elseif op=="matchTime"then pattern=Cmt(build(node[2]),definitions[node[3]]) elseif op=="accumulate"then pattern=build(node[2])%definitions[node[3]] elseif op=="fold"then pattern=Cf(build(node[2]),definitions[node[3]]) elseif op=="action"then local callback=definitions[node[3]];pattern=C(build(node[2])/0)/function(text)return callback(text)end elseif op=="reference"then targets[node[2]]=true;pattern=V("n"..node[2]) else error("nupp: unknown PEG graph operation "..tostring(op),3)end;memo[index]=pattern;return pattern end local pattern=build(program.graph.root);if next(targets)then local grammar={pattern};local done={};while true do local target;for candidate in pairs(targets)do if not done[candidate]then target=candidate;break end end;if not target then break end;done[target]=true;grammar["n"..target]=build(target)end;pattern=P(grammar)end;return pattern end local function __nuppPegFromPattern(pattern) local pack=function(...)return{n=select("#",...),...}end;local resultValues;local execution=pattern*__nuppLpeg.Cp() local function run(subject,position)local values=pack(__nuppLpeg.match(execution,subject,position));local nextPosition=values[values.n];if nextPosition==nil then return nil end;values[values.n]=nil;values.n=values.n-1;if values.n==0 then values.n=1;values[1]=nextPosition end;resultValues=values;return nextPosition end local function take()local values=resultValues;resultValues=nil;return unpack(values,1,values.n)end return __nuppPegMatcher(run,take,true,nil) end local function __nuppPegLpeg(program,definitions)return __nuppPegFromPattern(__nuppPegPattern(program,definitions))end local function __nuppPegFastScan9Run(plan,sets) local keys=plan.packedKeys;local k1,k2,k3,k4,k5,k6,k7,k8=keys[1],keys[2],keys[3],keys[4],keys[5],keys[6],keys[7],keys[8] local delimiter,separatorLength=plan.separator:byte(),#plan.separator local scanByte,scanClass;if plan.scan<256 then scanByte=plan.scan else scanClass=sets[plan.scan-255]end local suffix,minimum=plan.suffix,plan.minimum;local suffixHead=((suffix[1]*256+suffix[2])*256+suffix[3])*256+suffix[4];local suffixTail=((suffix[5]*256+suffix[6])*256+suffix[7])*256+suffix[8] local lastByte,lastClass;if suffix[9]<256 then lastByte=suffix[9]else lastClass=sets[suffix[9]-255]end local function run(subject,position) local a,b,c,d,e,f,g=subject:byte(position,position+6);if not a then return nil end local key,prefixLength;if b==delimiter then prefixLength=1;key=a*8+1 elseif c==delimiter then prefixLength=2;key=(a*256+b)*8+2 elseif d==delimiter then prefixLength=3;key=((a*256+b)*256+c)*8+3 elseif e==delimiter then prefixLength=4;key=(((a*256+b)*256+c)*256+d)*8+4 elseif f==delimiter then prefixLength=5;key=((((a*256+b)*256+c)*256+d)*256+e)*8+5 elseif g==delimiter then prefixLength=6;key=(((((a*256+b)*256+c)*256+d)*256+e)*256+f)*8+6 else return nil end if not(key==k1 or key==k2 or key==k3 or key==k4 or key==k5 or key==k6 or key==k7 or key==k8)then return nil end position=position+prefixLength+separatorLength;local suffixStart=#subject-8;if suffixStart-position<minimum then return nil end if scanClass then for index=position,suffixStart-1 do local byte=subject:byte(index);if scanClass:byte(byte+1)==0 then return nil end end else for index=position,suffixStart-1 do if subject:byte(index)~=scanByte then return nil end end end local q,r,s,t,u,v,w,x,y=subject:byte(suffixStart,#subject);if ((q*256+r)*256+s)*256+t==suffixHead and((u*256+v)*256+w)*256+x==suffixTail and((lastByte and y==lastByte)or(lastClass and lastClass:byte(y+1)~=0))then return #subject+1 end;return nil end return run end local function __nuppPegCheckSource(encoded,expression)if encoded<256 then return expression.."=="..encoded end;return"sets["..(encoded-255).."]:byte("..expression.."+1)~=0"end local function __nuppPegRepeatSource(plan)local head=__nuppPegCheckSource(plan.head,"byte");local tail=__nuppPegCheckSource(plan.tail,"byte");local accept=plan.eof and"if position~=#subject+1 then return nil end;"or"";local result=plan.result=="string"and"lastSubject,lastFirst,lastNext=subject,first,position;return position"or"return position";local visitValue=plan.result=="string"and"subject:sub(first,position-1)"or"position";local visit=plan.eof and"if position==length+1 then count=count+1;visitor(first,position,"..visitValue..");return count end"or"count=count+1;visitor(first,position,"..visitValue..")";local state=plan.result=="string"and"local lastSubject,lastFirst,lastNext;local function take()return lastSubject:sub(lastFirst,lastNext-1)end;"or"";local take=plan.result=="string"and"take"or"nil";return"return function(sets)"..state.."local function run(subject,position)local first=position;local byte=subject:byte(position);if not byte or not("..head..")then return nil end;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..accept..result.." end;local function traverse(subject,visitor,position)local count,length=0,#subject;while position<=length do local byte=subject:byte(position);if "..head.." then local first=position;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..visit.." else position=position+1 end end;return count end;return run,"..take..",traverse end"end local function __nuppPegFixedSource(checks)local conditions={"position+"..#checks.."==#subject+1"};for index,encoded in ipairs(checks)do local expression="subject:byte(position+"..(index-1)..")";conditions[#conditions+1]=__nuppPegCheckSource(encoded,expression)end;return"return function(sets)return function(subject,position)if "..table.concat(conditions," and ").." then return position+"..#checks.." end end end"end local function __nuppPegCodegen(program,definitions) if program.fastScan and program.fastScan.packedKeys and program.fastScan.maximum<=6 and #program.fastScan.keys<=8 then local suffix=program.fastScan.suffix;if #suffix==9 and suffix[1]<256 and suffix[2]<256 and suffix[3]<256 and suffix[4]<256 and suffix[5]<256 and suffix[6]<256 and suffix[7]<256 and suffix[8]<256 then return __nuppPegMatcher(__nuppPegFastScan9Run(program.fastScan,program.sets),nil,false,program.search)end end local source;if program.fastRepeat then source=__nuppPegRepeatSource(program.fastRepeat)elseif program.fastFixed then source=__nuppPegFixedSource(program.fastFixed)else return __nuppPegLpeg(program,definitions)end local chunk,why=loadstring(source,"=nupp PEG specialization");if not chunk then error("nupp: PEG specialization failed: "..tostring(why),2)end;local run,take,traverse=chunk()(program.sets);return __nuppPegMatcher(run,take,program.captureful,program.search,nil,nil,traverse) end package.loaded.re=nil package.preload.re=function() local tonumber,type,print,error=tonumber,type,print,error local setmetatable=setmetatable local m=require"lpeg" local mm=m local mt=getmetatable(mm.P(0)) local version=_VERSION local any=m.P(1) local Predef={nl=m.P"\n"} local mem;local fmem;local gmem local function updatelocale() mm.locale(Predef) Predef.a=Predef.alpha;Predef.c=Predef.cntrl;Predef.d=Predef.digit Predef.g=Predef.graph;Predef.l=Predef.lower;Predef.p=Predef.punct Predef.s=Predef.space;Predef.u=Predef.upper;Predef.w=Predef.alnum Predef.x=Predef.xdigit Predef.A=any-Predef.a;Predef.C=any-Predef.c;Predef.D=any-Predef.d Predef.G=any-Predef.g;Predef.L=any-Predef.l;Predef.P=any-Predef.p Predef.S=any-Predef.s;Predef.U=any-Predef.u;Predef.W=any-Predef.w Predef.X=any-Predef.x mem={};fmem={};gmem={};local weak={__mode="v"} setmetatable(mem,weak);setmetatable(fmem,weak);setmetatable(gmem,weak) end updatelocale() local function patt_error(s,i)local msg=(#s<i+20)and s:sub(i)or s:sub(i,i+20).."...";error(("pattern error near '%s'"):format(msg),2)end local function mult(p,n)local np=mm.P(true);while n>=1 do if n%2>=1 then np=np*p end;p=p*p;n=n/2 end;return np end local function equalcap(s,i,c)if type(c)~="string"then return nil end;local e=#c+i;if s:sub(i,e-1)==c then return e end;return nil end local S=(Predef.space+"--"*(any-Predef.nl)^0)^0 local name=m.R("AZ","az","__")*m.R("AZ","az","__","09")^0 local arrow=S*"<-" local seq_follow=m.P"/"+")"+"}"+":}"+"~}"+"|}"+(name*arrow)+-1 name=m.C(name) local Def=name*m.Carg(1) local function getdef(id,defs)local c=defs and defs[id];if not c then error("undefined name: "..id)end;return c end local function defwithfunc(f)return m.Cg(Def/getdef*m.Cc(f))end local num=m.C(m.R"09"^1)*S/tonumber local String="'"*m.C((any-"'")^0)*"'"+'"'*m.C((any-'"')^0)*'"' local defined="%"*Def/function(c,Defs)local cat=Defs and Defs[c]or Predef[c];if not cat then error("name '"..c.."' undefined")end;return cat end local Range=m.Cs(any*(m.P"-"/"")*(any-"]"))/mm.R local item=(defined+Range+m.C(any))/m.P local Class="["*(m.C(m.P"^"^-1))*(item*((item%mt.__add)-"]")^0)/function(c,p)return c=="^"and any-p or p end*"]" local function adddef(t,k,exp)if t[k]then error("'"..k.."' already defined as a rule")else t[k]=exp end;return t end local function firstdef(n,r)return adddef({n},n,r)end local function NT(n,b)if not b then error("rule '"..n.."' used outside a grammar")else return mm.V(n)end end local exp=m.P{"Exp", Exp=S*(m.V"Grammar"+m.V"Seq"*("/"*S*m.V"Seq"%mt.__add)^0), Seq=(m.Cc(m.P"")*(m.V"Prefix"%mt.__mul)^0)*(#seq_follow+patt_error), Prefix="&"*S*m.V"Prefix"/mt.__len+"!"*S*m.V"Prefix"/mt.__unm+m.V"Suffix", Suffix=m.V"Primary"*S*((m.P"+"*m.Cc(1,mt.__pow)+m.P"*"*m.Cc(0,mt.__pow)+m.P"?"*m.Cc(-1,mt.__pow)+"^"*(m.Cg(num*m.Cc(mult))+m.Cg(m.C(m.S"+-"*m.R"09"^1)*m.Cc(mt.__pow)))+"->"*S*(m.Cg((String+num)*m.Cc(mt.__div))+m.P"{}"*m.Cc(nil,m.Ct)+defwithfunc(mt.__div))+"=>"*S*defwithfunc(mm.Cmt)+">>"*S*defwithfunc(mt.__mod)+"~>"*S*defwithfunc(mm.Cf))%function(a,b,f)return f(a,b)end*S)^0, Primary="("*m.V"Exp"*")"+String/mm.P+Class+defined+"{:"*(name*":"+m.Cc(nil))*m.V"Exp"*":}"/function(n,p)return mm.Cg(p,n)end+"="*name/function(n)return mm.Cmt(mm.Cb(n),equalcap)end+m.P"{}"/mm.Cp+"{~"*m.V"Exp"*"~}"/mm.Cs+"{|"*m.V"Exp"*"|}"/mm.Ct+"{"*m.V"Exp"*"}"/mm.C+m.P"."*m.Cc(any)+(name*-arrow+"<"*name*">")*m.Cb("G")/NT, Definition=name*arrow*m.V"Exp", Grammar=m.Cg(m.Cc(true),"G")*((m.V"Definition"/firstdef)*(m.V"Definition"%adddef)^0)/mm.P } local pattern=S*m.Cg(m.Cc(false),"G")*exp/mm.P*(-any+patt_error) local function compile(p,defs)if mm.type(p)=="pattern"then return p end;local cp=pattern:match(p,1,defs);if not cp then error("incorrect pattern",3)end;return cp end local function match(s,p,i)local cp=mem[p];if not cp then cp=compile(p);mem[p]=cp end;return cp:match(s,i or 1)end local function find(s,p,i)local cp=fmem[p];if not cp then cp=compile(p)/0;cp=mm.P{mm.Cp()*cp*mm.Cp()+1*mm.V(1)};fmem[p]=cp end;local first,ending=cp:match(s,i or 1);if first then return first,ending-1 end;return first end local function gsub(s,p,rep)local g=gmem[p]or{};gmem[p]=g;local cp=g[rep];if not cp then cp=compile(p);cp=mm.Cs((cp/rep+1)^0);g[rep]=cp end;return cp:match(s)end local re={compile=compile,match=match,find=find,gsub=gsub,updatelocale=updatelocale} if version=="Lua 5.1"then _G.re=re end return re end local __nuppPegPatternCache=setmetatable({},{__mode="v"}) function __nuppPeg.compile(source,options) if type(source)~="string"then error("nupp: PEG compile source must be a string",2)end;if options~=nil and type(options)~="table"then error("nupp: PEG compile options must be a table",2)end;options=options or{};local backend=options.backend or"auto";if backend~="auto"and backend~="lpeg"then error("nupp: PEG compile backend must be 'auto' or 'lpeg'",2)end local definitions=options.definitions or options.defs or options.actions;local pattern;if definitions==nil then pattern=__nuppPegPatternCache[source];if not pattern then pattern=require("re").compile(source);__nuppPegPatternCache[source]=pattern end else pattern=require("re").compile(source,definitions)end;return __nuppPegFromPattern(pattern) end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local __nuppPegRuntime=require("nupp.pegruntime") require("lpeg").setmaxstack(10000) local __nuppPeg=rawget(__nupp,"peg")or{};rawset(__nupp,"peg",__nuppPeg) local __nuppPegCodegen,__nuppPegLpeg=__nuppPegRuntime.codegen,__nuppPegRuntime.lpegBackend package.loaded.re=nil package.preload.re=function() local tonumber,type,print,error=tonumber,type,print,error local setmetatable=setmetatable local m=require"lpeg" local mm=m local mt=getmetatable(mm.P(0)) local version=_VERSION local any=m.P(1) local Predef={nl=m.P"\n"} local mem;local fmem;local gmem local function updatelocale() mm.locale(Predef) Predef.a=Predef.alpha;Predef.c=Predef.cntrl;Predef.d=Predef.digit Predef.g=Predef.graph;Predef.l=Predef.lower;Predef.p=Predef.punct Predef.s=Predef.space;Predef.u=Predef.upper;Predef.w=Predef.alnum Predef.x=Predef.xdigit Predef.A=any-Predef.a;Predef.C=any-Predef.c;Predef.D=any-Predef.d Predef.G=any-Predef.g;Predef.L=any-Predef.l;Predef.P=any-Predef.p Predef.S=any-Predef.s;Predef.U=any-Predef.u;Predef.W=any-Predef.w Predef.X=any-Predef.x mem={};fmem={};gmem={};local weak={__mode="v"} setmetatable(mem,weak);setmetatable(fmem,weak);setmetatable(gmem,weak) end updatelocale() local function patt_error(s,i)local msg=(#s<i+20)and s:sub(i)or s:sub(i,i+20).."...";error(("pattern error near '%s'"):format(msg),2)end local function mult(p,n)local np=mm.P(true);while n>=1 do if n%2>=1 then np=np*p end;p=p*p;n=n/2 end;return np end local function equalcap(s,i,c)if type(c)~="string"then return nil end;local e=#c+i;if s:sub(i,e-1)==c then return e end;return nil end local S=(Predef.space+"--"*(any-Predef.nl)^0)^0 local name=m.R("AZ","az","__")*m.R("AZ","az","__","09")^0 local arrow=S*"<-" local seq_follow=m.P"/"+")"+"}"+":}"+"~}"+"|}"+(name*arrow)+-1 name=m.C(name) local Def=name*m.Carg(1) local function getdef(id,defs)local c=defs and defs[id];if not c then error("undefined name: "..id)end;return c end local function defwithfunc(f)return m.Cg(Def/getdef*m.Cc(f))end local num=m.C(m.R"09"^1)*S/tonumber local String="'"*m.C((any-"'")^0)*"'"+'"'*m.C((any-'"')^0)*'"' local defined="%"*Def/function(c,Defs)local cat=Defs and Defs[c]or Predef[c];if not cat then error("name '"..c.."' undefined")end;return cat end local Range=m.Cs(any*(m.P"-"/"")*(any-"]"))/mm.R local item=(defined+Range+m.C(any))/m.P local Class="["*(m.C(m.P"^"^-1))*(item*((item%mt.__add)-"]")^0)/function(c,p)return c=="^"and any-p or p end*"]" local function adddef(t,k,exp)if t[k]then error("'"..k.."' already defined as a rule")else t[k]=exp end;return t end local function firstdef(n,r)return adddef({n},n,r)end local function NT(n,b)if not b then error("rule '"..n.."' used outside a grammar")else return mm.V(n)end end local exp=m.P{"Exp", Exp=S*(m.V"Grammar"+m.V"Seq"*("/"*S*m.V"Seq"%mt.__add)^0), Seq=(m.Cc(m.P"")*(m.V"Prefix"%mt.__mul)^0)*(#seq_follow+patt_error), Prefix="&"*S*m.V"Prefix"/mt.__len+"!"*S*m.V"Prefix"/mt.__unm+m.V"Suffix", Suffix=m.V"Primary"*S*((m.P"+"*m.Cc(1,mt.__pow)+m.P"*"*m.Cc(0,mt.__pow)+m.P"?"*m.Cc(-1,mt.__pow)+"^"*(m.Cg(num*m.Cc(mult))+m.Cg(m.C(m.S"+-"*m.R"09"^1)*m.Cc(mt.__pow)))+"->"*S*(m.Cg((String+num)*m.Cc(mt.__div))+m.P"{}"*m.Cc(nil,m.Ct)+defwithfunc(mt.__div))+"=>"*S*defwithfunc(mm.Cmt)+">>"*S*defwithfunc(mt.__mod)+"~>"*S*defwithfunc(mm.Cf))%function(a,b,f)return f(a,b)end*S)^0, Primary="("*m.V"Exp"*")"+String/mm.P+Class+defined+"{:"*(name*":"+m.Cc(nil))*m.V"Exp"*":}"/function(n,p)return mm.Cg(p,n)end+"="*name/function(n)return mm.Cmt(mm.Cb(n),equalcap)end+m.P"{}"/mm.Cp+"{~"*m.V"Exp"*"~}"/mm.Cs+"{|"*m.V"Exp"*"|}"/mm.Ct+"{"*m.V"Exp"*"}"/mm.C+m.P"."*m.Cc(any)+(name*-arrow+"<"*name*">")*m.Cb("G")/NT, Definition=name*arrow*m.V"Exp", Grammar=m.Cg(m.Cc(true),"G")*((m.V"Definition"/firstdef)*(m.V"Definition"%adddef)^0)/mm.P } local pattern=S*m.Cg(m.Cc(false),"G")*exp/mm.P*(-any+patt_error) local function compile(p,defs)if mm.type(p)=="pattern"then return p end;local cp=pattern:match(p,1,defs);if not cp then error("incorrect pattern",3)end;return cp end local function match(s,p,i)local cp=mem[p];if not cp then cp=compile(p);mem[p]=cp end;return cp:match(s,i or 1)end local function find(s,p,i)local cp=fmem[p];if not cp then cp=compile(p)/0;cp=mm.P{mm.Cp()*cp*mm.Cp()+1*mm.V(1)};fmem[p]=cp end;local first,ending=cp:match(s,i or 1);if first then return first,ending-1 end;return first end local function gsub(s,p,rep)local g=gmem[p]or{};gmem[p]=g;local cp=g[rep];if not cp then cp=compile(p);cp=mm.Cs((cp/rep+1)^0);g[rep]=cp end;return cp:match(s)end local re={compile=compile,match=match,find=find,gsub=gsub,updatelocale=updatelocale} if version=="Lua 5.1"then _G.re=re end return re end __nuppPeg.compile=__nuppPegRuntime.compile;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -75726,6 +75726,7 @@ local BUNDLED_SOURCE = {
 [ "nupp.data.uuid7" ] = "/nupp/data/uuid7.nupp" ,
 [ "nupp.log" ] = "/nupp/log.nupp" ,
 [ "nupp.suspension" ] = "/nupp/suspension.nupp" ,
+[ "nupp.pegruntime" ] = "/nupp/pegruntime.nupp" ,
 [ "nupp.io.process" ] = "/nupp/io/process.nupp" ,
 [ "nupp.workers" ] = "/nupp/workers.nupp" ,
 [ "nupp.io.http" ] = "/nupp/io/http.nupp" ,
@@ -105187,8 +105188,15 @@ local FEATURES = {
 [
 "native.lua_utf8"
 ] = { name = "lua_utf8" , module = "lua-utf8" , modules = { "nupp.data.utf8" } , host = "lua-utf8" , binary = true , } ,
-[ "stdlib.peg" ] = { name = "peg" , requires = { "native.lpeg" } , } ,
-[ "stdlib.peg.compile" ] = { name = "peg_compile" , globals = { "nupp.peg.compile" } , requires = { "native.lpeg" } , } ,
+[ "stdlib.peg" ] = { name = "peg" , runtimeModule = "nupp.pegruntime" , requires = { "native.lpeg" } , } ,
+[
+"stdlib.peg.compile"
+] = {
+name = "peg_compile" ,
+globals = { "nupp.peg.compile" } ,
+runtimeModule = "nupp.pegruntime" ,
+requires = { "native.lpeg" } ,
+} ,
 [ "stdlib.fieldcodec" ] = { name = "fieldcodec" , globals = { "nupp.reflect.fieldCodec" } , } ,
 [ "stdlib.derives" ] = { name = "derives" , globals = { } , } ,
 [ "stdlib.io" ] = { name = "io" , modules = { "nupp.io" } , } ,
@@ -117010,98 +117018,17 @@ function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;loc
 
 
 
-local PEG_NATIVE = compact (
+
+
+
+
+
+local PEG_RUNTIME = compact (
 [=[
+local __nuppPegRuntime=require("nupp.pegruntime")
+require("lpeg").setmaxstack(10000)
 local __nuppPeg=rawget(__nupp,"peg")or{};rawset(__nupp,"peg",__nuppPeg)
-local __nuppLpeg=require("lpeg");__nuppLpeg.setmaxstack(10000)
-local function __nuppPegInit(subject,init,level)
-if type(subject)~="string"then error("nupp: PEG subject must be a string",level)end;if init==nil then init=1 elseif type(init)~="number"or init~=math.floor(init)then error("nupp: PEG init must be an integer",level)elseif init<0 then init=#subject+init+1 end;if init<1 then init=1 end;if init>#subject+1 then return nil end;return init
-end
-local function __nuppPegFindAt(run,take,captureful,subject,init,search)
-if search and search.direct then local first,last=subject:find(search.direct,init,search.directPlain);if first==nil then return nil end;local nextPosition=last+1;if search.result=="string"then return first,nextPosition,subject:sub(first,last)end;return first,nextPosition,nextPosition end
-local position=init;while position<=#subject+1 do if search then position=subject:find(search.value,position,search.plain);if position==nil then return nil end end;local nextPosition=run(subject,position);if nextPosition~=nil then if captureful then return position,nextPosition,take()end;return position,nextPosition,nextPosition end;position=position+1 end
-end
-local function __nuppPegCallbackReplacement(replacement,first,nextPosition,...)
-local out=replacement(first,nextPosition,...);if type(out)~="string"then error("nupp: PEG replacement callback must return a string",3)end;return out
-end
-local function __nuppPegVisit(visitor,first,nextPosition,...)
-if first~=nil then visitor(first,nextPosition,...);return first,nextPosition end
-end
-local function __nuppPegReplacementAt(replacement,first,nextPosition,...)
-if first~=nil then return first,nextPosition,__nuppPegCallbackReplacement(replacement,first,nextPosition,...)end
-end
-local function __nuppPegMatcher(run,take,captureful,search,generatedFind,directReplaceAll,generatedTraverse)
-local Matcher={};Matcher.__index=Matcher
-local function findAt(subject,init)if generatedFind then return generatedFind(subject,init)end;return __nuppPegFindAt(run,take,captureful,subject,init,search)end
-function Matcher:match(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;local nextPosition=run(subject,init);if nextPosition==nil then return nil end;if captureful then return take()end;return nextPosition end
-function Matcher:find(subject,init)init=__nuppPegInit(subject,init,2);if init==nil then return nil end;return findAt(subject,init)end
-function Matcher:isMatch(subject,init)init=__nuppPegInit(subject,init,2);return init~=nil and findAt(subject,init)~=nil end
-function Matcher:forEachMatch(subject,visitor,init)if type(visitor)~="function"then error("nupp: PEG match visitor must be a function",2)end;local cursor=__nuppPegInit(subject,init,2);if cursor==nil then return 0 end;if generatedTraverse then return generatedTraverse(subject,visitor,cursor)end;local count=0;while cursor<=#subject+1 do local first,nextPosition=__nuppPegVisit(visitor,findAt(subject,cursor));if first==nil then break end;count=count+1;cursor=nextPosition>first and nextPosition or first+1 end;return count end
-function Matcher:__nuppPegReplaceLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition=findAt(subject,init);if first==nil then return subject end;return subject:sub(1,first-1)..replacement..subject:sub(nextPosition)end
-function Matcher:__nuppPegReplaceCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,init));if first==nil then return subject end;return subject:sub(1,first-1)..value..subject:sub(nextPosition)end
-function Matcher:replace(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end
-function Matcher:__nuppPegReplaceAllLiteral(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;if directReplaceAll then return directReplaceAll(subject,replacement,init)end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition=findAt(subject,cursor);if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=replacement;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end
-function Matcher:__nuppPegReplaceAllCallback(subject,replacement,init)init=__nuppPegInit(subject,init,2);if init==nil then return subject end;local parts,count,cursor,copyAt={},0,init,1;while cursor<=#subject+1 do local first,nextPosition,value=__nuppPegReplacementAt(replacement,findAt(subject,cursor));if first==nil then break end;count=count+1;parts[#parts+1]=subject:sub(copyAt,first-1);parts[#parts+1]=value;copyAt=nextPosition;if nextPosition>first then cursor=nextPosition elseif first<=#subject then parts[#parts+1]=subject:sub(first,first);copyAt=first+1;cursor=first+1 else cursor=first+1 end end;if count==0 then return subject end;parts[#parts+1]=subject:sub(copyAt);return table.concat(parts)end
-function Matcher:replaceAll(subject,replacement,init)if type(replacement)=="string"then return self:__nuppPegReplaceAllLiteral(subject,replacement,init)elseif type(replacement)=="function"then return self:__nuppPegReplaceAllCallback(subject,replacement,init)end;error("nupp: PEG replacement must be a string or function",2)end
-Matcher.__call=Matcher.match;return setmetatable({},Matcher)
-end
-local function __nuppPegPattern(program,definitions)
-definitions=definitions or{};for _,name in ipairs(program.actions or{})do if rawget(definitions,name)==nil then error("nupp: missing PEG definition "..tostring(name),3)end end
-local P,S,V,C,Ct,Cg,Cb,Cp,Cs,Cmt,Cf=__nuppLpeg.P,__nuppLpeg.S,__nuppLpeg.V,__nuppLpeg.C,__nuppLpeg.Ct,__nuppLpeg.Cg,__nuppLpeg.Cb,__nuppLpeg.Cp,__nuppLpeg.Cs,__nuppLpeg.Cmt,__nuppLpeg.Cf
-local nodes,memo,targets=program.graph.nodes,{},{}
-local function equalcap(subject,position,captured)if type(captured)~="string"then return nil end;local ending=position+#captured;if subject:sub(position,ending-1)==captured then return ending end;return nil end
-local build;build=function(index)local prior=memo[index];if prior then return prior end;local node=nodes[index];local op=node[1];local pattern
-if op=="literal"then pattern=P(node[2])elseif op=="set"then pattern=S(node[2])elseif op=="any"then pattern=P(1)elseif op=="eof"then pattern=-P(1)
-elseif op=="sequence"then pattern=P(true);for child=2,#node do pattern=pattern*build(node[child])end
-elseif op=="choice"then pattern=P(false);for child=2,#node do pattern=pattern+build(node[child])end
-elseif op=="difference"then pattern=build(node[2])-build(node[3])
-elseif op=="zeroOrMore"then pattern=build(node[2])^0 elseif op=="oneOrMore"then pattern=build(node[2])^1 elseif op=="optional"then pattern=build(node[2])^-1
-elseif op=="and"then pattern=#build(node[2])elseif op=="not"then pattern=-build(node[2])
-elseif op=="capture"then pattern=C(build(node[2]))elseif op=="collect"or op=="tableCapture"then pattern=Ct(build(node[2]))
-elseif op=="group"then pattern=node[3]~=nil and Cg(build(node[2]),node[3])or Cg(build(node[2]))
-elseif op=="substitution"then pattern=Cs(build(node[2]))elseif op=="position"then pattern=Cp()
-elseif op=="backReference"then pattern=Cmt(Cb(node[2]),equalcap)
-elseif op=="external"then pattern=P(definitions[node[2]])
-elseif op=="transform"then local spec=node[3];local target=spec[1]=="definition"and definitions[spec[2]]or spec[2];pattern=build(node[2])/target
-elseif op=="matchTime"then pattern=Cmt(build(node[2]),definitions[node[3]])
-elseif op=="accumulate"then pattern=build(node[2])%definitions[node[3]]
-elseif op=="fold"then pattern=Cf(build(node[2]),definitions[node[3]])
-elseif op=="action"then local callback=definitions[node[3]];pattern=C(build(node[2])/0)/function(text)return callback(text)end
-elseif op=="reference"then targets[node[2]]=true;pattern=V("n"..node[2])
-else error("nupp: unknown PEG graph operation "..tostring(op),3)end;memo[index]=pattern;return pattern end
-local pattern=build(program.graph.root);if next(targets)then local grammar={pattern};local done={};while true do local target;for candidate in pairs(targets)do if not done[candidate]then target=candidate;break end end;if not target then break end;done[target]=true;grammar["n"..target]=build(target)end;pattern=P(grammar)end;return pattern
-end
-local function __nuppPegFromPattern(pattern)
-local pack=function(...)return{n=select("#",...),...}end;local resultValues;local execution=pattern*__nuppLpeg.Cp()
-local function run(subject,position)local values=pack(__nuppLpeg.match(execution,subject,position));local nextPosition=values[values.n];if nextPosition==nil then return nil end;values[values.n]=nil;values.n=values.n-1;if values.n==0 then values.n=1;values[1]=nextPosition end;resultValues=values;return nextPosition end
-local function take()local values=resultValues;resultValues=nil;return unpack(values,1,values.n)end
-return __nuppPegMatcher(run,take,true,nil)
-end
-local function __nuppPegLpeg(program,definitions)return __nuppPegFromPattern(__nuppPegPattern(program,definitions))end
-local function __nuppPegFastScan9Run(plan,sets)
-local keys=plan.packedKeys;local k1,k2,k3,k4,k5,k6,k7,k8=keys[1],keys[2],keys[3],keys[4],keys[5],keys[6],keys[7],keys[8]
-local delimiter,separatorLength=plan.separator:byte(),#plan.separator
-local scanByte,scanClass;if plan.scan<256 then scanByte=plan.scan else scanClass=sets[plan.scan-255]end
-local suffix,minimum=plan.suffix,plan.minimum;local suffixHead=((suffix[1]*256+suffix[2])*256+suffix[3])*256+suffix[4];local suffixTail=((suffix[5]*256+suffix[6])*256+suffix[7])*256+suffix[8]
-local lastByte,lastClass;if suffix[9]<256 then lastByte=suffix[9]else lastClass=sets[suffix[9]-255]end
-local function run(subject,position)
-local a,b,c,d,e,f,g=subject:byte(position,position+6);if not a then return nil end
-local key,prefixLength;if b==delimiter then prefixLength=1;key=a*8+1 elseif c==delimiter then prefixLength=2;key=(a*256+b)*8+2 elseif d==delimiter then prefixLength=3;key=((a*256+b)*256+c)*8+3 elseif e==delimiter then prefixLength=4;key=(((a*256+b)*256+c)*256+d)*8+4 elseif f==delimiter then prefixLength=5;key=((((a*256+b)*256+c)*256+d)*256+e)*8+5 elseif g==delimiter then prefixLength=6;key=(((((a*256+b)*256+c)*256+d)*256+e)*256+f)*8+6 else return nil end
-if not(key==k1 or key==k2 or key==k3 or key==k4 or key==k5 or key==k6 or key==k7 or key==k8)then return nil end
-position=position+prefixLength+separatorLength;local suffixStart=#subject-8;if suffixStart-position<minimum then return nil end
-if scanClass then for index=position,suffixStart-1 do local byte=subject:byte(index);if scanClass:byte(byte+1)==0 then return nil end end else for index=position,suffixStart-1 do if subject:byte(index)~=scanByte then return nil end end end
-local q,r,s,t,u,v,w,x,y=subject:byte(suffixStart,#subject);if ((q*256+r)*256+s)*256+t==suffixHead and((u*256+v)*256+w)*256+x==suffixTail and((lastByte and y==lastByte)or(lastClass and lastClass:byte(y+1)~=0))then return #subject+1 end;return nil
-end
-return run
-end
-local function __nuppPegCheckSource(encoded,expression)if encoded<256 then return expression.."=="..encoded end;return"sets["..(encoded-255).."]:byte("..expression.."+1)~=0"end
-local function __nuppPegRepeatSource(plan)local head=__nuppPegCheckSource(plan.head,"byte");local tail=__nuppPegCheckSource(plan.tail,"byte");local accept=plan.eof and"if position~=#subject+1 then return nil end;"or"";local result=plan.result=="string"and"lastSubject,lastFirst,lastNext=subject,first,position;return position"or"return position";local visitValue=plan.result=="string"and"subject:sub(first,position-1)"or"position";local visit=plan.eof and"if position==length+1 then count=count+1;visitor(first,position,"..visitValue..");return count end"or"count=count+1;visitor(first,position,"..visitValue..")";local state=plan.result=="string"and"local lastSubject,lastFirst,lastNext;local function take()return lastSubject:sub(lastFirst,lastNext-1)end;"or"";local take=plan.result=="string"and"take"or"nil";return"return function(sets)"..state.."local function run(subject,position)local first=position;local byte=subject:byte(position);if not byte or not("..head..")then return nil end;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..accept..result.." end;local function traverse(subject,visitor,position)local count,length=0,#subject;while position<=length do local byte=subject:byte(position);if "..head.." then local first=position;position=position+1;while true do byte=subject:byte(position);if not byte or not("..tail..")then break end;position=position+1 end;"..visit.." else position=position+1 end end;return count end;return run,"..take..",traverse end"end
-local function __nuppPegFixedSource(checks)local conditions={"position+"..#checks.."==#subject+1"};for index,encoded in ipairs(checks)do local expression="subject:byte(position+"..(index-1)..")";conditions[#conditions+1]=__nuppPegCheckSource(encoded,expression)end;return"return function(sets)return function(subject,position)if "..table.concat(conditions," and ").." then return position+"..#checks.." end end end"end
-local function __nuppPegCodegen(program,definitions)
-if program.fastScan and program.fastScan.packedKeys and program.fastScan.maximum<=6 and #program.fastScan.keys<=8 then local suffix=program.fastScan.suffix;if #suffix==9 and suffix[1]<256 and suffix[2]<256 and suffix[3]<256 and suffix[4]<256 and suffix[5]<256 and suffix[6]<256 and suffix[7]<256 and suffix[8]<256 then return __nuppPegMatcher(__nuppPegFastScan9Run(program.fastScan,program.sets),nil,false,program.search)end end
-local source;if program.fastRepeat then source=__nuppPegRepeatSource(program.fastRepeat)elseif program.fastFixed then source=__nuppPegFixedSource(program.fastFixed)else return __nuppPegLpeg(program,definitions)end
-local chunk,why=loadstring(source,"=nupp PEG specialization");if not chunk then error("nupp: PEG specialization failed: "..tostring(why),2)end;local run,take,traverse=chunk()(program.sets);return __nuppPegMatcher(run,take,program.captureful,program.search,nil,nil,traverse)
-end
+local __nuppPegCodegen,__nuppPegLpeg=__nuppPegRuntime.codegen,__nuppPegRuntime.lpegBackend
 ]=]
 )
 
@@ -117176,15 +117103,9 @@ end
 ]=]
 )
 
-local PEG_COMPILE_NATIVE = compact (
-[=[
-local __nuppPegPatternCache=setmetatable({},{__mode="v"})
-function __nuppPeg.compile(source,options)
-if type(source)~="string"then error("nupp: PEG compile source must be a string",2)end;if options~=nil and type(options)~="table"then error("nupp: PEG compile options must be a table",2)end;options=options or{};local backend=options.backend or"auto";if backend~="auto"and backend~="lpeg"then error("nupp: PEG compile backend must be 'auto' or 'lpeg'",2)end
-local definitions=options.definitions or options.defs or options.actions;local pattern;if definitions==nil then pattern=__nuppPegPatternCache[source];if not pattern then pattern=require("re").compile(source);__nuppPegPatternCache[source]=pattern end else pattern=require("re").compile(source,definitions)end;return __nuppPegFromPattern(pattern)
-end
-]=]
-)
+local PEG_COMPILE = compact ( [=[
+__nuppPeg.compile=__nuppPegRuntime.compile
+]=] )
 
 local FIELDCODEC = compact (
 [=[
@@ -117459,13 +117380,13 @@ if effects [ "stdlib.math" ] then
 out [ # out + 1 ] = watch and MATH : gsub ( "local m=__nuppMath" , "local m=_G.nupp.math" , 1 ) or MATH
 end
 if effects [ "stdlib.peg" ] or effects [ "stdlib.peg.compile" ] then
-out [ # out + 1 ] = PEG_NATIVE
+out [ # out + 1 ] = PEG_RUNTIME
 end
 if effects [ "stdlib.lpeg.re" ] or effects [ "stdlib.peg.compile" ] then
 out [ # out + 1 ] = LPEG_RE
 end
 if effects [ "stdlib.peg.compile" ] then
-out [ # out + 1 ] = PEG_COMPILE_NATIVE
+out [ # out + 1 ] = PEG_COMPILE
 end
 if effects [ "stdlib.fieldcodec" ] then
 out [ # out + 1 ] = FIELDCODEC
@@ -134927,6 +134848,830 @@ end
 
 const __nuppExportValue= store ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.owners.store"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.owners.store"]=__nuppExports;return __nuppExports
+end
+package.preload["nupp.pegruntime"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end package.loaded.re=nil package.preload.re=function() local tonumber,type,print,error=tonumber,type,print,error local setmetatable=setmetatable local m=require"lpeg" local mm=m local mt=getmetatable(mm.P(0)) local version=_VERSION local any=m.P(1) local Predef={nl=m.P"\n"} local mem;local fmem;local gmem local function updatelocale() mm.locale(Predef) Predef.a=Predef.alpha;Predef.c=Predef.cntrl;Predef.d=Predef.digit Predef.g=Predef.graph;Predef.l=Predef.lower;Predef.p=Predef.punct Predef.s=Predef.space;Predef.u=Predef.upper;Predef.w=Predef.alnum Predef.x=Predef.xdigit Predef.A=any-Predef.a;Predef.C=any-Predef.c;Predef.D=any-Predef.d Predef.G=any-Predef.g;Predef.L=any-Predef.l;Predef.P=any-Predef.p Predef.S=any-Predef.s;Predef.U=any-Predef.u;Predef.W=any-Predef.w Predef.X=any-Predef.x mem={};fmem={};gmem={};local weak={__mode="v"} setmetatable(mem,weak);setmetatable(fmem,weak);setmetatable(gmem,weak) end updatelocale() local function patt_error(s,i)local msg=(#s<i+20)and s:sub(i)or s:sub(i,i+20).."...";error(("pattern error near '%s'"):format(msg),2)end local function mult(p,n)local np=mm.P(true);while n>=1 do if n%2>=1 then np=np*p end;p=p*p;n=n/2 end;return np end local function equalcap(s,i,c)if type(c)~="string"then return nil end;local e=#c+i;if s:sub(i,e-1)==c then return e end;return nil end local S=(Predef.space+"--"*(any-Predef.nl)^0)^0 local name=m.R("AZ","az","__")*m.R("AZ","az","__","09")^0 local arrow=S*"<-" local seq_follow=m.P"/"+")"+"}"+":}"+"~}"+"|}"+(name*arrow)+-1 name=m.C(name) local Def=name*m.Carg(1) local function getdef(id,defs)local c=defs and defs[id];if not c then error("undefined name: "..id)end;return c end local function defwithfunc(f)return m.Cg(Def/getdef*m.Cc(f))end local num=m.C(m.R"09"^1)*S/tonumber local String="'"*m.C((any-"'")^0)*"'"+'"'*m.C((any-'"')^0)*'"' local defined="%"*Def/function(c,Defs)local cat=Defs and Defs[c]or Predef[c];if not cat then error("name '"..c.."' undefined")end;return cat end local Range=m.Cs(any*(m.P"-"/"")*(any-"]"))/mm.R local item=(defined+Range+m.C(any))/m.P local Class="["*(m.C(m.P"^"^-1))*(item*((item%mt.__add)-"]")^0)/function(c,p)return c=="^"and any-p or p end*"]" local function adddef(t,k,exp)if t[k]then error("'"..k.."' already defined as a rule")else t[k]=exp end;return t end local function firstdef(n,r)return adddef({n},n,r)end local function NT(n,b)if not b then error("rule '"..n.."' used outside a grammar")else return mm.V(n)end end local exp=m.P{"Exp", Exp=S*(m.V"Grammar"+m.V"Seq"*("/"*S*m.V"Seq"%mt.__add)^0), Seq=(m.Cc(m.P"")*(m.V"Prefix"%mt.__mul)^0)*(#seq_follow+patt_error), Prefix="&"*S*m.V"Prefix"/mt.__len+"!"*S*m.V"Prefix"/mt.__unm+m.V"Suffix", Suffix=m.V"Primary"*S*((m.P"+"*m.Cc(1,mt.__pow)+m.P"*"*m.Cc(0,mt.__pow)+m.P"?"*m.Cc(-1,mt.__pow)+"^"*(m.Cg(num*m.Cc(mult))+m.Cg(m.C(m.S"+-"*m.R"09"^1)*m.Cc(mt.__pow)))+"->"*S*(m.Cg((String+num)*m.Cc(mt.__div))+m.P"{}"*m.Cc(nil,m.Ct)+defwithfunc(mt.__div))+"=>"*S*defwithfunc(mm.Cmt)+">>"*S*defwithfunc(mt.__mod)+"~>"*S*defwithfunc(mm.Cf))%function(a,b,f)return f(a,b)end*S)^0, Primary="("*m.V"Exp"*")"+String/mm.P+Class+defined+"{:"*(name*":"+m.Cc(nil))*m.V"Exp"*":}"/function(n,p)return mm.Cg(p,n)end+"="*name/function(n)return mm.Cmt(mm.Cb(n),equalcap)end+m.P"{}"/mm.Cp+"{~"*m.V"Exp"*"~}"/mm.Cs+"{|"*m.V"Exp"*"|}"/mm.Ct+"{"*m.V"Exp"*"}"/mm.C+m.P"."*m.Cc(any)+(name*-arrow+"<"*name*">")*m.Cb("G")/NT, Definition=name*arrow*m.V"Exp", Grammar=m.Cg(m.Cc(true),"G")*((m.V"Definition"/firstdef)*(m.V"Definition"%adddef)^0)/mm.P } local pattern=S*m.Cg(m.Cc(false),"G")*exp/mm.P*(-any+patt_error) local function compile(p,defs)if mm.type(p)=="pattern"then return p end;local cp=pattern:match(p,1,defs);if not cp then error("incorrect pattern",3)end;return cp end local function match(s,p,i)local cp=mem[p];if not cp then cp=compile(p);mem[p]=cp end;return cp:match(s,i or 1)end local function find(s,p,i)local cp=fmem[p];if not cp then cp=compile(p)/0;cp=mm.P{mm.Cp()*cp*mm.Cp()+1*mm.V(1)};fmem[p]=cp end;local first,ending=cp:match(s,i or 1);if first then return first,ending-1 end;return first end local function gsub(s,p,rep)local g=gmem[p]or{};gmem[p]=g;local cp=g[rep];if not cp then cp=compile(p);cp=mm.Cs((cp/rep+1)^0);g[rep]=cp end;return cp:match(s)end local re={compile=compile,match=match,find=find,gsub=gsub,updatelocale=updatelocale} if version=="Lua 5.1"then _G.re=re end return re end;local __nuppExports={};package.loaded["nupp.pegruntime"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local codegen;__nuppExports["codegen"]=function(...) return codegen(...) end;local compile;__nuppExports["compile"]=function(...) return compile(...) end;local fromPattern;__nuppExports["fromPattern"]=function(...) return fromPattern(...) end;local graphPattern;__nuppExports["graphPattern"]=function(...) return graphPattern(...) end;local lpegBackend;__nuppExports["lpegBackend"]=function(...) return lpegBackend(...) end;local matcher;__nuppExports["matcher"]=function(...) return matcher(...) end;local start;__nuppExports["start"]=function(...) return start(...) end;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local lpeg = require ( "lpeg" )
+
+
+
+
+
+
+
+
+
+
+
+
+
+start=function ( subject , init , level )
+if type ( subject ) ~= "string" then
+error ( "nupp: PEG subject must be a string" , level )
+end
+local at = 1
+if init == nil then
+at = 1
+elseif type ( init ) ~= "number" or init ~= math . floor ( init ) then
+error ( "nupp: PEG init must be an integer" , level )
+elseif ( init ) < 0 then
+at = # subject + ( init ) + 1
+else
+at = init
+end
+if at < 1 then
+at = 1
+end
+if at > # subject + 1 then
+return nil
+end
+
+return at
+end ;__nuppExports["start"]=start
+
+
+
+
+local function findFrom (
+run ,
+take ,
+captureful ,
+subject ,
+init ,
+search
+)
+if search ~= nil and search . direct ~= nil then
+local first , last = subject : find ( search . direct , init , search . directPlain )
+if first == nil then
+return nil
+end
+local nextPosition = ( last ) + 1
+if search . result == "string" then
+return first , nextPosition , subject : sub ( first , last )
+end
+
+return first , nextPosition , nextPosition
+end
+local position = init
+while ( position ) <= # subject + 1 do
+if search ~= nil then
+position = subject : find ( search . value , position , search . plain )
+if position == nil then
+return nil
+end
+end
+local nextPosition = run ( subject , position )
+if nextPosition ~= nil then
+if captureful then
+return position , nextPosition , take ( )
+end
+
+return position , nextPosition , nextPosition
+end
+position = ( position ) + 1
+end
+
+return nil
+end
+
+
+local function replaced ( replacement , first , nextPosition , ... )
+local out = replacement ( first , nextPosition , ... )
+if type ( out ) ~= "string" then
+error ( "nupp: PEG replacement callback must return a string" , 3 )
+end
+
+return out
+end
+
+local function visited ( visitor , first , nextPosition , ... )
+if first ~= nil then
+visitor ( first , nextPosition , ... )
+
+return first , nextPosition
+end
+
+return nil
+end
+
+local function replacementAt (
+replacement ,
+first ,
+nextPosition ,
+...
+)
+if first ~= nil then
+return first , nextPosition , replaced ( replacement , first , nextPosition , ... )
+end
+
+return nil
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+matcher=function (
+run ,
+take ,
+captureful ,
+search ,
+generatedFind ,
+directReplaceAll ,
+generatedTraverse
+)
+local Matcher = { }
+Matcher . __index = Matcher
+local function findAt ( subject , init )
+if generatedFind ~= nil then
+return generatedFind ( subject , init )
+end
+
+return findFrom ( run , take , captureful , subject , init , search )
+end
+
+Matcher . match = function ( self , subject , init )
+local at = start ( subject , init , 2 )
+if at == nil then
+return nil
+end
+local nextPosition = run ( subject , at )
+if nextPosition == nil then
+return nil
+end
+if captureful then
+return take ( )
+end
+
+return nextPosition
+end
+Matcher . find = function ( self , subject , init )
+local at = start ( subject , init , 2 )
+if at == nil then
+return nil
+end
+
+return findAt ( subject , at )
+end
+Matcher . isMatch = function ( self , subject , init )
+local at = start ( subject , init , 2 )
+
+return at ~= nil and findAt ( subject , at ) ~= nil
+end
+Matcher . forEachMatch = function ( self , subject , visitor , init )
+if type ( visitor ) ~= "function" then
+error ( "nupp: PEG match visitor must be a function" , 2 )
+end
+local cursor = start ( subject , init , 2 )
+if cursor == nil then
+return 0
+end
+if generatedTraverse ~= nil then
+return generatedTraverse ( subject , visitor , cursor )
+end
+local count = 0
+while ( cursor ) <= # subject + 1 do
+local first , nextPosition = visited ( visitor , findAt ( subject , cursor ) )
+if first == nil then
+break
+end
+count = count + 1
+cursor = ( nextPosition ) > ( first ) and nextPosition or ( first ) + 1
+end
+
+return count
+end
+
+
+
+Matcher . __nuppPegReplaceLiteral = function ( self , subject , replacement , init )
+local at = start ( subject , init , 2 )
+if at == nil then
+return subject
+end
+local first , nextPosition = findAt ( subject , at )
+if first == nil then
+return subject
+end
+
+return subject : sub ( 1 , ( first ) - 1 ) .. replacement .. subject : sub ( nextPosition )
+end
+Matcher . __nuppPegReplaceCallback = function ( self , subject , replacement , init )
+local at = start ( subject , init , 2 )
+if at == nil then
+return subject
+end
+local first , nextPosition , value = replacementAt ( replacement , findAt ( subject , at ) )
+if first == nil then
+return subject
+end
+
+return subject : sub ( 1 , ( first ) - 1 ) .. ( value ) .. subject : sub ( nextPosition )
+end
+Matcher . replace = function ( self , subject , replacement , init )
+if type ( replacement ) == "string" then
+return self : __nuppPegReplaceLiteral ( subject , replacement , init )
+elseif type ( replacement ) == "function" then
+return self : __nuppPegReplaceCallback ( subject , replacement , init )
+end
+error ( "nupp: PEG replacement must be a string or function" , 2 )
+end
+
+
+
+Matcher . __nuppPegReplaceAllLiteral = function (
+self ,
+subject ,
+replacement ,
+init
+)
+local at = start ( subject , init , 2 )
+if at == nil then
+return subject
+end
+if directReplaceAll ~= nil then
+return directReplaceAll ( subject , replacement , at )
+end
+local parts = { }
+local count = 0
+local cursor , copyAt = at , 1
+while cursor <= # subject + 1 do
+local first , nextPosition = findAt ( subject , cursor )
+if first == nil then
+break
+end
+count = count + 1
+parts [ # parts + 1 ] = subject : sub ( copyAt , ( first ) - 1 )
+parts [ # parts + 1 ] = replacement
+copyAt = nextPosition
+if ( nextPosition ) > ( first ) then
+cursor = nextPosition
+elseif ( first ) <= # subject then
+parts [ # parts + 1 ] = subject : sub ( first , first )
+copyAt = ( first ) + 1
+cursor = ( first ) + 1
+else
+cursor = ( first ) + 1
+end
+end
+if count == 0 then
+return subject
+end
+parts [ # parts + 1 ] = subject : sub ( copyAt )
+
+return table . concat ( parts )
+end
+Matcher . __nuppPegReplaceAllCallback = function ( self , subject , replacement , init )
+local at = start ( subject , init , 2 )
+if at == nil then
+return subject
+end
+local parts = { }
+local count = 0
+local cursor , copyAt = at , 1
+while cursor <= # subject + 1 do
+local first , nextPosition , value = replacementAt ( replacement , findAt ( subject , cursor ) )
+if first == nil then
+break
+end
+count = count + 1
+parts [ # parts + 1 ] = subject : sub ( copyAt , ( first ) - 1 )
+parts [ # parts + 1 ] = value
+copyAt = nextPosition
+if ( nextPosition ) > ( first ) then
+cursor = nextPosition
+elseif ( first ) <= # subject then
+parts [ # parts + 1 ] = subject : sub ( first , first )
+copyAt = ( first ) + 1
+cursor = ( first ) + 1
+else
+cursor = ( first ) + 1
+end
+end
+if count == 0 then
+return subject
+end
+parts [ # parts + 1 ] = subject : sub ( copyAt )
+
+return table . concat ( parts )
+end
+Matcher . replaceAll = function ( self , subject , replacement , init )
+if type ( replacement ) == "string" then
+return self : __nuppPegReplaceAllLiteral ( subject , replacement , init )
+elseif type ( replacement ) == "function" then
+return self : __nuppPegReplaceAllCallback ( subject , replacement , init )
+end
+error ( "nupp: PEG replacement must be a string or function" , 2 )
+end
+Matcher . __call = Matcher . match
+
+return setmetatable ( { } , Matcher )
+end ;__nuppExports["matcher"]=matcher
+
+
+
+
+
+
+
+
+
+
+
+
+graphPattern=function ( program , definitions )
+local given = definitions or { }
+for _ , name in ipairs ( program . actions or { } ) do
+if rawget ( given , name ) == nil then
+error ( "nupp: missing PEG definition " .. tostring ( name ) , 3 )
+end
+end
+local P , S , V = lpeg . P , lpeg . S , lpeg . V
+local C , Ct , Cg , Cb , Cp , Cs , Cmt , Cf = lpeg . C , lpeg . Ct , lpeg . Cg , lpeg . Cb , lpeg . Cp , lpeg . Cs , lpeg . Cmt , lpeg . Cf
+
+
+
+local unkeyedGroup = lpeg . Cg
+local nodes = program . graph . nodes
+local memo = { }
+local targets = { }
+
+
+
+
+local function equalcap ( subject , position , captured )
+if type ( captured ) ~= "string" then
+return false
+end
+local ending = position + # ( captured )
+if subject : sub ( position , ending - 1 ) == captured then
+return ending
+end
+
+return false
+end
+
+local build
+build = function ( index )
+local prior = memo [ index ]
+if prior then
+return prior
+end
+local node = nodes [ index ]
+local op = node [ 1 ]
+local pattern
+if op == "literal" then
+pattern = P ( node [ 2 ] )
+elseif op == "set" then
+pattern = S ( node [ 2 ] )
+elseif op == "any" then
+pattern = P ( 1 )
+elseif op == "eof" then
+pattern = - P ( 1 )
+elseif op == "sequence" then
+pattern = P ( true )
+for child = 2 , # node do
+pattern = pattern * build ( node [ child ] )
+end
+elseif op == "choice" then
+pattern = P ( false )
+for child = 2 , # node do
+pattern = pattern + build ( node [ child ] )
+end
+elseif op == "difference" then
+pattern = build ( node [ 2 ] ) - build ( node [ 3 ] )
+elseif op == "zeroOrMore" then
+pattern = build ( node [ 2 ] ) ^ 0
+elseif op == "oneOrMore" then
+pattern = build ( node [ 2 ] ) ^ 1
+elseif op == "optional" then
+pattern = build ( node [ 2 ] ) ^ - 1
+elseif op == "and" then
+pattern = # build ( node [ 2 ] )
+elseif op == "not" then
+pattern = - build ( node [ 2 ] )
+elseif op == "capture" then
+pattern = C ( build ( node [ 2 ] ) )
+elseif op == "collect" or op == "tableCapture" then
+pattern = Ct ( build ( node [ 2 ] ) )
+elseif op == "group" then
+local grouped = build ( node [ 2 ] )
+if node [ 3 ] ~= nil then
+pattern = Cg ( grouped , node [ 3 ] )
+else
+pattern = unkeyedGroup ( grouped )
+end
+elseif op == "substitution" then
+pattern = Cs ( build ( node [ 2 ] ) )
+elseif op == "position" then
+pattern = Cp ( )
+elseif op == "backReference" then
+pattern = Cmt ( Cb ( node [ 2 ] ) , equalcap )
+elseif op == "external" then
+pattern = P ( given [ node [ 2 ] ] )
+elseif op == "transform" then
+local spec = node [ 3 ]
+local target = spec [ 1 ] == "definition" and given [ spec [ 2 ] ] or spec [ 2 ]
+pattern = build ( node [ 2 ] ) / target
+elseif op == "matchTime" then
+pattern = Cmt ( build ( node [ 2 ] ) , given [ node [ 3 ] ] )
+elseif op == "accumulate" then
+pattern = build ( node [ 2 ] ) % given [ node [ 3 ] ]
+elseif op == "fold" then
+pattern = Cf ( build ( node [ 2 ] ) , given [ node [ 3 ] ] )
+elseif op == "action" then
+
+
+local callback = given [ node [ 3 ] ]
+pattern = C ( build ( node [ 2 ] ) / 0 ) / function ( text )
+return callback ( text )
+end
+elseif op == "reference" then
+targets [ node [ 2 ] ] = true
+pattern = V ( "n" .. tostring ( node [ 2 ] ) )
+else
+error ( "nupp: unknown PEG graph operation " .. tostring ( op ) , 3 )
+end
+memo [ index ] = pattern
+
+return pattern
+end
+
+local pattern = build ( program . graph . root )
+if next ( targets ) ~= nil then
+
+
+local grammar = { pattern }
+local done = { }
+while true do
+local target = nil
+for candidate in pairs ( targets ) do
+if not done [ candidate ] then
+target = candidate
+break
+end
+end
+if target == nil then
+break
+end
+done [ target ] = true
+grammar [ "n" .. tostring ( target ) ] = build ( target )
+end
+pattern = P ( grammar )
+end
+
+return pattern
+end ;__nuppExports["graphPattern"]=graphPattern
+
+
+
+
+
+
+
+
+
+
+fromPattern=function ( pattern )
+local function pack ( ... )
+return { n = select ( "#" , ... ) , ... , }
+end
+
+local resultValues = nil
+local execution = ( pattern ) * lpeg . Cp ( )
+local function run ( subject , position )
+local values = pack ( lpeg . match ( execution , subject , position ) )
+local nextPosition = values [ values . n ]
+if nextPosition == nil then
+return nil
+end
+values [ values . n ] = nil
+values . n = values . n - 1
+
+if values . n == 0 then
+values . n = 1
+values [ 1 ] = nextPosition
+end
+resultValues = values
+
+return nextPosition
+end
+
+local function take ( )
+local values = resultValues
+resultValues = nil
+
+return unpack ( values , 1 , values . n )
+end
+
+return matcher ( run , take , true , nil , nil , nil , nil )
+end ;__nuppExports["fromPattern"]=fromPattern
+
+
+
+
+
+
+lpegBackend=function ( program , definitions )
+return fromPattern ( graphPattern ( program , definitions ) )
+end ;__nuppExports["lpegBackend"]=lpegBackend
+
+
+
+
+
+
+local function fastScan9Run ( plan , sets )
+local keys = plan . packedKeys
+local k1 , k2 , k3 , k4 = keys [ 1 ] , keys [ 2 ] , keys [ 3 ] , keys [ 4 ]
+local k5 , k6 , k7 , k8 = keys [ 5 ] , keys [ 6 ] , keys [ 7 ] , keys [ 8 ]
+local delimiter , separatorLength = ( plan . separator ) : byte ( ) , # ( plan . separator )
+local scanByte = nil
+local scanClass = nil
+if ( plan . scan ) < 256 then
+scanByte = plan . scan
+else
+scanClass = sets [ ( plan . scan ) - 255 ]
+end
+local suffix , minimum = plan . suffix , plan . minimum
+local suffixHead = ( ( suffix [ 1 ] * 256 + suffix [ 2 ] ) * 256 + suffix [ 3 ] ) * 256 + suffix [ 4 ]
+local suffixTail = ( ( suffix [ 5 ] * 256 + suffix [ 6 ] ) * 256 + suffix [ 7 ] ) * 256 + suffix [ 8 ]
+local lastByte = nil
+local lastClass = nil
+if ( suffix [ 9 ] ) < 256 then
+lastByte = suffix [ 9 ]
+else
+lastClass = sets [ ( suffix [ 9 ] ) - 255 ]
+end
+
+return function ( subject , position )
+local a , b , c , d , e , f , g = subject : byte ( position , position + 6 )
+if not a then
+return nil
+end
+local key = nil
+local prefixLength = 0
+if b == delimiter then
+prefixLength = 1
+key = a * 8 + 1
+elseif c == delimiter then
+prefixLength = 2
+key = ( a * 256 + b ) * 8 + 2
+elseif d == delimiter then
+prefixLength = 3
+key = ( ( a * 256 + b ) * 256 + c ) * 8 + 3
+elseif e == delimiter then
+prefixLength = 4
+key = ( ( ( a * 256 + b ) * 256 + c ) * 256 + d ) * 8 + 4
+elseif f == delimiter then
+prefixLength = 5
+key = ( ( ( ( a * 256 + b ) * 256 + c ) * 256 + d ) * 256 + e ) * 8 + 5
+elseif g == delimiter then
+prefixLength = 6
+key = ( ( ( ( ( a * 256 + b ) * 256 + c ) * 256 + d ) * 256 + e ) * 256 + f ) * 8 + 6
+else
+return nil
+end
+if not (
+key == k1 or key == k2 or key == k3 or key == k4 or key == k5 or key == k6 or key == k7 or key == k8
+) then
+return nil
+end
+local at = position + prefixLength + separatorLength
+local suffixStart = # subject - 8
+if suffixStart - at < ( minimum ) then
+return nil
+end
+if scanClass ~= nil then
+for index = at , suffixStart - 1 do
+local byte = subject : byte ( index )
+if ( scanClass ) : byte ( ( byte ) + 1 ) == 0 then
+return nil
+end
+end
+else
+for index = at , suffixStart - 1 do
+if subject : byte ( index ) ~= scanByte then
+return nil
+end
+end
+end
+local q , r , s , t , u , v , w , x , y = subject : byte ( suffixStart , # subject )
+if (
+( q * 256 + r ) * 256 + s
+) * 256 + t == suffixHead and (
+( u * 256 + v ) * 256 + w
+) * 256 + x == suffixTail and (
+( lastByte ~= nil and y == lastByte ) or ( lastClass ~= nil and ( lastClass ) : byte ( y + 1 ) ~= 0 )
+) then
+return # subject + 1
+end
+
+return nil
+end
+end
+
+
+
+local function checkSource ( encoded , expression )
+if encoded < 256 then
+return expression .. "==" .. tostring ( encoded )
+end
+
+return "sets[" .. tostring ( encoded - 255 ) .. "]:byte(" .. expression .. "+1)~=0"
+end
+
+
+
+
+local function repeatSource ( plan )
+local head = checkSource ( plan . head , "byte" )
+local tail = checkSource ( plan . tail , "byte" )
+local accept = plan . eof and "if position~=#subject+1 then return nil end;" or ""
+local result = plan . result == "string"
+and "lastSubject,lastFirst,lastNext=subject,first,position;return position"
+or "return position"
+local visitValue = plan . result == "string" and "subject:sub(first,position-1)" or "position"
+local visit = plan . eof
+and "if position==length+1 then count=count+1;visitor(first,position,"
+.. visitValue
+.. ");return count end"
+or "count=count+1;visitor(first,position,"
+.. visitValue
+.. ")"
+local state = plan . result == "string"
+and "local lastSubject,lastFirst,lastNext;"
+.. "local function take()return lastSubject:sub(lastFirst,lastNext-1)end;"
+or ""
+local take = plan . result == "string" and "take" or "nil"
+
+return "return function(sets)"
+.. state
+.. "local function run(subject,position)local first=position;local byte=subject:byte(position);"
+.. "if not byte or not("
+.. head
+.. ")then return nil end;position=position+1;"
+.. "while true do byte=subject:byte(position);if not byte or not("
+.. tail
+.. ")then break end;"
+.. "position=position+1 end;"
+.. accept
+.. result
+.. " end;"
+.. "local function traverse(subject,visitor,position)local count,length=0,#subject;"
+.. "while position<=length do local byte=subject:byte(position);if "
+.. head
+.. " then local first=position;position=position+1;"
+.. "while true do byte=subject:byte(position);if not byte or not("
+.. tail
+.. ")then break end;"
+.. "position=position+1 end;"
+.. visit
+.. " else position=position+1 end end;return count end;"
+.. "return run,"
+.. take
+.. ",traverse end"
+end
+
+
+
+local function fixedSource ( checks )
+local conditions = { "position+" .. tostring ( # checks ) .. "==#subject+1" , }
+for index , encoded in ipairs ( checks ) do
+local expression = "subject:byte(position+" .. tostring ( index - 1 ) .. ")"
+conditions [ # conditions + 1 ] = checkSource ( encoded , expression )
+end
+
+return "return function(sets)return function(subject,position)if " .. table . concat (
+conditions ,
+" and "
+) .. " then return position+" .. tostring ( # checks ) .. " end end end"
+end
+
+
+
+
+
+
+
+
+
+
+
+
+codegen=function ( program , definitions )
+local scan = program . fastScan
+if scan ~= nil and scan . packedKeys ~= nil and ( scan . maximum ) <= 6 and # scan . keys <= 8 then
+local suffix = scan . suffix
+if # suffix == 9 and suffix [
+1
+] < 256 and suffix [
+2
+] < 256 and suffix [
+3
+] < 256 and suffix [ 4 ] < 256 and suffix [ 5 ] < 256 and suffix [ 6 ] < 256 and suffix [ 7 ] < 256 and suffix [ 8 ] < 256 then
+return matcher ( fastScan9Run ( scan , program . sets ) , nil , false , program . search , nil , nil , nil )
+end
+end
+local source = nil
+if program . fastRepeat ~= nil then
+source = repeatSource ( program . fastRepeat )
+elseif program . fastFixed ~= nil then
+source = fixedSource ( program . fastFixed )
+else
+return lpegBackend ( program , definitions )
+end
+local chunk , why = loadstring ( source , "=nupp PEG specialization" )
+if not chunk then
+error ( "nupp: PEG specialization failed: " .. tostring ( why ) , 2 )
+end
+local run , take , traverse = ( chunk ) ( ) ( program . sets )
+
+return matcher ( run , take , program . captureful , program . search , nil , nil , traverse )
+end ;__nuppExports["codegen"]=codegen
+
+
+
+
+local patternCache = setmetatable ( { } , { __mode = "v" , } )
+
+
+
+
+
+
+
+
+
+
+
+
+compile=function ( source , options )
+if type ( source ) ~= "string" then
+error ( "nupp: PEG compile source must be a string" , 2 )
+end
+if options ~= nil and type ( options ) ~= "table" then
+error ( "nupp: PEG compile options must be a table" , 2 )
+end
+local given = options or { }
+local backend = given . backend or "auto"
+if backend ~= "auto" and backend ~= "lpeg" then
+error ( "nupp: PEG compile backend must be 'auto' or 'lpeg'" , 2 )
+end
+local definitions = given . definitions or given . defs or given . actions
+local pattern = nil
+if definitions == nil then
+pattern = patternCache [ source ]
+if not pattern then
+pattern = require ( "re" ) . compile ( source )
+patternCache [ source ] = pattern
+end
+else
+pattern = require ( "re" ) . compile ( source , definitions )
+end
+
+return fromPattern ( pattern )
+end ;__nuppExports["compile"]=compile
+ end);if not __nuppOk then package.loaded["nupp.pegruntime"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.pegruntime"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.profile"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
@@ -152734,6 +153479,829 @@ _G.__nuppDynamicPolicyCount = function(policy: string): integer
 end
 
 export = store
+]=],
+["/nupp/pegruntime.nupp"] = [=[
+@!internal
+
+module nupp.pegruntime
+
+--[[
+What a compiled PEG matcher is at run time.
+
+The compiler owns the grammar: it parses it, types its result pack, and decides
+whether a shape is one of the few worth emitting as straight-line Lua. What is left
+is this -- the matcher shell every backend answers, the lowering from the compiler's
+graph to native LPeg patterns, the specialization templates, and the runtime
+`compile` a program reaches when its grammar is not static.
+
+Programs reach it as `nupp.peg`, which the prelude declares and the bootstrap
+installs: the declaration stays there because `nupp.peg.compile` is a call the
+materializer folds at compile time and `nupp.peg.Peg` is a nominal the checker mints,
+neither of which a module can own. What the bootstrap installs is this module.
+
+A matcher closes over its `run` and `take` rather than storing them, and each one gets
+its own metatable. That is deliberate and load-bearing: `match` reads an upvalue where
+a shared record method would read a field, and matching is the hot path. So the factory
+below is written as it runs rather than as it would be typed.
+]]
+
+-- The backtrack stack limit is not raised here. LPeg's default of 400 frames is too
+-- small for a recursive grammar of any depth, but the limit is global to the LPeg
+-- handle, and a module raises it once for whoever required it first. The bootstrap
+-- raises it per program instead, which is whose decision it is.
+local lpeg = require("lpeg")
+
+--- Normalizes a match position against a subject.
+---
+--- A negative position counts from the end the way Lua's string operations do,
+--- positions before the beginning clamp to 1, and one past the end is a failure rather
+--- than a clamp.
+---
+--- @param subject the bytes being matched
+--- @param init the caller's position, or nil for the beginning
+--- @param level the error level to report a bad argument at
+--- @return the 1-based position, or nil when it is past the end
+--- @raises when subject is not a string, or init is not an integer
+--- @export
+export function start(subject: string, init: integer?, level: integer): integer?
+    if type(subject) ~= "string" then
+        error("nupp: PEG subject must be a string", level)
+    end
+    local at = 1
+    if init == nil then
+        at = 1
+    elseif type(init) ~= "number" or init ~= math.floor(init as number) then
+        error("nupp: PEG init must be an integer", level)
+    elseif (init as integer) < 0 then
+        at = #subject + (init as integer) + 1
+    else
+        at = init as integer
+    end
+    if at < 1 then
+        at = 1
+    end
+    if at > #subject + 1 then
+        return nil
+    end
+
+    return at
+end
+
+-- Scans forward for the first position the matcher accepts. `search` is the compiler's
+-- prefilter: `direct` is a plain or pattern find that answers the whole match by
+-- itself, and `value` is one that only proposes a starting position.
+local function findFrom(
+    run: any,
+    take: any,
+    captureful: boolean,
+    subject: string,
+    init: integer,
+    search: any
+): (integer?, integer?,...any)
+    if search ~= nil and search.direct ~= nil then
+        local first, last = subject:find(search.direct as string, init, search.directPlain as boolean)
+        if first == nil then
+            return nil
+        end
+        local nextPosition = (last as integer) + 1
+        if search.result == "string" then
+            return first as integer, nextPosition, subject:sub(first as integer, last as integer)
+        end
+
+        return first as integer, nextPosition, nextPosition
+    end
+    local position: integer? = init
+    while (position as integer) <= #subject + 1 do
+        if search ~= nil then
+            position = subject:find(search.value as string, position as integer, search.plain as boolean)
+            if position == nil then
+                return nil
+            end
+        end
+        local nextPosition = run(subject, position)
+        if nextPosition ~= nil then
+            if captureful then
+                return position as integer, nextPosition as integer, take()
+            end
+
+            return position as integer, nextPosition as integer, nextPosition
+        end
+        position = (position as integer) + 1
+    end
+
+    return nil
+end
+
+--- @raises when the callback answers anything but a string
+local function replaced(replacement: any, first: integer, nextPosition: integer, ...: any): string
+    local out = replacement(first, nextPosition, ...)
+    if type(out) ~= "string" then
+        error("nupp: PEG replacement callback must return a string", 3)
+    end
+
+    return out as string
+end
+
+local function visited(visitor: any, first: integer?, nextPosition: integer?, ...: any): (integer?, integer?)
+    if first ~= nil then
+        visitor(first, nextPosition, ...)
+
+        return first, nextPosition
+    end
+
+    return nil
+end
+
+local function replacementAt(
+    replacement: any,
+    first: integer?,
+    nextPosition: integer?,
+    ...: any
+): (integer?, integer?, string?)
+    if first ~= nil then
+        return first, nextPosition, replaced(replacement, first as integer, nextPosition as integer, ...)
+    end
+
+    return nil
+end
+
+--- Builds the matcher every backend answers.
+---
+--- Written as closures over a per-matcher metatable rather than as one shared record,
+--- because `match` reading an upvalue is the difference this makes: a shared method
+--- would read the same values back out of the instance on every call, and matching is
+--- what a grammar is for.
+---
+--- @param run answers the position after a match at a position, or nil
+--- @param take answers the captures the last run produced
+--- @param captureful whether the grammar produces captures at all
+--- @param search the compiler's prefilter, when it found one
+--- @param generatedFind a specialized whole-scan, when one was emitted
+--- @param directReplaceAll a specialized replace-all, when one was emitted
+--- @param generatedTraverse a specialized visit-every-match, when one was emitted
+--- @return the matcher
+--- @export
+export function matcher(
+    run: any,
+    take: any,
+    captureful: boolean,
+    search: any,
+    generatedFind: any,
+    directReplaceAll: any,
+    generatedTraverse: any
+): any
+    local Matcher: any = {}
+    Matcher.__index = Matcher
+    local function findAt(subject: string, init: integer): (integer?, integer?,...any)
+        if generatedFind ~= nil then
+            return generatedFind(subject, init)
+        end
+
+        return findFrom(run, take, captureful, subject, init, search)
+    end
+
+    Matcher.match = function(self: any, subject: string, init: integer?): any
+        local at = start(subject, init, 2)
+        if at == nil then
+            return nil
+        end
+        local nextPosition = run(subject, at)
+        if nextPosition == nil then
+            return nil
+        end
+        if captureful then
+            return take()
+        end
+
+        return nextPosition
+    end
+    Matcher.find = function(self: any, subject: string, init: integer?): (integer?, integer?,...any)
+        local at = start(subject, init, 2)
+        if at == nil then
+            return nil
+        end
+
+        return findAt(subject, at as integer)
+    end
+    Matcher.isMatch = function(self: any, subject: string, init: integer?): boolean
+        local at = start(subject, init, 2)
+
+        return at ~= nil and findAt(subject, at as integer) ~= nil
+    end
+    Matcher.forEachMatch = function(self: any, subject: string, visitor: any, init: integer?): integer
+        if type(visitor) ~= "function" then
+            error("nupp: PEG match visitor must be a function", 2)
+        end
+        local cursor = start(subject, init, 2)
+        if cursor == nil then
+            return 0
+        end
+        if generatedTraverse ~= nil then
+            return generatedTraverse(subject, visitor, cursor) as integer
+        end
+        local count: integer = 0
+        while (cursor as integer) <= #subject + 1 do
+            local first, nextPosition = visited(visitor, findAt(subject, cursor as integer))
+            if first == nil then
+                break
+            end
+            count = count + 1
+            cursor = (nextPosition as integer) > (first as integer) and nextPosition or (first as integer) + 1
+        end
+
+        return count
+    end
+    -- The four replace bodies are named rather than folded into `replace`, because the
+    -- checker selects one of them directly when it can see statically whether the
+    -- replacement is a string or a function, and calls it instead of dispatching.
+    Matcher.__nuppPegReplaceLiteral = function(self: any, subject: string, replacement: string, init: integer?): string
+        local at = start(subject, init, 2)
+        if at == nil then
+            return subject
+        end
+        local first, nextPosition = findAt(subject, at as integer)
+        if first == nil then
+            return subject
+        end
+
+        return subject:sub(1, (first as integer) - 1) .. replacement .. subject:sub(nextPosition as integer)
+    end
+    Matcher.__nuppPegReplaceCallback = function(self: any, subject: string, replacement: any, init: integer?): string
+        local at = start(subject, init, 2)
+        if at == nil then
+            return subject
+        end
+        local first, nextPosition, value = replacementAt(replacement, findAt(subject, at as integer))
+        if first == nil then
+            return subject
+        end
+
+        return subject:sub(1, (first as integer) - 1) .. (value as string) .. subject:sub(nextPosition as integer)
+    end
+    Matcher.replace = function(self: any, subject: string, replacement: any, init: integer?): string
+        if type(replacement) == "string" then
+            return self:__nuppPegReplaceLiteral(subject, replacement, init) as string
+        elseif type(replacement) == "function" then
+            return self:__nuppPegReplaceCallback(subject, replacement, init) as string
+        end
+        error("nupp: PEG replacement must be a string or function", 2)
+    end
+    -- An empty match cannot be allowed to stand still: the cursor steps past one byte
+    -- and that byte is copied through, which is what keeps `a*` from looping forever
+    -- and from eating the subject.
+    Matcher.__nuppPegReplaceAllLiteral = function(
+        self: any,
+        subject: string,
+        replacement: string,
+        init: integer?
+    ): string
+        local at = start(subject, init, 2)
+        if at == nil then
+            return subject
+        end
+        if directReplaceAll ~= nil then
+            return directReplaceAll(subject, replacement, at) as string
+        end
+        local parts: {string} = {}
+        local count: integer = 0
+        local cursor, copyAt = at as integer, 1
+        while cursor <= #subject + 1 do
+            local first, nextPosition = findAt(subject, cursor)
+            if first == nil then
+                break
+            end
+            count = count + 1
+            parts[#parts + 1] = subject:sub(copyAt, (first as integer) - 1)
+            parts[#parts + 1] = replacement
+            copyAt = nextPosition as integer
+            if (nextPosition as integer) > (first as integer) then
+                cursor = nextPosition as integer
+            elseif (first as integer) <= #subject then
+                parts[#parts + 1] = subject:sub(first as integer, first as integer)
+                copyAt = (first as integer) + 1
+                cursor = (first as integer) + 1
+            else
+                cursor = (first as integer) + 1
+            end
+        end
+        if count == 0 then
+            return subject
+        end
+        parts[#parts + 1] = subject:sub(copyAt)
+
+        return table.concat(parts)
+    end
+    Matcher.__nuppPegReplaceAllCallback = function(self: any, subject: string, replacement: any, init: integer?): string
+        local at = start(subject, init, 2)
+        if at == nil then
+            return subject
+        end
+        local parts: {string} = {}
+        local count: integer = 0
+        local cursor, copyAt = at as integer, 1
+        while cursor <= #subject + 1 do
+            local first, nextPosition, value = replacementAt(replacement, findAt(subject, cursor))
+            if first == nil then
+                break
+            end
+            count = count + 1
+            parts[#parts + 1] = subject:sub(copyAt, (first as integer) - 1)
+            parts[#parts + 1] = value as string
+            copyAt = nextPosition as integer
+            if (nextPosition as integer) > (first as integer) then
+                cursor = nextPosition as integer
+            elseif (first as integer) <= #subject then
+                parts[#parts + 1] = subject:sub(first as integer, first as integer)
+                copyAt = (first as integer) + 1
+                cursor = (first as integer) + 1
+            else
+                cursor = (first as integer) + 1
+            end
+        end
+        if count == 0 then
+            return subject
+        end
+        parts[#parts + 1] = subject:sub(copyAt)
+
+        return table.concat(parts)
+    end
+    Matcher.replaceAll = function(self: any, subject: string, replacement: any, init: integer?): string
+        if type(replacement) == "string" then
+            return self:__nuppPegReplaceAllLiteral(subject, replacement, init) as string
+        elseif type(replacement) == "function" then
+            return self:__nuppPegReplaceAllCallback(subject, replacement, init) as string
+        end
+        error("nupp: PEG replacement must be a string or function", 2)
+    end
+    Matcher.__call = Matcher.match
+
+    return setmetatable({}, Matcher)
+end
+
+--- Lowers the compiler's grammar graph to a native LPeg pattern.
+---
+--- Every node is built once and memoized, because a graph is a graph: a rule reached
+--- from two places is one pattern, not two. A grammar is assembled only when something
+--- actually referenced a rule, so an expression with no recursion stays a bare pattern.
+---
+--- @param program the compiled grammar the materializer produced
+--- @param definitions the values its `%name`, `->`, `=>`, `>>` and `~>` slots name
+--- @return the LPeg pattern
+--- @raises when a named definition is missing, or the graph names an unknown operation
+--- @export
+export function graphPattern(program: any, definitions: any): lpeg.Pattern<{any}>
+    local given = definitions or {}
+    for _, name in ipairs(program.actions or {}) do
+        if rawget(given, name) == nil then
+            error("nupp: missing PEG definition " .. tostring(name), 3)
+        end
+    end
+    local P, S, V = lpeg.P, lpeg.S, lpeg.V
+    local C, Ct, Cg, Cb, Cp, Cs, Cmt, Cf = lpeg.C, lpeg.Ct, lpeg.Cg, lpeg.Cb, lpeg.Cp, lpeg.Cs, lpeg.Cmt, lpeg.Cf
+    -- `Cg` is an intersection of a keyed and an unkeyed form, and a one-argument call
+    -- matches both halves once the pattern is `any`. Naming the unkeyed arity says
+    -- which one this means.
+    local unkeyedGroup = lpeg.Cg as function(pattern: lpeg.Pattern<any>): lpeg.Pattern<any>
+    local nodes = program.graph.nodes
+    local memo: any = {}
+    local targets: any = {}
+    -- A back reference matches what the named capture captured, which LPeg expresses as
+    -- a match-time capture over the captured text rather than as a pattern.
+    -- False rather than nil is the failure: LPeg reads either, and the declared
+    -- match-time contract is `boolean | integer`.
+    local function equalcap(subject: string, position: integer, captured: any): integer | boolean
+        if type(captured) ~= "string" then
+            return false
+        end
+        local ending = position + #(captured as string)
+        if subject:sub(position, ending - 1) == captured then
+            return ending
+        end
+
+        return false
+    end
+
+    local build: function(index: any): any
+    build = function(index: any): any
+        local prior = memo[index]
+        if prior then
+            return prior
+        end
+        local node = nodes[index]
+        local op = node[1]
+        local pattern: any
+        if op == "literal" then
+            pattern = P(node[2])
+        elseif op == "set" then
+            pattern = S(node[2])
+        elseif op == "any" then
+            pattern = P(1)
+        elseif op == "eof" then
+            pattern = -P(1)
+        elseif op == "sequence" then
+            pattern = P(true)
+            for child = 2, #node do
+                pattern = pattern * build(node[child])
+            end
+        elseif op == "choice" then
+            pattern = P(false)
+            for child = 2, #node do
+                pattern = pattern + build(node[child])
+            end
+        elseif op == "difference" then
+            pattern = build(node[2]) - build(node[3])
+        elseif op == "zeroOrMore" then
+            pattern = build(node[2]) ^ 0
+        elseif op == "oneOrMore" then
+            pattern = build(node[2]) ^ 1
+        elseif op == "optional" then
+            pattern = build(node[2]) ^ -1
+        elseif op == "and" then
+            pattern = #build(node[2])
+        elseif op == "not" then
+            pattern = -build(node[2])
+        elseif op == "capture" then
+            pattern = C(build(node[2]) as lpeg.Pattern<any>)
+        elseif op == "collect" or op == "tableCapture" then
+            pattern = Ct(build(node[2]))
+        elseif op == "group" then
+            local grouped = build(node[2]) as lpeg.Pattern<any>
+            if node[3] ~= nil then
+                pattern = Cg(grouped, node[3])
+            else
+                pattern = unkeyedGroup(grouped)
+            end
+        elseif op == "substitution" then
+            pattern = Cs(build(node[2]))
+        elseif op == "position" then
+            pattern = Cp()
+        elseif op == "backReference" then
+            pattern = Cmt(Cb(node[2]), equalcap)
+        elseif op == "external" then
+            pattern = P(given[node[2]])
+        elseif op == "transform" then
+            local spec = node[3]
+            local target = spec[1] == "definition" and given[spec[2]] or spec[2]
+            pattern = build(node[2]) / target
+        elseif op == "matchTime" then
+            pattern = Cmt(build(node[2]), given[node[3]])
+        elseif op == "accumulate" then
+            pattern = build(node[2]) % given[node[3]]
+        elseif op == "fold" then
+            pattern = Cf(build(node[2]), given[node[3]])
+        elseif op == "action" then
+            -- The legacy action contract hands the callback the matched text and
+            -- nothing else, so the inner captures are dropped with `/0` first.
+            local callback = given[node[3]]
+            pattern = C(build(node[2]) / 0) / function(text: string): any
+                return callback(text)
+            end
+        elseif op == "reference" then
+            targets[node[2]] = true
+            pattern = V("n" .. tostring(node[2]))
+        else
+            error("nupp: unknown PEG graph operation " .. tostring(op), 3)
+        end
+        memo[index] = pattern
+
+        return pattern
+    end
+
+    local pattern = build(program.graph.root)
+    if next(targets) ~= nil then
+        -- Rules are added as they are discovered, because building one may reference
+        -- another that nothing had reached yet.
+        local grammar: any = {pattern}
+        local done: any = {}
+        while true do
+            local target: any = nil
+            for candidate in pairs(targets) do
+                if not done[candidate] then
+                    target = candidate
+                    break
+                end
+            end
+            if target == nil then
+                break
+            end
+            done[target] = true
+            grammar["n" .. tostring(target)] = build(target)
+        end
+        pattern = P(grammar)
+    end
+
+    return pattern as lpeg.Pattern<{any}>
+end
+
+--- Wraps a native LPeg pattern in the matcher shell.
+---
+--- The pattern is run with a trailing position capture, so one match answers both the
+--- captures and where it stopped. The captures are held until `take` is called rather
+--- than returned, because the shell decides whether the caller wanted them.
+---
+--- @param pattern the LPeg pattern to run
+--- @return the matcher
+--- @export
+export function fromPattern(pattern: any): any
+    local function pack(...: any): any
+        return {n = select("#", ...), ...,}
+    end
+
+    local resultValues: any = nil
+    local execution = (pattern as lpeg.Pattern<any>) * lpeg.Cp()
+    local function run(subject: string, position: integer): integer?
+        local values = pack(lpeg.match(execution, subject, position))
+        local nextPosition = values[values.n]
+        if nextPosition == nil then
+            return nil
+        end
+        values[values.n] = nil
+        values.n = values.n - 1
+        -- A recognizer captures nothing, so the position it stopped at is the result.
+        if values.n == 0 then
+            values.n = 1
+            values[1] = nextPosition
+        end
+        resultValues = values
+
+        return nextPosition as integer
+    end
+
+    local function take(): any
+        local values = resultValues
+        resultValues = nil
+
+        return unpack(values, 1, values.n)
+    end
+
+    return matcher(run, take, true, nil, nil, nil, nil)
+end
+
+--- Compiles a grammar graph straight to native LPeg.
+--- @param program the compiled grammar
+--- @param definitions the values its named slots refer to
+--- @return the matcher
+--- @export
+export function lpegBackend(program: any, definitions: any): any
+    return fromPattern(graphPattern(program, definitions))
+end
+
+-- The one hand-written specialization: a delimited key of at most six bytes, drawn
+-- from at most eight alternatives, followed by a run of one byte class and a nine-byte
+-- suffix. It is unrolled because the shape is common enough in real grammars to be
+-- worth the bytes, and because every branch here is a byte compare LuaJIT can keep in
+-- registers.
+local function fastScan9Run(plan: any, sets: any): any
+    local keys = plan.packedKeys
+    local k1, k2, k3, k4 = keys[1], keys[2], keys[3], keys[4]
+    local k5, k6, k7, k8 = keys[5], keys[6], keys[7], keys[8]
+    local delimiter, separatorLength = (plan.separator as string):byte(), #(plan.separator as string)
+    local scanByte: any = nil
+    local scanClass: any = nil
+    if (plan.scan as integer) < 256 then
+        scanByte = plan.scan
+    else
+        scanClass = sets[(plan.scan as integer) - 255]
+    end
+    local suffix, minimum = plan.suffix, plan.minimum
+    local suffixHead = ((suffix[1] * 256 + suffix[2]) * 256 + suffix[3]) * 256 + suffix[4]
+    local suffixTail = ((suffix[5] * 256 + suffix[6]) * 256 + suffix[7]) * 256 + suffix[8]
+    local lastByte: any = nil
+    local lastClass: any = nil
+    if (suffix[9] as integer) < 256 then
+        lastByte = suffix[9]
+    else
+        lastClass = sets[(suffix[9] as integer) - 255]
+    end
+
+    return function(subject: string, position: integer): integer?
+        local a, b, c, d, e, f, g = subject:byte(position, position + 6)
+        if not a then
+            return nil
+        end
+        local key: any = nil
+        local prefixLength = 0
+        if b == delimiter then
+            prefixLength = 1
+            key = a * 8 + 1
+        elseif c == delimiter then
+            prefixLength = 2
+            key = (a * 256 + b) * 8 + 2
+        elseif d == delimiter then
+            prefixLength = 3
+            key = ((a * 256 + b) * 256 + c) * 8 + 3
+        elseif e == delimiter then
+            prefixLength = 4
+            key = (((a * 256 + b) * 256 + c) * 256 + d) * 8 + 4
+        elseif f == delimiter then
+            prefixLength = 5
+            key = ((((a * 256 + b) * 256 + c) * 256 + d) * 256 + e) * 8 + 5
+        elseif g == delimiter then
+            prefixLength = 6
+            key = (((((a * 256 + b) * 256 + c) * 256 + d) * 256 + e) * 256 + f) * 8 + 6
+        else
+            return nil
+        end
+        if not (
+            key == k1 or key == k2 or key == k3 or key == k4 or key == k5 or key == k6 or key == k7 or key == k8
+        ) then
+            return nil
+        end
+        local at = position + prefixLength + separatorLength
+        local suffixStart = #subject - 8
+        if suffixStart - at < (minimum as integer) then
+            return nil
+        end
+        if scanClass ~= nil then
+            for index = at, suffixStart - 1 do
+                local byte = subject:byte(index)
+                if (scanClass as string):byte((byte as integer) + 1) == 0 then
+                    return nil
+                end
+            end
+        else
+            for index = at, suffixStart - 1 do
+                if subject:byte(index) ~= scanByte then
+                    return nil
+                end
+            end
+        end
+        local q, r, s, t, u, v, w, x, y = subject:byte(suffixStart, #subject)
+        if (
+            (q * 256 + r) * 256 + s
+        ) * 256 + t == suffixHead and (
+            (u * 256 + v) * 256 + w
+        ) * 256 + x == suffixTail and (
+            (lastByte ~= nil and y == lastByte) or (lastClass ~= nil and (lastClass as string):byte(y + 1) ~= 0)
+        ) then
+            return #subject + 1
+        end
+
+        return nil
+    end
+end
+
+-- A byte class is either one byte or an index into the grammar's set table, and the
+-- generated source tests it the cheaper way in each case.
+local function checkSource(encoded: integer, expression: string): string
+    if encoded < 256 then
+        return expression .. "==" .. tostring(encoded)
+    end
+
+    return "sets[" .. tostring(encoded - 255) .. "]:byte(" .. expression .. "+1)~=0"
+end
+
+-- `head tail*`, optionally anchored at the end. Emitted as source rather than built as
+-- a closure tree because the loop is the whole matcher, and a loop over two inlined
+-- byte tests is what makes this shape worth specializing at all.
+local function repeatSource(plan: any): string
+    local head = checkSource(plan.head as integer, "byte")
+    local tail = checkSource(plan.tail as integer, "byte")
+    local accept = plan.eof and "if position~=#subject+1 then return nil end;" or ""
+    local result = plan.result == "string"
+        and "lastSubject,lastFirst,lastNext=subject,first,position;return position"
+        or "return position"
+    local visitValue = plan.result == "string" and "subject:sub(first,position-1)" or "position"
+    local visit = plan.eof
+        and "if position==length+1 then count=count+1;visitor(first,position,"
+        .. visitValue
+        .. ");return count end"
+        or "count=count+1;visitor(first,position,"
+        .. visitValue
+        .. ")"
+    local state = plan.result == "string"
+        and "local lastSubject,lastFirst,lastNext;"
+        .. "local function take()return lastSubject:sub(lastFirst,lastNext-1)end;"
+        or ""
+    local take = plan.result == "string" and "take" or "nil"
+
+    return "return function(sets)"
+        .. state
+        .. "local function run(subject,position)local first=position;local byte=subject:byte(position);"
+        .. "if not byte or not("
+        .. head
+        .. ")then return nil end;position=position+1;"
+        .. "while true do byte=subject:byte(position);if not byte or not("
+        .. tail
+        .. ")then break end;"
+        .. "position=position+1 end;"
+        .. accept
+        .. result
+        .. " end;"
+        .. "local function traverse(subject,visitor,position)local count,length=0,#subject;"
+        .. "while position<=length do local byte=subject:byte(position);if "
+        .. head
+        .. " then local first=position;position=position+1;"
+        .. "while true do byte=subject:byte(position);if not byte or not("
+        .. tail
+        .. ")then break end;"
+        .. "position=position+1 end;"
+        .. visit
+        .. " else position=position+1 end end;return count end;"
+        .. "return run,"
+        .. take
+        .. ",traverse end"
+end
+
+-- A fixed run of byte classes anchored at the end of the subject: one conjunction, no
+-- loop at all.
+local function fixedSource(checks: any): string
+    local conditions = {"position+" .. tostring(#checks) .. "==#subject+1",}
+    for index, encoded in ipairs(checks) do
+        local expression = "subject:byte(position+" .. tostring(index - 1) .. ")"
+        conditions[#conditions + 1] = checkSource(encoded as integer, expression)
+    end
+
+    return "return function(sets)return function(subject,position)if " .. table.concat(
+        conditions,
+        " and "
+    ) .. " then return position+" .. tostring(#checks) .. " end end end"
+end
+
+--- Compiles a grammar graph, specializing the shapes that are faster as Lua.
+---
+--- Every shape this does not recognize falls through to native LPeg, so the
+--- specializations are an optimization rather than a second implementation of the
+--- language.
+---
+--- @param program the compiled grammar
+--- @param definitions the values its named slots refer to
+--- @return the matcher
+--- @raises when a specialization fails to load
+--- @export
+export function codegen(program: any, definitions: any): any
+    local scan = program.fastScan
+    if scan ~= nil and scan.packedKeys ~= nil and (scan.maximum as integer) <= 6 and #scan.keys <= 8 then
+        local suffix = scan.suffix
+        if #suffix == 9 and suffix[
+            1
+        ] < 256 and suffix[
+            2
+        ] < 256 and suffix[
+            3
+        ] < 256 and suffix[4] < 256 and suffix[5] < 256 and suffix[6] < 256 and suffix[7] < 256 and suffix[8] < 256 then
+            return matcher(fastScan9Run(scan, program.sets), nil, false, program.search, nil, nil, nil)
+        end
+    end
+    local source: string? = nil
+    if program.fastRepeat ~= nil then
+        source = repeatSource(program.fastRepeat)
+    elseif program.fastFixed ~= nil then
+        source = fixedSource(program.fastFixed)
+    else
+        return lpegBackend(program, definitions)
+    end
+    local chunk, why = loadstring(source as string, "=nupp PEG specialization")
+    if not chunk then
+        error("nupp: PEG specialization failed: " .. tostring(why), 2)
+    end
+    local run, take, traverse = (chunk as function(): any)()(program.sets)
+
+    return matcher(run, take, program.captureful, program.search, nil, nil, traverse)
+end
+
+-- A grammar with no definitions is a pure function of its source, so the pattern is
+-- worth keeping. The values are weak: a cache that outlives the program's interest in
+-- a grammar is a leak, not a cache.
+local patternCache: any = setmetatable({}, {__mode = "v",})
+
+--- Compiles grammar source at run time.
+---
+--- This is what `nupp.peg.compile` reaches when the grammar is not static. A static one
+--- never arrives here: the materializer folds it at compile time and the program
+--- carries the matcher it produced.
+---
+--- @param source the grammar expression or rule definitions
+--- @param options runtime definitions and backend selection
+--- @return the compiled reusable matcher
+--- @raises when source is not a string, or the options name an unknown backend
+--- @export
+export function compile(source: string, options: any): any
+    if type(source) ~= "string" then
+        error("nupp: PEG compile source must be a string", 2)
+    end
+    if options ~= nil and type(options) ~= "table" then
+        error("nupp: PEG compile options must be a table", 2)
+    end
+    local given = options or {}
+    local backend = given.backend or "auto"
+    if backend ~= "auto" and backend ~= "lpeg" then
+        error("nupp: PEG compile backend must be 'auto' or 'lpeg'", 2)
+    end
+    local definitions = given.definitions or given.defs or given.actions
+    local pattern: any = nil
+    if definitions == nil then
+        pattern = patternCache[source]
+        if not pattern then
+            pattern = require("re").compile(source)
+            patternCache[source] = pattern
+        end
+    else
+        pattern = require("re").compile(source, definitions)
+    end
+
+    return fromPattern(pattern)
+end
 ]=],
 ["/nupp/profile.nupp"] = [=[
 module nupp.profile
