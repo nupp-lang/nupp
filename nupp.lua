@@ -253,7 +253,7 @@ return {
                   heroText = "LuaJIT with static guarantees.",
                   heroContent = "Nupp gives LuaJIT precise types, checked C interop, "
                      .. "deterministic ownership, scheduler-neutral suspension, isolated "
-                     .. "workers, and self-contained builds without hiding the Lua underneath.",
+                     .. "workers, AOT, SIMD, and self-contained builds without hiding the Lua underneath.",
                   heroImage = "images/nupp.png",
                   heroImageAlt = "A nuppeppo in a moonlit forest",
                   heroActions = {

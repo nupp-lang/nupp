@@ -136,12 +136,6 @@ work makes sense in.
         function -- was tried rather than assumed away: it compiles clean only
         with the attribute on every helper too, which is the cost the flag route
         does not have.
-  - [ ] **Put `@aot` in front of something real.** Every measurement lives under
-        `bench/kernel-subset-spike/`. Tecs is the obvious first consumer, since
-        the kernel shapes were borrowed from it to begin with. A feature that
-        works and a feature in use fail differently, and only the second says
-        whether the admitted subset is the right subset -- whether `@aot`
-        refuses things people actually write.
   - [ ] **Name a `kind = "c"` dependency's library relative to its module.**
         Compiled `@aot` code travels: the wrapper names its library with a
         leading `@`, resolved against the chunk that loads it, so a copied output
