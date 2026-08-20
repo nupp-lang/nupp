@@ -424,13 +424,25 @@ function M.checkedAliasesFeedTypesOwnershipLayoutsAndIntrinsics()
       "the fixed-width operation aliased through a local reaches native IR")
 end
 
---- The key one source's artifact was recorded under, or nothing.
+--- Every key one source's artifacts were recorded under, tier by tier, or
+--- nothing.
+---
+--- Every tier of it, in a fixed order. An x86-64 build is multiversioned, so
+--- one source carries a key per tier, and the state is a JSON object whose
+--- members come back in whatever order the encoder walked them. Reading
+--- whichever one appeared first compared a different tier between two builds.
 local function key(dir)
    local state = read(dir .. "/build/native/.nupp-state.json")
    if not state then return nil end
    local recorded = state:match('"aot":(%b{})')
    if not recorded then return nil end
-   return recorded:match('kernel%.nupp#[^"]+":"([0-9a-f]+)"')
+   local tiers = {}
+   for tier, digest in recorded:gmatch('kernel%.nupp#([^"]+)":"([0-9a-f]+)"') do
+      tiers[#tiers + 1] = tier .. "=" .. digest
+   end
+   if #tiers == 0 then return nil end
+   table.sort(tiers)
+   return table.concat(tiers, " ")
 end
 
 --- When a path was last written, or nothing.
