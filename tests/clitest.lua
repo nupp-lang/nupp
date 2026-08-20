@@ -249,6 +249,18 @@ local function capture(argv)
    return out
 end
 
+-- `--json` promises a clean stdout, so a JSON capture must not fold stderr into
+-- it. The launcher writes "building the compiler" there when the cache is cold,
+-- which is invisible in a warm single-suite run and lands in front of the
+-- payload under a full parallel one.
+local function captureJson(argv)
+   local pipe = assert(io.popen(("NO_COLOR= CLICOLOR_FORCE= '%s' %s")
+      :format(NUPP, argv)))
+   local out = pipe:read("*a")
+   pipe:close()
+   return out
+end
+
 local function captureAt(directory, argv)
    local pipe = assert(io.popen(("cd '%s' && NO_COLOR= CLICOLOR_FORCE= '%s' %s 2>&1")
       :format(directory, NUPP, argv)))
@@ -421,7 +433,7 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
    }, "\n"))
    source:close()
 
-   local report = json.decode(capture(("ownership-audit --json '%s/surface.g.nupp'")
+   local report = json.decode(captureJson(("ownership-audit --json '%s/surface.g.nupp'")
       :format(dir)))
    assert(#report.foreign == 2, "both foreign declarations are reported")
    assert(report.foreign[1].name == "lookup", "the trusted function is named")
@@ -443,7 +455,7 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
       "the report names a trusted partition contract")
    assert(report.regions == nil, "automatic regions remain opt-in")
 
-   local regions = json.decode(capture((
+   local regions = json.decode(captureJson((
       "ownership-audit --json --regions '%s/surface.g.nupp'"
    ):format(dir))).regions
    assert(#regions == 1 and regions[1].owners[1].name == "value",
@@ -455,7 +467,7 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
    assert(regions[1].lowering == "general",
       "the audit reports the selected protected lowering")
 
-   local schema = json.decode(capture("ownership-audit --schema"))
+   local schema = json.decode(captureJson("ownership-audit --schema"))
    assert(schema.properties.foreign and schema.properties.unsafe
       and schema.properties.regions,
       "the machine report has a discoverable schema")
