@@ -90,9 +90,9 @@ end
 
 -- `fieldCodec` was the one member of the derived runtime whose answer depended on what
 -- had run before it. The codec is allocated on demand and memoized into `entry.codec`,
--- and the module read that field rather than asking for the codec, so asking first
--- answered nil. Generated programs never saw it, because the bootstrap preloads a
--- stand-in that shadows the module; this reaches the module itself.
+-- and one of the two implementations read that field rather than asking for the codec,
+-- so asking first answered nil. There is one implementation now, and this asks it
+-- first.
 function M.fieldCodecAnswersACodecWhenItIsAskedFirst()
    local User = run([[
 @derive(nupp.derive.JSON)
@@ -104,13 +104,7 @@ return User
    local entry = _G.nupp.__derive.types[rawget(User, "__nuppDeriveKey")]
    assertEq(entry.codec, nil, "the codec is allocated on demand")
 
-   local savedPreload = package.preload["nupp.derive"]
-   local savedLoaded = package.loaded["nupp.derive"]
-   package.preload["nupp.derive"], package.loaded["nupp.derive"] = nil, nil
-   local ok, derive = pcall(require, "nupp.derive")
-   package.preload["nupp.derive"] = savedPreload
-   package.loaded["nupp.derive"] = savedLoaded
-   assert(ok, derive)
+   local derive = require("nupp.derive")
    assertEq(type(derive.fieldCodec(entry)), "table",
       "the module answered no codec when it was asked before anything else")
 end

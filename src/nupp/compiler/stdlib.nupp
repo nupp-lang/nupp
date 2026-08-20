@@ -63,11 +63,9 @@ return json
 -- that answers the reads it could not lower, filling in the namespace the base
 -- reserved rather than replacing it, because generated code already addresses that
 -- table through a local of its own.
-local MATH = compact(
-    [=[
+local MATH = compact([=[
 require("nupp.mathruntime").install(rawget(__nupp,"math"))
-]=]
-)
+]=])
 
 -- The matcher shell, the graph lowering and the specializations are an ordinary
 -- checked module. What stays here is the binding: the namespace the prelude's
@@ -165,76 +163,21 @@ __nuppPeg.compile=__nuppPegRuntime.compile
 -- The keyed codec a materialized `nupp.reflect.fieldCodec` calls, and the registry
 -- behind `reflect()`, are both an ordinary checked module. What stays here is which
 -- of the two a program's feature set asked for.
-local FIELDCODEC = compact(
-    [=[
+local FIELDCODEC = compact([=[
 require("nupp.reflectruntime").installFieldCodec(__nupp)
-]=]
-)
+]=])
 
-local REFLECTION = compact(
-    [=[
+local REFLECTION = compact([=[
 require("nupp.reflectruntime").install(__nupp)
-]=]
-)
+]=])
 
-local DERIVES = compact(
-    [=[
-local __nuppDerive=rawget(__nupp,"__derive")or{};rawset(__nupp,"__derive",__nuppDerive)
-local __nuppDeriveTypes=__nuppDerive.types or{};__nuppDerive.types=__nuppDeriveTypes
-local __nuppBufferModule
-local function __nuppBufferNew()if not __nuppBufferModule then __nuppBufferModule=require("string.buffer")end;return __nuppBufferModule.new()end
-local function __nuppCopy(value,seen)if type(value)~="table"then return value end;seen=seen or{};if seen[value]then error("nupp: cyclic field default",3)end;seen[value]=true;local out={};for k,v in pairs(value)do out[__nuppCopy(k,seen)]=__nuppCopy(v,seen)end;seen[value]=nil;return out end
-local function __nuppDefaultValue(spec)
-if spec and spec.kind=="literal"then return __nuppCopy(spec.value)end;error("nupp: unsupported field default",3)end
-local function __nuppSortedKeys(value)local keys={};for key in pairs(value)do keys[#keys+1]=key end;table.sort(keys,function(a,b)return tostring(a)<tostring(b)end);return keys end
-local function __nuppDebugAny(value,state)
-local kind=type(value);if kind=="nil"or kind=="boolean"or kind=="number"then return tostring(value)elseif kind=="string"then return string.format("%q",value)elseif kind~="table"then return"<"..kind..">"end
-if state.active[value]then return"<cycle>"end;state.active[value]=true;local mt=getmetatable(value);local entry=mt and __nuppDeriveTypes[rawget(mt,"__nuppDeriveKey")];local out;if entry then out=__nuppDerive.debug(value,entry.schema.data.debug,state)else local parts={};for _,key in ipairs(__nuppSortedKeys(value))do parts[#parts+1]="["..__nuppDebugAny(key,state).."] = "..__nuppDebugAny(value[key],state)end;out="{"..table.concat(parts,", ").."}"end;state.active[value]=nil;return out end
-local function __nuppDebugValue(value,spec,state)
-if spec.kind=="optional"then return value==nil and"nil"or __nuppDebugValue(value,spec.value,state)elseif spec.kind=="customDebug"then return value:debug()elseif spec.kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];return nested and __nuppDerive.debug(value,nested.schema.data.debug,state)or"<unloaded>"elseif spec.kind=="any"then return __nuppDebugAny(value,state)elseif spec.kind=="string"or spec.kind=="literal"and type(value)=="string"then return string.format("%q",value)elseif spec.kind=="nil"or spec.kind=="boolean"or spec.kind=="number"or spec.kind=="integer"or spec.kind=="float"or spec.kind:match("^u?int")or spec.kind=="literal"then return tostring(value)end
-if type(value)~="table"then return"<"..type(value)..">"end;if state.active[value]then return"<cycle>"end;state.active[value]=true;local parts={};if spec.kind=="array"then for i=1,#value do parts[#parts+1]=__nuppDebugValue(value[i],spec.value,state)end elseif spec.kind=="tuple"then for i,item in ipairs(spec.items)do parts[#parts+1]=__nuppDebugValue(value[i],item,state)end elseif spec.kind=="shape"then for _,field in ipairs(spec.fields)do parts[#parts+1]=field.name.." = "..__nuppDebugValue(rawget(value,field.name),field.type,state)end elseif spec.kind=="map"then for _,key in ipairs(__nuppSortedKeys(value))do parts[#parts+1]="["..__nuppDebugValue(key,spec.key,state).."] = "..__nuppDebugValue(value[key],spec.value,state)end end;state.active[value]=nil;return"{"..table.concat(parts,", ").."}"end
-function __nuppDerive.debug(value,schema,state)schema=schema.schema and schema.schema.data.debug or schema;state=state or{active={}};if state.active[value]then return"<cycle>"end;state.active[value]=true;local parts={};for _,field in ipairs(schema.fields)do if not field.debugSkip then local shown=field.debugRedact and"<redacted>"or __nuppDebugValue(rawget(value,field.name),field.debugType,state);parts[#parts+1]=field.name.." = "..shown end end;state.active[value]=nil;return schema.name.." { "..table.concat(parts,", ").." }"end
-local __nuppEscapes={[8]="\\b",[9]="\\t",[10]="\\n",[12]="\\f",[13]="\\r",[34]='\\"',[92]="\\\\"}
-local function __nuppPutString(buf,text,path)if type(text)~="string"then error(path..": expected string",3)end;buf:put('"');local start=1;local i=1;while i<=#text do local byte=text:byte(i);local escaped=__nuppEscapes[byte];if escaped or byte<32 then if i>start then buf:put(text:sub(start,i-1))end;buf:put(escaped or string.format("\\u%04X",byte));i=i+1;start=i elseif byte<128 then i=i+1 else local count=byte>=240 and 4 or byte>=224 and 3 or byte>=194 and 2 or 0;if count==0 or i+count-1>#text then error(path..": invalid UTF-8",3)end;local b2,b3,b4=text:byte(i+1,i+3);if not b2 or b2<128 or b2>191 or count>=3 and(not b3 or b3<128 or b3>191)or count==4 and(not b4 or b4<128 or b4>191)or byte==224 and b2<160 or byte==237 and b2>=160 or byte==240 and b2<144 or byte==244 and b2>=144 or byte>244 then error(path..": invalid UTF-8",3)end;i=i+count end end;if start<=#text then buf:put(text:sub(start))end;buf:put('"')end
-local function __nuppFinite(value)return value==value and value~=math.huge and value~=-math.huge end
-local function __nuppEnter(value,state,path)if state.depth>=128 then error(path..": JSON nesting exceeds 128 containers",3)end;if state.active[value]then error(path..": cyclic JSON value",3)end;state.active[value]=true;state.depth=state.depth+1 end
-local function __nuppLeave(value,state)state.depth=state.depth-1;state.active[value]=nil end
-local __nuppWriteValue
-local function __nuppWriteObject(value,fields,unknown,buf,state,path)
-if type(value)~="table"then error(path..": expected object",3)end;__nuppEnter(value,state,path);buf:put("{");local first=true;for _,field in ipairs(fields)do if not field.omit then local item=rawget(value,field.name);local empty=item==nil or item==""or item==false or type(item)=="table"and next(item)==nil;if not(field.omitEmpty and empty)then if not first then buf:put(",")end;first=false;__nuppPutString(buf,field.jsonName or field.name,path);buf:put(":");__nuppWriteValue(item,field.jsonType,buf,state,path.."."..(field.jsonName or field.name))end end end;buf:put("}");__nuppLeave(value,state)end
-__nuppWriteValue=function(value,spec,buf,state,path)
-local kind=spec and spec.kind;if kind=="optional"then if value==nil then buf:put("null")else __nuppWriteValue(value,spec.value,buf,state,path)end;return elseif kind=="union"then if type(value)~="table"then error(path..": expected discriminated object",3)end;local selected=spec.choices[rawget(value,spec.tagField)];if not selected then error(path.."."..spec.jsonTag..": unknown discriminant",3)end;return __nuppWriteValue(value,selected,buf,state,path)elseif kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];if not nested then error(path..": derived JSON dependency is not loaded",3)end;return __nuppWriteObject(value,nested.schema.fields,nested.schema.unknown,buf,state,path)elseif kind=="string"then return __nuppPutString(buf,value,path)elseif kind=="boolean"then if type(value)~="boolean"then error(path..": expected boolean",3)end;buf:put(value and"true"or"false");return elseif kind=="literal"then if value~=spec.value then error(path..": literal value does not match",3)end;local base=type(value);if base=="string"then return __nuppPutString(buf,value,path)elseif base=="boolean"then buf:put(value and"true"or"false");return else kind="number"end end
-if kind=="number"or kind=="float"or kind=="integer"then local number=tonumber(value);if not number or not __nuppFinite(number)then error(path..": expected finite number",3)end;if kind=="integer"and(number%1~=0 or spec.minimum and number<spec.minimum or spec.maximum and number>spec.maximum)then error(path..": integer is out of range",3)end;buf:put(string.format("%.17g",number):lower());return end
-if type(value)~="table"then error(path..": expected table",3)end;if kind=="array"then __nuppEnter(value,state,path);local count,maximum=0,0;for key in pairs(value)do if type(key)~="number"or key%1~=0 or key<1 then error(path..": expected dense array",3)end;count=count+1;if key>maximum then maximum=key end end;if count~=maximum then error(path..": expected dense array",3)end;buf:put("[");for i=1,maximum do if i>1 then buf:put(",")end;__nuppWriteValue(value[i],spec.value,buf,state,path.."["..i.."]")end;buf:put("]");__nuppLeave(value,state);return elseif kind=="tuple"then __nuppEnter(value,state,path);for key in pairs(value)do if type(key)~="number"or key%1~=0 or key<1 or key>#spec.items then error(path..": tuple shape does not match",3)end end;buf:put("[");for i,item in ipairs(spec.items)do if i>1 then buf:put(",")end;__nuppWriteValue(value[i],item,buf,state,path.."["..i.."]")end;buf:put("]");__nuppLeave(value,state);return elseif kind=="map"then __nuppEnter(value,state,path);buf:put("{");local keys={};for key in pairs(value)do if type(key)~="string"then error(path..": JSON map key is not a string",3)end;keys[#keys+1]=key end;table.sort(keys);for i,key in ipairs(keys)do if i>1 then buf:put(",")end;__nuppPutString(buf,key,path);buf:put(":");__nuppWriteValue(value[key],spec.value,buf,state,path.."."..key)end;buf:put("}");__nuppLeave(value,state);return elseif kind=="shape"then return __nuppWriteObject(value,spec.fields,spec.unknown,buf,state,path)end;error(path..": unsupported JSON value",3)end
-local __nuppDecodeValue
-local function __nuppDecodeObject(value,entry,path)
-if type(value)~="table"then return false,nil,path..": expected object"end;local schema=entry.schema;local known={};local out={};for _,field in ipairs(schema.fields)do if not field.omit then local key=field.jsonName or field.name;known[key]=true;local raw=rawget(value,key);if raw==nil then if field.default then local ok,result=pcall(__nuppDefaultValue,field.default);if not ok then return false,nil,path.."."..key..": "..tostring(result)end;if result~=nil then out[field.name]=result end elseif field.jsonType and field.jsonType.kind=="optional"then else return false,nil,path.."."..key..": required field is absent"end else local ok,result,err=__nuppDecodeValue(raw,field.jsonType,entry,path.."."..key);if not ok then return false,nil,err end;if result~=nil then out[field.name]=result end end elseif field.default then local result=__nuppDefaultValue(field.default);if result~=nil then out[field.name]=result end end end;if schema.unknown~="ignore"then for key in pairs(value)do if not known[key]then return false,nil,path..": unknown field "..string.format("%q",tostring(key))end end end;return true,setmetatable(out,entry.mt),nil end
-__nuppDecodeValue=function(value,spec,entry,path)
-local kind=spec and spec.kind;if kind=="optional"then if value==entry.decoder.NULL then return true,nil,nil end;return __nuppDecodeValue(value,spec.value,entry,path)elseif value==entry.decoder.NULL then return false,nil,path..": null is not allowed"elseif kind=="union"then if type(value)~="table"then return false,nil,path..": expected discriminated object"end;local tag=rawget(value,spec.jsonTag);local selected=spec.choices[tag];if not selected then return false,nil,path.."."..spec.jsonTag..": unknown discriminant"end;return __nuppDecodeValue(value,selected,entry,path)elseif kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];if not nested then return false,nil,path..": derived JSON dependency is not loaded"end;__nuppDerive.jsonCodec(nested);return __nuppDecodeObject(value,nested,path)elseif kind=="string"then return type(value)=="string",value,type(value)=="string"and nil or path..": expected string"elseif kind=="boolean"then return type(value)=="boolean",value,type(value)=="boolean"and nil or path..": expected boolean"elseif kind=="literal"then return value==spec.value,value,value==spec.value and nil or path..": literal value does not match"elseif kind=="number"or kind=="float"or kind=="integer"then if type(value)~="number"or not __nuppFinite(value)then return false,nil,path..": expected finite number"end;if kind=="integer"and(value%1~=0 or spec.minimum and value<spec.minimum or spec.maximum and value>spec.maximum)then return false,nil,path..": expected integer in range"end;return true,value,nil end
-if type(value)~="table"then return false,nil,path..": expected table"end;if kind=="array"then local out={};local count=#value;for key in pairs(value)do if type(key)~="number"or key%1~=0 or key<1 or key>count then return false,nil,path..": expected dense array"end end;for i=1,count do local ok,result,err=__nuppDecodeValue(value[i],spec.value,entry,path.."["..i.."]");if not ok then return false,nil,err end;out[i]=result end;return true,out,nil elseif kind=="tuple"then if#value~=#spec.items then return false,nil,path..": tuple length does not match"end;local out={};for i,item in ipairs(spec.items)do local ok,result,err=__nuppDecodeValue(value[i],item,entry,path.."["..i.."]");if not ok then return false,nil,err end;out[i]=result end;return true,out,nil elseif kind=="map"then local out={};for key,item in pairs(value)do if type(key)~="string"then return false,nil,path..": expected string map key"end;local ok,result,err=__nuppDecodeValue(item,spec.value,entry,path.."."..key);if not ok then return false,nil,err end;out[key]=result end;return true,out,nil elseif kind=="shape"then local fake={schema={fields=spec.fields,unknown=spec.unknown or"reject"},mt=nil,decoder=entry.decoder};local ok,result,err=__nuppDecodeObject(value,fake,path);if ok then setmetatable(result,nil)end;return ok,result,err end;return false,nil,path..": unsupported JSON value"end
-function __nuppDerive.register(key,mt,schema)
-local entry={key=key,mt=mt,schema=schema};rawset(mt,"__nuppDeriveKey",key);local json=schema.data and schema.data.json;if json then schema.fields=json.fields;schema.unknown=json.unknown;local decoder=require("nupp.data.json");entry.decoder=decoder;local codec={fingerprint="derive-json-v1|emit=1|decode=simdjson|schema="..schema.fingerprint};function codec:encode(value)local out={};for _,field in ipairs(schema.fields)do if not field.omit then local item=rawget(value,field.name);local empty=item==nil or item==""or item==false or type(item)=="table"and next(item)==nil;if item~=nil and not(field.omitEmpty and empty)then out[field.jsonName or field.name]=item end end end;return out end;function codec:decode(value)local ok,result,err=__nuppDecodeObject(value,entry,"$");if ok then return result,nil end;return nil,err end;entry.codec=codec end;__nuppDeriveTypes[key]=entry;return entry end
-function __nuppDerive.toJSON(value,entry)local buf=__nuppBufferNew();__nuppWriteObject(value,entry.schema.fields,entry.schema.unknown,buf,{active={},depth=0},"$");return buf:tostring()end
-function __nuppDerive.fromJSON(text,entry)local ok,value=pcall(entry.decoder.decode,text,entry.decoder.NULL);if not ok then return nil,tostring(value)end;local valid,result,err=__nuppDecodeObject(value,entry,"$");if not valid then return nil,err end;return result,nil end
-function __nuppDerive.fieldCodec(entry)return entry.codec end
-function __nuppDerive.jsonCodec(entry)local codec=entry.codec;if codec then return codec end;local schema=entry.schema;local json=schema.data and schema.data.json;if not json then error("nupp: JSON was not derived for this type",3)end;schema.fields=json.fields;schema.unknown=json.unknown;local decoder=require("nupp.data.json");entry.decoder=decoder;codec={fingerprint="derive-json-v1|emit=1|decode=simdjson|schema="..schema.fingerprint};function codec:encode(value)local out={};for _,field in ipairs(schema.fields)do if not field.omit then local item=rawget(value,field.name);local empty=item==nil or item==""or item==false or type(item)=="table"and next(item)==nil;if item~=nil and not(field.omitEmpty and empty)then out[field.jsonName or field.name]=item end end end;return out end;function codec:decode(value)local ok,result,err=__nuppDecodeObject(value,entry,"$");if ok then return result,nil end;return nil,err end;entry.codec=codec;return codec end
-function __nuppDerive.register(key,mt,schema)local entry={key=key,mt=mt,schema=schema};rawset(mt,"__nuppDeriveKey",key);local json=schema.data and schema.data.json;if json then schema.fields=json.fields;schema.unknown=json.unknown end;__nuppDeriveTypes[key]=entry;return entry end
-local __nuppDeriveReflect=rawget(__nupp,"__reflect")
-if __nuppDeriveReflect then __nuppDeriveReflect.json.build=function(info)local mt=info.type;local entry=mt and __nuppDeriveTypes[rawget(mt,"__nuppDeriveKey")];if not entry then error("nupp: JSON was not derived for this type",2)end;return __nuppDerive.jsonCodec(entry)end end
-local function __nuppDerivedJSON(entry)return entry.mt:reflect():extension(__nuppDeriveReflect.json)end
-function __nuppDerive.toJSON(value,entry)__nuppDerivedJSON(entry);local buf=__nuppBufferNew();__nuppWriteObject(value,entry.schema.fields,entry.schema.unknown,buf,{active={},depth=0},"$");return buf:tostring()end
-function __nuppDerive.fromJSON(text,entry)local codec=__nuppDerivedJSON(entry);local ok,value=pcall(entry.decoder.decode,text,entry.decoder.NULL);if not ok then return nil,tostring(value)end;local result,err=codec:decode(value);if not result then return nil,err end;return result,nil end
-function __nuppDerive.fieldCodec(entry)return __nuppDerivedJSON(entry)end
-if __nuppDeriveReflect then local function __nuppJSONEntry(typeObject)local entry=typeObject and __nuppDeriveTypes[rawget(typeObject,"__nuppDeriveKey")];if not entry then error("nupp: JSON was not derived for this type",3)end;return entry end;local __nuppJSONAPI=require("nupp.data.json");__nuppJSONAPI.decodeAs=function(typeObject,text)return __nuppDerive.fromJSON(text,__nuppJSONEntry(typeObject))end;__nuppJSONAPI.encodeAs=function(typeObject,value)return __nuppDerive.toJSON(value,__nuppJSONEntry(typeObject))end;__nuppJSONAPI.encodeRecord=function(value)local typeObject=getmetatable(value);return __nuppDerive.toJSON(value,__nuppJSONEntry(typeObject))end end
-local __nuppDeriveModule={
-debug=function(value,entry)return __nuppDerive.debug(value,entry.schema.data.debug)end,
-toJSON=function(value,entry)return __nuppDerive.toJSON(value,entry)end,
-fromJSON=function(text,entry)return __nuppDerive.fromJSON(text,entry)end,
-fieldCodec=function(entry)return __nuppDerive.fieldCodec(entry)end,
-}
-package.preload["nupp.derive"]=function()return __nuppDeriveModule end
-]=]
-)
+-- What a derived member does when it runs is `nupp.derive` itself, the same module
+-- whose comptime half decided what to write. This installs its runtime under the
+-- namespace generated code addresses, and nothing shadows the module: a program that
+-- requires `nupp.derive` gets the one that is really there.
+local DERIVES = compact([=[
+require("nupp.derive").install(__nupp)
+]=])
 
 -- The loader is shared, but its C namespace is not a reason for one selected native
 -- facility to carry every other facility's declarations. These markers are replaced

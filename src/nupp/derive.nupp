@@ -1,17 +1,849 @@
 module nupp.derive
 
--- The standard derives are ordinary comptime providers.  Their runtime work is
--- deliberately kept in this module too, so a generated member is just an
--- ordinary derive.forward call rather than a compiler operation.
+--[[
+The standard derives, and what they do when they run.
+
+`@derive` is a compiler feature: the checker resolves the contract, the materializer
+folds the recipe, and generation writes the member. Both halves are here. The comptime
+providers below decide what a derived member is; the runtime above them is what that
+member calls, so a generated member is an ordinary `derive.forward` call rather than a
+compiler operation.
+
+`install` is what a program's prologue calls to publish the runtime half under
+`nupp.__derive`, which is where generated code addresses it from.
+]]
 
 local derive = {}
 
 interface derive.JSONContract is nupp.data.json.JSONEncodable
 end
 
+--- One derived type, as the registry holds it.
 record derive.Entry
-    schema: {data: {[string]: any}}
+    --- The recipe fingerprint the entry is filed under.
+    key: string?
+
+    --- The type's runtime table, which is its instances' metatable.
+    mt: any
+
+    --- The recipe's data, plus the JSON field list and unknown-field policy that
+    --- `jsonCodec` folds onto it the first time the type is encoded.
+    schema: {
+        data: {[string]: any},
+        [string]: any
+    }
+
     codec: nupp.reflect.FieldCodec<any>
+
+    --- The JSON decoder, present once the codec has been built.
+    decoder: any
+end
+
+-- Every derived type, keyed by the fingerprint generation stamped onto its metatable.
+-- Named `derived` rather than `types` because a bare `types` resolves to the
+-- compiler's own module under qualified-path lookup; the namespace still publishes it
+-- as `types`, which is the name everything reading the registry already uses.
+local derived: any = {}
+
+-- Set by `install`, and nil until then. The JSON codec is memoized as a reflection
+-- extension rather than a field, so a type whose program never installed reflection
+-- has no JSON either -- which is the same condition the bootstrap already sequenced,
+-- kept here rather than assumed.
+local reflect: any = nil
+
+-- `string.buffer` is required on first use rather than on load: a program that derives
+-- Debug but never renders one should not carry the rock.
+local bufferModule: any = nil
+
+local function newBuffer(): any
+    if bufferModule == nil then
+        bufferModule = require("string.buffer")
+    end
+
+    return bufferModule.new()
+end
+
+--- Copies a field default so two instances never share one table.
+--- @raises when the default refers to itself
+local function copied(value: any, seen: any): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local visiting = seen or {}
+    if visiting[value] then
+        error("nupp: cyclic field default", 3)
+    end
+    visiting[value] = true
+    local out: any = {}
+    for k, v in pairs(value) do
+        out[copied(k, visiting)] = copied(v, visiting)
+    end
+    visiting[value] = nil
+
+    return out
+end
+
+--- The value a field default describes.
+--- @param spec the default the recipe recorded
+--- @return a fresh copy of it
+--- @raises when the default is not a literal
+local function defaultValue(spec: any): any
+    if spec ~= nil and spec.kind == "literal" then
+        return copied(spec.value, nil)
+    end
+    error("nupp: unsupported field default", 3)
+end
+
+-- Debug output is ordered so that two runs of the same program produce the same text,
+-- which `pairs` alone does not promise.
+local function sortedKeys(value: any): {any}
+    local keys: {any} = {}
+    for key in pairs(value) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, function(a: any, b: any): boolean
+        return tostring(a) < tostring(b)
+    end)
+
+    return keys
+end
+
+-- Mutually recursive with the value renderer below, because a field of unknown type
+-- may hold a derived record and a derived record's fields may be of unknown type.
+local debugAny: function(value: any, state: any): string
+local debugValue: function(value: any, spec: any, state: any): string
+-- Named apart from the `debug` it is exported as, because that name is Lua's own
+-- library inside this module and the renderers below call it before it is defined.
+local renderRecord: function(value: any, schema: any, state: any?): string
+
+-- What a value looks like when nothing described it. A derived type still renders as
+-- itself, because the registry finds it from the metatable.
+debugAny = function(value: any, state: any): string
+    local kind = type(value)
+    if kind == "nil" or kind == "boolean" or kind == "number" then
+        return tostring(value)
+    elseif kind == "string" then
+        return string.format("%q", value)
+    elseif kind ~= "table" then
+        return "<" .. kind .. ">"
+    end
+    if state.active[value] then
+        return "<cycle>"
+    end
+    state.active[value] = true
+    local mt = getmetatable(value)
+    local entry = mt ~= nil and derived[rawget(mt as any, "__nuppDeriveKey")] or nil
+    local out: string
+    if entry ~= nil then
+        out = renderRecord(value, entry.schema.data.debug, state)
+    else
+        local parts: {string} = {}
+        for _, key in ipairs(sortedKeys(value)) do
+            parts[#parts + 1] = "[" .. debugAny(key, state) .. "] = " .. debugAny(value[key], state)
+        end
+        out = "{" .. table.concat(parts, ", ") .. "}"
+    end
+    state.active[value] = nil
+
+    return out
+end
+
+-- What a value looks like when the recipe described its type.
+debugValue = function(value: any, spec: any, state: any): string
+    if spec.kind == "optional" then
+        return value == nil and "nil" or debugValue(value, spec.value, state)
+    elseif spec.kind == "customDebug" then
+        return value:debug() as string
+    elseif spec.kind == "record" then
+        local nested = derived[spec.typeKey]
+
+        return nested ~= nil and renderRecord(value, nested.schema.data.debug, state) or "<unloaded>"
+    elseif spec.kind == "any" then
+        return debugAny(value, state)
+    elseif spec.kind == "string" or spec.kind == "literal" and type(value) == "string" then
+        return string.format("%q", value)
+    elseif spec.kind == "nil"
+        or spec.kind == "boolean"
+        or spec.kind == "number"
+        or spec.kind == "integer"
+        or spec.kind == "float"
+        or (
+        spec.kind as string
+    ):match("^u?int") ~= nil or spec.kind == "literal" then
+        return tostring(value)
+    end
+    if type(value) ~= "table" then
+        return "<" .. type(value) .. ">"
+    end
+    if state.active[value] then
+        return "<cycle>"
+    end
+    state.active[value] = true
+    local parts: {string} = {}
+    if spec.kind == "array" then
+        for i = 1, #value do
+            parts[#parts + 1] = debugValue(value[i], spec.value, state)
+        end
+    elseif spec.kind == "tuple" then
+        for i, item in ipairs(spec.items) do
+            parts[#parts + 1] = debugValue(value[i], item, state)
+        end
+    elseif spec.kind == "shape" then
+        for _, field in ipairs(spec.fields) do
+            parts[#parts + 1] = field.name .. " = " .. debugValue(rawget(value, field.name), field.type, state)
+        end
+    elseif spec.kind == "map" then
+        for _, key in ipairs(sortedKeys(value)) do
+            parts[
+                #parts + 1
+            ] = "[" .. debugValue(key, spec.key, state) .. "] = " .. debugValue(value[key], spec.value, state)
+        end
+    end
+    state.active[value] = nil
+
+    return "{" .. table.concat(parts, ", ") .. "}"
+end
+
+--- Renders a derived record the way `@derive(Debug)` promises.
+---
+--- `schema` accepts either the debug schema itself or the registry entry holding one,
+--- because a caller reaching this from the registry has the entry and a caller
+--- reaching it from a field has the schema.
+---
+--- @param value the record to render
+--- @param schema the debug schema, or the entry that carries it
+--- @param state the cycle set, when one is already open
+--- @return the rendered text
+--- @export
+renderRecord = function(value: any, schema: any, state: any?): string
+    local resolved = schema.schema ~= nil and schema.schema.data.debug or schema
+    local open = state or {active = {},}
+    if open.active[value] then
+        return "<cycle>"
+    end
+    open.active[value] = true
+    local parts: {string} = {}
+    for _, field in ipairs(resolved.fields) do
+        if not field.debugSkip then
+            local shown = field.debugRedact and "<redacted>" or debugValue(
+                rawget(value, field.name),
+                field.debugType,
+                open
+            )
+            parts[#parts + 1] = field.name .. " = " .. shown
+        end
+    end
+    open.active[value] = nil
+
+    return resolved.name .. " { " .. table.concat(parts, ", ") .. " }"
+end
+
+-- The two-character escapes JSON defines. Anything else below 32 goes out as \uXXXX.
+local ESCAPES: {
+    [integer]: string
+} = {[8] = "\\b", [9] = "\\t", [10] = "\\n", [12] = "\\f", [13] = "\\r", [34] = '\\"', [92] = "\\\\",}
+
+-- Copied out in runs rather than byte by byte: the common case is a string with
+-- nothing to escape, and that case should be one `put` of the whole thing.
+--
+-- The UTF-8 validation is the encoder's, not the decoder's: a Lua string is bytes, and
+-- writing invalid UTF-8 into a document that claims to be JSON is how a value that
+-- round-tripped locally fails at whoever reads it.
+local function putString(buf: any, text: any, path: string): nil
+    if type(text) ~= "string" then
+        error(path .. ": expected string", 3)
+    end
+    local subject = text as string
+    buf:put('"')
+    local start = 1
+    local i = 1
+    while i <= #subject do
+        local byte = subject:byte(i) as integer
+        local escaped = ESCAPES[byte]
+        if escaped ~= nil or byte < 32 then
+            if i > start then
+                buf:put(subject:sub(start, i - 1))
+            end
+            buf:put(escaped or string.format("\\u%04X", byte))
+            i = i + 1
+            start = i
+        elseif byte < 128 then
+            i = i + 1
+        else
+            local count = byte >= 240 and 4 or byte >= 224 and 3 or byte >= 194 and 2 or 0
+            if count == 0 or i + count - 1 > #subject then
+                error(path .. ": invalid UTF-8", 3)
+            end
+            local b2, b3, b4 = subject:byte(i + 1, i + 3)
+            if not b2 or b2 < 128 or b2 > 191 or count >= 3 and (
+                not b3 or b3 < 128 or b3 > 191
+            ) or count == 4 and (
+                not b4 or b4 < 128 or b4 > 191
+            )
+                or byte == 224
+                and b2 < 160
+                or byte == 237
+                and b2 >= 160
+                or byte == 240
+                and b2 < 144
+                or byte == 244
+                and b2 >= 144
+                or byte > 244 then
+                error(path .. ": invalid UTF-8", 3)
+            end
+            i = i + count
+        end
+    end
+    if start <= #subject then
+        buf:put(subject:sub(start))
+    end
+    buf:put('"')
+end
+
+local function finite(value: number): boolean
+    return value == value and value ~= math.huge and value ~= -math.huge
+end
+
+-- Depth and cycles are both refused rather than truncated: a document that stops
+-- short is worse than one that was never written.
+local function enter(value: any, state: any, path: string): nil
+    if state.depth >= 128 then
+        error(path .. ": JSON nesting exceeds 128 containers", 3)
+    end
+    if state.active[value] then
+        error(path .. ": cyclic JSON value", 3)
+    end
+    state.active[value] = true
+    state.depth = state.depth + 1
+end
+
+local function leave(value: any, state: any): nil
+    state.depth = state.depth - 1
+    state.active[value] = nil
+end
+
+-- Mutually recursive: a field's type may be a shape, and a shape's fields have types.
+local writeValue: function(value: any, spec: any, buf: any, state: any, path: string): nil
+
+-- An object is written from the field list rather than from the value, so a field the
+-- schema does not name never reaches the document however the value came to hold it.
+local function writeObject(value: any, fields: any, unknown: any, buf: any, state: any, path: string): nil
+    if type(value) ~= "table" then
+        error(path .. ": expected object", 3)
+    end
+    enter(value, state, path)
+    buf:put("{")
+    local first = true
+    for _, field in ipairs(fields) do
+        if not field.omit then
+            local item = rawget(value, field.name)
+            local empty = item == nil or item == "" or item == false or type(item) == "table" and next(item) == nil
+            if not (field.omitEmpty and empty) then
+                if not first then
+                    buf:put(",")
+                end
+                first = false
+                local name = field.jsonName or field.name
+                putString(buf, name, path)
+                buf:put(":")
+                writeValue(item, field.jsonType, buf, state, path .. "." .. name)
+            end
+        end
+    end
+    buf:put("}")
+    leave(value, state)
+end
+
+-- Every failure carries the path it happened at, because the value being encoded is
+-- often nested several containers deep and "expected finite number" alone does not say
+-- which field held the NaN.
+writeValue = function(value: any, spec: any, buf: any, state: any, path: string): nil
+    local kind: any = spec and spec.kind
+    if kind == "optional" then
+        if value == nil then
+            buf:put("null")
+        else
+            writeValue(value, spec.value, buf, state, path)
+        end
+
+        return
+    elseif kind == "union" then
+        if type(value) ~= "table" then
+            error(path .. ": expected discriminated object", 3)
+        end
+        local selected = spec.choices[rawget(value, spec.tagField)]
+        if not selected then
+            error(path .. "." .. spec.jsonTag .. ": unknown discriminant", 3)
+        end
+
+        return writeValue(value, selected, buf, state, path)
+    elseif kind == "record" then
+        local nested = derived[spec.typeKey]
+        if not nested then
+            error(path .. ": derived JSON dependency is not loaded", 3)
+        end
+
+        return writeObject(value, nested.schema.fields, nested.schema.unknown, buf, state, path)
+    elseif kind == "string" then
+        return putString(buf, value, path)
+    elseif kind == "boolean" then
+        if type(value) ~= "boolean" then
+            error(path .. ": expected boolean", 3)
+        end
+        buf:put(value and "true" or "false")
+
+        return
+    elseif kind == "literal" then
+        if value ~= spec.value then
+            error(path .. ": literal value does not match", 3)
+        end
+        local base = type(value)
+        if base == "string" then
+            return putString(buf, value, path)
+        elseif base == "boolean" then
+            buf:put(value and "true" or "false")
+
+            return
+        else
+            -- A literal number is written the way any number is, below.
+            kind = "number"
+        end
+    end
+    if kind == "number" or kind == "float" or kind == "integer" then
+        local number = tonumber(value)
+        if not number or not finite(number) then
+            error(path .. ": expected finite number", 3)
+        end
+        if kind == "integer" and (
+            number % 1 ~= 0 or spec.minimum and number < spec.minimum or spec.maximum and number > spec.maximum
+        ) then
+            error(path .. ": integer is out of range", 3)
+        end
+        -- Seventeen significant digits is what round-trips a double, and lowercasing
+        -- normalizes the exponent so two runs on two platforms produce one text.
+        buf:put(string.format("%.17g", number):lower())
+
+        return
+    end
+    if type(value) ~= "table" then
+        error(path .. ": expected table", 3)
+    end
+    if kind == "array" then
+        enter(value, state, path)
+        -- A Lua table with a hole is not a JSON array, and `#` alone will not say so.
+        -- Counting the keys and comparing against the largest is what catches it.
+        local count, maximum = 0, 0
+        for key in pairs(value) do
+            if type(key) ~= "number" or key % 1 ~= 0 or key < 1 then
+                error(path .. ": expected dense array", 3)
+            end
+            count = count + 1
+            if key > maximum then
+                maximum = key
+            end
+        end
+        if count ~= maximum then
+            error(path .. ": expected dense array", 3)
+        end
+        buf:put("[")
+        for i = 1, maximum do
+            if i > 1 then
+                buf:put(",")
+            end
+            writeValue(value[i], spec.value, buf, state, path .. "[" .. i .. "]")
+        end
+        buf:put("]")
+        leave(value, state)
+
+        return
+    elseif kind == "tuple" then
+        enter(value, state, path)
+        for key in pairs(value) do
+            if type(key) ~= "number" or key % 1 ~= 0 or key < 1 or key > #spec.items then
+                error(path .. ": tuple shape does not match", 3)
+            end
+        end
+        buf:put("[")
+        for i, item in ipairs(spec.items) do
+            if i > 1 then
+                buf:put(",")
+            end
+            writeValue(value[i], item, buf, state, path .. "[" .. i .. "]")
+        end
+        buf:put("]")
+        leave(value, state)
+
+        return
+    elseif kind == "map" then
+        enter(value, state, path)
+        buf:put("{")
+        -- Sorted, so the same map encodes to the same bytes twice running.
+        local keys: {string} = {}
+        for key in pairs(value) do
+            if type(key) ~= "string" then
+                error(path .. ": JSON map key is not a string", 3)
+            end
+            keys[#keys + 1] = key
+        end
+        table.sort(keys)
+        for i, key in ipairs(keys) do
+            if i > 1 then
+                buf:put(",")
+            end
+            putString(buf, key, path)
+            buf:put(":")
+            writeValue(value[key], spec.value, buf, state, path .. "." .. key)
+        end
+        buf:put("}")
+        leave(value, state)
+
+        return
+    elseif kind == "shape" then
+        return writeObject(value, spec.fields, spec.unknown, buf, state, path)
+    end
+    error(path .. ": unsupported JSON value", 3)
+end
+
+-- Decoding answers `ok, value, message` rather than raising, because a document that
+-- does not match is an ordinary answer about somebody else's input, not a fault in the
+-- program reading it.
+local decodeValue: function(value: any, spec: any, entry: any, path: string): (boolean, any, string?)
+
+-- Forward-declared because a record-typed field materializes the nested type's codec
+-- before decoding into it, and the codec builder below decodes through this.
+local jsonCodecFor: function(entry: any): any
+
+local function decodeObject(value: any, entry: any, path: string): (boolean, any, string?)
+    if type(value) ~= "table" then
+        return false, nil, path .. ": expected object"
+    end
+    local schema = entry.schema
+    local known: any = {}
+    local out: any = {}
+    for _, field in ipairs(schema.fields) do
+        if not field.omit then
+            local key = field.jsonName or field.name
+            known[key] = true
+            local raw = rawget(value, key)
+            if raw == nil then
+                -- Absent is three different things: a field with a declaration default
+                -- takes it, an optional field stays nil, and anything else is missing.
+                if field.default then
+                    local ok, result = pcall(defaultValue, field.default)
+                    if not ok then
+                        return false, nil, path .. "." .. key .. ": " .. tostring(result)
+                    end
+                    if result ~= nil then
+                        out[field.name] = result
+                    end
+                elseif field.jsonType and field.jsonType.kind == "optional" then
+                else
+                    return false, nil, path .. "." .. key .. ": required field is absent"
+                end
+            else
+                local ok, result, err = decodeValue(raw, field.jsonType, entry, path .. "." .. key)
+                if not ok then
+                    return false, nil, err
+                end
+                if result ~= nil then
+                    out[field.name] = result
+                end
+            end
+        elseif field.default then
+            -- An omitted field never appears in the document, so its default is the
+            -- only value it can have and it is applied without consulting the input.
+            local result = defaultValue(field.default)
+            if result ~= nil then
+                out[field.name] = result
+            end
+        end
+    end
+    if schema.unknown ~= "ignore" then
+        for key in pairs(value) do
+            if not known[key] then
+                return false, nil, path .. ": unknown field " .. string.format("%q", tostring(key))
+            end
+        end
+    end
+
+    return true, setmetatable(out, entry.mt), nil
+end
+
+decodeValue = function(value: any, spec: any, entry: any, path: string): (boolean, any, string?)
+    local kind: any = spec and spec.kind
+    if kind == "optional" then
+        if value == entry.decoder.NULL then
+            return true, nil, nil
+        end
+
+        return decodeValue(value, spec.value, entry, path)
+    elseif value == entry.decoder.NULL then
+        return false, nil, path .. ": null is not allowed"
+    elseif kind == "union" then
+        if type(value) ~= "table" then
+            return false, nil, path .. ": expected discriminated object"
+        end
+        local selected = spec.choices[rawget(value, spec.jsonTag)]
+        if not selected then
+            return false, nil, path .. "." .. spec.jsonTag .. ": unknown discriminant"
+        end
+
+        return decodeValue(value, selected, entry, path)
+    elseif kind == "record" then
+        local nested = derived[spec.typeKey]
+        if not nested then
+            return false, nil, path .. ": derived JSON dependency is not loaded"
+        end
+        -- Materialized for its decoder, which `decodeObject` reads off the entry.
+        jsonCodecFor(nested)
+
+        return decodeObject(value, nested, path)
+    elseif kind == "string" then
+        return type(value) == "string", value, type(value) == "string" and nil or path .. ": expected string"
+    elseif kind == "boolean" then
+        return type(value) == "boolean", value, type(value) == "boolean" and nil or path .. ": expected boolean"
+    elseif kind == "literal" then
+        return value == spec.value, value, value == spec.value and nil or path .. ": literal value does not match"
+    elseif kind == "number" or kind == "float" or kind == "integer" then
+        if type(value) ~= "number" or not finite(value) then
+            return false, nil, path .. ": expected finite number"
+        end
+        if kind == "integer" and (
+            value % 1 ~= 0 or spec.minimum and value < spec.minimum or spec.maximum and value > spec.maximum
+        ) then
+            return false, nil, path .. ": expected integer in range"
+        end
+
+        return true, value, nil
+    end
+    if type(value) ~= "table" then
+        return false, nil, path .. ": expected table"
+    end
+    if kind == "array" then
+        local out: any = {}
+        local count = #value
+        for key in pairs(value) do
+            if type(key) ~= "number" or key % 1 ~= 0 or key < 1 or key > count then
+                return false, nil, path .. ": expected dense array"
+            end
+        end
+        for i = 1, count do
+            local ok, result, err = decodeValue(value[i], spec.value, entry, path .. "[" .. i .. "]")
+            if not ok then
+                return false, nil, err
+            end
+            out[i] = result
+        end
+
+        return true, out, nil
+    elseif kind == "tuple" then
+        if #value ~= #spec.items then
+            return false, nil, path .. ": tuple length does not match"
+        end
+        local out: any = {}
+        for i, item in ipairs(spec.items) do
+            local ok, result, err = decodeValue(value[i], item, entry, path .. "[" .. i .. "]")
+            if not ok then
+                return false, nil, err
+            end
+            out[i] = result
+        end
+
+        return true, out, nil
+    elseif kind == "map" then
+        local out: any = {}
+        for key, item in pairs(value) do
+            if type(key) ~= "string" then
+                return false, nil, path .. ": expected string map key"
+            end
+            local ok, result, err = decodeValue(item, spec.value, entry, path .. "." .. key)
+            if not ok then
+                return false, nil, err
+            end
+            out[key] = result
+        end
+
+        return true, out, nil
+    elseif kind == "shape" then
+        -- A shape is an object with no type of its own, so it borrows the object
+        -- decoder through a stand-in entry and the metatable is taken back off.
+        local standIn = {schema = {fields = spec.fields, unknown = spec.unknown or "reject"}, decoder = entry.decoder}
+        local ok, result, err = decodeObject(value, standIn, path)
+        if ok then
+            setmetatable(result, nil)
+        end
+
+        return ok, result, err
+    end
+
+    return false, nil, path .. ": unsupported JSON value"
+end
+
+--- Records a derived type and answers its registry entry.
+---
+--- The key is stamped onto the metatable as well as used to file the entry, so a value
+--- can be traced back to its entry with nothing but `getmetatable`.
+local function register(key: string, mt: any, schema: any): any
+    local entry = {key = key, mt = mt, schema = schema}
+    rawset(mt, "__nuppDeriveKey", key)
+    local json = schema.data and schema.data.json
+    if json then
+        schema.fields = json.fields
+        schema.unknown = json.unknown
+    end
+    derived[key] = entry
+
+    return entry
+end
+
+--- Builds the JSON codec for a type, or answers the one already built.
+---
+--- Deferred rather than built during `register`, because a program that derives JSON
+--- for a type it never encodes should not load the decoder or walk the schema.
+--- @raises when JSON was not derived for the type
+jsonCodecFor = function(entry: any): any
+    local existing = entry.codec
+    if existing then
+        return existing
+    end
+    local schema = entry.schema
+    local json = schema.data and schema.data.json
+    if not json then
+        error("nupp: JSON was not derived for this type", 3)
+    end
+    schema.fields = json.fields
+    schema.unknown = json.unknown
+    local decoder = require("nupp.data.json")
+    entry.decoder = decoder
+    local codec: any = {fingerprint = "derive-json-v1|emit=1|decode=simdjson|schema=" .. schema.fingerprint,}
+    -- The codec's own encode is the shallow one the field-codec contract asks for: it
+    -- selects and renames fields and stops there. Producing the document is `toJSON`.
+    function codec:encode(value: any): any
+        local out: any = {}
+        for _, field in ipairs(schema.fields) do
+            if not field.omit then
+                local item = rawget(value, field.name)
+                local empty = item == nil or item == "" or item == false or type(item) == "table" and next(item) == nil
+                if item ~= nil and not (field.omitEmpty and empty) then
+                    out[field.jsonName or field.name] = item
+                end
+            end
+        end
+
+        return out
+    end
+
+    function codec:decode(value: any): (any, string?)
+        local ok, result, err = decodeObject(value, entry, "$")
+        if ok then
+            return result, nil
+        end
+
+        return nil, err
+    end
+
+    entry.codec = codec
+
+    return codec
+end
+
+-- Reached through reflection rather than called directly, so that one memoized codec
+-- answers every route to it: the derived members here, `nupp.data.json`'s type-directed
+-- entry points, and a program asking the reflection extension itself.
+local function derivedJSON(entry: any): any
+    return entry.mt:reflect():extension(reflect.json)
+end
+
+--- Renders a derived record the way `@derive(Debug)` promises.
+function derive.debug<T is table>(value: T, entry: derive.Entry): string
+    return renderRecord(value, entry.schema.data.debug, nil)
+end
+
+--- Encodes a derived record as a JSON document.
+function derive.toJSON<T is table>(value: T, entry: derive.Entry): string
+    derivedJSON(entry)
+    local buf = newBuffer()
+    writeObject(value, entry.schema.fields, entry.schema.unknown, buf, {active = {}, depth = 0}, "$")
+
+    return buf:tostring()
+end
+
+--- Decodes a JSON document into a derived record.
+--- @return the record, or nil and what was wrong with the document
+function derive.fromJSON<T is table>(text: string, entry: derive.Entry): (T?, string?)
+    local codec = derivedJSON(entry)
+    local ok, value = pcall(entry.decoder.decode, text, entry.decoder.NULL)
+    if not ok then
+        return nil, tostring(value)
+    end
+    local result, err = codec:decode(value)
+    if not result then
+        return nil, err
+    end
+
+    return result, nil
+end
+
+--- The field codec a derived type's `fieldCodec` static answers.
+function derive.fieldCodec(entry: derive.Entry): nupp.reflect.FieldCodec<any>
+    return derivedJSON(entry)
+end
+
+--- Reads a derived type's registry entry from its type object.
+--- @raises when the type has no derived JSON
+local function jsonEntry(typeObject: any): any
+    local entry = typeObject and derived[rawget(typeObject, "__nuppDeriveKey")]
+    if not entry then
+        error("nupp: JSON was not derived for this type", 3)
+    end
+
+    return entry
+end
+
+--- Fills a program's derive namespace in and wires JSON to reflection.
+---
+--- The second half is conditional because reflection is its own feature. A program
+--- that derives only Debug has no registry of descriptors, and the JSON codec is
+--- memoized as a reflection extension, so what it does not get is JSON.
+--- @export
+function derive.install(namespace: any): nil
+    local runtime = rawget(namespace, "__derive")
+    if runtime == nil then
+        runtime = {}
+        rawset(namespace, "__derive", runtime)
+    end
+    runtime.types = derived
+    runtime.register = register
+    runtime.debug = renderRecord
+    runtime.jsonCodec = jsonCodecFor
+    runtime.toJSON = derive.toJSON
+    runtime.fromJSON = derive.fromJSON
+    runtime.fieldCodec = derive.fieldCodec
+    reflect = rawget(namespace, "__reflect")
+    if reflect == nil then
+        return
+    end
+    reflect.json.build = function(info: any): any
+        local mt = info.type
+        local entry = mt and derived[rawget(mt, "__nuppDeriveKey")]
+        if not entry then
+            error("nupp: JSON was not derived for this type", 2)
+        end
+
+        return jsonCodecFor(entry)
+    end
+    -- `nupp.data.json`'s type-directed entry points are the derived codec seen from
+    -- the other side: the caller names a type rather than holding a derived value.
+    local api = require("nupp.data.json")
+    api.decodeAs = function(typeObject: any, text: string): (any, string?)
+        return derive.fromJSON(text, jsonEntry(typeObject))
+    end
+    api.encodeAs = function(typeObject: any, value: any): string
+        return derive.toJSON(value, jsonEntry(typeObject))
+    end
+    api.encodeRecord = function(value: any): string
+        return derive.toJSON(value, jsonEntry(getmetatable(value)))
+    end
 end
 
 local comptime function option(items, annotationName: string, name: string): any
@@ -242,26 +1074,6 @@ local comptime function jsonSpec(T: type, contract: type): any
     end
 
     return nil
-end
-
-function derive.debug<T is table>(value: T, entry: derive.Entry): string
-    return _G.nupp.__derive.debug(value, entry.schema.data.debug)
-end
-
-function derive.toJSON<T is table>(value: T, entry: derive.Entry): string
-    return _G.nupp.__derive.toJSON(value, entry)
-end
-
-function derive.fromJSON<T is table>(text: string, entry: derive.Entry): (T?, string?)
-    return _G.nupp.__derive.fromJSON(text, entry)
-end
-
--- Delegated like its three siblings rather than reading `entry.codec` directly. The
--- codec is materialized on demand and memoized into that field, so reading the field
--- answers nil until something else has already asked for it -- which made this the one
--- member of the four whose answer depended on what had run before it.
-function derive.fieldCodec(entry: derive.Entry): nupp.reflect.FieldCodec<any>
-    return _G.nupp.__derive.fieldCodec(entry)
 end
 
 comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
