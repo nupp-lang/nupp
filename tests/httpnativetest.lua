@@ -10,7 +10,7 @@ local suspension = require("nupp.suspension")
 local M = {}
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
-local root, http, buffers, process, port, server
+local root, http, buffers, process, files, port, server
 local priorPreload, priorLoaded, unavailable
 
 local function temporaryRoot()
@@ -66,6 +66,10 @@ function M.beforeAll()
          ["native.http"] = true,
          ["native.process"] = true,
          ["native.uri"] = true,
+         -- Files as well, so a body can be transferred straight into one. That path
+         -- is the file writer's `writeRaw`, and it is the only place the two native
+         -- facilities have to be in one library together.
+         ["native.files"] = true,
       })
       if not staged then
          unavailable = tostring(problem)
@@ -77,6 +81,7 @@ function M.beforeAll()
    local effects = native.expand({
       ["native.http"] = true,
       ["native.process"] = true,
+      ["native.files"] = true,
    })
    priorPreload = package.preload["nupp.native"]
    priorLoaded = package.loaded["nupp.native"]
@@ -85,6 +90,7 @@ function M.beforeAll()
    process = require("nupp.io.process")
    http = require("nupp.io.http")
    buffers = require("nupp.io")
+   files = require("nupp.io.files")
    port, unavailable = startServer()
 end
 
@@ -221,6 +227,36 @@ function M.genericReadersAndLargeDownloadsStayProgressive()
    assert(response:close())
    assert(downloaded:close())
    test.equal(client:pending(), 0)
+   assert(client:close())
+end
+
+-- The other direct destination. A buffer writer takes raw bytes by copying them into
+-- its own storage; a file writer hands the pointer straight to the crate, so a
+-- download never becomes a Lua string at any point between the socket and the disk.
+function M.aBodyTransfersStraightIntoAFile()
+   local client = ready()
+   local response, reason = client:send({url = endpoint("/large")})
+   assert(response, reason)
+
+   local target = root .. "/downloaded.bin"
+   local file, openReason = files.open(target, "w")
+   assert(file, openReason)
+   local writer = file:newWriter()
+   test.equal(writer:acceptsRaw(), true)
+   local copied, copyReason = response.body:transferTo(writer)
+   assert(copied, copyReason)
+   test.equal(copied, 4 * 1024 * 1024)
+   assert(writer:close())
+   assert(file:close())
+
+   local handle = assert(io.open(target, "rb"))
+   local written = handle:read("*a")
+   handle:close()
+   test.equal(#written, 4 * 1024 * 1024)
+   test.equal(written:sub(1, 16), "0123456789abcdef")
+   test.equal(written:sub(-16), "0123456789abcdef")
+
+   assert(response:close())
    assert(client:close())
 end
 

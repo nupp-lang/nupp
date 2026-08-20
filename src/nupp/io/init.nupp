@@ -419,6 +419,35 @@ export interface Writer
     --- @return why it could not, when unsuccessful
     writeView: function(self: Writer, borrows source: ByteView, offset: integer?, count: integer?): (integer?, string?)
 
+    --- Whether this writer can take bytes straight out of foreign storage.
+    ---
+    --- Asked by a caller that holds a pointer rather than a string -- a decoder handing
+    --- over what it just read, say -- so the decision is made once before a copy loop
+    --- rather than at every pass. A writer that answers false is not refusing bytes;
+    --- it is saying they have to arrive as a string.
+    --- @param self this writer
+    --- @return whether `writeRaw` will do anything
+    acceptsRaw: function(borrows self: Writer): boolean
+
+    --- Appends bytes the caller holds as raw storage.
+    ---
+    --- The only unchecked thing in the byte contracts, and deliberately narrow: the
+    --- caller promises `count` readable bytes at `source` for the duration of the
+    --- call, and nothing is retained past it. It exists so bytes that are already in
+    --- memory on one side can reach the other without becoming a Lua string in
+    --- between, which for a large response body is the whole cost of the transfer.
+    ---
+    --- A writer that answered false to `acceptsRaw` says so again here rather than
+    --- doing something partial, so asking without checking is a failure and not a
+    --- corruption.
+    ---
+    --- @param self this writer
+    --- @param source where the bytes are
+    --- @param count how many of them there are
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    writeRaw: function(borrows self: Writer, source: any, count: integer): (integer?, string?)
+
     --- Nothing is buffered behind this writer, so this only reports whether it is open.
     --- @param self this writer
     --- @return whether the writer is open
@@ -498,6 +527,49 @@ local record BufferWriter is Writer
         end
 
         return taking, nil
+    end
+
+    --- A buffer holds its bytes in storage of its own, so raw ones can land in it.
+    --- @param self this writer
+    --- @return whether the destination buffer has storage to write into
+    function acceptsRaw(borrows self): boolean
+        local buffer = self._buffer as Buffer
+
+        return not self._closed and not buffer:isReleased() and buffer:storage() ~= nil
+    end
+
+    --- Copies raw bytes into the buffer at this writer's position.
+    ---
+    --- Writing past the end leaves a gap, which is zeroed rather than left holding
+    --- whatever the buffer grew over -- the same guarantee `setString` gives.
+    --- @param self this writer
+    --- @param source where the bytes are
+    --- @param count how many of them there are
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    function writeRaw(borrows self, source: any, count: integer): (integer?, string?)
+        if self._closed then
+            return nil, "the writer is closed"
+        end
+        local buffer = self._buffer as Buffer
+        if buffer:isReleased() then
+            return nil, "the destination buffer is closed"
+        end
+        local at = self._at
+        buffer:ensureCapacity(at + count)
+        local raw = buffer:storage()
+        if raw == nil then
+            return nil, "the destination buffer has no storage to write into"
+        end
+        local old = buffer:length()
+        if at > old then
+            ffi.fill(raw + old, at - old, 0)
+        end
+        ffi.copy(raw + at, source, count)
+        buffer:setLength(at + count)
+        self._at = at + count
+
+        return count, nil
     end
 
     --- Nothing is buffered behind this writer, so this only reports whether it is open.

@@ -176,6 +176,21 @@ function M.creationFailureIsReturnedRatherThanRaised()
    assert(type(reason) == "string" and #reason > 0)
 end
 
+-- A pipe is written through the backend, which takes bytes rather than a pointer, so
+-- there is no shorter path for raw storage to take. Saying so is what keeps a caller
+-- holding a pointer from assuming there is one.
+function M.aProcessWriterTakesNoRawBytes()
+   local api = ready()
+   local child = assert(api.new({args = shell("cat > /dev/null")}))
+   test.equal(child.stdin:acceptsRaw(), false)
+   local wrote, reason = child.stdin:writeRaw(nil, 0)
+   test.equal(wrote, nil)
+   assert(type(reason) == "string" and #reason > 0)
+   assert(child.stdin:close())
+   assert(child:wait():succeeded())
+   assert(child:close())
+end
+
 function M.communicateAcceptsBuffersAndEnforcesItsCombinedLimit()
    local api = ready()
    local input = buffers.newBuffer("buffer input")

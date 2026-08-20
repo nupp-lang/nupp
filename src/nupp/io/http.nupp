@@ -278,18 +278,9 @@ end
 
 --- One request in flight.
 ---
---- Deliberately not declared `is NativeTransfer`, and `Client.send` casts onto that
---- interface instead. Two of these operations write body bytes straight into the
---- caller's destination without a copy, which means reaching the private storage of
---- whichever writer it is -- and a borrow cannot be handed to something that takes it
---- as `any`, which is the rule that keeps a capability from being erased. The cast is
---- where that is admitted. What would remove it is a capability on `io.Writer` saying
---- "here is somewhere to write directly, or nothing", which is a change to a contract
---- three modules implement rather than to this binding.
----
---- `_client` is also loose: the client's own record names this one, so typing the
---- back-pointer would have the two name each other.
-local record Transfer
+--- `_client` is deliberately loose: the client's own record names this one, so typing
+--- the back-pointer would have the two name each other.
+local record Transfer is NativeTransfer
     _client: any
     _handle: any
     _body: any
@@ -398,7 +389,12 @@ local record Transfer
     ---
     --- The crate lends the bytes rather than copying them, so this consumes only what
     --- it took and leaves the rest for the next call.
-    function bodyRead(self: Transfer, count: integer, destination: any, offset: integer): (string, any?, string?)
+    function bodyRead(
+        self: Transfer,
+        count: integer,
+        borrows destination: io.Buffer?,
+        offset: integer
+    ): (string, any?, string?)
         local data = native.ffi.new("const uint8_t*[1]")
         local length = native.ffi.new("size_t[1]")
         local state = native.ffi.new("uint32_t[1]")
@@ -420,21 +416,17 @@ local record Transfer
         end
         local take = math.min(count, tonumber(length[0]) as integer)
         if destination ~= nil then
-            local raw = rawget(destination, "_data")
-            local capacity = rawget(destination, "_capacity")
-            if raw ~= nil or capacity ~= nil then
-                destination:ensureCapacity(offset + take)
-                raw = rawget(destination, "_data")
-                local old = rawget(destination, "_length")
+            destination:ensureCapacity(offset + take)
+            local raw = destination:storage()
+            if raw ~= nil then
                 -- Writing past the end leaves a gap, which is zeroed rather than left
                 -- holding whatever the buffer grew over.
+                local old = destination:length()
                 if offset > old then
                     native.ffi.fill(raw + old, (offset - old) as integer, 0)
                 end
                 native.ffi.copy(raw + offset, data[0], take)
-                if offset + take > old then
-                    rawset(destination, "_length", offset + take)
-                end
+                destination:setLength(offset + take)
                 if not C.nuppHttpBodyConsume(self._body, take) then
                     return "failed", nil, native.error()
                 end
@@ -451,37 +443,16 @@ local record Transfer
     end
 
     --- Whether this destination can take body bytes without a copy through Lua.
-    function directDestination(self: Transfer, destination: any): boolean
-        local buffer = rawget(destination, "_buffer")
-        if buffer ~= nil and rawget(destination, "_at") ~= nil and rawget(buffer, "_capacity") ~= nil then
-            return true
-        end
-        local file = rawget(destination, "_file")
-
-        return file ~= nil and rawget(file, "_handle") ~= nil
+    function directDestination(self: Transfer, borrows destination: io.Writer): boolean
+        return destination:acceptsRaw()
     end
 
-    --- Moves body bytes straight into a writer, when the writer has storage to take
-    --- them; "unsupported" when it does not, so the caller falls back to `bodyRead`.
-    function bodyWrite(self: Transfer, destination: any, count: integer): (string, integer?, string?)
-        if rawget(destination, "_closed") then
-            return "failed", nil, "the writer is closed"
-        end
-        local buffer = rawget(destination, "_buffer")
-        if buffer ~= nil and rawget(destination, "_at") ~= nil and rawget(buffer, "_capacity") ~= nil then
-            local at = rawget(destination, "_at")
-            local state, value, why = self:bodyRead(count, buffer, at)
-            if state == "data" then
-                rawset(destination, "_at", at + (value as integer))
-            end
-
-            return state, value as integer?, why
-        end
-        local file = rawget(destination, "_file")
-        local handle = file and rawget(file, "_handle") or nil
-        if handle == nil then
-            return "unsupported", nil, nil
-        end
+    --- Moves body bytes straight from the crate's storage into a writer.
+    ---
+    --- The crate lends the bytes rather than copying them, and the writer takes them
+    --- by pointer, so a response body reaching a file or a buffer never becomes a Lua
+    --- string on the way. Only what the writer actually took is consumed.
+    function bodyWrite(self: Transfer, borrows destination: io.Writer, count: integer): (string, integer?, string?)
         local data = native.ffi.new("const uint8_t*[1]")
         local length = native.ffi.new("size_t[1]")
         local state = native.ffi.new("uint32_t[1]")
@@ -502,12 +473,9 @@ local record Transfer
             return "closed", nil, "the body is closed"
         end
         local take = math.min(count, tonumber(length[0]) as integer)
-        -- `nuppFileWrite` belongs to the files binding. Reaching it here needs no
-        -- declaration of its own, because a writer can only be holding a file handle
-        -- if that module is what made it.
-        local wrote = tonumber(C.nuppFileWrite(handle, data[0], take)) as integer
-        if wrote < 0 then
-            return "failed", nil, native.error()
+        local wrote, why = destination:writeRaw(data[0], take)
+        if wrote == nil then
+            return "failed", nil, why
         end
         if not C.nuppHttpBodyConsume(self._body, wrote) then
             return "failed", nil, native.error()
@@ -627,7 +595,7 @@ local record Client is NativeClient
         local transfer = new Transfer(_client = self, _handle = handle, _body = nil, _closed = false)
         self._byHandle[tostring(handle)] = transfer
 
-        return transfer as any as NativeTransfer, nil, nil
+        return transfer, nil, nil
     end
 
     --- Collects readiness events and wakes what they moved.

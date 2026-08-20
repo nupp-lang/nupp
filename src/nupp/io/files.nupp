@@ -186,7 +186,7 @@ local newReaderOver: function(file: File): affine(FileReader, destroyOwner)
 local newWriterOver: function(file: File): affine(FileWriter, destroyOwner)
 local scratch: function(self: FileReader, count: integer): any
 local usable: function(self: FileReader): (File?, string?)
-local writable: function(self: FileWriter): (File?, string?)
+local writable: function(borrows self: FileWriter): (File?, string?)
 
 --- @raises when value is neither a path nor a string
 local function named(value: any, what: string, level: integer): string
@@ -576,6 +576,39 @@ export record FileWriter
         return taking, nil
     end
 
+    --- A file takes bytes by pointer and length, so raw ones need no copy at all.
+    --- @param self this writer
+    --- @return whether the file is still open to write to
+    function acceptsRaw(borrows self): boolean
+        local file = writable(self)
+
+        return file ~= nil
+    end
+
+    --- Writes raw bytes at the file's current position.
+    ---
+    --- This is the shortest path bytes can take out of somebody else's memory and into
+    --- a file: one call, no string, no buffer. A short write is reported as it
+    --- happened rather than retried, because the caller is the one holding the
+    --- storage and knows what is left.
+    --- @param self this writer
+    --- @param source where the bytes are
+    --- @param count how many of them there are
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    function writeRaw(borrows self, source: any, count: integer): (integer?, string?)
+        local file, reason = writable(self)
+        if file == nil then
+            return nil, reason
+        end
+        local wrote = tonumber(C.nuppFileWrite((file as File)._handle, source, count)) or -1
+        if wrote < 0 then
+            return nil, native.error()
+        end
+
+        return wrote as integer, nil
+    end
+
     --- Writes part of a snapshot.
     --- @param self this writer
     --- @param source the snapshot to copy from
@@ -764,7 +797,7 @@ usable = function(self: FileReader): (File?, string?)
     return file, nil
 end
 
-writable = function(self: FileWriter): (File?, string?)
+writable = function(borrows self: FileWriter): (File?, string?)
     local state = self as any
     if state._closed then
         return nil, "the writer is closed"

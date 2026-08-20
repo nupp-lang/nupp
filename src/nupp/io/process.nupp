@@ -787,6 +787,17 @@ record process.Writer is nupp.io.Writer
         return wanted
     end
 
+    --- A pipe is written through the backend, which takes bytes rather than a
+    --- pointer, so raw storage has nowhere to go here without a copy either way.
+    function acceptsRaw(borrows self): boolean
+        return false
+    end
+
+    --- Says no rather than copying, so a caller that skipped `acceptsRaw` learns.
+    function writeRaw(borrows self, source: any, count: integer): (integer?, string?)
+        return nil, "a process writer does not take raw bytes"
+    end
+
     function flush(self): (boolean, string?)
         if self.closed then
             return false, "the process writer is closed"
