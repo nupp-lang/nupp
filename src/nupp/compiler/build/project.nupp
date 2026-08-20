@@ -317,11 +317,20 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     newState.dependencies = dependencies
+    -- One query graph for the whole build, opened here because the ahead-of-time
+    -- policy checks through it before the module build does. It reads the
+    -- dependencies just resolved, which is why it cannot be opened any earlier.
+    local session = modules.session(root, outDir, config, target, dependencies, strict, report)
     -- The AOT policy runs before the modules it affects. `off` is the default
     -- and looks for nothing, so a project that has not asked for native code
     -- never depends on a C compiler being present -- but `require` replaces
     -- `@aot` bodies with the wrappers that call the compiled code, and that has
     -- to happen before the module build reads them.
+    --
+    -- It reads the checked tree of each source it lowers, so the same graph
+    -- answers both phases: the sources it checks are checked again with their
+    -- wrappers in front of them, and everything those two imports have in common
+    -- is answered once.
     --
     -- A check does none of it. `nupp check` answers a question about the source
     -- as written, and asking it to compile and link first would make checking a
@@ -340,6 +349,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             (target.name or opts.target or "default") as string,
             (oldState.aot or {}) as {[string]: string},
             oldState.aotLibrary,
+            session,
             target.aotFeatures as string?,
             target.aotTarget as string?,
             target.aotCflags as {string}?
@@ -379,7 +389,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         checkState,
         opts.paths and {paths = opts.paths, unchecked = opts.unchecked or {},} or nil,
         report,
-        aotOverlays
+        aotOverlays,
+        session
     )
     -- Everything from here writes to the same stream the step line is on, so it comes
     -- off the screen once rather than before each of a dozen messages.

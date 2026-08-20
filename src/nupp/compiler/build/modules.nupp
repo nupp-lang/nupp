@@ -93,6 +93,25 @@ type modules.Narrow = {
     unchecked: {string}
 }
 
+--- The query graph one build checks through, and what checking charged where.
+---
+--- One per build rather than one per phase. The ahead-of-time policy checks the
+--- sources it lowers before the module build checks the project, and those
+--- sources import most of what the project imports; a second graph would answer
+--- every one of those imports again and answer it the same way.
+record modules.Session
+    --- The graph.
+    inc: nupp.compiler.incremental.Inc
+
+    --- What each file's own check cost, by path, with the dependencies it pulled
+    --- in charged to themselves. A module's check reaches its imports through
+    --- the query graph, so the inclusive time of the first module compiled is
+    --- most of the build and naming it the slowest would be true of whichever
+    --- module happened to go first. Subtracting what the nested checks announced
+    --- is what makes the number the module's own.
+    checkMs: {[string]: number}
+end
+
 --- Canonical binder numbering for one fingerprint: the number each binder was given,
 --- and how many have been handed out. Numbering by first encounter rather than by
 --- name is what makes two binders that shadow each other compare unequal, and what
@@ -418,6 +437,17 @@ typeFingerprint = function(
     return value
 end
 
+--- A path as a progress line should say it: relative to the project root, so a
+--- step reads the same wherever the project was checked out.
+local function shortPath(root: string, path: string): string
+    local rootPrefix = normalize(root)
+    if rootPrefix ~= "." and path:sub(1, #rootPrefix + 1) == rootPrefix .. "/" then
+        return path:sub(#rootPrefix + 2)
+    end
+
+    return path
+end
+
 local function resourceRelative(config: Config, path: string, root: string): string
     local normalized = normalize(path)
     local rootPrefix = normalize(root)
@@ -483,25 +513,20 @@ local function copyModuleRecord(record)
     }
 end
 
-local function buildModules(root: string, outDir: string, config: Config, target: Target, oldState: State, newState: State, checkOnly: boolean?, strict: boolean?, stats: modules.Stats?, diagnostics: {
-    any
-}?, checkState: nupp.compiler.build.store.Value?,
-
-    --- Set when a check was asked about named files rather than about the project. Only
-    --- a check narrows: a build compiles the whole source set, because a module nobody
-    --- requires is still part of the program.
-    narrow: modules.Narrow?,
-
-    --- Where what this is doing, and what it costs, is said. A run given none still
-    --- measures itself into a reporter that shows nothing, so there is one code path
-    --- rather than a nil test at every step.
-    reporter: nupp.compiler.build.progress.Reporter?,
-
-    --- Source path -> the text to compile instead of what is on disk. How the
-    --- ahead-of-time policy puts a wrapper in front of an `@aot` function: the
-    --- substitute is checked and hashed exactly like a file, so nothing
-    --- downstream has to know one happened.
-    overlays: {[string]: string}?): modules.Result?, string?
+--- Opens the query graph a build checks through.
+---
+--- Separate from the build so the phases that run before it can check through the
+--- same graph. `strict` holds every file to the strict floor whatever it is named;
+--- nil lets each file's extension decide.
+local function openSession(
+    root: string,
+    outDir: string,
+    config: Config,
+    target: Target,
+    dependencies: {[string]: nupp.compiler.build.cache.DependencyRecord},
+    strict: boolean?,
+    reporter: nupp.compiler.build.progress.Reporter?
+): modules.Session
     local report = reporter or progress.new("never")
     local envConfig = {}
     for key, value in pairs(config) do
@@ -512,13 +537,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         envConfig.include[#envConfig.include + 1] = include
     end
     envConfig.include[#envConfig.include + 1] = join(outDir, "generated")
-    local rocks = deps.rockPaths(root, config, target, newState.dependencies)
-    -- What each file's own check cost, by path, with the dependencies it pulled in
-    -- charged to themselves. A module's check reaches its imports through the query
-    -- graph, so the inclusive time of the first module compiled is most of the build
-    -- and naming it the slowest would be true of whichever module happened to go first.
-    -- Subtracting what the nested checks announced is what makes the number the
-    -- module's own.
+    local rocks = deps.rockPaths(root, config, target, dependencies)
     local checkMs: {[string]: number} = {}
     local open: {{
         startedAt: number,
@@ -527,15 +546,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- What the build was doing when the outermost check began, to go back to when it
     -- ends.
     local resumeActivity = "scan"
-    local rootPrefix = normalize(root)
-    local function shortPath(path: string): string
-        if rootPrefix ~= "." and path:sub(1, #rootPrefix + 1) == rootPrefix .. "/" then
-            return path:sub(#rootPrefix + 2)
-        end
-
-        return path
-    end
-
     local observer: nupp.compiler.incremental.Observer = {
         checking = function(path: string): nil
             -- Checking is charged wherever it happens rather than only where this file
@@ -547,7 +557,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 report:at("check")
             end
             open[#open + 1] = {startedAt = progress.now(), children = 0}
-            report:step("checking " .. shortPath(path))
+            report:step("checking " .. shortPath(root, path))
         end,
         checked = function(path: string): nil
             local frame = open[#open]
@@ -567,12 +577,45 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end,
     }
 
-    local inc = incremental.new(root, {
-        config = envConfig,
-        strict = strict,
-        typeRoots = rocks and rocks.typeRoots or {},
-        observe = observer,
-    })
+    return new modules.Session(
+        inc = incremental.new(root, {
+            config = envConfig,
+            strict = strict,
+            typeRoots = rocks and rocks.typeRoots or {},
+            observe = observer,
+        }),
+        checkMs = checkMs
+    )
+end
+
+local function buildModules(root: string, outDir: string, config: Config, target: Target, oldState: State, newState: State, checkOnly: boolean?, strict: boolean?, stats: modules.Stats?, diagnostics: {
+    any
+}?, checkState: nupp.compiler.build.store.Value?,
+
+    --- Set when a check was asked about named files rather than about the project. Only
+    --- a check narrows: a build compiles the whole source set, because a module nobody
+    --- requires is still part of the program.
+    narrow: modules.Narrow?,
+
+    --- Where what this is doing, and what it costs, is said. A run given none still
+    --- measures itself into a reporter that shows nothing, so there is one code path
+    --- rather than a nil test at every step.
+    reporter: nupp.compiler.build.progress.Reporter?,
+
+    --- Source path -> the text to compile instead of what is on disk. How the
+    --- ahead-of-time policy puts a wrapper in front of an `@aot` function: the
+    --- substitute is checked and hashed exactly like a file, so nothing
+    --- downstream has to know one happened.
+    overlays: {[string]: string}?,
+
+    --- The graph to check through, when an earlier phase already opened one. A
+    --- build given none opens its own, so there is one way a session is built
+    --- rather than two that could drift.
+    session: modules.Session?): modules.Result?, string?
+    local report = reporter or progress.new("never")
+    local opened = session or openSession(root, outDir, config, target, newState.dependencies, strict, reporter)
+    local inc = opened.inc
+    local checkMs = opened.checkMs
     local substituted: {[string]: string} = {}
     for path, text in pairs(overlays or {}) do
         local at = normalize(path)
@@ -1086,7 +1129,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
     report:at("write")
     for _, item in ipairs(pending) do
-        report:step("writing " .. shortPath(item.path))
+        report:step("writing " .. shortPath(root, item.path))
         local ok, err = writeFile(item.path, item.text)
         if not ok then
             return nil, err
@@ -1100,5 +1143,6 @@ modules.typeFingerprint = typeFingerprint
 modules.resourceRelative = resourceRelative
 modules.resourceOutput = resourceOutput
 modules.build = buildModules
+modules.session = openSession
 
 export = modules

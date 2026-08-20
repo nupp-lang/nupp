@@ -23,19 +23,25 @@ brought in needs no W^X policy, no `MAP_JIT`, no executable-memory budget and no
 code retirement, and all of those exist only because code is mapped at run time.
 They return if and when direct machine-code emission does.
 
-This pass reads sources rather than the module build's bookkeeping. It costs a
-second parse of the few files that carry the annotation, and in exchange it
-cannot be wrong about which source produced which artifact.
+This pass finds its work by reading sources rather than the module build's
+bookkeeping, so it cannot be wrong about which source produced which artifact.
+What it lowers is the checked tree of each of those sources, taken from the same
+query graph the module build then uses: a parse says how a parameter, a call
+target or an annotation was spelled, and only a check says what each resolved
+to.
 ]]
 
 local bindingRules = require("nupp.compiler.aot.binding")
 local compile = require("nupp.compiler.aot.compile")
+local diagnosticMod = require("nupp.compiler.diagnostics")
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.compiler.build.cache")
 local hash = require("nupp.compiler.build.hash")
 local process = require("nupp.compiler.build.process")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local targets = require("nupp.compiler.aot.target")
+
+local isFatal = diagnosticMod.isFatal
 
 local aot = {}
 
@@ -287,6 +293,35 @@ local function mentionsAot(text: string): boolean
     return text:find("@aot", 1, true) ~= nil
 end
 
+--- One source's checked tree, or nothing when there is no sound one to lower.
+---
+--- The tree the checker produced rather than a fresh parse of the same bytes.
+--- What the backend needs from a parameter, a call target or an annotation is
+--- what each of those resolved to, and only a checked tree carries that; a parse
+--- carries the spelling and leaves the backend to guess the rest.
+---
+--- Nothing, rather than an error, when the source does not check. The module
+--- build checks the same file through the same graph a moment later and reports
+--- it there, in the one place a source error is reported. Lowering it here would
+--- either say the same thing twice or describe a program the checker has already
+--- refused.
+local function checkedTree(
+    session: nupp.compiler.build.modules.Session,
+    source: string
+): nupp.compiler.parser.ParseResult?
+    local checked = session.inc.checkFile(source)
+    if checked.missing == true or checked.syntax == true or checked.result == nil then
+        return nil
+    end
+    for _, diagnostic in ipairs(checked.diags or {}) do
+        if isFatal(diagnostic) then
+            return nil
+        end
+    end
+
+    return checked.result as nupp.compiler.parser.ParseResult
+end
+
 --- How this host spells a shared library, and what it takes to produce one.
 ---
 --- The host's rather than the selected target's: `require` builds something
@@ -499,6 +534,8 @@ end
 ---
 --- @param roots the project's include directories
 --- @param outDir where the build is writing, which the C goes beside
+--- @param session the graph the sources are checked through, shared with the
+---   module build that follows so each import is answered once
 --- @return what was written, or nothing and the first reason it could not be
 --- @raises never; a source the subset refuses is reported, not thrown
 function aot.emitC(
@@ -506,6 +543,7 @@ function aot.emitC(
     outDir: string,
     roots: {string},
     previous: {[string]: string},
+    session: nupp.compiler.build.modules.Session,
     features: string?,
     triple: string?
 ): ({aot.Emitted}?, string?, {[string]: compile.Artifacts})
@@ -527,11 +565,12 @@ function aot.emitC(
                 seen[source] = true
 
                 local text = fs.readFile(source)
-                if text ~= nil and mentionsAot(text as string) then
+                local tree = text ~= nil and mentionsAot(text as string) and checkedTree(session, source) or nil
+                if tree ~= nil then
                     local artifacts, diagnostics = compile.artifacts(
                         text as string,
                         source,
-                        nil,
+                        tree as nupp.compiler.parser.ParseResult,
                         "<object>",
                         selected as targets.Target
                     )
@@ -614,11 +653,12 @@ function aot.apply(
     name: string,
     previous: {[string]: string},
     previousLibraryKey: string?,
+    session: nupp.compiler.build.modules.Session,
     features: string?,
     triple: string?,
     cflags: {string}?
 ): (aot.Result?, string?)
-    local emitted, emitErr, produced = aot.emitC(root, outDir, roots, previous, features, triple)
+    local emitted, emitErr, produced = aot.emitC(root, outDir, roots, previous, session, features, triple)
     if emitted == nil then
         return nil, emitErr
     end

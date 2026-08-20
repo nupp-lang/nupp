@@ -157,7 +157,7 @@ end
 @aot(lanes = false)
 local function countQuotes(borrows source: span.Span<uint8>): uint32
     local species = preferredBytes()
-    local cursor = 0.0
+    local cursor: integer = 0
     local found: uint32 = 0
     while cursor < #source do
         local bytes = species:load(source, cursor)

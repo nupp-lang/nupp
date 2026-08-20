@@ -83,8 +83,8 @@ local command = spec.command{
     name = "aot",
     summary = "Show what the @aot functions in a file compile to",
     usage = {"nupp aot [--emit ir|c|binding] [--check] [--target TRIPLE] [--features TIER] <file>",},
-    intro = "Production `nupp build` still emits the ordinary Lua body; this reports what the "
-    .. "ahead-of-time backend would produce for the file.",
+    intro = "Reports what the ahead-of-time backend produces for one file, without writing it. "
+    .. "A build emits the same artifacts under `aot = \"emit-c\"` or `aot = \"require\"`.",
     options = aotOptions(),
     schema = {
         type = "object",
