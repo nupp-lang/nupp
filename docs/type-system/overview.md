@@ -171,18 +171,3 @@ One page per idea, in the order they build on each other:
 
 For where a declaration lives and how modules see it, read
 [declarations and modules](../concepts/declarations.md).
-
-## Diagnostics
-
-- **NUPP2001**: a value does not fit the type it is bound to.
-- **NUPP2004**: the field does not exist on that type.
-- **NUPP2011**: a fixed-width value was claimed without being established.
-- **NUPP2012**: a physical storage width was used as an ordinary value type.
-- **NUPP2105**: an unknown variable, in a strict file only.
-- **NUPP2106**: an exported declaration needs a type annotation.
-
-## Next
-
-- [primitives.md](primitives.md): the builtin names, and where to start.
-- [strictness.md](../concepts/strictness.md): which files are held to the strict
-  floor.

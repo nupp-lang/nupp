@@ -189,9 +189,6 @@ A section opens with a sentence, not with a list. A reader arriving at a
 heading needs to know what the list is a list of before the first item means
 anything, and one sentence is usually the whole cost.
 
-`## Diagnostics` and `## Next` are the exceptions, because the guide already
-fixes their shape: one is the codes a page's rules produce and the other is two
-or three links, and neither wants a sentence saying so on every page.
 
 ## Layering
 
@@ -266,8 +263,6 @@ Link generously. A page is a node, not a document.
   links to its page; a module blurb links to the page that introduces the
   module's subject. Generated API pages are part of the site, not a separate
   world.
-- End a page with what to read next when there is an obvious next step: a short
-  `## Next` list of two or three links, each with a clause saying why.
 
 ## Tables
 
@@ -289,27 +284,6 @@ Tables are for comparing several things across several axes, or for a closed
 enumeration of surface syntax. Two columns of key to value is a list, not a
 table. A table with one row is a sentence.
 
-## Diagnostics sections
-
-Any page that introduces rules the checker enforces ends with `## Diagnostics`:
-the codes that page's rules produce, bolded, each with one line saying what
-makes them fire.
-
-```markdown
-## Diagnostics
-
-- **NUPP2201**: a struct field is not reifiable, or a struct nests a
-  declaration.
-- **NUPP2204** / **NUPP2205**: array-part problems.
-```
-
-Do not paste the full text of `nupp explain`. The page says which codes belong
-to it; the command says everything else.
-
-A page that does not introduce rules has no such section. `reference/lints.md`
-and `reference/diagnostics.md` are about the diagnostic system itself, so a list
-of the codes they mention would point at themselves, and a command reference
-showing `nupp explain NUPP2119` is quoting a code rather than introducing one.
 
 ## Admonitions
 
@@ -455,7 +429,7 @@ Before a page lands:
 - Every example compiles, and each adds one idea to the one before it.
 - Every concept with a page of its own is linked on first mention, by heading
   where a heading answers it.
-- Rules the checker enforces are listed under `## Diagnostics`.
+- Diagnostic code lists live on [diagnostics.md](reference/diagnostics.md).
 - Tables are Markdown pipe tables; two-column key → value is a list.
 - No "we", no filler, no marketing adjective, no hedge that hides a condition.
 - Prose wraps at 80 columns and untouched paragraphs are unreflowed.
@@ -466,10 +440,3 @@ None standing. The em dashes that used to live in the `---` doc comments under
 `src/` and in the CLI help text are gone, and every page opens on an example. A
 rule a page cannot yet hold is listed here, with the page, so the next edit
 fixes it rather than rediscovering it.
-
-## Next
-
-- [docs/guides/doc.md](guides/doc.md): the fences, admonitions, code groups, and
-  tags this guide assumes.
-- [docs/reference/diagnostics.md](reference/diagnostics.md): what a diagnostic
-  carries, and the anchors pages link to.

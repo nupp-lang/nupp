@@ -414,27 +414,3 @@ Compiler integrations can still add definitions directly through the
 extensible `nupp.compiler.annotations` registry. Source declarations are the
 normal language-facing mechanism; direct registration remains useful for
 built-ins and compiler extensions.
-
-## Diagnostics
-
-- **NUPP2108**: an `@allow` names a lint that does not exist, and the error it
-  was meant to suppress still stands.
-- **NUPP2112**: an annotation argument is outside the closed set the annotation
-  accepts, which is what a misspelled `@relax` guarantee reports.
-- **NUPP2113**: a reserved annotation parsed and resolved, and is not yet
-  implemented.
-- **NUPP2707**: an `@jit` function crosses a variadic or callback FFI boundary.
-- **NUPP2119**: a declaration does not say where it lives.
-- **NUPP2901**: a declaration carries both `@aot` and `@jit`.
-- **NUPP2902**: `@aot` decorates a constructor or an inline requirement,
-  neither of which is a whole function to compile.
-- **NUPP2903**: an `@aot` body uses a construct the backend has no IR for --
-  a closure, table, interpolated string, vararg, `goto`, dynamic call, or
-  unsafe operation.
-
-## Next
-
-- [derives.md](derives.md): the members `@derive` generates.
-- [effects.md](../concepts/effects.md): the contract `@effects` states.
-- [tooling/aot.md](../guides/ahead-of-time.md): what `@aot` compiles and what it
-  buys.

@@ -357,21 +357,3 @@ nothing still states `: nil`.
 A function that always raises, exits, or loops forever returns `never`. A call
 to it leaves the containing block, which lets a guard clause establish
 narrowing for the code that follows.
-
-## Diagnostics
-
-- **NUPP2001**: a value does not fit the type it is bound to, which is what a
-  widening arithmetic result reports when it is bound back to `integer`.
-- **NUPP2004**: the field does not exist on that type, which is what reading a
-  field of `unknown` reports before it is narrowed.
-- **NUPP2006**: a call's arguments are not arranged in a way it can be given,
-  which is what an extra argument to a `never` variadic reports.
-- **NUPP2002**: a returned value does not fit the declared result sequence.
-- **NUPP2106**: a strict exported declaration is not fully annotated.
-- **NUPP2115**: an alias is defined in terms of itself.
-
-## Next
-
-- [records.md](records.md): nominal tables and the structs that lower to C
-  memory.
-- [unions.md](unions.md): closed sets of literals, and tagged unions of records.

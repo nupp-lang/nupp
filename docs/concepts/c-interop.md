@@ -782,22 +782,3 @@ An [affine pointer keeps its ABI
 representation](../type-system/ownership.md#c-interop), and a [counted pointer
 adapter](#counted-pointer-adapters) projects a checked span onto the pointer and
 count the function already accepts.
-
-## Diagnostics
-
-- **NUPP2201**: a struct field is not reifiable, which a `T[?]` field reports
-  because a struct whose size depends on a runtime count has none.
-- **NUPP2402**: `layoutof` was asked about something with no layout, such as a
-  `record`, which is a table rather than C memory.
-- **NUPP2403**: [structure-of-arrays storage](structure-of-arrays.md) was asked
-  to store a non-reified or unsupported element, or a field projection did not
-  resolve one stored struct field.
-
-## Next
-
-- [ownership.md](../type-system/ownership.md): the contracts a C pointer crosses
-  the boundary with.
-- [records.md](../type-system/records.md): the struct declarations a header
-  imports as.
-- [embedding.md](../guides/embedding.md): host checked Nupp components from a C
-  application.

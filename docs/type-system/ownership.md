@@ -364,28 +364,3 @@ flow.
 Pattern aliases are therefore convenient for reading nominal data, but they do
 not create an independent affine owner. Use the existing explicit move or
 borrow operations when an arm must transfer capability.
-
-## Diagnostics
-
-- **NUPP2601**: use after an affine value or field was moved.
-- **NUPP2602**: an ownership operation is invalid, such as dropping a
-  terminal-less value.
-- **NUPP2603**: an affine obligation leaves a path without being consumed or
-  transferred.
-- **NUPP2606**: a preservation relation loses, duplicates, or names the wrong
-  capability source.
-- **NUPP2607**: shared and exclusive regions overlap incompatibly.
-- **NUPP2608**: a rooted or scoped value escapes its permitted lifetime.
-- **NUPP2609**: a loop back edge changes a live capability or region.
-- **NUPP2610**: a capability-bearing public parameter omits its mode.
-- **NUPP2611**: a nontrivial capability is implicitly erased.
-- **NUPP2612**: a dynamic-store value is not self-contained and droppable.
-- **NUPP2613**: dynamic recovery requests the wrong type policy.
-- **NUPP2614**: a dynamic handle is stale or names a different or destroyed
-  store.
-- **NUPP2615**: a terminal is missing or does not exactly match its
-  representation.
-
-See also [C interop](../concepts/c-interop.md),
-[effects](../concepts/effects.md), and [checked
-spans](../modules/nupp/mem/span.md).

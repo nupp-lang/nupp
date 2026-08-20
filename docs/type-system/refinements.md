@@ -75,15 +75,3 @@ of the type yet, so `satisfies |self| -> self.a.b == "x"` compiles to
 `record C is Shape` is a claim the checker proves, and `Shape`'s refinement is
 what `is Shape` runs. Fields that provably fail it are **NUPP2122**, because the
 alternative is a value the checker calls a `Shape` and `is` calls otherwise.
-
-## Diagnostics
-
-- **NUPP2122**: a refinement cannot be enforced. It reads something other than
-  `self`, always answers the same way, sits on a record or struct, or a
-  declaration's own fields provably fail an interface it declares.
-
-## Next
-
-- [Interfaces](interfaces.md): structural satisfaction, and what `is` means
-  without a refinement.
-- [Narrowing](narrowing.md): what `is` proves once it has answered.

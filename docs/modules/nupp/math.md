@@ -93,13 +93,3 @@ Angle-between operations involving a zero vector return zero; reflection across
 a zero normal returns the original vector. `lerp` is unclamped. Use squared
 length/distance when only comparing magnitudes, to avoid an unnecessary square
 root.
-
-## Diagnostics
-
-- **NUPP2011**: a `float`, `int32`, or `uint32` claim lacks an establishing
-  literal, load, conversion, or fixed-width source.
-- **NUPP2012**: a physical storage width is used where an ordinary value type is
-  required.
-
-See [the standard-library overview](../../concepts/standard-library.md) for
-selection and lazy-loading rules.

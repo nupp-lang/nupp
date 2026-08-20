@@ -245,9 +245,3 @@ Generated code does not run on stock Lua 5.1 in general. Three things stop it:
 
 A file that uses none of those, and whose typed layer erases cleanly, does
 generate plain 5.1 Lua. There is no flag that guarantees it.
-
-## Next
-
-- [Type system](../type-system/overview.md) covers what the annotations mean.
-- [The grammar](../reference/grammar.md) for the normative ABNF.
-- [Declarations and modules](declarations.md) for visibility and module rules.

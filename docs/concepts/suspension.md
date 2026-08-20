@@ -488,20 +488,3 @@ destruction](../type-system/ownership.md#consumption-and-lexical-destruction),
 so affine files, locks, and native allocations do not become stranded. The
 handler contract specifies how [cancellation unwinds a parked
 stack](#cancellation-unwinds-the-parked-stack).
-
-## Diagnostics
-
-- **NUPP2701** reports a call in a `nosuspend` region or cleanup contract that
-  may suspend.
-- **NUPP2702** reports a suspending callback invoked through a non-yieldable C
-  boundary.
-- **NUPP2706** reports a jump into a `handle suspension` region.
-- **NUPP2603** reports a raw coroutine yield that would strand a live ownership
-  or borrowing obligation.
-
-## Next
-
-- [Effect contracts](effects.md) defines the complete `@effects` surface and
-  its inference limits.
-- [Ownership](ownership.md) defines the obligations that handled cancellation
-  unwinds.

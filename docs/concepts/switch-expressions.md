@@ -438,13 +438,3 @@ are one level inside their case. An arm `end` aligns with its `case`; the final
 `end` aligns with the surrounding statement. The selector-closing `do` stays on
 the selector's final logical line, and formatting never separates contextual
 `yield` from the first token of its operand.
-
-## Diagnostics
-
-- `NUPP2137`: invalid static case, field, or binding.
-- `NUPP2138`: duplicate static value after normalization.
-- `NUPP2139`: unreachable or selector-incompatible case.
-- `NUPP2140`: non-exhaustive switch.
-- `NUPP2141`: invalid block-arm completion or switch yield.
-- `NUPP2142`: placement would change conditional evaluation.
-- `NUPP3001`: a type case has no runtime identity.

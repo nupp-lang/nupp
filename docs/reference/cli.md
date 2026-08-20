@@ -1008,7 +1008,7 @@ Does not:
 
 Related: NUPP2106, NUPP2120
 
-Reference: docs/concepts/declarations.md#diagnostics
+Reference: docs/reference/diagnostics.md#diagnostic-index
 ```
 
 ### `reference`

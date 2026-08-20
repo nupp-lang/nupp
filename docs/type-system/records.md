@@ -416,19 +416,3 @@ builds. The value keeps the record's methods and runtime identity, while
 discharges its cleanup. [Affine constructor
 policies](affine-types.md#constructors-can-introduce-the-policy) define the
 complete result rule.
-
-## Diagnostics
-
-- **NUPP2201**: a struct field is not reifiable, or a struct nests a
-  declaration.
-- **NUPP2202**: a construction problem: an unknown field, a missing one, or a
-  positional argument to a record.
-- **NUPP2204** / **NUPP2205**: array-part problems.
-- **NUPP2118**: a duplicate member, or a metamethod contract on a struct.
-
-## Next
-
-- [interfaces.md](interfaces.md): the structural contract a record can declare
-  it satisfies.
-- [c-interop.md](../concepts/c-interop.md): what a struct's layout means at the
-  C boundary.

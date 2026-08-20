@@ -352,22 +352,3 @@ Macro-generated protocol declarations are an `import-tl` concern. Comptime is
 deliberately data-only and does not generate declarations, so a translated
 macroexp-defined `__len` contract must be ejected as an explicit declaration or
 a visible translation residue.
-
-## Diagnostics
-
-The principal diagnostics are:
-
-- `NUPP2003`: no applicable primitive operation or metamethod contract.
-- `NUPP2005`: a value has no callable type or `__call` contract.
-- `NUPP2006` / `NUPP2007`: contract argument or arity mismatch.
-- `NUPP2116`: a generic argument violates its `is` bound.
-- `NUPP2117`: an invalid contract parent after `is`.
-- `NUPP2118`: an invalid, duplicate, misspelled, or unsupported metamethod or
-  inline method declaration.
-
-## Next
-
-- [interfaces.md](../type-system/interfaces.md): the contracts a metamethod is
-  declared through.
-- [records.md](../type-system/records.md): the declarations a metatable is
-  attached to.

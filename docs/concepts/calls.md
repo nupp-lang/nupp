@@ -108,16 +108,3 @@ end
 ```
 
 Plucking never introduces a closure or an upvalue.
-
-## Diagnostics
-
-- **NUPP2004**: a plucked name is not a field of the operand.
-- **NUPP2006**: an argument does not fit the parameter it fills.
-- **NUPP2125**: no overload accepts the call the arguments build.
-
-## Next
-
-- [Records and structs](../type-system/records.md): the declarations these
-  arguments are usually read from.
-- [Overloads and overrides](../type-system/overloads.md): how an argument pack
-  selects one entry of an overload set.

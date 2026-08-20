@@ -541,18 +541,3 @@ This heavily reduces troubleshooting for catalogued, attributable causes. It
 cannot replace profiling for cold code, input-dependent types and shapes, side
 exits, recorder limits, or deciding whether a reported site matters to the
 workload.
-
-## Diagnostics
-
-- **NUPP2707**: an `@jit` body, or a checked callee it reaches, holds a
-  catalogued unconditional recorder blocker.
-- **NUPP2515** / **NUPP2505**: a loop builds a function, capturing the
-  iteration or not.
-- **NUPP2514**: a variadic FFI call cannot run on a compiled trace.
-- **NUPP2502**: a Lua function passed to C becomes an FFI callback.
-
-## Next
-
-- [Profiling](profiling.md): the abort channel these reasons come back through,
-  and the sampler that says whether a site is hot.
-- [Performance](performance.md): the lowerings chosen so a trace forms at all.

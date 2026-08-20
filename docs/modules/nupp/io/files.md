@@ -246,17 +246,3 @@ queue that grows with its callers eventually takes the process with it.
 
 Metadata, listings and cursor reads through an open `File` do not use the lane.
 Scheduling a transfer costs more than those cost to run.
-
-## Diagnostics
-
-- **NUPP2701**: a non-suspending region can reach suspension, which a
-  filesystem call inside `nosuspend` reports at compile time.
-
-## Next
-
-- [docs/modules/nupp/io.md](../io.md): the buffer, reader and writer contracts a
-  file implements.
-- [docs/type-system/ownership.md](../../../type-system/ownership.md): what an
-  owner is, and when its cleanup runs.
-- [docs/concepts/paths-and-uris.md](../../../concepts/paths-and-uris.md):
-  building and normalizing the names this namespace takes.

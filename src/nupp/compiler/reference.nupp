@@ -2663,7 +2663,7 @@ end
 --- The section a slug names, and the chapter holding it.
 ---
 --- Accepts what a reader actually has in hand rather than only the bare slug: a whole
---- `docs` pointer such as `docs/concepts/declarations.md#diagnostics`, a bare
+--- `docs` pointer such as `docs/reference/diagnostics.md#diagnostic-index`, a bare
 --- `#anchor`, or the heading written out. Everything before a `#` is a file name this
 --- reference does not have and does not need -- the anchor is what identifies the
 --- section.

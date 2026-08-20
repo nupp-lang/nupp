@@ -304,19 +304,3 @@ understand `module`, `export`, brace selection, and qualified paths. Completion
 on a registered namespace lists child modules and exports. Definition on an
 export reaches its declaration, and an exact module segment reaches the module
 declaration.
-
-## Diagnostics
-
-- **NUPP1002** reports invalid module declarations, non-canonical names,
-  duplicate canonical modules, reserved compiler-name collisions, and
-  parent-export/child-module collisions.
-- **NUPP2004** reports a missing selected field or exported member.
-- **NUPP2101** reports an unknown type.
-- **NUPP2105** reports an unknown value in strict source.
-- **NUPP2119** reports a typed declaration with no visibility in a legacy
-  module. In a declared module, use `local` or `export`.
-
-## Next
-
-- [strictness.md](strictness.md): which floor a file is held to.
-- [build.md](../guides/build.md): how project files become build output.

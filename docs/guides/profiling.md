@@ -231,10 +231,3 @@ Neither channel is free. A sample session pays a timer interrupt, a stack walk
 and a table write at every interval; a trace session pays a callback inside the
 compiler at every abort. Stop a session once the question it was opened for has
 an answer.
-
-## Next
-
-- [LuaJIT trace checking](jit-trace-checking.md): the same aborts as a static
-  check, so a known cliff fails a build rather than a run.
-- [Performance](performance.md): the lowerings and `-O` passes to reach for once
-  the profile says where.

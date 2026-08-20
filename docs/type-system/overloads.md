@@ -460,23 +460,3 @@ return decodeDynamic("ready")
 
 That dispatcher exists because the program asked for a dynamic facade. Typed
 method calls do not pay for it.
-
-## Diagnostics
-
-- **NUPP2125**: no callable-intersection member accepts the argument pack.
-- **NUPP2126**: several members accept it, or an overloaded method was read as
-  one field value.
-- **NUPP2118**: a method parameter pack is duplicated, an interface entry is
-  missing or incompatible, or `@override` does not match exactly one inherited
-  default.
-- **NUPP2208**: constructor overloads duplicate a parameter pack or violate
-  constructor integrity.
-
-For the underlying intersection relation, including capability composition and
-provable emptiness, see [Intersection types](intersections.md). For general
-interface inheritance and runtime defaults, see [Interfaces](interfaces.md).
-
-## Next
-
-- [intersections.md](intersections.md): the type an overload set is.
-- [generics.md](generics.md): how a type parameter picks an entry.

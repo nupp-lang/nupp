@@ -813,19 +813,6 @@ default:
 }
 ```
 
-## Diagnostics
-
-| Code | Meaning |
-| --- | --- |
-| NUPP2901 | `@aot` stacked with `@jit`, promising one body to two compilers |
-| NUPP2902 | `@aot` on something that is not a whole function |
-| NUPP2903 | A construct in an `@aot` body with no AOT IR form |
-
-A closure, interpolated string, vararg, `goto`, dynamic call or unsafe operation
-inside an `@aot` body reports NUPP2903 at the construct. Fresh table
-construction is admitted; unsupported table reads or mutations are refused by
-the value-level AOT lowering with a source position.
-
 ## Build policy
 
 A build selects one policy, and an artifact records the one it was built under.
@@ -1075,11 +1062,3 @@ Named so you can tell what you are looking at:
 - **Multiversioning.** A build pins one feature tier. Dispatching between
   several at run time, so one binary uses AVX2 where it is present and the
   baseline where it is not, is a separate decision nobody has taken.
-
-## Next
-
-- [Performance](performance.md): what the ordinary Lua backend does
-- [LuaJIT trace checking](jit-trace-checking.md): the same category of
-  performance property, for the JIT rather than the AOT path
-- [Effect contracts](../concepts/effects.md): the purity `@aot` helpers rely on
-- [Ownership](../type-system/ownership.md): where the alias facts come from

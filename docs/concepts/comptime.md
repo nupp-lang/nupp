@@ -114,28 +114,3 @@ inside an ordinary table, is **NUPP2414**.
 Reflection's `FieldCodec` is the canonical example; its descriptor shape,
 read-only rules, and materialization boundary live on
 [Reflection](reflection.md#comptime-reflection).
-
-## Diagnostics
-
-- **NUPP2410** / **NUPP2411** / **NUPP2412**: the block cannot be evaluated at
-  compile time.
-- **NUPP2413**: a result table is reachable by two paths, so it has no literal
-  spelling.
-- **NUPP2414**: an opaque provider result reached a binding that cannot
-  materialize it.
-- **NUPP2415**: a declared type has no registered materialization for the
-  opaque result, or a worker payload failed the provider's checks.
-- **NUPP2416** / **NUPP2419**: a provider rejected the request.
-- **NUPP2420**: a comptime type function deliberately rejected its application
-  through `nupp.types.error`.
-- **NUPP2421**: a type-position comptime call has an invalid callee, signature,
-  argument, result kind, or result bound.
-
-## Next
-
-- [Reflection](reflection.md): the descriptor a comptime block reads
-  to generate code from a declaration.
-- [Type system overview](../type-system/overview.md): the finite type operators
-  that remain direct language syntax.
-- [Affine types](../type-system/affine-types.md): the built-in generator and its
-  programmable comptime builder.

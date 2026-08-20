@@ -164,23 +164,3 @@ A declarative C binding can use
 [`countedBy(count)`](../../../concepts/c-interop.md#counted-pointer-adapters)
 instead. Its checked call surface accepts spans, verifies shared counts, and
 projects the physical pointer/count arguments automatically.
-
-## Diagnostics
-
-- **NUPP2001**: an element, count, or result does not fit the span's declared
-  type.
-- **NUPP2004**: a requested operation is not present on the shared or writable
-  view being used.
-- **NUPP2602**: an ownership or exclusive-access operation is invalid for the
-  live span regions.
-- **NUPP2604**: raw pointer arithmetic, indexing, or a region assertion lacks
-  the required proof or `unsafe` boundary.
-
-## Next
-
-- [C interop](../../../concepts/c-interop.md) maps checked spans onto
-  pointer/count parameters.
-- [Ownership](../../../type-system/ownership.md) explains the affine and
-  borrowing rules enforced by writable views.
-- [Structure-of-arrays storage](../../../concepts/structure-of-arrays.md)
-  projects struct columns as spans.

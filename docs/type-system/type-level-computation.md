@@ -269,14 +269,3 @@ boundaries. [Records and structs](records.md) receive identity from those
 declarations. [Associated types](associated-types.md) provide computed answers
 owned by a declaration without granting comptime code control over names,
 visibility, declaration order, runtime tables, metatables, or ABI layouts.
-
-## Diagnostics
-
-- **NUPP2001**: two applications of one generic differ in a const argument.
-
-
-## Next
-
-- [packs.md](packs.md): value sequences and `unpackof`.
-- [generics.md](generics.md): type, pack, and const parameters.
-- [associated-types.md](associated-types.md): declaration-owned type answers.

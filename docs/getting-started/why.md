@@ -177,14 +177,3 @@ The type system has deliberate holes, and they are written down rather than
 implied: arrays are covariant, `as` is unchecked, `table` is gradual in both
 directions, and a declared `is` edge is trusted instead of proved. Each buys
 compatibility with how Lua is actually written.
-
-## Next
-
-In this order:
-
-- [Installation](installation.md), then [a tour of Nupp](tour.md).
-- [Nupp syntax](../concepts/syntax.md) if you already know Lua and want the
-  delta.
-- [Suspension](../concepts/suspension.md) for waiting with or without a
-  scheduler.
-- [Type system](../type-system/overview.md) covers what the checker proves.

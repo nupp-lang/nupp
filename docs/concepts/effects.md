@@ -548,17 +548,3 @@ When an effect contract reports `NUPP2112`:
 
 For bodyless declarations, review the implementation on the other side of the
 boundary: the checker cannot do that verification for you.
-
-## Diagnostics
-
-- **NUPP2710**: a `noalloc` region can reach a modeled allocation.
-- **NUPP2711**: a `noraise` region can reach a catchable error path.
-
-- **NUPP2112**: an effect annotation member is not one the contract accepts, or
-  a boolean member is not literally `true` or `false`.
-
-## Next
-
-- [ownership.md](../type-system/ownership.md): the other contract a bodyless
-  declaration carries.
-- [performance.md](../guides/performance.md): what a summary lets a pass prove.

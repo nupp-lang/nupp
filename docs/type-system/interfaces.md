@@ -269,19 +269,3 @@ deterministic cleanup is [ownership](ownership.md).
 
 [The metamethod reference](../concepts/metamethods.md) covers generic indexing,
 runtime fulfillment, `metatable<T>`, and the full set of exclusions.
-
-## Diagnostics
-
-- **NUPP2116**: a generic argument violates its bound.
-- **NUPP2117**: `is` names something that is not an interface.
-- **NUPP2118**: an invalid, duplicate, or unsupported metamethod contract, or
-  an interface method given a body.
-- **NUPP2136**: a sealed interface is implemented outside its owning module.
-- **NUPP3001**: `is` used against a type with no runtime identity.
-
-## Next
-
-- [refinements.md](refinements.md): the runtime test an interface carries so
-  `is` can answer.
-- [overloads.md](overloads.md): what happens when an interface member is an
-  overload set.

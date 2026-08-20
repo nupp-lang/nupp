@@ -206,10 +206,3 @@ foreground until it is stopped, exactly as running that command directly would.
 Tasks do not depend on other tasks. The one ordering a task can express is
 `build`, and anything more is the command's own business, which is what a shell
 or a script written in Nupp is for.
-
-## Next
-
-- [build.md](build.md): the targets a task's `build` key names, and what each
-  kind writes.
-- [testing.md](testing.md): `test`, which is the same shape fixed to one
-  purpose.

@@ -327,20 +327,3 @@ nupp explain NUPP2119
 The checker, formatter, documentation generator, language server, build system,
 profiler, and C importer are the same executable, built from the same parse.
 [Tooling](tooling.md) is the guided version of that list.
-
-## Diagnostics
-
-- **NUPP2107**: the `exhaustiveness` lint, where a dispatch leaves members of a
-  closed set unhandled.
-- **NUPP2119**: a declaration says neither `local`, `global`, nor a table to
-  attach to.
-
-## Next
-
-- [Reasons to use Nupp](why.md): the case for each of the pieces above.
-- [Nupp syntax](../concepts/syntax.md): the syntax in one place, including what
-  LuaJIT 2.1 does and does not carry.
-- [Suspension](../concepts/suspension.md) covers ordinary calls that block or
-  park according to their context.
-- [Type system](../type-system/overview.md): gradual typing, and what the
-  checker proves.

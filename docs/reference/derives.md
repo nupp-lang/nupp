@@ -364,17 +364,3 @@ Derives run as part of declaration checking and may attach only validated
 member recipes. The bundled Debug and JSON providers use that
 same public mechanism; neither derives nor comptime become arbitrary source
 generation.
-
-## Diagnostics
-
-- **NUPP2810**: a derive provider failed or returned an invalid blueprint,
-  and named no code of its own.
-
-
-## Next
-
-- [records.md](../type-system/records.md): declaration-owned construction
-  defaults.
-- [annotations.md](annotations.md): the field annotations each provider reads.
-- [Reflection](../concepts/reflection.md): the comptime descriptor and runtime
-  type witness this page builds on.

@@ -179,9 +179,3 @@ local type MustForward<T> = affine(T)
 An affine type's static identity is its representation plus the exact terminal
 function identity, or deliberate terminal absence. The declaration name does
 not add runtime or nominal identity.
-
-## Next
-
-- [Affine types](../type-system/affine-types.md)
-- [Ownership reference](../type-system/ownership.md)
-- [C interop](c-interop.md)

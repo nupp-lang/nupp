@@ -271,18 +271,3 @@ GC-managed fields, owned fields, borrowed fields, or variable-size fields.
 The container does not expose column pointers, byte offsets, or a `void **`
 descriptor to checked code. Field spans provide typed contiguous access when a
 system needs one column directly.
-
-## Diagnostics
-
-- **NUPP2009**: code writes through a shared SoA row view.
-- **NUPP2403**: an allocation element is not SoA-eligible, or `field` does not
-  name one resolved stored field.
-
-## Next
-
-- [records.md](../type-system/records.md): the value and C layout rules that SoA
-  containers leave unchanged.
-- [ownership.md](../type-system/ownership.md): the owner and borrow rules
-  enforced by row and field views.
-- [reflection.md](reflection.md): generating adapters from semantic type
-  information.

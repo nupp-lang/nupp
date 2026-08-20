@@ -1054,10 +1054,3 @@ explicitly check a named `--relax` or `@relax` permission; `OPT-6` requires
 `frames`. The compiler fixpoint verifies that compiling the compiler at `-O1`
 produces output byte-identical to compiling it at `-O0` while its guarantees are
 held.
-
-## Next
-
-- [LuaJIT trace checking](jit-trace-checking.md): recorder blockers in source,
-  bytecode, or an observed run.
-- [Ahead-of-time compilation](ahead-of-time.md): the native scalar subset and
-  its boundaries.

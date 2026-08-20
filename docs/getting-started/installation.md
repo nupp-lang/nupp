@@ -201,8 +201,3 @@ Check the whole project rather than the file you just edited. That is what lets
 Nupp verify module boundaries, ownership contracts, and lint settings together.
 
 [Build system](../guides/build.md) documents every manifest key.
-
-## Next
-
-- [A tour of Nupp](tour.md): the whole language in one pass.
-- [Reasons to use Nupp](why.md): what each feature is for.

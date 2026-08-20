@@ -206,17 +206,3 @@ to its representation, so a C pointer remains a C pointer and a struct keeps the
 Imported functions can state their [lifetime
 behavior](../concepts/c-interop.md#describe-lifetime-behavior) directly, and the
 checker enforces the contract around the same LuaJIT FFI call.
-
-## Diagnostics
-
-- **NUPP2606**: a result has two possible `T` components, so conservation is
-  ambiguous.
-
-
-## Next
-
-- [Ownership](ownership.md) covers moves, borrows, lexical destruction,
-  aggregates, pinning, and unsafe representation boundaries.
-- [Comptime types](type-level-computation.md) covers user-defined type functions
-  and the `nupp.types` construction API.
-- [Generics](generics.md) covers type and const-function parameters.

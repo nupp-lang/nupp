@@ -152,19 +152,3 @@ deterministic `ipairs` or `pairs`. Views preserve equality identity, reject
 mutation, and cannot escape as runtime tables. `nupp.reflect.fieldCodec` is a
 materialization boundary: it produces a `nupp.reflect.FieldCodec<R>` for the
 same nominal record and copies its declared present fields with `rawget`.
-
-## Diagnostics
-
-- **NUPP2414**: an opaque reflection result reached a binding that cannot
-  materialize it.
-- **NUPP2415**: a declared materialization boundary or provider result failed
-  validation.
-- **NUPP2416** / **NUPP2418**: reflection or its provider rejected the request.
-
-## Next
-
-- [Comptime](comptime.md): evaluation, type functions, and materialization.
-- [Declaration derives](../reference/derives.md): checked generated members and
-  JSON schema options.
-- [Records](../type-system/records.md): nominal record declarations and their
-  construction rules.

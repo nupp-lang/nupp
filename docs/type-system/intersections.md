@@ -194,18 +194,3 @@ a direct call to its indexed constructor function; there is no runtime
 dispatcher. Duplicate parameter-pack contracts are **NUPP2208**, as are the
 existing constructor integrity failures. Declaring any constructor continues
 to close named-field construction for that record.
-
-## Diagnostics
-
-- **NUPP2124**: an intersection is provably uninhabited, so no value could
-  satisfy it.
-- **NUPP2125**: no overload accepts the call's adjusted argument pack.
-- **NUPP2126**: several overloads accept it, and source order does not break
-  the tie.
-- **NUPP2208**: a constructor does not hold up its declaration, which duplicate
-  parameter-pack contracts also report.
-
-## Next
-
-- [overloads.md](overloads.md): the callable case, with worked method bodies.
-- [properties.md](properties.md): the capability views intersections compose.
