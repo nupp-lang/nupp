@@ -21,6 +21,22 @@ local function temporaryRoot()
       .. "-" .. tostring(math.random(1, 1e9))
 end
 
+-- The library the provider opens is chosen by `nupp.native`, which reads
+-- `NUPP_NATIVE_LIBRARY` on the first symbol it is asked for. A suite cannot set an
+-- environment variable for its own process, so it preloads that module with the
+-- lookup already answered -- the same substitution this made against the bootstrap
+-- string back when the loader was generated into it.
+local function preloadProvider(libraryPath)
+   local found = assert(package.searchpath("nupp.native", package.path),
+      "nupp.native is not on the path")
+   local text = assert(io.open(found, "rb")):read("*a"):gsub(
+      'os%.getenv%("NUPP_NATIVE_LIBRARY"%)', function()
+         return ("%q"):format(libraryPath)
+      end)
+   package.loaded["nupp.native"] = nil
+   package.preload["nupp.native"] = assert(loadstring(text, "@nupp.native"))
+end
+
 local SHELL = os.getenv("NUPP_TEST_SH") or "/bin/sh"
 local function shell(command)
    return {SHELL, "-c", command}
@@ -42,22 +58,20 @@ function M.beforeAll()
       libraryPath = root .. "/out/lib/nupp_native"
    end
 
-   local library = ("%q"):format(libraryPath)
-   local source = stdlib.bootstrap({
+   priorPreload = package.preload["nupp.native"]
+   priorLoaded = package.loaded["nupp.native"]
+   preloadProvider(libraryPath)
+   assert(loadstring(stdlib.bootstrap({
       ["native.process"] = true,
       ["stdlib.io"] = true,
-   }):gsub('os%.getenv%("NUPP_NATIVE_LIBRARY"%)', function() return library end)
-   priorPreload = package.preload["nupp.io.processnative"]
-   priorLoaded = package.loaded["nupp.io.processnative"]
-   package.loaded["nupp.io.processnative"] = nil
-   assert(loadstring(source))()
+   })))()
    process = require("nupp.io.process")
    buffers = require("nupp.io")
 end
 
 function M.afterAll()
-   package.preload["nupp.io.processnative"] = priorPreload
-   package.loaded["nupp.io.processnative"] = priorLoaded
+   package.preload["nupp.native"] = priorPreload
+   package.loaded["nupp.native"] = priorLoaded
    if root then
       os.execute("chmod -R u+w '" .. root .. "' 2>/dev/null")
       os.execute("rm -rf '" .. root .. "'")
@@ -224,16 +238,17 @@ end
 function M.thePublicModuleSelectsOnlyItsPrivateProvider()
    ready()
    test.equal(native.forModule("nupp.io.process"), "native.process")
-   test.equal(native.forModule("nupp.io.processnative"), nil)
    local feature = assert(native.feature("native.process"))
    test.equal(feature.cargoFeature, "process")
    local expanded = native.expand({["native.process"] = true})
    assert(expanded["runtime.suspension"])
 
-   local bootstrap = stdlib.bootstrap({["native.process"] = true})
-   assert(bootstrap:find('package.preload["nupp.io.processnative"]', 1, true))
-   assert(not stdlib.bootstrap({["stdlib.io"] = true}):find(
-      "nuppProcessSpawnBegin", 1, true), "unused programs carry no process ABI")
+   -- The binding is part of the module now, so what a program receives is the
+   -- module rather than a preload the bootstrap carried, and a program that does not
+   -- select the feature never sees the module at all.
+   test.equal(feature.runtimeModule, "nupp.io.process")
+   assert(not stdlib.bootstrap({["native.process"] = true}):find(
+      "nuppProcessSpawnBegin", 1, true), "the ABI is the module's, not the bootstrap's")
 end
 
 return M
