@@ -14,7 +14,10 @@ local backends = {}
 
 local RUNTIME_BACKEND_MODULE = "nupp.runtime.backend"
 
-local FACTORIES = {["nupp.runtime.seam.json"] = {seam = {name = "data.json", version = 1, effect = "native.json",},},}
+local FACTORIES = {
+    ["nupp.runtime.seam.json"] = {seam = {name = "data.json", version = 1, effect = "native.json",},},
+    ["nupp.runtime.seam.bitops"] = {seam = {name = "numeric.bitops", version = 1, effect = "runtime.bitops",},},
+}
 
 local function literalString(node: any): string?
     local token = node and node.kind == "string" and node.token or nil
@@ -50,11 +53,7 @@ local function importsOf(root: any): {[string]: string}
     local imports = {}
     for _, block in ipairs(root.blocks or {}) do
         for _, stat in ipairs(block.stats or {}) do
-            if stat.kind == "localStmt"
-                and stat.isConst
-                and #(stat.names or {}) == 1
-                and #(stat.exprs or {}) == 1
-            then
+            if stat.kind == "localStmt" and stat.isConst and #(stat.names or {}) == 1 and #(stat.exprs or {}) == 1 then
                 local moduleName = requiredModule(stat.exprs[1])
                 if moduleName then
                     imports[stat.names[1].text] = moduleName

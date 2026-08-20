@@ -6,6 +6,7 @@ local stdlib = require("nupp.compiler.stdlib")
 local backends = require("nupp.compiler.backends")
 local runtimeBackend = require("nupp.runtime.backend")
 local jsonSeam = require("nupp.runtime.seam.json")
+local bitopsSeam = require("nupp.runtime.seam.bitops")
 local optimize = require("nupp.compiler.optimize")
 local gen = require("nupp.compiler.gen")
 
@@ -56,6 +57,120 @@ local function jsonResolution(backendModule)
       seams = {['data.json'] = {module = backendModule}},
       byEffect = {['native.json'] = backendModule},
    }
+end
+
+local function bitopsResolution(backendModule)
+   return {
+      modules = {{name = "portable", module = backendModule}},
+      seams = {['numeric.bitops'] = {
+         name = "numeric.bitops", version = 1, effect = "runtime.bitops",
+         module = backendModule,
+      }},
+      byEffect = {['runtime.bitops'] = backendModule},
+   }
+end
+
+function M.bitopsCapabilityIsNativeOrRequiresItsClosedSeam()
+   assertClean("local a: integer\nlocal b: integer\nreturn (~a) & (b << 2)")
+   local missing, diags = diagsOf(
+      "local a: integer\nlocal b: integer\nreturn (~a) & (b << 2)",
+      {dialect = "lua51"}
+   )
+   assertEq(missing, "NUPP3006:3 NUPP3006:3 NUPP3006:3",
+      "each portable construct without a seam is diagnosed where it is written")
+   assert(diags[1].msg:find("`lua51` dialect has no `bitops` capability", 1, true),
+      "the diagnostic names the dialect and closed capability")
+   assert(diags[1].help:find("numeric.bitops contract 1", 1, true),
+      "the diagnostic names the seam contract that can satisfy it")
+   assertClean(
+      "local a: integer\nlocal b: integer\nreturn (~a) & (b << 2)",
+      {dialect = "lua51", backendResolution = bitopsResolution("fixtures.bitops_backend")}
+   )
+end
+
+function M.portableBitopsLowerThroughTheSelectedSeamOnly()
+   local source = [[
+local function combine(a: integer, b: integer): integer
+   local value = (~a) & (b | (a << 2))
+   value &= b
+   value |= a
+   value ~= b
+   value <<= 2
+   value >>= 1
+   value ~>>= 1
+   return value
+end
+return combine
+]]
+   local native = parser.parse(source, "native-bitops.nupp")
+   assertEq(#native.errors, 0, "native bitops source parses")
+   assertEq(#check.check(native, "native-bitops.nupp", sharedEnv), 0, "native bitops source checks")
+   local ordinary = gen.generate(native, "native-bitops.nupp")
+   local selectedNative = gen.generate(
+      native, "native-bitops.nupp", nil, nil, bitopsResolution("fixtures.bitops_backend")
+   )
+   assertEq(selectedNative, ordinary,
+      "selecting a portable provider changes no byte of native LuaJIT output")
+   assert(ordinary:find("~", 1, true) and ordinary:find("<<", 1, true),
+      "the native dialect keeps direct LuaJIT operators")
+   assert(not ordinary:find("__nuppBitops", 1, true),
+      "the native dialect has no runtime compatibility lookup")
+
+   local portable = parser.parse(source, "portable-bitops.nupp")
+   local resolution = bitopsResolution("fixtures.bitops_backend")
+   assertEq(#check.check(portable, "portable-bitops.nupp", sharedEnv, {
+      dialect = "lua51", backendResolution = resolution,
+   }), 0, "the selected seam satisfies portable checking")
+   local lowered, loweringDiags = gen.generate(portable, "portable-bitops.nupp", nil, nil, resolution)
+   assertEq(#loweringDiags, 0, "portable bitops lower cleanly")
+   assert(lowered:find('__nuppBitops.bnot(', 1, true), "unary complement calls the seam")
+   assert(lowered:find('__nuppBitops.band(', 1, true), "and calls the seam")
+   assert(lowered:find('__nuppBitops.bor(', 1, true), "or calls the seam")
+   assert(lowered:find('__nuppBitops.lshift(', 1, true), "shift calls the seam")
+   assert(lowered:find('=__nuppBitops.bxor(', 1, true),
+      "compound bit assignments lower through the same seam")
+   assert(lowered:find('=__nuppBitops.arshift(', 1, true),
+      "compound arithmetic shifts lower through the same seam")
+   assert(lowered:find('fixtures.bitops_backend', 1, true),
+      "a reached portable operation installs its selected backend")
+   assert(not lowered:find(" << ", 1, true) and not lowered:find(" & ", 1, true),
+      "portable output contains no LuaJIT-only bit operator syntax")
+end
+
+function M.runtimeBitopsSeamIsLazyAndHasAnIsolatedSuite()
+   local selected = "fixtures.conforming_bitops"
+   local oldProvider, oldPreload = package.loaded[selected], package.preload[selected]
+   local oldBinding = rawget(_G, "__nuppBitops")
+   local oldSelection = rawget(_G, "__nuppBitopsProvider")
+   local oldSuite = package.loaded[bitopsSeam.suiteModuleName]
+   package.loaded[selected] = nil
+   package.loaded[bitopsSeam.suiteModuleName] = nil
+   _G.__nuppBitops = nil
+   _G.__nuppBitopsProvider = nil
+   package.preload[selected] = function() return bit end
+
+   local ok, problem = pcall(function()
+      local backend = bitopsSeam.backend(selected)
+      assertEq(backend.seams[1].name, "numeric.bitops", "the seam has its canonical name")
+      assertEq(backend.seams[1].version, 1, "the bit operation contract is versioned")
+      backend:install()
+      assertEq(package.loaded[selected], nil, "installation does not load the provider")
+      assertEq(package.loaded[bitopsSeam.suiteModuleName], nil,
+         "installation does not load behavioral test vectors")
+      assertEq(_G.__nuppBitops.band(0xf0, 0x3c), 0x30,
+         "the first operation lazily reaches the selected provider")
+      local passed, why = backend:test()
+      assert(passed, "the BitOp-compatible module passes its isolated suite: " .. tostring(why))
+      assert(package.loaded[bitopsSeam.suiteModuleName] ~= nil,
+         "only the explicit test call loads the suite")
+   end)
+
+   package.loaded[selected] = oldProvider
+   package.preload[selected] = oldPreload
+   package.loaded[bitopsSeam.suiteModuleName] = oldSuite
+   _G.__nuppBitops = oldBinding
+   _G.__nuppBitopsProvider = oldSelection
+   assert(ok, problem)
 end
 
 function M.backendDescriptorsAreStaticCheckedMetadata()

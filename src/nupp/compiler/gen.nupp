@@ -40,6 +40,7 @@ local predicate = require("nupp.compiler.predicate")
 local switchplan = require("nupp.compiler.switchplan")
 local stdlib = require("nupp.compiler.stdlib")
 local backends = require("nupp.compiler.backends")
+local capabilities = require("nupp.compiler.capabilities")
 local cabi = require("nupp.compiler.cabi")
 
 local gen = {}
@@ -349,6 +350,7 @@ type gen.Checked = {
     --- What the checker resolved this file to, and the native features it recorded.
     readonly moduleName: string?,
     readonly declaredModuleName: string?,
+    readonly dialect: string?,
     readonly effects: {[string]: any}?,
     readonly preludeRuntime: string?
 }
@@ -397,6 +399,17 @@ function gen.generate(
     backendResolution: any?
 ): string, {any}, gen.Coverage?, {[string]: boolean}, gen.HotMetadata?
     local out = {}
+    local capabilityResolution = capabilities.resolve(result.dialect or "luajit", backendResolution)
+    local bitopsCapability = capabilities.get(capabilityResolution, "bitops")
+    local portableBitops = bitopsCapability.kind == "seam"
+    local BITOP_METHOD = {
+        ["&"] = "band",
+        ["|"] = "bor",
+        ["~"] = "bxor",
+        ["<<"] = "lshift",
+        [">>"] = "rshift",
+        ["~>>"] = "arshift",
+    }
     local declaredModuleName = result.declaredModuleName
     local curLine = 1
     local atLineStart = true
@@ -632,6 +645,8 @@ function gen.generate(
 
         return nextTemp()
     end
+
+    local bitopsName = portableBitops and reservedName("__nuppBitops") or nil
 
     emitDepth.exportTableName = declaredModuleName and reservedName("__nuppExports") or nil
     if declaredModuleName and cst.exportAssignment(result.root) then
@@ -1588,6 +1603,12 @@ function gen.generate(
             move = "the body clears this site's own move flag",
             cheader = "a C header is declared once where it is imported",
             region = "the protected body reads and writes this region's own owners and flags",
+        },
+        bitops = {
+            portable = portableBitops,
+            effect = bitopsCapability.effect,
+            methods = BITOP_METHOD,
+            name = bitopsName,
         },
     }
 
@@ -3261,6 +3282,11 @@ function gen.generate(
                 return
             end
         elseif kind == "compoundAssign" and x.target then
+            local compoundBase = x.op and x.op.kind:sub(1, -2) or nil
+            local bitMethod = pluck.bitops.portable and compoundBase and pluck.bitops.methods[compoundBase] or nil
+            if bitMethod then
+                needRuntimeEffect(pluck.bitops.effect)
+            end
             if x.target.kind == "bracketIndex"
                 and x.target.indexedAccess
                 and x.target.indexedAccess.adapter == "span"
@@ -3273,42 +3299,81 @@ function gen.generate(
                     e(";")
                     emitDepth.view.spanSlot(x.target.obj, indexName, nil, not x.target.indexedDirectAccess)
                     e("=")
-                    emitDepth.view.spanSlot(x.target.obj, indexName, nil, not x.target.indexedDirectAccess)
-                    e((" %s "):format(x.op.kind:sub(1, -2)), x.op.line)
-                    emit(x.value)
-                elseif x.target.indexedDirectAccess then
-                    if emitDepth.view.info(x.target.obj) then
-                        emitDepth.view.spanSlot(x.target.obj, x.target.expr)
-                        e("=")
-                        emitDepth.view.spanSlot(x.target.obj, x.target.expr)
-                    else
-                        emit(x.target.obj)
-                        e(".pointer[")
-                        emit(x.target.obj)
-                        e(".offset+")
-                        emit(x.target.expr)
-                        e("-1]=")
-                        emit(x.target.obj)
-                        e(".pointer[")
-                        emit(x.target.obj)
-                        e(".offset+")
-                        emit(x.target.expr)
-                        e("-1]")
+                    if bitMethod then
+                        e(pluck.bitops.name .. "." .. bitMethod .. "(")
                     end
-                    e((" %s "):format(x.op.kind:sub(1, -2)), x.op.line)
+                    emitDepth.view.spanSlot(x.target.obj, indexName, nil, not x.target.indexedDirectAccess)
+                    if bitMethod then
+                        e(",", x.op.line)
+                    else
+                        e((" %s "):format(compoundBase), x.op.line)
+                    end
                     emit(x.value)
+                    if bitMethod then
+                        e(")")
+                    end
+                elseif x.target.indexedDirectAccess then
+                    if bitMethod then
+                        if emitDepth.view.info(x.target.obj) then
+                            emitDepth.view.spanSlot(x.target.obj, x.target.expr)
+                            e("=" .. pluck.bitops.name .. "." .. bitMethod .. "(")
+                            emitDepth.view.spanSlot(x.target.obj, x.target.expr)
+                        else
+                            emit(x.target.obj)
+                            e(".pointer[")
+                            emit(x.target.obj)
+                            e(".offset+")
+                            emit(x.target.expr)
+                            e("-1]=" .. pluck.bitops.name .. "." .. bitMethod .. "(")
+                            emit(x.target.obj)
+                            e(".pointer[")
+                            emit(x.target.obj)
+                            e(".offset+")
+                            emit(x.target.expr)
+                            e("-1]")
+                        end
+                        e(",", x.op.line)
+                    else
+                        if emitDepth.view.info(x.target.obj) then
+                            emitDepth.view.spanSlot(x.target.obj, x.target.expr)
+                            e("=")
+                            emitDepth.view.spanSlot(x.target.obj, x.target.expr)
+                        else
+                            emit(x.target.obj)
+                            e(".pointer[")
+                            emit(x.target.obj)
+                            e(".offset+")
+                            emit(x.target.expr)
+                            e("-1]=")
+                            emit(x.target.obj)
+                            e(".pointer[")
+                            emit(x.target.obj)
+                            e(".offset+")
+                            emit(x.target.expr)
+                            e("-1]")
+                        end
+                        e((" %s "):format(x.op.kind:sub(1, -2)), x.op.line)
+                    end
+                    emit(x.value)
+                    if bitMethod then
+                        e(")")
+                    end
                 else
                     local viewName, indexName = nextTemp(), nextTemp()
                     e(("const %s="):format(viewName))
                     emit(x.target.obj)
                     e((";const %s="):format(indexName))
                     emit(x.target.expr)
-                    e(
-                        (
-                            ";%s:set(%s,%s:get(%s) %s "
-                        ):format(viewName, indexName, viewName, indexName, x.op.kind:sub(1, -2))
-                    )
+                    e((";%s:set(%s,"):format(viewName, indexName))
+                    if bitMethod then
+                        e(("%s.%s(%s:get(%s),"):format(pluck.bitops.name, bitMethod, viewName, indexName))
+                    else
+                        e(("%s:get(%s) %s "):format(viewName, indexName, compoundBase))
+                    end
                     emit(x.value)
+                    if bitMethod then
+                        e(")")
+                    end
                     e(")")
                 end
                 e(" end")
@@ -3327,9 +3392,19 @@ function gen.generate(
                     e(("const %s="):format(indexName))
                     emit(access.expr)
                     e(";")
-                    emitDepth.view.spanSlot(access.obj, indexName, target.name.text, not access.indexedDirectAccess)
-                    e((" %s "):format(x.op.kind), x.op.line)
+                    if bitMethod then
+                        emitDepth.view.spanSlot(access.obj, indexName, target.name.text, not access.indexedDirectAccess)
+                        e("=" .. pluck.bitops.name .. "." .. bitMethod .. "(")
+                        emitDepth.view.spanSlot(access.obj, indexName, target.name.text, not access.indexedDirectAccess)
+                        e(",", x.op.line)
+                    else
+                        emitDepth.view.spanSlot(access.obj, indexName, target.name.text, not access.indexedDirectAccess)
+                        e((" %s "):format(x.op.kind), x.op.line)
+                    end
                     emit(x.value)
+                    if bitMethod then
+                        e(")")
+                    end
                     e(" end")
                     return
                 end
@@ -3344,8 +3419,15 @@ function gen.generate(
                 else
                     slot = ("%s:getMut(%s).%s"):format(viewName, indexName, target.name.text)
                 end
-                e(("; %s %s "):format(slot, x.op.kind), x.op.line)
+                if bitMethod then
+                    e(("; %s=%s.%s(%s,"):format(slot, pluck.bitops.name, bitMethod, slot), x.op.line)
+                else
+                    e(("; %s %s "):format(slot, x.op.kind), x.op.line)
+                end
                 emit(x.value)
+                if bitMethod then
+                    e(")")
+                end
                 e(" end")
                 return
             end
@@ -3357,9 +3439,19 @@ function gen.generate(
                     e(("const %s="):format(indexName))
                     emit(row.expr)
                     e(";")
-                    emitDepth.view.soaSlot(row.obj, ordinal, indexName, not emitDepth.soa.unchecked(row))
-                    e((" %s "):format(x.op.kind), x.op.line)
+                    if bitMethod then
+                        emitDepth.view.soaSlot(row.obj, ordinal, indexName, not emitDepth.soa.unchecked(row))
+                        e("=" .. pluck.bitops.name .. "." .. bitMethod .. "(")
+                        emitDepth.view.soaSlot(row.obj, ordinal, indexName, not emitDepth.soa.unchecked(row))
+                        e(",", x.op.line)
+                    else
+                        emitDepth.view.soaSlot(row.obj, ordinal, indexName, not emitDepth.soa.unchecked(row))
+                        e((" %s "):format(x.op.kind), x.op.line)
+                    end
                     emit(x.value)
+                    if bitMethod then
+                        e(")")
+                    end
                     e(" end")
                     return
                 end
@@ -3369,8 +3461,15 @@ function gen.generate(
                 e(("; const %s="):format(indexName))
                 emit(row.expr)
                 local slot = emitDepth.soa.slot(viewName, ordinal, indexName, emitDepth.soa.unchecked(row))
-                e(("; %s %s "):format(slot, x.op.kind), x.op.line)
+                if bitMethod then
+                    e(("; %s=%s.%s(%s,"):format(slot, pluck.bitops.name, bitMethod, slot), x.op.line)
+                else
+                    e(("; %s %s "):format(slot, x.op.kind), x.op.line)
+                end
                 emit(x.value)
+                if bitMethod then
+                    e(")")
+                end
                 e(" end")
                 return
             end
@@ -3480,6 +3579,22 @@ function gen.generate(
         end
         if x.folded then
             e(x.folded, sourceLine(x))
+            return
+        end
+        if pluck.bitops.portable and kind == "unop" and x.op and x.op.kind == "~" and x.operand then
+            needRuntimeEffect(pluck.bitops.effect)
+            e(pluck.bitops.name .. ".bnot(", x.op.line)
+            emit(x.operand)
+            e(")")
+            return
+        end
+        if pluck.bitops.portable and kind == "binop" and x.op and pluck.bitops.methods[x.op.kind] and x.lhs and x.rhs then
+            needRuntimeEffect(pluck.bitops.effect)
+            e(pluck.bitops.name .. "." .. pluck.bitops.methods[x.op.kind] .. "(", x.op.line)
+            emit(x.lhs)
+            e(",")
+            emit(x.rhs)
+            e(")")
             return
         end
         if kind == "unop" and x.indexedLength and x.operand then
@@ -4324,11 +4439,18 @@ function gen.generate(
             emit(x.rhs)
             e("))")
 
-        elseif kind == "compoundAssign" and LOWERED_COMPOUND[x.op.kind] then
+        elseif kind == "compoundAssign" and (
+            LOWERED_COMPOUND[x.op.kind]
+            or (pluck.bitops.portable and pluck.bitops.methods[x.op.kind:sub(1, -2)])
+        ) then
             -- Only the two the runtime lacks are lowered. Both read the target and then
             -- write it, so an indexed target's prefix and key are bound to temporaries
             -- first: `obj.f //= v` must not re-run whatever produced obj.
             local base = x.op.kind:sub(1, -2)
+            local bitMethod = pluck.bitops.portable and pluck.bitops.methods[base] or nil
+            if bitMethod then
+                needRuntimeEffect(pluck.bitops.effect)
+            end
             local target = x.target
             local first = target[1]
             local line = first and cst.isToken(first) and first.line or (cst.isToken(target) and target.line or nil)
@@ -4341,10 +4463,14 @@ function gen.generate(
                     e(("if %s == nil then %s = "):format(slot, slot), at)
                     emit(x.value)
                     e(" end")
-                else
+                elseif base == "//" then
                     e(("%s = math.floor((%s) / ("):format(slot, slot), at)
                     emit(x.value)
                     e("))")
+                else
+                    e(("%s=%s.%s(%s,"):format(slot, pluck.bitops.name, bitMethod, slot), at)
+                    emit(x.value)
+                    e(")")
                 end
             end
 
@@ -6584,6 +6710,9 @@ function gen.generate(
         runtimeEffects,
         hotState ~= nil
     ) .. backends.bootstrap(runtimeEffects, backendResolution)
+    if runtimeEffects[pluck.bitops.effect] then
+        runtimeBootstrap = runtimeBootstrap .. ("local %s=_G.__nuppBitops;"):format(pluck.bitops.name)
+    end
     if runtimeBootstrap ~= "" then
         code = runtimeBootstrap .. code
     else

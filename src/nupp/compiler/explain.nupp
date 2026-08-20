@@ -1214,6 +1214,13 @@ local ENTRIES: {any} = {
         docs = "docs/reference/diagnostics.md#code-families",
     },
     {
+        code = "NUPP3006",
+        summary = "The selected dialect cannot represent a required language capability",
+        rule = "A dialect fixes the language representations an artifact may use. A construct is accepted only when that dialect implements its capability natively or a selected checked backend supplies the compiler-owned seam contract for it. Select such a backend, or choose a dialect with a native implementation; the compiler never silently changes dialect or embeds an unchecked fallback.",
+        related = {"NUPP3005"},
+        docs = "docs/neps/0013-dialects-and-capability-backends.md",
+    },
+    {
         code = "NUPP3001",
         summary = "`is` has nothing to test against this type",
         rule = "A record is identified by the metatable it stamps and a struct "

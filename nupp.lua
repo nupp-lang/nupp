@@ -106,6 +106,14 @@ local RESOURCES = {
       source = "src/nupp/runtime/seam/jsonsuite.nupp",
       output = "nupp/compiler/nupp/runtime/seam/jsonsuite.nupp",
    },
+   {
+      source = "src/nupp/runtime/seam/bitops.nupp",
+      output = "nupp/compiler/nupp/runtime/seam/bitops.nupp",
+   },
+   {
+      source = "src/nupp/runtime/seam/bitopssuite.nupp",
+      output = "nupp/compiler/nupp/runtime/seam/bitopssuite.nupp",
+   },
    {source = "src/nupp/data/utf8.nupp", output = "nupp/compiler/nupp/data/utf8.nupp"},
    {source = "src/nupp/native.nupp", output = "nupp/compiler/nupp/native.nupp"},
    {source = "src/nupp/data/init.nupp", output = "nupp/compiler/nupp/data/init.nupp"},

@@ -113,6 +113,9 @@ record incremental.Inc
     --- Parse and check diagnostics for one file, plus the parse itself.
     checkFile: function(path: string): incremental.CheckResult
 
+    --- Selects the checked backend metadata language capabilities resolve against.
+    setBackendResolution: function(resolved: any)
+
     --- The overlay-aware project declaration and module index.
     projectIndex: function(): any
 
@@ -264,6 +267,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     end
 
     updateProjectFiles()
+    q:setInput("backendResolution", "root", nil)
 
     q:define("fileText", function(_, path)
         local f = io.open(path, "rb")
@@ -573,6 +577,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                 -- consumer's `--strict` must not reinterpret that foreign contract.
                 strict = external and false or strict,
                 dialect = dialect,
+                backendResolution = self:get("backendResolution", "root"),
                 traceInspection = traceInspection,
                 initialExports = seeded,
             }
@@ -816,6 +821,10 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- Full result for a file: parse + check diagnostics, parse result.
     function inc.checkFile(path: string): incremental.CheckResult
         return q:get("checkModule", path)
+    end
+
+    function inc.setBackendResolution(resolved: any)
+        q:setInput("backendResolution", "root", resolved)
     end
 
     function inc.projectIndex(): any

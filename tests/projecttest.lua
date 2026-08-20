@@ -904,6 +904,74 @@ return json
    remove(dir)
 end
 
+function M.lua51BitopsRequireAndUseACheckedBackendSeam()
+   local withoutBackend = tempProject({
+      ["nupp.lua"] = [[
+return {include = {"src"}, build = {outDir = "out", entries = {"main"},
+   dialect = "lua51"}}
+]],
+      ["src/main.nupp"] = [[
+local function combine(a: integer, b: integer): integer
+   return (~a) & (b << 2)
+end
+return combine
+]],
+   })
+   local missing = {}
+   assertEq(project.check(withoutBackend, {diagnostics = missing}), 1,
+      "a portable project without the bitops seam is refused")
+   assertEq(missing[1].code, "NUPP3006", "the source operator owns the capability diagnostic")
+   remove(withoutBackend)
+
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {include = {"src"}, build = {outDir = "out", entries = {"main"},
+   dialect = "lua51", backends = {"portablebackend"}}}
+]],
+      ["src/main.nupp"] = [[
+local function combine(a: integer, b: integer): integer
+   local value = (~a) & (b | (a << 2))
+   value ~= b
+   return value
+end
+return combine
+]],
+      ["src/portablebackend.nupp"] = [[
+module portablebackend
+
+const Backend = require("nupp.runtime.backend")
+const Bitops = require("nupp.runtime.seam.bitops")
+
+export = Backend.new("portable", {
+   Bitops.seam("bit"),
+})
+]],
+   })
+   local produced, diagnostics = {}, {}
+   assertEq(project.build(dir, {produced = produced, diagnostics = diagnostics}), 0,
+      "the checked bitops backend satisfies the lua51 build")
+   assertEq(#diagnostics, 0, "the selected capability resolves before project checking")
+   assertEq(produced.backends[1].seams[1].name, "numeric.bitops",
+      "build output accounts for the selected bitops seam")
+
+   local generated = read(dir .. "/out/main.lua")
+   assert(generated:find("__nuppBitops.band", 1, true),
+      "portable source lowers through the runtime seam")
+   assert(generated:find("portablebackend", 1, true),
+      "the reached seam installs its checked backend module")
+   assert(not generated:find("Bitops.seam", 1, true),
+      "the entry embeds no adapter source")
+   local script = ("package.path=%q..package.path;local f=require('main');io.write(f(240,60))")
+      :format(dir .. "/out/?.lua;build/?.lua;")
+   local status, output = process.capture({"luajit", "-e", script})
+   assertEq(status, 0, "the portable artifact runs through the selected BitOp module: " .. tostring(output))
+   assertEq(tonumber(output), bit.bxor(
+      bit.band(bit.bnot(240), bit.bor(60, bit.lshift(240, 2))), 60
+   ),
+      "portable lowering has the native LuaJIT result")
+   remove(dir)
+end
+
 function M.backendMetadataIsStaticAndInvalidatesGeneratedSelection()
    local function backendSource(runtimeModule)
       return ([[
