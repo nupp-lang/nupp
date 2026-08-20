@@ -775,12 +775,21 @@ function M.standardJsonApiHasCompleteDocumentation()
       serialize = true, writer = true, decodeAs = true, encodeAs = true,
       encodeRecord = true, NULL = true, EMPTY_ARRAY = true, EMPTY_OBJECT = true,
    }
+   local callable = {
+      decode = true, pull = true, arrayOf = true, asArray = true, asObject = true,
+      encode = true, serialize = true, writer = true, decodeAs = true, encodeAs = true,
+      encodeRecord = true,
+   }
    local writer
    for _, item in ipairs(module.items) do
       local prefix = "nupp.data.json." .. item.name
       assert(expected[item.name], prefix .. " is not part of the expected surface")
       expected[item.name] = nil
       assert(item.doc.text ~= "", prefix .. " has no documentation")
+      if callable[item.name] then
+         assert(item.doc.text:find("```nupp", 1, true),
+            prefix .. " has no source example")
+      end
       for _, param in ipairs(item.params or {}) do
          assert(param.text ~= "", prefix .. " parameter " .. param.name
             .. " has no documentation")
@@ -792,6 +801,7 @@ function M.standardJsonApiHasCompleteDocumentation()
    for _, member in ipairs(writer.members or {}) do
       local prefix = "nupp.data.json.Writer." .. member.name
       assert(member.text ~= "", prefix .. " has no documentation")
+      assert(member.text:find("```nupp", 1, true), prefix .. " has no source example")
       for _, param in ipairs(member.params or {}) do
          assert(param.text ~= "", prefix .. " parameter " .. param.name
             .. " has no documentation")

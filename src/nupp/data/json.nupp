@@ -56,46 +56,102 @@ export interface JSONEncodable
 end
 
 --- A checked incremental JSON writer.
+---
+--- ```nupp
+--- local writer = nupp.data.json.writer()
+--- local text = writer:startObject():key("ok"):write(true):close():finish()
+--- assert(text == [[{"ok":true}]])
+--- ```
 --- @export
 export interface Writer
     --- Starts an array value.
+    ---
+    --- ```nupp
+    --- local writer = nupp.data.json.writer()
+    --- local text = writer:startArray():write("first"):close():finish()
+    --- assert(text == "[\"first\"]")
+    --- ```
     --- @param self the writer
     --- @return this writer
     startArray: function(self: Writer): Writer
 
     --- Starts an object value.
+    ---
+    --- ```nupp
+    --- local writer = nupp.data.json.writer()
+    --- local text = writer:startObject():close():finish()
+    --- assert(text == "{}")
+    --- ```
     --- @param self the writer
     --- @return this writer
     startObject: function(self: Writer): Writer
 
     --- Selects the next object member.
+    ---
+    --- ```nupp
+    --- local writer = nupp.data.json.writer()
+    --- local text = writer:startObject():key("answer"):write(42):close():finish()
+    --- assert(text == [[{"answer":42}]])
+    --- ```
     --- @param self the writer
     --- @param name the next member name
     --- @return this writer
     key: function(self: Writer, name: string): Writer
 
     --- Appends one complete Lua value.
+    ---
+    --- ```nupp
+    --- local writer = nupp.data.json.writer()
+    --- local text = writer:startArray():write({id = 41}):close():finish()
+    --- assert(text == "[{\"id\":41}]")
+    --- ```
     --- @param self the writer
     --- @param value the next JSON value
     --- @return this writer
     write: function(self: Writer, value: any): Writer
 
     --- Appends JSON null.
+    ---
+    --- ```nupp
+    --- local writer = nupp.data.json.writer()
+    --- local text = writer:startArray():null():close():finish()
+    --- assert(text == "[null]")
+    --- ```
     --- @param self the writer
     --- @return this writer
     null: function(self: Writer): Writer
 
     --- Closes the current array or object.
+    ---
+    --- ```nupp
+    --- local writer = nupp.data.json.writer()
+    --- local text = writer:startArray():startObject():close():close():finish()
+    --- assert(text == "[{}]")
+    --- ```
     --- @param self the writer
     --- @return this writer
     close: function(self: Writer): Writer
 
     --- Returns bytes completed since the previous flush.
+    ---
+    --- ```nupp
+    --- local writer = nupp.data.json.writer()
+    --- writer:startArray():write(1)
+    --- local first = writer:flush()
+    --- local last = writer:close():finish()
+    --- assert(first .. last == "[1]")
+    --- ```
     --- @param self the writer
     --- @return the completed JSON bytes
     flush: function(self: Writer): string
 
     --- Completes the document and returns its final bytes.
+    ---
+    --- ```nupp
+    --- local writer = nupp.data.json.writer()
+    --- writer:write({ok = true})
+    --- assert(writer:finish() == [[{"ok":true}]])
+    --- ```
     --- @param self the writer
     --- @return the final JSON bytes
     finish: function(self: Writer): string
@@ -104,6 +160,11 @@ end
 --- Decodes one complete JSON document.
 ---
 --- Null members are dropped unless a replacement value is supplied.
+---
+--- ```nupp
+--- local value = nupp.data.json.decode([[{"id":41}]])
+--- assert(value.id == 41)
+--- ```
 --- @param text the complete JSON document
 --- @param nullValue the value used for JSON null, or nil to drop nulls
 --- @return the decoded Lua value
@@ -116,6 +177,15 @@ export function decode(text: string, nullValue: any?): any
 end
 
 --- Materializes only the fields selected by an On-Demand pull shape.
+---
+--- ```nupp
+--- local value = nupp.data.json.pull(
+---     [[{"id":41,"profile":{"name":"Ada","admin":true}}]],
+---     {id = true, profile = {name = true}}
+--- )
+--- assert(value.id == 41 and value.profile.name == "Ada")
+--- assert(value.profile.admin == nil)
+--- ```
 --- @param text the complete JSON document
 --- @param shape the fields and array members to materialize
 --- @param nullValue the value used for JSON null, or nil to drop nulls
@@ -129,6 +199,16 @@ export function pull(text: string, shape: any, nullValue: any?): any
 end
 
 --- Applies one pull shape to every member of an array.
+---
+--- ```nupp
+--- const json = nupp.data.json
+--- local users = json.pull(
+---     [[{"users":[{"id":1,"name":"Ada"},{"id":2,"name":"Lin"}]}]],
+---     {users = json.arrayOf({id = true})}
+--- )
+--- assert(users.users[1].id == 1 and users.users[1].name == nil)
+--- assert(users.users[2].id == 2)
+--- ```
 --- @param shape the selection applied to each member, or every value when omitted
 --- @return an array pull shape
 --- @export
@@ -140,6 +220,11 @@ export function arrayOf(shape: any?): table
 end
 
 --- Marks a Lua table as a JSON array, including while it is empty.
+---
+--- ```nupp
+--- local values = nupp.data.json.asArray({})
+--- assert(nupp.data.json.encode(values) == "[]")
+--- ```
 --- @param value the table to mark
 --- @return the same table
 --- @export
@@ -148,6 +233,12 @@ export function asArray<T is table>(takes value: T): T preserves value
 end
 
 --- Marks a Lua table as a JSON object.
+---
+--- ```nupp
+--- const json = nupp.data.json
+--- local object = json.asObject(json.asArray({}))
+--- assert(json.encode(object) == "{}")
+--- ```
 --- @param value the table to mark
 --- @return the same table
 --- @export
@@ -156,6 +247,11 @@ export function asObject<T is table>(takes value: T): T preserves value
 end
 
 --- Serializes one Lua value as JSON.
+---
+--- ```nupp
+--- local text = nupp.data.json.encode({answer = 42})
+--- assert(text == [[{"answer":42}]])
+--- ```
 --- @param value the value to serialize
 --- @param nullValue an additional value treated as JSON null
 --- @return the JSON document
@@ -168,6 +264,10 @@ export function encode(value: any, nullValue: any?): string
 end
 
 --- Serializes one Lua value as JSON; an alias of `encode`.
+---
+--- ```nupp
+--- assert(nupp.data.json.serialize({ok = true}) == [[{"ok":true}]])
+--- ```
 --- @param value the value to serialize
 --- @param nullValue an additional value treated as JSON null
 --- @return the JSON document
@@ -180,6 +280,12 @@ export function serialize(value: any, nullValue: any?): string
 end
 
 --- Creates an incremental JSON writer.
+---
+--- ```nupp
+--- local writer = nupp.data.json.writer()
+--- local text = writer:startObject():key("id"):write(41):close():finish()
+--- assert(text == [[{"id":41}]])
+--- ```
 --- @param nullValue an additional value treated as JSON null
 --- @return a new writer
 --- @export
@@ -194,6 +300,16 @@ export function writer(nullValue: any?): Writer
 end
 
 --- Decodes JSON into the nominal record named by a type witness.
+---
+--- ```nupp
+--- @derive(nupp.derive.JSON)
+--- local record User
+---     id: integer
+--- end
+---
+--- local user, problem = nupp.data.json.decodeAs(User, [[{"id":41}]])
+--- assert(problem == nil and user and user.id == 41)
+--- ```
 --- @param type the record type to decode
 --- @param text the JSON document
 --- @return the decoded record, or nil when it does not fit
@@ -205,6 +321,16 @@ export function decodeAs<T>(type: Type<T>, text: string): (T?, string?)
 end
 
 --- Encodes a nominal record named by a type witness.
+---
+--- ```nupp
+--- @derive(nupp.derive.JSON)
+--- local record User
+---     id: integer
+--- end
+---
+--- local text = nupp.data.json.encodeAs(User, new User(id = 41))
+--- assert(text == [[{"id":41}]])
+--- ```
 --- @param type the record type being encoded
 --- @param value the record value
 --- @return the JSON document
@@ -215,6 +341,16 @@ export function encodeAs<T>(type: Type<T>, borrows value: T): string
 end
 
 --- Encodes a nominal record using its own metatable as the type witness.
+---
+--- ```nupp
+--- @derive(nupp.derive.JSON)
+--- local record User
+---     id: integer
+--- end
+---
+--- local text = nupp.data.json.encodeRecord(new User(id = 41))
+--- assert(text == [[{"id":41}]])
+--- ```
 --- @param value the record value
 --- @return the JSON document
 --- @raises when JSON was not derived for the type
