@@ -171,6 +171,20 @@
   background: var(--nuppdoc-accent-hover);
 }
 
+/* White on the accent red is unreadable in dark mode; black holds contrast
+ * there without touching the light theme's white-on-red button. */
+@media (prefers-color-scheme: dark) {
+  .nuppdoc-hero-action.brand,
+  .nuppdoc-hero-action.brand:hover {
+    color: #000000;
+  }
+}
+
+:root[data-theme="dark"] .nuppdoc-hero-action.brand,
+:root[data-theme="dark"] .nuppdoc-hero-action.brand:hover {
+  color: #000000;
+}
+
 .nuppdoc-hero-action {
   min-height: 44px;
   padding: 0.75rem 1.35rem;
