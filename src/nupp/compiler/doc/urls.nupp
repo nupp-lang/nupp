@@ -21,10 +21,11 @@ local urls = {}
 type urls.Links = {[string]: string}
 
 --- What a link rewrite needs to know about a configured page: the file its markdown was
---- read from, and the route it was written to.
+--- read from, the route it was written to, and what the page is called.
 type urls.Page = {
     source: string?,
-    path: string
+    path: string,
+    title: string?
 }
 
 local function moduleFile(name: string): string
@@ -207,6 +208,22 @@ local function resolveDots(path)
     return table.concat(parts, "/")
 end
 
+-- A link written as its own destination reads as a filename on the page, which tells a
+-- reader nothing they wanted. The site knows what the destination is called, so the
+-- filename becomes that title and the source keeps naming the file it links.
+local function linkText(text: string, path: string, title: string?): string
+    if title == nil or title == "" then
+        return text
+    end
+    local base = path:match("([^/]+)$") or path
+    local bare = text:match("^`(.*)`$") or text
+    if bare == base and base:match("%.md$") then
+        return title
+    end
+
+    return text
+end
+
 local function rewriteConfiguredPageLinks(
     markdown: string,
     candidate: urls.Page,
@@ -216,7 +233,7 @@ local function rewriteConfiguredPageLinks(
     local routes = {}
     for _, page in ipairs(pages) do
         if page.source then
-            routes[resolveDots(normalize(page.source))] = page.path
+            routes[resolveDots(normalize(page.source))] = page
         end
     end
     -- A generated page has no file of its own, so a link out of one cannot be relative
@@ -224,20 +241,27 @@ local function rewriteConfiguredPageLinks(
     -- lookup below answers, and is why a missing source is not a reason to stop.
     local sourceDirectory = candidate.source and dirname(normalize(candidate.source)) or nil
 
-    return (markdown:gsub("(%[[^%]]+%]%()([^%)]+)(%))", function(opening, target, closing)
+    return (markdown:gsub("%[([^%]]+)%]%(([^%)]+)%)", function(text, target)
+        local written = "[" .. text .. "](" .. target .. ")"
         if target:match("^[%w+.-]+:") or target:match("^[/#]") or target:find("%s") then
-            return opening .. target .. closing
+            return written
         end
         local path, fragment = target:match("^([^#]+)(#.*)$")
         path, fragment = path or target, fragment or ""
-        local route = (
+        local destination = (
             sourceDirectory and routes[resolveDots(normalize(join(sourceDirectory, path)))] or nil
         ) or routes[resolveDots(normalize(path))]
-        if route == nil then
-            return opening .. target .. closing
+        if destination == nil then
+            return written
         end
 
-        return opening .. relativePrefix(file) .. routeFile(route) .. fragment .. closing
+        return "["
+            .. linkText(text, path, destination.title)
+            .. "]("
+            .. relativePrefix(file)
+            .. routeFile(destination.path)
+            .. fragment
+            .. ")"
     end))
 end
 

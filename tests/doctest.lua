@@ -2061,6 +2061,8 @@ function M.siteMatchesTheNuppdocPageModel()
          "## Where to start",
          "",
          "With [](math.add), and then the [guide](guide.md).",
+         "",
+         "See [guide.md](guide.md) for the setup instructions.",
       }, "\n") .. "\n",
       ["docs/public/images/project.svg"] = "<svg><title>Example</title></svg>\n",
       ["docs/site.css"] = ":root{--example-project-accent:#315f58}\n",
@@ -2355,6 +2357,10 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(module:find('<a href="../../modules/math/index.html#math.add">'
       .. "<code>math.add</code></a>", 1, true), module)
    assert(module:find('<a href="../../guide/index.html">guide</a>', 1, true),
+      module)
+   -- a link that names the file it points at is titled by the page it reaches,
+   -- so prose never sends the reader to a filename
+   assert(module:find('<a href="../../guide/index.html">Guide</a>', 1, true),
       module)
    -- the prose comes before the generated contents, and its headings are in the
    -- outline above them
