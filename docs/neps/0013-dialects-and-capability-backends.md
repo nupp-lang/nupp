@@ -23,6 +23,13 @@ recorded in the artifact. A capability with no implementation reports a
 diagnostic at the construct that needed it, and never lowers to a substitute
 that means something else.
 
+The standard library is a separate seam. A portable build may name a runtime
+provider for a reached member, such as JSON, SHA-256, UTF-8, UUID or PEG. The
+generated adapter requires that one module when the member is first reached and
+reports what to install when it is absent. Nupp specifies the contract and may
+ship thin adapters for common modules; it does not acquire a second pure-Lua
+implementation of every library facility.
+
 ::: seealso
 - [syntax.md](../concepts/syntax.md) for what generated Lua requires today
 - [records.md](../type-system/records.md) for the `struct` contract a backend
@@ -40,11 +47,16 @@ that means something else.
 - Make substitution checkable. A module claiming a capability must satisfy its
   structural interface, and the same documented behavioral contract is
   available as an explicit, compiler-owned conformance suite.
-- Cost nothing at run time. A dialect binds one implementation during the
-  build, so no program pays for a dispatch, a branch, or an indirection.
+- Cost nothing on the native path. A `luajit` artifact binds native operations
+  directly; only an artifact selecting a portable backend or provider pays for
+  its adapter, runtime check or indirection.
+- Leave the default `luajit` output unchanged. Portable adapters, checks and
+  modules occur only in an artifact built for a dialect that selected them.
 - Report at the construct that cannot be lowered, naming the capability that is
   missing and the substitute that exists.
 - Leave what a build resolved readable in the artifact it produced.
+- Let portable standard-library members depend on declared third-party runtime
+  modules instead of making Nupp maintain an algorithmic fallback for each one.
 
 ## Non-goals
 
@@ -56,6 +68,8 @@ that means something else.
   dependency and needs none of this.
 - Partial backends. A backend implements one capability completely.
 - Changing the default. Under `luajit` the generated Lua is what it is today.
+- Bundling pure-Lua implementations of every standard-library facility. A
+  checked provider contract and a precise missing-module error are sufficient.
 - A per-file dialect. A dialect is a property of a build, and a source file
   that named one would be a library its consumers could not retarget.
 
@@ -85,16 +99,20 @@ The missing piece is not a lowering. Most of the typed layer erases already.
 What is missing is anything that decides which Lua a build is for, checks the
 program against that decision, and records the answer.
 
-### Substitution already happens, with nothing to check it against
+### Selection already happens, with nothing portable to check it against
 
 `JSON_FALLBACK` in `src/nupp/compiler/stdlib.nupp` is a pure-Lua JSON
-implementation installed where a compiled dependency is absent, and
+implementation used by the stage-zero compiler, and
 [standard-library.md](../concepts/standard-library.md) already states that the
-compiler selects each implementation from the members checked source reaches.
+compiler selects each native implementation from the members checked source
+reaches.
 
-Per-program implementation selection is therefore existing machinery. What it
-lacks is a name for what is being selected, a contract the selection has to
-satisfy, and a way for a second implementation to demonstrate that it does.
+Per-program implementation selection and lazy initialization are therefore
+existing machinery. What they lack is a name for a portable provider, a
+contract its adapter has to satisfy, and an artifact requirement that tells a
+consumer which runtime module to install. The stage-zero JSON copy is not the
+model: it remains a bootstrap implementation rather than becoming the first of
+many algorithms Nupp maintains twice.
 
 ### Truncation is worse than refusal
 
@@ -126,23 +144,38 @@ dialect.
 
 ### Capabilities are what the compiler lowers to
 
-Each dialect entry has one of four states. `native` means the compiler emits the
-runtime's operation directly. A module name is the dialect's default backend.
-`open` means a project may name a backend but the dialect supplies none, and
-`forbidden` means no backend can make the operation meaningful on that runtime.
+Each dialect entry has one of five states. `native` means the compiler emits the
+runtime's operation directly. `compiler` means a semantics-preserving source
+lowering needs no runtime module. A module name is the dialect's default
+backend. `open` means a project may name a backend but the dialect supplies
+none, and `forbidden` means no backend can make the operation meaningful on that
+runtime.
 
 | Capability | What needs it | `luajit` | `lua51` |
 | --- | --- | --- | --- |
-| `fixedlayout` | `struct`, `carray`, `T[N]` | `native` | `nupp.compat.fixedlayout` |
-| `bitops` | `&`, <code>&#124;</code>, `~`, `<<`, `>>`, `~>>` | `native` | `nupp.compat.bitops` |
+| `structvalue` | construction, fields, copying and `is` for `struct` | `native` | `open` |
+| `cstorage` | `carray`, physical layout, offsets and pointers | `native` | `forbidden` |
+| `bitops` | `&`, <code>&#124;</code>, `~`, `<<`, `>>`, `~>>` | `native` | `open` |
 | `int64` | `int64`, `uint64`, cdata suffixes | `native` | `open` |
 | `cinterop` | `cdef`, `cheader`, `T*`, `ffi.*` | `native` | `forbidden` |
-| `presize` | `table.new`, `table.clear` | `native` | `nupp.compat.presize` |
-| `simd` | `@aot` lane lowering | `native` | `forbidden` |
+| `presize` | `table.new`, `table.clear` | `native` | `compiler` |
+| `simd` | explicit `nupp.simd` values | `native` | `open` |
 
 The set is closed and held as data, the way
 `src/nupp/compiler/aot/admit.nupp` holds the admitted AOT subset. Widening it
 is adding a row and the lowering that reads it, not writing a pass.
+
+`table.new(a, h)` lowers to `{}` under `lua51`, because its capacities are an
+optimization rather than an observable value. `table.clear(t)` lowers to an
+in-place deletion loop, preserving the table's identity. Neither needs a
+module.
+
+`structvalue` deliberately excludes a C layout. A table backend can preserve a
+struct's nominal identity, fields, copy sites, methods and width-normalized
+stores. It cannot preserve byte offsets, pointer identity or contiguous
+storage. A source operation observing one of those reaches `cstorage` instead
+and is refused under `lua51`; the backend is not allowed to call a table a C
+layout.
 
 A project cannot add a capability, because a capability is a name for something
 the compiler already lowers to. A facility the compiler does not lower to is a
@@ -210,41 +243,35 @@ declaration. It is reserved rather than user-defined because it changes
 lowering. An ordinary user-defined annotation remains erased metadata and can
 never become a backend by colliding with the spelling.
 
-### Worked example: bitops without a bit library
+### Worked example: bitops through a runtime module
 
 ```nupp
 @backend(bitops)
 module acme.compat.bitops
 
-const WORD = 4294967296
-
-local function wrap(v: number): integer
-    v = v % WORD
-    return (v >= 2147483648 and v - WORD or v) as integer
-end
+--- Declared by this adapter package and satisfied at run time by its rock.
+local bits = require("thirdparty.bitops")
 
 export function band(a: integer, b: integer): integer
-    local out, bit = 0, 1
-    local x, y = a % WORD, b % WORD
-    for _ = 1, 32 do
-        if x % 2 == 1 and y % 2 == 1 then out = out + bit end
-        x, y, bit = math.floor(x / 2), math.floor(y / 2), bit * 2
-    end
-    return wrap(out)
+    return bits.band(a, b)
 end
 ```
 
 `bor`, `bxor`, `bnot`, `lshift`, `rshift` and `arshift` follow the same shape.
-Under `luajit` the same capability resolves to native operators and this module
-is never loaded, never bound, and never named in the output.
+The adapter owns the declaration for its third-party module and its package
+metadata owns the runtime dependency. It may wrap BitOp or another library; it
+does not reimplement the operations. Under `luajit` the same capability
+resolves to native operators and this module is never loaded, never bound, and
+never named in the output.
 
-### Worked example: struct as table
+### Worked example: struct values as tables
 
 `struct` already forbids the constructs a table could not carry: metamethod
 contracts, private fields, nested declarations, `{T}` fields, strings, function
 types and `number?`. See [choosing](../type-system/records.md#choosing). What
 remains is a closed set of scalar, nested-struct and fixed-array fields, which
-is what the capability describes:
+is what the `structvalue` capability describes. The contract below describes
+their value behavior; it makes no C-layout promise:
 
 ```nupp
 --- One declared layout, as the compiler knows it.
@@ -255,7 +282,7 @@ end
 
 --- Whether a value of this representation is a reference. `true` means the
 --- compiler emits `copy` where the source assigned by value.
-interface FixedLayout
+interface StructValue
     referenceValued: boolean
     define: function(layout: Layout, methods: table): FixedType
     array: function(element: FixedType, count: integer): FixedArray
@@ -281,18 +308,18 @@ nested `FixedType`, and a fixed array with its element descriptor and count.
 Declarations are defined in dependency order, so a nested by-value struct is
 already a `FixedType`; the existing rejection of a by-value cycle remains.
 
-`define` is called once per struct declaration, at module load. `array` is the
-lowering of `carray(T, n)` and returns a zero-based sequence whose elements have
-the same store, copy, and width rules as fields. A `T[N]` field is created from
-the fixed-array descriptor passed to `define`; it is not a host Lua array and
-remains zero-based. `FixedArray` deliberately exposes no source-level methods:
-indexing is supplied by its representation, while `copy` and `isa` are the two
-operations the compiler needs when an array value crosses an assignment or a
-gradual boundary.
+`define` is called once per struct declaration, at module load. `array` creates
+the descriptor for a `T[N]` field and returns a zero-based sequence whose
+elements have the same store, copy and width rules as fields. It does not lower
+the `carray(T, n)` storage primitive: that operation reaches `cstorage` and is
+unavailable under `lua51`. `FixedArray` deliberately exposes no source-level
+methods: indexing is supplied by its representation, while `copy` and `isa` are
+the two operations the compiler needs when an array value crosses an assignment
+or a gradual boundary.
 
-The FFI backend answers `define` with `ffi.metatype` and `array` with the cdata
-array allocation the generated code already uses. A table backend answers them
-with metatables:
+The native backend answers `define` with `ffi.metatype` and fixed-array fields
+with the cdata layout the generated code already uses. A table backend answers
+the value operations with metatables:
 
 ```nupp
 --- Vec2, in source.
@@ -340,6 +367,29 @@ where it was an offset. Naming it here is the point. A capability that is
 absent costs a diagnostic, and a capability satisfied by a backend costs
 whatever that backend costs.
 
+### SIMD has a scalar meaning
+
+Automatic lane lowering of an ordinary scalar `@aot` loop is an optimization,
+not a capability. When a build has no vector backend, the original scalar loop
+is already its complete lowering. The program does not fail merely because a
+target cannot vectorize it.
+
+The explicit `nupp.simd` vocabulary also has a portable representation. Its
+values are sealed, confined to the annotated function and already checked not
+to escape. A `simd` backend may therefore represent a vector as a private table
+of lanes and implement masks and cross-lane operations in ordinary Lua. A
+backend-selected lane count is observable through `SpeciesU8.lanes`, so the
+backend declares it and implements the whole vocabulary at that width. Sixteen
+lanes is the portable baseline, matching the narrowest native tier.
+
+This revisits one decision in [NEP 11](0011-simd.md). That proposal correctly
+rejected public boxed vectors and a second source spelling for map loops. This
+proposal keeps both rejections: emulated values remain private, non-escaping
+backend values, and scalar map source remains scalar map source. It removes
+only the conclusion that an explicit-SIMD function cannot execute when native
+AOT is disabled. Under `luajit` with native AOT selected, the existing intrinsic
+lowering remains direct and no emulation module is loaded.
+
 ### Dialect selects, `nupp.lua` overrides
 
 A dialect supplies a default per capability, and a project names an override:
@@ -356,8 +406,74 @@ generally, for the reason `.nupp` and `.g.nupp` are extensions rather than a
 project flag: what a file means is visible where the file is.
 
 An override may replace `native`, a dialect default, or `open`. It may not
-replace `forbidden`: a module cannot give stock Lua a C ABI or vector registers.
-This is why the `int64` entry above is `open` while `cinterop` is `forbidden`.
+replace `forbidden`: a module cannot give stock Lua a C ABI or make an ordinary
+Lua value carry a C pointer. A module can emulate wide integers or packed lanes,
+which is why `int64` and `simd` are `open` while `cinterop` is `forbidden`.
+
+An explicit override of `native` is permission to pay the override's cost. In
+its absence, a `luajit` build binds the native operation exactly as it does
+today. Portability never inserts a common wrapper in front of that operation.
+
+### Standard-library providers are runtime dependencies
+
+A standard-library member is not a compiler capability merely because its
+current implementation uses the FFI. JSON, UTF-8, SHA-256, UUID, bitsets, byte
+buffers and PEG are library facilities. A portable artifact may obtain one from
+a selected runtime module rather than from an implementation maintained in
+Nupp.
+
+The project names providers by the smallest independently selected standard
+contract it reaches:
+
+```lua
+providers = {
+    ["data.json"] = "acme.nupp.json",
+    ["data.sha256"] = "acme.nupp.sha256",
+    ["data.utf8"] = "acme.nupp.utf8",
+    ["data.uuid"] = "acme.nupp.uuid",
+    ["data.bitset"] = "acme.nupp.bitset",
+    ["peg"] = "acme.nupp.peg",
+}
+```
+
+Those names illustrate contracts, not blessed packages. A provider module may
+be a thin adapter over `lunajson`, BitOp, a SHA-256 or UUID rock, LPeg, or any
+other implementation. Its checked declaration must satisfy the compiler-owned
+interface. Nupp may publish small adapters for common module APIs, but the
+proposal does not require Nupp to own their algorithms.
+
+Selection remains explicit and singular. Nupp never probes an ordered list of
+installed modules, because two machines with different ambient rocks would then
+give the same artifact different providers. The generated lazy adapter performs
+`require` for the one recorded module when the reached member is initialized,
+checks the runtime values that the contract can check, and raises an error that
+names both the standard facility and the missing or incompatible module. A
+build does not execute the provider, and an absent runtime rock is therefore a
+runtime dependency error rather than a compiler execution side effect.
+
+Facilities with environmental authority use the same rule. Filesystem access,
+processes, HTTP, secure entropy and clocks may have host providers. A provider
+is allowed to be unavailable on a host; it is not allowed to replace secure
+UUID entropy with `math.random` or otherwise weaken the documented contract.
+
+The portable standard surface is accounted for by kind:
+
+| Surface | Portable answer |
+| --- | --- |
+| scalar `nupp.math` expressible on the common Lua `math` table | compiler or existing Lua source |
+| exact `i32`, `u32` and binary32 operations not supplied by a chosen bit backend | selected provider |
+| JSON, UTF-8, hashes, checksums, UUID and bitsets | selected provider per independently reached contract |
+| byte buffers, readers, writers and typed scalar codecs | selected `io` provider |
+| PEG | selected provider, commonly an adapter over LPeg |
+| lexical URI and path operations | selected provider or existing portable source |
+| files, processes, HTTP, entropy, clocks and workers | selected host provider |
+| `nupp.native`, raw heaps, C-array spans, C-layout SoA and pointer projection | unavailable without `cstorage` or `cinterop` |
+
+This table is a completeness requirement for the dialect, not a promise to
+vendor any particular third-party rock. Every public standard member must be
+classified as common source, selected provider, host provider, or unavailable
+at a native boundary. “The module currently happens to require `ffi`” is not a
+classification.
 
 ### Resolution is total and recorded
 
@@ -369,8 +485,11 @@ candidates, because there is never more than one.
 `nupp build --json` reports the resolved table, and the artifact records it, the
 way an artifact already records the ahead-of-time policy it was built under. A
 backend entry carries the module name and the digest of the checked module
-interface, so changing the module cannot leave an artifact claiming it resolved
-the old one.
+interface, so changing a source backend cannot leave an artifact claiming it
+resolved the old one. A runtime-provider entry carries the selected module name
+and standard contract version. The provider's installed code is deliberately
+not hashed: it is a runtime dependency that may be supplied by a rock or a host
+after the artifact was built.
 
 ### Missing capability reports at the use site
 
@@ -385,7 +504,7 @@ help: no backend can supply C interoperation to a runtime without a C ABI.
       Move this declaration behind a module the portable build does not reach.
 ```
 
-Five codes in the `NUPP3xxx` family, where code generation cannot represent a
+Six codes in the `NUPP3xxx` family, where code generation cannot represent a
 checked construct:
 
 | Code | Reported when |
@@ -395,6 +514,14 @@ checked construct:
 | `NUPP3008` | a named backend does not satisfy the capability interface |
 | `NUPP3009` | the dialect has no semantics-preserving lowering for authored syntax |
 | `NUPP3010` | a resolved prelude use is outside the dialect's runtime surface |
+| `NUPP3012` | a reached standard-library facility has no provider for the dialect |
+
+`NUPP3012` is a build-time selection error: it says which provider contract to
+name. If a provider was named but its module is absent or incompatible on the
+machine running the artifact, the lazy adapter raises a runtime dependency
+error naming that module. The two cases are not collapsed, because the compiler
+can prove the first and cannot inspect the second without executing the target's
+dependency environment.
 
 ### Backend may change representation and cost, not meaning
 
@@ -452,7 +579,8 @@ an identity requires the same semantics on that matrix or an explicit compiler
 lowering; availability on only one runtime does not widen the intersection.
 This is what makes `check --dialect lua51` a portability check rather than only
 a parser check, and what lets the same published artifact reach a 5.4 project
-or a browser interpreter.
+or a browser interpreter once the artifact's recorded provider modules are
+available there.
 
 ## Risks and assumptions
 
@@ -461,11 +589,20 @@ or a browser interpreter.
   runtime matrix specified above is the only thing that keeps the common
   surface true, and without that matrix it rots quietly.
 - **The standard library is FFI-shaped.** Seventeen modules under `src/nupp/`
-  reach the FFI, including all of `io` and `mem`, and much of `data`. A dialect
-  that lowers programs but not the library gives an author a language with no
-  library. Declaring a portable subset, and writing portable implementations
-  for the parts worth having, is larger than the lowering work and is not
-  scoped here.
+  reach the FFI, including all of `io` and `mem`, and much of `data`. The
+  provider accounting above prevents those modules from becoming an unnamed
+  portability hole, but it moves availability into package management. A
+  portable artifact can build successfully and then fail at first use when its
+  declared runtime module was not installed on the target host.
+- **Third-party APIs do not share one shape.** A checked provider or thin
+  adapter has to normalize each chosen module to Nupp's contract. Nupp avoids
+  maintaining SHA-256, UTF-8, JSON and PEG algorithms, but somebody still owns
+  each adapter and its compatibility range.
+- **Runtime validation is necessarily shallow.** An adapter can check that a
+  module loads and exports values of the promised shapes. It cannot prove that
+  a SHA implementation hashes correctly or a UTF-8 implementation agrees on
+  every invalid sequence; the explicit conformance suite remains the evidence
+  for those behaviors.
 - **A conformance suite is evidence, not a proof.** A contract that does not
   state a behavior cannot test it, a finite suite cannot prove an arbitrary
   implementation, and `build` deliberately does not pretend otherwise. The
@@ -474,6 +611,10 @@ or a browser interpreter.
 - **A backend can be correct and unusably slow.** The structural check covers
   shape, not speed. A field read behind `__index` is a metamethod call, and
   nothing in this design tells an author that in advance of measuring.
+- **Portable SIMD can allocate.** A table-backed vector preserves the confined
+  vocabulary but may allocate per operation. That cost belongs only to an
+  artifact that selected the emulation backend; native AOT retains direct
+  vector lowering.
 - **Two dialects double what every future lowering answers for.** Each new
   construct now has to say what it does where the capability is absent, and the
   cost lands on features that have nothing to do with portability.
@@ -525,6 +666,17 @@ the compiler lowers to, so a capability the compiler does not know has nothing
 to lower. Swapping an implementation the compiler does not lower to is
 `require`, and needs no mechanism.
 
+**Bundle a pure-Lua implementation of every standard facility.** Rejected: it
+would make Nupp maintain second implementations of JSON, Unicode, hashes,
+identifiers, byte codecs and PEG despite mature Lua modules already existing.
+The portable contract needs a selected provider and a useful missing-dependency
+error; it does not need every algorithm to live in this repository.
+
+**Probe for several well-known runtime modules and use the first installed.**
+Rejected: an artifact would change behavior when an unrelated rock was added to
+the host. A project selects one provider module, and the artifact records and
+requires that exact name.
+
 **Reuse `target` or `platform` as the name.** Rejected: `nupp.lua` already
 names build targets, and `--platform` already selects a binary platform. A
 third meaning for either word makes every existing sentence about them
@@ -536,7 +688,8 @@ ambiguous.
 
 No. `luajit` is the default dialect, every capability it declares is native, and
 its output is what it is now. A project that never passes `--dialect` never
-resolves a backend and never loads one.
+loads a portable backend or standard-library adapter. A byte-for-byte generated
+output corpus enforces that claim; it is not only a performance intention.
 
 ### Why not one mechanism for this and for retargeting to WebAssembly?
 
