@@ -347,6 +347,18 @@ local function read(path)
    return text
 end
 
+local function buildTiers(triple, ceiling)
+   return assert(require("nupp.compiler.aot.target").buildTiers(triple, ceiling))
+end
+
+local function tieredC(dir, tier, stem)
+   return dir .. "/build/native/aot/src/" .. (stem or "kernel") .. "." .. tier .. ".c"
+end
+
+local function firstHostTier()
+   return buildTiers(nil, nil)[1].tier
+end
+
 
 local M = {}
 
@@ -354,7 +366,7 @@ function M.theDefaultPolicyEmitsNothing()
    local dir = project(nil)
    local out, code = build(dir)
    test.equal(code, 0, out)
-   test.equal(read(dir .. "/build/native/aot/src/kernel.c"), nil,
+   test.equal(read(tieredC(dir, firstHostTier())), nil,
       "a project that did not ask for native code gets none, and needs no C compiler")
    assert(read(dir .. "/build/native/kernel.lua"), "the ordinary Lua body is still what was built")
 end
@@ -363,7 +375,7 @@ function M.offEmitsNothing()
    local dir = project("off")
    local out, code = build(dir)
    test.equal(code, 0, out)
-   test.equal(read(dir .. "/build/native/aot/src/kernel.c"), nil, "off means off")
+   test.equal(read(tieredC(dir, firstHostTier())), nil, "off means off")
 end
 
 function M.emitCWritesTheCBesideTheBuild()
@@ -371,20 +383,25 @@ function M.emitCWritesTheCBesideTheBuild()
    local out, code = build(dir)
    test.equal(code, 0, out)
 
-   local c = read(dir .. "/build/native/aot/src/kernel.c")
+   local tier = firstHostTier()
+   local c = read(tieredC(dir, tier))
    assert(c, "the C was written where the build is writing")
-   assert(c:find("void ks_scale(", 1, true), "and it defines the exported symbol: " .. c:sub(1, 200))
-   assert(c:find("void ks_scale_forced_scalar(", 1, true),
+   assert(c:find("void ks_scale__" .. tier .. "(", 1, true),
+      "and it defines the tiered exported symbol: " .. c:sub(1, 200))
+   assert(c:find("void ks_scale_forced_scalar__" .. tier .. "(", 1, true),
       "beside the oracle the lane body is diffed against")
-   assert(c:find("KsResult_ks_sum_bytes ks_sum_bytes(", 1, true),
+   assert(c:find("KsResult_ks_sum_bytes ks_sum_bytes__" .. tier .. "(", 1, true),
       "a block kernel keeps its scalar result pack in the native ABI")
    assert(c:find("size_t count_first, size_t count_second", 1, true),
       "a block kernel receives each span's independent length")
    assert(c:find("double value;", 1, true),
       "a native arena field retains physical binary64 storage")
    -- A module with no `@aot` in it produces nothing rather than an empty file.
-   test.equal(read(dir .. "/build/native/aot/src/plain.c"), nil,
+   test.equal(read(tieredC(dir, tier, "plain")), nil,
       "a module with no @aot function produces no artifact")
+   local units = assert(read(dir .. "/build/native/aot/units.json"))
+   assert(units:find('"tier":"' .. tier .. '"', 1, true),
+      "the external compiler handoff records each unit's tier")
    assert(read(dir .. "/build/native/kernel.lua"),
       "the ordinary Lua body is still emitted: emit-c adds an artifact, it does not replace one")
 end
@@ -397,8 +414,9 @@ function M.checkedAliasesFeedTypesOwnershipLayoutsAndIntrinsics()
 
    local out, code = build(dir)
    test.equal(code, 0, out)
-   local c = assert(read(dir .. "/build/native/aot/src/kernel.c"))
-   assert(c:find("void ks_aliased(", 1, true),
+   local tier = firstHostTier()
+   local c = assert(read(tieredC(dir, tier)))
+   assert(c:find("void ks_aliased__" .. tier .. "(", 1, true),
       "resolved span aliases still produce the compiled entry")
    assert(c:find("uint32_t value;", 1, true),
       "the checked nominal field layout, not alias text, selects physical storage")
@@ -412,7 +430,7 @@ local function key(dir)
    if not state then return nil end
    local recorded = state:match('"aot":(%b{})')
    if not recorded then return nil end
-   return recorded:match('kernel%.nupp":"([0-9a-f]+)"')
+   return recorded:match('kernel%.nupp#[^"]+":"([0-9a-f]+)"')
 end
 
 --- When a path was last written, or nothing.
@@ -430,7 +448,8 @@ function M.anUnchangedArtifactIsNotRewritten()
    local dir = project("emit-c")
    local out, code = build(dir)
    test.equal(code, 0, out)
-   local first = assert(modified(dir .. "/build/native/aot/src/kernel.c"), "the artifact was written")
+   local path = tieredC(dir, firstHostTier())
+   local first = assert(modified(path), "the artifact was written")
 
    -- A second's granularity is all `stat` promises, so a rewrite has to land in
    -- a later second to be visible. Waiting is what makes the assertion mean
@@ -438,7 +457,7 @@ function M.anUnchangedArtifactIsNotRewritten()
    os.execute("sleep 1.1")
    out, code = build(dir)
    test.equal(code, 0, out)
-   test.equal(modified(dir .. "/build/native/aot/src/kernel.c"), first,
+   test.equal(modified(path), first,
       "an artifact whose key still matches is left alone rather than rewritten")
 end
 
@@ -446,15 +465,16 @@ function M.aMissingArtifactIsWrittenAgain()
    local dir = project("emit-c")
    local out, code = build(dir)
    test.equal(code, 0, out)
-   local first = assert(read(dir .. "/build/native/aot/src/kernel.c"))
+   local path = tieredC(dir, firstHostTier())
+   local first = assert(read(path))
    assert(key(dir), "the build recorded what it built the artifact under")
 
    -- The recorded key still matches, so a build that trusted it would leave
    -- nothing behind. The key is evidence about bytes that have to be there.
-   os.remove(dir .. "/build/native/aot/src/kernel.c")
+   os.remove(path)
    out, code = build(dir)
    test.equal(code, 0, out)
-   test.equal(read(dir .. "/build/native/aot/src/kernel.c"), first,
+   test.equal(read(path), first,
       "a deleted artifact comes back rather than being believed on a digest")
 end
 
@@ -462,15 +482,16 @@ function M.anEditedArtifactIsOverwritten()
    local dir = project("emit-c")
    local out, code = build(dir)
    test.equal(code, 0, out)
-   local first = assert(read(dir .. "/build/native/aot/src/kernel.c"))
+   local path = tieredC(dir, firstHostTier())
+   local first = assert(read(path))
 
-   local handle = assert(io.open(dir .. "/build/native/aot/src/kernel.c", "wb"))
+   local handle = assert(io.open(path, "wb"))
    handle:write("/* not what the compiler wrote */\n")
    handle:close()
 
    out, code = build(dir)
    test.equal(code, 0, out)
-   test.equal(read(dir .. "/build/native/aot/src/kernel.c"), first,
+   test.equal(read(path), first,
       "an artifact whose bytes disagree with its key is written again")
 end
 
@@ -540,7 +561,9 @@ function M.theFeatureTierReachesTheBackend()
    local dir = project("emit-c")
    local out, code = build(dir)
    test.equal(code, 0, out)
-   local before = assert(read(dir .. "/build/native/aot/src/kernel.c"))
+   local beforeTiers = buildTiers(nil, nil)
+   local baseline = assert(read(tieredC(dir, beforeTiers[1].tier)))
+   local before = assert(read(tieredC(dir, beforeTiers[#beforeTiers].tier)))
 
    local manifest = assert(io.open(dir .. "/nupp.lua", "rb"))
    local text = manifest:read("*a")
@@ -551,14 +574,16 @@ function M.theFeatureTierReachesTheBackend()
 
    out, code = build(dir)
    test.equal(code, 0, "the manifest key is accepted\n" .. out)
-   local after = assert(read(dir .. "/build/native/aot/src/kernel.c"))
+   local after = assert(read(tieredC(dir, tier)))
    assert(after:find(widens and "vector_size(64)" or "vector_size(32)", 1, true),
       "the widest tier gets the widest gang: " .. after:sub(1, 200))
 
    if widens then
-      assert(before:find("vector_size(16)", 1, true),
-         "and the default was the narrow one, since nothing promised AVX")
-      assert(after ~= before, "so asking widened it")
+      assert(baseline:find("vector_size(16)", 1, true),
+         "the same build carries its baseline fallback")
+      assert(after ~= baseline, "and the ceiling also carries the wide unit")
+      assert(read(dir .. "/build/native/aot/features.c"),
+         "several tiers bring one baseline runtime detector")
    else
       test.equal(after, before, "naming the only tier an architecture has changes nothing")
    end
@@ -573,6 +598,44 @@ local function withKeys(dir, extra)
    handle = assert(io.open(dir .. "/nupp.lua", "wb"))
    handle:write((text:gsub('outDir = "build/native",', 'outDir = "build/native", ' .. extra)))
    handle:close()
+end
+
+function M.x86BuildCarriesEveryTierAndItsDetector()
+   local dir = project("emit-c")
+   withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu",')
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+
+   for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
+      local c = assert(read(tieredC(dir, tier)), "missing " .. tier .. " translation unit")
+      assert(c:find("ks_scale__" .. tier, 1, true),
+         tier .. " exports its own physical symbol")
+   end
+   local detector = assert(read(dir .. "/build/native/aot/features.c"))
+   assert(detector:find('__builtin_cpu_supports("avx2")', 1, true), detector)
+   assert(detector:find('__builtin_cpu_supports("avx512f")', 1, true), detector)
+   local units = assert(read(dir .. "/build/native/aot/units.json"))
+   assert(units:find('"cflags":["-mavx2"]', 1, true), units)
+   assert(units:find('"cflags":["-mavx512f"]', 1, true), units)
+end
+
+function M.aFeatureCeilingKeepsItsBaselineFallback()
+   local dir = project("emit-c")
+   withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = "avx2",')
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   assert(read(tieredC(dir, "baseline")), "the fallback travels")
+   assert(read(tieredC(dir, "avx2")), "the named ceiling travels")
+   test.equal(read(tieredC(dir, "avx512f")), nil, "nothing wider than the ceiling travels")
+end
+
+function M.multiversioningOwnsInstructionFlags()
+   local dir = project("emit-c")
+   withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotCflags = {"-march=native"},')
+   local out, code = build(dir)
+   test.equal(code, 1, out)
+   assert(out:find("changes the CPU tier", 1, true), out)
+   assert(out:find("-march=native", 1, true), out)
 end
 
 function M.anUnknownCrossTargetIsRejected()
@@ -598,7 +661,7 @@ function M.crossCompilingEmitsThatTargetsCode()
    local dir = project("emit-c")
    local out, code = build(dir)
    test.equal(code, 0, out)
-   local host = assert(read(dir .. "/build/native/aot/src/kernel.c"))
+   local host = assert(read(tieredC(dir, firstHostTier())))
 
    -- A target this machine is not, whichever machine it is. Naming one
    -- architecture outright would be naming the host on half of them, and a
@@ -612,7 +675,8 @@ function M.crossCompilingEmitsThatTargetsCode()
    withKeys(dir, ('aotTarget = "%s",'):format(elsewhere))
    out, code = build(dir)
    test.equal(code, 0, "a target this machine is not still emits\n" .. out)
-   local cross = assert(read(dir .. "/build/native/aot/src/kernel.c"))
+   local crossTiers = buildTiers(elsewhere, nil)
+   local cross = assert(read(tieredC(dir, crossTiers[1].tier)))
    assert(cross:find("vector_size(", 1, true),
       "which is that target's code: " .. cross:sub(1, 200))
    assert(cross ~= host, "and not what the host produced")
@@ -650,6 +714,24 @@ local function libraryPath(dir)
    return dir .. "/" .. aot.libraryPath("build/native", "native", librarySuffix())
 end
 
+local function libraryTier(lib)
+   local tiers = buildTiers(nil, nil)
+   if #tiers == 1 then return tiers[1].tier end
+   local ffi = require("ffi")
+   pcall(ffi.cdef, "int ks_aot_feature_tier(void);")
+   local detected = tonumber(lib.ks_aot_feature_tier())
+   local selected = tiers[1].tier
+   local targets = require("nupp.compiler.aot.target")
+   for _, tier in ipairs(tiers) do
+      if targets.rank(tier.tier) <= detected then selected = tier.tier end
+   end
+   return selected
+end
+
+local function librarySymbol(lib, logical)
+   return require("nupp.compiler.aot.target").symbol(logical, libraryTier(lib))
+end
+
 --- The key the linked library was recorded under, or nothing.
 local function libraryKey(dir)
    local state = read(dir .. "/build/native/.nupp-state.json")
@@ -663,7 +745,7 @@ function M.requireBuildsTheLibraryFromTheGeneratedC()
    local out, code = build(dir)
    test.equal(code, 0, "the generated C compiles cleanly at -Werror\n" .. out)
 
-   assert(read(dir .. "/build/native/aot/src/kernel.c"),
+   assert(read(tieredC(dir, firstHostTier())),
       "require writes the C as well; it is a superset of emit-c, not a replacement")
    assert(read(libraryPath(dir)), "and compiled it into the project's own library")
    assert(libraryKey(dir), "recorded under a key of its own")
@@ -732,6 +814,20 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
       "a modeled native failure is protected and source-attributed: " .. failureText)
 end
 
+function M.luaBuilderChoosesATieredRegistrarAtLoad()
+   local binding = require("nupp.compiler.aot.binding")
+   local lines = binding.builderLoader({
+      symbol = "ks_rows",
+      registrar = "ks_register_rows",
+      name = "rows",
+   }, "@lib/librows.so", {"baseline", "avx2", "avx512f"})
+   local generated = table.concat(lines, "\n")
+   assert(generated:find('ks_rows_builderRegistrar = "ks_register_rows__baseline"', 1, true), generated)
+   assert(generated:find('ks_register_rows__avx2', 1, true), generated)
+   assert(generated:find('ks_register_rows__avx512f', 1, true), generated)
+   assert(generated:find("loadlib(path, ks_rows_builderRegistrar)", 1, true), generated)
+end
+
 function M.theLibraryIsNotRelinkedWhenNothingChanged()
    if not hasToolchain() then return end
 
@@ -794,20 +890,26 @@ function M.theBuiltLibraryLoadsAndComputes()
    -- will declare it in a build is the next piece of work; what is being
    -- checked is the object, not the wrapper.
    local ffi = require("ffi")
-   ffi.cdef[[
+   local lib = ffi.load(libraryPath(dir))
+   local tier = libraryTier(lib)
+   local targets = require("nupp.compiler.aot.target")
+   local scale = targets.symbol("ks_scale", tier)
+   local forced = targets.symbol("ks_scale_forced_scalar", tier)
+   local sum = targets.symbol("ks_sum_bytes", tier)
+   local layout = targets.symbol("ks_scale", tier) .. "_layout_Sample_size"
+   ffi.cdef(([=[
       typedef struct { float value; float weight; } NuppAotSample;
       typedef struct { double v1; uint32_t v2; uint32_t v3; } KsResult_ks_sum_bytes;
-      void ks_scale(NuppAotSample *samples, const NuppAotSample *source,
+      void %s(NuppAotSample *samples, const NuppAotSample *source,
          double first, double last, double factor, size_t count);
-      void ks_scale_forced_scalar(NuppAotSample *samples, const NuppAotSample *source,
+      void %s(NuppAotSample *samples, const NuppAotSample *source,
          double first, double last, double factor, size_t count);
-      KsResult_ks_sum_bytes ks_sum_bytes(const uint8_t *first, const uint8_t *second,
+      KsResult_ks_sum_bytes %s(const uint8_t *first, const uint8_t *second,
          size_t count_first, size_t count_second);
-      uint32_t ks_scale_layout_Sample_size(void);
-   ]]
-   local lib = ffi.load(libraryPath(dir))
+      uint32_t %s(void);
+   ]=]):format(scale, forced, sum, layout))
 
-   test.equal(tonumber(lib.ks_scale_layout_Sample_size()), 8,
+   test.equal(tonumber(lib[layout]()), 8,
       "the object reports the layout the wrapper will check against")
 
    local count = 1000
@@ -817,8 +919,8 @@ function M.theBuiltLibraryLoadsAndComputes()
    for i = 0, count - 1 do
       source[i].value, source[i].weight = i * 0.5, i * 0.25
    end
-   lib.ks_scale(lanes, source, 1, count, 3.0, count)
-   lib.ks_scale_forced_scalar(scalar, source, 1, count, 3.0, count)
+   lib[scale](lanes, source, 1, count, 3.0, count)
+   lib[forced](scalar, source, 1, count, 3.0, count)
 
    -- Bit-identical, not close. The whole lane lowering rests on the claim that
    -- running four iterations at once changes the strategy and never the answer.
@@ -830,7 +932,7 @@ function M.theBuiltLibraryLoadsAndComputes()
 
    local first = ffi.new("uint8_t[2]", {1, 2})
    local second = ffi.new("uint8_t[3]", {3, 4, 250})
-   local result = lib.ks_sum_bytes(first, second, 2, 3)
+   local result = lib[sum](first, second, 2, 3)
    test.equal(result.v1, 260,
       "independent block loops read their own span bounds and return a scalar")
    test.equal(tonumber(result.v2), 2, "the second scalar result crosses the result aggregate")
@@ -849,17 +951,19 @@ function M.correctedBinary32OperationsMatchTheRuntimeBitForBit()
    test.equal(code, 0, out)
 
    local ffi = require("ffi")
-   ffi.cdef[[
+   local lib = ffi.load(libraryPath(dir))
+   local corrected = librarySymbol(lib, "ks_corrected")
+   local forced = librarySymbol(lib, "ks_corrected_forced_scalar")
+   ffi.cdef(([=[
       typedef struct { float a, b, c; } NuppCorrectedSample;
       typedef struct { float least, greatest, fused; } NuppCorrectedResult;
-      void ks_corrected(NuppCorrectedResult *results,
+      void %s(NuppCorrectedResult *results,
          const NuppCorrectedSample *samples, double first, double last,
          size_t count);
-      void ks_corrected_forced_scalar(NuppCorrectedResult *results,
+      void %s(NuppCorrectedResult *results,
          const NuppCorrectedSample *samples, double first, double last,
          size_t count);
-   ]]
-   local lib = ffi.load(libraryPath(dir))
+   ]=]):format(corrected, forced))
    local holder = ffi.new("union { float f; uint32_t u; }[1]")
    local function fromBits(value)
       holder[0].u = value
@@ -895,8 +999,8 @@ function M.correctedBinary32OperationsMatchTheRuntimeBitForBit()
 
    local lanes = ffi.new("NuppCorrectedResult[?]", count)
    local scalar = ffi.new("NuppCorrectedResult[?]", count)
-   lib.ks_corrected(lanes, samples, 1, count, count)
-   lib.ks_corrected_forced_scalar(scalar, samples, 1, count, count)
+   lib[corrected](lanes, samples, 1, count, count)
+   lib[forced](scalar, samples, 1, count, count)
    local f32 = nupp.math.f32
    for index = 0, count - 1 do
       local sample = samples[index]
@@ -924,15 +1028,20 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
    test.equal(code, 0, out)
 
    local ffi = require("ffi")
-   ffi.cdef[[
-      uint32_t ks_count_quotes(const uint8_t *source, size_t count_source);
-      uint32_t ks_count_quotes_forced_scalar(const uint8_t *source, size_t count_source);
-      typedef struct { uint32_t v1, v2, v3, v4; } KsMaskOpsResult;
-      KsMaskOpsResult ks_mask_ops(uint32_t low, uint32_t high);
-      uint32_t ks_lookup_aligned(const uint8_t *source, size_t count_source);
-      uint32_t ks_lookup_aligned_forced_scalar(const uint8_t *source, size_t count_source);
-   ]]
    local lib = ffi.load(libraryPath(dir))
+   local countQuotes = librarySymbol(lib, "ks_count_quotes")
+   local countQuotesScalar = librarySymbol(lib, "ks_count_quotes_forced_scalar")
+   local maskOps = librarySymbol(lib, "ks_mask_ops")
+   local lookup = librarySymbol(lib, "ks_lookup_aligned")
+   local lookupScalar = librarySymbol(lib, "ks_lookup_aligned_forced_scalar")
+   ffi.cdef(([=[
+      uint32_t %s(const uint8_t *source, size_t count_source);
+      uint32_t %s(const uint8_t *source, size_t count_source);
+      typedef struct { uint32_t v1, v2, v3, v4; } KsMaskOpsResult;
+      KsMaskOpsResult %s(uint32_t low, uint32_t high);
+      uint32_t %s(const uint8_t *source, size_t count_source);
+      uint32_t %s(const uint8_t *source, size_t count_source);
+   ]=]):format(countQuotes, countQuotesScalar, maskOps, lookup, lookupScalar))
    for count = 0, 40 do
       local source = ffi.new("uint8_t[?]", math.max(count, 1))
       local expected = 0
@@ -940,15 +1049,15 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
          source[i] = i % 5 == 0 and 34 or i
          if source[i] == 34 then expected = expected + 1 end
       end
-      test.equal(tonumber(lib.ks_count_quotes(source, count)), expected,
+      test.equal(tonumber(lib[countQuotes](source, count)), expected,
          "packed and scalar tail lanes agree at length " .. count)
       test.equal(
-         tonumber(lib.ks_count_quotes(source, count)),
-         tonumber(lib.ks_count_quotes_forced_scalar(source, count)),
+         tonumber(lib[countQuotes](source, count)),
+         tonumber(lib[countQuotesScalar](source, count)),
          "packed implementation agrees with its forced-scalar oracle at length " .. count
       )
    end
-   local mask = lib.ks_mask_ops(5, 1)
+   local mask = lib[maskOps](5, 1)
    test.equal(tonumber(mask.v1), 3, "prefix XOR crosses the low mask word")
    test.equal(tonumber(mask.v2), 0xFFFFFFFF, "prefix XOR carries into the high mask word")
    test.equal(tonumber(mask.v3), 0, "firstSet finds the first logical bit")
@@ -956,8 +1065,8 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
    local lookupSource = ffi.new("uint8_t[64]")
    for i = 0, 63 do lookupSource[i] = i % 16 end
    test.equal(
-      tonumber(lib.ks_lookup_aligned(lookupSource, 64)),
-      tonumber(lib.ks_lookup_aligned_forced_scalar(lookupSource, 64)),
+      tonumber(lib[lookup](lookupSource, 64)),
+      tonumber(lib[lookupScalar](lookupSource, 64)),
       "lookup and cross-vector alignment agree with the scalar oracle"
    )
 end
@@ -1031,11 +1140,11 @@ function M.twoAotFunctionsOverOneStructBuild()
    test.equal(code, 0, "two @aot functions sharing a struct compile\n" .. out)
    local lua = assert(read(dir .. "/build/native/kernel.lua"))
    -- The C symbol is the snake_cased name, which is what the wrapper calls.
-   assert(lua:find("ks_scale_both(", 1, true), "the first wrapper calls the compiled symbol")
-   assert(lua:find("ks_shift_both(", 1, true), "and so does the second")
-   assert(lua:find("ks_scale_both_PointLayout", 1, true),
+   assert(lua:find("ks_scale_both_native", 1, true), "the first wrapper calls the selected symbol")
+   assert(lua:find("ks_shift_both_native", 1, true), "and so does the second")
+   assert(lua:find("ks_scale_both__" .. firstHostTier() .. "_PointLayout", 1, true),
       "each checks the struct under its own name, which is what used to collide")
-   assert(lua:find("ks_shift_both_PointLayout", 1, true), "both of them")
+   assert(lua:find("ks_shift_both__" .. firstHostTier() .. "_PointLayout", 1, true), "both of them")
 end
 
 function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
@@ -1062,8 +1171,8 @@ function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
    assert(os.execute(("cp -r %q %q"):format(dir .. "/build/native", dir .. "/dispatched")) == 0)
 
    local dispatched = assert(read(dir .. "/dispatched/kernel.lua"))
-   assert(dispatched:find("ks_scale(", 1, true), "the first build calls the compiled symbol")
-   assert(not read(dir .. "/ordinary/kernel.lua"):find("ks_scale(", 1, true),
+   assert(dispatched:find("ks_scale_native", 1, true), "the first build calls the selected symbol")
+   assert(not read(dir .. "/ordinary/kernel.lua"):find("ks_scale_native", 1, true),
       "and the second does not, so the two are really different programs")
 
    -- Run from the project root: the wrapper names the library the way the build
@@ -1249,6 +1358,14 @@ function M.requireCrossCompilesToAnotherMachine()
    local wanted = triple:match("^([^-]+)") == "x86_64" and "x86_64" or "arm64"
    assert(described:find(wanted, 1, true),
       "and it is that machine's object rather than this one's: " .. described)
+   if wanted == "x86_64" then
+      local wrapper = assert(read(dir .. "/build/native/kernel.lua"))
+      assert(wrapper:find("ks_aot_feature_tier", 1, true),
+         "the cross-built wrapper asks the destination rather than the build host")
+      assert(wrapper:find("ks_scale__baseline", 1, true), wrapper)
+      assert(wrapper:find("ks_scale__avx2", 1, true), wrapper)
+      assert(wrapper:find("ks_scale_native", 1, true), wrapper)
+   end
 end
 
 function M.aStampedBinaryFindsItsCompiledLibrary()

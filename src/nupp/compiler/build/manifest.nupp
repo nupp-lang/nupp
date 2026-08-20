@@ -669,10 +669,9 @@ local function validateTarget(target, label, dependencies)
         end
     end
     if target.aotFeatures ~= nil then
-        -- Which instructions the build promises the machine has, which decides
-        -- how wide a gang can be. Named rather than detected: a build that
-        -- measured the machine in front of it would produce an artifact that
-        -- only runs there.
+        -- The widest optional tier an x86-64 build carries. Baseline remains in
+        -- the library and the destination chooses at load; other architectures
+        -- retain their one selected tier.
         local valid, err = validateString(target.aotFeatures, label .. ".aotFeatures")
         if not valid then
             return nil, err

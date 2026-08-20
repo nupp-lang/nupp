@@ -119,6 +119,63 @@ function target.tiers(architecture: string): {string}
     return {"baseline", "avx2"}
 end
 
+--- The tiers a project build carries, narrowest first.
+---
+--- x86-64 is multiversioned. A named tier is its ceiling rather than a promise
+--- every destination machine satisfies: baseline remains in the library and
+--- the generated wrapper selects no wider than the machine reports. With no
+--- ceiling every known tier travels. Other architectures retain their one
+--- selected tier; in particular, the i686 baseline contract is not widened by
+--- an x86-64 feature whose fallback guarantee it does not share.
+function target.buildTiers(triple: string?, ceiling: string?): ({target.Target}?, string?)
+    local base, baseErr = target.select(triple, nil)
+    if base == nil then
+        return nil, baseErr
+    end
+    if (base as target.Target).architecture ~= "x86_64" then
+        local selected, selectedErr = target.select((base as target.Target).triple, ceiling)
+        if selected == nil then
+            return nil, selectedErr
+        end
+
+        return {selected as target.Target}, nil
+    end
+
+    local known = target.tiers("x86_64")
+    local last = ceiling or known[#known]
+    local _, ceilingErr = target.select((base as target.Target).triple, last)
+    if ceilingErr ~= nil then
+        return nil, ceilingErr
+    end
+
+    local selected: {target.Target} = {}
+    for _, tier in ipairs(known) do
+        local one = target.select((base as target.Target).triple, tier)
+        selected[#selected + 1] = one as target.Target
+        if tier == last then
+            break
+        end
+    end
+
+    return selected, nil
+end
+
+--- A tier's stable C-symbol suffix.
+function target.symbol(symbol: string, tier: string): string
+    return symbol .. "__" .. tier:gsub("[^%w_]", "_")
+end
+
+--- The detector value one x86-64 tier corresponds to.
+function target.rank(tier: string): integer
+    if tier == "avx512f" then
+        return 2
+    elseif tier == "avx2" then
+        return 1
+    end
+
+    return 0
+end
+
 --- Selects a target, or says why it is not one.
 ---
 --- @param triple the target triple, or nothing for the host's

@@ -365,9 +365,15 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         local keys: {[string]: string} = {}
         for _, one in ipairs((produced as any).emitted as {any}) do
             newState.outputs[one.output] = true
-            keys[one.source] = one.key
+            keys[one.cacheKey] = one.key
+            if one.object ~= nil then
+                newState.outputs[one.object] = true
+            end
         end
         newState.aot = keys
+        if (produced as any).manifest ~= nil then
+            newState.outputs[(produced as any).manifest] = true
+        end
         if (produced as any).library ~= nil then
             newState.outputs[(produced as any).library] = true
             newState.aotLibrary = (produced as any).libraryKey

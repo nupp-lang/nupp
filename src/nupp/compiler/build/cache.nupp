@@ -142,7 +142,7 @@ type cache.State = {
     moduleCompilerHash: string?,
     configHash: string?,
 
-    --- Source path -> the key its ahead-of-time artifact was built under.
+    --- `(source, tier)` identity -> the key its AOT artifact was built under.
     ---
     --- Never load-bearing. A key that is missing, unreadable or different is a
     --- regeneration, not an error, and the artifact it describes is checked to

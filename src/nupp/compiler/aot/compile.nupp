@@ -296,7 +296,8 @@ function compile.artifacts(
     filename: string,
     parsed: parser.ParseResult?,
     library: string,
-    selected: targets.Target
+    selected: targets.Target,
+    symbolTier: string?
 ): (compile.Artifacts?, {compile.Diagnostic})
     local programs, diagnostics, sites = compile.lower(source, filename, parsed)
     if #programs == 0 then
@@ -310,7 +311,7 @@ function compile.artifacts(
     return new compile.Artifacts(
         programs = programs,
         irText = text.programs(programs),
-        c = emit.program(programs),
+        c = emit.program(programs, symbolTier),
         binding = bindingRules.module(programs, library),
         sites = sites
     ), diagnostics

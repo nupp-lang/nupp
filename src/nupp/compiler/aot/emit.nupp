@@ -20,10 +20,16 @@ programs different.
 
 local lane = require("nupp.compiler.aot.lane")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local target = require("nupp.compiler.aot.target")
 
 local emit = {}
 local explicitWidth = 0
 local explicitScalar = false
+
+--- The exported spelling of a logical program symbol in one tier.
+local function physicalSymbol(symbol: string, tier: string?): string
+    return tier ~= nil and target.symbol(symbol, tier as string) or symbol
+end
 
 --- The C spelling of each ordinary binary operator.
 ---
@@ -1050,6 +1056,27 @@ function emit.includes(): {string}
         "static KS_UNUSED KsMaskBits64 ks_mask64_prefix_xor(KsMaskBits64 a, bool carry) { uint32_t lo = a.low, hi = a.high; lo ^= lo << 1; lo ^= lo << 2; lo ^= lo << 4; lo ^= lo << 8; lo ^= lo << 16; hi ^= hi << 1; hi ^= hi << 2; hi ^= hi << 4; hi ^= hi << 8; hi ^= hi << 16; if ((lo & UINT32_C(0x80000000)) != 0u) hi = ~hi; if (carry) { lo = ~lo; hi = ~hi; } return ks_mask64(lo, hi); }",
         "",
     }
+end
+
+--- The baseline runtime detector shared by every wrapper in one AOT library.
+---
+--- Compiler builtins account for the processor and the operating system's
+--- enabled register state. This unit is compiled without an optional tier, so
+--- asking the question cannot itself execute the instructions it is asking
+--- about.
+function emit.featureDetector(): string
+    local lines = emit.includes()
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "KS_API int ks_aot_feature_tier(void) {"
+    lines[#lines + 1] = "#if defined(__x86_64__) || defined(_M_X64)"
+    lines[#lines + 1] = "    __builtin_cpu_init();"
+    lines[#lines + 1] = "    if (__builtin_cpu_supports(\"avx512f\")) return 2;"
+    lines[#lines + 1] = "    if (__builtin_cpu_supports(\"avx2\")) return 1;"
+    lines[#lines + 1] = "#endif"
+    lines[#lines + 1] = "    return 0;"
+    lines[#lines + 1] = "}"
+
+    return table.concat(lines, "\n") .. "\n"
 end
 
 --- The pinned public Lua 5.1 API surface used by VM-aware AOT entries.
@@ -2711,7 +2738,7 @@ end
 --- keeps the scalar statements and carries a pragma refusing vectorisation --
 --- including whatever the C compiler would have done on its own.
 --- @raises when passed malformed or unverified IR
-function emit.program(programs: {scalarIR.Program}): string
+function emit.program(programs: {scalarIR.Program}, tier: string?): string
     emit.begin()
 
     local lines = emit.includes()
@@ -2734,7 +2761,7 @@ function emit.program(programs: {scalarIR.Program}): string
                 end
                 lines[#lines + 1] = ""
             end
-            for _, line in ipairs(emit.layoutReporters(program.symbol, layout)) do
+            for _, line in ipairs(emit.layoutReporters(physicalSymbol(program.symbol, tier), layout)) do
                 lines[#lines + 1] = line
             end
             lines[#lines + 1] = ""
@@ -2907,9 +2934,9 @@ function emit.program(programs: {scalarIR.Program}): string
             end
 
             if not general or program.usesSimd == true then
-                implementation(program.symbol .. "_forced_scalar", true)
+                implementation(physicalSymbol(program.symbol .. "_forced_scalar", tier), true)
             end
-            implementation(program.symbol, false)
+            implementation(physicalSymbol(program.symbol, tier), false)
         end
     end
 
@@ -2925,7 +2952,7 @@ function emit.program(programs: {scalarIR.Program}): string
         end
     end
     if #builders > 0 then
-        lines[#lines + 1] = "KS_API int " .. tostring(registrar) .. "(lua_State *L) {"
+        lines[#lines + 1] = "KS_API int " .. physicalSymbol(tostring(registrar), tier) .. "(lua_State *L) {"
         lines[#lines + 1] = "    if (!lua_checkstack(L, 3)) return luaL_error(L, \"AOT builder Lua stack exhausted\");"
         lines[#lines + 1] = "    lua_createtable(L, 0, " .. tostring(#builders) .. ");"
         lines[#lines + 1] = "    int registry = lua_gettop(L);"

@@ -33,6 +33,7 @@ to.
 
 local bindingRules = require("nupp.compiler.aot.binding")
 local compile = require("nupp.compiler.aot.compile")
+local emitter = require("nupp.compiler.aot.emit")
 local diagnosticMod = require("nupp.compiler.diagnostics")
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.compiler.build.cache")
@@ -151,9 +152,12 @@ function aot.compileFlags(selected: targets.Target, chain: aot.Toolchain, extra:
     -- installation and takes `-target`; GCC does not, and passing it a flag it
     -- has never heard of to say "produce what you already produce" would refuse
     -- every ordinary build to serve the uncommon one.
-    if selected.triple ~= targets.hostTriple() then
+    if selected.triple ~= targets.hostTriple() and chain.dialect == "clang" then
         flags[#flags + 1] = "-target"
         flags[#flags + 1] = selected.triple
+    end
+    if targets.system(selected.triple) ~= "windows" then
+        flags[#flags + 1] = "-fPIC"
     end
     -- Last, so a project can override what is above it, and part of what the
     -- library is keyed on because a flag that changes the output has to.
@@ -166,6 +170,49 @@ function aot.compileFlags(selected: targets.Target, chain: aot.Toolchain, extra:
     local tier = aot.TIER_FLAGS[selected.tier]
     if tier ~= nil then
         flags[#flags + 1] = tier as string
+    end
+
+    return flags
+end
+
+--- Rejects project flags that could make the baseline unit non-baseline.
+---
+--- Tier flags belong to the compiler once several objects share a library.
+--- Allowing `-march=native` or LTO to cross those object boundaries would make
+--- the fallback carry instructions its name says it does not. Sysroots,
+--- include paths, deployment targets and ordinary vendor flags remain valid.
+function aot.multiversionFlagError(extra: {string}?): string?
+    for _, flag in ipairs(extra or {}) do
+        local lower = flag:lower()
+        if lower:match(
+            "^%-march"
+        ) ~= nil or lower:match(
+            "^%-mcpu"
+        ) ~= nil or lower:match(
+            "^%-mtune"
+        ) ~= nil or lower:match(
+            "^%-mavx"
+        ) ~= nil or lower:match(
+            "^%-mno%-avx"
+        ) ~= nil or lower:match(
+            "^%-msse"
+        ) ~= nil or lower:match("^%-mfma") ~= nil or lower:match("^%-flto") ~= nil or lower:match("^/arch:") ~= nil then
+            return "aotCflags entry " .. flag .. " changes the CPU tier; multiversion builds own ISA and LTO flags"
+        end
+    end
+
+    return nil
+end
+
+--- Flags used only while linking already tiered objects.
+function aot.linkFlags(selected: targets.Target, chain: aot.Toolchain, extra: {string}?): {string}
+    local flags: {string} = {}
+    if selected.triple ~= targets.hostTriple() and chain.dialect == "clang" then
+        flags[#flags + 1] = "-target"
+        flags[#flags + 1] = selected.triple
+    end
+    for _, flag in ipairs(extra or {}) do
+        flags[#flags + 1] = flag
     end
 
     return flags
@@ -202,6 +249,12 @@ record aot.Emitted
     --- The source it came from.
     source: string
 
+    --- The feature tier this translation unit was lowered and compiled for.
+    tier: string
+
+    --- The stable state key, distinct for every `(source, tier)` pair.
+    cacheKey: string
+
     --- Where the C was written.
     output: string
 
@@ -210,6 +263,12 @@ record aot.Emitted
 
     --- The key it was built under, which the next build compares against.
     key: string
+
+    --- The compiled object, when the policy links rather than only emitting C.
+    object: string?
+
+    --- True for the compiler-owned baseline feature detector unit.
+    detector: boolean?
 end
 
 --- The commands to try, in order, when nothing named one.
@@ -397,7 +456,13 @@ end
 ---
 --- @param sites where each program was written, in the same order
 --- @return the rewritten source
-function aot.dispatch(source: string, programs: {scalarIR.Program}, sites: {compile.Site}, library: string): string
+function aot.dispatch(
+    source: string,
+    programs: {scalarIR.Program},
+    sites: {compile.Site},
+    library: string,
+    tiers: {string}?
+): string
     local rewritten = source
     for position = #programs, 1, -1 do
         local site = sites[position]
@@ -405,7 +470,12 @@ function aot.dispatch(source: string, programs: {scalarIR.Program}, sites: {comp
             rewritten = rewritten:sub(
                 1,
                 site.from - 1
-            ) .. bindingRules.replacement(programs[position], library) .. rewritten:sub(site.to + 1)
+            ) .. bindingRules.replacement(
+                programs[position],
+                library,
+                tiers,
+                position == 1
+            ) .. rewritten:sub(site.to + 1)
         end
     end
 
@@ -453,64 +523,93 @@ end
 --- succeeded, so a failed link leaves the previous library in place rather than
 --- a truncated one the loader would happily open.
 ---
---- @param sources the C the emitter wrote
+--- @param emitted the tiered C translation units the emitter wrote
 --- @param output where the library goes
 --- @return nothing, or what went wrong
 function aot.link(
     chain: aot.Toolchain,
     selected: targets.Target,
-    sources: {string},
+    emitted: {aot.Emitted},
     output: string,
     extra: {string}?,
     needsLua: boolean?
 ): string?
-    local ordered: {string} = {}
-    for _, one in ipairs(sources) do
-        ordered[#ordered + 1] = one
+    if not fs.mkdir(fs.dirname(output)) then
+        return "could not create " .. fs.dirname(output)
     end
-    table.sort(ordered)
+
+    local objects: {string} = {}
+    for _, one in ipairs(emitted) do
+        local tierTarget, tierErr = targets.select(selected.triple, one.tier)
+        if tierTarget == nil then
+            return tostring(tierErr)
+        end
+        local object = one.output:gsub("%.c$", ".o")
+        local stagedObject = object .. ".tmp"
+        local argv: {string} = {chain.command}
+        for _, flag in ipairs(aot.compileFlags(tierTarget as targets.Target, chain, extra)) do
+            argv[#argv + 1] = flag
+        end
+        argv[#argv + 1] = "-c"
+        argv[#argv + 1] = one.output
+        argv[#argv + 1] = "-o"
+        argv[#argv + 1] = stagedObject
+        os.remove(stagedObject)
+        local code, text = process.capture(argv)
+        if code ~= 0 then
+            os.remove(stagedObject)
+            local hint = ""
+            if selected.triple ~= targets.hostTriple() then
+                hint = (
+                    "\ncompiling for %s on %s needs that target's headers and libraries: "
+                ):format(
+                    selected.triple,
+                    tostring(targets.hostTriple())
+                ) .. "give the sysroot through aotCflags, or select aot = \"emit-c\" and build the C where it runs"
+            end
+
+            return "compiling the generated " .. one.tier .. " C failed:\n" .. text .. hint
+        end
+        local objectBytes, objectErr = fs.readFile(stagedObject)
+        os.remove(stagedObject)
+        if objectBytes == nil then
+            return tostring(objectErr)
+        end
+        local wrote, writeErr = fs.writeFile(object, objectBytes as string)
+        if not wrote then
+            return tostring(writeErr)
+        end
+        one.object = object
+        objects[#objects + 1] = object
+    end
+    table.sort(objects)
 
     local shared, _ = aot.linkage(selected, needsLua)
     local argv: {string} = {chain.command}
     for _, flag in ipairs(shared) do
         argv[#argv + 1] = flag
     end
-    for _, flag in ipairs(aot.compileFlags(selected, chain, extra)) do
+    for _, flag in ipairs(aot.linkFlags(selected, chain, extra)) do
         argv[#argv + 1] = flag
     end
     argv[#argv + 1] = "-o"
     local staged = output .. ".tmp"
     argv[#argv + 1] = staged
-    for _, one in ipairs(ordered) do
-        argv[#argv + 1] = one
-    end
-
-    if not fs.mkdir(fs.dirname(output)) then
-        return "could not create " .. fs.dirname(output)
+    for _, object in ipairs(objects) do
+        argv[#argv + 1] = object
     end
     os.remove(staged)
     local code, text = process.capture(argv)
     if code ~= 0 then
         os.remove(staged)
-        -- A cross build fails for one reason far more often than any other, and
-        -- the compiler's own message for it names a missing header rather than
-        -- the missing thing.
         local hint = ""
         if needsLua and targets.system(selected.triple) == "windows" and aot.luaImportLibrary() == nil then
             hint = "\nthis entry drives the Lua VM, and a Windows library resolves every "
                 .. "symbol as it links: name the interpreter's import library through "
                 .. "NUPP_LUA_LIB, or put the `luajit` this will run under on PATH"
         end
-        if selected.triple ~= targets.hostTriple() then
-            hint = (
-                "\ncompiling for %s on %s needs that target's headers and libraries: "
-            ):format(
-                selected.triple,
-                tostring(targets.hostTriple())
-            ) .. "give the sysroot through aotCflags, or select aot = \"emit-c\" and build the C where it runs"
-        end
 
-        return "compiling the generated C failed:\n" .. text .. hint
+        return "linking the generated C failed:\n" .. text .. hint
     end
 
     local binary, readErr = fs.readFile(staged)
@@ -547,12 +646,8 @@ function aot.emitC(
     features: string?,
     triple: string?
 ): ({aot.Emitted}?, string?, {[string]: compile.Artifacts})
-    -- The host's target, at the tier the manifest asked for or its
-    -- architecture's default. Conservative when nothing asked: a binary built
-    -- for AVX2 does not run on a machine without it, so widening the promise is
-    -- something a project says out loud.
     local produced: {[string]: compile.Artifacts} = {}
-    local selected, targetErr = targets.select(triple, features)
+    local selected, targetErr = targets.buildTiers(triple, features)
     if selected == nil then
         return nil, tostring(targetErr), produced
     end
@@ -567,49 +662,93 @@ function aot.emitC(
                 local text = fs.readFile(source)
                 local tree = text ~= nil and mentionsAot(text as string) and checkedTree(session, source) or nil
                 if tree ~= nil then
-                    local artifacts, diagnostics = compile.artifacts(
-                        text as string,
-                        source,
-                        tree as nupp.compiler.parser.ParseResult,
-                        "<object>",
-                        selected as targets.Target
-                    )
-                    if artifacts == nil then
-                        -- A file that mentions the annotation without carrying
-                        -- one is not an error; anything else is.
-                        local first = diagnostics[1]
-                        if first ~= nil and first.message ~= "no @aot function was found" then
-                            return nil, compile.renderDiagnostic(first), produced
-                        end
-                    else
-                        local relative = source:gsub("^" .. root:gsub("%p", "%%%0") .. "/?", "")
-                        local output = outDir .. "/aot/" .. relative:gsub("%.nupp$", ".c")
-                        local key = aot.key(artifacts.irText, selected as targets.Target)
+                    for tierPosition, tierTarget in ipairs(selected as {targets.Target}) do
+                        local artifacts, diagnostics = compile.artifacts(
+                            text as string,
+                            source,
+                            tree as nupp.compiler.parser.ParseResult,
+                            "<object>",
+                            tierTarget,
+                            tierTarget.tier
+                        )
+                        if artifacts == nil then
+                            -- A file that only mentioned the annotation is not
+                            -- an error. Every tier lowers from the same checked
+                            -- source, so only the first can discover that case.
+                            local first = diagnostics[1]
+                            if first ~= nil and first.message ~= "no @aot function was found" then
+                                return nil, compile.renderDiagnostic(first), produced
+                            end
+                            break
+                        else
+                            local relative = source:gsub("^" .. root:gsub("%p", "%%%0") .. "/?", "")
+                            local stem = relative:gsub("%.nupp$", "")
+                            local output = outDir .. "/aot/" .. stem .. "." .. tierTarget.tier .. ".c"
+                            local cacheKey = source .. "#" .. tierTarget.tier
+                            local key = aot.key(artifacts.irText, tierTarget)
 
-                        -- The recorded key is evidence, not authority: what it
-                        -- describes has to still be on disk with the bytes it
-                        -- claims. A deleted or edited artifact is written again
-                        -- rather than believed because a digest agreed.
-                        local reused = previous[source] == key and fs.readFile(output) == artifacts.c
-                        if not reused then
-                            local ok, err = fs.writeFile(output, artifacts.c)
-                            if not ok then
-                                return nil, tostring(err), produced
+                            -- The state is evidence, not authority: the bytes
+                            -- still have to be the ones this compiler emitted.
+                            local reused = previous[cacheKey] == key and fs.readFile(output) == artifacts.c
+                            if not reused then
+                                local ok, err = fs.writeFile(output, artifacts.c)
+                                if not ok then
+                                    return nil, tostring(err), produced
+                                end
+                            end
+                            emitted[
+                                #emitted + 1
+                            ] = new aot.Emitted(
+                                source = source,
+                                tier = tierTarget.tier,
+                                cacheKey = cacheKey,
+                                output = output,
+                                functions = #artifacts.programs,
+                                key = key
+                            )
+                            produced[cacheKey] = artifacts as compile.Artifacts
+                            if tierPosition == 1 then
+                                -- Wrappers have one logical program and bind it
+                                -- to the physical entries every tier exported.
+                                produced[source] = artifacts as compile.Artifacts
                             end
                         end
-                        emitted[
-                            #emitted + 1
-                        ] = new aot.Emitted(
-                            source = source,
-                            output = output,
-                            functions = #artifacts.programs,
-                            key = key
-                        )
-                        produced[source] = artifacts as compile.Artifacts
                     end
                 end
             end
         end
+    end
+
+    -- One compiler-owned baseline unit asks which optional x86-64 state the
+    -- destination enabled. It exists only when there is something to select.
+    if #emitted > 0 and #(selected as {targets.Target}) > 1 then
+        local detector = emitter.featureDetector()
+        local output = outDir .. "/aot/features.c"
+        local cacheKey = "@feature-detector"
+        local key = hash.digest(
+            cache.stable({
+                c = detector,
+                triple = (selected as {targets.Target})[1].triple,
+                compiler = cache.toolFingerprint(),
+            })
+        )
+        if previous[cacheKey] ~= key or fs.readFile(output) ~= detector then
+            local ok, err = fs.writeFile(output, detector)
+            if not ok then
+                return nil, tostring(err), produced
+            end
+        end
+        emitted[
+            #emitted + 1
+        ] = new aot.Emitted(
+            source = "<feature-detector>",
+            tier = "baseline",
+            cacheKey = cacheKey,
+            output = output,
+            functions = 0,
+            key = key,
+            detector = true
+        )
     end
 
     return emitted, nil, produced
@@ -629,10 +768,51 @@ record aot.Result
     --- The compiler that linked it, for a build that wants to say so.
     toolchain: string?
 
+    --- Machine-readable instructions for compiling the emitted tiered units.
+    manifest: string?
+
     --- Source path -> that source with its `@aot` functions replaced by the
     --- wrappers that call the compiled code. Empty unless the policy links, so
     --- `emit-c` leaves every module exactly as it was written.
     dispatch: {[string]: string}
+end
+
+--- Writes the portable handoff for an `emit-c` consumer.
+function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Emitted}): (string?, string?)
+    if #emitted == 0 then
+        return nil, nil
+    end
+    local units: {unknown} = {}
+    local prefix = outDir .. "/aot/"
+    for _, one in ipairs(emitted) do
+        local flags: {string} = {}
+        local tierFlag = aot.TIER_FLAGS[one.tier]
+        if tierFlag ~= nil and one.detector ~= true then
+            flags[#flags + 1] = tierFlag as string
+        end
+        units[
+            #units + 1
+        ] = {
+            source = one.output:gsub("^" .. prefix:gsub("%p", "%%%0"), ""),
+            tier = one.tier,
+            cflags = nupp.data.json.asArray(flags),
+            detector = one.detector == true,
+        }
+    end
+    local document = nupp.data.json.encode({
+        schemaVersion = 1,
+        target = triple,
+        units = nupp.data.json.asArray(units),
+    }) .. "\n"
+    local output = outDir .. "/aot/units.json"
+    if fs.readFile(output) ~= document then
+        local ok, err = fs.writeFile(output, document)
+        if not ok then
+            return nil, tostring(err)
+        end
+    end
+
+    return output, nil
 end
 
 --- Applies a target's ahead-of-time policy.
@@ -662,46 +842,70 @@ function aot.apply(
     if emitted == nil then
         return nil, emitErr
     end
+    local selectedForManifest, selectedErr = targets.buildTiers(triple, features)
+    if selectedForManifest == nil then
+        return nil, tostring(selectedErr)
+    end
+    if #(selectedForManifest as {targets.Target}) > 1 then
+        local flagErr = aot.multiversionFlagError(cflags)
+        if flagErr ~= nil then
+            return nil, flagErr
+        end
+    end
+    local manifest, manifestErr = aot.writeUnitsManifest(
+        outDir,
+        (selectedForManifest as {targets.Target})[1].triple,
+        emitted as {aot.Emitted}
+    )
+    if manifestErr ~= nil then
+        return nil, manifestErr
+    end
     if not aot.linksNative(policy) or #(emitted as {aot.Emitted}) == 0 then
-        return new aot.Result(emitted = emitted as {aot.Emitted}, dispatch = {}), nil
+        return new aot.Result(emitted = emitted as {aot.Emitted}, manifest = manifest, dispatch = {}), nil
     end
 
     local chain, chainErr = aot.toolchain()
     if chain == nil then
         return nil, tostring(chainErr)
     end
-    local selected, targetErr = targets.select(triple, features)
-    if selected == nil then
+    local selectedTiers, targetErr = targets.buildTiers(triple, features)
+    if selectedTiers == nil then
         return nil, tostring(targetErr)
     end
 
-    local sources: {string} = {}
+    local selected = (selectedTiers as {targets.Target})[1]
     local keys: {string} = {}
     local needsLua = false
     for _, one in ipairs(emitted as {aot.Emitted}) do
-        sources[#sources + 1] = one.output
         keys[#keys + 1] = one.key
-        local artifact = produced[one.source]
+        local artifact = produced[one.cacheKey]
         for _, program in ipairs(artifact ~= nil and (artifact as compile.Artifacts).programs or {}) do
             needsLua = needsLua or program.entryMode == "lua-builder"
         end
     end
 
-    local shared, suffix = aot.linkage(selected as targets.Target, needsLua)
+    local shared, suffix = aot.linkage(selected, needsLua)
     local library = aot.libraryPath(outDir, name, suffix)
     local reference = aot.libraryReference(name, suffix)
-    local key = aot.libraryKey(
-        keys,
-        chain as aot.Toolchain,
-        aot.compileFlags(selected as targets.Target, chain as aot.Toolchain, cflags),
-        shared
-    )
+    local keyedFlags: {string} = {}
+    for _, one in ipairs(emitted as {aot.Emitted}) do
+        local tierTarget = targets.select(selected.triple, one.tier)
+        keyedFlags[#keyedFlags + 1] = "tier=" .. one.tier
+        for _, flag in ipairs(aot.compileFlags(tierTarget as targets.Target, chain as aot.Toolchain, cflags)) do
+            keyedFlags[#keyedFlags + 1] = flag
+        end
+    end
+    keyedFlags[#keyedFlags + 1] = "link"
+    for _, flag in ipairs(aot.linkFlags(selected, chain as aot.Toolchain, cflags)) do
+        keyedFlags[#keyedFlags + 1] = flag
+    end
+    local key = aot.libraryKey(keys, chain as aot.Toolchain, keyedFlags, shared)
 
     -- Same rule the C artifacts follow: the key is compared, and then the
     -- library it describes has to still be there. A relink costs seconds; a
     -- stale library loaded because a digest agreed costs a wrong answer.
     if previousLibraryKey ~= key or not fs.exists(library) then
-        local linkErr = aot.link(chain as aot.Toolchain, selected as targets.Target, sources, library, cflags, needsLua)
+        local linkErr = aot.link(chain as aot.Toolchain, selected, emitted as {aot.Emitted}, library, cflags, needsLua)
         if linkErr ~= nil then
             return nil, tostring(linkErr)
         end
@@ -711,17 +915,24 @@ function aot.apply(
     -- failed to link never leaves modules rewritten to call an object that is
     -- not there.
     local dispatch: {[string]: string} = {}
+    local tierNames: {string} = {}
+    for _, tierTarget in ipairs(selectedTiers as {targets.Target}) do
+        tierNames[#tierNames + 1] = tierTarget.tier
+    end
+    local dispatched: {[string]: boolean} = {}
     for _, one in ipairs(emitted as {aot.Emitted}) do
         local artifacts = produced[one.source]
         local text = fs.readFile(one.source)
-        if artifacts ~= nil and text ~= nil then
+        if not dispatched[one.source] and artifacts ~= nil and text ~= nil then
+            dispatched[one.source] = true
             dispatch[
                 one.source
             ] = aot.dispatch(
                 text as string,
                 (artifacts as compile.Artifacts).programs,
                 (artifacts as compile.Artifacts).sites,
-                reference
+                reference,
+                tierNames
             )
         end
     end
@@ -731,6 +942,7 @@ function aot.apply(
         library = library,
         libraryKey = key,
         toolchain = (chain as aot.Toolchain).version,
+        manifest = manifest,
         dispatch = dispatch
     ), nil
 end

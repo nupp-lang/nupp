@@ -577,14 +577,17 @@ single-precision instruction rather than a wide one rounded back. `f32x8` and
 `f32x4` carry everything 32-bit and hold twice the iterations, which is why they
 are tried first and why a loop with any binary64 value cannot have them.
 
-x86-64 defaults to `baseline`, so a loop written with ordinary operators gets
-two lanes there and four at `avx2`. The conservative default is deliberate: a
-binary built for AVX2 does not run on a machine without it, and a default that
-assumed otherwise would produce artifacts that fail on hardware the triple says
-they support. The tier is selected, never measured, because a build that probed
-the machine in front of it would produce an artifact that only runs there.
+x86-64 project builds carry `baseline`, `avx2` and `avx512f` translation units
+in one library. Their exported symbols carry the tier name, and the generated
+wrapper asks a baseline C entry what the destination supports once at load,
+then binds each function to the widest entry no wider than that answer. Mapping
+the other entries does not execute them. A machine without AVX therefore gets
+the two-lane baseline body, while one with AVX2 gets four lanes from the same
+artifact.
 
-Ask for a wider one per target in `nupp.lua`:
+`aotFeatures` is a ceiling. Use it to omit tiers a project does not want to
+ship; every tier below it still travels, so `avx2` retains its baseline
+fallback:
 
 ```lua
 targets = {
@@ -592,14 +595,14 @@ targets = {
 }
 ```
 
-or per invocation:
+The standalone inspection command still selects one exact tier:
 
 ```bash
 nupp aot --target x86_64-unknown-linux-gnu --features avx2 src/kernel.nupp
 ```
 
-The tier is part of the artifact key, so changing it rebuilds rather than
-reusing what the other tier produced.
+Each `(source, tier)` C file has its own artifact key. Changing the ceiling adds
+or removes those files rather than reusing one tier's output as another's.
 
 Within a tier, the gang with the most lanes that admits the loop wins. At
 AVX-512 a mixed body and an all-32-bit body both get eight lanes, but the latter
@@ -902,14 +905,15 @@ targets = {
 }
 ```
 
-The triple decides the gang widths, how a shared library is produced and what it
-is called, so a Windows target gets a `.dll` and no `-lm` whether or not the
-build is running on Windows. The feature tier is checked against that target's
-architecture rather than against the set of all tiers, so asking aarch64 for
-`avx2` is refused where it is written.
+The triple decides the available tiers, how a shared library is produced and
+what it is called, so a Windows target gets a `.dll` and no `-lm` whether or not
+the build is running on Windows. A ceiling is checked against that target's
+architecture, so asking aarch64 for `avx2` is refused where it is written.
 
-`emit-c` needs nothing installed for the target: it writes that target's C and
-stops, which is the answer when the compiler for a platform is somebody else's.
+`emit-c` needs nothing installed for the target: it writes one C file per
+`(source, tier)`, the baseline feature detector where selection is needed, and
+`aot/units.json`. The manifest names every unit's tier and required instruction
+flag, which is the handoff when the compiler for a platform is somebody else's.
 
 `aot = "require"` cross-compiles too, and then it needs the target's headers and
 libraries the way any cross build does. Give them through `aotCflags`, which is
@@ -918,6 +922,11 @@ appended after the fixed flags and is part of what the library is keyed on:
 ```lua
 aotCflags = {"--sysroot=/opt/sysroots/linux-x86_64"},
 ```
+
+The build owns CPU instruction and LTO flags when it carries several tiers.
+`aotCflags` therefore refuses `-march`, `-mcpu`, AVX/SSE/FMA switches, `/arch:`
+and `-flto`; any of those could put optional instructions in the baseline
+fallback or optimize across the object boundary.
 
 Without one, the failure names the missing thing rather than leaving you with
 the compiler's own message about a missing `math.h`.
@@ -1044,12 +1053,12 @@ file it describes is still on disk with the bytes it claims; a deleted or edited
 artifact is written again rather than believed because a digest agreed. Losing
 the record costs one rebuild and changes no answer.
 
-The linked library gets its own key, over the artifact keys it was built from
-plus the compiler that ran, the flags it ran with, and the linkage that was
-asked for, rather than the IR and target again, which the artifact keys already
-carry. Changing compilers relinks; rebuilding an unchanged project does not. The
-C itself is deliberately not keyed on the toolchain, because the C is the same C
-whoever compiles it.
+The linked library gets its own key, over every tier's artifact key and compile
+flags plus the detector, compiler, and final linkage. Each translation unit is
+compiled to an object under its own tier flag, then those objects are linked
+without a higher-tier flag. Changing compilers relinks; rebuilding an unchanged
+project does not. The C itself is deliberately not keyed on the toolchain,
+because the C is the same C whoever compiles it.
 
 The library is validated the same way and is just as disposable. Deleting it
 costs one relink.
@@ -1062,6 +1071,3 @@ Named so you can tell what you are looking at:
   is still named with the path the build wrote, so it has the problem `@aot`
   code no longer has. The `@` mechanism is general and would fix it; nothing has
   been changed there yet.
-- **Multiversioning.** A build pins one feature tier. Dispatching between
-  several at run time, so one binary uses AVX2 where it is present and the
-  baseline where it is not, is a separate decision nobody has taken.
