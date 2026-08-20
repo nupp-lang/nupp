@@ -53,7 +53,72 @@ only use that if establishing it is an operation rather than an assertion.
 
 ## Overview and specification
 
-### Establishment is a dataflow fact, not an annotation
+### Syntax
+
+The value refinements are ordinary type names; the narrow widths are legal only
+where a storage width is meant.
+
+```nupp
+local scale: float = f32.narrow(0.5)      -- value refinement
+local mask: uint32 = u32.wrap(0xFF00)
+
+struct Pixel
+    r: uint8                              -- storage width, legal here
+    g: uint8
+    b: uint8
+end
+
+local channel: uint8 = 0                  -- rejected: not a value type
+```
+
+### Usage
+
+A value enters a refinement through an establishing operation, and widening
+back to `number` is implicit:
+
+```nupp
+local narrowed = f32.narrow(value)        -- float, established
+local widened: number = narrowed          -- implicit, emits nothing
+
+local claimed = value as float            -- claims the type, establishes nothing
+```
+
+Arithmetic over refinements yields `number`; the fixed-width namespaces are the
+explicit spelling for same-width operations:
+
+```nupp
+local ordinary = narrowed * 2             -- number
+local same: float = f32.mul(narrowed, f32.narrow(2))
+```
+
+A load from narrow storage widens into a value refinement — signed to `int32`,
+unsigned to `uint32`:
+
+```nupp
+local red: uint32 = pixel.r
+```
+
+### Lowering
+
+Every one of these is a plain unboxed Lua number, so widening and ordinary
+arithmetic emit nothing at all:
+
+```lua
+local widened = narrowed
+local ordinary = narrowed * 2
+```
+
+An establishing operation is the only thing that emits work, because it is the
+only thing that can change a value:
+
+```lua
+local narrowed = __nuppF32Narrow(value)
+```
+
+Storing into reified fixed-width storage performs the final narrowing at the
+store. Nothing becomes cdata, acquires a metatable, or gains a metamethod.
+
+### Establishment is a dataflow fact
 
 A value enters a refinement through an establishing operation —
 narrowing, rounding, wrapping, or reinterpreting bits. An erased assertion may
@@ -134,20 +199,3 @@ unboxed representation, so they would be exactly the empty claim being removed.
 value sets do not fit in binary64, and LuaJIT already boxes them. Bringing them
 in would mean either lying about the value set or admitting cdata into the
 model.
-
-## FAQ
-
-**Why is widening implicit and narrowing explicit?** Widening to `number` loses
-no information and emits nothing. Narrowing is where a value can change, so it
-is an operation with a name.
-
-**Does an `as` cast establish a refinement?** No. It may claim the type; it does
-not establish the value. That distinction is the design.
-
-**What does a fixed-width struct field give me, then?** A real storage width and
-a load that produces an established value refinement — which is the fact AOT
-lowering and reified layout need, obtained where it is genuinely true.
-
-**Does any of this change generated code for programs that already checked?**
-Only where a program made an unproved claim, which now reports rather than
-compiling. No accepted program silently changes bits.

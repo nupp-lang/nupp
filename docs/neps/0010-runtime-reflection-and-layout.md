@@ -62,7 +62,80 @@ reflection acquires a parameter because something three layers down wanted one.
 
 ## Overview and specification
 
-### One argument, with hidden evidence
+### Syntax
+
+Reflection is a call on the declaration; layout is an operator on a struct.
+
+```nupp
+const descriptor = User.reflect()
+const layout = layoutof(Vertex)
+```
+
+A declaration is passed by name, and a generic infers through it:
+
+```nupp
+function read<T>(target: Type<T>, text: string): T?
+```
+
+### Usage
+
+One argument, never a value plus a separate witness:
+
+```nupp
+local record User
+    @json(name = "user_id")
+    id: integer
+    name: string
+end
+
+local descriptor = User.reflect()
+for _, field in ipairs(descriptor.fields) do
+    print(field.name, field.type)
+end
+
+local user, problem = json.decode(User, text)
+```
+
+`layoutof` answers how a reified struct sits in memory — field order, C types,
+offsets, sizes, padding, total size, and a fingerprint over all of it:
+
+```nupp
+local struct Vertex
+    pos: float[3]
+    uv: float[2]
+end
+
+const layout = layoutof(Vertex)
+-- layout.fields[1] is `pos`, float[3], twelve bytes wide at offset zero
+```
+
+Only a struct has a layout; a record is a table.
+
+### Lowering
+
+`layoutof` is answered during checking and emits a constant, because a reified
+struct's layout is known then:
+
+```lua
+local layout = {size = 20, fields = {{name = "pos", offset = 0, size = 12}}}
+```
+
+A descriptor is allocated on the first `reflect()` and cached on the
+declaration, so a program that never reflects allocates nothing:
+
+```lua
+local descriptor = User.__nuppReflect or __nuppBuildReflect(User)
+```
+
+A derive declares that a record admits an extension and supplies its checked
+configuration; the extension itself is allocated against the descriptor on first
+request rather than emitted per declaration:
+
+```lua
+local codec = descriptor.__nuppExt[JSON_KEY] or __nuppJsonCodec(descriptor)
+```
+
+### One argument and hidden evidence
 
 `User` is the only value a caller supplies, and a generic parameter infers
 through it. The compiler may pass a descriptor or a codec as hidden evidence at
@@ -90,7 +163,7 @@ Nothing is built for a declaration nobody reflects on. The descriptor is
 versioned, so a consumer can reject a shape it does not understand rather than
 misread it.
 
-### Layout answers, and does not prescribe
+### Layout answers without prescribing
 
 `layoutof` reports how a struct sits in memory. What to do with that is the
 library's business. Only a `struct` has a layout; a record is a table.
@@ -153,19 +226,3 @@ nothing.
 **Reusing one spelling for comptime and runtime reflection.** Rejected: the two
 answer at different times with different lifetimes, and a shared name would make
 every diagnostic mentioning it ambiguous.
-
-## FAQ
-
-**Why is a declaration's value not an instance of itself?** Because they are
-different things, and treating them as one made `Foo is Foo` unaskable. See
-[NEP 5](0005-declaration-identity.md).
-
-**What does `layoutof` do for a record?** Nothing — a record is a Lua table with
-a metatable and has no layout to report.
-
-**Does reflecting on a declaration cost anything if nobody does?** No. The
-descriptor is allocated on the first `reflect()` and cached from then on.
-
-**Can a library add its own extension kind?** That is what the extension model
-is for: the descriptor holds declaration facts, and anything format-specific is
-allocated against it under its own key.

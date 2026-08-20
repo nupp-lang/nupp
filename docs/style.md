@@ -124,6 +124,20 @@ which is the intro's job. Name the subject and stop.
 A title listing several subjects is not this. "Writes, shapes, and metatables"
 enumerates what the section covers, and that is what a title is for.
 
+**A title is not an epigram.** "Three origins, one format" and "Conservation,
+not re-derivation" are rhetoric: they pair or oppose two phrases to make the
+section sound like it has a thesis. They read well once and badly in a list of
+twenty, because every one of them has the same shape and none of them says what
+its section is about. Drop the second half, or say the fact plainly.
+
+| Banned | Write instead |
+| --- | --- |
+| Three origins, one format | One template format |
+| Conservation, not re-derivation | Preservation conserves capabilities |
+| Operators, not methods | Element access is operators |
+| Two owners, one seam | Compiler and host responsibilities |
+| Six verdicts, each as strong as its evidence | Six verdicts |
+
 **A title names its object.** "Configuring one" makes a reader scroll up to
 find out what "one" was, and an outline of them says nothing at all. Name the
 noun, as "Task configuration" or "Configuring a task".

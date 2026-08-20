@@ -43,7 +43,74 @@ cannot verify.
 
 ## Overview and specification
 
-### A checked object-graph constructor, not a native Lua VM
+### Syntax
+
+None of its own. A function gets the VM-aware convention because of what it
+consumes and produces, not because of a second annotation:
+
+```nupp
+@aot
+local function parseRow(borrows bytes: span.Span<uint8>): {string: any}
+    local out = {}
+    out.name = bytes:text(1, 8)
+    out.count = decodeCount(bytes)
+
+    return out
+end
+```
+
+### Usage
+
+The admitted subset is primitives, fresh table literals and capacity-hinted
+construction, raw-equivalent writes to fresh tables, strings copied from proved
+ranges of rooted inputs, structured control flow, admitted pure helpers, and
+returning the completed graph:
+
+```nupp
+local row = parseRow(view)   -- an ordinary Lua table, built natively
+```
+
+Anything that would observe or mutate pre-existing managed state is outside it:
+
+```nupp
+@aot
+local function bad(t: {string: any}): nil
+    t.seen = true            -- rejected: not a value this function created
+end
+```
+
+### Lowering
+
+A function staying in native types keeps the existing kernel ABI. One that
+constructs managed values lowers to a Lua C function and builds its result
+through a verified construction IR — no VM state pointer, raw VM calls,
+collector pointers, or stack indexes appear in the source:
+
+```c
+/* generated, private */
+static int nupp__parseRow(lua_State *L) {
+    const uint8_t *bytes = nupp_span_base(L, 1);
+    lua_createtable(L, 0, 2);              /* fresh, rooted on the stack */
+
+    lua_pushlstring(L, (const char *)bytes, 8);
+    lua_setfield(L, -2, "name");
+
+    lua_pushinteger(L, nupp__decodeCount(bytes));
+    lua_setfield(L, -2, "count");
+
+    return 1;                              /* the completed graph */
+}
+```
+
+The compiler proves that every managed value is created, rooted, populated, and
+returned safely, which is what the verified IR exists for. The call site is an
+ordinary call:
+
+```lua
+local row = __lib.nupp__parseRow(view)
+```
+
+### Checked object-graph construction
 
 The compiler recognises a small set of ordinary operations by resolved identity
 and proves the safety properties itself. The initial subset is primitives, fresh
@@ -56,7 +123,7 @@ The boundary is stated as what it *is*, not as a list of exclusions: a
 constructor for a value graph the function itself creates. Anything that would
 observe or mutate pre-existing managed state is outside it.
 
-### Two conventions, one annotation
+### Two calling conventions
 
 Which convention a function gets follows from what it consumes and produces, not
 from a second annotation. A function that stays in native types keeps the kernel
@@ -93,18 +160,3 @@ known.
 **Admitting general Lua operations** — metatables, dynamic calls, coroutines —
 so the subset is less surprising. Rejected: that is a native implementation of
 the VM, which is a different project with a different risk profile.
-
-## FAQ
-
-**Can an ahead-of-time function return a table?** Yes, if it constructed it, and
-if every operation building it is in the admitted subset.
-
-**Can it modify a table the caller passed in?** No. The subset covers values the
-function creates.
-
-**Does my source change?** No. It is ordinary Nupp; the convention follows from
-the types.
-
-**Why can't I call an equivalent function I wrote myself?** Operations are
-recognised by resolved identity, so only the admitted ones lower. That is a real
-limitation of the current subset.

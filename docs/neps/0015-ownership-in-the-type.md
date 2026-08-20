@@ -38,7 +38,7 @@ the first result — the checker literally tested for position one — and a C
 output parameter had to be addressed by a string naming it. Writing the
 ownership where the result is says it directly, for any position.
 
-### One resource, three producers, three restatements
+### Restating a terminal at every producer
 
 With cleanup named at the producer, every producer of a resource restates the
 same terminal. Stating it once on the type means a producer says only that it
@@ -55,7 +55,81 @@ one way closes `stdout`, the other way restates the terminal at every producer.
 
 ## Overview and specification
 
-### Affinity is a constructor, not a vocabulary
+### Syntax
+
+Ownership is written where the result is, using a type constructor rather than a
+recognised name:
+
+```nupp
+affine(T, cleanup)   -- an owner, discharged by `cleanup`
+affine(T)            -- affine with deliberately no terminal: must be forwarded
+```
+
+### Usage
+
+A producer says only that it produces an owner; the terminal is stated once on
+the type that carries it:
+
+```nupp
+cdef function malloc(size: uint64): voidptr
+cdef function free(takes value: voidptr)
+
+local function take(): affine(voidptr, free)
+    return malloc(64)
+end
+```
+
+Policy is written in ordinary declarations rather than shipped as a vocabulary:
+
+```nupp
+local type Locked<T, const unlock: function> = affine(T, unlock)
+local type MustForward<T> = affine(T)
+```
+
+Any result may be owned, including one that is not the first:
+
+```nupp
+local function open(path: string): (integer, affine(Session, close))
+```
+
+### Lowering
+
+A terminal is not called directly. The prologue emits a lazy resolver per
+cleanup, keyed by an origin-qualified name, which looks the terminal up on first
+use and remembers it:
+
+```lua
+local __nuppCleanups = _G.__nuppCleanupRegistry
+if __nuppCleanups == nil then
+   __nuppCleanups = {}
+   _G.__nuppCleanupRegistry = __nuppCleanups
+end
+
+local __nuppCleanup1
+__nuppCleanup1 = function(value)
+   local cleanup = __nuppCleanups["oc#free"]
+   if cleanup == nil then
+      return _G.error("Nupp cleanup provider is not loaded: oc#free")
+   end
+   __nuppCleanup1 = cleanup
+   return cleanup(value)
+end
+```
+
+The declaring module writes the registration immediately after binding the
+function, which is later than the declaration and earlier than any top-level
+acquisition:
+
+```lua
+local function free(value) ... end
+__nuppCleanups["oc#free"] = free
+```
+
+The registry is process-wide so a module can discharge an owner whose terminal
+was declared elsewhere, and the key is part of the interned identity of every
+owned type discharged by it. The ownership wrapper itself erases.
+
+### Affinity is a constructor
 
 The compiler understands a type constructor taking a representation and an
 optional terminal, along with affine introduction, consumption, and automatic
@@ -79,7 +153,7 @@ the generic pointer type would become the terminal for every pointer in the
 project. Both keep the contract the value arrives with, and a terminal named in
 the type is how a producer of such a value says what discharges it.
 
-### The C contract needs three facts, and one of them is about the return
+### Three facts a C contract needs
 
 Which parameter is an owner, and what discharges it, are facts about the
 parameter. *When the outputs are valid* is a relation between the return value
@@ -164,7 +238,7 @@ concrete resource names in place of a shipped vocabulary.
 Both source plans still described the retired spelling as current. The decisions
 above survived the change; the spelling did not.
 
-## What the implementation cost, and what that constrained
+## Constraints found during implementation
 
 Two constraints found during implementation are worth keeping because they
 constrain future work rather than describing past work.
@@ -182,21 +256,3 @@ invalid code cannot compile the fix; the launcher falls back to the last
 compiler that built, which silently answers with the previous behaviour, and
 cleaning drops to the tracked bootstrap, which predates the feature and reports
 a *different* error. Read which compiler answered before believing an error.
-
-## FAQ
-
-**Why are the two facts separate?** Because a type says how values of it end,
-and a producer says whether the value it returns is an owner. The same file type
-covers both a handle you must close and one you must not.
-
-**Can a terminal be named for a type that could not carry one?** Yes — that is
-what naming a terminal in the type is for, and it is why a generic C pointer
-does not need a project-wide terminal.
-
-**Why does a terminal resolve through a registry rather than a direct call?** So
-a module can discharge an owner whose terminal was declared in another module,
-without that module being required.
-
-**What happens if two declarations register the same key?** They must not; keys
-are origin-qualified. A genuine conflict for one type is a diagnostic, because
-scoping the terminal to the observer would be unsound.

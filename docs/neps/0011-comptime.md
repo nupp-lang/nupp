@@ -77,6 +77,57 @@ running it, which is a decision with its own cost and its own failure mode.
 
 ## Overview and specification
 
+### Syntax
+
+```nupp
+comptime do ... end                 -- an expression evaluated while checking
+local comptime function f(...) ...  -- a helper it may call
+```
+
+### Usage
+
+The block runs ordinary Nupp and produces a value the compiler writes into the
+output as source:
+
+```nupp
+local comptime function widths(count: integer): {integer}
+    local out = {}
+    for i = 1, count do
+        out[i] = 1 << i
+    end
+
+    return out
+end
+
+const WIDTHS = comptime do
+    return widths(4)
+end
+```
+
+### Lowering
+
+The computation is gone and its result is quoted:
+
+```lua
+local WIDTHS = {2, 4, 8, 16}
+```
+
+Quoting is exact rather than tidy, because the output is parsed back. An
+integral number in range emits as an integer, and a non-integral one emits in
+the shortest spelling that reads back bit-identically — the runtime's default
+float formatting is not good enough, and a value that cannot round-trip is
+refused rather than approximated:
+
+```lua
+local ratios = {0.1, 3.141592653589793, 1e300}
+```
+
+The quotable set is `nil`, booleans, finite numbers, strings, and acyclic
+metatable-free tables of those. Functions, threads, userdata, cdata, type
+handles, cyclic tables, and tables with metatables are refused. A richer result
+leaves through the materialization exit instead
+([NEP 13](0013-comptime-materialization.md)).
+
 ### Explicit at the point of evaluation
 
 `comptime` marks where evaluation is required. It is not the mechanism behind
@@ -88,7 +139,7 @@ executing user code, and keeps comptime out of module declaration discovery. A
 system where generics are implemented by compile-time evaluation cannot offer
 either.
 
-### It produces a value, and never chooses its spelling
+### Comptime produces a value
 
 Comptime produces a value; it never observes or selects what source represents
 it. A compiler-owned opaque result may instead be serialized as a runtime value
@@ -96,7 +147,7 @@ by the closed materialization layer ([NEP 13](0013-comptime-materialization.md))
 and that layer emits an expression constructing one explicitly typed value — it
 cannot add a declaration or a module.
 
-### Quoting is exact, not tidy
+### Quoting is exact
 
 A quoted value is source that will be parsed back, so any rule that is merely
 conventional is a rule the round trip can lose. Strings use escaped single-line
@@ -155,23 +206,3 @@ reader cannot know what a program means from its source.
 **Tidy quoting** — conventional float formatting, prettier table output.
 Rejected: the output is parsed back, so "looks reasonable" is not a correctness
 property and the shortest round-tripping spelling is.
-
-## FAQ
-
-**Why can't comptime generate declarations?** Because declaration discovery
-would then require evaluation, so knowing what a module declares would mean
-running its code. That is the property the separation from generics also
-protects.
-
-**What is the difference between this and the optimizer folding my constant?**
-Visibility and obligation. A fold may silently decline and is absent at `-O0`;
-comptime is present at every level and owes you a diagnostic when it cannot
-evaluate.
-
-**Can a comptime result be something other than a literal?** It can be an opaque
-compiler-owned value that the materialization layer serializes as a runtime
-construction expression. Comptime itself still produced a value and did not
-choose its spelling.
-
-**Why is the quotable set so small?** Because each entry is a literal format
-committed to permanently. Adding one is cheap; changing one afterwards is not.

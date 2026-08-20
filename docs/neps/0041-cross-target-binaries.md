@@ -24,7 +24,7 @@ host from source. Platform and build-target identity are kept separate.
 
 ## Motivation
 
-### Cross-compiling a native host from source is the hard part, and it is avoidable
+### Why the host is not cross-compiled
 
 The payload is Nupp's own artifact and is target-specific in ways Nupp knows
 about. The host is a native program with a native toolchain, sysroots, and
@@ -36,7 +36,59 @@ from the part it cannot.
 
 ## Overview and specification
 
-### What "supported" means is a list of obligations, not a layout model
+### Syntax
+
+A binary target names its platforms; the command line selects among them,
+separately from naming the build target.
+
+```lua
+dist = {
+   kind = "binary",
+   entries = { "app.main" },
+   platforms = { "x86_64-unknown-linux-gnu", "aarch64-apple-darwin" },
+   output = "build/dist/app",
+}
+```
+
+```sh
+nupp build --target dist --platform aarch64-apple-darwin
+nupp build --target dist --platform all
+```
+
+### Usage
+
+One machine produces every configured platform's binary:
+
+```text
+build/dist/
+├── app-x86_64-unknown-linux-gnu
+├── app-aarch64-apple-darwin
+└── app-x86_64-pc-windows-msvc.exe
+```
+
+### Lowering
+
+Only the payload is produced locally. It is compiled for the target and stamped
+into a pinned, prebuilt stub for that platform:
+
+```text
+ prebuilt stub (pinned, published)     target payload (compiled here)
+ ────────────────────────────────      ──────────────────────────────
+ native host executable            +   modules, resources, manifest
+                                   ↓
+                          one self-contained binary
+```
+
+The stub is the native host, with its own toolchain, sysroot, and SDK behind it;
+Nupp never compiles it. A platform is supported when four things are true — a
+published and retained stub, a known filename and executable suffix, a modelled
+compile-time C layout, and passing stamping and execution conformance tests.
+
+A layout model alone does not make a platform supported, which matters because
+it is the cheapest of the four and the one that makes a platform look supported
+from inside the compiler.
+
+### Obligations for a supported platform
 
 Adding a platform means publishing and retaining its stub, teaching the compiler
 its filename and executable suffix, modelling its compile-time C layout, and
@@ -76,11 +128,3 @@ target for several platforms unexpressible.
 **Declaring a platform supported once its layout is modelled.** Rejected
 explicitly — it is the cheapest of the obligations and the one that creates a
 false impression of support.
-
-## FAQ
-
-**Do I need a native toolchain per platform?** No. The host stub is prebuilt and
-pinned; only the payload is produced locally.
-
-**What makes a platform supported?** A published stub, a known filename and
-suffix, a layout model, and passing conformance tests. All four.

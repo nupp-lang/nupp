@@ -44,7 +44,7 @@ concurrency.
 Isolated states with copied messages keep every existing proof true without
 extending anything, which is why this is the shape rather than a compromise.
 
-### The narrow provider is a refusal, not a limitation
+### The narrow provider is a refusal
 
 The original proposal had two providers, including a sidecar loaded into an
 arbitrary host interpreter. That was cut: a sidecar cannot reliably reserve
@@ -57,7 +57,55 @@ was checked against. A build-time refusal is the better failure.
 
 ## Overview and specification
 
-### Isolation is total, and communication is bytes
+### Syntax
+
+A worker is a named checked module already present in the payload:
+
+```nupp
+local workers = require("nupp.workers")
+
+local worker = workers.spawn("app.indexer")
+worker:send({path = "corpus", limit = 64})
+local reply = worker:receive()
+worker:stop()
+```
+
+### Usage
+
+The transferable vocabulary is booleans, numbers, strings, and tables whose
+scalar keys and values recursively use the same vocabulary:
+
+```nupp
+worker:send({kind = "index", paths = {"a.txt", "b.txt"}, limit = 64})   -- ok
+worker:send({handle = openFile("a.txt")})                              -- rejected
+```
+
+A rejected value is reported before encoding, naming the path to the first
+offending element.
+
+### Lowering
+
+Each worker is a fresh LuaJIT state on its own operating-system thread,
+connected by two bounded byte queues. Nothing is shared — no heap, globals,
+registry, loaded modules, closures, userdata, or cdata pointers:
+
+```text
+ spawner state                    worker state
+ ───────────────────────────      ───────────────────────────
+ validate + serialize        ->   decode into a separate copy
+ decode a separate copy      <-   validate + serialize
+```
+
+A send is a serialize into the outbound queue; a receive is a decode from the
+inbound one. The worker runs the same payload in a new state with its entry
+module selected, and the payload dispatcher requires that module instead of the
+ordinary entry.
+
+Stopping closes the inbox and joins rather than killing a thread at an arbitrary
+instruction, which is why an uncooperative worker can keep a join waiting
+forever.
+
+### Isolation and message passing
 
 Nothing is shared. Messages and request/reply calls are the only path, and a
 value crossing is validated, serialized, and decoded into a separate copy.
@@ -126,18 +174,3 @@ once anything depends on it.
 could move between workers. Deliberately not done: it should arrive from a
 demonstrated worker API rather than be designed pre-emptively into the base
 model.
-
-## FAQ
-
-**Can a worker share a table with its spawner?** No. It receives a separate
-copy.
-
-**Can worker code be anything?** It is a named, checked module already present
-in the target payload.
-
-**What happens if a message contains something untransferable?** It is rejected
-before encoding, with the path to the first offending value.
-
-**Why can't I use workers outside the compiler-owned host?** Because the
-guarantees cannot be delivered there, and the build says so rather than
-degrading silently.

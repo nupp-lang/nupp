@@ -64,6 +64,76 @@ standard library, and it cannot be closed one module at a time.
 
 ## Overview and specification
 
+### Syntax
+
+```nupp
+module app.models
+
+export record User
+    name: string
+end
+
+export function make(name: string): User
+    return new User {name = name}
+end
+```
+
+A qualified path reaches a registered root's descendants:
+
+```nupp
+nupp.mem.span.fromCarray(pointer, count)
+```
+
+### Usage
+
+A module is its own declaration, so nothing repeats its surface:
+
+```nupp
+module app.main
+
+local models = require("app.models")
+
+local user = models.make("ada")
+```
+
+Selection from a module uses the ordinary binding pattern
+([NEP 3](0003-named-arguments-and-binding-patterns.md)):
+
+```nupp
+const {decode, Encoder as JSONEncoder} = require("nupp.data.json")
+```
+
+### Lowering
+
+A declared module is one generated chunk with a stable export table, and
+qualified paths generate one hidden direct import per containing module — there
+is no runtime namespace tree to walk:
+
+```lua
+-- app/models.lua
+local models = {}
+
+models.User = {} models.User.__index = models.User
+
+function models.make(name)
+   return setmetatable({name = name}, models.User)
+end
+
+return models
+```
+
+```lua
+-- a module writing nupp.mem.span.fromCarray(...)
+local __nuppMod1 = require("nupp.mem.span")
+local view = __nuppMod1.fromCarray(pointer, count)
+```
+
+Stable export tables are instantiated and eligible immutable exports hoisted
+before dependencies are evaluated, so a cycle resolves to real declarations
+rather than to an uninitialized read. A cycle that reads an export before its
+initialization tier makes it available is rejected rather than observed as
+`nil`.
+
 ### A module is its own declaration
 
 There is no ambient table and no companion declaration file. Whatever a module
@@ -73,20 +143,20 @@ This is the constraint that eliminated most of the design space: any option
 producing a second description of a module's surface was rejected on it,
 regardless of how cheap it was to build.
 
-### Interfaces before bodies, per dependency component
+### Interfaces before bodies
 
 Complete interfaces are built for a strongly connected component of the static
 dependency graph before any body in it is checked. Type and hoisted-function
 cycles then resolve to real declarations.
 
-### Initialization tiers, and a cycle that reads too early is refused
+### Initialization tiers
 
 At run time, stable export tables are instantiated and eligible immutable
 exports hoisted before dependencies are evaluated. A cycle that reads an export
 before its initialization tier makes it available is rejected rather than
 observed as a nil.
 
-### Qualified paths are resolution, not objects
+### Qualified paths resolve at compile time
 
 A registered root's descendants are real declared modules. An unshadowed
 qualified path resolves its longest canonical module prefix and generates one
@@ -159,18 +229,3 @@ foundation and a convenience layer.
 **A runtime namespace tree**, so a qualified path is a real object. Rejected:
 it allocates, it makes every qualified access a table walk, and it recreates the
 ambient-versus-required split the whole design removes.
-
-## FAQ
-
-**Does `require` still work?** Yes — literal `require` remains the explicit
-Lua-shaped import.
-
-**Is `nupp.mem.span` a table at run time?** No. The path resolves at
-compile time to a module, and the generated code imports that module directly.
-
-**When is a qualified module initialized?** When the module containing its
-hidden import initializes, having been selected because live checked code
-reached it.
-
-**What happens to a cycle that reads an export too early?** It is rejected,
-rather than observing an uninitialized value.

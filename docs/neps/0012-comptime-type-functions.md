@@ -65,7 +65,74 @@ not an argument for making everyone write it that way.
 
 ## Overview and specification
 
-### The boundary is type-level *programming*, not type-level work
+### Syntax
+
+A comptime function whose result is `type` or `typepack` may be called in type
+position.
+
+```nupp
+local comptime function Optional(T: type): type
+    return nupp.types.optional(T)
+end
+
+local value: Optional(string) = nil
+```
+
+### Usage
+
+It receives compile-time values and immutable handles to resolved types, runs
+ordinary Nupp — loops, locals, string processing, helper calls, authored errors
+— and returns a structural type or pack:
+
+```nupp
+local comptime function FormatArguments(spec: string): typepack
+    local out = nupp.types.pack()
+    local index = 1
+    while index <= #spec do
+        local char = spec:sub(index, index)
+        if char == "%" then
+            local kind = spec:sub(index + 1, index + 1)
+            if kind == "d" then
+                out = out:append(nupp.types.number)
+            elseif kind == "s" then
+                out = out:append(nupp.types.string)
+            else
+                return nupp.types.error("unsupported directive: %" .. kind)
+            end
+            index = index + 2
+        else
+            index = index + 1
+        end
+    end
+
+    return out
+end
+```
+
+The declarative operators remain primitive syntax and are the better spelling
+for a small operation:
+
+```nupp
+local keys = keyof T
+local element = T.[K]
+local rest = unpackof T
+```
+
+### Lowering
+
+Nothing. A type function runs while the program is checked and emits no runtime
+function or data — the call site above generates exactly what a hand-written
+annotation would:
+
+```lua
+local value = nil
+```
+
+This replaced a separate type-level language of `match`, `infer`, template
+decomposition, and guarded recursive aliases, whose declaration for the format
+string above was 254 lines of recursive type-state machine.
+
+### The boundary is type-level programming
 
 Removed: pattern binding, branching, and recursion expressed in type position.
 Kept: bounded structural queries and construction whose meaning is visible
@@ -75,7 +142,7 @@ That is the test, and it is the reason this is a simplification rather than a
 relocation. Every construct removed was one that made type position
 Turing-shaped; every construct kept is one that reduces directly in the checker.
 
-### Type functions generate types, and this boundary is permanent
+### Type functions generate types
 
 A nominal declaration needs a source-owned name, an identity, visibility, a
 recursive shell, a location for tooling, an initialization order, and a runtime
@@ -86,7 +153,7 @@ generation, if it ever exists, is a different mechanism with different
 requirements — it belongs with derives, which are compiler-owned and named in
 source at the declaration they affect.
 
-### What the replacement removed
+### Constructs the replacement removed
 
 `match` and `match each` in type position; every type-pattern spelling headed by
 `infer`, including inferred packs and template segments; the authored type-error
@@ -147,19 +214,3 @@ that returned one would either be missing them or be inventing them silently.
 interpreter. Removed with the language: its purpose was demonstrating that type
 position could express an interpreter, which is the property being given up on
 purpose.
-
-## FAQ
-
-**Does calling a type function emit anything at run time?** No. It runs while
-the program is checked and emits no runtime function or data.
-
-**Can a type function return an existing nominal?** Yes. It can return a
-structural type, a pack, or a nominal that already exists. It cannot create one.
-
-**Which should I reach for — an operator or a type function?** The operator,
-whenever one says what you mean. Type functions are for the cases needing
-user-authored control flow, parsing, iteration, or recursion.
-
-**What bounds a type function?** Comptime's own limits. There is no separate
-type-level budget system any more, which was one of the subsystems the
-replacement deleted.

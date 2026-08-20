@@ -62,6 +62,79 @@ first-case bias, which is what justified the map plans at all.
 
 ## Overview and specification
 
+### Syntax
+
+```nupp
+switch subject do
+    case 0, 1 -> expression
+    case is Type as binding {field, other as renamed} -> expression
+    case is Other -> do
+        yield expression
+    end
+    else -> expression
+end
+```
+
+### Usage
+
+Static scalar cases and type cases with binding and field selection:
+
+```nupp
+local label = switch status do
+    case 200 -> "ok"
+    case 301, 302, 307, 308 -> "redirect"
+    else -> "other"
+end
+
+local area = switch shape do
+    case is Circle {radius} ->
+        math.pi * radius ^ 2
+
+    case is Polygon as polygon {points} -> do
+        if #points < 3 then
+            return nil, "invalid polygon"
+        end
+
+        yield calculateArea(points)
+    end
+
+    else -> 0
+end
+```
+
+`yield` supplies the arm's value; `return` still exits the enclosing function.
+
+### Lowering
+
+Lexical branches, generated locals, and merge labels — no arm closure and no
+switch helper:
+
+```lua
+local __subject = status
+local label
+if __subject == 200 then
+    label = "ok"
+elseif __subject == 301 or __subject == 302
+    or __subject == 307 or __subject == 308 then
+    label = "redirect"
+else
+    label = "other"
+end
+```
+
+Where every arm result is a compiler-known inert value, the planner may replace
+the chain with a table lookup. A table read answers `nil` for every
+out-of-range, fractional, NaN, and infinite key, so no range guard is emitted:
+
+```lua
+local __labels = {[200] = "ok", [301] = "redirect", [302] = "redirect"}
+local label = __labels[status] or "other"
+```
+
+An ahead-of-time switch whose selector has an established 32-bit representation
+lowers to a native C `switch`, leaving the C compiler to choose branches, a
+search tree, bit tests, or a jump table.
+
 ### The switch adds no closure
 
 Arrow syntax is shared vocabulary with short functions, not a request to
@@ -73,7 +146,7 @@ This is the invariant everything else is arranged around. A switch that built an
 arm closure would be a switch that could not sit in a hot loop, which would make
 it a syntax for cold code, which is not what it is for.
 
-### Two closed families, and the static grammar is its own
+### Two closed pattern families
 
 Static cases accept `nil`, boolean and string literals, finite ordinary Lua
 number literals with an optional unary minus, parentheses around one of those,
@@ -211,23 +284,3 @@ loop presence is evidence, not a promise. Choosing wrong costs 2.7x where every
 other plan in this area risks a fraction of a nanosecond. It is deferred until a
 profile or another source of hotness exists — not because its benchmark gate is
 unwritten, but because the input that would decide it does not exist.
-
-## FAQ
-
-**Can an optimization change the order in which cases are tested?** It may
-change the shape of the tests but never their observable order when a predicate
-can execute user code. Source semantics remain ordered first-match.
-
-**Why is `else` required?** Because an expression must produce a value. It is
-required unless subtracting all cases from the selector type reaches `never`,
-which is what makes exhaustiveness over a closed union worth having.
-
-**Does a type case run user code?** No. The type after `is` must be accepted by
-the existing runtime `is` operation, and field selection reads declared fields
-directly. Nothing invokes a user hook.
-
-**Why is a `const` name not automatically a static case?** Because ordinary
-immutable runtime values are not static merely because they were declared with
-`const`. A name is admitted only when its checked type already identifies one
-exact scalar, and the checker records the normalized value rather than the
-spelling.

@@ -49,6 +49,66 @@ larger piece of work than "add a target".
 
 ## Overview and specification
 
+### Syntax
+
+A build target and a loader; no language surface.
+
+```lua
+web = {
+   kind = "component",
+   platforms = { "wasm32-unknown-emscripten" },
+   entries = { "app.main" },
+   exports = { "app.frame" },
+}
+```
+
+```html
+<script type="module">
+  import { createNupp } from "./app.js";
+  const nupp = await createNupp({ canvas: document.querySelector("canvas") });
+  nupp.call("app.frame", performance.now());
+</script>
+```
+
+### Usage
+
+Ordinary Nupp, including structs and ahead-of-time functions, with the browser
+facilities the application selected supplied by the loader.
+
+### Lowering
+
+One statically linked module holds the VM, the generated runtime, reified
+struct support, and every required translation unit, so Lua values, struct
+bytes, spans, and generated C share one collector boundary and one linear
+memory:
+
+```text
+ app.wasm
+ ├── upstream Lua VM (unmodified)
+ ├── generated Nupp runtime
+ ├── reified struct support
+ └── AOT translation units
+ app.js  — instantiates it, supplies selected browser facilities
+```
+
+Generated application Lua uses a compiler-owned portable dialect the runtime
+accepts, rather than the extensions the current emitter passes through:
+
+```lua
+-- current emitter
+local n = bit.band(value, 0xFF)
+local t = table.new(0, 4)
+
+-- portable dialect
+local n = value & 0xFF
+local t = {}
+```
+
+The dialect is not only spelling. An upstream integer subtype changes answers
+rather than syntax, so the number model is ported in the emitter while the
+standard library — itself written against the current runtime's own extensions
+— is ported in the runtime. Neither moves on its own.
+
 One statically linked module containing the VM, the runtime, struct support, and
 the required translation units. A small loader instantiates it and supplies the
 browser facilities the application selected.
@@ -81,11 +141,3 @@ it exists, and it is the part that does not survive the port.
 **Keeping the current emitter's extensions** and requiring a runtime that
 accepts them. Rejected: that is the previous alternative wearing a different
 hat.
-
-## FAQ
-
-**Why not just use the playground's runtime?** It checks and generates portable
-Lua, which needs no C layout. An application with structs and native code does.
-
-**Is the tracing compiler available in the browser?** No. This target trades it
-for portability, which is why ahead-of-time translation units matter more here.

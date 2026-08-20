@@ -47,7 +47,77 @@ which defeats the purpose of being able to choose.
 
 ## Overview and specification
 
-### The container owns the choice, and the type says so
+### Syntax
+
+Column storage is a container, not a modifier on the declaration:
+
+```nupp
+local soa = require("nupp.soa")
+local heap = require("nupp.mem.heap")
+
+local rowMajor = heap.allocate(ffi.typeof<Particle>(), count)
+local columns  = soa.allocate(ffi.typeof<Particle>(), count)
+```
+
+### Usage
+
+Both load and store ordinary values, and the loop body is identical:
+
+```nupp
+local struct Particle
+    x: float
+    y: float
+    dx: float
+    dy: float
+end
+
+with rows = columns:write() do
+    for i = 1, rows.count do
+        rows[i].x = rows[i].x + rows[i].dx * delta
+        rows[i].y = rows[i].y + rows[i].dy * delta
+    end
+end
+```
+
+The two view types are not interchangeable — one promises contiguous objects,
+the other contiguous fields — and no cast or structural match erases the
+difference:
+
+```nupp
+local function kernel(view: span.Span<Particle>) ... end
+
+kernel(columns:read())    -- rejected: soa.Span<Particle> is not span.Span<Particle>
+```
+
+### Lowering
+
+Row-major storage is one contiguous block of struct values:
+
+```text
+[x y dx dy][x y dx dy][x y dx dy] ...
+```
+
+Column storage is one slab with a column per top-level field:
+
+```text
+[x x x ...][y y y ...][dx dx dx ...][dy dy dy ...]
+```
+
+An indexed field expression addresses the column and the row rather than the
+element and the offset, so no row proxy is allocated:
+
+```lua
+-- rows[i].x = rows[i].x + rows[i].dx * delta
+local __x, __dx = rows.__col_x, rows.__col_dx
+__x[i - 1] = __x[i - 1] + __dx[i - 1] * delta
+```
+
+The struct itself is unchanged: passed to C, returned, or stored alone, a
+`Particle` has its canonical layout. Changing a container's layout is a storage
+schema change even though the value type is identical, so hot reload restarts or
+invokes an application-owned migration rather than reinterpreting live bytes.
+
+### The container owns the choice
 
 Allocating row-major and column-major storage are two calls, and both load and
 store ordinary struct values. Their views are *not* interchangeable: one promises
@@ -58,7 +128,7 @@ That non-interchangeability is the feature. Two things with the same element
 type and different physical meaning must not be substitutable, or the guarantee
 is decorative.
 
-### Ordinary field expressions, column storage
+### Ordinary field expressions
 
 Indexed field reads and writes keep their spelling. The lowering knows which
 container it is addressing; the source does not change.
@@ -110,17 +180,3 @@ become a rewrite, which removes the reason to make the choice local.
 **Reinterpreting live storage across a layout change** during hot reload.
 Rejected: the value type is unchanged, so nothing else would notice the
 reinterpretation was invalid.
-
-## FAQ
-
-**Does my struct change when I store it in columns?** No. It keeps its layout
-and value semantics; the container stores its fields separately.
-
-**Can I pass a column view where a contiguous view is expected?** No, and that
-is deliberate — they promise different things about memory.
-
-**Does the loop body change?** No. Indexed field expressions keep their ordinary
-spelling.
-
-**What happens on hot reload if I change a container's layout?** Restart, or an
-application-owned migration. Live bytes are not reinterpreted.

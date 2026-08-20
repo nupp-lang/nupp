@@ -43,13 +43,75 @@ platform nobody is testing.
 
 ## Overview and specification
 
+### Syntax
+
+An ordinary namespace, with no asynchronous variant and no policy parameter:
+
+```nupp
+local files = require("nupp.io.files")
+
+files.read(path)
+files.write(path, bytes)
+files.list(directory)
+files.info(path)
+```
+
+### Usage
+
+One call site, three behaviours chosen by context:
+
+```nupp
+local contents = files.read("report.txt")
+```
+
+blocks in a command-line program, parks the current task under a scheduler, and
+is a compile error inside a region that forbids waiting:
+
+```nupp
+nosuspend do
+    local contents = files.read("report.txt")   -- rejected at compile time
+end
+```
+
+Results use the byte I/O vocabulary the language already defines rather than an
+API of their own:
+
+```nupp
+local file = files.open("corpus.bin", "r")
+local reader = file:newReader()
+reader:transferTo(destination)
+```
+
+### Lowering
+
+Anything that can block is a submit/poll request driven by a readiness source
+the suspension runtime already pumps:
+
+```lua
+local request = __nuppFilesSubmitRead(path)
+local ready, bytes = request:poll()
+if not ready then
+   bytes = __nuppSuspend(request)     -- blocks or parks; see NEP 19
+end
+```
+
+Metadata operations stay synchronous, because a request costs more than the call
+it would replace:
+
+```lua
+local info = __nuppFilesInfo(path)
+```
+
+The native side is one feature of the same library that backs paths, URIs, and
+data operations — not a per-platform set of C declarations inside the compiler.
+
 ### Blocking operations submit and poll; metadata does not
 
 Anything that can block is a submit/poll request driven by a readiness source
 the suspension runtime already pumps. Metadata operations stay synchronous,
 because a request costs more than the call it would replace.
 
-### The native side is one feature, not a binding layer
+### The native side is one feature
 
 It is the same feature-gated library already backing neighbouring namespaces, so
 platform differences are handled once, in a language with libraries for it.
@@ -77,11 +139,3 @@ set inside the compiler, maintained by hand.
 
 **Making metadata operations submit/poll too**, for uniformity. Rejected on
 cost: the request would be more expensive than the call.
-
-## FAQ
-
-**What happens with no scheduler installed?** It blocks, which is what a
-command-line program wants.
-
-**Can I call it inside a region that forbids waiting?** No — that is a compile
-error, which is the point of the effect being checked.

@@ -77,6 +77,79 @@ so the diagnostic could not tell the two mistakes apart.
 
 ## Overview and specification
 
+### Syntax
+
+An interface may name its runtime test and supply default bodies; a record
+answers `is` by provenance and needs neither.
+
+```nupp
+local interface Circle
+    kind: "circle"
+    radius: number
+
+    satisfies |self| -> self.kind == "circle"
+end
+
+local interface Greeter
+    name: string
+
+    function greet(): string
+        return "hello, " .. self.name
+    end
+end
+```
+
+### Usage
+
+```nupp
+local record Person is Greeter
+    name: string
+end
+
+local person = new Person {name = "ada"}
+print(person:greet())          -- "hello, ada"
+print(person is Person)        -- true, by provenance
+print(Person is Person)        -- false: a declaration is not an instance
+```
+
+A declaration's own value has its own type, so it can be passed where a
+declaration is wanted rather than where an instance is:
+
+```nupp
+local witness: Type<Person> = Person
+```
+
+### Lowering
+
+A record's declaration table is the metatable its instances carry, so `is`
+reaches the declaration through one `__index` step — one comparison for a
+directly stamped instance, two for a prototype-linked one:
+
+```lua
+local mt = getmetatable(x)
+local ok = mt == Person or (mt ~= nil and mt.__index == Person)
+```
+
+An interface emits no runtime table. Its test is elided where the subject's type
+already proves it, read off a literal-typed field, or generated from its
+`satisfies` body:
+
+```lua
+-- x is Circle, from the tag
+(type(x) == "table" and x.kind == "circle")
+```
+
+A default body is emitted once in the interface's file and referenced by each
+implementor at its own declaration, so there is no chain and no runtime lookup:
+
+```lua
+local Greeter = {}
+Greeter.greet = function(self) return "hello, " .. self.name end
+
+local Person = {} Person.__index = Person
+Person.greet = Greeter.greet
+```
+
 ### The kind decides the question
 
 A record's `is` asks provenance and is never overridden. An interface's asks
@@ -86,7 +159,7 @@ This follows a doctrine already stated in the checker — structural for shape,
 nominal for provenance. What changed is that the doctrine is enforced by the
 declaration rather than restated per type.
 
-### Reachability is one step, not a walk
+### Reachability is one step
 
 `record S is R` is already refused, so the nominal hierarchy is flat: there is
 nothing to encode and nothing to walk. None of the machinery real languages
@@ -140,7 +213,7 @@ the metatable its instances carry. A bounded generic receiver falls out of the
 same rule with no new mechanism: a registrar checks its own body rather than
 relying on its call sites.
 
-### Default bodies are referenced, not copied
+### Default bodies are referenced
 
 An interface may implement what it declares. The body is emitted once in the
 interface's file and referenced by each implementor, because Nupp preserves line
@@ -234,27 +307,3 @@ doubling as namespace and metatable is a record problem.
 **Checking computed metatables.** Rejected as a non-goal rather than an
 oversight: it would require tracking a table's shape through arbitrary
 construction, and the gradual boundary is documented.
-
-## FAQ
-
-**Why can an interface answer `is` at all, if it has no runtime table?** Three
-ways, in order: the subject's own type already settles it and the test compiles
-away; the interface's literal-typed fields say what its tag is, which is what
-lets a decoded table answer; or a `satisfies` declaration names the test. With
-none of those, and against an alias, there is nothing to test and that is a
-generation-time diagnostic.
-
-**Why does elision trust the type rather than re-checking?** Because it is the
-same trust the checker already extends when it lets a narrowed branch read
-fields without a test. A value that reached a union through an undeserved cast
-is answered by the cast, not by `is`.
-
-**Can a struct implement any interface?** Only one whose every member is
-C-representable. The interface space bifurcates as a result, which is worth
-stating once rather than discovering per interface.
-
-**Why is `@override` required in both directions?** Requiring it on a shadow
-catches the misspelling that silently defines a new method. Requiring that it
-shadow something catches the interface that later adds a default which would
-silently shadow an implementor's method. Each direction catches a failure the
-other does not.

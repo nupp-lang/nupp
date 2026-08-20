@@ -57,7 +57,72 @@ for early release, exact extents, transfer, and meaningful protocol transitions
 
 ## Overview and specification
 
-### Destruction is exact, not inferred
+### Syntax
+
+Automatic destruction has none: an ordinary binding holding a live obligation is
+destroyed at lexical scope exit. The explicit form is a statement:
+
+```nupp
+with binding = acquire() do
+    ...
+end
+```
+
+### Usage
+
+```nupp
+local files = require("nupp.io.file")
+
+do
+    local file = files.open("report.txt", "r")
+    local contents = file:read("*a")
+    send(contents)
+end -- file is destroyed here, including when read raises
+```
+
+Moving, dropping, returning, or otherwise transferring removes the scope's
+responsibility:
+
+```nupp
+local file = files.open("in.txt", "r")
+submit(file)   -- takes file; automatic destruction is deactivated
+```
+
+The explicit form exposes only a non-escaping borrow, so the binding cannot
+move, escape, be returned, or be dropped early:
+
+```nupp
+with rows = positions:write() do
+    for i = 1, rows.count do
+        rows[i].x = rows[i].x + 1
+    end
+end
+```
+
+### Lowering
+
+Both forms lower through one cleanup-region planner, so equivalent source
+produces equivalent Lua. Cleanup runs on every structured exit:
+
+```lua
+do
+   local file = files.open("report.txt", "r")
+   local ok, err = pcall(function()
+      local contents = file:read("*a")
+      send(contents)
+   end)
+   __nuppCleanup1(file)
+   if not ok then error(err, 0) end
+end
+```
+
+The explicit form additionally moves the owner into a slot the body cannot
+name, and hands the body a borrow of it.
+
+Code with no owner is byte-identical to the compiler's output from before the
+feature existed — no region, no guard, no cleanup frame.
+
+### Destruction is exact
 
 Automatic destruction runs the exact ordered cleanup capability the value
 carries. It does not infer a method from a name, substitute a type-level
@@ -67,7 +132,7 @@ for an opaque owner.
 Every one of those would be a guess, and a guess about how a resource ends is
 the failure this whole area exists to prevent.
 
-### One planner, and no cost when unused
+### One cleanup-region planner
 
 Automatic locals and the explicit construct lower through one cleanup-region
 planner. Equivalent source produces equivalent generated Lua, and ordinary code
@@ -138,19 +203,3 @@ method with the wrong name changes when a resource is released.
 **A type-level destructor replacing producer-specific cleanup.** Rejected for
 the reason in [NEP 15](0015-ownership-in-the-type.md): the same type covers
 values that must be released and values that must not.
-
-## FAQ
-
-**Does transferring a value still remove the scope's responsibility?** Yes.
-Moving, explicitly dropping, returning, or otherwise transferring removes it
-exactly as before.
-
-**What does cleanup cost in code with no owners?** Nothing — that output is
-byte-identical to the compiler's output before the feature.
-
-**Which should I write?** Automatic for ordinary ownership. The explicit
-construct when the value must not escape the region, or when the exact extent is
-part of the contract.
-
-**What happens on an early exit or a raise?** Cleanup runs on every structured
-exit; that is what the shared region planner is for.

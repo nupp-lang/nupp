@@ -57,6 +57,73 @@ type a caller established did not survive to the place it mattered.
 
 ## Overview and specification
 
+### Syntax
+
+The span types are module-visible with a private representation:
+
+```nupp
+local span = require("nupp.mem.span")
+
+local function scale(exclusive out: span.WriteSpan<float>, borrows src: span.Span<float>)
+```
+
+### Usage
+
+A count is public and immutable; every pointer projection goes through a
+borrowed method that applies the offset:
+
+```nupp
+for index = 1, src.count do
+    out[index] = src[index] * 2
+end
+```
+
+A writable range partitions into disjoint pieces without producing overlapping
+aliases:
+
+```nupp
+local left, right = out:split(out.count // 2)
+fill(left, 0)
+fill(right, 1)
+```
+
+A C declaration adapter lowers a logical span argument to the physical
+pointer-and-count pair:
+
+```nupp
+cdef function kernel_scale(borrows values: countedBy(count) float*, count: uint64)
+```
+
+### Lowering
+
+The private fields hold an anchor, a typed base pointer, an offset, and a count;
+only the count is reachable from checked source:
+
+```lua
+local Span = {}
+Span.__index = Span
+-- private: __anchor, __base, __offset ; public: count
+```
+
+A projection applies the offset, which is why the pointer is not a public field:
+
+```lua
+function Span:at(index)
+   return self.__base[self.__offset + index - 1]
+end
+```
+
+A shared span stores a const pointer, so only a live writable span can project a
+mutable one. Passing a span to a C declaration emits the two physical arguments:
+
+```lua
+ffi.C.kernel_scale(values.__base + values.__offset, values.count)
+```
+
+Privacy is a static checked boundary rather than a runtime sandbox — generated
+Lua and explicit unsafe interop keep their existing trust model — and the
+private representation is never an ABI promise.
+
 ### Privacy is what makes the guarantee hold
 
 Module-private record fields exist because of this. The anchor, pointer, and
@@ -118,17 +185,3 @@ layout and make every future change to span internals a compatibility break.
 **Runtime enforcement of privacy.** Rejected as out of character for the
 language: everything else here is a static boundary with generated code trusted,
 and a runtime check would cost on the path this exists to make fast.
-
-## FAQ
-
-**Why is the count public when the pointer is not?** Because a count alone
-grants no memory access. That is the rule for what may be exposed.
-
-**Can another module name these types in a signature?** Yes — they are genuine
-module-visible types. That was a prerequisite for using them as a boundary.
-
-**Can I get a mutable pointer from a shared span?** No. Only a live writable
-span projects one.
-
-**Does the private representation have a stable layout?** No, and nothing may
-depend on it.

@@ -53,7 +53,77 @@ Everything in this design is arranged so that does not happen.
 
 ## Overview and specification
 
-### Seven invariants, and they are the design
+### Syntax
+
+```nupp
+cdef struct nativeBuffer
+    size: uint64
+end
+
+cdef function buffer_free(takes buffer: nativeBuffer*)
+cdef function buffer_read(
+    borrows buffer: nativeBuffer*,
+    exclusive output: uint8*,
+    size: uint64
+): int32
+```
+
+A whole header is imported two ways — a committed editable module, or
+compile-time typing with no generated file:
+
+```nupp
+const mini = cheader("mini.h")
+```
+
+### Usage
+
+Physical facts come from C; ownership contracts are written in Nupp:
+
+```nupp
+local function makeBuffer(size: uint64): affine(nativeBuffer*, buffer_free)
+    return buffer_create(size)
+end
+```
+
+The call is checked and the FFI still makes it:
+
+```nupp
+local buffer = makeBuffer(1024)
+local written = buffer_read(buffer, out, 1024)
+```
+
+### Lowering
+
+A declaration with an externally addressable symbol binds directly through the
+FFI — no wrapper, no copy:
+
+```lua
+local ffi = require("ffi")
+ffi.cdef[[int32_t buffer_read(struct nativeBuffer*, uint8_t*, uint64_t);]]
+local written = ffi.C.buffer_read(buffer, out, 1024)
+```
+
+A header-only callable — a `static inline` function, or an explicitly typed
+function-like macro — has no symbol to bind, so a deterministic C bridge is
+generated and compiled as part of a declared native dependency:
+
+```c
+/* generated */
+int32_t nupp__mini_scale(int32_t value, int32_t factor) {
+    return MINI_SCALE(value, factor);
+}
+```
+
+```lua
+local scaled = ffi.C.nupp__mini_scale(value, factor)
+```
+
+Arguments are evaluated once before crossing and arrive as C parameters, so a
+macro mentioning a parameter repeatedly cannot re-evaluate the Nupp expression
+behind it. A declaration Nupp cannot model is skipped with one reported reason
+and emits nothing — never a generic pointer or a guessed ABI.
+
+### Seven invariants
 
 **The FFI remains the direct-call ABI authority.** A direct binding is emitted
 only when the physical declaration is accepted by the selected FFI profile.
@@ -134,18 +204,3 @@ have a Nupp meaning.
 
 **Inspecting the build host for target facts.** Rejected: it is right by
 accident when building for the host and wrong silently otherwise.
-
-## FAQ
-
-**Do I need to know whether a call is direct or bridged?** No, and you can
-always find out — build output and inspection say which path was used.
-
-**What happens to a declaration Nupp cannot model?** It is skipped, with one
-specific reported reason. It never becomes an untyped value.
-
-**Can a function macro double-evaluate my argument?** No. Arguments are
-evaluated once and passed as C parameters; the macro may mention a parameter
-repeatedly and cannot re-run the expression behind it.
-
-**Where do `borrows` and `takes` come from?** From explicit Nupp contracts. The
-header supplies physical facts only.

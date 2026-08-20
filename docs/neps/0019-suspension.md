@@ -56,14 +56,80 @@ rather than being replaced.
 
 ## Overview and specification
 
-### An operation, not a function
+### Syntax
+
+A library performs the operation; a host installs a handler; a region forbids
+waiting.
+
+```nupp
+nupp.suspension.suspend(subscription)
+
+nosuspend do ... end
+local f: nosuspend function(): nil
+```
+
+### Usage
+
+A waiting library has one API and no policy parameter:
+
+```nupp
+local files = require("nupp.io.file")
+
+local contents = files.read("report.txt")   -- blocks, or parks, or is refused
+```
+
+The same call blocks in a command-line program, parks the current task under a
+scheduler, and is a compile error inside a region that forbids waiting:
+
+```nupp
+nosuspend do
+    local contents = files.read("report.txt")   -- rejected at compile time
+end
+```
+
+A host installs its scheduler as the handler and resumes parked work from its
+own loop:
+
+```nupp
+nupp.suspension.handle(scheduler, function(): nil
+    runApplication()
+end)
+```
+
+### Lowering
+
+Effect propagation and the forbidding region are compile-time only, so a
+`nosuspend` region generates nothing at all and an ordinary call generates an
+ordinary call.
+
+An operation that is already ready never reaches the suspension point. One that
+does reads the current coroutine's handler slot and either calls it or takes the
+built-in blocking path — one context read at an actual wait:
+
+```lua
+local ready, value = subscription:poll()
+if not ready then
+   local handler = __nuppSuspensionHandler()
+   if handler ~= nil then
+      value = handler:park(subscription)
+   else
+      value = subscription:waitBlocking()
+   end
+end
+```
+
+The resource rule is a checking rule, not a runtime one: suspending with a live
+obligation is permitted for a handled suspension and refused for a raw
+coroutine yield, and neither emits anything to say so.
+
+### Suspension is an operation
 
 A library that must wait subscribes for a resumption and performs the operation.
 Where the value comes from is not its business, and the innermost installed
 handler answers. With no handler installed the built-in one blocks, so ordinary
 programs behave exactly as they did.
 
-### The choice costs one context read, at an actual wait
+### One context read at an actual wait
 
 Effect propagation and the forbidding region are compile-time only. An operation
 already ready never reaches the suspension point; one that does reads the
@@ -150,18 +216,3 @@ is what makes the resource reasoning local.
 once handled suspension existed — the refusal was reasoning about raw
 coroutines, and applying it to a form with a responsible handler would have made
 the feature useless for exactly the code that needs it.
-
-## FAQ
-
-**What happens with no handler installed?** The built-in handler blocks, and the
-program behaves as it did before this existed.
-
-**Does an operation that is already ready cost anything?** No — it never reaches
-the suspension point.
-
-**Can compile-time evaluation suspend?** No. It stays deterministic and
-handler-free.
-
-**Why is the contract trusted rather than checked?** Because the checker cannot
-prove anything about an arbitrary scheduler's cancellation behaviour. Naming it
-as a handler obligation is more honest than a rule that appears to prove it.

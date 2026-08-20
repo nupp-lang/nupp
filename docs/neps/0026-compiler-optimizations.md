@@ -65,6 +65,67 @@ or diagnose the constructs that abort recording.
 
 ## Overview and specification
 
+### Syntax
+
+Optimization has no source syntax. Level selection is a build flag, and a pass
+reports what it did as an `OPT` remark:
+
+```sh
+nupp build -O1
+```
+
+### Usage
+
+```text
+OPT3: folded `WIDTH * 4` to `256`
+OPT6: span access proven in range by `indexed.range` at models.nupp:14
+```
+
+A remark is always a note and never fails a build.
+
+### Lowering
+
+The passes that exist are the ones the trace compiler structurally cannot do.
+Reification keeps values off the collector's heap, which is what the collector
+actually walks:
+
+```nupp
+local struct Particle
+    x: float
+    y: float
+end
+```
+
+```lua
+local Particle = ffi.typeof("struct { float x; float y; }")
+local particles = ffi.new("struct Particle[?]", count)
+```
+
+String building is the algorithmic-shape case, where the compiler is not
+competing with the JIT at all:
+
+```nupp
+local out = ""
+for i = 1, n do out = out .. parts[i] end
+```
+
+```lua
+local __buf = {}
+for i = 1, n do __buf[#__buf + 1] = parts[i] end
+local out = table.concat(__buf)
+```
+
+Constant folding rewrites in place, is absent at `-O0` and under `check`, and
+may decline silently:
+
+```lua
+local size = 256          -- from `WIDTH * 4`
+```
+
+Every rewrite is emitted on the source line it came from and never changes a
+module's line count, which is what produces correct stack traces with no
+sourcemaps — and is why the optimizer cannot move code freely.
+
 ### There is no deoptimization
 
 A compiler that owns its VM can be aggressive, because the VM can revoke an
@@ -136,17 +197,3 @@ language feature.
 
 **Optimizing values proved not to escape.** Rejected as redundant: allocation
 sinking already removes them. The work is in what escapes.
-
-## FAQ
-
-**Why not inline?** Because the trace compiler already does, better, on anything
-hot enough to notice.
-
-**Why can't an optimization be sound only in the common case?** Because there is
-no way to revoke it. Generated Lua source has no deoptimization path.
-
-**What does line-count invariance actually require?** That the physical line a
-token occupies corresponds to the source line it came from, because that is the
-only mechanism the runtime offers for attribution.
-
-**When does a new pass get added?** When a benchmark says it earns its place.

@@ -63,14 +63,76 @@ the standard library typeable at all.
 
 ## Overview and specification
 
-### One representation, one set of adjustment rules
+### Syntax
+
+A pack has a fixed head and an optional tail:
+
+```nupp
+()                  -- empty
+(number, string)    -- fixed
+(boolean, R...)     -- fixed head, generic tail
+...number           -- zero or more numbers
+A...                -- heterogeneous generic pack
+```
+
+Packs may be unioned, which is what a protected call needs:
+
+```nupp
+local type PcallResult<R...> = (true, R...) | (false, any)
+```
+
+### Usage
+
+A generic adapter forwards heterogeneous arguments and results without
+collapsing them:
+
+```nupp
+local function retry<A..., R...>(f: function(A...): R..., ...: A...): R...
+    return f(...)
+end
+
+local name, age = retry(lookup, "ada")   -- (string, integer), not (any, any)
+```
+
+Destructuring a pack union correlates its targets, so testing the
+discriminator narrows the rest:
+
+```nupp
+local ok, value = pcall(read)
+if ok then
+    use(value)     -- read's first result type
+else
+    log(value)     -- the error value
+end
+```
+
+### Lowering
+
+Packs are a checking-time description of Lua's own value lists, so they erase
+entirely and the generated call is the ordinary one:
+
+```lua
+local ok, value = pcall(read)
+```
+
+Correlation is flow state rather than part of a type, so storing a result drops
+it — there is nothing at run time to lose:
+
+```nupp
+local results = {pcall(read)}   -- correlation does not survive the table
+```
+
+Adjustment is Lua's: a call in a non-final position is truncated to one value
+and expands only as the final expression.
+
+### One representation of value lists
 
 Packs are the authoritative parameter and result sequences. Array-shaped views
 remain as compatibility surfaces during migration and must not become a second
 source of truth — a rule worth stating because two representations of a value
 list is the state this design exists to leave.
 
-### Correlation is flow state, not type
+### Correlation is flow state
 
 Destructuring a pack union assigns one correlation identity to the targets and
 records each target's slot in every arm. A truthiness or literal-equality test
@@ -148,19 +210,3 @@ two different runtime representations.
 **Full session typing for coroutines** — proving the number and order of
 suspensions. Rejected as far beyond what the payload typing needed, and as a
 commitment that would constrain every future scheduler change.
-
-## FAQ
-
-**Why can packs be unioned when the non-goals refuse pack computation?** A union
-of complete packs is an ordinary type constructor applied to packs, not a
-computation over their contents. Nothing indexes, maps, or filters.
-
-**What happens to an arm that has no value for a requested slot?** It
-contributes `nil` for that slot, after ordinary Lua assignment adjustment.
-
-**Does a copied discriminator still narrow?** Yes — it retains the narrowing
-provenance, so testing the copy selects the original sibling set.
-
-**Does existing untyped Lua still work?** Yes. Homogeneous varargs and bare
-`thread` remain source compatible; the pack model is a more precise description
-of rules Lua already had.

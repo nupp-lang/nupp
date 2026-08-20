@@ -58,7 +58,70 @@ exports are called later by name, gives the host the control it needs.
 
 ## Overview and specification
 
-### One heap, deliberately
+### Syntax
+
+A component is a build target naming the exports a host may call:
+
+```lua
+engineScripts = {
+   kind = "component",
+   entries = { "game.main" },
+   exports = { "game.update", "game.render", "game.shutdown" },
+}
+```
+
+### Usage
+
+The host owns the process and the loop; Nupp is a library it links:
+
+```c
+nupp_config config;
+nupp_runtime *runtime = NULL;
+nupp_component *component = NULL;
+nupp_error *error = NULL;
+
+nupp_config_init(&config);
+nupp_runtime_create(&config, &runtime, &error);
+nupp_component_load(runtime, "game.nuppc", &component, &error);
+
+nupp_value args[1];
+nupp_value_set_number(&args[0], delta);
+nupp_call(component, "game.update", args, 1, NULL, 0, &error);
+```
+
+A host that already owns a `lua_State` attaches to it instead of asking Nupp to
+create one.
+
+### Lowering
+
+Both ownership forms run ordinary Lua and checked Nupp in the same state, on the
+same heap. There is no second VM, collector, or object model, so a Nupp module
+and a host's own Lua module are the same kind of thing:
+
+```text
+ host process
+ ├── one LuaJIT state
+ │    ├── host's Lua modules
+ │    ├── generated Nupp modules
+ │    └── compiler-owned native providers
+ └── private AOT artifacts, linked
+```
+
+Every public entry point catches Lua errors before returning, so nothing
+longjmps across the host's C:
+
+```c
+if (!nupp_call(component, "game.update", args, 1, NULL, 0, &error)) {
+    fprintf(stderr, "%s\n", nupp_error_message(error));
+    nupp_error_free(error);
+}
+```
+
+Managed values cross as copied scalars, through the Lua stack, or as explicitly
+rooted opaque handles. Raw pointers into collector-managed values are never
+exposed, so the collector stays free to move and free to change.
+
+### One heap
 
 Both ownership forms run ordinary Lua and checked Nupp in the same state.
 Putting a second VM beside the host's would mean two collectors, two object
@@ -70,7 +133,7 @@ attached host must use the syntax, C API, and runtime features the selected Nupp
 release requires, and must not load a second conflicting LuaJIT into the
 process.
 
-### Components, not executing bundles
+### Components
 
 A component build target produces an artifact intended to be loaded by another
 process owner, naming its format version, host ABI, and the exports it
@@ -135,17 +198,3 @@ boundary the host owns is not something an embedding API may do.
 design provides an owned pinned distribution and an explicit attached-state
 contract instead, because the alternative is being responsible for every build
 anyone has.
-
-## FAQ
-
-**Does the host give up its event loop?** No. Scheduling policy is already the
-host's, through suspension handlers.
-
-**Does a production host ship the compiler?** No. It loads a prebuilt component.
-
-**How does a host keep a returned value alive?** Through an explicitly rooted
-opaque handle. There is no pointer into managed memory.
-
-**Can Nupp attach to a state my application already created?** Yes, provided it
-uses the runtime features the selected release requires and no second LuaJIT is
-loaded into the process.

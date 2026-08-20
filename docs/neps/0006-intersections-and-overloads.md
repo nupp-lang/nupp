@@ -46,7 +46,7 @@ declaration that names both, written for each combination anyone wants. The
 declarations carry no information — they exist only to have a name — and each
 one is a place the two halves can drift apart.
 
-### Overloading needs a type, not a declaration form
+### Overloading needs a type
 
 Several real functions genuinely have several signatures: prelude functions, C
 declarations, metamethod contracts, imported APIs. Expressing that as a
@@ -58,7 +58,62 @@ values that answer to all of them.
 
 ## Overview and specification
 
-### Selection is exact, or it is an error
+### Syntax
+
+```nupp
+local type Both = Readable & Named
+local type Get =
+    function(key: string): string
+    & function(key: integer): integer
+```
+
+`&` binds more tightly than `|`, so a union of intersections needs no
+parentheses.
+
+### Usage
+
+An intersection composes contracts without declaring a type for the
+combination:
+
+```nupp
+local type Readable = {readonly value: string}
+local type Named = {name: string}
+
+local function describe(thing: Readable & Named): string
+    return thing.name .. "=" .. thing.value
+end
+```
+
+An intersection of function types is the overload set:
+
+```nupp
+local value: string = get("key")     -- selects the first member
+local count: integer = get(1)        -- selects the second
+```
+
+A call succeeds only when exactly one candidate accepts the argument pack.
+`get` applied to a value typed `any` reports an ambiguity naming the slot,
+because both candidates survive.
+
+### Lowering
+
+Intersections erase completely and selection is static, so an overloaded call
+emits a direct call to the chosen signature's function:
+
+```lua
+local value = get("key")
+```
+
+An overloaded constructor selects statically too, emitting a direct call to
+that constructor's generated function rather than a dispatcher:
+
+```lua
+local point = Point.__nuppCtor2(1, 2)
+```
+
+No dispatcher, arity test, or intersection value exists at run time.
+
+### Selection is exact
 
 A call infers its complete adjusted argument pack once, specializes every
 candidate against that pack without changing checker state, and succeeds only
@@ -84,7 +139,7 @@ An intersection carrying non-function members is not callable through overload
 resolution. Silently ignoring its non-function requirements would give it call
 behavior unrelated to its full type.
 
-### Emptiness is proved, not decided
+### Emptiness is proved
 
 At a written intersection, resolution asks whether any pair of members is
 provably disjoint, using a relation that does not take the gradual shortcuts the
@@ -178,20 +233,3 @@ any of them.
 accepts a correlated argument-pack union only when it accepts every arm.
 Selecting per-arm would mean generating a dispatcher, which is exactly the
 runtime cost this design exists without.
-
-## FAQ
-
-**Why is `&` tighter than `|`?** So a union of intersections is the form that
-needs no parentheses, which is the one that occurs.
-
-**Can an interface be intersected with a record?** Yes, and it does not prove
-emptiness. Disjointness between interfaces, or between an interface and a
-nominal, is unprovable under separate compilation.
-
-**Does an overloaded call cost anything at run time?** No. `new T(...)` selects
-a constructor statically and emits a direct call to its generated function.
-
-**Why does a failed call yield `...any` rather than the first candidate's
-result?** Because applying a candidate would apply its ownership and borrowing
-effects, and the program is already rejected. Guessing would corrupt affine
-state on a path that will never run.

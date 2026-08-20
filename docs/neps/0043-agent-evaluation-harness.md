@@ -43,6 +43,49 @@ that was actually asked.
 
 ## Overview and specification
 
+### Syntax
+
+A harness invocation and a task definition; nothing in the language.
+
+```sh
+python3 evals/tier1.py --agent claude --runs 20
+python3 evals/tier1.py --compare baseline.json candidate.json
+```
+
+### Usage
+
+Tasks are seeded from data the compiler already produces:
+
+```text
+ Source                       Task shape
+ ──────────────────────────   ────────────────────────────────────────
+ explain.nupp wrong/right     "this program reports NUPP2603; fix it"
+ check --json cache counts    "make this project check clean"
+```
+
+A run is graded from structured compiler output rather than by judgement:
+
+```json
+{"task": "NUPP2603", "ok": true, "turns": 4, "tokens": 18420,
+ "checkedModules": 2, "diagnosticsRemaining": 0}
+```
+
+### Lowering
+
+Each run happens in a disposable worktree, so runs cannot contaminate each other
+or the tree:
+
+```text
+ harness
+ ├── worktree run-001  ->  agent  ->  nupp check --json  ->  grade
+ ├── worktree run-002  ->  agent  ->  nupp check --json  ->  grade
+ └── ...                                    (worktrees removed after grading)
+```
+
+The results are before/after comparisons for one change, with cost and process
+metrics beside the outcome. There is no aggregate score, because an absolute
+number invites comparison across configurations that are not comparable.
+
 Disposable worktrees per run, mechanical grading against structured compiler
 output, and per-run records of success, cost, and process quality.
 
@@ -67,11 +110,3 @@ configuration.
 
 **Publishing a single score.** Rejected: it invites incomparable comparisons and
 tuning toward the benchmark.
-
-## FAQ
-
-**What does a run produce?** Success, cost, and process-quality metrics for that
-run, in a disposable worktree.
-
-**Is the result a property of Nupp?** No — it is a measurement of one
-configuration on one date.

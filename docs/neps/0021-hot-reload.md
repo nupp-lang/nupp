@@ -45,7 +45,7 @@ restarting.
 Atomicity is therefore not a refinement — it is the property that decides
 whether the feature is usable at all.
 
-### The host knows when it is safe, and the compiler cannot
+### The host knows when a commit is safe
 
 There is no general moment at which swapping an implementation is safe. Mid-frame,
 mid-request, and mid-transaction are all wrong in different ways, and only the
@@ -54,7 +54,72 @@ guessing.
 
 ## Overview and specification
 
-### Two owners, one seam
+### Syntax
+
+Hot reload is a build target and a host API, not a language construct. Nothing
+in a source file marks a function reloadable.
+
+```sh
+nupp run --watch
+```
+
+### Usage
+
+A host drives the same interfaces from its own loop, committing where it knows
+it is safe:
+
+```nupp
+local session = nupp.reload.session(".")
+
+-- in the host's ingress phase, before any frame work
+local generation, problem = session:stage()
+if generation ~= nil then
+    session:commit(generation)
+end
+```
+
+Editing a function body makes the change visible to future calls; editing
+runtime structure or a native artifact reports `restart-required` instead.
+
+### Lowering
+
+A watch-generated function whose identity may outlive its defining module is a
+stable trampoline installed once, dispatching through a compiler-owned slot:
+
+```lua
+local __nuppSlot7 = function(self, delta) ... end
+
+local function update(self, delta)
+   return __nuppSlot7(self, delta)
+end
+```
+
+Existing function values keep working across a commit because they were never
+the implementation. Loading a patch creates candidates and a manifest and
+mutates nothing:
+
+```lua
+local __nuppPatch = {
+   generation = 12,
+   candidates = {[7] = function(self, delta) ... end},
+}
+```
+
+Commit assigns the slots, after staging has proved the whole patch compatible:
+
+```lua
+__nuppSlot7 = __nuppPatch.candidates[7]
+```
+
+With watch mode absent, none of this is emitted. Generated Lua contains no slot
+dispatch, manifest, watcher, input registry, polling, native hashing, or reload
+runtime, and is byte-identical to output from before the feature existed:
+
+```lua
+local function update(self, delta) ... end
+```
+
+### Compiler and host responsibilities
 
 The compiler owns function identity, compatibility, capture preservation, patch
 format, and diagnostics. The host owns the event loop and the commit boundary.
@@ -87,7 +152,7 @@ byte-identical to output from before the feature.
 Making the ordinary path a special case of the reload path would have been less
 code and would have put a cost on every program that never reloads.
 
-### Four honest answers, and no fifth
+### Four honest answers
 
 A watch session must decide, for every observed change: commit a compatible
 generation atomically; reject a candidate with diagnostics; require a process
@@ -143,18 +208,3 @@ Rejected: less code, and a permanent cost on every program that never reloads.
 **Hot-swapping native libraries.** Rejected: Nupp validates C declarations, not
 C binaries, and describing an unloaded-and-reloaded library as validated would
 be a false claim. Restart is the honest answer.
-
-## FAQ
-
-**What happens to a call that is running when a patch commits?** It finishes on
-the implementation it started with.
-
-**What if one function in a patch is incompatible?** Nothing commits. The last
-good generation keeps running and the diagnostics say why.
-
-**Does a normal build pay anything?** No — its output is byte-identical to
-output from before hot reload existed.
-
-**Why does changing a C library force a restart?** Because Nupp validates
-declarations rather than binaries, and it will not unload or replace a library
-inside a live process.

@@ -52,7 +52,72 @@ cannot specialize, or may side-exit for input-dependent reasons.
 
 ## Overview and specification
 
-### Six verdicts, each exactly as strong as its evidence
+### Syntax
+
+One annotation makes recorder blockers a checked contract; the rest is
+commands.
+
+```nupp
+@jit
+local function step(exclusive out: span.WriteSpan<float>): nil
+    ...
+end
+```
+
+```sh
+nupp bc --check src/sim.nupp     # static, exits 1 on an unconditional blocker
+nupp run --jit-aborts            # what the recorder actually refused this run
+```
+
+### Usage
+
+A loop that builds a function aborts recording, so it runs interpreted however
+hot it gets:
+
+```nupp
+@jit
+local function step(rows: span.WriteSpan<float>): nil
+    for i = 1, rows.count do
+        local scale = function(v: float): float return v * 2 end   -- blocker
+        rows[i] = scale(rows[i])
+    end
+end
+```
+
+```text
+src/sim.nupp:4:22: error: NUPP2707: this loop builds a function, which aborts
+trace recording, so the loop is blacklisted and runs interpreted
+```
+
+Without the annotation the same finding is a note from `nupp bc --check`.
+
+### Lowering
+
+Nothing is injected. Ordinary check, build, and run emit no counters, edge
+probes, loop callbacks, hidden zone pushes, or alternate bytecode, so a
+trace-checked build and an ordinary one generate the same Lua.
+
+Static checking reads the emitted bytecode beside the source line each
+instruction came from:
+
+```text
+0009  FNEW     6   0      ; src/sim.nupp:4   <- unconditional blocker
+0010  MOV      7   6
+0011  CALL     7   2   2
+```
+
+Runtime observation is opt-in and uses the VM's own trace hook, so its cost
+exists only while a session is active:
+
+```lua
+jit.attach(function(what, traceno, func, pc, otherno, err) ... end, "trace")
+```
+
+Both sources normalize through one reason registry, so a statically predicted
+blocker and an observed abort are the same identity. Raw recorder strings are
+never retained as diagnostic identities or public API.
+
+### Six verdicts
 
 ```text
  Verdict               Meaning
@@ -74,7 +139,7 @@ would have to be wrong somewhere; six verdicts each carry exactly the confidence
 their evidence supports, and the last one exists so ordinary behaviour is not
 reported as a problem.
 
-### One reason registry, four fact sources
+### One reason registry
 
 Static checking reads compiler facts and emitted bytecode. Runtime observation
 is opt-in, uses the existing VM trace hook, and costs only while a trace session
@@ -146,17 +211,3 @@ and a tool that reports them trains people to ignore it.
 **Making profile results affect checking.** Rejected: it would make acceptance
 depend on having run the program, on a particular machine, with particular
 input.
-
-## FAQ
-
-**Does this tell me my function will be fast?** No. It tells you whether the
-recorder can compile it, which is a different and narrower claim.
-
-**Why does it need no quiet machine?** Because it reads bytecode rather than
-timing anything, so the answer is the same every run.
-
-**What does ordinary `nupp build` pay?** Nothing. No instrumentation is injected
-in any build.
-
-**Can I use the trace annotation together with ahead-of-time compilation?** No.
-They are mutually exclusive execution contracts.

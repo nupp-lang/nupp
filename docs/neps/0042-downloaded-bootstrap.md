@@ -31,13 +31,68 @@ tracks the tree only as well as someone remembers.
 
 ## Overview and specification
 
-### The version is pinned, never resolved
+### Syntax
+
+A tracked manifest pinning one released executable per supported host:
+
+```lua
+-- bootstrap/stage0.lua
+return {
+   version = "0.9.3",
+   hosts = {
+      ["aarch64-apple-darwin"] = {
+         url = "https://github.com/nupp-lang/nupp/releases/download/v0.9.3/nupp-aarch64-apple-darwin",
+         sha256 = "3f7a...c21e",
+      },
+   },
+}
+```
+
+### Usage
+
+Nothing changes at the call site — the launcher resolves the compiler:
+
+```sh
+./bin/nupp build
+```
+
+On first use it downloads the pinned executable for this host, verifies its
+digest before executing it, caches it, and uses it only to compile the current
+compiler.
+
+### Lowering
+
+The tracked generated compiler is replaced by a manifest and a cache:
+
+```text
+ today                          proposed
+ ────────────────────────────   ──────────────────────────────
+ bootstrap/nupp.lua (tracked)   bootstrap/stage0.lua (tracked)
+                                build/bootstrap/nupp (cached, verified)
+```
+
+The version is pinned, never resolved from "latest", a branch name, or mutable
+release metadata, so an old checkout keeps selecting the same compiler after new
+versions ship.
+
+The cost is a compatibility floor: everything needed to compile the compiler
+must be understood by the pinned version, so a language feature lands in two
+steps.
+
+```text
+1. release a compiler implementing the feature, without using it in
+   the compiler's own source
+2. advance the stage-0 manifest to that release
+   -- only then may compiler source use the feature
+```
+
+### The version is pinned
 
 Never "latest", never a branch name, never mutable release metadata. An old
 checkout must keep selecting the same compiler after new versions are released,
 or a historical build becomes unreproducible the moment something new ships.
 
-### A stage-0 compatibility floor, and two-step feature landing
+### Stage-0 compatibility floor
 
 Everything needed to compile the compiler — syntax and semantics, manifest
 fields, compile-time facilities, standard-library declarations, the build entry
@@ -72,12 +127,3 @@ reproducible.
 
 **Building the bootstrap from source in the checkout.** Rejected as circular —
 that is the problem being solved.
-
-## FAQ
-
-**Would a build need the network every time?** No — the verified executable is
-cached after the first use.
-
-**Why can't the compiler use a new language feature immediately?** Because the
-pinned stage-0 compiler has to understand everything needed to compile it. That
-is a release behind, by construction.

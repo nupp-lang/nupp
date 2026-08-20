@@ -71,6 +71,70 @@ views, while keeping Lua mutation and omitting general reference-lifetime types.
 
 ## Overview and specification
 
+### Syntax
+
+The whole vocabulary, and it names ordinary values rather than lifetimes:
+
+```nupp
+affine(T, cleanup)      -- one exact cleanup identity
+affine(T)               -- transfer-only
+
+takes value: T          -- what a call does for its duration
+borrows value: T
+exclusive value: T
+
+T borrows (source)      -- where a result, field or capture came from
+T preserves source      -- a generic result conserves the source's capability
+
+scoped callback         -- a fresh non-escaping invocation scope
+```
+
+### Usage
+
+Ordinary Lua stays outside the system; a value participates only once an API
+gives it an obligation, a root, a region, or an anchor:
+
+```nupp
+local plain = {x = 1, y = 2}      -- freely aliased, mutable, collected
+plain.x = plain.y                  -- no ownership question arises
+```
+
+```nupp
+local function first<T>(view: span.Span<T>): T borrows (view)
+local function fill(exclusive out: span.WriteSpan<float>, borrows src: span.Span<float>)
+local function map<T, R>(preserves source: T, f: function(T): R): R
+```
+
+A token-shaped protocol is possession of a nominal affine token; a consuming
+transition destroys it and may return a different one:
+
+```nupp
+local reserved = buffer:reserve(64)      -- affine(Reservation, abandon)
+local committed = reserved:commit()      -- consumes it, returns affine(Commit, ...)
+```
+
+### Lowering
+
+Every checked Nupp-to-Nupp path is erased and allocation-free. The signatures
+above generate what their untyped equivalents would:
+
+```lua
+local function fill(out, src)
+   for i = 1, src.count do out[i] = src[i] end
+end
+```
+
+Roots, regions, and provenance exist only during checking — no capability
+object, no borrow token, no runtime registry. What survives is the cleanup call
+a discharge emits, which is [NEP 15](0015-ownership-in-the-type.md)'s resolver.
+
+A dynamic boundary is the one place something is allocated, and only because
+crossing it is explicit:
+
+```lua
+local handle = __nuppDynamicStore(store, value)   -- generation-checked handle
+```
+
 ### Capabilities are opt-in and invisible
 
 A value participates only when an API gives it an obligation, a root, a region,
@@ -82,7 +146,7 @@ programmer's.
 This is the decision that makes the whole model affordable: the cost lands on
 the APIs that introduce the facts, not on everything that touches a value.
 
-### Conservation, not re-derivation
+### Preservation conserves capabilities
 
 Preservation through a generic result is a *conservation* relation: cleanup
 obligations, transfer-only obligations, pin anchors, and foreign-retention
@@ -94,7 +158,7 @@ The checker substitutes capability atoms through the resolved result type after
 ordinary generic substitution, so no higher-kinded types, generic associated
 types, lifetime parameters, or second ownership wrapper are needed.
 
-### Regions are an algebra over places, not a span feature
+### Regions are an algebra over places
 
 A region identifies a root plus a path of field, slot, dereference, index, or
 checked-range segments. Shared regions block invalidation; exclusive regions
@@ -176,7 +240,7 @@ keeps it in first-order generics.
 **Keeping span-specific overlap rules.** Rejected: correct for spans and
 re-derived for every other shape wanting the same guarantee.
 
-## General typestate was evaluated and is not needed
+## General typestate
 
 A separate audit asked whether token-shaped protocols require a general
 typestate feature on top of this model. They do not.
@@ -202,20 +266,3 @@ accounting with arbitrary runtime state. Each protocol shape also leaves exactly
 one trusted fact at the boundary — that the external producer is fresh, that a
 bodyless declaration is truthful, that C stops retaining on release — and naming
 those is more honest than a system that appears to prove them.
-
-## FAQ
-
-**Does ordinary Lua code pay anything for this?** No. A value participates only
-once an API gives it an obligation, a root, a region, or an anchor.
-
-**Is a borrow read-only?** No. It prevents invalidation, not mutation.
-
-**Where do lifetimes appear in my signatures?** Nowhere. Relationships name
-ordinary values; the roots are carried invisibly by the checker.
-
-**How do I put a capability-carrying value into an untyped store?** Through one
-of the explicit dynamic-boundary forms. What you cannot do is let it become
-untyped silently.
-
-**Can my library define its own ownership policy?** Yes — that is the point of
-the compiler recognising no policy names.

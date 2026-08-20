@@ -48,7 +48,66 @@ deliberately deferred, and it is the only case this reopens.
 
 ## Overview and specification
 
-### Staged deliberately, in reviewable pieces
+### Syntax
+
+A small non-escaping vocabulary, available only inside an annotated function:
+
+```nupp
+@aot
+local function classify(borrows bytes: span.Span<uint8>): uint32
+    const block = simd.load(bytes, 1)
+    const quotes = simd.eq(block, simd.splat(0x22))
+
+    return simd.mask(quotes)
+end
+```
+
+Scalar source needs none of it — an independent-iteration map loop lowers with a
+target-chosen width already:
+
+```nupp
+@aot(simd = true)
+local function scale(exclusive out: span.WriteSpan<float>, borrows src: span.Span<float>)
+    for i = 1, out.count do
+        out[i] = src[i] * 2
+    end
+end
+```
+
+### Usage
+
+The vocabulary is for algorithms whose register is a data structure and whose
+meaning depends on cross-lane masks — structural indexing, block validation —
+which an independent-iteration map cannot express.
+
+### Lowering
+
+Scalar source lowers through private vector and mask IR, so the loop above
+becomes a vectorized body plus an exact scalar tail:
+
+```c
+for (; i + 8 <= count; i += 8) {
+    __m256 v = _mm256_loadu_ps(src + i);
+    _mm256_storeu_ps(out + i, _mm256_mul_ps(v, _mm256_set1_ps(2.0f)));
+}
+for (; i < count; i++) { out[i] = src[i] * 2.0f; }
+```
+
+Explicit vocabulary maps to target intrinsics directly, and the values never
+escape the function:
+
+```c
+__m256i block = _mm256_loadu_si256((const __m256i *)(bytes + 0));
+__m256i quotes = _mm256_cmpeq_epi8(block, _mm256_set1_epi8(0x22));
+uint32_t mask = (uint32_t)_mm256_movemask_epi8(quotes);
+```
+
+There are no boxed vector values and no ordinary-Lua fallback representation, so
+a function using the explicit vocabulary is **not executable** with the backend
+disabled — that build reports a dedicated diagnostic rather than emitting an
+ordinary body. Every other annotated function keeps its dormant behaviour.
+
+### Reviewable stages
 
 Generalize to block kernels; expose a small non-escaping vocabulary inside
 annotated functions; use it to build a structural tape and validate encoding by
@@ -68,7 +127,7 @@ compiler feature.**
 That is the test that separates a capability from a specialization. If deleting
 the workload breaks the feature, the feature was the workload.
 
-### One build-policy exception, stated rather than hidden
+### One build-policy exception
 
 A function using explicit SIMD is not executable with ahead-of-time compilation
 disabled, and that build reports a dedicated diagnostic. Every other annotated
@@ -119,19 +178,3 @@ Rejected: the deletion test is what proves the capabilities are general.
 
 **Fixed architecture widths in source.** Rejected: it makes source
 target-specific for a benefit the target-chosen width already provides.
-
-## FAQ
-
-**Can I use vectors in ordinary Nupp?** No. The vocabulary exists only inside an
-annotated function and the values do not escape it.
-
-**Why did the portable vector design get removed?** It could not honestly
-promise its ordinary fallback, and it duplicated scalar map lowering. Its
-measurements are the evidence for the current design.
-
-**What happens if I build with ahead-of-time compilation off?** A function using
-explicit SIMD is not executable and the build says so. Every other annotated
-function emits its ordinary body.
-
-**How does the vocabulary grow?** From profiles of a real workload requiring an
-operation, not from what an instruction set makes available.

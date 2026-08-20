@@ -35,7 +35,7 @@ asking for a scalar component reports a list of components where the column
 actually holds raw numbers. The type the operation produces is a function of the
 implementor, and no signature written in terms of the implementor can say it.
 
-### Both workarounds fail, and one fails silently
+### Why the workarounds fail
 
 **Overloading is ambiguous.** A bare binder matches everything and there is no
 negation with which to exclude the scalar case from the general arm, so both
@@ -60,7 +60,71 @@ is a contract member answered per implementor and resolved at instantiation.
 
 ## Overview and specification
 
-### A separate word, deliberately
+### Syntax
+
+An interface declares a type it does not name; an implementor answers it.
+
+```nupp
+interface m.Reader
+    associated type Item
+
+    function read(self): self.Item?
+end
+
+record m.Lines is m.Reader
+    associated type Item = string
+
+    handle: LuaFile
+
+    function read(self): string?
+        return self.handle:read("*l")
+    end
+end
+```
+
+The word is contextual in both positions and they cannot be confused: only an
+interface can be inherited from, so the form declares a requirement in an
+interface body and answers one in a record or struct body.
+
+### Usage
+
+The answer is projected through the receiver, so a bounded generic can name the
+result of an operation without the caller supplying it:
+
+```nupp
+function m.collect<T is m.Reader>(source: T): {T.Item}
+```
+
+```nupp
+local lines: {string} = m.collect(new m.Lines {handle = file})
+```
+
+An interface may supply a default so existing implementors answer without being
+edited:
+
+```nupp
+interface m.Container
+    associated type Value = self
+end
+```
+
+### Lowering
+
+Nothing. An associated type is a checking-time contract member and erases
+completely — a projection resolves to the answering declaration's type during
+checking, and the generated Lua for `m.collect` is the same as it would be with
+no associated type in the signature:
+
+```lua
+function m.collect(source)
+   -- unchanged; the projection left no runtime trace
+end
+```
+
+A nested `type` alias erases the same way, and is a different thing: it is a
+static namespace member resolved where it is written, and is not inherited.
+
+### Why the word is separate
 
 The first draft spelled both concepts `type Name = T` and claimed they were one
 feature with two faces. They are not. Sharing one spelling would have changed
@@ -102,7 +166,7 @@ migration.
 work. Not rejected on merit — it is a much larger change to how instantiation
 works, and it was not needed once the contract could carry the type directly.
 
-## The first attempt, and why it was withdrawn
+## The withdrawn first attempt
 
 The first implementation shipped syntax, conformance, and projection, and passed
 1361 tests. The tests did not establish what they appeared to.
@@ -142,24 +206,10 @@ cost the default existed to remove.
 The withdrawal was additive: the surface came out and three unrelated repairs
 stayed.
 
-### What this says about testing a type system
+### Testing a type system
 
 A positive assertion about a type system proves nothing on its own, because a
 gradual result satisfies it exactly as well as a correct one. The assertion that
 carries information is the one that supplies a wrong type and requires a
 rejection, and it has to be written first — otherwise the suite grows around the
 shape of the implementation and confirms it.
-
-## FAQ
-
-**Why is the member projected through the receiver rather than named directly?**
-Because the answer depends on which implementor is in hand. `T.Item` names the
-answer *that* `T` gave; a bare `Item` would have to mean something without a
-receiver, and there is nothing for it to mean.
-
-**Does an associated type exist at run time?** No. It erases completely.
-
-**Can an associated type carry a bound?** Yes, and the bound is reachable
-through a projection — that was one of the gaps the first attempt did not close.
-
-**Can a struct answer one?** Yes, on the same rule as any other contract member.

@@ -39,7 +39,7 @@ that the safe route should be the only route. That holds only if it is also the
 fast route — otherwise the hot loop is written with raw pointers and the
 guarantee applies to the code that did not need it.
 
-### The proof already exists at the range, not at the access
+### The proof exists at the range
 
 A range witness validates every participating view once. Every access inside the
 loop it dominates is then already proved in bounds. Re-checking each one is
@@ -52,7 +52,66 @@ to pick, and the two surfaces had to be kept in step by hand.
 
 ## Overview and specification
 
-### Operators, not methods, and only for sealed types
+### Syntax
+
+Operators, not methods, and one range witness per loop:
+
+```nupp
+#view                -- length
+view[index]          -- read
+view[index] = value  -- write
+view[index].field    -- direct indexed field projection
+indexed.range(first, last, ...)
+```
+
+### Usage
+
+```nupp
+const rows = indexed.range(first, last, output, input)
+for index = rows.first, rows.last do
+    output[index].x = input[index].x + 1
+end
+```
+
+The range call validates every participating view once, at the place the source
+wrote it. The same spelling works over contiguous and columnar storage.
+
+### Lowering
+
+Without the range witness, each access carries its own bounds check:
+
+```lua
+for index = first, last do
+   if index < 1 or index > output.count then error("out of bounds", 2) end
+   if index < 1 or index > input.count then error("out of bounds", 2) end
+   output.__base[output.__offset + index - 1].x =
+      input.__base[input.__offset + index - 1].x + 1
+end
+```
+
+Inside a loop dominated by the witness, the repeated accesses lower to ordinary
+FFI pointer arithmetic — no bytecode, native helper, or runtime fork:
+
+```lua
+local __out = output.__base + output.__offset - 1
+local __in = input.__base + input.__offset - 1
+for index = rows.first, rows.last do
+   __out[index].x = __in[index].x + 1
+end
+```
+
+A non-escaping view root is represented as compiler-owned scalars rather than an
+allocated wrapper record — a runtime fat pointer, not a compile-time fiction:
+
+```text
+contiguous view = anchor + typed base + offset + count + capability
+SoA row view    = slab anchor + columns/layout + offset + count + capability
+```
+
+so the locals above are the whole representation. The safe runtime object is
+still materialized when a view escapes or reaches a dynamic boundary.
+
+### Element access is operators
 
 Length, indexing, indexed assignment, and direct indexed field projection are the
 ordinary surface. The previous public element methods are gone: private runtime
@@ -65,7 +124,7 @@ access is pure, or that an indexed field denotes stable storage. Only a sealed
 standard type whose implementation is registered with the checker receives the
 trusted descriptor; ordinary metamethods keep ordinary dispatch.
 
-### One proof, two physical adapters
+### One proof and two physical adapters
 
 Contiguous and columnar storage share one checked descriptor and differ in their
 physical adapter. That is what lets the source surface be
@@ -95,7 +154,7 @@ type, adapter, capability, borrow lifetime, and a fixed count where one exists
 are static, while base, count, offset, columns, and anchor may be dynamic values
 living in locals or flattened arguments.
 
-### Column storage was a required consumer, not follow-up
+### Column storage was a landing condition
 
 The operator work did not land unless direct field loops over columnar storage
 stayed within the existing handwritten FFI ceiling and allocated no row proxies.
@@ -144,18 +203,3 @@ have been shaped around contiguous storage and then retrofitted.
 **Compile-time-only virtualization** of view roots, with no runtime
 representation. Rejected: escapes and dynamic boundaries need a real object, and
 a fiction with no materialization form cannot provide one.
-
-## FAQ
-
-**Does indexing a checked view cost a bounds check?** Inside a loop dominated by
-its range witness, no — the range validated once and the access lowers to
-pointer arithmetic.
-
-**Can my own container get this?** No. Only sealed standard types whose
-implementation is registered with the checker.
-
-**What happened to the element methods?** They are no longer callable APIs; the
-operators replaced them.
-
-**When does a view root still allocate?** When it escapes, or reaches a dynamic
-boundary — those need the safe runtime object.

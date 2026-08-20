@@ -35,7 +35,47 @@ feature gets used on whatever someone happened to think of.
 
 ## Overview and specification
 
-### Three questions, three kinds of answer
+### Syntax
+
+None. The advisor adds nothing to a source file — that is the point of it being
+advisory.
+
+```sh
+nupp aot --suggest
+nupp lsp aot-candidate --json src/sim.nupp
+```
+
+### Usage
+
+Each finding presents the three answers separately:
+
+```text
+src/sim.nupp:42  integrate
+  eligible      lowers to verified IR for aarch64-apple-darwin
+  opportunity   bulk loop over a float span, 4 fixed-width operations
+  observed      11.4% of samples, 0 trace aborts   (profile: bench/sim.speedscope)
+```
+
+An editor shows only the strongest static findings, and the text is deliberately
+modest — it says a native comparison is worth measuring, not that one would win.
+
+### Lowering
+
+Nothing. The advisor does not add the annotation, compile a native library,
+change generated Lua, or participate in whether source checks:
+
+```lua
+-- before and after running the advisor: identical
+local function integrate(rows, delta) ... end
+```
+
+Its inputs are facts the compiler already has. Eligibility comes from the same
+subset checker the backend uses, static opportunity from a deterministic cost
+model over the admitted body, and observed importance from a supplied profile —
+so the analysis is reproducible and adding a profile changes only the third
+line.
+
+### Three questions
 
 **Eligibility** — can this body lower to verified IR for the selected target?
 This is a proof.
@@ -81,11 +121,3 @@ without a person deciding.
 **Making eligibility part of checking**, so ineligible functions report.
 Rejected: eligibility is a backend property, and most functions are ineligible
 and should be.
-
-## FAQ
-
-**Does this change what my program compiles to?** No. It is advisory and touches
-nothing.
-
-**Does it need a profile?** No. The profile answers only the third question, and
-its absence leaves the first two.

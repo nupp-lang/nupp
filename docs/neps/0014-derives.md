@@ -35,7 +35,7 @@ forward to.
 
 ## Motivation
 
-### Four outputs, four mechanisms
+### Output classes and their mechanisms
 
 The design rests on keeping these distinct:
 
@@ -64,6 +64,60 @@ testable, and readable by every existing tool. The generated member is a small
 checked forwarder.
 
 ## Overview and specification
+
+### Syntax
+
+```nupp
+@derive(nupp.derive.Debug, nupp.derive.JSON)
+local record User
+    @json(name = "user_id")
+    id: integer
+    name: string
+end
+```
+
+A provider is an exported `comptime function` returning a closed recipe:
+
+```nupp
+export comptime function Summarize(info: nupp.derive.Info): nupp.derive.Result
+    return nupp.derive.implement(Summary, {
+        summarize = nupp.derive.forward(helpers.summarize),
+    })
+end
+```
+
+### Usage
+
+The generated members come from the interface the provider names, so their
+signatures are visible in ordinary source rather than in what a comptime
+function returned:
+
+```nupp
+local user = new User {id = 7, name = "ada"}
+print(user:debug())          -- from @derive(Debug)
+local text = user:toJSON()   -- from @derive(JSON)
+```
+
+### Lowering
+
+Each generated member is a small checked forwarder onto the declaration's own
+table; the behaviour lives in ordinary exported functions:
+
+```lua
+local User = {} User.__index = User
+
+User.debug = function(self)
+   return __nuppDebugRecord(self, User.__nuppReflect)
+end
+
+User.toJSON = function(self)
+   return __nuppJsonEncode(self, User.__nuppReflect)
+end
+```
+
+Nothing is generated beyond the declaration carrying the annotation: no new
+top-level name, import, or module. The provider returned data, and the compiler
+validated it, merged it, and checked conformance before emitting any of this.
 
 ### A provider implements an interface; it does not invent one
 
@@ -157,21 +211,3 @@ governs the descriptor extension model.
 **Deriving through the materialization mechanism.** Rejected: materialization
 emits one value of a declared type at a position, and a derive attaches members
 to a declaration. Different authority, different boundary.
-
-## FAQ
-
-**Why must a provider implement an existing interface?** Because that is what
-supplies the member signatures, ownership modes, and effects, so a reader can
-find them in ordinary source rather than inferring them from what a comptime
-function returned.
-
-**Can a derive add a top-level declaration?** No. It augments only the
-declaration carrying the annotation.
-
-**Does a built-in derive have powers a package provider does not?** Its internal
-recipe operations cover static and schema behaviour the public menu does not
-expose, but it runs through the same evaluation, validation, caching, and
-lowering.
-
-**Is a macro system ruled out?** No. It would be a separate, explicitly powerful
-recipe kind, and adding it would not grant any existing provider more authority.

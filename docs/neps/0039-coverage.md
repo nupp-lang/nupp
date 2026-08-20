@@ -40,6 +40,60 @@ the author never wrote. The question is which of *their* lines ran.
 
 ## Overview and specification
 
+### Syntax
+
+A command, not a flag on the test command:
+
+```sh
+nupp coverage
+nupp coverage --output build/coverage
+```
+
+### Usage
+
+```text
+ File                     Lines    Functions   Branches
+ ───────────────────────  ───────  ──────────  ────────
+ src/app/models.nupp      94.2%    100.0%      81.0%
+ src/app/parser.nupp      71.8%     85.7%      64.3%
+```
+
+The report presents Nupp source as the primary program, with the generated Lua
+as a synchronized secondary view.
+
+### Lowering
+
+Instrumentation is a distinct generator mode selected once per module. With
+coverage off, generation takes its ordinary path — it does not enumerate
+coverage sites, allocate metadata, emit a runtime import, or add a per-node
+conditional:
+
+```lua
+local function scale(point, factor)
+   return {x = point.x * factor, y = point.y * factor}
+end
+```
+
+With it on, sites are recorded against the module's coverage table:
+
+```lua
+local __cov = require("nupp.coverage").module("app.models", 7)
+
+local function scale(point, factor)
+   __cov[3] = __cov[3] + 1
+   return {x = point.x * factor, y = point.y * factor}
+end
+```
+
+Line attribution needs no map, because generation already emits code on the
+source line it came from and never changes a module's line count. Coverage
+metadata supplies what lines cannot — columns, functions, branch arms, lowered
+forms, and erased syntax:
+
+```json
+{"module": "app.models", "sites": [{"id": 3, "line": 12, "col": 5, "kind": "function"}]}
+```
+
 ### No source map is needed for lines
 
 Code generation already emits code on the source line it came from and never
@@ -51,7 +105,7 @@ forms, and erased syntax. It supplements the invariant rather than replacing it
 — which is worth stating, because a system that carried its own map for
 everything would make the invariant look optional.
 
-### Instrumentation is a generator mode, selected once per module
+### Instrumentation is a generator mode
 
 With coverage off, generation takes its ordinary path: it does not enumerate
 coverage sites, allocate metadata, emit a runtime import, or add a per-node
@@ -80,13 +134,3 @@ redundant for lines, and it would make the invariant appear optional.
 
 **Instrumenting per node in ordinary builds**, gated at run time. Rejected:
 ordinary compilation must stay byte-identical and as fast.
-
-## FAQ
-
-**Why is this not part of the test command?** Because that command runs whatever
-the manifest says, and coverage needs a program that participates.
-
-**Does an ordinary build pay anything?** No — it takes the same path it took
-before coverage existed.
-
-**Can I see the generated Lua?** Yes, as a synchronized secondary view.

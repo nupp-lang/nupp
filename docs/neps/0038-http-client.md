@@ -50,6 +50,62 @@ is a native file, or that its storage may be borrowed for one call's duration.
 
 ## Overview and specification
 
+### Syntax
+
+```nupp
+local http = require("nupp.io.http")
+
+local client = http.newClient()
+local response = client:send(http.request("GET", "https://example.com/data"))
+```
+
+### Usage
+
+The call returns as soon as final response headers are available, and the body
+is an owned progressive reader:
+
+```nupp
+local response = client:send(request)
+print(response.status)
+
+local reader = response.body
+reader:transferTo(file)          -- streamed, not buffered
+```
+
+The same call blocks in a command-line program, parks under a scheduler, and is
+refused before any native work starts inside a region that forbids waiting.
+
+### Lowering
+
+The transport's worker threads never enter the VM and the provider never calls
+into the host; a host polls readiness from its own loop:
+
+```text
+ transport threads            Nupp provider           host loop
+ ──────────────────────────   ─────────────────────   ─────────────────────
+ move sockets and TLS         queue readiness tokens  poll Nupp sources
+ fill bounded body queues     poll without blocking   drain its scheduler
+ drain upload queues          resume one-shot waits   resume the parked task
+```
+
+A send is a submit plus the ordinary suspension point:
+
+```lua
+local pending = __nuppHttpSubmit(client, request)
+local ready, response = pending:poll()
+if not ready then
+   response = __nuppSuspend(pending)
+end
+```
+
+A body chunk is read from a bounded queue rather than through a per-chunk heap
+event, and an upload from a string, buffer, or file takes a specialized path
+rather than the generic reader fallback:
+
+```lua
+__nuppHttpUploadFile(pending, file.__fd)    -- not read-then-write in Lua
+```
+
 ### Performance commitments are part of the design
 
 The provider will not route a string, buffer, or file through the generic reader
@@ -85,14 +141,3 @@ upload pays the generic cost.
 
 **Returning only after the whole body arrives.** Rejected: it makes streaming
 impossible and makes latency a function of body size.
-
-## FAQ
-
-**Does this need a scheduler?** No. Without one it blocks in the provider's
-readiness wait.
-
-**When does a request return?** As soon as final response headers are available;
-the body is a progressive reader.
-
-**Does Nupp call my application's event loop?** No. Your loop polls Nupp's
-readiness sources.

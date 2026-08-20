@@ -62,6 +62,86 @@ against a guess.
 
 ## Overview and specification
 
+### Syntax
+
+```nupp
+@aot
+local function scaleAdd(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>,
+    scale: float
+): nil
+    if output.count ~= input.count then
+        error("length mismatch", 2)
+    end
+
+    for i = 1, output.count do
+        output[i] = input[i] * scale
+    end
+end
+```
+
+The body is ordinary Nupp: same parser, name resolution, type system,
+operators, diagnostics, and source positions.
+
+### Usage
+
+The annotation is a contract, not a request. Build policy is selected once:
+
+```sh
+nupp build --aot=off       # emit every body as ordinary Nupp
+nupp build --aot=require   # lower every @aot body, or fail saying why
+nupp build --aot=emit-c    # verify the IR and write private C for a vendor build
+```
+
+Removing the annotation may change performance and artifacts, never the
+source-level result.
+
+### Lowering
+
+The body lowers to verified IR and then to private generated C, with a checked
+Nupp wrapper calling it through the FFI:
+
+```c
+/* generated, private */
+void nupp__scaleAdd(float *output, const float *input,
+                    uint64_t count, float scale) {
+    for (uint64_t i = 0; i < count; i++) {
+        output[i] = input[i] * scale;
+    }
+}
+```
+
+```lua
+local __lib = ffi.load("@lib/libapp_aot.so")
+local function scaleAdd(output, input, scale)
+   if output.count ~= input.count then error("length mismatch", 2) end
+   __lib.nupp__scaleAdd(output.__base + output.__offset,
+                        input.__base + input.__offset, output.count, scale)
+end
+```
+
+With the backend off, the annotation is dormant and the same ordinary body is
+emitted:
+
+```lua
+local function scaleAdd(output, input, scale)
+   if output.count ~= input.count then error("length mismatch", 2) end
+   for i = 1, output.count do output[i] = input[i] * scale end
+end
+```
+
+Where a target has feature tiers, one library carries one translation unit per
+tier, and the symbol suffix distinguishes them:
+
+```c
+void nupp__scaleAdd_avx2(float *output, const float *input, ...)
+```
+
+A shared library is mapped rather than run, so loading a tier the machine cannot
+execute is not a hazard — what would fault is a call, and selection is what
+prevents it.
+
 ### Eligibility is a versioned compatibility promise
 
 Within a supported language line, a source function accepted for a target
@@ -104,7 +184,7 @@ the compiler.
 This is the rule that keeps a staged feature from accumulating two of
 everything, where the temporary half outlives the reason for it.
 
-### Feature tiers: one library, one translation unit per tier
+### Feature tiers
 
 A tier is already a whole-translation-unit flag, so compiling each tier as its
 own translation unit needs no new mechanism — the flag path, the artifact key,
@@ -161,17 +241,3 @@ avoid a symbol suffix.
 
 **Guarding tier libraries against being loaded on unsupported machines.**
 Rejected as unnecessary: mapping is not executing.
-
-## FAQ
-
-**Does the annotation change what my function computes?** No. Removing it may
-change performance and artifacts, never the source-level result.
-
-**What happens if the backend cannot compile my function?** In a required
-build, the build fails and says why. It does not silently emit ordinary Nupp.
-
-**Can I get the generated C without a toolchain?** Yes — the emit-only policy
-verifies the IR and writes private C for a vendor compiler.
-
-**Can a function be both trace-checked and ahead-of-time compiled?** No. They
-are mutually exclusive execution contracts with separate eligibility catalogs.

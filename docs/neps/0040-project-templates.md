@@ -25,7 +25,7 @@ afterwards.
 
 ## Motivation
 
-### A template configures a project, not a file list
+### Templates configure a project
 
 Everything a scaffolded project needs to describe itself — a binary target, a
 native dependency, a non-default host stub, resources, tasks — is already a
@@ -37,10 +37,72 @@ That is the test the design has to pass. If bootstrapping a real application
 required a template feature, it would mean the manifest could not express
 something a project needs, and the right fix would be in the manifest.
 
-### Three origins, one format
+### One template format
 
 Built-in, local, and remote templates being the same tree means there is nothing
 to learn per origin, and a template can move between them without changing.
+
+## Overview and specification
+
+### Syntax
+
+One command, and a template is a tree with one descriptor at its root:
+
+```sh
+nupp init [TEMPLATE] [DIRECTORY]
+```
+
+```lua
+-- template.lua
+return {
+   description = "A graphics application",
+   variables = {
+      { name = "name", prompt = "Project name" },
+      { name = "author", prompt = "Author", default = "" },
+   },
+}
+```
+
+### Usage
+
+```sh
+nupp init graphics my-game
+nupp init ./templates/service my-service
+nupp init github:example/nupp-template my-app
+```
+
+Built-in, local, and remote templates are the same tree, so where it came from
+is resolved before scaffolding and forgotten afterwards.
+
+### Lowering
+
+There is no template-specific build machinery. A template that wants a graphics
+host gets one by writing the manifest that asks for it, using fields that
+already exist:
+
+```lua
+-- the scaffolded nupp.lua
+return {
+   name = "{{name}}",
+   build = {
+      default = "app",
+      targets = {
+         app = {
+            kind = "binary",
+            entries = { "{{name}}.main" },
+            stub = "sdl",
+            resources = { "assets/**" },
+         },
+      },
+   },
+   dependencies = { sdl3 = { kind = "cargo", version = "0.4" } },
+}
+```
+
+Scaffolding substitutes the variables into the tree and writes it out. That the
+result needs no new build features is the test the design has to pass: a
+template requiring one would mean the manifest could not express something a
+project needs.
 
 ## Risks and assumptions
 
@@ -64,11 +126,3 @@ paths for one concept, and templates that cannot move between origins.
 
 **A general templating language.** Rejected as scope: variables plus a tree
 covers scaffolding, and everything beyond it is a program.
-
-## FAQ
-
-**Can a template ask for a graphics host?** Yes, by writing the manifest that
-asks for one. No template feature is involved.
-
-**Does a remote template differ from a local one?** Only in where it came from,
-which is resolved before scaffolding and not retained.

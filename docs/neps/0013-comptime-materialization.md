@@ -35,7 +35,7 @@ because every entry commits to a source spelling permanently. That is right for
 literals, and it means a comptime computation whose useful result is a compiled
 matcher, a codec, or any other structured artifact has nowhere to put it.
 
-### The obvious answer is a macro system, and it is the wrong one
+### Why not a macro system
 
 Letting comptime emit source solves this and gives up the property the whole
 design rests on: that a program's meaning does not depend on text the reader
@@ -43,6 +43,57 @@ cannot see. Materialization is the narrowest mechanism that produces a rich
 runtime value without granting that.
 
 ## Overview and specification
+
+### Syntax
+
+An ordinary comptime block, with an explicitly declared runtime type at the
+block's position:
+
+```nupp
+const Matcher: nupp.peg.Program = comptime do
+    return nupp.peg.compile("identifier <- [A-Za-z_][A-Za-z0-9_]*")
+end
+```
+
+The annotation is what selects the materializer. Removing it reports that an
+opaque comptime result needs an explicit materializable type.
+
+### Usage
+
+```nupp
+local record Position
+    x: number
+    y: number
+end
+
+const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
+    return nupp.reflect.fieldCodec(nupp.reflect(Position))
+end
+
+local payload = PositionCodec:encode(new Position {x = 10, y = 20})
+```
+
+### Lowering
+
+An ordinary comptime value is quoted as a literal. A materialized one is emitted
+as **one runtime expression that constructs the value**, chosen by the declared
+type rather than by the comptime code:
+
+```lua
+local PositionCodec = __nuppFieldCodec({"x", "y"}, "t:x,y")
+```
+
+The two exits sit side by side:
+
+```text
+ordinary Nupp evaluation -> quotable value -> canonical literal source
+ordinary Nupp evaluation -> compiler-owned opaque value
+                         -> expected-type materializer
+                         -> runtime expression source
+```
+
+A materializer cannot add a declaration, a module, or source text; it emits one
+expression of one explicitly typed value.
 
 ### One extra exit from the same evaluation
 
@@ -149,20 +200,3 @@ with no diagnostic and no visible cause.
 **Letting the comptime value pick its own emitter.** Rejected: that is a
 value choosing how it is compiled, which is a macro system with one step of
 indirection.
-
-## FAQ
-
-**What happens if I drop the type annotation?** The compiler reports that an
-opaque comptime result needs an explicit materializable type. It does not pick
-one.
-
-**Can a materializer add a declaration?** No. It emits an expression that
-constructs one explicitly typed runtime value.
-
-**Why is a closed table not just a limitation?** Because an open one makes
-compilation depend on installed packages, and makes "what does this program
-compile to?" unanswerable from the source.
-
-**Is this how derives work?** No. Derives are a separate compiler-owned
-mechanism named at the declaration they affect — see
-[NEP 14](0014-derives.md).

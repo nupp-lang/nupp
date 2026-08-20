@@ -55,6 +55,69 @@ what closures may express, not what the checker proves:
 
 ## Overview and specification
 
+### Syntax
+
+```nupp
+function(): R takes (names) borrows (names)
+```
+
+Both clauses take a parenthesised list and compose. The borrow contract is
+required in type position and optional on a literal.
+
+### Usage
+
+A capture is a tracked borrow unless the closure says otherwise:
+
+```nupp
+local scratch = buffers.acquire()
+
+local read = function(): string
+    scratch:clear()          -- borrowed; the enclosing scope still owns it
+    return handle:read(8)
+end
+```
+
+`takes` moves, and a closure that takes anything is itself affine — called at
+most once, with the call as its discharge:
+
+```nupp
+local send = function(): nil takes (handle)
+    handle:write(payload)
+end
+
+send()                       -- discharges handle
+```
+
+The two clauses compose when a closure moves one capture and borrows another:
+
+```nupp
+function(): any takes (handle) borrows (scratch)
+```
+
+### Lowering
+
+Capture is Lua's own upvalue capture, so a borrowing closure generates exactly
+what an untyped one would:
+
+```lua
+local read = function()
+   scratch:clear()
+   return handle:read(8)
+end
+```
+
+A taking closure is an affine value, so the enclosing scope's obligation moves
+into it and its discharge is the closure's. A closure built and never called is
+dropped at scope exit, running the drop of everything it took:
+
+```lua
+local send = function() handle:write(payload) end
+-- at scope exit, if send was never called:
+__nuppCleanup1(handle)
+```
+
+The clauses themselves erase; nothing records a capture list at run time.
+
 ### Borrow is the default because it is the common case
 
 Naming an owner in a body borrows it; the enclosing scope keeps the obligation
@@ -64,7 +127,7 @@ The default is the one that preserves the most: a borrow can be turned into a
 move by writing a clause, where the reverse would mean the enclosing scope
 silently lost a value by mentioning it.
 
-### A capturing closure is affine, by an existing rule
+### Capturing closures are affine
 
 A closure with a `takes` list is affine by the same rule that already makes a
 record with an affine field affine. Nothing new is asserted about closures
@@ -84,7 +147,7 @@ strength of the callee proving non-escape. Giving the closure a borrow contract
 extends that proof through the general provenance rules instead of a
 special case.
 
-### The clauses compose, which is why there are two
+### The clauses compose
 
 A closure may take some captures and borrow others in one signature. A single
 clause cannot express that, which is the concrete reason the design is not one
@@ -146,16 +209,3 @@ ownership plumbing into closures that never touch an owned value.
 **Bare `takes name` without parentheses.** Deferred rather than rejected. It
 reads well, adds a grammar branch, and changes nothing about soundness or
 expressiveness — so it is not worth doing before the model is complete.
-
-## FAQ
-
-**What happens to a capturing closure that is never called?** It is dropped at
-scope exit and its drop runs the drop of everything in its take list.
-
-**Can I copy a capturing closure?** No. It is affine.
-
-**Why must a field or parameter name its sources when a literal need not?** A
-literal has a body to infer from; a field or parameter does not.
-
-**Can a record hold a closure that borrows?** Yes — a record may hold a declared
-borrow and is transitively constrained by it.

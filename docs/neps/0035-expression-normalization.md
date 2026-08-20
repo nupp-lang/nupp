@@ -38,6 +38,66 @@ construct produces one set of ordering rules per construct.
 
 ## Overview and specification
 
+### Syntax
+
+None. Normalization is a compiler layer, and its visible effect is that a
+statement-shaped construct becomes legal where it is currently refused:
+
+```nupp
+local label = ready and switch status do
+    case 200 -> "ok"
+    else -> "other"
+end or "pending"
+```
+
+Today that placement reports a targeted diagnostic.
+
+### Usage
+
+The normalizer must preserve conditional evaluation, so the switch's setup must
+not run when the operator does not reach it:
+
+```nupp
+local value = cached ?? switch source do
+    case is File {path} -> readFile(path)
+    else -> nil
+end
+```
+
+`readFile` must not run when `cached` is non-nil.
+
+### Lowering
+
+The naive statement prefix is wrong, because it evaluates the setup
+unconditionally:
+
+```lua
+local __subject = source        -- wrong: runs even when cached is non-nil
+local __result
+if ... then __result = readFile(__subject.path) else __result = nil end
+local value = cached ~= nil and cached or __result
+```
+
+Normalization converts the expression and its continuation into lexical control
+flow instead, so the setup sits inside the branch that reaches it:
+
+```lua
+local value = cached
+if value == nil then
+   local __subject = source
+   if __subject.__nuppIs_File then
+      value = readFile(__subject.path)
+   else
+      value = nil
+   end
+end
+```
+
+No backend uses an immediately invoked function as a general
+statement-expression escape hatch, which is what this exists to avoid. Ordinary
+generation and ahead-of-time lowering consume the same normalized decisions
+within the value domains each supports.
+
 The normalizer preserves Lua's evaluation order, conditional evaluation,
 multi-result rules, scopes, ownership, and cleanup. Ordinary generation and
 ahead-of-time lowering consume the same normalized decisions within the value
@@ -67,8 +127,3 @@ each with its own bugs.
 **Leaving the restriction in place permanently.** The status quo. Workable, and
 it means every statement-shaped construct is second-class in expression
 position.
-
-## FAQ
-
-**Which construct needs this first?** Switch expressions in lazy positions, but
-the facility is deliberately not switch-specific.

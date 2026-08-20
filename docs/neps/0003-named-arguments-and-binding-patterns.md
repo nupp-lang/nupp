@@ -60,19 +60,100 @@ exactly the boilerplate the feature removes.
 
 ## Overview and specification
 
-### Plucking is sugar, and nothing else
+### Syntax
 
-`{name} = value` means `name = value.name`. The name resolves against the
-operand's type, not against the candidate signature, so a name that is not a
-field of the operand is an ordinary missing-field diagnostic at that name — with
-the ordinary spelling fix — rather than a reason some overload was rejected.
+Named arguments and plucks are call syntax; binding patterns replace the name in
+a `local` or `const`.
+
+```nupp
+draw(x = 1, y = 2, color = "red")          -- named
+draw({x, y} = position, color = "red")     -- plucked, plus named
+local {x, y} = point                       -- binding pattern
+const {decode, Encoder as JSONEncoder} = require("nupp.data.json")
+```
+
+### Usage
+
+`{name} = value` means `name = value.name` and nothing more, so a container
+fills parameters without the call site hiding which fields it read:
+
+```nupp
+local record Vec3
+    x: number
+    y: number
+    z: number
+end
+
+local function draw(x: number, y: number, color: string?): nil
+end
+
+draw({x, y} = position, color = "blue")
+```
+
+A binding pattern selects fields of one value, with `as` renaming the local:
+
+```nupp
+local {x, y as vertical} = position
+const {x: number, y as vertical: number} = position   -- annotation per entry
+```
+
+### Lowering
+
+Everything erases to ordinary positional Lua. A statement-level call evaluates
+each dotted path and common prefix once, and the projected fields stay direct
+arguments:
+
+```nupp
+update(delta, {x, y} = entity.body.position, {dx, dy} = entity.body.velocity)
+```
+
+```lua
+local body = entity.body
+local position = body.position
+local velocity = body.velocity
+update(delta, position.x, position.y, velocity.x, velocity.y)
+```
+
+A binding pattern evaluates its source once and reads each field in order:
+
+```lua
+local __value = color
+local red = __value.red
+local g = __value.green
+local blue = __value.blue
+```
+
+A safe call keeps the same final positional signature and puts the bindings
+inside its taken branch:
+
+```nupp
+maybeDraw?.({x, y} = entity.body.position)
+```
+
+```lua
+local draw = maybeDraw
+if draw ~= nil then
+    local body = entity.body
+    local position = body.position
+    draw(position.x, position.y)
+end
+```
+
+No closure, upvalue, argument table, or runtime arity selection is introduced.
+
+### Nothing is declared on the operand
+
+A plucked name resolves against the operand's type, not against the candidate
+signature, so a name that is not a field of the operand is an ordinary
+missing-field diagnostic at that name — with the ordinary spelling fix — rather
+than a reason some overload was rejected.
 
 Nothing is declared on the operand's type. A plucked name reaches any record
 carrying a field of that name, including one the caller does not own, and the
 callee decides which subset of the operand it reads. There is no interface to
 implement and no opt-in to forget.
 
-### Order is enforced between arguments, not inside a group
+### Order is enforced between arguments
 
 Named arguments follow every positional argument and appear in parameter order,
 which is what keeps evaluation order identical in source and generated Lua. A
@@ -113,7 +194,7 @@ in itself.
 An annotation belongs to an entry rather than to the brace, because an
 annotation on the brace would have no clear meaning.
 
-### `as` binds, and a pluck binds nothing
+### `as` binds a local
 
 `as` is accepted in a binding pattern and refused in a pluck. A pluck creates no
 local, so there would be nothing for `as` to name; a caller whose source field
@@ -184,27 +265,3 @@ another, and the second already has syntax: `draw(color = position.y)`.
 **Allowing several values on the right of a pattern.** `local {x, y} =
 make(), z` was rejected to avoid giving a brace any positional relationship with
 Lua's multiple returns, which is a different feature with different rules.
-
-## FAQ
-
-**Why must named arguments appear in parameter order?** So evaluation order in
-the source matches evaluation order in the generated Lua. Allowing arbitrary
-order would mean either reordering effects — silently changing what a program
-does — or spilling every argument to a temporary, which is a run-time cost for a
-source-level convenience.
-
-**Does a pluck search or select an overload?** No. A pluck fills parameters by
-name, so there is exactly one arrangement to consider. Nothing searches and no
-arity is selected.
-
-**Does any of this allocate?** No. Named arguments erase to positional
-arguments; a pluck lowers to ordinary field reads and a positional call. A
-statement-level call evaluates each dotted path and common prefix once; a nested
-expression repeats prefixes rather than introducing a closure or upvalue.
-
-**Why does the group have no order when arguments do?** Because a group's reads
-are all fields of one stable path, so no order among them is observable. That is
-a consequence of the operand restriction, not an independent choice.
-
-**Can a bounded type parameter be plucked from?** Yes, through its bound,
-without the bound declaring anything — the read is an ordinary field access.

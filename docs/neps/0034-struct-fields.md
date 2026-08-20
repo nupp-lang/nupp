@@ -38,6 +38,83 @@ read then goes through a metamethod the compiler knows nothing about.
 
 ## Overview and specification
 
+### Syntax
+
+Three further kinds of field, and a pool that owns the block instances live in:
+
+```nupp
+local struct Tok
+    offset: uint32
+    length: uint32
+
+    flag isKeyword
+    flag isOperator
+
+    derived text: string
+        return self.pool.source:sub(self.offset, self.offset + self.length - 1)
+    end
+
+    associated trivia: {Trivia}
+end
+
+local tokens = pool.allocate(Tok, source)
+```
+
+### Usage
+
+```nupp
+local tok = tokens:push(offset = 0, length = 5)
+tok.isKeyword = true
+
+if tok.isKeyword then
+    print(tok.text)          -- computed on read, stored nowhere
+end
+```
+
+### Lowering
+
+None of the three changes what the layout is. Flags pack into an implicit word,
+derived fields compute on read, and associated fields live beside the block:
+
+```c
+struct Tok {
+    uint32_t offset;
+    uint32_t length;
+    uint32_t __flags;    /* isKeyword = 1 << 0, isOperator = 1 << 1 */
+};
+```
+
+```lua
+-- tok.isKeyword = true
+tok.__flags = bit.bor(tok.__flags, 1)
+
+-- tok.isKeyword
+bit.band(tok.__flags, 1) ~= 0
+
+-- tok.text
+pool.source:sub(tok.offset, tok.offset + tok.length - 1)
+```
+
+A hand-written metatype reaches the same layout, and every read then goes
+through a metamethod the compiler knows nothing about — which is the reason for
+declaring these rather than writing them.
+
+**The pooled half does not work.** An element reference does not keep its block
+alive:
+
+```lua
+local held
+do
+  local block = ffi.new("Tok[?]", 64)
+  block[7].offset = 1007
+  held = block[7]
+end
+collectgarbage("collect")            -- block is unreachable; held is not
+print(held.offset)                   --> 0, from reused memory
+```
+
+Not a crash: a read of reused memory returning a plausible value.
+
 Packed boolean fields, read-computed fields, and fields stored beside the
 instance, with a pool owning the block and the shared data the computed fields
 read.
@@ -46,7 +123,7 @@ Element references are ordinary values, not borrows. An earlier revision said
 borrows and could not have type-checked, because a borrow may not be stored in a
 table and the syntax tree stores every token in one.
 
-## Why the pooled stages are blocked
+## The blocked pooled stages
 
 **An element reference does not keep its block alive.** Measured on the proposed
 shape: take a reference to an element of a block, let the block become
@@ -112,12 +189,3 @@ compiler learns nothing from it.
 
 **Element references as borrows.** Rejected on type-checking: a borrow may not
 be stored in a table, and every token is stored in one.
-
-## FAQ
-
-**What can be built today?** The packed booleans, read-computed fields over the
-instance, and the identity diagnostic. They do not depend on pooling.
-
-**What would unblock the rest?** A provenance analysis proving that anything
-storing an element retains its pool — which is a lifetime system, not a stage of
-this work.
