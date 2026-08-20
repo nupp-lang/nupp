@@ -57,7 +57,7 @@ local command = spec.command{
                     resources = {type = "array", items = {type = "string"}},
                     dependencies = {type = "array", items = {type = "string"}},
                     nativeFeatures = {type = "object", additionalProperties = {type = "boolean"}},
-                    runtimeProviders = {type = "object", additionalProperties = {type = "string"}},
+                    backends = {type = "array", items = {type = "string"}},
                     layoutTarget = {type = "string"},
                     platforms = {type = "array", items = {type = "string"}},
                     argv = {type = "array", items = {type = "string"}},
@@ -144,13 +144,8 @@ local function writeTask(out: {string}, style: any, task: any)
         table.sort(overrides)
         writeItems(out, style, "Native feature overrides", overrides)
     end
-    if task.runtimeProviders then
-        local selected: {string} = {}
-        for contract, moduleName in pairs(task.runtimeProviders) do
-            selected[#selected + 1] = contract .. "=" .. moduleName
-        end
-        table.sort(selected)
-        writeItems(out, style, "Runtime providers", selected)
+    if task.backends then
+        writeItems(out, style, "Backends", task.backends)
     end
 end
 

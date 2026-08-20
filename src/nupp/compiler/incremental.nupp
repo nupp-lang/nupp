@@ -24,6 +24,7 @@ local check = require("nupp.compiler.check")
 local envMod = require("nupp.compiler.env")
 local storeMod = require("nupp.compiler.build.store")
 local T = require("nupp.compiler.types")
+local backends = require("nupp.compiler.backends")
 
 local incremental = {}
 
@@ -80,7 +81,11 @@ type incremental.CheckResult = {
     missing: boolean?,
 
     --- The parse this was checked from, kept so callers need not reparse.
-    result: any
+    result: any,
+
+    --- Declarative Backend.new metadata extracted without executing the module.
+    backend: any?,
+    backendProblem: string?
 }
 
 --- The compiler's query graph, with the editor and build entry points that read it.
@@ -594,7 +599,16 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             end
         end
 
-        return {diags = diags, moduleType = moduleType, exports = exports, result = result}
+        local backend, backendProblem = backends.inspect(result.root, envMod.moduleNameForPath(env, path))
+
+        return {
+            diags = diags,
+            moduleType = moduleType,
+            exports = exports,
+            result = result,
+            backend = backend,
+            backendProblem = backendProblem,
+        }
     end
 
     -- The announcement wraps the definition rather than living inside it, so every way
@@ -625,6 +639,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                     type = bundled.type,
                     nominalEffectFingerprint = bundled.exports and bundled.exports.nominalEffectFingerprint,
                     deriveInterfaceFingerprint = bundled.exports and bundled.exports.deriveInterfaceFingerprint,
+                    backendFingerprint = nil,
                 } or nil
             end
             -- nil on the re-entrant edge of a require cycle: the module is mid-check,
@@ -635,6 +650,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                 type = r.moduleType,
                 nominalEffectFingerprint = r.exports and r.exports.nominalEffectFingerprint,
                 deriveInterfaceFingerprint = r.exports and r.exports.deriveInterfaceFingerprint,
+                backendFingerprint = r.backend and r.backend.fingerprint or nil,
             } or nil
         end,
         function(left, right)
@@ -644,6 +660,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             return left.type == right.type
             and left.nominalEffectFingerprint == right.nominalEffectFingerprint
             and left.deriveInterfaceFingerprint == right.deriveInterfaceFingerprint
+            and left.backendFingerprint == right.backendFingerprint
         end
     )
 

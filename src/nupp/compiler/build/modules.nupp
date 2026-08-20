@@ -21,6 +21,7 @@ local cache = require("nupp.compiler.build.cache")
 local deps = require("nupp.compiler.build.deps")
 local materializeObserve = require("nupp.compiler.materialize.observe")
 local progress = require("nupp.compiler.build.progress")
+local backends = require("nupp.compiler.backends")
 
 local normalize, join = fs.normalize, fs.join
 local readFile, writeFile = fs.readFile, fs.writeFile
@@ -77,7 +78,10 @@ type modules.Result = {
     derives: {any},
 
     --- Every native feature the built modules asked for, merged.
-    effects: {[string]: any}?
+    effects: {[string]: any}?,
+
+    --- Checked static descriptors for the target's selected backend modules.
+    backends: any?
 }
 
 --- A check asked about named files rather than about the project.
@@ -510,6 +514,8 @@ local function copyModuleRecord(record)
         coverage = record.coverage,
         materializations = record.materializations,
         derives = record.derives,
+        backend = record.backend,
+        backendHash = record.backendHash,
     }
 end
 
@@ -621,6 +627,10 @@ local function buildModules(root: string, outDir: string, config: Config, target
         local at = normalize(path)
         substituted[at] = text
         inc.openDocument(at, text)
+    end
+    local backendResolution, backendErr = backends.resolve(inc, target.backends)
+    if not backendResolution then
+        return nil, backendErr
     end
 
     --- What a module's record is keyed on: its substitute when it has one, and
@@ -805,12 +815,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 path,
                 config._coverage and {path = path} or nil,
                 nil,
-                config._target and config._target.runtimeProviders or nil
+                backendResolution
             )
             -- Generation is the last word on runtime reachability: it has now seen
             -- which checked nodes survived folding, comptime erasure, materialization,
             -- and lowering. Persist the same set that selected the generated prologue
-            -- so packaging cannot retain a provider the Lua does not use.
+            -- so packaging cannot retain a backend seam the Lua does not use.
             result.result.effects = emittedEffects
             for effect in pairs(emittedEffects) do
                 effectNames[#effectNames + 1] = effect
@@ -843,6 +853,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     checkedExports.deriveInterfaceFingerprint or ""
                 ) .. "\0comptime-functions:" .. (
                     checkedExports.comptimeFunctionFingerprint or ""
+                ) .. "\0backend:" .. (
+                    result.backend and result.backend.fingerprint or ""
                 ) .. (external and ("\0" .. sourceHash) or "")
             ),
             artifactHash = artifactHash,
@@ -858,6 +870,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
             coverage = coverage,
             materializations = jsonArray(materializations),
             derives = jsonArray(derives),
+            backend = result.backend,
+            backendHash = backendResolution.fingerprint,
         }
         codeFor[name] = code
         reused[name] = nil
@@ -890,6 +904,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 local usable = cacheCompatible
                     and previous
                     and previous.sourceHash == sourceHash
+                    and previous.backendHash == backendResolution.fingerprint
                     and previous.interfaceHash
                     and type(
                     previous.dependencies
@@ -1077,7 +1092,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
     end
     if checkOnly then
-        return {outputs = {}, materializations = materializations, derives = derives}
+        return {outputs = {}, materializations = materializations, derives = derives, backends = backendResolution}
     end
 
     -- Every module compiled, with no closure to prune it back to. A stale dependency
@@ -1138,7 +1153,13 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
     end
 
-    return {outputs = outputs, effects = effects, materializations = materializations, derives = derives}
+    return {
+        outputs = outputs,
+        effects = effects,
+        materializations = materializations,
+        derives = derives,
+        backends = backendResolution,
+    }
 end
 
 modules.typeFingerprint = typeFingerprint

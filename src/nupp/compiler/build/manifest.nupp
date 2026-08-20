@@ -14,7 +14,7 @@ local aotTargets = require("nupp.compiler.aot.target")
 local check = require("nupp.compiler.check")
 local fs = require("nupp.compiler.fs")
 local native = require("nupp.compiler.native")
-local providers = require("nupp.compiler.providers")
+local backends = require("nupp.compiler.backends")
 
 local join = fs.join
 
@@ -63,7 +63,7 @@ type manifest.Target = {
     --- separate from the machine running the compiler and from a dependency's native
     --- build target.
     layoutTarget: string?,
-    runtimeProviders: {[string]: string}?,
+    backends: {string}?,
     format: string?,
     title: string?,
 
@@ -236,7 +236,7 @@ local DOCS_KEYS = {
     "platforms",
     "platformOutputs",
     "nativeFeatures",
-    "runtimeProviders",
+    "backends",
     "layoutTarget",
 }
 
@@ -294,7 +294,7 @@ local TARGET_KEYS = {
     "resources",
     "dependencies",
     "nativeFeatures",
-    "runtimeProviders",
+    "backends",
     "layoutTarget",
     "format",
     "title",
@@ -627,9 +627,9 @@ local function validateTarget(target, label, dependencies)
             end
         end
     end
-    local validProviders, providerErr = providers.validate(target.runtimeProviders, label .. ".runtimeProviders")
-    if not validProviders then
-        return nil, providerErr
+    local validBackends, backendErr = backends.validate(target.backends, label .. ".backends")
+    if not validBackends then
+        return nil, backendErr
     end
     if target.outDir ~= nil then
         local valid, err = validateString(target.outDir, label .. ".outDir")
