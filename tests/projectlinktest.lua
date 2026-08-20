@@ -499,17 +499,22 @@ print(use.slurp("input.txt"), res.closed)
 local res = {}
 res.closed = 0
 
-local function closeFile(takes file: LuaFile): nil
-    res.closed = res.closed + 1
-    unsafe do
-        local _raw = unsafe release file
+record res.File
+    content: string
+
+    function read(self, format: string?): string
+        return self.content
     end
 end
 
-function res.open(path: string): affine(LuaFile, closeFile)
+local function closeFile(takes file: res.File): nil
+    res.closed = res.closed + 1
+end
+
+function res.open(path: string): affine(res.File, closeFile)
     local file = io.open(path, "r")
     if not file then error("cannot open " .. path) end
-    return file
+    return new res.File(content = file:read("*a"))
 end
 
 return res
@@ -554,17 +559,22 @@ print(res.closed)
 local res = {}
 res.closed = 0
 
-local function closeFile(takes file: LuaFile): nil
-    res.closed = res.closed + 1
-    unsafe do
-        local _raw = unsafe release file
+record res.File
+    content: string
+
+    function read(self, format: string?): string
+        return self.content
     end
 end
 
-function res.open(path: string): affine(LuaFile, closeFile)
+local function closeFile(takes file: res.File): nil
+    res.closed = res.closed + 1
+end
+
+function res.open(path: string): affine(res.File, closeFile)
     local file = io.open(path, "r")
     if not file then error("cannot open " .. path) end
-    return file
+    return new res.File(content = file:read("*a"))
 end
 
 return res

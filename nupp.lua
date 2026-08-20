@@ -83,9 +83,6 @@ local TEMPLATE_FILES = {
 local RESOURCES = {
    "src/nupp/compiler/decls/*.d.nupp",
    "src/nupp/compiler/decls/jit/*.d.nupp",
-   {source = "src/nupp/owners/set.nupp", output = "nupp/compiler/nupp/owners/set.nupp"},
-   {source = "src/nupp/io/file.nupp", output = "nupp/compiler/nupp/io/file.nupp"},
-   {source = "src/nupp/owners/store.nupp", output = "nupp/compiler/nupp/owners/store.nupp"},
    {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
    {source = "src/nupp/profile/zone.nupp", output = "nupp/compiler/nupp/profile/zone.nupp"},
    {source = "src/nupp/profile/trace.nupp", output = "nupp/compiler/nupp/profile/trace.nupp"},
@@ -96,18 +93,12 @@ local RESOURCES = {
    {source = "src/nupp/data/valuebuilder.g.nupp", output = "nupp/compiler/nupp/data/valuebuilder.g.nupp"},
    {source = "src/nupp/mem/heap.nupp", output = "nupp/compiler/nupp/mem/heap.nupp"},
    {source = "src/nupp/mem/soa.nupp", output = "nupp/compiler/nupp/mem/soa.nupp"},
-   {source = "src/nupp/data/bitset.nupp", output = "nupp/compiler/nupp/data/bitset.nupp"},
-   {source = "src/nupp/data/fnv1a64.nupp", output = "nupp/compiler/nupp/data/fnv1a64.nupp"},
-   {source = "src/nupp/data/crc32.nupp", output = "nupp/compiler/nupp/data/crc32.nupp"},
    {source = "src/nupp/data/json.nupp", output = "nupp/compiler/nupp/data/json.nupp"},
    {source = "src/nupp/data/utf8.nupp", output = "nupp/compiler/nupp/data/utf8.nupp"},
    {source = "src/nupp/native.nupp", output = "nupp/compiler/nupp/native.nupp"},
    {source = "src/nupp/data/init.nupp", output = "nupp/compiler/nupp/data/init.nupp"},
    {source = "src/nupp/mem/init.nupp", output = "nupp/compiler/nupp/mem/init.nupp"},
    {source = "src/nupp/owners/init.nupp", output = "nupp/compiler/nupp/owners/init.nupp"},
-   {source = "src/nupp/data/sha256.nupp", output = "nupp/compiler/nupp/data/sha256.nupp"},
-   {source = "src/nupp/data/uuid4.nupp", output = "nupp/compiler/nupp/data/uuid4.nupp"},
-   {source = "src/nupp/data/uuid7.nupp", output = "nupp/compiler/nupp/data/uuid7.nupp"},
    {source = "src/nupp/io/path.nupp", output = "nupp/compiler/nupp/io/path.nupp"},
    {source = "src/nupp/io/uri.nupp", output = "nupp/compiler/nupp/io/uri.nupp"},
    {source = "src/nupp/io/files.nupp", output = "nupp/compiler/nupp/io/files.nupp"},
@@ -322,14 +313,13 @@ value = "ready"]],
                         details = "Ownership, borrowing, pinning, and deterministic cleanup make "
                            .. "the important rules at a C boundary explicit—and make leaks and "
                            .. "use-after-move errors reportable.",
-                        code = [[local file = require("nupp.io.file")
-
+                        code = [[
 local function send(borrows handle: LuaFile): nil
     print(handle:read("*a"))
 end
 
 do
-    local report = file.open("report.txt")
+    local report = assert(io.open("report.txt", "r"))
     send(report)
 end -- the file is closed on every structured exit]],
                      },
@@ -395,7 +385,7 @@ print(user:debug(), user:toJSON())]],
                            .. "(concepts/suspension/index.html).",
                         code = [[local http = require("nupp.io.http")
 local suspension = require("nupp.suspension")
-local client = assert(http.newClient())
+local client = new http.Client()
 
 local function fetch(url: string): integer
     local response = assert(client:send(new http.Request(
@@ -754,11 +744,6 @@ nupp lsp            # start the language server]],
                   path = "modules/nupp/data/utf8",
                   title = "nupp.data.utf8",
                   source = "docs/modules/nupp/data/utf8.md",
-               },
-               {
-                  path = "modules/nupp/data/bitset",
-                  title = "nupp.data.bitset",
-                  source = "docs/modules/nupp/data/bitset.md",
                },
                {
                   path = "modules/nupp/derive",

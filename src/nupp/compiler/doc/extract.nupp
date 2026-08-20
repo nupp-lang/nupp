@@ -375,7 +375,36 @@ local function structureSignature(node, includePrivate)
         return withoutHiddenTerminals(source)
     end
 
-    return withoutHiddenTerminals(trim(formatted))
+    -- Formatter style normally places every block's `end` on its own line. A
+    -- documentation signature has already removed function bodies, so keeping that
+    -- empty block on one line makes records with several methods materially tighter.
+    local lines: {string} = {}
+    local inFunction = false
+    local justClosed = false
+    for line in (trim(formatted) .. "\n"):gmatch("([^\n]*)\n") do
+        if line:match("^%s*function%s") or line:match("^%s*constructor[%s%(]") then
+            inFunction = true
+        end
+        if inFunction and line:match("^%s*end%s*$") then
+            lines[#lines] = (lines[#lines] or "") .. " end"
+            inFunction = false
+            justClosed = true
+        else
+            if justClosed then
+                if line == "" then
+                    justClosed = false
+                elseif not line:match("^%s*end%s*$") then
+                    lines[#lines + 1] = ""
+                    justClosed = false
+                else
+                    justClosed = false
+                end
+            end
+            lines[#lines + 1] = line
+        end
+    end
+
+    return withoutHiddenTerminals(trim(table.concat(lines, "\n")))
 end
 
 -- Every token under one annotation argument, in order. A separate function rather than

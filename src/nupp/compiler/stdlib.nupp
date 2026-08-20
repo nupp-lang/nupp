@@ -17,6 +17,7 @@ local BASE = compact(
     [=[
 local __nupp=_G.nupp or {};_G.nupp=__nupp
 local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
+local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end
 ]=]
 )
 
@@ -24,10 +25,13 @@ local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 -- ordinary bootstrap always reserves a math namespace local even when math is unused;
 -- addressing that namespace through nupp in the development-only artifact recovers
 -- exactly one local and keeps watch's authored-function ceiling equal to normal.
-local HOT_BASE = compact([=[
+local HOT_BASE = compact(
+    [=[
 local __nupp=_G.nupp or {};_G.nupp=__nupp
 rawset(__nupp,"math",rawget(__nupp,"math")or{})
-]=])
+local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end
+]=]
+)
 
 local LAZY = compact(
     [=[

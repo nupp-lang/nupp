@@ -91,7 +91,7 @@ else
             *) NATIVE_COMMON_DIR="$ROOT/$NATIVE_COMMON_DIR" ;;
         esac
         NATIVE_REPOSITORY_ROOT=$(dirname "$NATIVE_COMMON_DIR")
-        NATIVE_TARGET="$NATIVE_REPOSITORY_ROOT/.nupp-cache/native-dev-files-process-http-uri"
+        NATIVE_TARGET="$NATIVE_REPOSITORY_ROOT/.nupp-cache/native-dev-all"
     else
         NATIVE_TARGET="$ROOT/build/native/nupp_native"
     fi
@@ -116,7 +116,7 @@ build_native() {
     # build, `nupp run` loads this one development provider rather than staging a
     # target-specific union beside the program.
     cargo build --release --manifest-path "$NATIVE_MANIFEST" \
-        --target-dir "$NATIVE_TARGET" --no-default-features --features files,process,http,uri \
+        --target-dir "$NATIVE_TARGET" --no-default-features --features files,process,http,path,uri,uuid,sha256 \
         >/dev/null || return 1
     mkdir -p "$ROOT/build/lib"
     if [ -f "$NATIVE_TARGET/release/$NATIVE_BUILT_FILENAME" ]; then

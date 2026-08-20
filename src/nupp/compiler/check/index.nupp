@@ -154,7 +154,9 @@ function index.install(c: state.Checker): state.ExprHandlers
                 -- one that used to be a field of the ambient table, so it has to record
                 -- the same feature effect an explicit require would. Without this the
                 -- native library a module stands on stops being carried.
-                local moduleEffect = native.forModule(candidate)
+                local moduleEffect = suffix[
+                    1
+                ] and native.forModuleMember(candidate, suffix[1]) or native.forModule(candidate)
                 if moduleEffect and c.recordEffect then
                     (node as any).compilerFeatureEffect = moduleEffect
                     c.recordEffect(moduleEffect)
@@ -543,6 +545,12 @@ function index.install(c: state.Checker): state.ExprHandlers
         local effects = c.env and c.env.featureEffects or nil
         local featureFields = effects and (effects[base] or staticOwner and effects[staticOwner]) or nil
         local effect = featureFields and featureFields[memberName] or nil
+        if not effect and target.kind == "name" and target.token then
+            local holder = c.lookupEntry(target.token.text)
+            if holder and holder.requiredModule then
+                effect = native.forModuleMember(holder.requiredModule, memberName)
+            end
+        end
         if effect and c.recordEffect then
             (node as any).compilerFeatureEffect = effect
             c.recordEffect(effect)

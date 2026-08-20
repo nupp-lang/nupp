@@ -42,8 +42,7 @@ local zone = require("nupp.profile.zone")
 Those are [](nupp.profile) and the [](nupp.profile.zone) markers it reads, the
 [](nupp.mem) storage family ([](nupp.mem.span), [](nupp.mem.heap),
 [](nupp.mem.soa), and the [](nupp.mem.indexed) range they share), the
-[](nupp.owners) custody pair ([](nupp.owners.set) and [](nupp.owners.store)),
-[](nupp.io.file), and `nupp.compiler`, which holds the self-hosted compiler
+[](nupp.owners) dynamic-owner custody containers, and `nupp.compiler`, which holds the self-hosted compiler
 implementation and is hidden from public API documentation by its `@!internal`
 namespace root.
 

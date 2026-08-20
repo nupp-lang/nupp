@@ -9,10 +9,7 @@ local process = require("nupp.io.process")
 local M = {}
 
 local function tecsCallSites(options: process.Options, buffer: nupp.io.Buffer): nil
-    local child, spawnReason = process.new(options)
-    if child == nil then
-        error(spawnReason)
-    end
+    local child = new process.Process(options)
 
     local pid: integer = child.pid
     assert(pid >= 0)

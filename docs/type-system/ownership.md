@@ -463,15 +463,15 @@ import side of the same contracts.
 
 A nontrivial capability cannot disappear into `any` or an untyped call, which is
 reported. Prefer a typed wrapper for a closed backend set. Truly
-heterogeneous storage uses `nupp.owners.store`:
+heterogeneous storage uses `nupp.owners`:
 
 ```nupp
-local stores = require("nupp.owners.store")
+local owners = require("nupp.owners")
 
-local store = stores.new()
+local store = owners.newStore()
 local handle = store:put(openFile()) -- moves the exact cleanup policy in
-local token = stores.erase(handle) -- safe to pass through untyped Lua
-local restored, problem = stores.recover(token, FileState)
+local token = owners.erase(handle) -- safe to pass through untyped Lua
+local restored, problem = owners.recover(token, FileState)
 if restored then
     local file = store:take(restored)
     if file then use(file) end

@@ -1530,8 +1530,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             and callee.name
         then
             local holder = c.lookupEntry(callee.obj.token.text)
-            if holder and holder.requiredModule == "nupp.owners.store" then
-                dynamicExport = {module = "nupp.owners.store", member = callee.name.text,}
+            if holder and holder.requiredModule == "nupp.owners" then
+                dynamicExport = {module = "nupp.owners", member = callee.name.text,}
             end
         end
         local soaExport = node.kind == "call" and callee and callee.exactCallExport or nil
@@ -1591,7 +1591,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if indexedProducer then
             node.indexedViewProducer = {producer = indexedProducer, source = argExprs[1], count = argExprs[2],}
         end
-        if dynamicExport and dynamicExport.module == "nupp.owners.store" then
+        if dynamicExport and dynamicExport.module == "nupp.owners" then
             local source = argExprs[1]
             local entry = source and c.ownershipEntry(source) or nil
             entry = c.ownershipState(entry)
@@ -1630,7 +1630,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
         end
-        -- `ErasedHandle` is private and constructible only by nupp.owners.store.
+        -- `ErasedHandle` is private and constructible only by nupp.owners.
         -- Preserve custody metadata from its typed source even when an imported-call
         -- sidecar was unavailable (for example while checking the bundled module
         -- graph).
@@ -1638,7 +1638,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local erasedOrigin = erasedResult.tag == "nominal" and (erasedResult.origin or erasedResult) or nil
         if erasedOrigin
             and erasedOrigin.tag == "nominal"
-            and erasedOrigin.moduleName == "nupp.owners.store"
+            and erasedOrigin.moduleName == "nupp.owners"
             and erasedOrigin.name == "ErasedHandle"
             and not node.resourceCapability
         then

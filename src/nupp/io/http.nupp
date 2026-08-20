@@ -8,7 +8,7 @@ caller's frame.
 local http = require("nupp.io.http")
 local uri = require("nupp.io.uri")
 
-local client = assert(http.newClient())
+local client = new http.Client()
 local response = assert(client:send(new http.Request(
     url = assert(uri.new("https://example.com/"))
 )))
@@ -31,7 +31,7 @@ local http = require("nupp.io.http")
 local suspension = require("nupp.suspension")
 local uri = require("nupp.io.uri")
 
-local client = assert(http.newClient())
+local client = new http.Client()
 
 local function status(url: string): integer
     local response = assert(client:send(new http.Request(
@@ -768,7 +768,7 @@ type http.Version = "1.0" | "1.1" | "2"
 
 --- What a client applies to every request it sends.
 ---
---- Every field is optional, so `http.newClient()` with nothing is a client with
+--- Every field is optional, so `new http.Client()` with nothing is a client with
 --- the defaults below. A request may override the three limits it also names.
 record http.Options
     --- The `user-agent` header sent with every request.
@@ -1573,9 +1573,8 @@ end
 
 --- One connection pool, and every request in flight through it.
 ---
---- Built by [](nupp.io.http.newClient). A client is worth keeping: connections,
---- the TLS session cache and the default headers all live on it, so one client
---- per program beats one per request.
+--- A client is worth keeping: connections, the TLS session cache and the default
+--- headers all live on it, so one client per program beats one per request.
 record http.Client is BodyClient
     _native: NativeClient
     _options: any
@@ -1586,6 +1585,44 @@ record http.Client is BodyClient
     --- Closes the pool and every transfer still in flight.
     --- @param self this client, spent by the call
     drop: nosuspend function(takes self: http.Client): nil
+
+    --- Opens a connection pool.
+    ---
+    --- The client is an owner, and closing it closes every transfer still in flight.
+    --- Keep one for the program rather than one per request.
+    ---
+    --- ```nupp
+    --- do
+    ---     local client = new http.Client(new http.Options(
+    ---         userAgent = "nupp/1",
+    ---         timeoutMs = 5000
+    ---     ))
+    --- end
+    --- ```
+    ---
+    --- @param self the client being initialized
+    --- @param options connection, redirect, timeout and concurrency options
+    --- @raises when the native client cannot be initialized
+    constructor(self, options: http.Options?): affine(http.Client, http.Client.destroy)
+        local copied = copiedOptions(options)
+        local backend, reason = newClient(copied)
+        if backend == nil then
+            error(reason or "the HTTP client could not be initialized", 2)
+        end
+        self._native = backend
+        self._options = copied
+        self._source = nil
+        self._sourceUsers = 0
+        self._closed = false
+    end
+
+    --- Releases the client when its owner leaves scope.
+    --- @internal
+    function destroy(takes self): nil
+        nosuspend do
+            self:drop()
+        end
+    end
 
     function _retainSource(self, context: suspension.Context): nil
         if self._source == nil then
@@ -1951,10 +1988,6 @@ function http.Client.drop(takes self: http.Client): nil
     end
 end
 
-local function destroyClient(takes self: http.Client): nil
-    self:drop()
-end
-
 --- Builds a request body that streams from a reader.
 ---
 --- The bytes are sent as the reader produces them, so a large upload never has to
@@ -2001,35 +2034,6 @@ function http.file(path: string | path.Path, contentType: string?): http.FileBod
     end
 
     return new http.FileBody(path = path, contentType = contentType)
-end
-
---- Opens a connection pool.
----
---- The client is an owner, and closing it closes every transfer still in flight.
---- Keep one for the program rather than one per request: the connections, the TLS
---- session cache and the default headers all live on it.
----
---- ```nupp
---- do
----     local client = assert(http.newClient(new http.Options(
----         userAgent = "nupp/1",
----         timeoutMs = 5000
----     )))
---- end
---- ```
----
---- @param options what to apply to every request, or nothing for the defaults
---- @return the client, owned by the caller, or nil on failure
---- @return a failure reason, when unsuccessful
---- @raises when an option is of the wrong type or outside its range
-function http.newClient(options: http.Options?): (affine(http.Client?, destroyClient), string?)
-    local copied = copiedOptions(options)
-    local backend, reason = newClient(copied)
-    if backend == nil then
-        return nil, reason
-    end
-
-    return new http.Client(_native = backend, _options = copied, _source = nil, _sourceUsers = 0, _closed = false)
 end
 
 export = http

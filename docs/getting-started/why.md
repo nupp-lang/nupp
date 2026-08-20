@@ -113,9 +113,7 @@ one C is holding, and one already dropped. The convention lives in a comment.
 Nupp puts the obligation in the type:
 
 ```nupp
-local file = require("nupp.io.file")
-
-local handle = file.open("in.txt", "r")
+local handle = assert(io.open("in.txt", "r"))
 print(handle:read("*a"))
 -- handle is destroyed automatically here, including when read raises
 ```
@@ -125,7 +123,7 @@ it from a function whose result is `affine(T, cleanup)` when automatic lexical
 destruction is not the desired end:
 
 ```nupp
-local handle = file.open("in.txt", "r")
+local handle = assert(io.open("in.txt", "r"))
 print(handle:read("*a"))
 drop handle
 ```

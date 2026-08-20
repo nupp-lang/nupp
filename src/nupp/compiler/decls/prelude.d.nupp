@@ -81,6 +81,14 @@ local nupp: {
             write: type?
         }}, indexer: type?): type,
         readonly pack: comptime function(head: {type}, tail: type?, modes: {string}?): typepack,
+
+        --- Computes the arguments consumed by a literal Lua format string.
+        ---
+        --- A broad string produces an open `any` pack. `%?` is reserved for
+        --- compiler-lowered formatting APIs.
+        --- @param format the format-string type to inspect
+        --- @return the argument pack consumed by its directives
+        readonly formatArguments: comptime function(format: type): typepack,
         readonly function_: comptime function(parameters: typepack, results: typepack): type,
         readonly parameters: comptime function(callable: type): typepack,
         readonly results: comptime function(callable: type): typepack,
@@ -142,6 +150,86 @@ local nupp: {
     --- @internal
     __materializationTest: nupp.__MaterializationTestAPI
 }
+
+-- Public checked computations under the compiler-owned nupp.types namespace use this
+-- implementation naming convention. Type-position resolution maps the public member
+-- to the checked prelude body, while the declaration above remains the API callers
+-- inspect and document.
+local comptime function __NuppTypesFormatArguments(Format: type): typepack
+    local info = nupp.types.describe(Format)
+    local value = info.value
+    if info.kind ~= "literal" or type(value) ~= "string" then
+        return nupp.types.pack({}, nupp.types.any)
+    end
+    local source = value as string
+    local arguments = {}
+    local index = 1
+    while index <= #source do
+        if source:sub(index, index) ~= "%" then
+            index = index + 1
+        else
+            index = index + 1
+            local seen = ""
+            local current = source:sub(index, index)
+            if current == "%" then
+                index = index + 1
+            else
+                while current ~= "" and string.find("-+ #0", current, 1, true) do
+                    seen = seen .. current
+                    index = index + 1
+                    current = source:sub(index, index)
+                end
+                if current == "%" then
+                    nupp.types.error(
+                        'invalid string.format directive starting at "%' .. seen .. source:sub(index) .. '"'
+                    )
+                end
+
+                local width = 0
+                while current ~= "" and string.find("0123456789", current, 1, true) do
+                    width = width + 1
+                    seen = seen .. current
+                    index = index + 1
+                    current = source:sub(index, index)
+                    if width > 2 then
+                        nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
+                    end
+                end
+
+                if current == "." then
+                    seen = seen .. current
+                    index = index + 1
+                    current = source:sub(index, index)
+                    local precision = 0
+                    while current ~= "" and string.find("0123456789", current, 1, true) do
+                        precision = precision + 1
+                        seen = seen .. current
+                        index = index + 1
+                        current = source:sub(index, index)
+                        if precision > 2 then
+                            nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
+                        end
+                    end
+                end
+
+                if string.find("aAcdiouxXeEfgG", current, 1, true) then
+                    arguments[#arguments + 1] = nupp.types.number
+                elseif current == "?" then
+                    nupp.types.error("%? is available only to compiler-lowered formatting APIs")
+                elseif string.find("pqs", current, 1, true) then
+                    arguments[#arguments + 1] = nupp.types.any
+                else
+                    nupp.types.error(
+                        'invalid string.format directive starting at "%' .. seen .. source:sub(index) .. '"'
+                    )
+                end
+                index = index + 1
+            end
+        end
+    end
+
+    return nupp.types.pack(arguments)
+end
 
 --- What one poll did, discriminated by `kind`.
 ---

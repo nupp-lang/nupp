@@ -472,9 +472,9 @@ end
 function M.resourceSetsReifyCleanupOwnersAtOneAuditedBoundary()
    local source = table.concat({
       RESOURCE,
-      "local set = require('nupp.owners.set')",
+      "local set = require('nupp.owners')",
       "do",
-      "   local group = set.new('requests')",
+      "   local group = set.newSet('requests')",
       "   local value = group:adopt(resource_new())",
       "   print(value.value)",
       "end",
@@ -493,13 +493,13 @@ end
 
 function M.resourceSetsRequireAWitnessForOpaqueOwners()
    assertEq(codes(table.concat({
-      "local set = require('nupp.owners.set')",
+      "local set = require('nupp.owners')",
       "local record Request",
       "   value: integer",
       "end",
       "local function beginRequest(): affine(Request) return new Request(value = 1) end",
       "do",
-      "   local group = set.new('requests')",
+      "   local group = set.newSet('requests')",
       "   local request = group:adopt(beginRequest())",
       "end",
    }, "\n")), "NUPP2602")
@@ -508,9 +508,9 @@ end
 function M.resourceSetsCanTransferARegistrationBackOutExactlyOnce()
    assertClean(table.concat({
       RESOURCE,
-      "local set = require('nupp.owners.set')",
+      "local set = require('nupp.owners')",
       "do",
-      "   local group = set.new('requests')",
+      "   local group = set.newSet('requests')",
       "   local borrowed = group:adopt(resource_new())",
       "   local returned = group:remove(borrowed)",
       "   drop(returned)",
@@ -521,9 +521,9 @@ end
 function M.dynamicStoresCarryExactCleanupPoliciesBehindTypedHandles()
    local source = table.concat({
       RESOURCE,
-      "local stores = require('nupp.owners.store')",
+      "local stores = require('nupp.owners')",
       "do",
-      "   local store = stores.new()",
+      "   local store = stores.newStore()",
       "   local handle = store:put(resource_new())",
       "   local returned, problem = store:take(handle)",
       "   assert(problem == nil)",
@@ -542,7 +542,7 @@ end
 
 function M.dynamicStoresEnforceCustodyAtRuntime()
    local source = table.concat({
-      "local stores = require('nupp.owners.store')",
+      "local stores = require('nupp.owners')",
       "local cleaned = 0",
       "local record FileState value: integer end",
       "local function closeFile(takes file: FileState): nil",
@@ -551,7 +551,7 @@ function M.dynamicStoresEnforceCustodyAtRuntime()
       "local function openFile(value: integer): affine(FileState, closeFile)",
       "   return new FileState(value = value)",
       "end",
-      "local store = stores.new()",
+      "local store = stores.newStore()",
       "local handle = store:put(openFile(1))",
       "local stale = handle",
       "local erased = stores.erase(handle)",
@@ -582,10 +582,10 @@ end
 
 function M.dynamicStoresRejectCapabilitiesTheyCannotDischarge()
    assertEq(codes(table.concat({
-      "local stores = require('nupp.owners.store')",
+      "local stores = require('nupp.owners')",
       "local record Request value: integer end",
       "local function begin(): affine(Request) return new Request(value = 1) end",
-      "local store = stores.new()",
+      "local store = stores.newStore()",
       "local handle = store:put(begin())",
       "drop(store)",
       "return handle",
@@ -693,7 +693,7 @@ end
 
 function M.dynamicRecoveryKeepsAndChecksTheStoredCapabilityPolicy()
    local prelude = table.concat({
-      "local stores = require('nupp.owners.store')",
+      "local stores = require('nupp.owners')",
       "local record FileState end",
       "local function closeFile(takes value: FileState): nil end",
       "local type File = affine(FileState, closeFile)",
@@ -701,7 +701,7 @@ function M.dynamicRecoveryKeepsAndChecksTheStoredCapabilityPolicy()
       "local record SocketState end",
       "local function closeSocket(takes value: SocketState): nil end",
       "local type Socket = affine(SocketState, closeSocket)",
-      "local store = stores.new()",
+      "local store = stores.newStore()",
       "local handle = store:put(openFile())",
       "local erased = stores.erase(handle)",
    }, "\n")
@@ -2749,8 +2749,7 @@ function M.aQualifiedFunctionCarriesAnAutomaticallyDischargedOwnedContract()
       "   file:close()",
       "end",
       "function m.open(path: string): affine(LuaFile, closeFile)",
-      "   local file = io.open(path, 'r')",
-      "   if not file then error('cannot open') end",
+      "   local file = io.stdin",
       "   return file",
       "end",
       "local handle = m.open('x')",
@@ -2811,8 +2810,7 @@ function M.aQualifiedFunctionAcquiresIntoAnAutomaticLocal()
       "   file:close()",
       "end",
       "function m.open(path: string): affine(LuaFile, closeFile)",
-      "   local file = io.open(path, 'r')",
-      "   if not file then error('cannot open') end",
+      "   local file = io.stdin",
       "   return file",
       "end",
       "function m.slurp(path: string): string",

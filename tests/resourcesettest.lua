@@ -1,10 +1,10 @@
-local set = require("nupp.owners.set")
+local set = require("nupp.owners")
 
 local M = {}
 
 function M.closesRegistrationsInReverseAndAttemptsEveryOne()
    local seen = {}
-   local group = set.new("test")
+   local group = set.newSet("test")
    group:adopt("first", function(value)
       seen[#seen + 1] = value
       error("first failed")
@@ -27,7 +27,7 @@ end
 function M.removeTransfersOneRegistrationOut()
    local closed = 0
    local value = {}
-   local group = set.new("test")
+   local group = set.newSet("test")
    group:adopt(value, function() closed = closed + 1 end)
    assert(group:remove(value) == value)
    group:close()
@@ -37,7 +37,7 @@ function M.removeTransfersOneRegistrationOut()
 end
 
 function M.closeIsIdempotent()
-   local group = set.new("test")
+   local group = set.newSet("test")
    group:close()
    group:close()
 end

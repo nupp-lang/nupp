@@ -436,9 +436,9 @@ end
 function M.resourceSetAdoptionTransfersAutomaticResponsibility()
    local chunk = compile(PRELUDE .. table.concat({
       "",
-      "local set = require('nupp.owners.set')",
+      "local set = require('nupp.owners')",
       "do",
-      "   local group = set.new('automatic')",
+      "   local group = set.newSet('automatic')",
       "   local value = open_resource('q')",
       "   local borrowed = group:adopt(value)",
       "   print(borrowed.name)",

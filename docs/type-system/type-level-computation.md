@@ -244,14 +244,14 @@ local invalid = string.format("%q %y", 1, 2)
 
 ### Typed wrappers
 
-`nupp.format.StringFormatSyntax(Format)` exposes the same directive
+`nupp.types.formatArguments(Format)` exposes the same directive
 computation, so a wrapper around `string.format` checks its callers the way
 `string.format` checks its own:
 
 ```nupp
 local function format<Format is string>(
     fmt: Format,
-    ...: unpackof nupp.format.StringFormatSyntax(Format)
+    ...: unpackof nupp.types.formatArguments(Format)
 ): string
     return string.format(fmt, ...)
 end

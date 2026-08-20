@@ -36,9 +36,8 @@ const native = require("jsonNative")
 --- Values that can encode themselves as JSON text.
 ---
 --- Declared here rather than aliased out of the host boundary, because this is the
---- name callers write: `derive.JSON` answers a contract in terms of it. `Writer` is
---- not declared here, because nothing names it as a type. It is reached as a value
---- from `writer()`.
+--- name callers write: `derive.JSON` answers a contract in terms of it. `Writer`
+--- below names the incremental encoder returned by `writer()`.
 ---
 --- ```nupp
 --- local record Money is nupp.data.json.JSONEncodable
@@ -50,7 +49,188 @@ const native = require("jsonNative")
 --- end
 --- ```
 export interface JSONEncodable
+    --- Encodes this value as one complete JSON document.
+    --- @param self the value being encoded
+    --- @return the JSON document
     toJSON: function(self): string
 end
 
-export = native
+--- A checked incremental JSON writer.
+--- @export
+export interface Writer
+    --- Starts an array value.
+    --- @param self the writer
+    --- @return this writer
+    startArray: function(self: Writer): Writer
+
+    --- Starts an object value.
+    --- @param self the writer
+    --- @return this writer
+    startObject: function(self: Writer): Writer
+
+    --- Selects the next object member.
+    --- @param self the writer
+    --- @param name the next member name
+    --- @return this writer
+    key: function(self: Writer, name: string): Writer
+
+    --- Appends one complete Lua value.
+    --- @param self the writer
+    --- @param value the next JSON value
+    --- @return this writer
+    write: function(self: Writer, value: any): Writer
+
+    --- Appends JSON null.
+    --- @param self the writer
+    --- @return this writer
+    null: function(self: Writer): Writer
+
+    --- Closes the current array or object.
+    --- @param self the writer
+    --- @return this writer
+    close: function(self: Writer): Writer
+
+    --- Returns bytes completed since the previous flush.
+    --- @param self the writer
+    --- @return the completed JSON bytes
+    flush: function(self: Writer): string
+
+    --- Completes the document and returns its final bytes.
+    --- @param self the writer
+    --- @return the final JSON bytes
+    finish: function(self: Writer): string
+end
+
+--- Decodes one complete JSON document.
+---
+--- Null members are dropped unless a replacement value is supplied.
+--- @param text the complete JSON document
+--- @param nullValue the value used for JSON null, or nil to drop nulls
+--- @return the decoded Lua value
+--- @export
+export function decode(text: string, nullValue: any?): any
+    if nullValue == nil then
+        return native.decode(text)
+    end
+    return native.decode(text, nullValue)
+end
+
+--- Materializes only the fields selected by an On-Demand pull shape.
+--- @param text the complete JSON document
+--- @param shape the fields and array members to materialize
+--- @param nullValue the value used for JSON null, or nil to drop nulls
+--- @return the selected Lua value
+--- @export
+export function pull(text: string, shape: any, nullValue: any?): any
+    if nullValue == nil then
+        return native.pull(text, shape)
+    end
+    return native.pull(text, shape, nullValue)
+end
+
+--- Applies one pull shape to every member of an array.
+--- @param shape the selection applied to each member, or every value when omitted
+--- @return an array pull shape
+--- @export
+export function arrayOf(shape: any?): table
+    if shape == nil then
+        return native.arrayOf()
+    end
+    return native.arrayOf(shape)
+end
+
+--- Marks a Lua table as a JSON array, including while it is empty.
+--- @param value the table to mark
+--- @return the same table
+--- @export
+export function asArray<T is table>(takes value: T): T preserves value
+    return native.asArray(value)
+end
+
+--- Marks a Lua table as a JSON object.
+--- @param value the table to mark
+--- @return the same table
+--- @export
+export function asObject<T is table>(takes value: T): T preserves value
+    return native.asObject(value)
+end
+
+--- Serializes one Lua value as JSON.
+--- @param value the value to serialize
+--- @param nullValue an additional value treated as JSON null
+--- @return the JSON document
+--- @export
+export function encode(value: any, nullValue: any?): string
+    if nullValue == nil then
+        return native.encode(value)
+    end
+    return native.encode(value, nullValue)
+end
+
+--- Serializes one Lua value as JSON; an alias of `encode`.
+--- @param value the value to serialize
+--- @param nullValue an additional value treated as JSON null
+--- @return the JSON document
+--- @export
+export function serialize(value: any, nullValue: any?): string
+    if nullValue == nil then
+        return native.serialize(value)
+    end
+    return native.serialize(value, nullValue)
+end
+
+--- Creates an incremental JSON writer.
+--- @param nullValue an additional value treated as JSON null
+--- @return a new writer
+--- @export
+export function writer(nullValue: any?): Writer
+    -- The host declaration carries the same recursive Writer interface. Crossing
+    -- through `any` keeps the wrapper from structurally unfolding the two nominal
+    -- interfaces forever while preserving this module's public contract.
+    if nullValue == nil then
+        return native.writer() as any
+    end
+    return native.writer(nullValue) as any
+end
+
+--- Decodes JSON into the nominal record named by a type witness.
+--- @param type the record type to decode
+--- @param text the JSON document
+--- @return the decoded record, or nil when it does not fit
+--- @return the failure reason, when unsuccessful
+--- @raises when JSON was not derived for the type
+--- @export
+export function decodeAs<T>(type: Type<T>, text: string): (T?, string?)
+    error("nupp: JSON was not derived for this type", 2)
+end
+
+--- Encodes a nominal record named by a type witness.
+--- @param type the record type being encoded
+--- @param value the record value
+--- @return the JSON document
+--- @raises when JSON was not derived for the type
+--- @export
+export function encodeAs<T>(type: Type<T>, borrows value: T): string
+    error("nupp: JSON was not derived for this type", 2)
+end
+
+--- Encodes a nominal record using its own metatable as the type witness.
+--- @param value the record value
+--- @return the JSON document
+--- @raises when JSON was not derived for the type
+--- @export
+export function encodeRecord<T>(borrows value: T): string
+    error("nupp: JSON was not derived for this type", 2)
+end
+
+--- Sentinel that decodes from and encodes as JSON null.
+--- @export
+export const NULL: any = native.NULL
+
+--- An explicit empty JSON array.
+--- @export
+export const EMPTY_ARRAY: table = native.EMPTY_ARRAY
+
+--- An explicit empty JSON object.
+--- @export
+export const EMPTY_OBJECT: table = native.EMPTY_OBJECT

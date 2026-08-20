@@ -1249,8 +1249,8 @@ The ownership helpers are `nupp.attemptAll`, `nupp.borrow`, `nupp.borrowFrom`,
 and `nupp.pin`. `attemptAll` tries every cleanup in order and raises the first
 failure with the rest suppressed. A local name shadows a helper.
 
-The standard library carries the container forms: `nupp.owners.set.Set` holds
-dynamic owners, `nupp.owners.store` holds self-contained cleanup capabilities
+The standard library carries the container forms: `nupp.owners.Set` holds
+dynamic owners, while `nupp.owners.Store` holds self-contained cleanup capabilities
 behind copyable generation-checked handles, and `nupp.mem.heap.Array<T>` moves
 its count with its private pointer.
 
@@ -1867,7 +1867,7 @@ local suspension = require("nupp.suspension")
 local uri = require("nupp.io.uri")
 
 function m.statuses(urls: {string}): {integer}
-    local client = assert(http.newClient())
+    local client = new http.Client()
 
     local function status(url: string): integer
         local response = assert(client:send(new http.Request(

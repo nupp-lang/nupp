@@ -1121,8 +1121,10 @@ local interface LuaFile
     write: function(self: LuaFile, ...: any): (LuaFile?, string?)
 end
 
---- File input and output. Producers return borrowed handles here; annotated wrappers in
---- `nupp.io.file` establish ownership obligations.
+--- Closes a file that leaves its owning lexical scope.
+local __nuppCloseFile: nosuspend function(takes handle: LuaFile): nil
+
+--- File input and output.
 local io: {
     --- Opens the file at `path`. Modes are "r", "w" and "a", with "+" added for update
     --- and a trailing "b" for binary.
@@ -1131,7 +1133,7 @@ local io: {
     --- @param mode the mode to open it in, "r" by default
     --- @return the file handle, or nil when it cannot be opened
     --- @return the reason it could not be opened
-    open: function(path: string, mode: string?): (LuaFile?, string?),
+    open: function(path: string, mode: string?): (affine(LuaFile, __nuppCloseFile)?, string?),
 
     --- Returns an iterator over the lines of the file at `path`, closing it once the
     --- iterator runs out, or over the default input file when `path` is omitted.
@@ -1160,6 +1162,11 @@ local io: {
     --- @return whether the file closed cleanly
     close: function(f: LuaFile?): boolean?,
 
+    --- Classifies an open or closed file handle.
+    --- @param value the value to inspect
+    --- @return "file", "closed file", or nil for another value
+    type: nosuspend function(value: any): ("file" | "closed file")?,
+
     --- Sets the default input file, opening `f` first when it is a name. With no
     --- argument it returns the current one instead.
     ---
@@ -1181,12 +1188,12 @@ local io: {
     --- @param mode which stream to connect, "r" by default
     --- @return the file handle, or nil when the process cannot start
     --- @return the reason it could not start
-    popen: function(cmd: string, mode: string?): (LuaFile?, string?),
+    popen: function(cmd: string, mode: string?): (affine(LuaFile, __nuppCloseFile)?, string?),
 
     --- Opens a temporary file in update mode, removed when the program ends.
     ---
     --- @return the file handle
-    tmpfile: function(): LuaFile?,
+    tmpfile: function(): affine(LuaFile, __nuppCloseFile)?,
 
     --- The standard output stream.
     stdout: LuaFile,

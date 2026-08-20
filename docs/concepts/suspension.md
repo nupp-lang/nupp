@@ -7,7 +7,7 @@ where a host installed a [suspension handler](#hosts-supply-scheduling-policy):
 ```nupp:playground
 local process = require("nupp.io.process")
 
-local child = assert(process.new({args = {"cc", "--version"}}))
+local child = new process.Process({args = {"cc", "--version"}} as process.Options)
 local result = assert(child:communicate())
 print(result.output)
 child:close()
@@ -51,7 +51,7 @@ local frame = require("scheduler")
 local process = require("nupp.io.process")
 
 local function printCompilerVersion(): nil
-    local child = assert(process.new({args = {"cc", "--version"}}))
+    local child = new process.Process({args = {"cc", "--version"}} as process.Options)
     print(assert(child:communicate()).output)
     child:close()
 end
@@ -108,7 +108,7 @@ An ordinary wrapper returns the value produced after the wait:
 local process = require("nupp.io.process")
 
 local function compilerVersion(): string
-    local child = assert(process.new({args = {"cc", "--version"}}))
+    local child = new process.Process({args = {"cc", "--version"}} as process.Options)
     local result = assert(child:communicate())
     child:close()
     return result.output
@@ -276,7 +276,7 @@ local process = require("nupp.io.process")
 local suspension = require("nupp.suspension")
 
 local function version(program: string): string
-    local child = assert(process.new({args = {program, "--version"}}))
+    local child = new process.Process({args = {program, "--version"}} as process.Options)
     local result = assert(child:communicate())
     child:close()
     return result.output

@@ -1222,6 +1222,8 @@ function declare.install(
             n.staticEntries = {}
             n.overloadedStatics = {}
             n.defaultEntries = {}
+            n.constructors = {}
+            n.constructorEntries = {}
             c.nominalEffectOwners[n] = true
             n.annotations = stat.semanticAnnotations or {}
             -- bind the name first so fields may reference the type recursively
@@ -1275,9 +1277,9 @@ function declare.install(
             if n.declKind == "interface" and stat.sealedTok then
                 n.sealedModule = n.moduleName or c.filename
             end
-            if c.result.moduleName == "nupp.owners.set" and n.name == "Set" then
+            if c.result.moduleName == "nupp.owners" and n.name == "Set" then
                 n.resourceSet = true
-            elseif c.result.moduleName == "nupp.owners.store" and n.name == "StoreState" then
+            elseif c.result.moduleName == "nupp.owners" and n.name == "StoreState" then
                 n.dynamicStore = true
             end
 

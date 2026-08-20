@@ -316,7 +316,7 @@ ordinary result:
 ```nupp
 local process = require("nupp.io.process")
 
-local child = assert(process.new({args = {"cc", "--version"}}))
+local child = new process.Process({args = {"cc", "--version"}} as process.Options)
 local result = assert(child:communicate())
 print(result.output)
 child:close()

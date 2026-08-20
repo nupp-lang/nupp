@@ -8,7 +8,7 @@ implementation uses, not just code it generates for a checked program:
   - `const NAME = value`, LuaJIT's backported immutable-local declaration
   - `0x...ULL`-style 64-bit cdata integer literals, in the content-hash
     function nupp.compiler.build.hash uses for incremental build caching
-  - Nupp's `? :` and `??` expressions, in nupp.data.bitset
+  - Nupp's `? :` and `??` expressions, in nupp.data.Bitset
 
 These are found with the bootstrap compiler's OWN lexer — loaded from the very
 file being patched — rather than regexes, because a regex can't tell "real

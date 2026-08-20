@@ -479,23 +479,23 @@ function M.stringFormatDerivesArgumentsFromLiteralFormats()
       "NUPP2006", "argument 2: string is not a Debug")
 end
 
-function M.stringFormatSyntaxIsReusableByUserFormattingWrappers()
+function M.formatArgumentsIsReusableByUserFormattingWrappers()
    clean(table.concat({
-      "local function format<F is string>(fmt: F, ...: unpackof nupp.format.StringFormatSyntax(F)): string",
+      "local function format<F is string>(fmt: F, ...: unpackof nupp.types.formatArguments(F)): string",
       "   return string.format(fmt, ...)",
       "end",
       "local value = format('%s=%d', 'count', 3)",
       "print(value)",
    }, "\n"))
    oneDiagnostic(table.concat({
-      "local function format<F is string>(fmt: F, ...: unpackof nupp.format.StringFormatSyntax(F)): string",
+      "local function format<F is string>(fmt: F, ...: unpackof nupp.types.formatArguments(F)): string",
       "   return string.format(fmt, ...)",
       "end",
       "local value = format('%d', 'wrong')",
       "print(value)",
    }, "\n"), "NUPP2006", "argument 2: string is not a number")
    oneDiagnostic(table.concat({
-      "local function format<F is string>(fmt: F, ...: unpackof nupp.format.StringFormatSyntax(F)): string",
+      "local function format<F is string>(fmt: F, ...: unpackof nupp.types.formatArguments(F)): string",
       "   return string.format(fmt, ...)",
       "end",
       "local value = format('%?', {})",

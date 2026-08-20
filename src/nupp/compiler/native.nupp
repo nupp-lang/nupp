@@ -16,6 +16,7 @@ type native.Feature = {
     name: string,
     globals: {string}?,
     module: string?,
+    exports: {string}?,
     cargo: string?,
     cargoFeature: string?,
     library: string?,
@@ -76,7 +77,7 @@ local FEATURES: {[string]: native.Feature} = {
         "native.uuid"
     ] = {
         name = "uuid",
-        modules = {"nupp.data.uuid4", "nupp.data.uuid7"},
+        exports = {"nupp.data.uuid4", "nupp.data.uuid7"},
         cargo = "runtime/native/Cargo.toml",
         cargoFeature = "uuid",
         library = "nupp_native",
@@ -143,7 +144,7 @@ local FEATURES: {[string]: native.Feature} = {
         "native.sha256"
     ] = {
         name = "sha256",
-        modules = {"nupp.data.sha256"},
+        exports = {"nupp.data.sha256"},
         cargo = "runtime/native/Cargo.toml",
         cargoFeature = "sha256",
         library = "nupp_native",
@@ -151,7 +152,7 @@ local FEATURES: {[string]: native.Feature} = {
     },
 }
 
-local byGlobal, byModule, byName = {}, {}, {}
+local byGlobal, byModule, byModuleMember, byName = {}, {}, {}, {}
 for effect, feature in pairs(FEATURES) do
     if feature.binary then
         byName[feature.name] = effect
@@ -164,6 +165,13 @@ for effect, feature in pairs(FEATURES) do
     end
     for _, moduleName in ipairs(feature.modules or {}) do
         byModule[moduleName] = effect
+    end
+    for _, path in ipairs(feature.exports or {}) do
+        local moduleName, member = path:match("^(.*)%.([^.]+)$")
+        if moduleName and member then
+            byModuleMember[moduleName] = byModuleMember[moduleName] or {}
+            byModuleMember[moduleName][member] = effect
+        end
     end
 end
 
@@ -215,6 +223,11 @@ end
 
 function native.forModule(name: string): string?
     return byModule[name]
+end
+
+function native.forModuleMember(name: string, member: string): string?
+    local members = byModuleMember[name]
+    return members and members[member] or nil
 end
 
 function native.feature(effect: string): native.Feature?

@@ -79,7 +79,7 @@ else
         *) COMMON_DIR="$ROOT/$COMMON_DIR" ;;
     esac
     REPOSITORY_ROOT=$(dirname "$COMMON_DIR")
-    SHARED_NATIVE="$REPOSITORY_ROOT/.nupp-cache/native-dev-files-process-http-uri"
+    SHARED_NATIVE="$REPOSITORY_ROOT/.nupp-cache/native-dev-all"
 fi
 if [ ! -e "$SHARED_NATIVE" ] && [ -d "$ROOT/build/native/nupp_native" ]; then
     mkdir -p "$(dirname "$SHARED_NATIVE")"
@@ -103,4 +103,3 @@ fi
 
 echo "created $TASK_ROOT"
 echo "seeded compiler, test scheduling, and native build caches where available"
-

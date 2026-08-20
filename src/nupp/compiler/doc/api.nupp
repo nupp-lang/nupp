@@ -301,8 +301,6 @@ local function renderHtmlMembers(
                 nil,
                 method.comptimeKind and "comptime " .. method.comptimeKind or nil
             )
-            out[#out + 1] = annotationBadges(method.annotations)
-            out[#out + 1] = markdownHtml(method.text, links)
             out[
                 #out + 1
             ] = '<div class="nuppdoc-code-block" data-lang="nupp"><pre>'
@@ -311,6 +309,8 @@ local function renderHtmlMembers(
                 method.name .. ": " .. method.type,
                 links
             ) .. "</code></pre></div>"
+            out[#out + 1] = annotationBadges(method.annotations)
+            out[#out + 1] = markdownHtml(method.text, links)
             if #method.params > 0 then
                 local rows = {}
                 for _, param in ipairs(method.params) do
@@ -359,8 +359,6 @@ local function renderHtmlMembers(
                 nil,
                 field.comptimeKind and "comptime " .. field.comptimeKind or nil
             )
-            out[#out + 1] = annotationBadges(field.annotations)
-            out[#out + 1] = markdownHtml(field.text, links)
             out[
                 #out + 1
             ] = '<div class="nuppdoc-code-block" data-lang="nupp"><pre>'
@@ -369,6 +367,8 @@ local function renderHtmlMembers(
                 field.name .. ": " .. field.type,
                 links
             ) .. "</code></pre></div>"
+            out[#out + 1] = annotationBadges(field.annotations)
+            out[#out + 1] = markdownHtml(field.text, links)
             out[#out + 1] = "</div>"
         end
     end
@@ -394,8 +394,6 @@ local function renderHtmlItem(
     ) .. '</span><a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
         item.path
     ) .. '" aria-label="Link to ' .. htmlEscape(item.name) .. '">#</a></h3>'
-    out[#out + 1] = annotationBadges(item.annotations)
-    out[#out + 1] = markdownHtml(item.doc.text, links)
     out[
         #out + 1
     ] = '<div class="nuppdoc-code-block" data-lang="nupp"><pre>' .. '<code class="language-nupp">' .. highlightNupp(
@@ -403,6 +401,8 @@ local function renderHtmlItem(
         links,
         structureMemberLinks(item, links)
     ) .. "</code></pre></div>"
+    out[#out + 1] = annotationBadges(item.annotations)
+    out[#out + 1] = markdownHtml(item.doc.text, links)
     if #item.typeargs > 0 then
         local rows = {}
         for _, typearg in ipairs(item.typeargs) do

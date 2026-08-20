@@ -513,9 +513,7 @@ function M.theStandardLibraryIsTypedOutsideThisTree()
    local dir = tempProject({
       ["nupp.lua"] = STD_MANIFEST,
       ["typed.nupp"] = [[
-local file = require("nupp.io.file")
-
-local wrong: integer = file.open("x", "r")
+local wrong: integer = io.open("x", "r")
 
 return wrong
 ]],
@@ -526,6 +524,25 @@ return wrong
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.theTypesNamespaceCarriesItsCheckedFunctionsOutsideThisTree()
+   local dir = tempProject({
+      ["nupp.lua"] = STD_MANIFEST,
+      ["format.nupp"] = [[
+local function format<F is string>(
+    value: F,
+    ...: unpackof nupp.types.formatArguments(F)
+): string
+    return string.format(value, ...)
+end
+
+print(format("%s=%d", "answer", 42))
+]],
+   })
+   local out, ok = run(dir, "'" .. NUPP .. "' check --strict format.nupp")
+   assert(ok, "nupp.types checked functions are carried with the compiler: " .. out)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- Typed is not enough on its own: the ownership contract has to cross too, or an
 -- ordinary local cannot arrange automatic cleanup.
 function M.theStandardLibraryCarriesItsOwnershipOutsideThisTree()
@@ -533,17 +550,13 @@ function M.theStandardLibraryCarriesItsOwnershipOutsideThisTree()
       ["nupp.lua"] = STD_MANIFEST,
       ["input.txt"] = "hello\n",
       ["acquire.nupp"] = [[
-local file = require("nupp.io.file")
-
 do
-    local file = file.open("input.txt", "r")
+    local file = assert(io.open("input.txt", "r"))
     print(file:read("*a"))
 end
 ]],
       ["leak.nupp"] = [[
-local file = require("nupp.io.file")
-
-local handle = file.open("input.txt", "r")
+local handle = assert(io.open("input.txt", "r"))
 
 return 1
 ]],

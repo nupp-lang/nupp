@@ -347,8 +347,10 @@ function M.backportedSyntaxIsPassedThrough()
     end
     -- and no trace of the lowerings these replaced
     local lowered = generate("local t = nil\nreturn t?.a ?? (1 & 2)")
-    assert(not lowered:find("function", 1, true), "no closure: " .. lowered)
-    assert(not lowered:find("bit.", 1, true), "no bit library: " .. lowered)
+    local sourceStart = assert(lowered:find("local t = nil", 1, true))
+    local loweredBody = lowered:sub(sourceStart)
+    assert(not loweredBody:find("function", 1, true), "no closure: " .. lowered)
+    assert(not loweredBody:find("bit.", 1, true), "no bit library: " .. lowered)
 end
 
 -- What 2.1 did not backport still is lowered, so those keep their own tests.

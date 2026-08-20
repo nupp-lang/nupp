@@ -211,7 +211,7 @@ function M.nativeFeaturesAreResolvedEffects()
 
    assertClean(table.concat({
       "const {Path} = require('nupp.io.path')",
-      "local source: nupp.io.path.Path = new Path('src', 'main.nupp')",
+      "local source: nupp.io.path.Path = nupp.io.path.of('src', 'main.nupp')",
       "local components: nupp.io.uri.Components = nil as any",
       "local newURI: function(",
       "    value: string | nupp.io.uri.Components",
@@ -220,12 +220,11 @@ function M.nativeFeaturesAreResolvedEffects()
       "print(source, address)",
    }, "\n"))
 
-   -- A namespace that is entirely modules cannot be bound to a local: there is no
-   -- value at `nupp.data`, only modules beneath it. Requiring one is the spelling,
-   -- and the effect is recorded there.
+   -- A native provider is selected only when the relevant member is reached through
+   -- the data module.
    local aliased = effectsOf(table.concat({
-      "const digest = require('nupp.data.sha256')",
-      "digest('hello')",
+      "const data = require('nupp.data')",
+      "data.sha256('hello')",
    }, "\n"))
    assert(aliased["native.sha256"], "requiring a facility records its feature")
    assert(not aliased["native.uuid"], "equal function signatures do not share effects")
@@ -237,8 +236,8 @@ end
 function M.processViewsSatisfyTheSharedContracts()
    assertClean(table.concat({
       "local process = require('nupp.io.process')",
-      "local child, spawnReason = process.new({args = {'true'}})",
-      "local running = assert(child, spawnReason)",
+      "local child = new process.Process({args = {'true'}} as process.Options)",
+      "local running = child",
       "print(running.pid)",
    }, "\n"))
    assertClean(table.concat({
@@ -270,7 +269,7 @@ function M.processSurfaceIsBundledOutsideThisCheckout()
    local isolated = envMod.new(os.tmpname() .. "-nupp-process-surface")
    local source = table.concat({
       "local process = require('nupp.io.process')",
-      "local child = process.new({args = {'true'}})",
+      "local child = new process.Process({args = {'true'}} as process.Options)",
       "assert(child:isRunning() or not child:isRunning())",
    }, "\n")
    local result = parser.parse(source, "outside.g.nupp")
@@ -316,12 +315,12 @@ function M.generatedBootstrapFollowsWhatCodegenEmits()
    assertEq(#diagnostics, 0, "the optimized feature fragment generates")
    assert(not emitted["native.sha256"] and emitted["native.uuid"],
       "generation reports only features whose consumers it wrote")
-   -- Both facilities are modules, so what generation drops is the require rather than
-   -- an installer: the folded-away branch leaves nothing behind to load.
-   assert(not code:find("nupp.data.sha256", 1, true),
-      "the dead SHA-256 branch takes its require with it")
-   assert(code:find("nupp.data.uuid4", 1, true),
-      "the live UUID branch keeps its require")
+   -- Both facilities are members of one module. The live UUID keeps that module,
+   -- while the folded branch no longer reaches the SHA member.
+   assert(not code:find("sha256", 1, true),
+      "the dead SHA-256 branch loses its member access")
+   assert(code:find("uuid4", 1, true),
+      "the live UUID branch keeps its member access")
 end
 
 -- What the bootstrap still installs, which is the maths and nothing else: buffers,
@@ -349,33 +348,35 @@ function M.compilerProvidedPureLibraries()
       assert(nupp.math.lerp(10, 20, 0.25) == 12.5)
       assert(nupp.math.lerp(10, 20, 1) == 20)
       assert(nupp.math.lerp(10, 20, 1.5) == 25)
-      -- Hashing is two ordinary modules rather than something the bootstrap
-      -- installs, so these are required rather than read off the ambient table.
-      local fnv1a64 = require("nupp.data.fnv1a64")
-      local crc32 = require("nupp.data.crc32")
-      assert(fnv1a64("hello") == "a430d84680aabd0b")
-      assert(crc32("123456789") == 3421780262)
-      assert(not pcall(crc32, "bytes", 4294967296))
+      -- Hashing lives directly on the data module.
+      local data = require("nupp.data")
+      assert(data.fnv1a64("hello") == "a430d84680aabd0b")
+      assert(data.crc32("123456789") == 3421780262)
+      assert(not pcall(data.crc32, "bytes", 4294967296))
+      assert(data.sha256("abc") ==
+         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+      assert(data.uuid4():sub(15, 15) == "4")
+      assert(data.uuid7():sub(15, 15) == "7")
    ]]))
    local ok, problem = pcall(chunk)
    _G.nupp = previous
    assert(ok, problem)
 end
 
--- Bitsets are an ordinary module, so `nupp.data.bitset` in source is a qualified
--- module path rather than a field an installer publishes. Nothing is installed to
--- reach, and the module is what both spellings arrive at.
+-- Bitset is the data module's nominal record. Plain-Lua tests call the constructor
+-- implementation that checked `new data.Bitset(...)` lowers to.
 function M.bitsetsReachTheCheckedModule()
    local chunk = assert(loadstring([[
-      local bitset = require("nupp.data.bitset")
-      local set = bitset.create(64)
+      local data = require("nupp.data")
+      local function bitset(bits) return data.Bitset.__nuppCtor1(bits) end
+      local set = bitset(64)
       assert(set:count() == 0)
       set:set(5)
       set:setRange(40, 70)
       assert(set:count() == 32)
       assert(set:get(5) and set:get(70) and not set:get(71))
 
-      local other = bitset.create(64)
+      local other = bitset(64)
       other:setRange(0, 50)
       set:andWith(other)
       assert(set:count() == 12)
@@ -388,9 +389,9 @@ function M.bitsetsReachTheCheckedModule()
       assert(target[0] == 5, "first position")
       assert(resume == 43, "and reported where to carry on")
 
-      assert(bitset.WORD_BITS == 32)
+      assert(data.WORD_BITS == 32)
       assert(set:wordAt(0) == 32)
-      assert(bitset.create(8) ~= bitset.create(8))
+      assert(bitset(8) ~= bitset(8))
    ]]))
    local ok, problem = pcall(chunk)
    assert(ok, problem)
@@ -441,6 +442,62 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
    -- calling a method the prelude used to publish.
    assert(code:find("nupp.io.files#destroyOwner", 1, true),
       "an open file is dropped at the end of its scope, through its module's terminal")
+end
+
+function M.luaFilesAndPublicResourcesUseAffineConstructors()
+   assertEq((diagsOf("io.open('input.txt')")), "NUPP2605:1")
+   assertEq((diagsOf("io.popen('true')")), "NUPP2605:1")
+   assertEq((diagsOf("io.tmpfile()")), "NUPP2605:1")
+   assertClean(table.concat({
+      "do",
+      "    local file = assert(io.open('input.txt'))",
+      "    local text: string? = file:read('*a')",
+      "end",
+   }, "\n"))
+
+   local source = "do\n    local file = assert(io.open('input.txt'))\nend"
+   local parsed = parser.parse(source, "lua-file-owner.g.nupp")
+   assertEq(#parsed.errors, 0, "syntax errors in the Lua file ownership fragment")
+   sharedEnv.loaded = {}
+   check.check(parsed, "lua-file-owner.g.nupp", sharedEnv)
+   local code = gen.generate(parsed, "lua-file-owner")
+   assert(code:find("__nuppCloseFile", 1, true),
+      "a Lua file is closed automatically at the end of its scope")
+
+   assertClean(table.concat({
+      "const http = require('nupp.io.http')",
+      "const process = require('nupp.io.process')",
+      "do local client = new http.Client() end",
+      "do local child = new process.Process({args = {'true'}} as process.Options) end",
+   }, "\n"))
+   assertEq((diagsOf(table.concat({
+      "const http = require('nupp.io.http')",
+      "http.newClient()",
+   }, "\n"))), "NUPP2004:2")
+   assertEq((diagsOf(table.concat({
+      "const process = require('nupp.io.process')",
+      "process.new({args = {'true'}})",
+   }, "\n"))), "NUPP2004:2")
+
+   assertClean(table.concat({
+      "const path = require('nupp.io.path')",
+      "local source: path.Path = path.of('src', 'main.nupp')",
+      "print(source)",
+   }, "\n"))
+   assertEq((diagsOf(table.concat({
+      "const path = require('nupp.io.path')",
+      "local value = new path.Path()",
+   }, "\n"))), "NUPP2209:2")
+
+   local path = require("nupp.io.path")
+   local first = path.of("cache", "first")
+   assert(rawequal(first, path.of("cache", "first")), "path.of interns equal path text")
+   assert(path.Path.__nuppCtor1 == nil, "Path exposes no generated constructor")
+   for index = 1, 1024 do
+      path.of("cache", tostring(index))
+   end
+   assert(not rawequal(first, path.of("cache", "first")),
+      "path.of evicts the least recently used path after 1024 entries")
 end
 
 function M.bufferAppendsInAmortizedConstantTime()

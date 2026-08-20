@@ -143,7 +143,7 @@ end
 function M.dynamicHandlesKeepPolicyAndUseThePatchedCleanupSlot()
    local function source(multiplier)
       return table.concat({
-         "local stores = require('nupp.owners.store')",
+         "local stores = require('nupp.owners')",
          "local cleaned: integer = 0",
          "local record Item value: integer end",
          "local function closeItem(takes item: Item): nil",
@@ -153,7 +153,7 @@ function M.dynamicHandlesKeepPolicyAndUseThePatchedCleanupSlot()
          "   return new Item(value = 3)",
          "end",
          "local function make(): (stores.Store, stores.Handle<Item>)",
-         "   local store = stores.new()",
+         "   local store = stores.newStore()",
          "   local handle = store:put(openItem())",
          "   return store, handle",
          "end",
@@ -179,7 +179,7 @@ end
 function M.liveDynamicPoliciesRejectAnIncompatiblePatchTransactionally()
    local function source(openName)
       return table.concat({
-         "local stores = require('nupp.owners.store')",
+         "local stores = require('nupp.owners')",
          "local M = {}",
          "local cleaned: integer = 0",
          "local record Item value: integer end",
@@ -188,7 +188,7 @@ function M.liveDynamicPoliciesRejectAnIncompatiblePatchTransactionally()
          "function M.openA(): affine(Item, closeA) return new Item(value = 2) end",
          "function M.openB(): affine(Item, closeB) return new Item(value = 2) end",
          "function M.make(): (stores.Store, stores.Handle<Item>)",
-         "   local store = stores.new()",
+         "   local store = stores.newStore()",
          "   local handle = store:put(M." .. openName .. "())",
          "   return store, handle",
          "end",

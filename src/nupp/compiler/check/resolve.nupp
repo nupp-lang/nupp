@@ -561,10 +561,27 @@ function resolve.install(c: state.Checker): nil
                 return result
             end
             local helper = name ~= "" and c.comptimeFunctions[name] or nil
+            local helperLookupName = name
+            if not helper then
+                local member = name:match("^nupp%.types%.([%a_][%w_]*)$")
+                if member then
+                    local implementation = "__NuppTypes" .. member:sub(1, 1):upper() .. member:sub(2)
+                    helper = c.comptimeFunctions[implementation]
+                    helperLookupName = implementation
+                    if helper then
+                        local publicHelper = {}
+                        for key, value in pairs(helper) do
+                            publicHelper[key] = value
+                        end
+                        publicHelper.comptimeName = member
+                        helper = publicHelper
+                    end
+                end
+            end
             local helperType, helperDefinition = nil, nil
             if helper then
-                helperType, helperDefinition = c.lookupVar(name)
-                helperType = helperType or helper.comptimeSignature
+                helperType, helperDefinition = c.lookupVar(helperLookupName)
+                helperType = helperType or helper.comptimeSignature or (helper.body and helper.body.signatureType)
             elseif #calleeParts > 1 and c.env and c.env.resolveModuleExports then
                 local member = table.remove(calleeParts)
                 local moduleName = table.concat(calleeParts, ".")

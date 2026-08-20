@@ -1497,11 +1497,8 @@ function lsp.run(rootDir: string?): integer
         local path = ("package.path=%q .. package.path"):format(compilerRoot .. "/build/?.lua;")
         relayArgs = {"luajit", "-e", path, compilerRoot .. "/build/nupp/compiler/main.lua", "__lsp-reader",}
     end
-    local relay, problem = process.new({args = relayArgs, stdin = "inherit", stdout = "pipe", stderr = "inherit",})
-    if not relay then
-        io.stderr:write("nupp-lsp: cannot start input reader: " .. tostring(problem) .. "\n")
-        return 1
-    end
+    local relayOptions: process.Options = {args = relayArgs, stdin = "inherit", stdout = "pipe", stderr = "inherit",}
+    local relay = new process.Process(relayOptions)
     local reader = assert(relay.stdout)
     local buffered = ""
     local queued = {}

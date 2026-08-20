@@ -14,6 +14,10 @@ local M = {}
 local root, process, buffers, priorPreload, priorLoaded
 local unavailable
 
+local function startProcess(options)
+   return process.Process.__nuppCtor1(options)
+end
+
 local function temporaryRoot()
    local base = os.getenv("TMPDIR") or os.getenv("TEMP") or "/tmp"
    base = base:gsub("\\", "/")
@@ -87,8 +91,8 @@ local function ready()
 end
 
 function M.communicateDrainsRealPipesWhileFeedingInput()
-   local api = ready()
-   local child = assert(api.new({
+   ready()
+   local child = assert(startProcess({
       args = shell("read line; printf 'out:%s' \"$line\"; printf 'err:%s' \"$line\" >&2"),
    }))
    local result = assert(child:communicate({input = "joined\n"}))
@@ -100,8 +104,8 @@ function M.communicateDrainsRealPipesWhileFeedingInput()
 end
 
 function M.stderrCanJoinTheActualStdoutDestination()
-   local api = ready()
-   local child = assert(api.new({
+   ready()
+   local child = assert(startProcess({
       args = shell("printf out; printf err >&2"),
       stderr = "stdout",
    }))
@@ -114,8 +118,8 @@ function M.stderrCanJoinTheActualStdoutDestination()
 end
 
 function M.deadlineEndsAQuietRealChild()
-   local api = ready()
-   local child = assert(api.new({
+   ready()
+   local child = assert(startProcess({
       args = shell("sleep 10"),
       stdout = "null",
       stderr = "null",
@@ -131,7 +135,7 @@ end
 
 function M.sharedViewsUseTheRealStreamsAndDeliverEof()
    local api = ready()
-   local child = assert(api.new({args = shell("cat"), stderr = "null"}))
+   local child = assert(startProcess({args = shell("cat"), stderr = "null"}))
    local writer = api.asWriter(assert(child.stdin))
    local reader = api.asReader(assert(child.stdout))
    assert(writer:write("adapter"))
@@ -150,9 +154,8 @@ function M.sharedViewsUseTheRealStreamsAndDeliverEof()
 end
 
 function M.theTecsPublicCallShapesRunAgainstTheNuppModule()
-   local api = ready()
-   local child, reason = api.new({args = shell("cat"), stderr = "null"})
-   assert(child, reason)
+   ready()
+   local child = startProcess({args = shell("cat"), stderr = "null"})
    assert(type(child.pid) == "number" and child.pid > 0)
    child.stdin:setTimeout(1000)
    child.stdout:setTimeout(1000)
@@ -169,19 +172,18 @@ function M.theTecsPublicCallShapesRunAgainstTheNuppModule()
    assert(child:close())
 end
 
-function M.creationFailureIsReturnedRatherThanRaised()
-   local api = ready()
-   local child, reason = api.new({args = {"/no/such/nupp-program"}})
-   test.equal(child, nil)
-   assert(type(reason) == "string" and #reason > 0)
+function M.creationFailureIsRaisedByTheConstructor()
+   ready()
+   local ok, reason = pcall(startProcess, {args = {"/no/such/nupp-program"}})
+   assert(not ok and type(reason) == "string" and #reason > 0)
 end
 
 -- A pipe is written through the backend, which takes bytes rather than a pointer, so
 -- there is no shorter path for raw storage to take. Saying so is what keeps a caller
 -- holding a pointer from assuming there is one.
 function M.aProcessWriterTakesNoRawBytes()
-   local api = ready()
-   local child = assert(api.new({args = shell("cat > /dev/null")}))
+   ready()
+   local child = assert(startProcess({args = shell("cat > /dev/null")}))
    test.equal(child.stdin:acceptsRaw(), false)
    local wrote, reason = child.stdin:writeRaw(nil, 0)
    test.equal(wrote, nil)
@@ -192,16 +194,16 @@ function M.aProcessWriterTakesNoRawBytes()
 end
 
 function M.communicateAcceptsBuffersAndEnforcesItsCombinedLimit()
-   local api = ready()
+   ready()
    local input = buffers.newBuffer("buffer input")
-   local child = assert(api.new({args = shell("cat"), stderr = "null"}))
+   local child = assert(startProcess({args = shell("cat"), stderr = "null"}))
    local result, reason = child:communicate({input = input})
    assert(result, reason)
    test.equal(result.output, "buffer input")
    assert(child:close())
    assert(input:close())
 
-   local noisy = assert(api.new({
+   local noisy = assert(startProcess({
       args = shell("printf 12345; printf 67890 >&2"),
    }))
    local limited, limitReason = noisy:communicate({maxOutputBytes = 6})
@@ -211,8 +213,8 @@ function M.communicateAcceptsBuffersAndEnforcesItsCombinedLimit()
 end
 
 function M.environmentAndWorkingDirectoryKeepTheirTecsMeaning()
-   local api = ready()
-   local child = assert(api.new({
+   ready()
+   local child = assert(startProcess({
       args = shell("printf '%s|%s' \"$PWD\" \"$NUPP_PROCESS_MARKER\""),
       cwd = "/",
       clearEnv = true,
@@ -229,18 +231,18 @@ function M.environmentAndWorkingDirectoryKeepTheirTecsMeaning()
 end
 
 function M.plainLuaReceivesTheSameArgumentAndTimeoutChecks()
-   local api = ready()
+   ready()
 
-   local ok, reason = pcall(api.new, {args = {}})
+   local ok, reason = pcall(startProcess, {args = {}})
    assert(not ok and tostring(reason):find("contain a program", 1, true), tostring(reason))
 
-   ok, reason = pcall(api.new, {args = {SHELL, false}})
+   ok, reason = pcall(startProcess, {args = {SHELL, false}})
    assert(not ok and tostring(reason):find("must be a string", 1, true), tostring(reason))
 
-   ok, reason = pcall(api.new, {args = {SHELL}, timeoutMs = 1.5})
+   ok, reason = pcall(startProcess, {args = {SHELL}, timeoutMs = 1.5})
    assert(not ok and tostring(reason):find("timeout", 1, true), tostring(reason))
 
-   local child = assert(api.new({args = shell("cat"), stderr = "null"}))
+   local child = assert(startProcess({args = shell("cat"), stderr = "null"}))
    ok, reason = pcall(child.stdin.setTimeout, child.stdin, 1.5)
    assert(not ok and tostring(reason):find("timeout", 1, true), tostring(reason))
    ok, reason = pcall(child.stdout.setTimeout, child.stdout, 1.5)

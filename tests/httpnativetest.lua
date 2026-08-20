@@ -13,6 +13,14 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local root, http, buffers, process, files, port, server
 local priorPreload, priorLoaded, unavailable
 
+local function startProcess(options)
+   return process.Process.__nuppCtor1(options)
+end
+
+local function newHttpClient(options)
+   return http.Client.__nuppCtor1(options)
+end
+
 local function temporaryRoot()
    local base = os.getenv("TMPDIR") or "/tmp"
    return (base:gsub("/$", "")) .. "/nupp-http-test-" .. tostring(os.time())
@@ -21,12 +29,10 @@ end
 
 local function startServer()
    local portFile = root .. "/port"
-   local problem
-   server, problem = process.new({
+   server = startProcess({
       args = {"python3", HERE .. "/fixtures/http_server.py", portFile},
       stdin = "null", stdout = "null", stderr = "null",
    })
-   if not server then return nil, "cannot start python3: " .. tostring(problem) end
    local started = os.clock()
    while os.clock() - started < 5 do
       local file = io.open(portFile, "rb")
@@ -108,11 +114,11 @@ local function ready()
    if unavailable then
       test.skip("the HTTP provider is unavailable: " .. unavailable)
    end
-   return assert(http.newClient({
+   return newHttpClient({
       timeoutMs = 10000,
       maxConnections = 8,
       maxConnectionsPerHost = 8,
-   }))
+   })
 end
 
 local function endpoint(path)
@@ -180,10 +186,10 @@ function M.selectivelyInsecureClientsRerouteEveryRedirect()
    if unavailable then
       test.skip("the HTTP provider is unavailable: " .. unavailable)
    end
-   local client = assert(http.newClient({
+   local client = newHttpClient({
       insecureHosts = {"127.0.0.1"},
       headers = {Authorization = "secret"},
-   }))
+   })
    local response, reason = client:send({url = endpoint("/redirect")})
    assert(response, reason)
    test.equal(response.url:host(), "localhost")
@@ -352,7 +358,7 @@ function M.admissionParksUntilAnUnreadBodyReleasesItsSlot()
    if unavailable then
       test.skip("the HTTP provider is unavailable: " .. unavailable)
    end
-   local client = assert(http.newClient({maxPendingRequests = 1, timeoutMs = 10000}))
+   local client = newHttpClient({maxPendingRequests = 1, timeoutMs = 10000})
    local first = assert(client:send({url = endpoint("/large")}))
    test.equal(client:pending(), 1)
    local released = false

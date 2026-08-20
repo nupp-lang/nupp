@@ -867,13 +867,14 @@ function derive.install(namespace: any): nil
     -- `nupp.data.json`'s type-directed entry points are the derived codec seen from
     -- the other side: the caller names a type rather than holding a derived value.
     local api = require("nupp.data.json")
-    api.decodeAs = function(typeObject: any, text: string): (any, string?)
+    local mutable = api as {[string]: any}
+    mutable.decodeAs = function(typeObject: any, text: string): (any, string?)
         return derive.fromJSON(text, jsonEntry(typeObject))
     end
-    api.encodeAs = function(typeObject: any, value: any): string
+    mutable.encodeAs = function(typeObject: any, value: any): string
         return derive.toJSON(value, jsonEntry(typeObject))
     end
-    api.encodeRecord = function(value: any): string
+    mutable.encodeRecord = function(value: any): string
         return derive.toJSON(value, jsonEntry(getmetatable(value)))
     end
 end

@@ -6,7 +6,7 @@ Starts a child process and drains its streams without deadlocking.
 ```nupp
 local process = require("nupp.io.process")
 
-local child = assert(process.new({args = {"cc", "--version"}}))
+local child = new process.Process({args = {"cc", "--version"}})
 local result = assert(child:communicate())
 print(result.output)
 child:close()
@@ -364,10 +364,14 @@ end
 local READ_LIMIT: integer = 65536
 
 local progressed, releasePump, await, awaitTick, pumpOnce, readForCompletion
+local validateOptions: function(options: process.Options): nil
+local nativeBackend: function(): process.Backend
+local newReader: function(owner: any, handle: any): any
+local newWriter: function(owner: any, handle: any): any
 
--- The backend `process.new` uses, installed by whichever platform module is loaded.
--- Kept internal: a caller naming its platform is a caller that has to change when it
--- moves to another one.
+-- The backend `new process.Process(...)` uses, installed by whichever platform module
+-- is loaded. Kept internal: a caller naming its platform is a caller that has to change
+-- when it moves to another one.
 local defaultBackend: process.Backend? = nil
 
 --- One of a child's readable streams.
@@ -892,6 +896,92 @@ record process.Process
     --- Its standard error, when it was piped.
     stderr: process.Reader?
 
+    --- Starts a child process.
+    ---
+    --- The child is an owner: closing it ends the process, waits for the exit, and
+    --- releases every stream, and the same runs when its scope ends. Reading a stream
+    --- or waiting for the exit suspends, so a caller under a scheduler keeps its
+    --- frame.
+    ---
+    --- ```nupp
+    --- local child = new process.Process({
+    ---     args = {"grep", "-c", "nupp"},
+    ---     stderr = "stdout",
+    --- })
+    --- local result = assert(child:communicate({input = text}))
+    --- child:close()
+    --- ```
+    ---
+    --- @param self the process being initialized
+    --- @param options what to run and how to connect it
+    --- @raises when the options are invalid or the child cannot be started
+    constructor(self, options: process.Options): affine(process.Process, process.Process.destroy)
+        local backend = defaultBackend
+        if backend == nil then
+            backend = nativeBackend()
+            defaultBackend = backend
+        end
+        validateOptions(options)
+        local handle, inHandle, outHandle, errHandle, pid, problem = (backend as process.Backend):spawn(options)
+        if handle == nil then
+            error(problem or "the process could not be started", 2)
+        end
+        self.stdin = nil
+        self.stdout = nil
+        self.stderr = nil
+        self.backend = backend as process.Backend
+        self.handle = handle
+        self.exit = nil
+        self.reaped = false
+        self.childReleased = false
+        self.closing = false
+        self.closingBy = nil
+        self.pump = nil
+        self.timedOut = false
+        self.pid = pid
+        self.deadline = options.timeoutMs ~= nil and ((backend as process.Backend):now() + options.timeoutMs) or nil
+        self.stdin = newWriter(self, inHandle)
+        self.stdout = newReader(self, outHandle)
+        self.stderr = newReader(self, errHandle)
+    end
+
+    --- Starts a child against an explicit backend for state-machine tests.
+    --- @internal
+    --- @raises when the options are invalid or the child cannot be started
+    constructor(
+        self,
+        backend: process.Backend,
+        options: process.Options
+    ): affine(process.Process, process.Process.destroy)
+        validateOptions(options)
+        local handle, inHandle, outHandle, errHandle, pid, problem = backend:spawn(options)
+        if handle == nil then
+            error(problem or "the process could not be started", 2)
+        end
+        self.stdin = nil
+        self.stdout = nil
+        self.stderr = nil
+        self.backend = backend
+        self.handle = handle
+        self.exit = nil
+        self.reaped = false
+        self.childReleased = false
+        self.closing = false
+        self.closingBy = nil
+        self.pump = nil
+        self.timedOut = false
+        self.pid = pid
+        self.deadline = options.timeoutMs ~= nil and (backend:now() + options.timeoutMs) or nil
+        self.stdin = newWriter(self, inHandle)
+        self.stdout = newReader(self, outHandle)
+        self.stderr = newReader(self, errHandle)
+    end
+
+    --- Releases the process when its owner leaves scope.
+    function destroy(takes self): nil
+        self:drop()
+    end
+
     --- Whether it is still running.
     function isRunning(self): boolean
         if self.exit ~= nil then
@@ -1253,10 +1343,6 @@ function process.Process.drop(takes self: process.Process): nil
     self:close()
 end
 
-function process.destroyProcess(takes self: process.Process): nil
-    self:drop()
-end
-
 -- Whether the child has ended since last asked.
 progressed = function(self: any): integer
     local moved = 0
@@ -1482,7 +1568,7 @@ readForCompletion = function(source: process.Reader, limit: integer): (string?, 
     return chunk
 end
 
-local function newReader(owner: any, handle: any): any
+newReader = function(owner: any, handle: any): any
     if handle == nil then
         return nil
     end
@@ -1490,7 +1576,7 @@ local function newReader(owner: any, handle: any): any
     return new process.Reader(owner = owner, handle = handle, closed = false, eof = false, timeoutMs = 30000)
 end
 
-local function newWriter(owner: any, handle: any): any
+newWriter = function(owner: any, handle: any): any
     if handle == nil then
         return nil
     end
@@ -1498,7 +1584,7 @@ local function newWriter(owner: any, handle: any): any
     return new process.Writer(owner = owner, handle = handle, closed = false, gone = false, timeoutMs = 30000)
 end
 
---- Installs the backend `process.new` uses.
+--- Installs the backend the public `Process` constructor uses.
 ---
 --- Called by a platform module, not by a caller: the point of the seam is that nothing
 --- above it names a platform.
@@ -1509,7 +1595,7 @@ end
 -- Public callers include plain Lua, so the type declaration is not the runtime
 -- boundary. Reject programmer mistakes before allocating a native spawn request;
 -- platform failures remain the nil-and-reason result of `new`.
-local function validateOptions(options: process.Options): nil
+validateOptions = function(options: process.Options): nil
     local given: any = options
     if type(given.args) ~= "table" or #given.args == 0 then
         error("nupp: process args must contain a program", 3)
@@ -1541,44 +1627,10 @@ local function validateOptions(options: process.Options): nil
 end
 
 --- Builds the owned state after the platform has successfully spawned.
-local function fromSpawn(
-    backend: process.Backend,
-    options: process.Options,
-    handle: any,
-    inHandle: any?,
-    outHandle: any?,
-    errHandle: any?,
-    pid: integer
-): affine(process.Process, process.destroyProcess)
-    local self = new process.Process(
-        stdin = nil,
-        stdout = nil,
-        stderr = nil,
-        backend = backend,
-        handle = handle,
-        exit = nil,
-        reaped = false,
-        childReleased = false,
-        closing = false,
-        closingBy = nil,
-        pump = nil,
-        timedOut = false,
-        pid = pid,
-        -- Measured from the start, not from the first wait: a caller that spawns, works
-        -- and then waits should not get a deadline counted from whenever it asked.
-        deadline = options.timeoutMs ~= nil and (backend:now() + options.timeoutMs) or nil
-    )
-    self.stdin = newWriter(self, inHandle)
-    self.stdout = newReader(self, outHandle)
-    self.stderr = newReader(self, errHandle)
-
-    return self
-end
-
 --- Starts a child on a given backend.
 ---
 --- Internal, and what the tests use so the state machine can be driven without a
---- platform. Ordinary callers want `process.new`.
+--- platform. Ordinary callers use `new process.Process(...)`.
 ---
 --- @param backend the platform that runs it
 --- @param options what to run and how to connect it
@@ -1588,14 +1640,8 @@ end
 function process.spawnOn(
     backend: process.Backend,
     options: process.Options
-): affine(process.Process, process.destroyProcess)
-    validateOptions(options)
-    local handle, inHandle, outHandle, errHandle, pid, problem = backend:spawn(options)
-    if handle == nil then
-        error(problem or "the process could not be started", 2)
-    end
-
-    return fromSpawn(backend, options, handle, inHandle, outHandle, errHandle, pid)
+): affine(process.Process, process.Process.destroy)
+    return new process.Process(backend, options)
 end
 
 --[[
@@ -1782,7 +1828,7 @@ end
 ---
 --- Built on demand rather than at load, so a program that requires this module and
 --- never starts a child never opens the library.
-local function nativeBackend(): process.Backend
+nativeBackend = function(): process.Backend
     return new process.Backend(
         spawn = function(self: process.Backend, options: process.Options): (any?, any?, any?, any?, integer, string?)
             local inputMode = options.stdin or "pipe"
@@ -1943,40 +1989,6 @@ local function nativeBackend(): process.Backend
             return tonumber(answered) as integer
         end
     )
-end
-
---- Starts a child.
----
---- The child is an owner: closing it ends the process, waits for the exit, and
---- releases every stream, and the same runs when its scope ends. Reading a stream
---- or waiting for the exit suspends, so a caller under a scheduler keeps its
---- frame.
----
---- ```nupp
---- local child = assert(process.new({
----     args = {"grep", "-c", "nupp"},
----     stderr = "stdout",
---- }))
---- local result = assert(child:communicate({input = text}))
---- child:close()
---- ```
----
---- @param options what to run and how to connect it
---- @return the child, which must be closed
-function process.new(options: process.Options): (affine(process.Process?, process.destroyProcess), string?)
-    validateOptions(options)
-    local backend = defaultBackend
-    if backend == nil then
-        backend = nativeBackend()
-        defaultBackend = backend
-    end
-
-    local handle, inHandle, outHandle, errHandle, pid, problem = (backend as process.Backend):spawn(options)
-    if handle == nil then
-        return nil, problem or "the process could not be started"
-    end
-
-    return fromSpawn(backend as process.Backend, options, handle, inHandle, outHandle, errHandle, pid)
 end
 
 --- The exit a backend reports, with `succeeded` attached.

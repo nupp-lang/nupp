@@ -432,8 +432,7 @@ function M.documentsInheritedContractsMetamethodsAndInlineMethods()
    assert(task.signature == table.concat({
       "record Task<T is Value> is Named, Runnable where true",
       "    metamethod __call: function(self, value: T): self",
-      "    function describe(prefix: string): string",
-      "    end",
+      "    function describe(prefix: string): string end",
       "end",
    }, "\n"), task.signature)
    assert(not task.signature:find("---", 1, true), task.signature)
@@ -576,17 +575,15 @@ function M.omitsImplementationBodiesFromStructureSignatures()
    assert(named and user, "record and interface must both be documented")
    assert(named.signature == table.concat({
       "interface Named",
-      "    function label(self): string",
-      "    end",
+      "    function label(self): string end",
       "end",
    }, "\n"), named.signature)
    assert(user.signature == table.concat({
       "record User is Named",
       "    name: string",
-      "    constructor(name: string)",
-      "    end",
-      "    function label(self): string",
-      "    end",
+      "    constructor(name: string) end",
+      "",
+      "    function label(self): string end",
       "end",
    }, "\n"), user.signature)
    for _, signature in ipairs({named.signature, user.signature}) do
@@ -764,33 +761,34 @@ function M.standardTypesApiMarksItsCompilerOnlyValues()
    assert(foundFunction, "nupp.types.optional lost its comptime function kind")
 end
 
--- The JSON surface is declared by the host boundary the module re-exports, so this
--- is asked of that file rather than of the prelude it used to sit in.
+-- The public JSON module documents its own complete surface; the host declaration is
+-- only an implementation boundary.
 function M.standardJsonApiHasCompleteDocumentation()
-   local path = "src/nupp/data/jsonnative.d.nupp"
+   local path = "src/nupp/data/json.nupp"
    local source = readFile(HERE .. "/../" .. path)
    local module, errors = doc.extract(source, path, "nupp.data.json")
    assert(module, errors and errors[1] and errors[1].msg)
 
-   -- The boundary declares one record and the surface is its members, so the API is
-   -- read from there rather than from the file's top level.
-   local record
-   for _, item in ipairs(module.items) do
-      if item.name == "json" then record = item end
-   end
-   assert(record, "the host boundary did not declare the json surface")
-
+   local expected = {
+      JSONEncodable = true, Writer = true, decode = true, pull = true,
+      arrayOf = true, asArray = true, asObject = true, encode = true,
+      serialize = true, writer = true, decodeAs = true, encodeAs = true,
+      encodeRecord = true, NULL = true, EMPTY_ARRAY = true, EMPTY_OBJECT = true,
+   }
    local writer
-   for _, member in ipairs(record.members) do
-      local prefix = "nupp.data.json." .. member.name
-      assert(member.text ~= "", prefix .. " has no documentation")
-      for _, param in ipairs(member.params or {}) do
+   for _, item in ipairs(module.items) do
+      local prefix = "nupp.data.json." .. item.name
+      assert(expected[item.name], prefix .. " is not part of the expected surface")
+      expected[item.name] = nil
+      assert(item.doc.text ~= "", prefix .. " has no documentation")
+      for _, param in ipairs(item.params or {}) do
          assert(param.text ~= "", prefix .. " parameter " .. param.name
             .. " has no documentation")
       end
-      if member.name == "Writer" then writer = member end
+      if item.name == "Writer" then writer = item end
    end
-   assert(writer, "the host boundary did not document nupp.data.json.Writer")
+   assert(next(expected) == nil, "the JSON module is missing a documented API item")
+   assert(writer, "the JSON module did not document nupp.data.json.Writer")
    for _, member in ipairs(writer.members or {}) do
       local prefix = "nupp.data.json.Writer." .. member.name
       assert(member.text ~= "", prefix .. " has no documentation")
@@ -801,15 +799,10 @@ function M.standardJsonApiHasCompleteDocumentation()
    end
 end
 
--- nupp.data is a namespace of modules now, not a record in the prelude. Each module
--- is the one place its own surface is documented, so that is where this asks.
+-- The data module owns hashes, UUIDs, and Bitset directly; only substantial sibling
+-- facilities remain separate modules.
 function M.standardDataApiHasCompleteDocumentation()
    local modules = {
-      "src/nupp/data/crc32.nupp",
-      "src/nupp/data/fnv1a64.nupp",
-      "src/nupp/data/sha256.nupp",
-      "src/nupp/data/uuid4.nupp",
-      "src/nupp/data/uuid7.nupp",
       "src/nupp/data/utf8.nupp",
       "src/nupp/data/init.nupp",
    }
@@ -847,7 +840,7 @@ function M.standardIOApiHasCompleteDocumentation()
       },
       ["src/nupp/io/path.nupp"] = {
          types = {Path = true,},
-         functions = {currentDirectory = true, separator = true,},
+         functions = {of = true, currentDirectory = true, separator = true,},
       },
       ["src/nupp/io/uri.nupp"] = {
          types = {URI = true, Components = true,},
@@ -887,24 +880,17 @@ function M.standardIOApiHasCompleteDocumentation()
       end
    end
 
-   -- A path is built with the language's own `new`, so the examples belong to the
-   -- record's constructor rather than to a function beside it.
+   -- Paths are interned by `of`; direct construction is intentionally unavailable.
    local path = assert(readFile(HERE .. "/../src/nupp/io/path.nupp"))
    local module = assert(doc.extract(path, "src/nupp/io/path.nupp", "nupp.io.path"))
-   local record
+   local factory
    for _, item in ipairs(module.items) do
-      if item.name == "Path" then record = item end
+      if item.name == "of" then factory = item end
    end
-   assert(record, "nupp.io.path did not document Path")
-   local constructor
-   for _, member in ipairs(record.members or {}) do
-      if member.name == "constructor" then constructor = member end
-   end
-   assert(constructor, "nupp.io.path.Path did not document its constructor")
-   assert(constructor.text:find("#### Examples", 1, true),
-      "the Path constructor has no examples")
-   assert(constructor.text:find('new Path("src", "main.nupp")', 1, true),
-      "the Path constructor has no component-joining example")
+   assert(factory, "nupp.io.path did not document of")
+   assert(factory.doc.text:find("#### Examples", 1, true), "path.of has no examples")
+   assert(factory.doc.text:find('path.of("src", "main.nupp")', 1, true),
+      "path.of has no component-joining example")
 end
 
 function M.standardPegApiDocumentsItsTypesExpressionsAndExamples()
@@ -1151,10 +1137,16 @@ end
 -- Being written outside the record does not make it a function of the module: it
 -- folds back onto `Set`, which is where a reader reaches it.
 function M.standardOwnerSetApiHasCompleteDocumentation()
-   assertDocumentedSurface("src/nupp/owners/set.nupp", "nupp.owners.set", {
-      ["set.new"] = "function",
-      ["Set"] = "record",
-   }, function(item)
+   local source = readFile(HERE .. "/../src/nupp/owners/init.nupp")
+   local module = assert(doc.extract(source, "src/nupp/owners/init.nupp", "nupp.owners"))
+   local setRecord, newSet, newStore
+   for _, item in ipairs(module.items) do
+      if item.name == "Set" then setRecord = item end
+      if item.name == "owners.newSet" then newSet = item end
+      if item.name == "owners.newStore" then newStore = item end
+   end
+   assert(setRecord and newSet and newStore, "nupp.owners lost a documented constructor")
+   local function checkSet(item)
       -- The set's storage is its own business. A reader of these docs is told what a
       -- set does, never what it keeps to do it.
       local named = {}
@@ -1168,16 +1160,8 @@ function M.standardOwnerSetApiHasCompleteDocumentation()
          assert(#named[operation].raises > 0,
             operation .. " has no documented failure condition")
       end
-   end)
-end
-
--- Every opener reaches a Lua call that can fail, so every one documents how.
-function M.standardFileApiHasCompleteDocumentation()
-   assertDocumentedSurface("src/nupp/io/file.nupp", "nupp.io.file", {
-      ["file.open"] = "raises",
-      ["file.popen"] = "raises",
-      ["file.temporary"] = "raises",
-   })
+   end
+   checkSet(setRecord)
 end
 
 function M.documentsACdefOnlyWhereItReachesAReader()
@@ -1409,8 +1393,8 @@ function M.markdownMatchesTheNuppdocShape()
    local markdown = doc.markdown({module}, "Example API")
    assert(markdown:find("# `math`", 1, true))
    assert(markdown:find("```nupp\nfunction add", 1, true))
-   -- the prose introduces the declaration, the signature follows it
-   assert(markdown:find("Adds two values.\n\n```nupp\nfunction add", 1, true),
+   -- the declaration is the first thing under the member heading
+   assert(markdown:find("```nupp\nfunction add(left: number, right: number): number\n```\n\nArithmetic helpers.", 1, true),
       markdown)
    assert(markdown:find("#### Arguments", 1, true))
    assert(markdown:find("#### Type parameters", 1, true))

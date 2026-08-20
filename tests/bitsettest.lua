@@ -1,4 +1,4 @@
--- Behavioural tests for nupp.data.bitset.
+-- Behavioural tests for nupp.data.Bitset.
 --
 -- The set-algebra operations mark the population stale rather than tracking it
 -- per word, and `wordCount` is an upper bound rather than the exact high-water
@@ -8,7 +8,7 @@
 
 local check = require("assert")
 local bit = require("bit")
-local bitset = require("nupp.data.bitset")
+local bitset = require("nupp.data")
 
 local FAR = bit.lshift(1, 20)
 
@@ -120,7 +120,7 @@ local function assertSame(set, want, label)
 end
 
 function M.emptySet()
-   local set = bitset.create()
+   local set = bitset.Bitset.__nuppCtor1()
    check.equal(set:count(), 0, "empty count")
    check.assert(set:isEmpty(), "empty isEmpty")
    check.equal(set:wordCount(), 0, "empty wordCount")
@@ -131,7 +131,7 @@ end
 
 function M.setAndGetAcrossWordBoundaries()
    for _, position in ipairs(EDGES) do
-      local set = bitset.create(8)
+      local set = bitset.Bitset.__nuppCtor1(8)
       local want = oracle()
       set:set(position)
       want:set(position)
@@ -150,7 +150,7 @@ function M.setAndGetAcrossWordBoundaries()
 end
 
 function M.setIsIdempotent()
-   local set = bitset.create()
+   local set = bitset.Bitset.__nuppCtor1()
    set:set(70)
    set:set(70)
    set:set(70)
@@ -158,7 +158,7 @@ function M.setIsIdempotent()
 end
 
 function M.growthPreservesContents()
-   local set = bitset.create(1)
+   local set = bitset.Bitset.__nuppCtor1(1)
    local want = oracle()
    for _, position in ipairs({0, 5, 31, 32, 200, 1000, 4095}) do
       set:set(position)
@@ -177,7 +177,7 @@ function M.rangesCoverEveryShape()
       local low, high = shape[1], shape[2]
       local label = ("range %d..%d"):format(low, high)
 
-      local set = bitset.create(8)
+      local set = bitset.Bitset.__nuppCtor1(8)
       local want = oracle()
       set:setRange(low, high)
       want:setRange(low, high)
@@ -185,7 +185,7 @@ function M.rangesCoverEveryShape()
 
       -- Over a set that already holds overlapping bits, so the count delta is
       -- exercised rather than a fresh popcount.
-      local overlapping = bitset.create(8)
+      local overlapping = bitset.Bitset.__nuppCtor1(8)
       local overlappingWant = oracle()
       for position = 0, 40, 3 do
          overlapping:set(position)
@@ -200,8 +200,8 @@ end
 function M.rangeAfterStaleCount()
    -- setRange has an exact-delta path and a leave-it-stale path; the stale one
    -- is only reachable after set algebra.
-   local set = bitset.create(64)
-   local other = bitset.create(64)
+   local set = bitset.Bitset.__nuppCtor1(64)
+   local other = bitset.Bitset.__nuppCtor1(64)
    local want, otherWant = oracle(), oracle()
    for position = 0, 60, 2 do
       set:set(position)
@@ -220,7 +220,7 @@ function M.rangeAfterStaleCount()
 end
 
 function M.clearIsDefinedPastTheEnd()
-   local set = bitset.create(64)
+   local set = bitset.Bitset.__nuppCtor1(64)
    set:set(5)
    set:clear(1000)
    set:clear(-1)
@@ -229,13 +229,13 @@ function M.clearIsDefinedPastTheEnd()
 end
 
 function M.negativeWritesRaise()
-   local set = bitset.create()
+   local set = bitset.Bitset.__nuppCtor1()
    check.raises(function() set:set(-1) end, "negative")
    check.raises(function() set:setRange(-1, 4) end, "below zero")
 end
 
 function M.clearAllKeepsCapacity()
-   local set = bitset.create(8)
+   local set = bitset.Bitset.__nuppCtor1(8)
    set:set(4000)
    check.equal(set:count(), 1, "grew and set")
    set:clearAll()
@@ -249,7 +249,7 @@ function M.clearAllKeepsCapacity()
 end
 
 function M.setOnlyReplacesEverything()
-   local set = bitset.create()
+   local set = bitset.Bitset.__nuppCtor1()
    set:setRange(0, 100)
    set:setOnly(500)
    local want = oracle()
@@ -258,7 +258,7 @@ function M.setOnlyReplacesEverything()
 end
 
 function M.comparisonsMatchTheOracle()
-   local left, right = bitset.create(64), bitset.create(64)
+   local left, right = bitset.Bitset.__nuppCtor1(64), bitset.Bitset.__nuppCtor1(64)
    local leftWant, rightWant = oracle(), oracle()
    for position = 0, 100, 2 do
       left:set(position)
@@ -274,12 +274,12 @@ function M.comparisonsMatchTheOracle()
    check.assert(left:overlaps(right), "they overlap")
    check.assert(not left:disjoint(right), "so they are not disjoint")
 
-   local odd = bitset.create(64)
+   local odd = bitset.Bitset.__nuppCtor1(64)
    odd:set(1)
    check.assert(not left:overlaps(odd), "evens miss an odd bit")
    check.assert(left:disjoint(odd), "so they are disjoint")
 
-   local empty = bitset.create()
+   local empty = bitset.Bitset.__nuppCtor1()
    check.assert(left:containsAll(empty), "everything contains the empty set")
    check.assert(not left:overlaps(empty), "nothing overlaps the empty set")
    check.assert(empty:containsAll(empty), "the empty set contains itself")
@@ -287,8 +287,8 @@ function M.comparisonsMatchTheOracle()
 end
 
 function M.containsAllAcrossDifferentCapacities()
-   local wide = bitset.create(4096)
-   local narrow = bitset.create(8)
+   local wide = bitset.Bitset.__nuppCtor1(4096)
+   local narrow = bitset.Bitset.__nuppCtor1(8)
    wide:set(3)
    narrow:set(3)
    check.assert(wide:containsAll(narrow), "capacity does not affect containment")
@@ -299,14 +299,14 @@ function M.containsAllAcrossDifferentCapacities()
 end
 
 function M.copyFromIsIndependent()
-   local source = bitset.create(64)
+   local source = bitset.Bitset.__nuppCtor1(64)
    local want = oracle()
    for position = 0, 200, 7 do
       source:set(position)
       want:set(position)
    end
 
-   local target = bitset.create(4096)
+   local target = bitset.Bitset.__nuppCtor1(4096)
    target:setRange(0, 3000)
    target:copyFrom(source)
    assertSame(target, want, "copied")
@@ -316,9 +316,9 @@ function M.copyFromIsIndependent()
    check.assert(not source:get(1), "copy does not share storage")
    check.equal(source:count(), want:count(), "source untouched")
 
-   local fromEmpty = bitset.create(64)
+   local fromEmpty = bitset.Bitset.__nuppCtor1(64)
    fromEmpty:setRange(0, 100)
-   fromEmpty:copyFrom(bitset.create())
+   fromEmpty:copyFrom(bitset.Bitset.__nuppCtor1())
    check.equal(fromEmpty:count(), 0, "copying an empty set empties the target")
    check.equal(fromEmpty:nextSetBit(0), -1, "and leaves nothing to walk")
 end
@@ -328,7 +328,7 @@ function M.setAlgebraMatchesTheOracle()
    for _, operation in ipairs(operations) do
       for _, width in ipairs({1, 32, 33, 200}) do
          local next = seeded(width * 7 + #operation)
-         local left, right = bitset.create(8), bitset.create(8)
+         local left, right = bitset.Bitset.__nuppCtor1(8), bitset.Bitset.__nuppCtor1(8)
          local leftWant, rightWant = oracle(), oracle()
 
          for _ = 1, 40 do
@@ -354,18 +354,18 @@ end
 function M.setAlgebraWithEmptyOperands()
    local cases = {"orWith", "andWith", "andNotWith", "xorWith"}
    for _, operation in ipairs(cases) do
-      local set = bitset.create(64)
+      local set = bitset.Bitset.__nuppCtor1(64)
       local want = oracle()
       for position = 0, 100, 5 do
          set:set(position)
          want:set(position)
       end
 
-      set[operation](set, bitset.create())
+      set[operation](set, bitset.Bitset.__nuppCtor1())
       want[operation](want, oracle())
       assertSame(set, want, operation .. " with an empty operand")
 
-      local empty = bitset.create()
+      local empty = bitset.Bitset.__nuppCtor1()
       local emptyWant = oracle()
       empty[operation](empty, set)
       emptyWant[operation](emptyWant, want)
@@ -374,8 +374,8 @@ function M.setAlgebraWithEmptyOperands()
 end
 
 function M.orGrowsToReachTheOperand()
-   local small = bitset.create(1)
-   local large = bitset.create(64)
+   local small = bitset.Bitset.__nuppCtor1(1)
+   local large = bitset.Bitset.__nuppCtor1(64)
    local want = oracle()
    large:set(5000)
    want:set(5000)
@@ -387,7 +387,7 @@ function M.randomOperationSequence()
    -- The interleaving is what shakes out the stale-population and used-bound
    -- bookkeeping: no single operation reaches every state.
    local next = seeded(20260813)
-   local set = bitset.create(8)
+   local set = bitset.Bitset.__nuppCtor1(8)
    local want = oracle()
 
    for step = 1, 4000 do
@@ -405,7 +405,7 @@ function M.randomOperationSequence()
          set:setRange(low, high)
          want:setRange(low, high)
       elseif choice < 75 then
-         local other, otherWant = bitset.create(8), oracle()
+         local other, otherWant = bitset.Bitset.__nuppCtor1(8), oracle()
          for _ = 1, 10 do
             local position = next(300)
             other:set(position)
@@ -436,7 +436,7 @@ function M.randomOperationSequence()
 end
 
 function M.walkIsStatelessAndNestable()
-   local set = bitset.create(64)
+   local set = bitset.Bitset.__nuppCtor1(64)
    for _, position in ipairs({3, 40, 41, 300}) do set:set(position) end
 
    -- Two walks interleaved. A scan holding state on the set could not do this.
@@ -464,7 +464,7 @@ function M.walkIsStatelessAndNestable()
 end
 
 function M.wordAtIsBoundedAndSigned()
-   local set = bitset.create(64)
+   local set = bitset.Bitset.__nuppCtor1(64)
    check.equal(set:wordAt(0), 0, "unset word reads zero")
    check.equal(set:wordAt(-1), 0, "negative word index reads zero")
    check.equal(set:wordAt(FAR), 0, "word index past the end reads zero")
@@ -479,7 +479,7 @@ end
 function M.wordCountBoundsEverySetBit()
    -- The bound may exceed the exact high-water mark, but every set bit must sit
    -- below it, because that is what the word loops rely on.
-   local set = bitset.create(8)
+   local set = bitset.Bitset.__nuppCtor1(8)
    set:setRange(0, 500)
    set:clear(500)
    for position = 400, 499 do set:clear(position) end
@@ -497,7 +497,7 @@ end
 function M.positionsIntoMatchesTheWalk()
    local ffi = require("ffi")
    for _, bits in ipairs({1, 32, 33, 200, 4096}) do
-      local set = bitset.create(8)
+      local set = bitset.Bitset.__nuppCtor1(8)
       local want = oracle()
       local step = math.max(1, math.floor(bits / 17))
       for position = 0, bits - 1, step do
@@ -519,7 +519,7 @@ end
 
 function M.positionsIntoResumesWhenTargetFills()
    local ffi = require("ffi")
-   local set = bitset.create(64)
+   local set = bitset.Bitset.__nuppCtor1(64)
    local want = oracle()
    for position = 0, 300, 3 do
       set:set(position)
@@ -549,12 +549,12 @@ function M.positionsIntoEdges()
    local ffi = require("ffi")
    local target = ffi.new("int32_t[?]", 4)
 
-   local empty = bitset.create(64)
+   local empty = bitset.Bitset.__nuppCtor1(64)
    local written, resume = empty:positionsInto(target, 4, 0)
    check.equal(written, 0, "nothing written for an empty set")
    check.equal(resume, -1, "and it is exhausted")
 
-   local set = bitset.create(64)
+   local set = bitset.Bitset.__nuppCtor1(64)
    set:set(5)
    set:set(100)
 
@@ -586,8 +586,8 @@ function M.positionsIntoAfterSetAlgebra()
    -- The used bound is an upper bound after intersection, so the extraction has
    -- to tolerate trailing zero words rather than trusting the bound is tight.
    local ffi = require("ffi")
-   local set = bitset.create(4096)
-   local other = bitset.create(4096)
+   local set = bitset.Bitset.__nuppCtor1(4096)
+   local other = bitset.Bitset.__nuppCtor1(4096)
    local want, otherWant = oracle(), oracle()
    for position = 0, 3000, 7 do
       set:set(position)

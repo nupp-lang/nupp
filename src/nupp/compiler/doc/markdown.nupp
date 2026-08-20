@@ -141,15 +141,15 @@ local function renderMarkdownMembers(out, members, level)
                 method.comptimeKind and " _comptime " .. method.comptimeKind .. "_" or ""
             )
             out[#out + 1] = ""
+            out[#out + 1] = "```nupp"
+            out[#out + 1] = method.name .. ": " .. method.type
+            out[#out + 1] = "```"
+            out[#out + 1] = ""
             markdownAnnotations(out, method.annotations)
             if method.text ~= "" then
                 out[#out + 1] = prose(method.text)
                 out[#out + 1] = ""
             end
-            out[#out + 1] = "```nupp"
-            out[#out + 1] = method.name .. ": " .. method.type
-            out[#out + 1] = "```"
-            out[#out + 1] = ""
             markdownArguments(out, method.params, hSub)
             markdownReturns(out, method.returns, hSub)
             markdownRaises(out, method.raises, hSub)
@@ -181,15 +181,15 @@ local function renderMarkdownMembers(out, members, level)
                 field.comptimeKind and " _comptime " .. field.comptimeKind .. "_" or ""
             )
             out[#out + 1] = ""
+            out[#out + 1] = "```nupp"
+            out[#out + 1] = field.name .. ": " .. field.type
+            out[#out + 1] = "```"
+            out[#out + 1] = ""
             markdownAnnotations(out, field.annotations)
             if field.text ~= "" then
                 out[#out + 1] = prose(field.text)
                 out[#out + 1] = ""
             end
-            out[#out + 1] = "```nupp"
-            out[#out + 1] = field.name .. ": " .. field.type
-            out[#out + 1] = "```"
-            out[#out + 1] = ""
         end
     end
 end
@@ -200,18 +200,15 @@ local function renderMarkdownItem(out, item, constructorPattern, level)
     out[#out + 1] = '<a id="' .. item.path .. '"></a>'
     out[#out + 1] = h .. " `" .. item.name .. "` _" .. displayKind(item, constructorPattern) .. "_"
     out[#out + 1] = ""
-    markdownAnnotations(out, item.annotations)
-    -- What it is, then how it is spelled: the prose says whether this is the
-    -- declaration you are looking for, and the signature answers how to call it once
-    -- you know that it is.
-    if item.doc.text ~= "" then
-        out[#out + 1] = prose(item.doc.text);
-        out[#out + 1] = ""
-    end
     out[#out + 1] = "```nupp"
     out[#out + 1] = item.signature
     out[#out + 1] = "```"
     out[#out + 1] = ""
+    markdownAnnotations(out, item.annotations)
+    if item.doc.text ~= "" then
+        out[#out + 1] = prose(item.doc.text);
+        out[#out + 1] = ""
+    end
     if #item.typeargs > 0 then
         out[#out + 1] = hSub .. " Type parameters"
         out[#out + 1] = ""

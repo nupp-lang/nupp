@@ -221,7 +221,7 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
         }
     end
     local native = require("nupp.io.process")
-    local child, problem = native.new({
+    local nativeOptions: native.Options = {
         args = args,
         cwd = opts.cwd,
         env = opts.env,
@@ -229,10 +229,8 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
         stdout = "pipe",
         stderr = "stdout",
         timeoutMs = opts.timeoutMs,
-    })
-    if not child then
-        return 1, tostring(problem or "the worker could not be started")
-    end
+    }
+    local child = new native.Process(nativeOptions)
     local reader = assert(child.stdout)
     reader:setTimeout(5)
     local chunks = {}
@@ -297,15 +295,16 @@ function process.startIsolated(argv: {string}, opts: process.Options?): (affine(
         }
     end
     local native = require("nupp.io.process")
-
-    return native.new({
+    local nativeOptions: native.Options = {
         args = args,
         cwd = opts.cwd,
         env = opts.env,
         stdin = "pipe",
         stdout = "pipe",
         stderr = "stdout",
-    })
+    }
+
+    return new native.Process(nativeOptions), nil
 end
 
 export = process

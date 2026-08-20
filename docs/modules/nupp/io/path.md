@@ -5,9 +5,8 @@ one.
 
 ```nupp:playground
 const path = require("nupp.io.path")
-const {Path} = path
 
-local source = (new Path("src", "app", "..", "main.nupp")):normalize()
+local source = path.of("src", "app", "..", "main.nupp"):normalize()
 assert(source:toString() == "src" .. path.separator() .. "main.nupp")
 assert(source:fileName() == "main.nupp")
 ```
@@ -26,14 +25,15 @@ for how a reached module selects the feature it needs.
 
 ## Building a path
 
-`new Path(first, parts...)` joins its components using the current platform's
+`path.of(first, parts...)` joins its components using the current platform's
 rules. `join` appends more to a path already built, and both accept a string or
-another path:
+another path. `Path` has no public constructor; creation goes through `of`,
+which interns recent paths in a bounded LRU cache.
 
 ```nupp
-const {Path} = require("nupp.io.path")
+const path = require("nupp.io.path")
 
-local native = (new Path("out")):join("lib", "native")
+local native = path.of("out"):join("lib", "native")
 assert(native:fileName() == "native")
 ```
 
@@ -55,9 +55,9 @@ assert(log:extension() == "jsonl")
 filesystem, so it answers even for a path that does not exist:
 
 ```nupp
-const {Path} = require("nupp.io.path")
+const path = require("nupp.io.path")
 
-assert((new Path("src", "app", "..", "main.nupp")):normalize():stem() == "main")
+assert(path.of("src", "app", "..", "main.nupp"):normalize():stem() == "main")
 ```
 
 The four operations that consult the process or the filesystem can fail, and
@@ -71,9 +71,9 @@ each answers nil with a reason when it does.
   coordinate system.
 
 ```nupp
-const {Path} = require("nupp.io.path")
+const path = require("nupp.io.path")
 
-local real, reason = (new Path("src")):canonicalize()
+local real, reason = path.of("src"):canonicalize()
 assert(real, reason)
 assert(real:isAbsolute())
 ```
@@ -85,9 +85,9 @@ the final component, that component without its extension, and the extension
 without its dot:
 
 ```nupp
-const {Path} = require("nupp.io.path")
+const path = require("nupp.io.path")
 
-local source = new Path("src", "main.nupp")
+local source = path.of("src", "main.nupp")
 assert(source:fileName() == "main.nupp")
 assert(source:stem() == "main")
 assert(source:extension() == "nupp")
@@ -100,9 +100,9 @@ into a file name is reported where it was written rather than carried into the
 path it would have produced:
 
 ```nupp
-const {Path} = require("nupp.io.path")
+const path = require("nupp.io.path")
 
-local report = (new Path("out", "report.tmp")):withExtension("json")
+local report = path.of("out", "report.tmp"):withExtension("json")
 assert(report:fileName() == "report.json")
 ```
 

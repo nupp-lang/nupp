@@ -25,7 +25,7 @@ the implementations and the exact reasoning at each one, and
  ───────────────────  ──────────────────────────────────────  ─────────────────────────────
  `const NAME = value` nupp.compiler.build.hash's own top-level locals   rewritten to `local`, at build time
  `0x..ULL` literals    nupp.compiler.build.hash (content-hash cache)    stripped to plain Lua 5.3 ints, at build time
- `? :`, `??`, `|x| ->` nupp.data.bitset, nupp.compiler.cst              lowered to plain Lua, at build time
+ `? :`, `??`, `|x| ->` nupp.data.Bitset, nupp.compiler.cst              lowered to plain Lua, at build time
  `bit.*`               nupp.compiler.build.hash, nupp.compiler.cdecl         real bitwise ops, Lua 5.3 native
  `loadstring`          nupp.compiler.optimize's constant folder         Lua 5.3's `load`, same for a chunk
  both of the above     in code nupp.compiler.gen generates, re-loaded to check it   same two rewrites, at load time

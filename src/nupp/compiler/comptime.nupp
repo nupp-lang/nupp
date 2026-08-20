@@ -133,8 +133,8 @@ function comptime.sealTypeFunction(helper: any, helpers: any, signature: any, de
                     source = source:gsub("function%s+[%w_%.]+", "local function " .. name, 1)
                 end
             elseif node.kind == "localFuncStmt" then
-                source = source:gsub("local%s+comptime%s+function", "local function", 1)
-                source = source:gsub("const%s+comptime%s+function", "const function", 1)
+                source = source:gsub("local%s+comptime%s+function%s+[%w_%.]+", "local function " .. name, 1)
+                source = source:gsub("const%s+comptime%s+function%s+[%w_%.]+", "const function " .. name, 1)
             end
             serialized[name] = {source = source, line = token.line, column = token.col,}
         end

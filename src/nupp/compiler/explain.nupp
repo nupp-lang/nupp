@@ -868,7 +868,7 @@ local ENTRIES: {any} = {
         rule = "A value carrying an obligation, root, exclusive loan, pin, or "
         .. "foreign retention cannot be converted to any or passed to untyped Lua. "
         .. "Keep the boundary typed, enroll a self-contained value in "
-        .. "nupp.owners.store, or use an explicit unsafe release.",
+        .. "nupp.owners, or use an explicit unsafe release.",
         wrong = "local function erase(value: affine(table)): any\n    return value\nend\nreturn erase\n",
         right = "local function erase(takes value: affine(table)): any\n"
         .. "    return unsafe release value\nend\nreturn erase\n",
@@ -878,20 +878,20 @@ local ENTRIES: {any} = {
     {
         code = "NUPP2612",
         summary = "A dynamic-store value is not self-contained",
-        rule = "nupp.owners.store accepts only capabilities it can discharge without "
+        rule = "nupp.owners accepts only capabilities it can discharge without "
         .. "outside state. Transfer-only obligations, external roots, outstanding "
         .. "exclusive loans, and unmatched foreign retentions cannot be enrolled.",
-        wrong = "local stores = require('nupp.owners.store')\n"
+        wrong = "local stores = require('nupp.owners')\n"
         .. "local record Resource\n    value: integer\nend\n"
         .. "local function begin(): affine(Resource) "
         .. "return new Resource(value = 1) end\n"
-        .. "local store = stores.new()\n"
+        .. "local store = stores.newStore()\n"
         .. "local handle = store:put(begin())\ndrop(store)\nreturn handle\n",
-        right = "local stores = require('nupp.owners.store')\n"
+        right = "local stores = require('nupp.owners')\n"
         .. "local record Resource\nend\n"
         .. "local function close(takes value: Resource): nil\nend\n"
         .. "local function open(): affine(Resource, close) return new Resource() end\n"
-        .. "local store = stores.new()\nstore:put(open())\ndrop(store)\n",
+        .. "local store = stores.newStore()\nstore:put(open())\ndrop(store)\n",
         related = {"NUPP2608", "NUPP2611", "NUPP2614"},
         docs = "docs/type-system/ownership.md#dynamic-boundaries",
     },
@@ -901,18 +901,18 @@ local ENTRIES: {any} = {
         rule = "Recovering an erased dynamic handle requires the same canonical "
         .. "representation and cleanup policy that were recorded by put. A name or "
         .. "cast cannot substitute for that runtime check.",
-        wrong = "local stores = require('nupp.owners.store')\n"
+        wrong = "local stores = require('nupp.owners')\n"
         .. "local record File\nend\nlocal record Socket\nend\n"
         .. "local function close(takes value: File): nil\nend\n"
         .. "local function open(): affine(File, close) return new File() end\n"
-        .. "local store = stores.new()\nlocal handle = store:put(open())\n"
+        .. "local store = stores.newStore()\nlocal handle = store:put(open())\n"
         .. "local erased = stores.erase(handle)\n"
         .. "local recovered = stores.recover(erased, Socket)\n",
-        right = "local stores = require('nupp.owners.store')\n"
+        right = "local stores = require('nupp.owners')\n"
         .. "local record File\nend\n"
         .. "local function close(takes value: File): nil\nend\n"
         .. "local function open(): affine(File, close) return new File() end\n"
-        .. "local store = stores.new()\nlocal handle = store:put(open())\n"
+        .. "local store = stores.newStore()\nlocal handle = store:put(open())\n"
         .. "local erased = stores.erase(handle)\n"
         .. "local recovered = stores.recover(erased, File)\n",
         related = {"NUPP2611", "NUPP2614"},

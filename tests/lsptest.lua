@@ -1315,7 +1315,8 @@ function M.builtinAnnotationHoverLinksToDocsWithNoFabricatedDefinition()
 
    local definition = responseWithId(out, 11).result
    assert(definition == nil or definition == json.NULL,
-      "builtin annotation reports no fabricated definition location")
+      "builtin annotation reports no fabricated definition location: "
+      .. json.encode(definition))
 end
 
 -- Same stand-in, one level down: a built-in annotation's own member (`lanes`
@@ -1354,7 +1355,8 @@ function M.builtinAnnotationMemberHoverLinksToDocsWithNoFabricatedDefinition()
 
    local definition = responseWithId(out, 11).result
    assert(definition == nil or definition == json.NULL,
-      "builtin annotation member reports no fabricated definition location")
+      "builtin annotation member reports no fabricated definition location: "
+      .. json.encode(definition))
 end
 
 function M.borrowReturnIsAKeyword()
@@ -1764,7 +1766,8 @@ function M.refusesToRenameASymbolTheProjectDoesNotDeclare()
    assert(responseWithId(out, 10).error, "the rename is refused")
    assert(responseWithId(out, 11).result == nil
       or responseWithId(out, 11).result == json.NULL,
-      "and the editor is told before it asks for a new name")
+      "and the editor is told before it asks for a new name: "
+      .. json.encode(responseWithId(out, 11)))
 end
 
 -- Completion offers names a reader could write here. A member is reached
@@ -2384,7 +2387,8 @@ function M.workspaceFolderChangesAreAppliedToTheOpenSession()
       "definition reaches the added folder")
    assert(responseWithId(out, 11).result == json.NULL
       or responseWithId(out, 11).result == nil,
-      "and stops reaching it once the folder is gone")
+      "and stops reaching it once the folder is gone: "
+      .. json.encode(responseWithId(out, 11)))
 end
 
 -- A folder is a project, and a project says how its own code is to be read. Two
@@ -3184,7 +3188,8 @@ return restored, why, codec, shown
       "change or remove @derive(nupp.derive.JSON)", "generated rename refusal")
    assert(responseWithId(out, 20).result == nil
       or responseWithId(out, 20).result == json.NULL,
-      "prepareRename refuses a generated member")
+      "prepareRename refuses a generated member: "
+      .. json.encode(responseWithId(out, 20)))
 end
 
 -- Applies one action's edits to `source`. Every edit is measured against the

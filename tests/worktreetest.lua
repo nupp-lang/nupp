@@ -90,7 +90,7 @@ function M.helperSeedsOnlyReusableWorktreeState()
       :format(quote(task), quote(task))) == 0,
       "the copied completion stamp remained older than a fresh checkout")
    local shared = origin
-      .. "/.nupp-cache/native-dev-files-process-http-uri/release/build/example/"
+      .. "/.nupp-cache/native-dev-all/release/build/example/"
       .. "build_script_build-example.exe"
    assert(read(shared) == "native-cache\n", "the native target was not migrated")
    assert(os.execute("test -x " .. quote(shared)) == 0,
@@ -151,7 +151,7 @@ mkdir -p "$target/release"
       :format(quote(fake), quote(common), quote(record))
    assert(os.execute(environment .. quote(root .. "/bin/nupp") .. " clean") == 0)
    assert(posixDrive(read(record):match("^%s*(.-)%s*$"))
-      == posixDrive(root .. "/.nupp-cache/native-dev-files-process-http-uri"),
+      == posixDrive(root .. "/.nupp-cache/native-dev-all"),
       "the launcher did not select the repository-common Cargo target")
 
    os.remove(root .. "/build/lib/libnupp_native_dev.dylib")
