@@ -6,6 +6,13 @@
 @!nofmt
 --  ^^^^^ entity.name.tag.nupp
 
+module nupp.io
+-- <- keyword.control.nupp
+--     ^^^^^^^ entity.name.namespace.nupp
+
+local module = nupp.io
+--    ^^^^^^ source.nupp - keyword.control.nupp
+
 local record Task
 -- <- storage.modifier.local.nupp
 --    ^^^^^^ storage.type.declaration.nupp

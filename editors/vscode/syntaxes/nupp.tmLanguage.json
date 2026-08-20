@@ -8,6 +8,7 @@
     { "include": "#embeddedStrings" },
     { "include": "#interpolatedString" },
     { "include": "#strings" },
+    { "include": "#moduleDeclarations" },
     { "include": "#typeDeclarations" },
     { "include": "#functionDeclarations" },
     { "include": "#constDeclarations" },
@@ -20,6 +21,18 @@
     { "include": "#operators" }
   ],
   "repository": {
+    "moduleDeclarations": {
+      "patterns": [
+        {
+          "comment": "module is contextual: it declares the qualified module name only in the statement form.",
+          "match": "\\b(module)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)",
+          "captures": {
+            "1": { "name": "keyword.control.nupp" },
+            "3": { "name": "entity.name.namespace.nupp" }
+          }
+        }
+      ]
+    },
     "embeddedStrings": {
       "patterns": [
         { "include": "#embeddedJson" },
