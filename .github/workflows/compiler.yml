@@ -1,11 +1,26 @@
 name: Compiler matrix
 
 on:
+  # Restricted to the trunk because an unfiltered `push` fires alongside
+  # `pull_request` for every branch in this repository, which ran the whole
+  # matrix twice for each commit of a pull request and told us nothing the
+  # second time.
   push:
+    branches:
+      - main
+    tags:
+      - "*"
   pull_request:
 
 permissions:
   contents: read
+
+# A pull request is only ever asked about its tip, so a superseded run is work
+# nobody is waiting on. The trunk is not cancelled: every commit that lands
+# there keeps its own answer, which is what makes a later bisection possible.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   compiler:
@@ -25,6 +40,42 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
+
+      # After the checkout rather than before it: `actions/checkout` cleans the
+      # workspace, and `.rocks` is ignored, so anything restored first would be
+      # removed again before a step could use it.
+      #
+      # The key carries both setup scripts because each pins the commits it
+      # builds. Editing either rebuilds every platform's tools, which is a few
+      # minutes on a change nobody makes weekly, and is the version of this that
+      # cannot serve a tree built from different pins.
+      - name: Restore the pinned build tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/nupp-ci-tools
+            .rocks
+          key: >-
+            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('.github/scripts/setup-luajit-posix.sh',
+            '.github/scripts/setup-luajit-windows.ps1') }}
+
+      # Cargo validates what it restores, so an approximate match is useful
+      # here where it would not be above: a lock file that moved on rebuilds the
+      # crates that changed and reuses the rest.
+      - name: Restore the Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .nupp-cache/native-dev-all
+            runtime/native/target
+          key: >-
+            nupp-cargo-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('runtime/native/Cargo.lock') }}
+          restore-keys: |
+            nupp-cargo-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build LuaJIT and simdjson
         if: runner.os != 'Windows'
