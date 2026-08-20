@@ -30,18 +30,18 @@
   --nuppdoc-light-code-background: #e6eaec;
   --nuppdoc-light-text: #2e2f2a;
   --nuppdoc-light-muted: #594a4f;
-  --nuppdoc-dark-accent: #768d93;
-  --nuppdoc-dark-accent-hover: color-mix(in srgb, #768d93 85%, white);
+  --nuppdoc-dark-accent: #d64a3b;
+  --nuppdoc-dark-accent-hover: color-mix(in srgb, #d64a3b 85%, white);
   --nuppdoc-dark-accent-soft: #161214;
   /* True black for the page itself; code blocks sit one step up at the
    * surveyed near-black instead, with the sidebar and header on a
    * teal-black panel between the two, and the active/soft panel state on a
    * different near-black again (mauve-toned) so all four stay tellable
    * apart. */
-  --nuppdoc-dark-background: #000000;
+  --nuppdoc-dark-background: #1c1917;
   --nuppdoc-dark-background-alt: #172020;
   --nuppdoc-dark-border: color-mix(in srgb, #50676c 65%, black);
-  --nuppdoc-dark-code-background: color-mix(in srgb, #2e2f2a 35%, black);
+  --nuppdoc-dark-code-background: #1f1c1b;
   --nuppdoc-dark-text: #d4c2b6;
   --nuppdoc-dark-muted: #ad9277;
   --nuppdoc-accent-contrast: #ffffff;
@@ -49,18 +49,18 @@
   --nuppdoc-playground-border: color-mix(in srgb, #50676c 70%, white);
   --nuppdoc-code-block-radius: 4px;
   --nuppdoc-hero-glow-color: var(--nupp-woodblock-vermilion);
-  --nuppdoc-syntax-boolean: #6a5c39;
-  --nuppdoc-syntax-comment: #474b45;
-  --nuppdoc-syntax-function: #455c68;
-  --nuppdoc-syntax-keyword: #7a2d20;
-  --nuppdoc-syntax-meta: #385052;
-  --nuppdoc-syntax-number: #6a5c39;
-  --nuppdoc-syntax-operator: #385052;
-  --nuppdoc-syntax-property: #475744;
-  --nuppdoc-syntax-punctuation: #414e51;
-  --nuppdoc-syntax-string: #3a4637;
-  --nuppdoc-syntax-type: #385052;
-  --nuppdoc-syntax-variable: #5f5041;
+  --nuppdoc-syntax-boolean: #836620;
+  --nuppdoc-syntax-comment: #474c44;
+  --nuppdoc-syntax-function: #376076;
+  --nuppdoc-syntax-keyword: #9a1600;
+  --nuppdoc-syntax-meta: #2e595c;
+  --nuppdoc-syntax-number: #836620;
+  --nuppdoc-syntax-operator: #2e595c;
+  --nuppdoc-syntax-property: #425f3c;
+  --nuppdoc-syntax-punctuation: #3c5156;
+  --nuppdoc-syntax-string: #364c31;
+  --nuppdoc-syntax-type: #2e595c;
+  --nuppdoc-syntax-variable: #6e5032;
 }
 
 /* Darken just the line-number gutters, not every use of --nuppdoc-text-faint
@@ -111,6 +111,30 @@
 .nuppdoc-sidebar a,
 .nuppdoc-outline a {
   color: var(--nuppdoc-text);
+}
+
+/* Selected is a filled background — the same tint the base theme used for
+ * hover — so it reads as "this is where you are" at a glance. Hover just
+ * underlines the text instead, so the two states read as clearly
+ * different actions (you are here vs. you could go here) rather than two
+ * similar-looking boxes. */
+.nuppdoc-sidebar a[aria-current="page"] {
+  background: color-mix(in srgb, var(--nuppdoc-accent-soft) 55%, transparent);
+}
+
+.nuppdoc-sidebar a:hover {
+  background: transparent;
+  text-decoration: underline;
+}
+
+@media (prefers-color-scheme: dark) {
+  .nuppdoc-outline ol {
+    border-left-color: #c7913d;
+  }
+}
+
+:root[data-theme="dark"] .nuppdoc-outline ol {
+  border-left-color: #c7913d;
 }
 
 /* The base theme tints the header off the page background; give it the same
@@ -222,13 +246,13 @@
 @media (prefers-color-scheme: dark) {
   .nuppdoc-content pre,
   .nuppdoc-code-group {
-    border-color: #253133;
+    border-color: #38312d;
   }
 }
 
 :root[data-theme="dark"] .nuppdoc-content pre,
 :root[data-theme="dark"] .nuppdoc-code-group {
-  border-color: #253133;
+  border-color: #38312d;
 }
 
 /* Tabs live in their own row (.nuppdoc-code-tabs, added in html.nupp's
@@ -294,6 +318,16 @@
 
 .nuppdoc-content h2 {
   border-top-width: 2px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .nuppdoc-content h2 {
+    border-top-color: #c7913d;
+  }
+}
+
+:root[data-theme="dark"] .nuppdoc-content h2 {
+  border-top-color: #c7913d;
 }
 
 /* The hero title lives inside .nuppdoc-content too, but it is a brand mark
@@ -417,53 +451,53 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --nuppdoc-feature-heading: var(--nupp-woodblock-vermilion);
+    --nuppdoc-feature-heading: var(--nuppdoc-dark-text);
     --nuppdoc-playground-border: color-mix(in srgb, #50676c 65%, black);
-    --nuppdoc-syntax-boolean: #cfbb89;
+    --nuppdoc-syntax-boolean: #f9cd5f;
     --nuppdoc-syntax-comment: #747673;
-    --nuppdoc-syntax-function: #9ba8af;
-    --nuppdoc-syntax-keyword: #cc948a;
-    --nuppdoc-syntax-meta: #788889;
-    --nuppdoc-syntax-number: #cfbb89;
-    --nuppdoc-syntax-operator: #788889;
-    --nuppdoc-syntax-property: #93a48f;
-    --nuppdoc-syntax-punctuation: #8b9ea3;
-    --nuppdoc-syntax-string: #a2b09f;
-    --nuppdoc-syntax-type: #788889;
-    --nuppdoc-syntax-variable: #bda892;
+    --nuppdoc-syntax-function: #93aab7;
+    --nuppdoc-syntax-keyword: #fa745c;
+    --nuppdoc-syntax-meta: #718e90;
+    --nuppdoc-syntax-number: #f9cd5f;
+    --nuppdoc-syntax-operator: #718e90;
+    --nuppdoc-syntax-property: #8eac87;
+    --nuppdoc-syntax-punctuation: #84a2aa;
+    --nuppdoc-syntax-string: #9eb798;
+    --nuppdoc-syntax-type: #718e90;
+    --nuppdoc-syntax-variable: #d3a87c;
   }
 }
 
 :root[data-theme="dark"] {
-  --nuppdoc-feature-heading: var(--nupp-woodblock-vermilion);
+  --nuppdoc-feature-heading: var(--nuppdoc-dark-text);
   --nuppdoc-playground-border: color-mix(in srgb, #50676c 65%, black);
-  --nuppdoc-syntax-boolean: #cfbb89;
+  --nuppdoc-syntax-boolean: #f9cd5f;
   --nuppdoc-syntax-comment: #747673;
-  --nuppdoc-syntax-function: #9ba8af;
-  --nuppdoc-syntax-keyword: #cc948a;
-  --nuppdoc-syntax-meta: #788889;
-  --nuppdoc-syntax-number: #cfbb89;
-  --nuppdoc-syntax-operator: #788889;
-  --nuppdoc-syntax-property: #93a48f;
-  --nuppdoc-syntax-punctuation: #8b9ea3;
-  --nuppdoc-syntax-string: #a2b09f;
-  --nuppdoc-syntax-type: #788889;
-  --nuppdoc-syntax-variable: #bda892;
+  --nuppdoc-syntax-function: #93aab7;
+  --nuppdoc-syntax-keyword: #fa745c;
+  --nuppdoc-syntax-meta: #718e90;
+  --nuppdoc-syntax-number: #f9cd5f;
+  --nuppdoc-syntax-operator: #718e90;
+  --nuppdoc-syntax-property: #8eac87;
+  --nuppdoc-syntax-punctuation: #84a2aa;
+  --nuppdoc-syntax-string: #9eb798;
+  --nuppdoc-syntax-type: #718e90;
+  --nuppdoc-syntax-variable: #d3a87c;
 }
 
 :root[data-theme="light"] {
   --nuppdoc-feature-heading: var(--nupp-woodblock-cinnabar-deep);
   --nuppdoc-playground-border: color-mix(in srgb, #50676c 70%, white);
-  --nuppdoc-syntax-boolean: #6a5c39;
-  --nuppdoc-syntax-comment: #474b45;
-  --nuppdoc-syntax-function: #455c68;
-  --nuppdoc-syntax-keyword: #7a2d20;
-  --nuppdoc-syntax-meta: #385052;
-  --nuppdoc-syntax-number: #6a5c39;
-  --nuppdoc-syntax-operator: #385052;
-  --nuppdoc-syntax-property: #475744;
-  --nuppdoc-syntax-punctuation: #414e51;
-  --nuppdoc-syntax-string: #3a4637;
-  --nuppdoc-syntax-type: #385052;
-  --nuppdoc-syntax-variable: #5f5041;
+  --nuppdoc-syntax-boolean: #836620;
+  --nuppdoc-syntax-comment: #474c44;
+  --nuppdoc-syntax-function: #376076;
+  --nuppdoc-syntax-keyword: #9a1600;
+  --nuppdoc-syntax-meta: #2e595c;
+  --nuppdoc-syntax-number: #836620;
+  --nuppdoc-syntax-operator: #2e595c;
+  --nuppdoc-syntax-property: #425f3c;
+  --nuppdoc-syntax-punctuation: #3c5156;
+  --nuppdoc-syntax-string: #364c31;
+  --nuppdoc-syntax-type: #2e595c;
+  --nuppdoc-syntax-variable: #6e5032;
 }
