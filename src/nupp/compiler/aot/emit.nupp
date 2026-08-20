@@ -1714,6 +1714,8 @@ end
 --- The binary32 corrections are here rather than left to the C library, because
 --- `nupp.math.f32` defines a canonical quiet NaN and defines `min` and `max` to
 --- propagate NaN, where `fminf` and `fmaxf` return the operand that is not NaN.
+--- It also orders the two zeros, where the C library leaves which one a `+0`
+--- and `-0` pair answers unspecified -- and GCC and Clang answer differently.
 --- An AOT build must not change bits that `toBits` can read back.
 local function scalarHelpers(): {string}
     local unused = "static inline __attribute__((unused)) "
@@ -1736,13 +1738,32 @@ local function scalarHelpers(): {string}
         "    memcpy(&out, &bits, 4);",
         "    return out;",
         "}",
+        unused .. "uint32_t nupp_f32_bits(float value) {",
+        "    uint32_t bits;",
+        "    memcpy(&bits, &value, 4);",
+        "    return bits;",
+        "}",
+        "/* `-0.0f == 0.0f`, so an equal pair is where the two zeros have to be",
+        " * told apart by their sign bit. Returning one of the operands rather",
+        " * than a literal keeps this independent of how the compiler folds a",
+        " * signed zero. */",
         unused .. "float nupp_f32_min(float left, float right) {",
         "    if (left != left || right != right) return nupp_f32_nan();",
-        "    return fminf(left, right);",
+        "    if (left == right) {",
+        "        /* -0 is the smaller zero, so answer it when either side is one. */",
+        "        if (left != 0.0f) return left;",
+        "        return (nupp_f32_bits(left) & UINT32_C(0x80000000)) != 0u ? left : right;",
+        "    }",
+        "    return left < right ? left : right;",
         "}",
         unused .. "float nupp_f32_max(float left, float right) {",
         "    if (left != left || right != right) return nupp_f32_nan();",
-        "    return fmaxf(left, right);",
+        "    if (left == right) {",
+        "        /* And +0 the larger, so a pair answers -0 only when both are. */",
+        "        if (left != 0.0f) return left;",
+        "        return (nupp_f32_bits(left) & UINT32_C(0x80000000)) == 0u ? left : right;",
+        "    }",
+        "    return left > right ? left : right;",
         "}",
         unused .. "float nupp_f32_fma(float a, float b, float c) {",
         "    float out = fmaf(a, b, c);",
