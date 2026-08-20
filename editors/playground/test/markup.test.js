@@ -58,6 +58,13 @@ test("playgrounds hide line numbers for sources shorter than five lines", () => 
   assert.match(docApp, /updateLineNumberVisibility\(update\.view\)/);
 });
 
+test("the active line appears only after the editor receives focus", () => {
+  const theme = readFileSync(new URL("../src/cm-theme.js", import.meta.url), "utf8");
+  assert.match(theme, /"\.cm-activeLine": \{ backgroundColor: "transparent" \}/);
+  assert.match(theme, /"&\.cm-focused \.cm-activeLine": \{/);
+  assert.match(theme, /backgroundColor: "color-mix\(in srgb, var\(--pg-code-background, var\(--pg-background\)\) 95%, white\)"/);
+});
+
 test("documentation playgrounds are inline and have dismissible output", () => {
   const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
   assert.match(docApp, /customElements\.define\("nupp-playground"/);
