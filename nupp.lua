@@ -885,7 +885,7 @@ nupp lsp            # start the language server]],
                -- proposal fewer than the repository holds. The index at the
                -- route is generated from the proposals themselves.
                {
-                  path = "neps",
+                  path = "reference/neps",
                   title = "NEPs",
                   directory = "docs/neps",
                },

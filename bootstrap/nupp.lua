@@ -69083,6 +69083,7 @@ collection.Page = {} collection.Page.__index = collection.Page
 
 
 
+
 local INDEX = "index.md"
 
 
@@ -69185,15 +69186,15 @@ if number and prefix then
 title = prefix .. " " .. number .. ": " .. name
 end
 
-return setmetatable({ group =
-settings . title ,  markdown =
+return setmetatable({ markdown =
 header ( title , fields ) .. body ,  name =
 name ,  number =
 number ,  path =
 route ,  source =
 join ( settings . directory , relative ) ,  status =
 fields . status ,  title =
-title }, collection.Page)
+title ,  unlisted =
+true }, collection.Page)
 
 end
 
@@ -69262,8 +69263,7 @@ page . number or ""
 end
 end
 
-return setmetatable({ group =
-settings . title ,  markdown =
+return setmetatable({ markdown =
 table . concat ( out , "\n" ) ,  name =
 title ,  path =
 route ,  source =
@@ -72714,8 +72714,12 @@ end
 local function sidebar ( modules , current , prefix , pages , currentPath )
 local out = { '<aside class="nuppdoc-sidebar" id="nuppdoc-sidebar"' .. ' aria-label="Page navigation"><ul>' }
 local groups , byGroup = { } , { }
+local currentKey = currentPath and currentPath : match ( "^([^/]+)" ) or nil
 for _ , candidate in ipairs ( pages or { } ) do
-if candidate . path ~= "" and not candidate . module then
+
+
+
+if candidate . path ~= "" and not candidate . module and not candidate . unlisted then
 
 
 local key = candidate . path : match ( "^([^/]+)" ) or "Pages"
@@ -72723,24 +72727,19 @@ if not byGroup [ key ] then
 byGroup [ key ] = { key = key , pages = { } , open = false }
 groups [ # groups + 1 ] = byGroup [ key ]
 end
-
-
-
-byGroup [ key ] . label = byGroup [ key ] . label or candidate . group
 byGroup [ key ] . pages [ # byGroup [ key ] . pages + 1 ] = candidate
 
 
-if candidate . path == currentPath then
+
+
+if key == currentKey then
 byGroup [ key ] . open = true
 end
 end
 end
 for _ , group in ipairs ( groups ) do
-local label = group . label
-if not label then
-label = group . key : gsub ( "[-_]" , " " )
+local label = group . key : gsub ( "[-_]" , " " )
 label = label : sub ( 1 , 1 ) : upper ( ) .. label : sub ( 2 )
-end
 local open = group . open and " open" or ""
 out [
 # out + 1

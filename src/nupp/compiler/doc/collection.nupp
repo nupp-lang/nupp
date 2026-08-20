@@ -34,9 +34,6 @@ local cleanRoute = urlsMod.cleanRoute
 --- relative link against: a document names its neighbours the way it would in any other
 --- directory of markdown, and the rendered site follows the same names.
 record collection.Page
-    --- The navigation section the page belongs to, which is the collection's own name.
-    group: string?
-
     markdown: string
     name: string
     number: string?
@@ -44,6 +41,10 @@ record collection.Page
     source: string?
     status: string?
     title: string
+
+    --- Kept out of the navigation. A collection's documents are reached from its
+    --- index, which is the one entry the sidebar carries.
+    unlisted: boolean?
 end
 
 --- The directory a manifest asked for, the route it publishes under, and the name its
@@ -160,14 +161,14 @@ local function expandOne(base: string, settings: collection.Settings, file: stri
     end
 
     return new collection.Page(
-        group = settings.title,
         markdown = header(title, fields) .. body,
         name = name,
         number = number,
         path = route,
         source = join(settings.directory as string, relative),
         status = fields.status,
-        title = title
+        title = title,
+        unlisted = true
     )
 end
 
@@ -237,7 +238,6 @@ function collection.index(
     end
 
     return new collection.Page(
-        group = settings.title,
         markdown = table.concat(out, "\n"),
         name = title,
         path = route,

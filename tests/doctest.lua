@@ -2019,8 +2019,8 @@ function M.aPageDirectoryPublishesEveryDocumentAndGeneratesItsIndex()
    assert(index:find(">Widgets</a>", 1, true),
       "a document nothing named was left out of the index")
    assert(index:find(">Draft<", 1, true), "the index lost a status")
-   assert(index:find("<summary>NEPs</summary>", 1, true),
-      "the section took its name from the route rather than from the entry")
+   assert(not index:find("0002-widgets/index.html\">Widgets</a></li>", 1, true),
+      "a collection document was listed in the sidebar beside its index")
 
    local first = readFile(dir .. "/site/neps/0001-process/index.html")
    assert(first:find(">NEP 1: Proposal process<", 1, true),
