@@ -39,7 +39,7 @@
    * different near-black again (mauve-toned) so all four stay tellable
    * apart. */
   --nuppdoc-dark-background: #1c1917;
-  --nuppdoc-dark-background-alt: #172020;
+  --nuppdoc-dark-background-alt: #1b2626;
   --nuppdoc-dark-border: color-mix(in srgb, #50676c 65%, black);
   --nuppdoc-dark-code-background: #1f1c1b;
   --nuppdoc-dark-text: #d4c2b6;
