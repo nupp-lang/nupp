@@ -1,0 +1,28 @@
+@!internal
+
+module nupp.runtime.seam.bitopssuite
+
+--[[Behavioral contract vectors for the `numeric.bitops` seam.]]
+
+local bitopsSuite = {}
+
+--- Runs the language's 32-bit bit-operation contract against one provider.
+function bitopsSuite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        assert(provider.band(0xf0, 0x3c) == 0x30, "band must combine 32-bit words")
+        assert(provider.bor(0xf0, 0x3c) == 0xfc, "bor must combine 32-bit words")
+        assert(provider.bxor(0xf0, 0x3c) == 0xcc, "bxor must combine 32-bit words")
+        assert(provider.bnot(0) == -1, "bnot must return a signed 32-bit word")
+        assert(provider.lshift(1, 31) == -2147483648, "lshift must use signed 32-bit results")
+        assert(provider.lshift(1, 32) == 1, "shift counts must be reduced modulo 32")
+        assert(provider.rshift(-1, 1) == 2147483647, "rshift must fill with zero bits")
+        assert(provider.arshift(-2, 1) == -1, "arshift must preserve the sign bit")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = bitopsSuite

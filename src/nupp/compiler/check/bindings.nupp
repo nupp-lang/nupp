@@ -947,6 +947,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
             end
         end
         local op = opTok.kind:sub(1, -2) -- drop the '='
+        if op == "&" or op == "|" or op == "~" or op == "<<" or op == ">>" or op == "~>>" then
+            require("nupp.compiler.capabilities").require(c, "bitops", opTok)
+        end
         local operandsFit = true
         if op == "??" then
             if targetTok then

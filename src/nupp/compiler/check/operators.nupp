@@ -111,6 +111,7 @@ local lexer = require("nupp.compiler.lexer")
 local state = require("nupp.compiler.check.state")
 local fixedWidth = require("nupp.compiler.fixedwidth")
 local indexedViews = require("nupp.compiler.indexedviews")
+local capabilities = require("nupp.compiler.capabilities")
 
 local isA = relations.isA
 local subtract = narrowing.subtract
@@ -402,6 +403,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
             end
             return (t == T.any or fixedWidth.isValue(t)) and T.number or t
         elseif op == "~" then
+            capabilities.require(c, "bitops", opTok)
             c.numericOperand(t, node, op)
             return T.integer
         elseif op == "#" then
@@ -519,6 +521,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
             node.plainConcat = plain
             return T.string
         elseif operators.bitops[op] then
+            capabilities.require(c, "bitops", opTok)
             c.numericOperand(lt, lhs, op)
             c.numericOperand(rt, rhs, op)
             return T.integer

@@ -1,0 +1,82 @@
+module nupp.compiler.capabilities
+
+--[[
+Closed language-capability resolution.
+
+Capabilities describe source constructs whose representation varies by dialect.
+The table is compiler-owned: a backend may satisfy an open seam, but cannot add a
+new capability or change the native meaning of an existing one.
+]]
+
+local capabilities = {}
+
+local CONTRACTS = {
+    bitops = {
+        native = {luajit = true},
+        seams = {lua51 = {name = "numeric.bitops", version = 1, effect = "runtime.bitops",},},
+    },
+}
+
+--- Resolves every closed capability for one dialect and selected backend set.
+function capabilities.resolve(dialect: string, backends: any?): any
+    local resolved = {dialect = dialect, byName = {},}
+    for name, contract in pairs(CONTRACTS) do
+        if contract.native[dialect] then
+            resolved.byName[name] = {kind = "native", name = name,}
+        else
+            local required = contract.seams[dialect]
+            local selected = required and backends and backends.seams[required.name] or nil
+            if selected and selected.version == required.version then
+                resolved.byName[
+                    name
+                ] = {
+                    kind = "seam",
+                    name = name,
+                    seam = required.name,
+                    version = required.version,
+                    effect = required.effect,
+                    backend = selected.module,
+                }
+            else
+                resolved.byName[
+                    name
+                ] = {
+                    kind = "missing",
+                    name = name,
+                    seam = required and required.name or nil,
+                    version = required and required.version or nil,
+                }
+            end
+        end
+    end
+
+    return resolved
+end
+
+--- Looks up one compiler-owned capability, rejecting invented names.
+function capabilities.get(resolved: any, name: string): any
+    local capability = resolved and resolved.byName and resolved.byName[name] or nil
+    assert(CONTRACTS[name] ~= nil and capability ~= nil, "unknown language capability " .. name)
+
+    return capability
+end
+
+--- Reports a missing capability at the source construct that requires it.
+function capabilities.require(checker: any, name: string, at: any): boolean
+    local resolved = capabilities.resolve(checker.opts.dialect, checker.opts.backendResolution)
+    local capability = capabilities.get(resolved, name)
+    if capability.kind ~= "missing" then
+        return true
+    end
+    local help
+    if capability.seam then
+        help = ("select a backend that supplies %s contract %d"):format(capability.seam, capability.version)
+    end
+    checker.diag("NUPP3006", at, ("the `%s` dialect has no `%s` capability"):format(checker.opts.dialect, name), nil, {
+        help = help
+    })
+
+    return false
+end
+
+export = capabilities

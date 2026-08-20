@@ -633,6 +633,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     if not backendResolution then
         return nil, backendErr
     end
+    inc.setBackendResolution(backendResolution)
 
     --- What a module's record is keyed on: its substitute when it has one, and
     --- the file otherwise. Hashing the file while compiling something else would
