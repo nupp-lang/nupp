@@ -128,6 +128,17 @@ matched against the exact text quoted in its diagnostic. Reordering the
 comparisons or writing an equivalent inequality is refused, because a guard the
 backend only approximately understood would not be a check.
 
+Swapping the range guard's first two comparisons is one such equivalent
+condition:
+
+```nupp
+assert(last <= #escapes and first >= 1 and first <= last + 1, "range out of bounds")
+```
+
+```text
+bench/kernel-subset-spike/mandelbrot.nupp:44:12: aot: range guard must be `first >= 1 and last <= #output and first <= last + 1`
+```
+
 ### Asserting and refusing
 
 A guard may state what must hold, as above, or state what must not happen. Both
@@ -156,7 +167,7 @@ nupp aot bench/kernel-subset-spike/mandelbrot.nupp
 ```
 
 ```text
-bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, 5.19 operations per byte (83 over 16), f64x4, 4 lanes
+bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, 5.19 operations per byte (83 over 16), mixed4, 4 lanes
 ```
 
 `nupp aot` names each function's `kernel` or `lua-builder` entry mode, and JSON
@@ -355,11 +366,38 @@ ordinary Lua value. Table literals infer their array and hash capacities.
 The shipped builder subset admits fresh table literals, exact
 `table.new(arrayCapacity, hashCapacity)`, primitive number, boolean, string and
 `nil` values, string arguments, nested fresh tables, numeric and string-key
-writes, structured control flow, and a final return.
+writes, structured control flow, and a final return:
+
+```nupp
+@aot
+local function summary(name: string, count: integer): {string: any}
+    return {
+        name = name,
+        count = count,
+        limits = {low = 0, high = count},
+        ok = count > 0,
+    }
+end
+```
 
 It rejects reads during construction, mutation of argument or previously
 published tables, metatables, dynamic calls, callbacks, userdata, cycles, and
-arbitrary Lua execution.
+arbitrary Lua execution. A table that arrived from outside is the second of
+those, and it is refused at the parameter rather than at the write:
+
+```nupp
+@aot
+local function extend(target: {number}, count: integer): {number}
+    for index = 1, count do
+        target[index] = index
+    end
+    return target
+end
+```
+
+```text
+src/rows.nupp:2:31: aot: parameter type {number} is not admitted
+```
 
 Every live constructed object stays in an absolute Lua stack slot across
 allocating calls. Generated code uses the public Lua 5.1 API for allocation,
@@ -377,6 +415,16 @@ strings, tables are presized from authored child counts, raw writes keep
 barriers correct, and source slices or validated backslash and Unicode recipes
 become Lua-owned strings.
 
+```nupp
+local valuebuilder = require("nupp.data.valuebuilder")
+
+--- @raises when the blobs do not describe a well-formed tree
+@aot
+local function decode(nodes: string, links: string, source: string, null: any): any
+    return valuebuilder.materializeTree(nodes, links, source, 1, null)
+end
+```
+
 This is a general codec and AST construction boundary. It does not expose
 `lua_State`, stack indexes, or collector objects, and the ordinary module
 implementation is the `aot = "off"` oracle.
@@ -387,6 +435,36 @@ Streaming parsers can avoid that representation entirely. The resolved
 `nupp.data.valuebuilder` stream API starts with `new(nullValue)`, opens arrays
 or objects with an estimated capacity, adds keys and primitive values, closes
 each container, and publishes exactly one root with `finish`.
+
+```nupp
+local valuebuilder = require("nupp.data.valuebuilder")
+
+--- Reads `source` as fixed-width integer fields and returns them as an array.
+@aot
+local function decodeFields(
+    source: string,
+    count: uint32,
+    width: uint32,
+    nullValue: any
+): any
+    local builder = valuebuilder.new(nullValue)
+    valuebuilder.openArray(builder, count)
+    local cursor: uint32 = 0
+    local length = valuebuilder.length(source)
+    while cursor < length do
+        valuebuilder.integerSlice(builder, source, cursor, width)
+        cursor = nupp.math.u32.add(cursor, width)
+    end
+    valuebuilder.close(builder)
+
+    return valuebuilder.finish(builder)
+end
+```
+
+Every capacity, offset and length is a `uint32`, and so is the arithmetic that
+advances the cursor. An ordinary binary64 number reaching one of these is
+refused rather than promoted, because the offsets address the parser's own bytes
+and a fractional one is not an offset.
 
 `string`, `key`, and `numberSlice` take zero-based ranges of a rooted string, so
 generated code copies or converts directly into the final Lua value without an
@@ -412,17 +490,60 @@ normal Lua string.
 
 `newByteScratch`, `scratchByte`, `setScratchByte`, and `resetByteScratch` give
 the same bounded storage to other codecs, while `stringScratch` and `keyScratch`
-publish a checked initialized range directly. `integerSlice` is the
-integer-token counterpart of `numberSlice`: short integers accumulate directly
-in native code, and longer tokens retain the checked binary64 conversion
-fallback.
+publish a checked initialized range directly. A string assembled byte by byte
+and published once looks like this:
+
+```nupp
+local valuebuilder = require("nupp.data.valuebuilder")
+
+--- Uppercases each ASCII letter of `source` and publishes it as one string.
+@aot
+local function shout(source: string, capacity: uint32, nullValue: any): any
+    local depth: uint32 = 4
+    local builder = valuebuilder.newSized(nullValue, depth, capacity)
+    local scratch = valuebuilder.newByteScratch(capacity)
+    local length = valuebuilder.length(source)
+    local index: uint32 = 0
+    local zero: uint32 = 0
+    while index < length do
+        local byte = valuebuilder.byte(source, index)
+        if byte >= 97 and byte <= 122 then
+            byte = nupp.math.u32.sub(byte, 32)
+        end
+        valuebuilder.setScratchByte(scratch, index, byte)
+        index = nupp.math.u32.add(index, 1)
+    end
+    valuebuilder.stringScratch(builder, scratch, zero, length)
+
+    return valuebuilder.finish(builder)
+end
+```
+
+`integerSlice` is the integer-token counterpart of `numberSlice`: short integers
+accumulate directly in native code, and longer tokens retain the checked
+binary64 conversion fallback.
 
 ### Registrar and loading
 
 Every builder in one generated C file shares one digest-named registrar. The
 generated module loads it with `package.loadlib`, validates the returned closure
-table, and caches that table for the Lua state. Pure kernels retain their
-existing FFI path and have no Lua pointer or GC authority.
+table, and caches that table for the Lua state:
+
+```nupp
+local ks_summary_builderRegistrar = "ks_register_c70bc70bcb1fafb2"
+-- ...
+local open, why = loadlib(path, ks_summary_builderRegistrar)
+if not open then error("cannot register AOT builder: " .. tostring(why), 0) end
+registered = open()
+if type(registered) ~= "table" or type(registered["summary"]) ~= "function" then
+    error("malformed AOT builder registration", 0)
+end
+modules[cacheKey] = registered
+```
+
+`nupp aot --emit binding` prints the whole thing, including the walk that finds
+the library beside the module. Pure kernels retain their existing FFI path and
+have no Lua pointer or GC authority.
 
 ## Benchmarks
 
@@ -477,9 +598,36 @@ registers:
 | LuaJIT | 0.02 | every rounding through an FFI store and load |
 
 That is a different program with different escape counts, and it is the source
-that says so. The LuaJIT row collapses because explicit binary32 in ordinary
-Nupp performs each rounding point through an FFI store and load, which is the
-price of the source rather than an artifact of measuring it.
+that says so. `bench/kernel-subset-spike/mandelbrot_f32.nupp` is the same
+recurrence written as prefix calls, which is what tells the backend the values
+are genuinely 32-bit rather than binary64 values that happen to be small:
+
+::: code-group
+```nupp [mandelbrot.nupp]
+zy = 2.0 * zx * zy + cy
+zx = zxSquared - zySquared + cx
+zxSquared = zx * zx
+zySquared = zy * zy
+iteration = iteration + 1
+```
+
+```nupp [mandelbrot_f32.nupp]
+zy = nupp.math.f32.add(
+    nupp.math.f32.mul(nupp.math.f32.mul(zx, 2.0), zy), cy)
+zx = nupp.math.f32.add(nupp.math.f32.sub(zxSquared, zySquared), cx)
+zxSquared = nupp.math.f32.mul(zx, zx)
+zySquared = nupp.math.f32.mul(zy, zy)
+iteration = nupp.math.i32.add(iteration, 1)
+```
+:::
+
+```text
+bench/kernel-subset-spike/mandelbrot_f32.nupp: mandelbrot, kernel, 5.12 operations per byte (82 over 16), f32x8, 8 lanes
+```
+
+The LuaJIT row collapses because explicit binary32 in ordinary Nupp performs
+each rounding point through an FFI store and load, which is the price of the
+source rather than an artifact of measuring it.
 
 Eight lanes over four is 1.64x, not 2x, and that is the algorithm rather than
 the lowering. A gang runs until its slowest lane retires, so widening it takes
@@ -539,7 +687,36 @@ Lane lowering needs a whole-function shape it can reason about: one top-level
 numeric `for` loop over spans, indexed by the loop counter exactly. Inside the
 body it handles rather more than that: nested conditionals as mask stacks,
 short-circuit `and` and `or` where both sides are pure and total, a
-data-dependent inner `while`, and per-lane `break` and `continue`.
+data-dependent inner `while`, and per-lane `break` and `continue`. This
+`normalize` uses three of those and is admitted whole:
+
+```nupp
+@aot
+local function normalize(
+    exclusive outputs: span.WriteSpan<Sample>,
+    borrows inputs: span.Span<Sample>,
+    first: integer,
+    last: integer
+): nil
+    assert(#outputs == #inputs, "length mismatch")
+    assert(first >= 1 and last <= #outputs and first <= last + 1, "range out of bounds")
+
+    for i = first, last do
+        local value = inputs[i].value   -- the counter, and nothing else
+        if value < 0.0 then             -- a mask, not a branch
+            value = 0.0 - value
+        end
+        while value > 1.0 do            -- data-dependent, per lane
+            value = value * 0.5
+        end
+        outputs[i].value = value
+    end
+end
+```
+
+```text
+src/normalize.nupp: normalize, kernel, 1.12 operations per byte (9 over 8), mixed4, 4 lanes
+```
 
 Where it cannot, the body still compiles: it keeps its scalar loop, and the
 refusal names the construct that stopped it. A loop that does not vectorize is a
@@ -635,17 +812,74 @@ There are three levers, and none of them lets you name a lane.
 **`@aot(lanes = true)`** takes lane lowering whatever the intensity estimate
 says. Use it when you have measured the loop and the estimate disagrees with the
 measurement. It does not require the lowering to succeed.
+`bench/kernel-subset-spike/lanedemo.nupp` is a component update at 0.29
+operations per byte, well under the threshold, lowered because its source asks:
+
+```nupp
+@aot(lanes = true)
+local function advance(
+    exclusive particles: span.WriteSpan<Particle>,
+    borrows source: span.Span<Particle>,
+    dt: float
+): nil
+```
+
+```text
+bench/kernel-subset-spike/lanedemo.nupp: advance, kernel, 0.29 operations per byte (7 over 24), mixed4, 4 lanes
+```
 
 **`@aot(lanes = false)`** declines lane lowering for a body that would otherwise
 be lowered. Use it for a loop that is deliberately scalar, so a vectorization
-check does not report it.
+check does not report it. The `normalize` from
+[Admitted loop shape](#admitted-loop-shape) took four lanes on its own; with the
+line below it declines them, and `nupp aot --check` stays quiet about it:
+
+```nupp
+@aot(lanes = false)
+local function normalize(
+    exclusive outputs: span.WriteSpan<Sample>,
+    borrows inputs: span.Span<Sample>,
+    first: integer,
+    last: integer
+): nil
+```
+
+```text
+src/normalize.nupp: normalize, kernel, 1.12 operations per byte (9 over 8), none, declined by `@aot(lanes = false)`
+```
 
 **`@relax("fp-contract")`** permits a multiply and an add to fuse into one
 rounding. It is per function and travels with the IR rather than being a
 build-wide flag, because it changes what the function answers and not only how
-fast it gets there. On this kernel it is worth about 6 percent: 75.8 against
-71.1 MPix/s lane-parallel, 36.9 against 35.0 forced scalar.
-`bench/kernel-subset-spike/mandelbrot_exact.nupp` is the same source without it.
+fast it gets there:
+
+```nupp
+@relax("fp-contract")
+@aot
+local function mandelbrot(
+    exclusive escapes: span.WriteSpan<Escape>,
+    borrows points: span.Span<Point>,
+    first: integer,
+    last: integer,
+    maxIterations: int32
+): nil
+```
+
+That one line is the entire difference from
+`bench/kernel-subset-spike/mandelbrot_exact.nupp`, which is otherwise the same
+source, and it reaches the C as the pragma the compiler needs:
+
+```c
+__attribute__((noinline))
+KS_API void ks_mandelbrot(KsEscape *restrict p_escapes, /* ... */) {
+#if defined(__clang__)
+#pragma clang fp contract(fast)
+#endif
+```
+
+`nupp aot --emit c` on the two files differs by exactly that, once in each
+emitted body. On this kernel it is worth about 6 percent: 75.8 against 71.1
+MPix/s lane-parallel, 36.9 against 35.0 forced scalar.
 
 Removing `lanes = true` or `lanes = false` changes the compilation strategy and
 never the answer. Removing `@relax` changes the answer.
@@ -660,8 +894,13 @@ a select. Baseline and AVX2 still limit a mixed loop to two or four lanes
 because `f64x8` has no register class there. AVX-512 admits `mixed8`, so one
 binary64 running total no longer halves the lane count:
 
+```bash
+nupp aot --target x86_64-unknown-linux-gnu --features avx512f \
+    bench/kernel-subset-spike/mixedwidth.nupp
+```
+
 ```text
-mixedwidth.nupp: integrate, 5.67 operations per byte (136 over 24), mixed8, 8 lanes
+bench/kernel-subset-spike/mixedwidth.nupp: integrate, kernel, 5.67 operations per byte (136 over 24), mixed8, 8 lanes
 ```
 
 The 64-byte shape is AVX-512-only. Compiling the same source for AVX2 reports
@@ -676,6 +915,36 @@ than binary64 values that happen to be small. AVX-512 carries eight of either,
 using the narrower shape when every value is 32-bit. That source choice changes
 the program's meaning, giving different roundings and different results, which
 is exactly why the compiler will not make it for you.
+
+`mixedwidth.nupp` carries one binary64 running total and one binary64 step
+counter. `mixedwidth_f32.nupp` is the same loop with both narrowed, so nothing
+in it is wider than a 32-bit lane:
+
+::: code-group
+```nupp [mixedwidth.nupp]
+local travelled = 0.0
+local step = 0
+-- ...
+travelled = travelled + math.sqrt(...)
+step = step + 1
+```
+
+```nupp [mixedwidth_f32.nupp]
+local travelled = nupp.math.f32.narrow(0.0)
+local step: int32 = 0
+-- ...
+travelled = nupp.math.f32.add(travelled, nupp.math.f32.sqrt(...))
+step = nupp.math.i32.add(step, 1)
+```
+:::
+
+At AVX2 the first reports `mixed4` and the second `f32x8`, from the same
+arithmetic count over the same bytes:
+
+```text
+bench/kernel-subset-spike/mixedwidth.nupp: integrate, kernel, 5.67 operations per byte (136 over 24), mixed4, 4 lanes
+bench/kernel-subset-spike/mixedwidth_f32.nupp: integrate, kernel, 5.67 operations per byte (136 over 24), f32x8, 8 lanes
+```
 
 ### Vectorization limits
 
@@ -788,7 +1057,29 @@ out.
 
 A width changes only at a conversion the IR writes down. An operator never
 changes one, which is what keeps `float` a storage fact rather than an
-arithmetic type.
+arithmetic type:
+
+::: code-group
+```nupp [Nupp]
+local wide = inputs[i].value
+local doubled = wide + wide
+local narrow = nupp.math.f32.add(nupp.math.f32.narrow(wide), nupp.math.f32.narrow(wide))
+outputs[i].value = narrow + doubled
+```
+
+```c [Generated C]
+double v1_wide = ((double)((&p_inputs[i])->value));
+double v2_doubled = (v1_wide + v1_wide);
+float v3_narrow = ((float)((float)(v1_wide)) + (float)((float)(v1_wide)));
+float as1 = (float)((((double)v3_narrow) + v2_doubled));
+((&p_outputs[i])->value) = as1;
+```
+:::
+
+Every cast there answers to something the source said: the load widens, the
+store narrows, `narrow` asks for binary32 twice and gets one single-precision
+add, and adding it back to a binary64 promotes it rather than narrowing the
+other operand.
 
 An entry conversion takes a binary64, so an `int32` or `uint32` reaching one --
 a counted-loop index handed to `nupp.math.u32.wrap`, say -- is promoted to
@@ -946,9 +1237,15 @@ Selecting `require` is how a project takes on a C compiler as a dependency.
 Nothing else in Nupp makes it one, which is why `off` is the default.
 
 The build looks for `NUPP_NATIVE_CC` first, then `clang`, `cc` and `gcc` in that
-order. Clang leads because the emitter's contraction pragma is Clang's; GCC
-compiles the same C correctly and declines to contract, which is slower and
-never wrong. Naming a compiler that cannot build this C is an error rather than
+order:
+
+```bash
+NUPP_NATIVE_CC=/usr/bin/clang-18 nupp build
+```
+
+Clang leads because the emitter's contraction pragma is Clang's; GCC compiles
+the same C correctly and declines to contract, which is slower and never
+wrong. Naming a compiler that cannot build this C is an error rather than
 a reason to look elsewhere, because a build that quietly used a different
 compiler than it was told to would produce an artifact nobody could account for.
 
