@@ -2,8 +2,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
   <title id="title">Nupp programming language icon</title>
   <desc id="desc">A nuppeppo yokai rendered as a flat silhouette inside a circle,
-    with drooping closed eyes and a small mouth, standing in brown grass before a
-    stand of pines, under a full moon in a dark blue night sky.</desc>
+    with drooping closed eyes and a small mouth, standing in golden grass before
+    blue-teal pines, under a warm full moon in a deep blue-teal night sky.</desc>
 
   <defs>
     <!-- Two small, close-set feet. -->
@@ -46,16 +46,16 @@
   </defs>
 
   <!-- Night sky behind the whole scene. -->
-  <circle cx="64" cy="64" r="62" fill="#163b5c"/>
+  <circle cx="64" cy="64" r="62" fill="#0d2931"/>
 
   <g clip-path="url(#disc)">
 
     <!-- Full moon, clear of the figure in the upper right. -->
-    <circle cx="97" cy="27" r="10.5" fill="#e2d5aa"/>
+    <circle cx="97" cy="27" r="10.5" fill="#d7bd72"/>
 
     <!-- Two ranks of pines: a paler distant treeline, then a darker near one
          whose tallest fir crosses the moon. -->
-    <g fill="#1d4440">
+    <g fill="#2b4943">
       <use href="#pine" transform="translate(6,114) scale(1.45)"/>
       <use href="#pine" transform="translate(23,115) scale(1.15)"/>
       <use href="#pine" transform="translate(40,114) scale(1.15)"/>
@@ -65,7 +65,7 @@
       <use href="#pine" transform="translate(112,114) scale(1.3)"/>
     </g>
 
-    <g fill="#0d2027">
+    <g fill="#081e27">
       <use href="#pine" transform="translate(0,119) scale(1.6)"/>
       <use href="#pine" transform="translate(17,120) scale(1.5)"/>
       <use href="#pine" transform="translate(34,119) scale(1.6)"/>
@@ -82,7 +82,7 @@
       <!-- Outer edge: the same shapes, drawn behind at a heavier weight. Feet
            are scaled down around their attach point so the heavier outline
            doesn't also inflate the feet themselves. -->
-      <g fill="#35503e" stroke="#35503e">
+      <g fill="#2b4943" stroke="#2b4943">
         <use href="#foot-l" stroke-width="16.5" transform="translate(43,103) scale(0.85) translate(-43,-98)"/>
         <use href="#foot-r" stroke-width="16.5" transform="translate(85,103) scale(0.85) translate(-85,-98)"/>
         <use href="#torso"  stroke-width="16.5"/>
@@ -91,7 +91,7 @@
       </g>
 
       <!-- The nuppeppo, flattened to a single silhouette colour. -->
-      <g fill="#e6dfc0" stroke="#e6dfc0">
+      <g fill="#f4f3ed" stroke="#f4f3ed">
         <use href="#foot-l" stroke-width="3.2" transform="translate(43,103) scale(0.85) translate(-43,-98)"/>
         <use href="#foot-r" stroke-width="3.2" transform="translate(85,103) scale(0.85) translate(-85,-98)"/>
         <use href="#torso"  stroke-width="5"/>
@@ -100,7 +100,7 @@
       </g>
 
       <!-- Sunken eyes: tapered lid strokes, outer corners drooping, and a small mouth. -->
-      <g fill="#55745b" stroke="none">
+      <g fill="#79aabe" stroke="none">
         <path d="M35 63 Q46 39 59 50 Q46 53 35 63 Z"/>
         <path d="M41 70 Q50 57 60 61 Q50 65 41 70 Z"/>
         <path d="M93 63 Q82 39 69 50 Q82 53 93 63 Z"/>
@@ -111,7 +111,7 @@
 
     <!-- Dry grass he stands in: a dark bank of blades, then a tan stand of
          them in front of his feet. -->
-    <g fill="#3f3119">
+    <g fill="#4a3a1e">
       <use href="#tuft" transform="translate(4,114) scale(1.1)"/>
       <use href="#tuft" transform="translate(20,115) scale(-0.95,0.95)"/>
       <use href="#tuft" transform="translate(35,113) scale(1.15)"/>
@@ -123,7 +123,7 @@
       <path d="M0 128 V114 C22 111 42 117 64 114 C86 111 108 117 128 113 V128 Z"/>
     </g>
 
-    <g fill="#8a6a2c">
+    <g fill="#d7a45a">
       <use href="#tuft" transform="translate(0,121) scale(1.15)"/>
       <use href="#tuft" transform="translate(16,122) scale(-1,1)"/>
       <use href="#tuft" transform="translate(31,121) scale(1.2)"/>
