@@ -56,37 +56,6 @@ work makes sense in.
       bounded generics, nested type namespaces, and `self` directly into their
       landed nupp forms
 
-## Performance and incrementality
-
-- [ ] **A cleanup region whose body writes an enclosing local still builds a
-      function every iteration.**
-      An owned binding needs its body run under `xpcall`, and `xpcall` takes a
-      function. Where that function is built per entry, the loop holding it
-      never compiles, for the same reason `jit-loop-closure` reports — and
-      acquiring a resource per iteration is an ordinary thing to write, not a
-      corner case.
-      `gen` caches the region function in a module table and passes the binding
-      in, building it on first entry and reusing it after
-      (`src/nupp/compiler/gen.nupp`, the `shared` path). The function is written
-      where it stands and only its instance is kept, so scope never gated this:
-      what gates it is whether reusing one instance would read a variable
-      belonging to an earlier execution. A name the chunk's outermost block
-      declares would not, so a body whose only outside reference is a call it
-      makes now shares. A name from an enclosing function, block or loop would,
-      and that is what is left.
-      Moving the region's own bookkeeping into a table passed to the function
-      does **not** unblock the rest, which is worth writing down because it
-      looks like it should. `xpcall` does forward extra arguments, so the count,
-      the owners and the active flags could travel that way and still be
-      readable after an error. The free variables cannot: the body reads and
-      sometimes writes names belonging to the enclosing function, and passing
-      those means lambda lifting with write-back, not an extra parameter.
-      So this is a transformation rather than a lowering change, and it lands in
-      the machinery where being wrong means a leak or a double free. It wants
-      its own design pass. Until then `nupp bc --check` names the loops it
-      affects, and hoisting the acquisition out of the loop avoids it where the
-      resource does not have to be per-iteration.
-
 ## Testing and CI
 
 - [ ] **Complete the operator-contract matrix.** Only `__add` has a direct

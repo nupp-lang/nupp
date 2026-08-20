@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Let a loop compile around an owned binding whose protected body reads or
+  writes an enclosing local. A capture stable for one function call keeps one
+  guarded region closure in that invocation; a local recreated by an enclosing
+  loop travels through a frame passed to the module-cached closure, with writes
+  copied back before cleanup and structured-exit dispatch. Recursive calls keep
+  independent upvalues, and per-iteration resources remain per-iteration.
+
 - Put the design rationale where the question occurs. A `::: rationale` block
   renders collapsed, holds two to four sentences on why the construct on that
   page is shaped the way it is, and links to the proposal holding the full

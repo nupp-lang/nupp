@@ -491,7 +491,7 @@ function M.aBodyThatOnlyCallsOutStillSharesOneRegion()
    assertEq(chunk(), "aabbcc")
 end
 
-function M.aChunkLevelLoopVariableKeepsTheRegionPerEntry()
+function M.aChunkLevelLoopVariableTravelsThroughARegionFrame()
    local chunk, code = compile(PRELUDE .. table.concat({
       "",
       "for i = 1, 3 do",
@@ -500,11 +500,89 @@ function M.aChunkLevelLoopVariableKeepsTheRegionPerEntry()
       "end",
       "return calls",
    }, "\n"))
-   -- Outside every function and still a fresh instance each iteration, so a reused
-   -- region function would read the first iteration's `i`.
-   assert(not code:match(CACHED_REGION),
-      "a body reading a chunk-level loop variable keeps its own region function")
+   assert(code:match(CACHED_REGION),
+      "a body reading a chunk-level loop variable shares its framed region function")
    assertEq(chunk(), "1x2x3x")
+end
+
+function M.aFunctionLocalWriteUsesOneRegionPerInvocation()
+   local chunk, code = compile(PRELUDE .. table.concat({
+      "",
+      "local function count(limit: integer): integer",
+      "   local total: integer = 0",
+      "   for i = 1, limit do",
+      "      local value = open_resource('x')",
+      "      total = total + #value.name",
+      "   end",
+      "   return total",
+      "end",
+      "local first = count(3)",
+      "local second = count(2)",
+      "return first, second, calls",
+   }, "\n"))
+   local first, second, calls = chunk()
+   assertEq(first, 3)
+   assertEq(second, 2)
+   assertEq(calls, "xxxxx")
+   assert(code:match("local __nuppT%d+;"),
+      "a capturing region reserves one cache for the function invocation")
+end
+
+function M.recursiveInvocationsDoNotShareRegionUpvalues()
+   local chunk = compile(PRELUDE .. table.concat({
+      "",
+      "local function descend(depth: integer): number",
+      "   local total: number = depth",
+      "   for once = 1, 1 do",
+      "      local value = open_resource('x')",
+      "      if depth > 0 then total = total + descend(depth - 1) end",
+      "   end",
+      "   return total",
+      "end",
+      "return descend(3), calls",
+   }, "\n"))
+   local total, calls = chunk()
+   assertEq(total, 6)
+   assertEq(calls, "xxxx")
+end
+
+function M.aLoopLocalWriteTravelsThroughARegionFrame()
+   local chunk = compile(PRELUDE .. table.concat({
+      "",
+      "local totals = ''",
+      "for outer = 1, 3 do",
+      "   local total: integer = 0",
+      "   for inner = 1, outer do",
+      "      local value = open_resource('x')",
+      "      total = total + inner",
+      "   end",
+      "   totals = totals .. tostring(total)",
+      "end",
+      "return totals, calls",
+   }, "\n"))
+   local totals, calls = chunk()
+   assertEq(totals, "136")
+   assertEq(calls, "xxxxxx")
+end
+
+function M.frameWritebackPrecedesStructuredExitDispatch()
+   local chunk = compile(PRELUDE .. table.concat({
+      "",
+      "local totals = ''",
+      "for outer = 1, 3 do",
+      "   local total: integer = 0",
+      "   for inner = 1, 3 do",
+      "      local value = open_resource('x')",
+      "      total = total + inner",
+      "      if inner == 2 then break end",
+      "   end",
+      "   totals = totals .. tostring(total)",
+      "end",
+      "return totals, calls",
+   }, "\n"))
+   local totals, calls = chunk()
+   assertEq(totals, "333")
+   assertEq(calls, "xxxxxx")
 end
 
 function M.automaticLoweringEmitsLoadableCleanupRegions()

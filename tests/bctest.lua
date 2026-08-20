@@ -154,6 +154,37 @@ function M.aFunctionBuiltOnceBehindAGuardIsAdvisory()
       "the blocker path remains visible without claiming the whole loop fails:\n" .. out)
 end
 
+function M.cleanupRegionsWritingFunctionAndLoopLocalsStillCompile()
+   local dir = project{["captured.g.nupp"] = table.concat({
+      "cdef function free(takes value: voidptr)",
+      "cdef function malloc(size: uint64): voidptr",
+      "local function ownedMalloc(size: uint64): affine(voidptr, free)",
+      "   return malloc(size)",
+      "end",
+      "local function count(limit: integer): integer",
+      "   local result: integer = 0",
+      "   for outer = 1, limit do",
+      "      local subtotal: integer = 0",
+      "      for inner = 1, outer do",
+      "         local value = ownedMalloc(8)",
+      "         subtotal = subtotal + inner",
+      "         result = result + 1",
+      "      end",
+      "      result = result + subtotal",
+      "   end",
+      "   return result",
+      "end",
+      "return count(3000)",
+   }, "\n") .. "\n"}
+   local out, code = run(dir, "--check captured.g.nupp")
+   assert(code == 0,
+      "cleanup captures must not leave either enclosing loop unrecordable:\n" .. out)
+   assert(out:find("may%-reach"),
+      "the guarded construction remains visible as an advisory path:\n" .. out)
+   assert(not out:find("never compiles", 1, true),
+      "neither loop retains a must-reach function construction:\n" .. out)
+end
+
 function M.checkPassesWhenEveryLoopCanCompile()
    local dir = project{["demo.g.nupp"] = SCALE}
    local out, code = run(dir, "--check demo.g.nupp")
