@@ -82,6 +82,12 @@ local utf8 = {}
 ---
 --- A malformed byte counts as one.
 ---
+--- ```nupp
+--- const utf8 = require("nupp.data.utf8")
+---
+--- assert(utf8.length("A€") == 2)
+--- ```
+---
 --- @param value the bytes to measure
 --- @return the codepoint count
 function utf8.length(value: string | nupp.io.ByteView): integer
@@ -126,6 +132,19 @@ end
 
 --- Reads the codepoint ending just before a byte offset, and where it starts.
 ---
+--- `decodeAt` and `decodeBefore` walk the same positions in opposite
+--- directions, so decoding forward and then back lands where it started:
+---
+--- ```nupp
+--- const utf8 = require("nupp.data.utf8")
+---
+--- local codepoint, nextByte = utf8.decodeAt("A€", 2)
+--- assert(codepoint == 0x20ac and nextByte == 5)
+---
+--- codepoint, nextByte = utf8.decodeBefore("A€", nextByte)
+--- assert(codepoint == 0x20ac and nextByte == 2)
+--- ```
+---
 --- @param value the bytes to read
 --- @param byteOffset the 1-based byte to look back from
 --- @return the codepoint, or nil at the start of the value
@@ -153,6 +172,12 @@ end
 
 --- Encodes one codepoint as UTF-8 bytes.
 ---
+--- ```nupp
+--- const utf8 = require("nupp.data.utf8")
+---
+--- assert(utf8.encode(0x20ac) == "€")
+--- ```
+---
 --- @param codepoint the codepoint to encode
 --- @return its encoding
 function utf8.encode(codepoint: integer): string
@@ -161,6 +186,13 @@ end
 
 --- Reports whether the whole value is well-formed UTF-8.
 ---
+--- ```nupp
+--- const utf8 = require("nupp.data.utf8")
+---
+--- assert(utf8.isValid("café"))
+--- assert(not utf8.isValid("\xff"))
+--- ```
+---
 --- @param value the bytes to test
 --- @return whether every sequence is well formed
 function utf8.isValid(value: string | nupp.io.ByteView): boolean
@@ -168,6 +200,14 @@ function utf8.isValid(value: string | nupp.io.ByteView): boolean
 end
 
 --- Measures the longest well-formed prefix no longer than `maxBytes`.
+---
+--- ```nupp
+--- const utf8 = require("nupp.data.utf8")
+---
+--- -- "A€B" is 5 bytes; the 4-byte budget stops just short of "B" rather
+--- -- than splitting "€" in half.
+--- assert(utf8.validPrefixLength("A€B", 4) == 4)
+--- ```
 ---
 --- @param value the bytes to measure
 --- @param maxBytes the most bytes the prefix may use
@@ -183,6 +223,12 @@ function utf8.validPrefixLength(value: string | nupp.io.ByteView, maxBytes: inte
 end
 
 --- Cuts text to at most `maxBytes`, never through a codepoint.
+---
+--- ```nupp
+--- const utf8 = require("nupp.data.utf8")
+---
+--- assert(utf8.truncate("A€B", 4) == "A€")
+--- ```
 ---
 --- @param text the text to cut
 --- @param maxBytes the most bytes the answer may use
