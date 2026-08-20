@@ -69,12 +69,26 @@ local function makeDir()
    return dir
 end
 
--- The binary is stamped once for the whole file, and only when there is not one
--- already: stamping is the expensive part, and a build started from inside the
--- suite is a build running beside forty other processes that are reading the same
--- output directory. Once per tree is the most this can cost, and a run after
--- `nupp build --target dist` costs nothing at all.
+-- The binary is stamped once for the whole file, and only when the one already
+-- there is not the compiler in `src`: stamping is the expensive part, and a build
+-- started from inside the suite is a build running beside forty other processes
+-- that are reading the same output directory. Once per tree is the most this can
+-- cost, and a run after `nupp build --target dist` costs nothing at all.
 local PRODUCED = "/build/dist/nupp"
+
+--- Whether anything the binary was stamped from has been written since.
+---
+--- Reuse is only sound while the artifact still answers for the tree under test.
+--- One older than its sources answers for a tree nobody has any more, and the
+--- difference it reports then reads as a defect in whatever change is being tested
+--- rather than as the stale file it is. A `find` that cannot answer is treated as
+--- stale, since stamping again costs a minute and believing this one costs a
+--- debugging session.
+local function stampedBeforeItsSources(produced)
+   local out, status = run(("find '%s/src' '%s/nupp.lua' -newer '%s' -print"):format(ROOT, ROOT, produced))
+
+   return status ~= 0 or out:match("%S") ~= nil
+end
 
 local built, buildProblem
 local function stampedBinary()
@@ -82,7 +96,7 @@ local function stampedBinary()
       return built, buildProblem
    end
    local produced = ROOT .. PRODUCED
-   if readFile(produced) then
+   if readFile(produced) and not stampedBeforeItsSources(produced) then
       built = produced
       return built, nil
    end
