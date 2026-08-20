@@ -256,8 +256,12 @@ function derive.fromJSON<T is table>(text: string, entry: derive.Entry): (T?, st
     return _G.nupp.__derive.fromJSON(text, entry)
 end
 
+-- Delegated like its three siblings rather than reading `entry.codec` directly. The
+-- codec is materialized on demand and memoized into that field, so reading the field
+-- answers nil until something else has already asked for it -- which made this the one
+-- member of the four whose answer depended on what had run before it.
 function derive.fieldCodec(entry: derive.Entry): nupp.reflect.FieldCodec<any>
-    return entry.codec
+    return _G.nupp.__derive.fieldCodec(entry)
 end
 
 comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>

@@ -76047,7 +76047,7 @@ right = "local record Point\n    x: number\n    y: number\nend\n\n"
 .. "local function show(p: Point): number\n    return p.x\nend\n\n"
 .. "return show\n" ,
 related = { "NUPP2005" , "NUPP2119" } ,
-docs = "docs/concepts/declarations.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 } ,
 {
 code = "NUPP2006" ,
@@ -76123,7 +76123,7 @@ rule = "A type name must be a built-in, a declaration visible in this "
 wrong = "local count: Count = 1\nreturn count\n" ,
 right = "local type Count = integer\nlocal count: Count = 1\nreturn count\n" ,
 related = { "NUPP2105" , "NUPP2120" } ,
-docs = "docs/concepts/declarations.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 } ,
 {
 code = "NUPP2106" ,
@@ -76137,7 +76137,7 @@ rule = "What a module returns is its interface, and an interface is "
 wrong = "local m = {}\n\nfunction m.double(n)\n    return n * 2\nend\n\n" .. "return m\n" ,
 right = "local m = {}\n\nfunction m.double(n: integer): integer\n" .. "    return n * 2\nend\n\nreturn m\n" ,
 related = { "NUPP2119" } ,
-docs = "docs/concepts/declarations.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 } ,
 {
 code = "NUPP2107" ,
@@ -76241,7 +76241,7 @@ rule = "A declaration has one member of a given name and capability. "
 wrong = "local record Pair\n    first: string\n    first: integer\nend\n\n" .. "return Pair\n" ,
 right = "local record Pair\n    first: string\n    second: integer\nend\n\n" .. "return Pair\n" ,
 related = { "NUPP2004" , "NUPP2123" } ,
-docs = "docs/type-system/records.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 } ,
 {
 code = "NUPP2119" ,
@@ -76254,7 +76254,7 @@ rule = "A declaration is file-local (`local`), a member of a table "
 wrong = "record Loose\n    id: integer\nend\n\nreturn Loose\n" ,
 right = "local record Loose\n    id: integer\nend\n\nreturn Loose\n" ,
 related = { "NUPP2106" , "NUPP2120" } ,
-docs = "docs/concepts/declarations.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 } ,
 {
 code = "NUPP2120" ,
@@ -77219,7 +77219,7 @@ rule = "Arithmetic, comparison, concatenation, length, and LPeg's pattern algebr
 wrong = "local lpeg = require(\"lpeg\")\nlocal pattern = lpeg.P(\"a\") ^ \"two\"\nreturn pattern\n" ,
 right = "local lpeg = require(\"lpeg\")\nlocal pattern = lpeg.P(\"a\") ^ 2\nreturn pattern\n" ,
 related = { "NUPP2005" , "NUPP2006" } ,
-docs = "docs/concepts/metamethods.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77231,7 +77231,7 @@ rule = "A call needs a function type, an intersection with at least one function
 wrong = "local count: integer = 5\nreturn count()\n" ,
 right = "local function callable(): integer\n    return 5\nend\nreturn callable()\n" ,
 related = { "NUPP2003" , "NUPP2006" } ,
-docs = "docs/concepts/metamethods.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77265,7 +77265,7 @@ code = "NUPP2102" ,
 summary = "Two project globals declare the same type name" ,
 rule = "A `global` declaration is reachable project-wide with no `require`, so globals share one flat namespace across every file. When two files each declare a global type of the same name, an unqualified use of that name cannot know which declaration it means, and both declaring locations are reported. This is inherently a whole-project condition: within the file that declares a name, its own declaration is already in scope directly and this check is not reached, so a single isolated file cannot exhibit it on its own." ,
 related = { "NUPP2104" , "NUPP2101" } ,
-docs = "docs/concepts/declarations.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77275,7 +77275,7 @@ code = "NUPP2104" ,
 summary = "Two project globals declare the same value name" ,
 rule = "A `global record` or `global struct` declaration puts a value in `_G` as well as a type in the project's global type namespace. When two files each declare a global of the same name whose value side collides, an unqualified use of that name as a value cannot know which declaration it means, and both declaring locations are reported. Like NUPP2102, this is a whole-project condition: a file that declares the name resolves its own declaration directly and never reaches this check, so a single isolated file cannot exhibit it on its own." ,
 related = { "NUPP2102" , "NUPP2120" } ,
-docs = "docs/concepts/declarations.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77288,7 +77288,7 @@ wrong = "local function shout(text: string): string\n    return txet .. \"!\"\ne
 right = "local function shout(text: string): string\n    return text .. \"!\"\nend\nreturn shout\n" ,
 strict = true ,
 related = { "NUPP2120" , "NUPP2101" } ,
-docs = "docs/concepts/declarations.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77346,7 +77346,7 @@ summary = "A reserved built-in annotation is applied before its behavior is impl
 
 rule = "A built-in definition may carry a reservation naming the feature it is waiting on, ahead of the feature existing. Applying that name still parses and resolves, since the definition is real, but is refused with what it is reserved for rather than silently accepted and doing nothing. No shipped built-in currently carries a reservation -- the mechanism exists for a name registered ahead of its implementation, as `@jit` itself once was." ,
 related = { "NUPP2111" , "NUPP2112" } ,
-docs = "docs/reference/annotations.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77454,7 +77454,7 @@ rule = "The array part `{T}` makes a record's own instances behave as a one-base
 wrong = "local struct P\n    {integer}\n    x: float\nend\nreturn P\n" ,
 right = "local struct P\n    x: float[4]\nend\nreturn P\n" ,
 related = { "NUPP2201" , "NUPP2205" } ,
-docs = "docs/type-system/records.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77466,7 +77466,7 @@ rule = "The array part is spelled `{T}`: braces around exactly the element type.
 wrong = "local record R\n    {x: integer}\n    y: integer\nend\nreturn R\n" ,
 right = "local record R\n    {integer}\n    y: integer\nend\nreturn R\n" ,
 related = { "NUPP2204" , "NUPP2201" } ,
-docs = "docs/type-system/records.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77550,7 +77550,7 @@ rule = "Structure-of-arrays storage accepts only a reified struct whose top-leve
 wrong = "local soa = require(\"nupp.mem.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal rows = soa.allocate(ffi.typeof<int32>(), 4)\nreturn rows\n" ,
 right = "local soa = require(\"nupp.mem.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal struct Point\n    x: float\n    y: float\nend\n\nlocal rows = soa.allocate(ffi.typeof<Point>(), 4)\nrows:close()\n" ,
 related = { "NUPP2402" , "NUPP2009" } ,
-docs = "docs/concepts/structure-of-arrays.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77562,7 +77562,7 @@ rule = "A comptime block evaluates in a scope of its own: its own locals and par
 wrong = "local n = 5\nlocal value: integer = comptime do\n    return n\nend\nprint(value)\n" ,
 right = "local value: integer = comptime do\n    return 5\nend\nprint(value)\n" ,
 related = { "NUPP2411" , "NUPP2412" } ,
-docs = "docs/concepts/comptime.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77574,7 +77574,7 @@ rule = "The comptime evaluator supports a fixed subset of Nupp -- literals, cont
 wrong = "local value: number = comptime do\n    return math.random()\nend\nprint(value)\n" ,
 right = "local value: number = comptime do\n    return math.floor(7 / 2)\nend\nprint(value)\n" ,
 related = { "NUPP2410" , "NUPP2412" } ,
-docs = "docs/concepts/comptime.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77586,7 +77586,7 @@ rule = "Comptime evaluation is bounded so a block always finishes, and defined o
 wrong = "local value: string = comptime do\n    return tostring({})\nend\nprint(value)\n" ,
 right = "local value: string = comptime do\n    return tostring(5)\nend\nprint(value)\n" ,
 related = { "NUPP2410" , "NUPP2411" } ,
-docs = "docs/concepts/comptime.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77622,7 +77622,7 @@ rule = "A comptime function's own identity, a type or const-function argument cr
 wrong = "local comptime function answer(): integer return 42 end\nlocal escaped = answer\nreturn escaped()\n" ,
 right = "local comptime function answer(): integer return 42 end\nreturn comptime do return answer() end\n" ,
 related = { "NUPP2414" , "NUPP2416" } ,
-docs = "docs/concepts/comptime.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77634,7 +77634,7 @@ rule = "Comptime evaluation runs in an isolated worker with fixed step, memory, 
 wrong = "return comptime do\n    local values = {}\n    for index = 1, 12000 do values[index] = index end\n    return values\nend\n" ,
 right = "return comptime do\n    local values = {}\n    for index = 1, 10 do values[index] = index end\n    return values\nend\n" ,
 related = { "NUPP2415" , "NUPP2412" } ,
-docs = "docs/concepts/comptime.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77658,7 +77658,7 @@ rule = "nupp.reflect(T) resolves T in type position; it does not accept an expre
 wrong = "local value = 1\nconst Bad: nupp.reflect.FieldCodec<any> = comptime do\n    return nupp.reflect.fieldCodec(nupp.reflect(value))\nend\nreturn Bad, value\n" ,
 right = "local record Item\n    value: integer\nend\nconst Good: nupp.reflect.FieldCodec<Item> = comptime do\n    return nupp.reflect.fieldCodec(nupp.reflect(Item))\nend\nreturn Good\n" ,
 related = { "NUPP2415" , "NUPP2416" } ,
-docs = "docs/concepts/reflection.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77670,7 +77670,7 @@ rule = "nupp.sizeof, nupp.alignof, and nupp.offsetof run only inside a comptime 
 wrong = "local struct Value\n    n: int32\nend\nreturn comptime do return nupp.sizeof(Value) end\n" ,
 right = "local struct Value\n    n: int32\nend\nlocal size = ffi.sizeof<Value>()\nreturn size\n" ,
 related = { "NUPP2410" , "NUPP2416" } ,
-docs = "docs/concepts/comptime.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77776,7 +77776,7 @@ rule = "An affine binding or affine field is discharged by exactly one move, dro
 wrong = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal function useTwice(): nil\n    local value = resource_new()\n    drop(value)\n    drop(value)\nend\n\nreturn useTwice\n" ,
 right = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal function useOnce(): nil\n    local value = resource_new()\n    drop(value)\nend\n\nreturn useOnce\n" ,
 related = { "NUPP2602" , "NUPP2603" } ,
-docs = "docs/type-system/ownership.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77788,7 +77788,7 @@ rule = "A capability-qualified value only accepts the operations its current sta
 wrong = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal value = resource_new()\ndo\n    local view = borrow(value)\n    resource_free(value)\nend\nresource_free(value)\n" ,
 right = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal value = resource_new()\ndo\n    local view = borrow(value)\n    print(view.value)\nend\nresource_free(value)\n" ,
 related = { "NUPP2601" , "NUPP2608" , "NUPP2615" } ,
-docs = "docs/type-system/ownership.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -77800,7 +77800,7 @@ rule = "Offsetting a raw C pointer with `+` or `-` needs a borrowed, rooted poin
 wrong = "cdef struct resource\n    value: int32\nend\n\nlocal function advance(borrows base: resource*): resource*\n    return base + 1\nend\n\nreturn advance\n" ,
 right = "cdef struct resource\n    value: int32\nend\n\nlocal function advance(borrows base: resource*): resource* borrows (base)\n    unsafe do\n        return base + 1\n    end\nend\n\nreturn advance\n" ,
 related = { "NUPP2001" , "NUPP2004" , "NUPP2602" } ,
-docs = "docs/modules/nupp/mem/span.md#diagnostics" ,
+docs = "docs/reference/diagnostics.md#diagnostic-index" ,
 }
 
 ENTRIES [
@@ -125665,8 +125665,12 @@ function derive . fromJSON ( text , entry )
 return _G . nupp . __derive . fromJSON ( text , entry )
 end
 
+
+
+
+
 function derive . fieldCodec ( entry )
-return entry . codec
+return _G . nupp . __derive . fieldCodec ( entry )
 end
 
 
@@ -144770,8 +144774,12 @@ function derive.fromJSON<T is table>(text: string, entry: derive.Entry): (T?, st
     return _G.nupp.__derive.fromJSON(text, entry)
 end
 
+-- Delegated like its three siblings rather than reading `entry.codec` directly. The
+-- codec is materialized on demand and memoized into that field, so reading the field
+-- answers nil until something else has already asked for it -- which made this the one
+-- member of the four whose answer depended on what had run before it.
 function derive.fieldCodec(entry: derive.Entry): nupp.reflect.FieldCodec<any>
-    return entry.codec
+    return _G.nupp.__derive.fieldCodec(entry)
 end
 
 comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
