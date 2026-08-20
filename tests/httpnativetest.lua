@@ -122,7 +122,7 @@ local function ready()
 end
 
 local function endpoint(path)
-   return assert(require("nupp.io.uri").new("http://127.0.0.1:" .. port .. path))
+   return assert(require("nupp.io.uri").newURI("http://127.0.0.1:" .. port .. path))
 end
 
 local function readAll(body, chunkSize)
