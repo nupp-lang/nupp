@@ -10413,7 +10413,7 @@ const __nuppExportValue= lower ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.aot.lower"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.aot.lower"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.compiler.aot.rewrite"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local m=__nuppMath;local pi,tau=math.pi,2*math.pi function m.lerp(from,to,t)if t==0 then return from elseif t==1 then return to end;return from+(to-from)*t end function m.wrapAngle(radians)return(radians+pi)%tau-pi end function m.deltaAngle(from,to)return m.wrapAngle(to-from)end local b=bit;local function ui32(x)x=b.tobit(x);return x<0 and x+4294967296 or x end local function mul32(a,c)local al,cl=a%65536,c%65536;local ah,ch=math.floor(a/65536),math.floor(c/65536);return b.tobit(al*cl+((ah*cl+al*ch)%65536)*65536)end local i32,u32={},{};m.i32=i32;m.u32=u32 function i32.wrap(a)return b.tobit(a)end;function u32.wrap(a)return ui32(a)end function i32.add(a,c)return b.tobit(a+c)end;function i32.sub(a,c)return b.tobit(a-c)end;function i32.mul(a,c)return mul32(ui32(a),ui32(c))end function i32.andBits(a,c)return b.band(a,c)end;function i32.orBits(a,c)return b.bor(a,c)end;function i32.xorBits(a,c)return b.bxor(a,c)end;function i32.notBits(a)return b.bnot(a)end function i32.shiftLeft(a,c)return b.lshift(a,b.band(c,31))end;function i32.shiftRightArithmetic(a,c)return b.arshift(a,b.band(c,31))end function i32.rotateLeft(a,c)return b.rol(a,b.band(c,31))end;function i32.rotateRight(a,c)return b.ror(a,b.band(c,31))end function i32.lessThan(a,c)return b.tobit(a)<b.tobit(c)end;function i32.lessOrEqual(a,c)return b.tobit(a)<=b.tobit(c)end function i32.fromU32(a)return b.tobit(a)end;function i32.toU32(a)return ui32(a)end function u32.add(a,c)return ui32(a+c)end;function u32.sub(a,c)return ui32(a-c)end;function u32.mul(a,c)return ui32(mul32(ui32(a),ui32(c)))end function u32.andBits(a,c)return ui32(b.band(a,c))end;function u32.orBits(a,c)return ui32(b.bor(a,c))end;function u32.xorBits(a,c)return ui32(b.bxor(a,c))end;function u32.notBits(a)return ui32(b.bnot(a))end function u32.shiftLeft(a,c)return ui32(b.lshift(a,b.band(c,31)))end;function u32.shiftRightLogical(a,c)return ui32(b.rshift(a,b.band(c,31)))end function u32.rotateLeft(a,c)return ui32(b.rol(a,b.band(c,31)))end;function u32.rotateRight(a,c)return ui32(b.ror(a,b.band(c,31)))end function u32.lessThan(a,c)return ui32(a)<ui32(c)end;function u32.lessOrEqual(a,c)return ui32(a)<=ui32(c)end function u32.fromI32(a)return ui32(a)end;function u32.toI32(a)return b.tobit(a)end function u32.popcount(a)local n=0;a=ui32(a);while a~=0 do a=ui32(b.band(a,a-1));n=n+1 end;return n end function u32.trailingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;while b.band(a,1)==0 do a=b.rshift(a,1);n=n+1 end;return n end function u32.leadingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;local bit=2147483648;while b.band(a,bit)==0 do bit=b.rshift(bit,1);n=n+1 end;return n end local ffi=require("ffi");local fh=ffi.new("union {float f;uint32_t u;}[1]");local f32={};m.f32=f32 local CANON=2143289344;local PINF=2139095040;local NINF=4286578688;local MAX=2139095039;local NMAX=4286578687 local function nanbits(bits)return b.band(bits,2139095040)==2139095040 and b.band(bits,8388607)~=0 end local function putbits(bits)if nanbits(bits)then bits=CANON end;fh[0].u=bits;return tonumber(fh[0].f)end local function bits32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then bits=CANON;fh[0].u=bits end;return bits end local function round32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then fh[0].u=CANON end;return tonumber(fh[0].f)end local function narrow32(value)fh[0].f=value;return tonumber(fh[0].f)end local function comparedd(hi,lo,value)local d=hi-value;if d>-lo then return 1 elseif d<-lo then return-1 end;return 0 end local function nextup(value,bits)if bits==PINF then return value,bits end;if bits==NINF then return putbits(NMAX),NMAX end;if b.band(bits,2147483648)~=0 then if bits==2147483648 then return putbits(1),1 end;bits=bits-1 else bits=bits+1 end;return putbits(bits),bits end local function nextdown(value,bits)if bits==NINF then return value,bits end;if bits==PINF then return putbits(MAX),MAX end;if b.band(bits,2147483648)~=0 then bits=bits+1 else if bits==0 then return putbits(2147483649),2147483649 end;bits=bits-1 end;return putbits(bits),bits end local function rounddd(hi,lo)local value=round32(hi);local bits=bits32(value);if nanbits(bits)then return putbits(CANON)end;if bits==PINF then local threshold=3.4028235677973366e38;if comparedd(hi,lo,threshold)<0 then return putbits(MAX)end;return value elseif bits==NINF then local threshold=-3.4028235677973366e38;if comparedd(hi,lo,threshold)>0 then return putbits(NMAX)end;return value end;local side=comparedd(hi,lo,value);if side==0 then return value end;local other,otherbits;if side>0 then other,otherbits=nextup(value,bits)else other,otherbits=nextdown(value,bits)end;local midpoint=(value+other)*0.5;local toward=comparedd(hi,lo,midpoint);if side<0 then toward=-toward end;if toward>0 or toward==0 and b.band(bits,1)~=0 then return putbits(otherbits)end;return value end function f32.narrow(a)return narrow32(a)end;function f32.round(a)return round32(a)end;function f32.add(a,c)return round32(round32(a)+round32(c))end;function f32.sub(a,c)return round32(round32(a)-round32(c))end;function f32.mul(a,c)return round32(round32(a)*round32(c))end;function f32.div(a,c)return round32(round32(a)/round32(c))end;function f32.sqrt(a)return round32(math.sqrt(round32(a)))end function f32.min(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and(b.band(ab,2147483648)~=0 or b.band(cb,2147483648)~=0)then return putbits(2147483648)end;return a end;return a<c and a or c end function f32.max(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and b.band(ab,2147483648)~=0 and b.band(cb,2147483648)~=0 then return putbits(2147483648)elseif a==0 then return putbits(0)end;return a end;return a>c and a or c end function f32.fma(a,c,d)a,c,d=round32(a),round32(c),round32(d);local product=a*c;if product~=product or product==math.huge or product==-math.huge then return round32(product+d)end;local sum=product+d;local carry=sum-product;local error=(product-(sum-carry))+(d-carry);return rounddd(sum,error)end function f32.fromBits(bits)return putbits(ui32(bits))end;function f32.toBits(value)return bits32(round32(value))end local v={};m.vec2=v function v.add(ax,ay,bx,by)return ax+bx,ay+by end function v.subtract(ax,ay,bx,by)return ax-bx,ay-by end function v.scale(x,y,f)return x*f,y*f end function v.dot(ax,ay,bx,by)return ax*bx+ay*by end function v.cross(ax,ay,bx,by)return ax*by-ay*bx end function v.lengthSquared(x,y)return x*x+y*y end function v.length(x,y)return math.sqrt(x*x+y*y)end function v.distanceSquared(ax,ay,bx,by)local x,y=bx-ax,by-ay;return x*x+y*y end function v.distance(ax,ay,bx,by)return math.sqrt(v.distanceSquared(ax,ay,bx,by))end function v.normalize(x,y)local length=v.length(x,y);if length==0 then return 0,0 end;return x/length,y/length end function v.lerp(ax,ay,bx,by,t)if t==0 then return ax,ay elseif t==1 then return bx,by end;return ax+(bx-ax)*t,ay+(by-ay)*t end function v.moveTowards(ax,ay,bx,by,d)if d<=0 then return ax,ay end;local x,y=bx-ax,by-ay;local squared=x*x+y*y;if squared==0 or squared<=d*d then return bx,by end;local f=d/math.sqrt(squared);return ax+x*f,ay+y*f end function v.rotate(x,y,r)local c,s=math.cos(r),math.sin(r);return x*c-y*s,x*s+y*c end function v.angle(x,y)if x==0 and y==0 then return 0 end;return math.atan2(y,x)end function v.angleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;return math.atan2(math.abs(v.cross(ax,ay,bx,by)),v.dot(ax,ay,bx,by))end function v.signedAngleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;local a=math.atan2(v.cross(ax,ay,bx,by),v.dot(ax,ay,bx,by));return a==pi and-pi or a end function v.project(x,y,ox,oy)local d=ox*ox+oy*oy;if d==0 then return 0,0 end;local f=(x*ox+y*oy)/d;return ox*f,oy*f end function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;local f=2*(x*nx+y*ny)/d;return x-nx*f,y-ny*f end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end require("nupp.mathruntime").install(rawget(__nupp,"math"));local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -17872,6 +17872,7 @@ cc = dep . cc ,
 cppflags = extraCppflags or dep . cppflags ,
 bridge = binding . bridge ,
 macros = binding . macros ,
+ownership = binding . ownership ,
 bridgeInclude = binding . header ,
 } )
 if not text then
@@ -19301,7 +19302,7 @@ luarocks = {
 }
 
 
-local BINDING_KEYS = { "header" , "library" , "out" , "bridge" , "macros" }
+local BINDING_KEYS = { "header" , "library" , "out" , "bridge" , "macros" , "cbindgen" , "command" , "ownership" }
 
 local function validateKeys ( value , known , label )
 if type ( value ) ~= "table" then
@@ -19331,6 +19332,44 @@ return nil , ( "%s has no key %q; did you mean %q?" ) : format ( label , key , s
 end
 
 return nil , ( "%s has no key %q" ) : format ( label , key )
+end
+
+local function validSymbol ( value )
+return type ( value ) == "string" and value : match ( "^[A-Za-z_][A-Za-z0-9_]*$" ) ~= nil
+end
+
+local function validateOwnership ( value , label )
+if value == nil then
+return true
+end
+if type ( value ) ~= "table" then
+return nil , label .. " must be a table"
+end
+local valid , err = validateKeys ( value , { "returns" , "takes" } , label )
+if not valid then
+return nil , err
+end
+for functionName , cleanup in pairs ( value . returns or { } ) do
+if not validSymbol ( functionName ) or not validSymbol ( cleanup ) then
+return nil , label .. ".returns must map C symbols to cleanup C symbols"
+end
+end
+for functionName , positions in pairs ( value . takes or { } ) do
+if not validSymbol ( functionName ) then
+return nil , label .. ".takes must be keyed by C symbols"
+end
+valid , err = validateArray ( positions , label .. ".takes." .. functionName , "number" )
+if not valid then
+return nil , err
+end
+for _ , position in ipairs ( positions ) do
+if position < 1 or position % 1 ~= 0 then
+return nil , label .. ".takes." .. functionName .. " must contain positive parameter positions"
+end
+end
+end
+
+return true
 end
 
 local function validateDocsTarget ( target , label )
@@ -19773,6 +19812,18 @@ return nil , err
 end
 if dep . bindings . bridge ~= nil and type ( dep . bindings . bridge ) ~= "boolean" then
 return nil , "dependencies." .. name .. ".bindings.bridge must be a boolean"
+end
+if dep . bindings . cbindgen ~= nil and type ( dep . bindings . cbindgen ) ~= "boolean" then
+return nil , "dependencies." .. name .. ".bindings.cbindgen must be a boolean"
+end
+if dep . bindings . command ~= nil and (
+type ( dep . bindings . command ) ~= "string" or dep . bindings . command == ""
+) then
+return nil , "dependencies." .. name .. ".bindings.command must be a non-empty string"
+end
+valid , err = validateOwnership ( dep . bindings . ownership , "dependencies." .. name .. ".bindings.ownership" )
+if not valid then
+return nil , err
 end
 if dep . bindings . macros ~= nil then
 if type ( dep . bindings . macros ) ~= "table" then
@@ -75744,6 +75795,8 @@ local BUNDLED_SOURCE = {
 [ "nupp.log" ] = "/nupp/log.nupp" ,
 [ "nupp.suspension" ] = "/nupp/suspension.nupp" ,
 [ "nupp.pegruntime" ] = "/nupp/pegruntime.nupp" ,
+[ "nupp.mathruntime" ] = "/nupp/mathruntime.nupp" ,
+[ "nupp.reflectruntime" ] = "/nupp/reflectruntime.nupp" ,
 [ "nupp.io.process" ] = "/nupp/io/process.nupp" ,
 [ "nupp.workers" ] = "/nupp/workers.nupp" ,
 [ "nupp.io.http" ] = "/nupp/io/http.nupp" ,
@@ -91369,6 +91422,20 @@ end
 
 
 
+local function ownedPointer ( rendered )
+return rendered : sub ( - 1 ) == "?" and rendered : sub ( 1 , - 2 ) or rendered
+end
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -91413,6 +91480,13 @@ if not raw then
 return nil , { "cannot read " .. headerPath }
 end
 local headerBase = basename ( headerPath )
+local ownership = opts . ownership or { }
+local returnedOwned = ownership . returns or { }
+local takenParameters = ownership . takes or { }
+local cleanupTerminals = { }
+for _ , cleanup in pairs ( returnedOwned ) do
+cleanupTerminals [ cleanup ] = true
+end
 local cc = opts . cc or "cc"
 local cpp = { cc , "-E" }
 for _ , flag in ipairs ( opts . cppflags or { } ) do
@@ -91548,14 +91622,21 @@ end
 for _ , fn in ipairs ( parsed . functions ) do
 local params = { }
 local ok = identifier ( fn . name ) and true or false
+local takes = { }
+for _ , position in ipairs ( takenParameters [ fn . name ] or { } ) do
+takes [ position ] = true
+end
 for index , param in ipairs ( fn . params or { } ) do
 local rendered = renderType ( param . type , knownStructs , true )
 if not rendered then
 ok = false
 break
 end
+if takes [ index ] and cleanupTerminals [ fn . name ] then
+rendered = ownedPointer ( rendered )
+end
 local name = identifier ( param . name ) and param . name or "arg" .. index
-params [ # params + 1 ] = name .. ": " .. rendered
+params [ # params + 1 ] = ( takes [ index ] and "takes " or "" ) .. name .. ": " .. rendered
 end
 if fn . vararg then
 params [ # params + 1 ] = "..."
@@ -91565,6 +91646,11 @@ if fn . returns and fn . returns . kind ~= "void" then
 ret = renderType ( fn . returns , knownStructs , false )
 if not ret then
 ok = false
+else
+local cleanup = returnedOwned [ fn . name ]
+if cleanup then
+ret = "affine(" .. ownedPointer ( ret ) .. ", " .. ( cleanup ) .. ")"
+end
 end
 end
 if ok then
@@ -105214,10 +105300,13 @@ globals = { "nupp.peg.compile" } ,
 runtimeModule = "nupp.pegruntime" ,
 requires = { "native.lpeg" } ,
 } ,
-[ "stdlib.fieldcodec" ] = { name = "fieldcodec" , globals = { "nupp.reflect.fieldCodec" } , } ,
-[ "stdlib.derives" ] = { name = "derives" , globals = { } , } ,
+[
+"stdlib.fieldcodec"
+] = { name = "fieldcodec" , globals = { "nupp.reflect.fieldCodec" } , runtimeModule = "nupp.reflectruntime" , } ,
+[ "stdlib.reflection" ] = { name = "reflection" , globals = { } , runtimeModule = "nupp.reflectruntime" , } ,
+[ "stdlib.derives" ] = { name = "derives" , globals = { } , runtimeModule = "nupp.derive" , } ,
 [ "stdlib.io" ] = { name = "io" , modules = { "nupp.io" } , } ,
-[ "stdlib.math" ] = { name = "math" , globals = { "nupp.math" } , } ,
+[ "stdlib.math" ] = { name = "math" , globals = { "nupp.math" } , runtimeModule = "nupp.mathruntime" , } ,
 [
 "native.path"
 ] = {
@@ -116968,68 +117057,14 @@ return json
 ]=]
 )
 
-local MATH = compact (
-[=[
-local m=__nuppMath;local pi,tau=math.pi,2*math.pi
-function m.lerp(from,to,t)if t==0 then return from elseif t==1 then return to end;return from+(to-from)*t end
-function m.wrapAngle(radians)return(radians+pi)%tau-pi end
-function m.deltaAngle(from,to)return m.wrapAngle(to-from)end
-local b=bit;local function ui32(x)x=b.tobit(x);return x<0 and x+4294967296 or x end
-local function mul32(a,c)local al,cl=a%65536,c%65536;local ah,ch=math.floor(a/65536),math.floor(c/65536);return b.tobit(al*cl+((ah*cl+al*ch)%65536)*65536)end
-local i32,u32={},{};m.i32=i32;m.u32=u32
-function i32.wrap(a)return b.tobit(a)end;function u32.wrap(a)return ui32(a)end
-function i32.add(a,c)return b.tobit(a+c)end;function i32.sub(a,c)return b.tobit(a-c)end;function i32.mul(a,c)return mul32(ui32(a),ui32(c))end
-function i32.andBits(a,c)return b.band(a,c)end;function i32.orBits(a,c)return b.bor(a,c)end;function i32.xorBits(a,c)return b.bxor(a,c)end;function i32.notBits(a)return b.bnot(a)end
-function i32.shiftLeft(a,c)return b.lshift(a,b.band(c,31))end;function i32.shiftRightArithmetic(a,c)return b.arshift(a,b.band(c,31))end
-function i32.rotateLeft(a,c)return b.rol(a,b.band(c,31))end;function i32.rotateRight(a,c)return b.ror(a,b.band(c,31))end
-function i32.lessThan(a,c)return b.tobit(a)<b.tobit(c)end;function i32.lessOrEqual(a,c)return b.tobit(a)<=b.tobit(c)end
-function i32.fromU32(a)return b.tobit(a)end;function i32.toU32(a)return ui32(a)end
-function u32.add(a,c)return ui32(a+c)end;function u32.sub(a,c)return ui32(a-c)end;function u32.mul(a,c)return ui32(mul32(ui32(a),ui32(c)))end
-function u32.andBits(a,c)return ui32(b.band(a,c))end;function u32.orBits(a,c)return ui32(b.bor(a,c))end;function u32.xorBits(a,c)return ui32(b.bxor(a,c))end;function u32.notBits(a)return ui32(b.bnot(a))end
-function u32.shiftLeft(a,c)return ui32(b.lshift(a,b.band(c,31)))end;function u32.shiftRightLogical(a,c)return ui32(b.rshift(a,b.band(c,31)))end
-function u32.rotateLeft(a,c)return ui32(b.rol(a,b.band(c,31)))end;function u32.rotateRight(a,c)return ui32(b.ror(a,b.band(c,31)))end
-function u32.lessThan(a,c)return ui32(a)<ui32(c)end;function u32.lessOrEqual(a,c)return ui32(a)<=ui32(c)end
-function u32.fromI32(a)return ui32(a)end;function u32.toI32(a)return b.tobit(a)end
-function u32.popcount(a)local n=0;a=ui32(a);while a~=0 do a=ui32(b.band(a,a-1));n=n+1 end;return n end
-function u32.trailingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;while b.band(a,1)==0 do a=b.rshift(a,1);n=n+1 end;return n end
-function u32.leadingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;local bit=2147483648;while b.band(a,bit)==0 do bit=b.rshift(bit,1);n=n+1 end;return n end
-local ffi=require("ffi");local fh=ffi.new("union {float f;uint32_t u;}[1]");local f32={};m.f32=f32
-local CANON=2143289344;local PINF=2139095040;local NINF=4286578688;local MAX=2139095039;local NMAX=4286578687
-local function nanbits(bits)return b.band(bits,2139095040)==2139095040 and b.band(bits,8388607)~=0 end
-local function putbits(bits)if nanbits(bits)then bits=CANON end;fh[0].u=bits;return tonumber(fh[0].f)end
-local function bits32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then bits=CANON;fh[0].u=bits end;return bits end
-local function round32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then fh[0].u=CANON end;return tonumber(fh[0].f)end
-local function narrow32(value)fh[0].f=value;return tonumber(fh[0].f)end
-local function comparedd(hi,lo,value)local d=hi-value;if d>-lo then return 1 elseif d<-lo then return-1 end;return 0 end
-local function nextup(value,bits)if bits==PINF then return value,bits end;if bits==NINF then return putbits(NMAX),NMAX end;if b.band(bits,2147483648)~=0 then if bits==2147483648 then return putbits(1),1 end;bits=bits-1 else bits=bits+1 end;return putbits(bits),bits end
-local function nextdown(value,bits)if bits==NINF then return value,bits end;if bits==PINF then return putbits(MAX),MAX end;if b.band(bits,2147483648)~=0 then bits=bits+1 else if bits==0 then return putbits(2147483649),2147483649 end;bits=bits-1 end;return putbits(bits),bits end
-local function rounddd(hi,lo)local value=round32(hi);local bits=bits32(value);if nanbits(bits)then return putbits(CANON)end;if bits==PINF then local threshold=3.4028235677973366e38;if comparedd(hi,lo,threshold)<0 then return putbits(MAX)end;return value elseif bits==NINF then local threshold=-3.4028235677973366e38;if comparedd(hi,lo,threshold)>0 then return putbits(NMAX)end;return value end;local side=comparedd(hi,lo,value);if side==0 then return value end;local other,otherbits;if side>0 then other,otherbits=nextup(value,bits)else other,otherbits=nextdown(value,bits)end;local midpoint=(value+other)*0.5;local toward=comparedd(hi,lo,midpoint);if side<0 then toward=-toward end;if toward>0 or toward==0 and b.band(bits,1)~=0 then return putbits(otherbits)end;return value end
-function f32.narrow(a)return narrow32(a)end;function f32.round(a)return round32(a)end;function f32.add(a,c)return round32(round32(a)+round32(c))end;function f32.sub(a,c)return round32(round32(a)-round32(c))end;function f32.mul(a,c)return round32(round32(a)*round32(c))end;function f32.div(a,c)return round32(round32(a)/round32(c))end;function f32.sqrt(a)return round32(math.sqrt(round32(a)))end
-function f32.min(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and(b.band(ab,2147483648)~=0 or b.band(cb,2147483648)~=0)then return putbits(2147483648)end;return a end;return a<c and a or c end
-function f32.max(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and b.band(ab,2147483648)~=0 and b.band(cb,2147483648)~=0 then return putbits(2147483648)elseif a==0 then return putbits(0)end;return a end;return a>c and a or c end
-function f32.fma(a,c,d)a,c,d=round32(a),round32(c),round32(d);local product=a*c;if product~=product or product==math.huge or product==-math.huge then return round32(product+d)end;local sum=product+d;local carry=sum-product;local error=(product-(sum-carry))+(d-carry);return rounddd(sum,error)end
-function f32.fromBits(bits)return putbits(ui32(bits))end;function f32.toBits(value)return bits32(round32(value))end
-local v={};m.vec2=v
-function v.add(ax,ay,bx,by)return ax+bx,ay+by end
-function v.subtract(ax,ay,bx,by)return ax-bx,ay-by end
-function v.scale(x,y,f)return x*f,y*f end
-function v.dot(ax,ay,bx,by)return ax*bx+ay*by end
-function v.cross(ax,ay,bx,by)return ax*by-ay*bx end
-function v.lengthSquared(x,y)return x*x+y*y end
-function v.length(x,y)return math.sqrt(x*x+y*y)end
-function v.distanceSquared(ax,ay,bx,by)local x,y=bx-ax,by-ay;return x*x+y*y end
-function v.distance(ax,ay,bx,by)return math.sqrt(v.distanceSquared(ax,ay,bx,by))end
-function v.normalize(x,y)local length=v.length(x,y);if length==0 then return 0,0 end;return x/length,y/length end
-function v.lerp(ax,ay,bx,by,t)if t==0 then return ax,ay elseif t==1 then return bx,by end;return ax+(bx-ax)*t,ay+(by-ay)*t end
-function v.moveTowards(ax,ay,bx,by,d)if d<=0 then return ax,ay end;local x,y=bx-ax,by-ay;local squared=x*x+y*y;if squared==0 or squared<=d*d then return bx,by end;local f=d/math.sqrt(squared);return ax+x*f,ay+y*f end
-function v.rotate(x,y,r)local c,s=math.cos(r),math.sin(r);return x*c-y*s,x*s+y*c end
-function v.angle(x,y)if x==0 and y==0 then return 0 end;return math.atan2(y,x)end
-function v.angleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;return math.atan2(math.abs(v.cross(ax,ay,bx,by)),v.dot(ax,ay,bx,by))end
-function v.signedAngleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;local a=math.atan2(v.cross(ax,ay,bx,by),v.dot(ax,ay,bx,by));return a==pi and-pi or a end
-function v.project(x,y,ox,oy)local d=ox*ox+oy*oy;if d==0 then return 0,0 end;local f=(x*ox+y*oy)/d;return ox*f,oy*f end
-function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;local f=2*(x*nx+y*ny)/d;return x-nx*f,y-ny*f end
-]=]
-)
+
+
+
+
+
+local MATH = compact ( [=[
+require("nupp.mathruntime").install(rawget(__nupp,"math"))
+]=] )
 
 
 
@@ -117124,90 +117159,24 @@ local PEG_COMPILE = compact ( [=[
 __nuppPeg.compile=__nuppPegRuntime.compile
 ]=] )
 
-local FIELDCODEC = compact (
-[=[
-local __nuppFieldCodec=rawget(__nupp,"fieldcodec")or{};rawset(__nupp,"fieldcodec",__nuppFieldCodec)
-local function __nuppKeyedCodec(fields,fingerprint)local Codec={};Codec.__index=Codec;function Codec:encode(value)if type(value)~="table"then error("nupp: keyed codec value must be a table",2)end;local out={};for _,name in ipairs(fields)do local field=rawget(value,name);if field~=nil then out[name]=field end end;return out end;return setmetatable({fingerprint=fingerprint},Codec)end
-__nuppFieldCodec.keyed=__nuppKeyedCodec;
-]=]
-)
+
+
+
+local FIELDCODEC = compact ( [=[
+require("nupp.reflectruntime").installFieldCodec(__nupp)
+]=] )
+
+local REFLECTION = compact ( [=[
+require("nupp.reflectruntime").install(__nupp)
+]=] )
 
 
 
 
-local REFLECTION = compact (
-[=[
-local __nuppReflect=rawget(__nupp,"__reflect")or{};rawset(__nupp,"__reflect",__nuppReflect)
-local __nuppReflectionBlueprints=__nuppReflect.blueprints or setmetatable({},{__mode="k"});__nuppReflect.blueprints=__nuppReflectionBlueprints
-local __nuppReflectionInfos=__nuppReflect.infos or setmetatable({},{__mode="k"});__nuppReflect.infos=__nuppReflectionInfos
-local __nuppReflectionStates=__nuppReflect.states or setmetatable({},{__mode="k"});__nuppReflect.states=__nuppReflectionStates
-local __nuppReflectionInfo={}
-function __nuppReflectionInfo:extension(extension)local state=__nuppReflectionStates[self];if not state then error("nupp: foreign reflection descriptor",2)end;local cached=state.extensions[extension];if cached then if cached.state=="ready"then return cached.value end;if cached.state=="failed"then error(cached.error,2)end;error("nupp: recursive extension initialization",2)end;cached={state="initializing"};state.extensions[extension]=cached;local ok,value=pcall(extension.build,self);if not ok then cached.state="failed";cached.error=tostring(value);error(cached.error,2)end;cached.state="ready";cached.value=value;return value end
-__nuppReflectionInfo.__index=function(info,key)if key=="extension"then return __nuppReflectionInfo.extension end;local state=__nuppReflectionStates[info];if key=="type"then return state and state.type end;return state and state.blueprint[key]end
-__nuppReflectionInfo.__newindex=function()error("nupp: reflection descriptors are immutable",2)end
-function __nuppReflect.register(typeObject,blueprint)__nuppReflectionBlueprints[typeObject]=blueprint;rawset(typeObject,"reflect",function()local prior=__nuppReflectionInfos[typeObject];if prior then return prior end;local declared=__nuppReflectionBlueprints[typeObject];if not declared then error("nupp: type has no reflection blueprint",2)end;local info=setmetatable({},__nuppReflectionInfo);__nuppReflectionInfos[typeObject]=info;__nuppReflectionStates[info]={type=typeObject,blueprint=declared,extensions={}};return info end);return typeObject end
-__nuppReflect.json=__nuppReflect.json or {version="nupp-json-extension-v1"}
-]=]
-)
 
-local DERIVES = compact (
-[=[
-local __nuppDerive=rawget(__nupp,"__derive")or{};rawset(__nupp,"__derive",__nuppDerive)
-local __nuppDeriveTypes=__nuppDerive.types or{};__nuppDerive.types=__nuppDeriveTypes
-local __nuppBufferModule
-local function __nuppBufferNew()if not __nuppBufferModule then __nuppBufferModule=require("string.buffer")end;return __nuppBufferModule.new()end
-local function __nuppCopy(value,seen)if type(value)~="table"then return value end;seen=seen or{};if seen[value]then error("nupp: cyclic field default",3)end;seen[value]=true;local out={};for k,v in pairs(value)do out[__nuppCopy(k,seen)]=__nuppCopy(v,seen)end;seen[value]=nil;return out end
-local function __nuppDefaultValue(spec)
-if spec and spec.kind=="literal"then return __nuppCopy(spec.value)end;error("nupp: unsupported field default",3)end
-local function __nuppSortedKeys(value)local keys={};for key in pairs(value)do keys[#keys+1]=key end;table.sort(keys,function(a,b)return tostring(a)<tostring(b)end);return keys end
-local function __nuppDebugAny(value,state)
-local kind=type(value);if kind=="nil"or kind=="boolean"or kind=="number"then return tostring(value)elseif kind=="string"then return string.format("%q",value)elseif kind~="table"then return"<"..kind..">"end
-if state.active[value]then return"<cycle>"end;state.active[value]=true;local mt=getmetatable(value);local entry=mt and __nuppDeriveTypes[rawget(mt,"__nuppDeriveKey")];local out;if entry then out=__nuppDerive.debug(value,entry.schema.data.debug,state)else local parts={};for _,key in ipairs(__nuppSortedKeys(value))do parts[#parts+1]="["..__nuppDebugAny(key,state).."] = "..__nuppDebugAny(value[key],state)end;out="{"..table.concat(parts,", ").."}"end;state.active[value]=nil;return out end
-local function __nuppDebugValue(value,spec,state)
-if spec.kind=="optional"then return value==nil and"nil"or __nuppDebugValue(value,spec.value,state)elseif spec.kind=="customDebug"then return value:debug()elseif spec.kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];return nested and __nuppDerive.debug(value,nested.schema.data.debug,state)or"<unloaded>"elseif spec.kind=="any"then return __nuppDebugAny(value,state)elseif spec.kind=="string"or spec.kind=="literal"and type(value)=="string"then return string.format("%q",value)elseif spec.kind=="nil"or spec.kind=="boolean"or spec.kind=="number"or spec.kind=="integer"or spec.kind=="float"or spec.kind:match("^u?int")or spec.kind=="literal"then return tostring(value)end
-if type(value)~="table"then return"<"..type(value)..">"end;if state.active[value]then return"<cycle>"end;state.active[value]=true;local parts={};if spec.kind=="array"then for i=1,#value do parts[#parts+1]=__nuppDebugValue(value[i],spec.value,state)end elseif spec.kind=="tuple"then for i,item in ipairs(spec.items)do parts[#parts+1]=__nuppDebugValue(value[i],item,state)end elseif spec.kind=="shape"then for _,field in ipairs(spec.fields)do parts[#parts+1]=field.name.." = "..__nuppDebugValue(rawget(value,field.name),field.type,state)end elseif spec.kind=="map"then for _,key in ipairs(__nuppSortedKeys(value))do parts[#parts+1]="["..__nuppDebugValue(key,spec.key,state).."] = "..__nuppDebugValue(value[key],spec.value,state)end end;state.active[value]=nil;return"{"..table.concat(parts,", ").."}"end
-function __nuppDerive.debug(value,schema,state)schema=schema.schema and schema.schema.data.debug or schema;state=state or{active={}};if state.active[value]then return"<cycle>"end;state.active[value]=true;local parts={};for _,field in ipairs(schema.fields)do if not field.debugSkip then local shown=field.debugRedact and"<redacted>"or __nuppDebugValue(rawget(value,field.name),field.debugType,state);parts[#parts+1]=field.name.." = "..shown end end;state.active[value]=nil;return schema.name.." { "..table.concat(parts,", ").." }"end
-local __nuppEscapes={[8]="\\b",[9]="\\t",[10]="\\n",[12]="\\f",[13]="\\r",[34]='\\"',[92]="\\\\"}
-local function __nuppPutString(buf,text,path)if type(text)~="string"then error(path..": expected string",3)end;buf:put('"');local start=1;local i=1;while i<=#text do local byte=text:byte(i);local escaped=__nuppEscapes[byte];if escaped or byte<32 then if i>start then buf:put(text:sub(start,i-1))end;buf:put(escaped or string.format("\\u%04X",byte));i=i+1;start=i elseif byte<128 then i=i+1 else local count=byte>=240 and 4 or byte>=224 and 3 or byte>=194 and 2 or 0;if count==0 or i+count-1>#text then error(path..": invalid UTF-8",3)end;local b2,b3,b4=text:byte(i+1,i+3);if not b2 or b2<128 or b2>191 or count>=3 and(not b3 or b3<128 or b3>191)or count==4 and(not b4 or b4<128 or b4>191)or byte==224 and b2<160 or byte==237 and b2>=160 or byte==240 and b2<144 or byte==244 and b2>=144 or byte>244 then error(path..": invalid UTF-8",3)end;i=i+count end end;if start<=#text then buf:put(text:sub(start))end;buf:put('"')end
-local function __nuppFinite(value)return value==value and value~=math.huge and value~=-math.huge end
-local function __nuppEnter(value,state,path)if state.depth>=128 then error(path..": JSON nesting exceeds 128 containers",3)end;if state.active[value]then error(path..": cyclic JSON value",3)end;state.active[value]=true;state.depth=state.depth+1 end
-local function __nuppLeave(value,state)state.depth=state.depth-1;state.active[value]=nil end
-local __nuppWriteValue
-local function __nuppWriteObject(value,fields,unknown,buf,state,path)
-if type(value)~="table"then error(path..": expected object",3)end;__nuppEnter(value,state,path);buf:put("{");local first=true;for _,field in ipairs(fields)do if not field.omit then local item=rawget(value,field.name);local empty=item==nil or item==""or item==false or type(item)=="table"and next(item)==nil;if not(field.omitEmpty and empty)then if not first then buf:put(",")end;first=false;__nuppPutString(buf,field.jsonName or field.name,path);buf:put(":");__nuppWriteValue(item,field.jsonType,buf,state,path.."."..(field.jsonName or field.name))end end end;buf:put("}");__nuppLeave(value,state)end
-__nuppWriteValue=function(value,spec,buf,state,path)
-local kind=spec and spec.kind;if kind=="optional"then if value==nil then buf:put("null")else __nuppWriteValue(value,spec.value,buf,state,path)end;return elseif kind=="union"then if type(value)~="table"then error(path..": expected discriminated object",3)end;local selected=spec.choices[rawget(value,spec.tagField)];if not selected then error(path.."."..spec.jsonTag..": unknown discriminant",3)end;return __nuppWriteValue(value,selected,buf,state,path)elseif kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];if not nested then error(path..": derived JSON dependency is not loaded",3)end;return __nuppWriteObject(value,nested.schema.fields,nested.schema.unknown,buf,state,path)elseif kind=="string"then return __nuppPutString(buf,value,path)elseif kind=="boolean"then if type(value)~="boolean"then error(path..": expected boolean",3)end;buf:put(value and"true"or"false");return elseif kind=="literal"then if value~=spec.value then error(path..": literal value does not match",3)end;local base=type(value);if base=="string"then return __nuppPutString(buf,value,path)elseif base=="boolean"then buf:put(value and"true"or"false");return else kind="number"end end
-if kind=="number"or kind=="float"or kind=="integer"then local number=tonumber(value);if not number or not __nuppFinite(number)then error(path..": expected finite number",3)end;if kind=="integer"and(number%1~=0 or spec.minimum and number<spec.minimum or spec.maximum and number>spec.maximum)then error(path..": integer is out of range",3)end;buf:put(string.format("%.17g",number):lower());return end
-if type(value)~="table"then error(path..": expected table",3)end;if kind=="array"then __nuppEnter(value,state,path);local count,maximum=0,0;for key in pairs(value)do if type(key)~="number"or key%1~=0 or key<1 then error(path..": expected dense array",3)end;count=count+1;if key>maximum then maximum=key end end;if count~=maximum then error(path..": expected dense array",3)end;buf:put("[");for i=1,maximum do if i>1 then buf:put(",")end;__nuppWriteValue(value[i],spec.value,buf,state,path.."["..i.."]")end;buf:put("]");__nuppLeave(value,state);return elseif kind=="tuple"then __nuppEnter(value,state,path);for key in pairs(value)do if type(key)~="number"or key%1~=0 or key<1 or key>#spec.items then error(path..": tuple shape does not match",3)end end;buf:put("[");for i,item in ipairs(spec.items)do if i>1 then buf:put(",")end;__nuppWriteValue(value[i],item,buf,state,path.."["..i.."]")end;buf:put("]");__nuppLeave(value,state);return elseif kind=="map"then __nuppEnter(value,state,path);buf:put("{");local keys={};for key in pairs(value)do if type(key)~="string"then error(path..": JSON map key is not a string",3)end;keys[#keys+1]=key end;table.sort(keys);for i,key in ipairs(keys)do if i>1 then buf:put(",")end;__nuppPutString(buf,key,path);buf:put(":");__nuppWriteValue(value[key],spec.value,buf,state,path.."."..key)end;buf:put("}");__nuppLeave(value,state);return elseif kind=="shape"then return __nuppWriteObject(value,spec.fields,spec.unknown,buf,state,path)end;error(path..": unsupported JSON value",3)end
-local __nuppDecodeValue
-local function __nuppDecodeObject(value,entry,path)
-if type(value)~="table"then return false,nil,path..": expected object"end;local schema=entry.schema;local known={};local out={};for _,field in ipairs(schema.fields)do if not field.omit then local key=field.jsonName or field.name;known[key]=true;local raw=rawget(value,key);if raw==nil then if field.default then local ok,result=pcall(__nuppDefaultValue,field.default);if not ok then return false,nil,path.."."..key..": "..tostring(result)end;if result~=nil then out[field.name]=result end elseif field.jsonType and field.jsonType.kind=="optional"then else return false,nil,path.."."..key..": required field is absent"end else local ok,result,err=__nuppDecodeValue(raw,field.jsonType,entry,path.."."..key);if not ok then return false,nil,err end;if result~=nil then out[field.name]=result end end elseif field.default then local result=__nuppDefaultValue(field.default);if result~=nil then out[field.name]=result end end end;if schema.unknown~="ignore"then for key in pairs(value)do if not known[key]then return false,nil,path..": unknown field "..string.format("%q",tostring(key))end end end;return true,setmetatable(out,entry.mt),nil end
-__nuppDecodeValue=function(value,spec,entry,path)
-local kind=spec and spec.kind;if kind=="optional"then if value==entry.decoder.NULL then return true,nil,nil end;return __nuppDecodeValue(value,spec.value,entry,path)elseif value==entry.decoder.NULL then return false,nil,path..": null is not allowed"elseif kind=="union"then if type(value)~="table"then return false,nil,path..": expected discriminated object"end;local tag=rawget(value,spec.jsonTag);local selected=spec.choices[tag];if not selected then return false,nil,path.."."..spec.jsonTag..": unknown discriminant"end;return __nuppDecodeValue(value,selected,entry,path)elseif kind=="record"then local nested=__nuppDeriveTypes[spec.typeKey];if not nested then return false,nil,path..": derived JSON dependency is not loaded"end;__nuppDerive.jsonCodec(nested);return __nuppDecodeObject(value,nested,path)elseif kind=="string"then return type(value)=="string",value,type(value)=="string"and nil or path..": expected string"elseif kind=="boolean"then return type(value)=="boolean",value,type(value)=="boolean"and nil or path..": expected boolean"elseif kind=="literal"then return value==spec.value,value,value==spec.value and nil or path..": literal value does not match"elseif kind=="number"or kind=="float"or kind=="integer"then if type(value)~="number"or not __nuppFinite(value)then return false,nil,path..": expected finite number"end;if kind=="integer"and(value%1~=0 or spec.minimum and value<spec.minimum or spec.maximum and value>spec.maximum)then return false,nil,path..": expected integer in range"end;return true,value,nil end
-if type(value)~="table"then return false,nil,path..": expected table"end;if kind=="array"then local out={};local count=#value;for key in pairs(value)do if type(key)~="number"or key%1~=0 or key<1 or key>count then return false,nil,path..": expected dense array"end end;for i=1,count do local ok,result,err=__nuppDecodeValue(value[i],spec.value,entry,path.."["..i.."]");if not ok then return false,nil,err end;out[i]=result end;return true,out,nil elseif kind=="tuple"then if#value~=#spec.items then return false,nil,path..": tuple length does not match"end;local out={};for i,item in ipairs(spec.items)do local ok,result,err=__nuppDecodeValue(value[i],item,entry,path.."["..i.."]");if not ok then return false,nil,err end;out[i]=result end;return true,out,nil elseif kind=="map"then local out={};for key,item in pairs(value)do if type(key)~="string"then return false,nil,path..": expected string map key"end;local ok,result,err=__nuppDecodeValue(item,spec.value,entry,path.."."..key);if not ok then return false,nil,err end;out[key]=result end;return true,out,nil elseif kind=="shape"then local fake={schema={fields=spec.fields,unknown=spec.unknown or"reject"},mt=nil,decoder=entry.decoder};local ok,result,err=__nuppDecodeObject(value,fake,path);if ok then setmetatable(result,nil)end;return ok,result,err end;return false,nil,path..": unsupported JSON value"end
-function __nuppDerive.register(key,mt,schema)
-local entry={key=key,mt=mt,schema=schema};rawset(mt,"__nuppDeriveKey",key);local json=schema.data and schema.data.json;if json then schema.fields=json.fields;schema.unknown=json.unknown;local decoder=require("nupp.data.json");entry.decoder=decoder;local codec={fingerprint="derive-json-v1|emit=1|decode=simdjson|schema="..schema.fingerprint};function codec:encode(value)local out={};for _,field in ipairs(schema.fields)do if not field.omit then local item=rawget(value,field.name);local empty=item==nil or item==""or item==false or type(item)=="table"and next(item)==nil;if item~=nil and not(field.omitEmpty and empty)then out[field.jsonName or field.name]=item end end end;return out end;function codec:decode(value)local ok,result,err=__nuppDecodeObject(value,entry,"$");if ok then return result,nil end;return nil,err end;entry.codec=codec end;__nuppDeriveTypes[key]=entry;return entry end
-function __nuppDerive.toJSON(value,entry)local buf=__nuppBufferNew();__nuppWriteObject(value,entry.schema.fields,entry.schema.unknown,buf,{active={},depth=0},"$");return buf:tostring()end
-function __nuppDerive.fromJSON(text,entry)local ok,value=pcall(entry.decoder.decode,text,entry.decoder.NULL);if not ok then return nil,tostring(value)end;local valid,result,err=__nuppDecodeObject(value,entry,"$");if not valid then return nil,err end;return result,nil end
-function __nuppDerive.fieldCodec(entry)return entry.codec end
-function __nuppDerive.jsonCodec(entry)local codec=entry.codec;if codec then return codec end;local schema=entry.schema;local json=schema.data and schema.data.json;if not json then error("nupp: JSON was not derived for this type",3)end;schema.fields=json.fields;schema.unknown=json.unknown;local decoder=require("nupp.data.json");entry.decoder=decoder;codec={fingerprint="derive-json-v1|emit=1|decode=simdjson|schema="..schema.fingerprint};function codec:encode(value)local out={};for _,field in ipairs(schema.fields)do if not field.omit then local item=rawget(value,field.name);local empty=item==nil or item==""or item==false or type(item)=="table"and next(item)==nil;if item~=nil and not(field.omitEmpty and empty)then out[field.jsonName or field.name]=item end end end;return out end;function codec:decode(value)local ok,result,err=__nuppDecodeObject(value,entry,"$");if ok then return result,nil end;return nil,err end;entry.codec=codec;return codec end
-function __nuppDerive.register(key,mt,schema)local entry={key=key,mt=mt,schema=schema};rawset(mt,"__nuppDeriveKey",key);local json=schema.data and schema.data.json;if json then schema.fields=json.fields;schema.unknown=json.unknown end;__nuppDeriveTypes[key]=entry;return entry end
-local __nuppDeriveReflect=rawget(__nupp,"__reflect")
-if __nuppDeriveReflect then __nuppDeriveReflect.json.build=function(info)local mt=info.type;local entry=mt and __nuppDeriveTypes[rawget(mt,"__nuppDeriveKey")];if not entry then error("nupp: JSON was not derived for this type",2)end;return __nuppDerive.jsonCodec(entry)end end
-local function __nuppDerivedJSON(entry)return entry.mt:reflect():extension(__nuppDeriveReflect.json)end
-function __nuppDerive.toJSON(value,entry)__nuppDerivedJSON(entry);local buf=__nuppBufferNew();__nuppWriteObject(value,entry.schema.fields,entry.schema.unknown,buf,{active={},depth=0},"$");return buf:tostring()end
-function __nuppDerive.fromJSON(text,entry)local codec=__nuppDerivedJSON(entry);local ok,value=pcall(entry.decoder.decode,text,entry.decoder.NULL);if not ok then return nil,tostring(value)end;local result,err=codec:decode(value);if not result then return nil,err end;return result,nil end
-function __nuppDerive.fieldCodec(entry)return __nuppDerivedJSON(entry)end
-if __nuppDeriveReflect then local function __nuppJSONEntry(typeObject)local entry=typeObject and __nuppDeriveTypes[rawget(typeObject,"__nuppDeriveKey")];if not entry then error("nupp: JSON was not derived for this type",3)end;return entry end;local __nuppJSONAPI=require("nupp.data.json");__nuppJSONAPI.decodeAs=function(typeObject,text)return __nuppDerive.fromJSON(text,__nuppJSONEntry(typeObject))end;__nuppJSONAPI.encodeAs=function(typeObject,value)return __nuppDerive.toJSON(value,__nuppJSONEntry(typeObject))end;__nuppJSONAPI.encodeRecord=function(value)local typeObject=getmetatable(value);return __nuppDerive.toJSON(value,__nuppJSONEntry(typeObject))end end
-local __nuppDeriveModule={
-debug=function(value,entry)return __nuppDerive.debug(value,entry.schema.data.debug)end,
-toJSON=function(value,entry)return __nuppDerive.toJSON(value,entry)end,
-fromJSON=function(text,entry)return __nuppDerive.fromJSON(text,entry)end,
-fieldCodec=function(entry)return __nuppDerive.fieldCodec(entry)end,
-}
-package.preload["nupp.derive"]=function()return __nuppDeriveModule end
-]=]
-)
+local DERIVES = compact ( [=[
+require("nupp.derive").install(__nupp)
+]=] )
 
 
 
@@ -117394,7 +117363,7 @@ out [ # out + 1 ] = LAZY
 end
 effects = effects or { }
 if effects [ "stdlib.math" ] then
-out [ # out + 1 ] = watch and MATH : gsub ( "local m=__nuppMath" , "local m=_G.nupp.math" , 1 ) or MATH
+out [ # out + 1 ] = MATH
 end
 if effects [ "stdlib.peg" ] or effects [ "stdlib.peg.compile" ] then
 out [ # out + 1 ] = PEG_RUNTIME
@@ -124585,7 +124554,7 @@ const __nuppExportValue= uuid7 ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.data.uuid7"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.uuid7"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.data.valuebuilder"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();const __nuppModule = require("nupp.data.utf8"); const __nuppNew = require("table.new"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local m=__nuppMath;local pi,tau=math.pi,2*math.pi function m.lerp(from,to,t)if t==0 then return from elseif t==1 then return to end;return from+(to-from)*t end function m.wrapAngle(radians)return(radians+pi)%tau-pi end function m.deltaAngle(from,to)return m.wrapAngle(to-from)end local b=bit;local function ui32(x)x=b.tobit(x);return x<0 and x+4294967296 or x end local function mul32(a,c)local al,cl=a%65536,c%65536;local ah,ch=math.floor(a/65536),math.floor(c/65536);return b.tobit(al*cl+((ah*cl+al*ch)%65536)*65536)end local i32,u32={},{};m.i32=i32;m.u32=u32 function i32.wrap(a)return b.tobit(a)end;function u32.wrap(a)return ui32(a)end function i32.add(a,c)return b.tobit(a+c)end;function i32.sub(a,c)return b.tobit(a-c)end;function i32.mul(a,c)return mul32(ui32(a),ui32(c))end function i32.andBits(a,c)return b.band(a,c)end;function i32.orBits(a,c)return b.bor(a,c)end;function i32.xorBits(a,c)return b.bxor(a,c)end;function i32.notBits(a)return b.bnot(a)end function i32.shiftLeft(a,c)return b.lshift(a,b.band(c,31))end;function i32.shiftRightArithmetic(a,c)return b.arshift(a,b.band(c,31))end function i32.rotateLeft(a,c)return b.rol(a,b.band(c,31))end;function i32.rotateRight(a,c)return b.ror(a,b.band(c,31))end function i32.lessThan(a,c)return b.tobit(a)<b.tobit(c)end;function i32.lessOrEqual(a,c)return b.tobit(a)<=b.tobit(c)end function i32.fromU32(a)return b.tobit(a)end;function i32.toU32(a)return ui32(a)end function u32.add(a,c)return ui32(a+c)end;function u32.sub(a,c)return ui32(a-c)end;function u32.mul(a,c)return ui32(mul32(ui32(a),ui32(c)))end function u32.andBits(a,c)return ui32(b.band(a,c))end;function u32.orBits(a,c)return ui32(b.bor(a,c))end;function u32.xorBits(a,c)return ui32(b.bxor(a,c))end;function u32.notBits(a)return ui32(b.bnot(a))end function u32.shiftLeft(a,c)return ui32(b.lshift(a,b.band(c,31)))end;function u32.shiftRightLogical(a,c)return ui32(b.rshift(a,b.band(c,31)))end function u32.rotateLeft(a,c)return ui32(b.rol(a,b.band(c,31)))end;function u32.rotateRight(a,c)return ui32(b.ror(a,b.band(c,31)))end function u32.lessThan(a,c)return ui32(a)<ui32(c)end;function u32.lessOrEqual(a,c)return ui32(a)<=ui32(c)end function u32.fromI32(a)return ui32(a)end;function u32.toI32(a)return b.tobit(a)end function u32.popcount(a)local n=0;a=ui32(a);while a~=0 do a=ui32(b.band(a,a-1));n=n+1 end;return n end function u32.trailingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;while b.band(a,1)==0 do a=b.rshift(a,1);n=n+1 end;return n end function u32.leadingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;local bit=2147483648;while b.band(a,bit)==0 do bit=b.rshift(bit,1);n=n+1 end;return n end local ffi=require("ffi");local fh=ffi.new("union {float f;uint32_t u;}[1]");local f32={};m.f32=f32 local CANON=2143289344;local PINF=2139095040;local NINF=4286578688;local MAX=2139095039;local NMAX=4286578687 local function nanbits(bits)return b.band(bits,2139095040)==2139095040 and b.band(bits,8388607)~=0 end local function putbits(bits)if nanbits(bits)then bits=CANON end;fh[0].u=bits;return tonumber(fh[0].f)end local function bits32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then bits=CANON;fh[0].u=bits end;return bits end local function round32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then fh[0].u=CANON end;return tonumber(fh[0].f)end local function narrow32(value)fh[0].f=value;return tonumber(fh[0].f)end local function comparedd(hi,lo,value)local d=hi-value;if d>-lo then return 1 elseif d<-lo then return-1 end;return 0 end local function nextup(value,bits)if bits==PINF then return value,bits end;if bits==NINF then return putbits(NMAX),NMAX end;if b.band(bits,2147483648)~=0 then if bits==2147483648 then return putbits(1),1 end;bits=bits-1 else bits=bits+1 end;return putbits(bits),bits end local function nextdown(value,bits)if bits==NINF then return value,bits end;if bits==PINF then return putbits(MAX),MAX end;if b.band(bits,2147483648)~=0 then bits=bits+1 else if bits==0 then return putbits(2147483649),2147483649 end;bits=bits-1 end;return putbits(bits),bits end local function rounddd(hi,lo)local value=round32(hi);local bits=bits32(value);if nanbits(bits)then return putbits(CANON)end;if bits==PINF then local threshold=3.4028235677973366e38;if comparedd(hi,lo,threshold)<0 then return putbits(MAX)end;return value elseif bits==NINF then local threshold=-3.4028235677973366e38;if comparedd(hi,lo,threshold)>0 then return putbits(NMAX)end;return value end;local side=comparedd(hi,lo,value);if side==0 then return value end;local other,otherbits;if side>0 then other,otherbits=nextup(value,bits)else other,otherbits=nextdown(value,bits)end;local midpoint=(value+other)*0.5;local toward=comparedd(hi,lo,midpoint);if side<0 then toward=-toward end;if toward>0 or toward==0 and b.band(bits,1)~=0 then return putbits(otherbits)end;return value end function f32.narrow(a)return narrow32(a)end;function f32.round(a)return round32(a)end;function f32.add(a,c)return round32(round32(a)+round32(c))end;function f32.sub(a,c)return round32(round32(a)-round32(c))end;function f32.mul(a,c)return round32(round32(a)*round32(c))end;function f32.div(a,c)return round32(round32(a)/round32(c))end;function f32.sqrt(a)return round32(math.sqrt(round32(a)))end function f32.min(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and(b.band(ab,2147483648)~=0 or b.band(cb,2147483648)~=0)then return putbits(2147483648)end;return a end;return a<c and a or c end function f32.max(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and b.band(ab,2147483648)~=0 and b.band(cb,2147483648)~=0 then return putbits(2147483648)elseif a==0 then return putbits(0)end;return a end;return a>c and a or c end function f32.fma(a,c,d)a,c,d=round32(a),round32(c),round32(d);local product=a*c;if product~=product or product==math.huge or product==-math.huge then return round32(product+d)end;local sum=product+d;local carry=sum-product;local error=(product-(sum-carry))+(d-carry);return rounddd(sum,error)end function f32.fromBits(bits)return putbits(ui32(bits))end;function f32.toBits(value)return bits32(round32(value))end local v={};m.vec2=v function v.add(ax,ay,bx,by)return ax+bx,ay+by end function v.subtract(ax,ay,bx,by)return ax-bx,ay-by end function v.scale(x,y,f)return x*f,y*f end function v.dot(ax,ay,bx,by)return ax*bx+ay*by end function v.cross(ax,ay,bx,by)return ax*by-ay*bx end function v.lengthSquared(x,y)return x*x+y*y end function v.length(x,y)return math.sqrt(x*x+y*y)end function v.distanceSquared(ax,ay,bx,by)local x,y=bx-ax,by-ay;return x*x+y*y end function v.distance(ax,ay,bx,by)return math.sqrt(v.distanceSquared(ax,ay,bx,by))end function v.normalize(x,y)local length=v.length(x,y);if length==0 then return 0,0 end;return x/length,y/length end function v.lerp(ax,ay,bx,by,t)if t==0 then return ax,ay elseif t==1 then return bx,by end;return ax+(bx-ax)*t,ay+(by-ay)*t end function v.moveTowards(ax,ay,bx,by,d)if d<=0 then return ax,ay end;local x,y=bx-ax,by-ay;local squared=x*x+y*y;if squared==0 or squared<=d*d then return bx,by end;local f=d/math.sqrt(squared);return ax+x*f,ay+y*f end function v.rotate(x,y,r)local c,s=math.cos(r),math.sin(r);return x*c-y*s,x*s+y*c end function v.angle(x,y)if x==0 and y==0 then return 0 end;return math.atan2(y,x)end function v.angleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;return math.atan2(math.abs(v.cross(ax,ay,bx,by)),v.dot(ax,ay,bx,by))end function v.signedAngleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;local a=math.atan2(v.cross(ax,ay,bx,by),v.dot(ax,ay,bx,by));return a==pi and-pi or a end function v.project(x,y,ox,oy)local d=ox*ox+oy*oy;if d==0 then return 0,0 end;local f=(x*ox+y*oy)/d;return ox*f,oy*f end function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;local f=2*(x*nx+y*ny)/d;return x-nx*f,y-ny*f end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();const __nuppModule = require("nupp.data.utf8"); const __nuppNew = require("table.new"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end require("nupp.mathruntime").install(rawget(__nupp,"math"));local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -125424,7 +125393,16 @@ const __nuppExportValue= valuebuilder ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.data.valuebuilder"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.valuebuilder"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.derive"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
 
 
 
@@ -125433,6 +125411,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 local derive = { }
 
 derive.JSONContract = {}
+
 
 
 derive.Entry = {} derive.Entry.__index = derive.Entry
@@ -125459,236 +125438,1038 @@ derive.Entry = {} derive.Entry.__index = derive.Entry
 
 
 
+local derived = { }
 
 
 
 
 
+local reflect = nil
 
 
 
+local bufferModule = nil
 
+local function newBuffer ( )
+if bufferModule == nil then
+bufferModule = require ( "string.buffer" )
+end
 
+return bufferModule . new ( )
+end
 
 
 
+local function copied ( value , seen )
+if type ( value ) ~= "table" then
+return value
+end
+local visiting = seen or { }
+if visiting [ value ] then
+error ( "nupp: cyclic field default" , 3 )
+end
+visiting [ value ] = true
+local out = { }
+for k , v in pairs ( value ) do
+out [ copied ( k , visiting ) ] = copied ( v , visiting )
+end
+visiting [ value ] = nil
 
+return out
+end
 
 
+
+
+
+local function defaultValue ( spec )
+if spec ~= nil and spec . kind == "literal" then
+return copied ( spec . value , nil )
+end
+error ( "nupp: unsupported field default" , 3 )
+end
+
+
+
+local function sortedKeys ( value )
+local keys = { }
+for key in pairs ( value ) do
+keys [ # keys + 1 ] = key
+end
+table . sort ( keys , function ( a , b )
+return tostring ( a ) < tostring ( b )
+end )
+
+return keys
+end
+
+
 
+local debugAny
+local debugValue
 
 
+local renderRecord
 
 
 
+debugAny = function ( value , state )
+local kind = type ( value )
+if kind == "nil" or kind == "boolean" or kind == "number" then
+return tostring ( value )
+elseif kind == "string" then
+return string . format ( "%q" , value )
+elseif kind ~= "table" then
+return "<" .. kind .. ">"
+end
+if state . active [ value ] then
+return "<cycle>"
+end
+state . active [ value ] = true
+local mt = getmetatable ( value )
+local entry = mt ~= nil and derived [ rawget ( mt , "__nuppDeriveKey" ) ] or nil
+local out
+if entry ~= nil then
+out = renderRecord ( value , entry . schema . data . debug , state )
+else
+local parts = { }
+for _ , key in ipairs ( sortedKeys ( value ) ) do
+parts [ # parts + 1 ] = "[" .. debugAny ( key , state ) .. "] = " .. debugAny ( value [ key ] , state )
+end
+out = "{" .. table . concat ( parts , ", " ) .. "}"
+end
+state . active [ value ] = nil
+
+return out
+end
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+debugValue = function ( value , spec , state )
+if spec . kind == "optional" then
+return value == nil and "nil" or debugValue ( value , spec . value , state )
+elseif spec . kind == "customDebug" then
+return value : debug ( )
+elseif spec . kind == "record" then
+local nested = derived [ spec . typeKey ]
+
+return nested ~= nil and renderRecord ( value , nested . schema . data . debug , state ) or "<unloaded>"
+elseif spec . kind == "any" then
+return debugAny ( value , state )
+elseif spec . kind == "string" or spec . kind == "literal" and type ( value ) == "string" then
+return string . format ( "%q" , value )
+elseif spec . kind == "nil"
+or spec . kind == "boolean"
+or spec . kind == "number"
+or spec . kind == "integer"
+or spec . kind == "float"
+or (
+spec . kind
+) : match ( "^u?int" ) ~= nil or spec . kind == "literal" then
+return tostring ( value )
+end
+if type ( value ) ~= "table" then
+return "<" .. type ( value ) .. ">"
+end
+if state . active [ value ] then
+return "<cycle>"
+end
+state . active [ value ] = true
+local parts = { }
+if spec . kind == "array" then
+for i = 1 , # value do
+parts [ # parts + 1 ] = debugValue ( value [ i ] , spec . value , state )
+end
+elseif spec . kind == "tuple" then
+for i , item in ipairs ( spec . items ) do
+parts [ # parts + 1 ] = debugValue ( value [ i ] , item , state )
+end
+elseif spec . kind == "shape" then
+for _ , field in ipairs ( spec . fields ) do
+parts [ # parts + 1 ] = field . name .. " = " .. debugValue ( rawget ( value , field . name ) , field . type , state )
+end
+elseif spec . kind == "map" then
+for _ , key in ipairs ( sortedKeys ( value ) ) do
+parts [
+# parts + 1
+] = "[" .. debugValue ( key , spec . key , state ) .. "] = " .. debugValue ( value [ key ] , spec . value , state )
+end
+end
+state . active [ value ] = nil
+
+return "{" .. table . concat ( parts , ", " ) .. "}"
+end
+
+
+
+
+
+
+
+
+
+
+
+
+renderRecord = function ( value , schema , state )
+local resolved = schema . schema ~= nil and schema . schema . data . debug or schema
+local open = state or { active = { } , }
+if open . active [ value ] then
+return "<cycle>"
+end
+open . active [ value ] = true
+local parts = { }
+for _ , field in ipairs ( resolved . fields ) do
+if not field . debugSkip then
+local shown = field . debugRedact and "<redacted>" or debugValue (
+rawget ( value , field . name ) ,
+field . debugType ,
+open
+)
+parts [ # parts + 1 ] = field . name .. " = " .. shown
+end
+end
+open . active [ value ] = nil
+
+return resolved . name .. " { " .. table . concat ( parts , ", " ) .. " }"
+end
+
+
+local ESCAPES
+
+= { [ 8 ] = "\\b" , [ 9 ] = "\\t" , [ 10 ] = "\\n" , [ 12 ] = "\\f" , [ 13 ] = "\\r" , [ 34 ] = '\\"' , [ 92 ] = "\\\\" , }
+
+
+
+
+
+
+
+local function putString ( buf , text , path )
+if type ( text ) ~= "string" then
+error ( path .. ": expected string" , 3 )
+end
+local subject = text
+buf : put ( '"' )
+local start = 1
+local i = 1
+while i <= # subject do
+local byte = subject : byte ( i )
+local escaped = ESCAPES [ byte ]
+if escaped ~= nil or byte < 32 then
+if i > start then
+buf : put ( subject : sub ( start , i - 1 ) )
+end
+buf : put ( escaped or string . format ( "\\u%04X" , byte ) )
+i = i + 1
+start = i
+elseif byte < 128 then
+i = i + 1
+else
+local count = byte >= 240 and 4 or byte >= 224 and 3 or byte >= 194 and 2 or 0
+if count == 0 or i + count - 1 > # subject then
+error ( path .. ": invalid UTF-8" , 3 )
+end
+local b2 , b3 , b4 = subject : byte ( i + 1 , i + 3 )
+if not b2 or b2 < 128 or b2 > 191 or count >= 3 and (
+not b3 or b3 < 128 or b3 > 191
+) or count == 4 and (
+not b4 or b4 < 128 or b4 > 191
+)
+or byte == 224
+and b2 < 160
+or byte == 237
+and b2 >= 160
+or byte == 240
+and b2 < 144
+or byte == 244
+and b2 >= 144
+or byte > 244 then
+error ( path .. ": invalid UTF-8" , 3 )
+end
+i = i + count
+end
+end
+if start <= # subject then
+buf : put ( subject : sub ( start ) )
+end
+buf : put ( '"' )
+end
+
+local function finite ( value )
+return value == value and value ~= math . huge and value ~= - math . huge
+end
+
+
+
+local function enter ( value , state , path )
+if state . depth >= 128 then
+error ( path .. ": JSON nesting exceeds 128 containers" , 3 )
+end
+if state . active [ value ] then
+error ( path .. ": cyclic JSON value" , 3 )
+end
+state . active [ value ] = true
+state . depth = state . depth + 1
+end
+
+local function leave ( value , state )
+state . depth = state . depth - 1
+state . active [ value ] = nil
+end
+
+
+local writeValue
+
+
+
+local function writeObject ( value , fields , unknown , buf , state , path )
+if type ( value ) ~= "table" then
+error ( path .. ": expected object" , 3 )
+end
+enter ( value , state , path )
+buf : put ( "{" )
+local first = true
+for _ , field in ipairs ( fields ) do
+if not field . omit then
+local item = rawget ( value , field . name )
+local empty = item == nil or item == "" or item == false or type ( item ) == "table" and next ( item ) == nil
+if not ( field . omitEmpty and empty ) then
+if not first then
+buf : put ( "," )
+end
+first = false
+local name = field . jsonName or field . name
+putString ( buf , name , path )
+buf : put ( ":" )
+writeValue ( item , field . jsonType , buf , state , path .. "." .. name )
+end
+end
+end
+buf : put ( "}" )
+leave ( value , state )
+end
+
+
+
+
+writeValue = function ( value , spec , buf , state , path )
+local kind = spec and spec . kind
+if kind == "optional" then
+if value == nil then
+buf : put ( "null" )
+else
+writeValue ( value , spec . value , buf , state , path )
+end
+
+return
+elseif kind == "union" then
+if type ( value ) ~= "table" then
+error ( path .. ": expected discriminated object" , 3 )
+end
+local selected = spec . choices [ rawget ( value , spec . tagField ) ]
+if not selected then
+error ( path .. "." .. spec . jsonTag .. ": unknown discriminant" , 3 )
+end
+
+return writeValue ( value , selected , buf , state , path )
+elseif kind == "record" then
+local nested = derived [ spec . typeKey ]
+if not nested then
+error ( path .. ": derived JSON dependency is not loaded" , 3 )
+end
+
+return writeObject ( value , nested . schema . fields , nested . schema . unknown , buf , state , path )
+elseif kind == "string" then
+return putString ( buf , value , path )
+elseif kind == "boolean" then
+if type ( value ) ~= "boolean" then
+error ( path .. ": expected boolean" , 3 )
+end
+buf : put ( value and "true" or "false" )
+
+return
+elseif kind == "literal" then
+if value ~= spec . value then
+error ( path .. ": literal value does not match" , 3 )
+end
+local base = type ( value )
+if base == "string" then
+return putString ( buf , value , path )
+elseif base == "boolean" then
+buf : put ( value and "true" or "false" )
+
+return
+else
+
+kind = "number"
+end
+end
+if kind == "number" or kind == "float" or kind == "integer" then
+local number = tonumber ( value )
+if not number or not finite ( number ) then
+error ( path .. ": expected finite number" , 3 )
+end
+if kind == "integer" and (
+number % 1 ~= 0 or spec . minimum and number < spec . minimum or spec . maximum and number > spec . maximum
+) then
+error ( path .. ": integer is out of range" , 3 )
+end
+
+
+buf : put ( string . format ( "%.17g" , number ) : lower ( ) )
+
+return
+end
+if type ( value ) ~= "table" then
+error ( path .. ": expected table" , 3 )
+end
+if kind == "array" then
+enter ( value , state , path )
+
+
+local count , maximum = 0 , 0
+for key in pairs ( value ) do
+if type ( key ) ~= "number" or key % 1 ~= 0 or key < 1 then
+error ( path .. ": expected dense array" , 3 )
+end
+count = count + 1
+if key > maximum then
+maximum = key
+end
+end
+if count ~= maximum then
+error ( path .. ": expected dense array" , 3 )
+end
+buf : put ( "[" )
+for i = 1 , maximum do
+if i > 1 then
+buf : put ( "," )
+end
+writeValue ( value [ i ] , spec . value , buf , state , path .. "[" .. i .. "]" )
+end
+buf : put ( "]" )
+leave ( value , state )
+
+return
+elseif kind == "tuple" then
+enter ( value , state , path )
+for key in pairs ( value ) do
+if type ( key ) ~= "number" or key % 1 ~= 0 or key < 1 or key > # spec . items then
+error ( path .. ": tuple shape does not match" , 3 )
+end
+end
+buf : put ( "[" )
+for i , item in ipairs ( spec . items ) do
+if i > 1 then
+buf : put ( "," )
+end
+writeValue ( value [ i ] , item , buf , state , path .. "[" .. i .. "]" )
+end
+buf : put ( "]" )
+leave ( value , state )
+
+return
+elseif kind == "map" then
+enter ( value , state , path )
+buf : put ( "{" )
+
+local keys = { }
+for key in pairs ( value ) do
+if type ( key ) ~= "string" then
+error ( path .. ": JSON map key is not a string" , 3 )
+end
+keys [ # keys + 1 ] = key
+end
+table . sort ( keys )
+for i , key in ipairs ( keys ) do
+if i > 1 then
+buf : put ( "," )
+end
+putString ( buf , key , path )
+buf : put ( ":" )
+writeValue ( value [ key ] , spec . value , buf , state , path .. "." .. key )
+end
+buf : put ( "}" )
+leave ( value , state )
+
+return
+elseif kind == "shape" then
+return writeObject ( value , spec . fields , spec . unknown , buf , state , path )
+end
+error ( path .. ": unsupported JSON value" , 3 )
+end
+
+
+
+
+local decodeValue
+
+
+
+local jsonCodecFor
+
+local function decodeObject ( value , entry , path )
+if type ( value ) ~= "table" then
+return false , nil , path .. ": expected object"
+end
+local schema = entry . schema
+local known = { }
+local out = { }
+for _ , field in ipairs ( schema . fields ) do
+if not field . omit then
+local key = field . jsonName or field . name
+known [ key ] = true
+local raw = rawget ( value , key )
+if raw == nil then
+
+
+if field . default then
+local ok , result = pcall ( defaultValue , field . default )
+if not ok then
+return false , nil , path .. "." .. key .. ": " .. tostring ( result )
+end
+if result ~= nil then
+out [ field . name ] = result
+end
+elseif field . jsonType and field . jsonType . kind == "optional" then
+else
+return false , nil , path .. "." .. key .. ": required field is absent"
+end
+else
+local ok , result , err = decodeValue ( raw , field . jsonType , entry , path .. "." .. key )
+if not ok then
+return false , nil , err
+end
+if result ~= nil then
+out [ field . name ] = result
+end
+end
+elseif field . default then
+
+
+local result = defaultValue ( field . default )
+if result ~= nil then
+out [ field . name ] = result
+end
+end
+end
+if schema . unknown ~= "ignore" then
+for key in pairs ( value ) do
+if not known [ key ] then
+return false , nil , path .. ": unknown field " .. string . format ( "%q" , tostring ( key ) )
+end
+end
+end
+
+return true , setmetatable ( out , entry . mt ) , nil
+end
+
+decodeValue = function ( value , spec , entry , path )
+local kind = spec and spec . kind
+if kind == "optional" then
+if value == entry . decoder . NULL then
+return true , nil , nil
+end
+
+return decodeValue ( value , spec . value , entry , path )
+elseif value == entry . decoder . NULL then
+return false , nil , path .. ": null is not allowed"
+elseif kind == "union" then
+if type ( value ) ~= "table" then
+return false , nil , path .. ": expected discriminated object"
+end
+local selected = spec . choices [ rawget ( value , spec . jsonTag ) ]
+if not selected then
+return false , nil , path .. "." .. spec . jsonTag .. ": unknown discriminant"
+end
+
+return decodeValue ( value , selected , entry , path )
+elseif kind == "record" then
+local nested = derived [ spec . typeKey ]
+if not nested then
+return false , nil , path .. ": derived JSON dependency is not loaded"
+end
+
+jsonCodecFor ( nested )
+
+return decodeObject ( value , nested , path )
+elseif kind == "string" then
+return type ( value ) == "string" , value , type ( value ) == "string" and nil or path .. ": expected string"
+elseif kind == "boolean" then
+return type ( value ) == "boolean" , value , type ( value ) == "boolean" and nil or path .. ": expected boolean"
+elseif kind == "literal" then
+return value == spec . value , value , value == spec . value and nil or path .. ": literal value does not match"
+elseif kind == "number" or kind == "float" or kind == "integer" then
+if type ( value ) ~= "number" or not finite ( value ) then
+return false , nil , path .. ": expected finite number"
+end
+if kind == "integer" and (
+value % 1 ~= 0 or spec . minimum and value < spec . minimum or spec . maximum and value > spec . maximum
+) then
+return false , nil , path .. ": expected integer in range"
+end
+
+return true , value , nil
+end
+if type ( value ) ~= "table" then
+return false , nil , path .. ": expected table"
+end
+if kind == "array" then
+local out = { }
+local count = # value
+for key in pairs ( value ) do
+if type ( key ) ~= "number" or key % 1 ~= 0 or key < 1 or key > count then
+return false , nil , path .. ": expected dense array"
+end
+end
+for i = 1 , count do
+local ok , result , err = decodeValue ( value [ i ] , spec . value , entry , path .. "[" .. i .. "]" )
+if not ok then
+return false , nil , err
+end
+out [ i ] = result
+end
+
+return true , out , nil
+elseif kind == "tuple" then
+if # value ~= # spec . items then
+return false , nil , path .. ": tuple length does not match"
+end
+local out = { }
+for i , item in ipairs ( spec . items ) do
+local ok , result , err = decodeValue ( value [ i ] , item , entry , path .. "[" .. i .. "]" )
+if not ok then
+return false , nil , err
+end
+out [ i ] = result
+end
+
+return true , out , nil
+elseif kind == "map" then
+local out = { }
+for key , item in pairs ( value ) do
+if type ( key ) ~= "string" then
+return false , nil , path .. ": expected string map key"
+end
+local ok , result , err = decodeValue ( item , spec . value , entry , path .. "." .. key )
+if not ok then
+return false , nil , err
+end
+out [ key ] = result
+end
+
+return true , out , nil
+elseif kind == "shape" then
+
+
+local standIn = { schema = { fields = spec . fields , unknown = spec . unknown or "reject" } , decoder = entry . decoder }
+local ok , result , err = decodeObject ( value , standIn , path )
+if ok then
+setmetatable ( result , nil )
+end
+
+return ok , result , err
+end
+
+return false , nil , path .. ": unsupported JSON value"
+end
+
+
+
+
+
+local function register ( key , mt , schema )
+local entry = { key = key , mt = mt , schema = schema }
+rawset ( mt , "__nuppDeriveKey" , key )
+local json = schema . data and schema . data . json
+if json then
+schema . fields = json . fields
+schema . unknown = json . unknown
+end
+derived [ key ] = entry
+
+return entry
+end
+
+
+
+
+
+
+jsonCodecFor = function ( entry )
+local existing = entry . codec
+if existing then
+return existing
+end
+local schema = entry . schema
+local json = schema . data and schema . data . json
+if not json then
+error ( "nupp: JSON was not derived for this type" , 3 )
+end
+schema . fields = json . fields
+schema . unknown = json . unknown
+local decoder = require ( "nupp.data.json" )
+entry . decoder = decoder
+local codec = { fingerprint = "derive-json-v1|emit=1|decode=simdjson|schema=" .. schema . fingerprint , }
+
+
+function codec : encode ( value )
+local out = { }
+for _ , field in ipairs ( schema . fields ) do
+if not field . omit then
+local item = rawget ( value , field . name )
+local empty = item == nil or item == "" or item == false or type ( item ) == "table" and next ( item ) == nil
+if item ~= nil and not ( field . omitEmpty and empty ) then
+out [ field . jsonName or field . name ] = item
+end
+end
+end
+
+return out
+end
+
+function codec : decode ( value )
+local ok , result , err = decodeObject ( value , entry , "$" )
+if ok then
+return result , nil
+end
+
+return nil , err
+end
+
+entry . codec = codec
+
+return codec
+end
+
+
+
+
+local function derivedJSON ( entry )
+return entry . mt : reflect ( ) : extension ( reflect . json )
+end
 
 
 function derive . debug ( value , entry )
-return _G . nupp . __derive . debug ( value , entry . schema . data . debug )
+return renderRecord ( value , entry . schema . data . debug , nil )
 end
+
 
 function derive . toJSON ( value , entry )
-return _G . nupp . __derive . toJSON ( value , entry )
+derivedJSON ( entry )
+local buf = newBuffer ( )
+writeObject ( value , entry . schema . fields , entry . schema . unknown , buf , { active = { } , depth = 0 } , "$" )
+
+return buf : tostring ( )
 end
+
+
 
 function derive . fromJSON ( text , entry )
-return _G . nupp . __derive . fromJSON ( text , entry )
+local codec = derivedJSON ( entry )
+local ok , value = pcall ( entry . decoder . decode , text , entry . decoder . NULL )
+if not ok then
+return nil , tostring ( value )
+end
+local result , err = codec : decode ( value )
+if not result then
+return nil , err
 end
 
-
-
+return result , nil
+end
 
 
 function derive . fieldCodec ( entry )
-return _G . nupp . __derive . fieldCodec ( entry )
+return derivedJSON ( entry )
 end
+
+
+
+local function jsonEntry ( typeObject )
+local entry = typeObject and derived [ rawget ( typeObject , "__nuppDeriveKey" ) ]
+if not entry then
+error ( "nupp: JSON was not derived for this type" , 3 )
+end
+
+return entry
+end
+
+
+
+
+
+
+
+function derive . install ( namespace )
+local runtime = rawget ( namespace , "__derive" )
+if runtime == nil then
+runtime = { }
+rawset ( namespace , "__derive" , runtime )
+end
+runtime . types = derived
+runtime . register = register
+runtime . debug = renderRecord
+runtime . jsonCodec = jsonCodecFor
+runtime . toJSON = derive . toJSON
+runtime . fromJSON = derive . fromJSON
+runtime . fieldCodec = derive . fieldCodec
+reflect = rawget ( namespace , "__reflect" )
+if reflect == nil then
+return
+end
+reflect . json . build = function ( info )
+local mt = info . type
+local entry = mt and derived [ rawget ( mt , "__nuppDeriveKey" ) ]
+if not entry then
+error ( "nupp: JSON was not derived for this type" , 2 )
+end
+
+return jsonCodecFor ( entry )
+end
+
+
+local api = require ( "nupp.data.json" )
+api . decodeAs = function ( typeObject , text )
+return derive . fromJSON ( text , jsonEntry ( typeObject ) )
+end
+api . encodeAs = function ( typeObject , value )
+return derive . toJSON ( value , jsonEntry ( typeObject ) )
+end
+api . encodeRecord = function ( value )
+return derive . toJSON ( value , jsonEntry ( getmetatable ( value ) ) )
+end
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -126296,7 +127077,7 @@ const __nuppExportValue= hotreload ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.hotreload"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.hotreload"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.io"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end local m=__nuppMath;local pi,tau=math.pi,2*math.pi function m.lerp(from,to,t)if t==0 then return from elseif t==1 then return to end;return from+(to-from)*t end function m.wrapAngle(radians)return(radians+pi)%tau-pi end function m.deltaAngle(from,to)return m.wrapAngle(to-from)end local b=bit;local function ui32(x)x=b.tobit(x);return x<0 and x+4294967296 or x end local function mul32(a,c)local al,cl=a%65536,c%65536;local ah,ch=math.floor(a/65536),math.floor(c/65536);return b.tobit(al*cl+((ah*cl+al*ch)%65536)*65536)end local i32,u32={},{};m.i32=i32;m.u32=u32 function i32.wrap(a)return b.tobit(a)end;function u32.wrap(a)return ui32(a)end function i32.add(a,c)return b.tobit(a+c)end;function i32.sub(a,c)return b.tobit(a-c)end;function i32.mul(a,c)return mul32(ui32(a),ui32(c))end function i32.andBits(a,c)return b.band(a,c)end;function i32.orBits(a,c)return b.bor(a,c)end;function i32.xorBits(a,c)return b.bxor(a,c)end;function i32.notBits(a)return b.bnot(a)end function i32.shiftLeft(a,c)return b.lshift(a,b.band(c,31))end;function i32.shiftRightArithmetic(a,c)return b.arshift(a,b.band(c,31))end function i32.rotateLeft(a,c)return b.rol(a,b.band(c,31))end;function i32.rotateRight(a,c)return b.ror(a,b.band(c,31))end function i32.lessThan(a,c)return b.tobit(a)<b.tobit(c)end;function i32.lessOrEqual(a,c)return b.tobit(a)<=b.tobit(c)end function i32.fromU32(a)return b.tobit(a)end;function i32.toU32(a)return ui32(a)end function u32.add(a,c)return ui32(a+c)end;function u32.sub(a,c)return ui32(a-c)end;function u32.mul(a,c)return ui32(mul32(ui32(a),ui32(c)))end function u32.andBits(a,c)return ui32(b.band(a,c))end;function u32.orBits(a,c)return ui32(b.bor(a,c))end;function u32.xorBits(a,c)return ui32(b.bxor(a,c))end;function u32.notBits(a)return ui32(b.bnot(a))end function u32.shiftLeft(a,c)return ui32(b.lshift(a,b.band(c,31)))end;function u32.shiftRightLogical(a,c)return ui32(b.rshift(a,b.band(c,31)))end function u32.rotateLeft(a,c)return ui32(b.rol(a,b.band(c,31)))end;function u32.rotateRight(a,c)return ui32(b.ror(a,b.band(c,31)))end function u32.lessThan(a,c)return ui32(a)<ui32(c)end;function u32.lessOrEqual(a,c)return ui32(a)<=ui32(c)end function u32.fromI32(a)return ui32(a)end;function u32.toI32(a)return b.tobit(a)end function u32.popcount(a)local n=0;a=ui32(a);while a~=0 do a=ui32(b.band(a,a-1));n=n+1 end;return n end function u32.trailingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;while b.band(a,1)==0 do a=b.rshift(a,1);n=n+1 end;return n end function u32.leadingZeros(a)a=ui32(a);if a==0 then return 32 end;local n=0;local bit=2147483648;while b.band(a,bit)==0 do bit=b.rshift(bit,1);n=n+1 end;return n end local ffi=require("ffi");local fh=ffi.new("union {float f;uint32_t u;}[1]");local f32={};m.f32=f32 local CANON=2143289344;local PINF=2139095040;local NINF=4286578688;local MAX=2139095039;local NMAX=4286578687 local function nanbits(bits)return b.band(bits,2139095040)==2139095040 and b.band(bits,8388607)~=0 end local function putbits(bits)if nanbits(bits)then bits=CANON end;fh[0].u=bits;return tonumber(fh[0].f)end local function bits32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then bits=CANON;fh[0].u=bits end;return bits end local function round32(value)fh[0].f=value;local bits=tonumber(fh[0].u);if nanbits(bits)then fh[0].u=CANON end;return tonumber(fh[0].f)end local function narrow32(value)fh[0].f=value;return tonumber(fh[0].f)end local function comparedd(hi,lo,value)local d=hi-value;if d>-lo then return 1 elseif d<-lo then return-1 end;return 0 end local function nextup(value,bits)if bits==PINF then return value,bits end;if bits==NINF then return putbits(NMAX),NMAX end;if b.band(bits,2147483648)~=0 then if bits==2147483648 then return putbits(1),1 end;bits=bits-1 else bits=bits+1 end;return putbits(bits),bits end local function nextdown(value,bits)if bits==NINF then return value,bits end;if bits==PINF then return putbits(MAX),MAX end;if b.band(bits,2147483648)~=0 then bits=bits+1 else if bits==0 then return putbits(2147483649),2147483649 end;bits=bits-1 end;return putbits(bits),bits end local function rounddd(hi,lo)local value=round32(hi);local bits=bits32(value);if nanbits(bits)then return putbits(CANON)end;if bits==PINF then local threshold=3.4028235677973366e38;if comparedd(hi,lo,threshold)<0 then return putbits(MAX)end;return value elseif bits==NINF then local threshold=-3.4028235677973366e38;if comparedd(hi,lo,threshold)>0 then return putbits(NMAX)end;return value end;local side=comparedd(hi,lo,value);if side==0 then return value end;local other,otherbits;if side>0 then other,otherbits=nextup(value,bits)else other,otherbits=nextdown(value,bits)end;local midpoint=(value+other)*0.5;local toward=comparedd(hi,lo,midpoint);if side<0 then toward=-toward end;if toward>0 or toward==0 and b.band(bits,1)~=0 then return putbits(otherbits)end;return value end function f32.narrow(a)return narrow32(a)end;function f32.round(a)return round32(a)end;function f32.add(a,c)return round32(round32(a)+round32(c))end;function f32.sub(a,c)return round32(round32(a)-round32(c))end;function f32.mul(a,c)return round32(round32(a)*round32(c))end;function f32.div(a,c)return round32(round32(a)/round32(c))end;function f32.sqrt(a)return round32(math.sqrt(round32(a)))end function f32.min(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and(b.band(ab,2147483648)~=0 or b.band(cb,2147483648)~=0)then return putbits(2147483648)end;return a end;return a<c and a or c end function f32.max(a,c)a,c=round32(a),round32(c);if a~=a or c~=c then return putbits(CANON)end;if a==c then local ab,cb=bits32(a),bits32(c);if a==0 and b.band(ab,2147483648)~=0 and b.band(cb,2147483648)~=0 then return putbits(2147483648)elseif a==0 then return putbits(0)end;return a end;return a>c and a or c end function f32.fma(a,c,d)a,c,d=round32(a),round32(c),round32(d);local product=a*c;if product~=product or product==math.huge or product==-math.huge then return round32(product+d)end;local sum=product+d;local carry=sum-product;local error=(product-(sum-carry))+(d-carry);return rounddd(sum,error)end function f32.fromBits(bits)return putbits(ui32(bits))end;function f32.toBits(value)return bits32(round32(value))end local v={};m.vec2=v function v.add(ax,ay,bx,by)return ax+bx,ay+by end function v.subtract(ax,ay,bx,by)return ax-bx,ay-by end function v.scale(x,y,f)return x*f,y*f end function v.dot(ax,ay,bx,by)return ax*bx+ay*by end function v.cross(ax,ay,bx,by)return ax*by-ay*bx end function v.lengthSquared(x,y)return x*x+y*y end function v.length(x,y)return math.sqrt(x*x+y*y)end function v.distanceSquared(ax,ay,bx,by)local x,y=bx-ax,by-ay;return x*x+y*y end function v.distance(ax,ay,bx,by)return math.sqrt(v.distanceSquared(ax,ay,bx,by))end function v.normalize(x,y)local length=v.length(x,y);if length==0 then return 0,0 end;return x/length,y/length end function v.lerp(ax,ay,bx,by,t)if t==0 then return ax,ay elseif t==1 then return bx,by end;return ax+(bx-ax)*t,ay+(by-ay)*t end function v.moveTowards(ax,ay,bx,by,d)if d<=0 then return ax,ay end;local x,y=bx-ax,by-ay;local squared=x*x+y*y;if squared==0 or squared<=d*d then return bx,by end;local f=d/math.sqrt(squared);return ax+x*f,ay+y*f end function v.rotate(x,y,r)local c,s=math.cos(r),math.sin(r);return x*c-y*s,x*s+y*c end function v.angle(x,y)if x==0 and y==0 then return 0 end;return math.atan2(y,x)end function v.angleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;return math.atan2(math.abs(v.cross(ax,ay,bx,by)),v.dot(ax,ay,bx,by))end function v.signedAngleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;local a=math.atan2(v.cross(ax,ay,bx,by),v.dot(ax,ay,bx,by));return a==pi and-pi or a end function v.project(x,y,ox,oy)local d=ox*ox+oy*oy;if d==0 then return 0,0 end;local f=(x*ox+y*oy)/d;return ox*f,oy*f end function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;local f=2*(x*nx+y*ny)/d;return x-nx*f,y-ny*f end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppExports={};package.loaded["nupp.io"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local newBuffer;__nuppExports["newBuffer"]=function(...) return newBuffer(...) end;local newQueueReader;__nuppExports["newQueueReader"]=function(...) return newQueueReader(...) end;local newStringReader;__nuppExports["newStringReader"]=function(...) return newStringReader(...) end;
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end require("nupp.mathruntime").install(rawget(__nupp,"math"));local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppExports={};package.loaded["nupp.io"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local newBuffer;__nuppExports["newBuffer"]=function(...) return newBuffer(...) end;local newQueueReader;__nuppExports["newQueueReader"]=function(...) return newQueueReader(...) end;local newStringReader;__nuppExports["newStringReader"]=function(...) return newStringReader(...) end;
 
 
 
@@ -133159,6 +133940,658 @@ end
 const __nuppExportValue= log ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.log"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.log"]=__nuppExports;return __nuppExports
 end
+package.preload["nupp.mathruntime"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports={};package.loaded["nupp.mathruntime"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local install;__nuppExports["install"]=function(...) return install(...) end;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local ffi = require ( "ffi" )
+
+const band = bit . band
+const bnot = bit . bnot
+const bor = bit . bor
+const bxor = bit . bxor
+const lshift = bit . lshift
+const rshift = bit . rshift
+const arshift = bit . arshift
+const rol = bit . rol
+const ror = bit . ror
+const tobit = bit . tobit
+
+const pi = math . pi
+const tau = 2 * math . pi
+
+
+local function ui32 ( value )
+local wrapped = tobit ( value )
+
+return wrapped < 0 and wrapped + 4294967296 or wrapped
+end
+
+
+
+
+
+
+local function mul32 ( a , c )
+local al , cl = a % 65536 , c % 65536
+local ah , ch = math . floor ( a / 65536 ) , math . floor ( c / 65536 )
+
+return tobit ( al * cl + ( ( ah * cl + al * ch ) % 65536 ) * 65536 )
+end
+
+
+
+
+
+
+local cell = ffi . new ( "union {float f;uint32_t u;}[1]" )
+
+const CANON = 2143289344
+const PINF = 2139095040
+const NINF = 4286578688
+const MAX = 2139095039
+const NMAX = 4286578687
+const SIGN = 2147483648
+
+
+local function nanbits ( bits )
+return band ( bits , 2139095040 ) == 2139095040 and band ( bits , 8388607 ) ~= 0
+end
+
+
+
+
+
+
+local function putbits ( bits )
+local pattern = nanbits ( bits ) and CANON or bits
+cell [ 0 ] . u = pattern
+
+return cell [ 0 ] . f
+end
+
+
+local function bits32 ( value )
+cell [ 0 ] . f = value
+local bits = cell [ 0 ] . u
+if nanbits ( bits ) then
+bits = CANON
+cell [ 0 ] . u = bits
+end
+
+return bits
+end
+
+
+local function round32 ( value )
+cell [ 0 ] . f = value
+if nanbits ( cell [ 0 ] . u ) then
+cell [ 0 ] . u = CANON
+end
+
+return cell [ 0 ] . f
+end
+
+
+local function narrow32 ( value )
+cell [ 0 ] . f = value
+
+return cell [ 0 ] . f
+end
+
+
+local function comparedd ( hi , lo , value )
+local difference = hi - value
+if difference > - lo then
+return 1
+elseif difference < - lo then
+return - 1
+end
+
+return 0
+end
+
+
+local function nextup ( value , bits )
+if bits == PINF then
+return value , bits
+end
+if bits == NINF then
+return putbits ( NMAX ) , NMAX
+end
+local stepped
+if band ( bits , SIGN ) ~= 0 then
+if bits == SIGN then
+return putbits ( 1 ) , 1
+end
+stepped = bits - 1
+else
+stepped = bits + 1
+end
+
+return putbits ( stepped ) , stepped
+end
+
+
+local function nextdown ( value , bits )
+if bits == NINF then
+return value , bits
+end
+if bits == PINF then
+return putbits ( MAX ) , MAX
+end
+local stepped
+if band ( bits , SIGN ) ~= 0 then
+stepped = bits + 1
+else
+if bits == 0 then
+return putbits ( 2147483649 ) , 2147483649
+end
+stepped = bits - 1
+end
+
+return putbits ( stepped ) , stepped
+end
+
+
+
+
+
+
+
+local function rounddd ( hi , lo )
+local value = round32 ( hi )
+local bits = bits32 ( value )
+if nanbits ( bits ) then
+return putbits ( CANON )
+end
+
+
+if bits == PINF then
+return comparedd ( hi , lo , 3.4028235677973366e38 ) < 0 and putbits ( MAX ) or value
+elseif bits == NINF then
+return comparedd ( hi , lo , - 3.4028235677973366e38 ) > 0 and putbits ( NMAX ) or value
+end
+local side = comparedd ( hi , lo , value )
+if side == 0 then
+return value
+end
+local step = side > 0 and nextup or nextdown
+local other , otherbits = step ( value , bits )
+local toward = comparedd ( hi , lo , ( value + other ) * 0.5 )
+if side < 0 then
+toward = - toward
+end
+if toward > 0 or toward == 0 and band ( bits , 1 ) ~= 0 then
+return putbits ( otherbits )
+end
+
+return value
+end
+
+
+local i32 = { }
+
+function i32 . wrap ( a )
+return tobit ( a )
+end
+
+function i32 . add ( a , c )
+return tobit ( a + c )
+end
+
+function i32 . sub ( a , c )
+return tobit ( a - c )
+end
+
+function i32 . mul ( a , c )
+return mul32 ( ui32 ( a ) , ui32 ( c ) )
+end
+
+function i32 . andBits ( a , c )
+return band ( a , c )
+end
+
+function i32 . orBits ( a , c )
+return bor ( a , c )
+end
+
+function i32 . xorBits ( a , c )
+return bxor ( a , c )
+end
+
+function i32 . notBits ( a )
+return bnot ( a )
+end
+
+function i32 . shiftLeft ( a , c )
+return lshift ( a , band ( c , 31 ) )
+end
+
+function i32 . shiftRightArithmetic ( a , c )
+return arshift ( a , band ( c , 31 ) )
+end
+
+function i32 . rotateLeft ( a , c )
+return rol ( a , band ( c , 31 ) )
+end
+
+function i32 . rotateRight ( a , c )
+return ror ( a , band ( c , 31 ) )
+end
+
+function i32 . lessThan ( a , c )
+return tobit ( a ) < tobit ( c )
+end
+
+function i32 . lessOrEqual ( a , c )
+return tobit ( a ) <= tobit ( c )
+end
+
+function i32 . fromU32 ( a )
+return tobit ( a )
+end
+
+function i32 . toU32 ( a )
+return ui32 ( a )
+end
+
+
+local u32 = { }
+
+function u32 . wrap ( a )
+return ui32 ( a )
+end
+
+function u32 . add ( a , c )
+return ui32 ( a + c )
+end
+
+function u32 . sub ( a , c )
+return ui32 ( a - c )
+end
+
+function u32 . mul ( a , c )
+return ui32 ( mul32 ( ui32 ( a ) , ui32 ( c ) ) )
+end
+
+function u32 . andBits ( a , c )
+return ui32 ( band ( a , c ) )
+end
+
+function u32 . orBits ( a , c )
+return ui32 ( bor ( a , c ) )
+end
+
+function u32 . xorBits ( a , c )
+return ui32 ( bxor ( a , c ) )
+end
+
+function u32 . notBits ( a )
+return ui32 ( bnot ( a ) )
+end
+
+function u32 . shiftLeft ( a , c )
+return ui32 ( lshift ( a , band ( c , 31 ) ) )
+end
+
+function u32 . shiftRightLogical ( a , c )
+return ui32 ( rshift ( a , band ( c , 31 ) ) )
+end
+
+function u32 . rotateLeft ( a , c )
+return ui32 ( rol ( a , band ( c , 31 ) ) )
+end
+
+function u32 . rotateRight ( a , c )
+return ui32 ( ror ( a , band ( c , 31 ) ) )
+end
+
+function u32 . lessThan ( a , c )
+return ui32 ( a ) < ui32 ( c )
+end
+
+function u32 . lessOrEqual ( a , c )
+return ui32 ( a ) <= ui32 ( c )
+end
+
+function u32 . fromI32 ( a )
+return ui32 ( a )
+end
+
+function u32 . toI32 ( a )
+return tobit ( a )
+end
+
+function u32 . popcount ( a )
+local remaining = ui32 ( a )
+local count = 0
+while remaining ~= 0 do
+remaining = ui32 ( band ( remaining , remaining - 1 ) )
+count = count + 1
+end
+
+return count
+end
+
+function u32 . trailingZeros ( a )
+local remaining = ui32 ( a )
+if remaining == 0 then
+return 32
+end
+local count = 0
+while band ( remaining , 1 ) == 0 do
+remaining = rshift ( remaining , 1 )
+count = count + 1
+end
+
+return count
+end
+
+function u32 . leadingZeros ( a )
+local remaining = ui32 ( a )
+if remaining == 0 then
+return 32
+end
+local count = 0
+local probe = SIGN
+while band ( remaining , probe ) == 0 do
+probe = rshift ( probe , 1 )
+count = count + 1
+end
+
+return count
+end
+
+
+local f32 = { }
+
+function f32 . narrow ( a )
+return narrow32 ( a )
+end
+
+function f32 . round ( a )
+return round32 ( a )
+end
+
+function f32 . add ( a , c )
+return round32 ( round32 ( a ) + round32 ( c ) )
+end
+
+function f32 . sub ( a , c )
+return round32 ( round32 ( a ) - round32 ( c ) )
+end
+
+function f32 . mul ( a , c )
+return round32 ( round32 ( a ) * round32 ( c ) )
+end
+
+function f32 . div ( a , c )
+return round32 ( round32 ( a ) / round32 ( c ) )
+end
+
+function f32 . sqrt ( a )
+return round32 ( math . sqrt ( round32 ( a ) ) )
+end
+
+
+function f32 . min ( a , c )
+local left , right = round32 ( a ) , round32 ( c )
+if left ~= left or right ~= right then
+return putbits ( CANON )
+end
+if left == right then
+if left == 0 and ( band ( bits32 ( left ) , SIGN ) ~= 0 or band ( bits32 ( right ) , SIGN ) ~= 0 ) then
+return putbits ( SIGN )
+end
+
+return left
+end
+
+return left < right and left or right
+end
+
+
+function f32 . max ( a , c )
+local left , right = round32 ( a ) , round32 ( c )
+if left ~= left or right ~= right then
+return putbits ( CANON )
+end
+if left == right then
+if left == 0 and band ( bits32 ( left ) , SIGN ) ~= 0 and band ( bits32 ( right ) , SIGN ) ~= 0 then
+return putbits ( SIGN )
+elseif left == 0 then
+return putbits ( 0 )
+end
+
+return left
+end
+
+return left > right and left or right
+end
+
+
+
+
+
+
+function f32 . fma ( a , c , d )
+local left , right , addend = round32 ( a ) , round32 ( c ) , round32 ( d )
+local product = left * right
+if product ~= product or product == math . huge or product == - math . huge then
+return round32 ( product + addend )
+end
+local sum = product + addend
+local carry = sum - product
+
+return rounddd ( sum , ( product - ( sum - carry ) ) + ( addend - carry ) )
+end
+
+function f32 . fromBits ( bits )
+return putbits ( ui32 ( bits ) )
+end
+
+function f32 . toBits ( value )
+return bits32 ( round32 ( value ) )
+end
+
+
+
+
+
+
+local vec2 = { }
+
+function vec2 . add ( ax , ay , bx , by )
+return ax + bx , ay + by
+end
+
+function vec2 . subtract ( ax , ay , bx , by )
+return ax - bx , ay - by
+end
+
+function vec2 . scale ( x , y , factor )
+return x * factor , y * factor
+end
+
+function vec2 . dot ( ax , ay , bx , by )
+return ax * bx + ay * by
+end
+
+function vec2 . cross ( ax , ay , bx , by )
+return ax * by - ay * bx
+end
+
+function vec2 . lengthSquared ( x , y )
+return x * x + y * y
+end
+
+function vec2 . length ( x , y )
+return math . sqrt ( x * x + y * y )
+end
+
+function vec2 . distanceSquared ( ax , ay , bx , by )
+local x , y = bx - ax , by - ay
+
+return x * x + y * y
+end
+
+function vec2 . distance ( ax , ay , bx , by )
+return math . sqrt ( vec2 . distanceSquared ( ax , ay , bx , by ) )
+end
+
+function vec2 . normalize ( x , y )
+local length = vec2 . length ( x , y )
+if length == 0 then
+return 0 , 0
+end
+
+return x / length , y / length
+end
+
+function vec2 . lerp ( ax , ay , bx , by , t )
+if t == 0 then
+return ax , ay
+elseif t == 1 then
+return bx , by
+end
+
+return ax + ( bx - ax ) * t , ay + ( by - ay ) * t
+end
+
+
+function vec2 . moveTowards ( ax , ay , bx , by , distance )
+if distance <= 0 then
+return ax , ay
+end
+local x , y = bx - ax , by - ay
+local squared = x * x + y * y
+if squared == 0 or squared <= distance * distance then
+return bx , by
+end
+local factor = distance / math . sqrt ( squared )
+
+return ax + x * factor , ay + y * factor
+end
+
+function vec2 . rotate ( x , y , radians )
+local c , s = math . cos ( radians ) , math . sin ( radians )
+
+return x * c - y * s , x * s + y * c
+end
+
+function vec2 . angle ( x , y )
+if x == 0 and y == 0 then
+return 0
+end
+
+return math . atan2 ( y , x )
+end
+
+
+function vec2 . angleBetween ( ax , ay , bx , by )
+if ( ax == 0 and ay == 0 ) or ( bx == 0 and by == 0 ) then
+return 0
+end
+
+return math . atan2 ( math . abs ( vec2 . cross ( ax , ay , bx , by ) ) , vec2 . dot ( ax , ay , bx , by ) )
+end
+
+
+function vec2 . signedAngleBetween ( ax , ay , bx , by )
+if ( ax == 0 and ay == 0 ) or ( bx == 0 and by == 0 ) then
+return 0
+end
+local turn = math . atan2 ( vec2 . cross ( ax , ay , bx , by ) , vec2 . dot ( ax , ay , bx , by ) )
+
+return turn == pi and - pi or turn
+end
+
+
+function vec2 . project ( x , y , ox , oy )
+local squared = ox * ox + oy * oy
+if squared == 0 then
+return 0 , 0
+end
+local factor = ( x * ox + y * oy ) / squared
+
+return ox * factor , oy * factor
+end
+
+
+function vec2 . reflect ( x , y , nx , ny )
+local squared = nx * nx + ny * ny
+if squared == 0 then
+return x , y
+end
+local factor = 2 * ( x * nx + y * ny ) / squared
+
+return x - nx * factor , y - ny * factor
+end
+
+
+
+
+
+local function lerp ( from , to , t )
+if t == 0 then
+return from
+elseif t == 1 then
+return to
+end
+
+return from + ( to - from ) * t
+end
+
+
+local function wrapAngle ( radians )
+return ( radians + pi ) % tau - pi
+end
+
+
+local function deltaAngle ( from , to )
+return wrapAngle ( to - from )
+end
+
+
+
+
+
+
+
+install=function ( namespace )
+namespace . lerp = lerp
+namespace . wrapAngle = wrapAngle
+namespace . deltaAngle = deltaAngle
+namespace . i32 = i32
+namespace . u32 = u32
+namespace . f32 = f32
+namespace . vec2 = vec2
+end ;__nuppExports["install"]=install
+ end);if not __nuppOk then package.loaded["nupp.mathruntime"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.mathruntime"]=__nuppExports;return __nuppExports
+end
 package.preload["nupp.mem"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports={};package.loaded["nupp.mem"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()
  end);if not __nuppOk then package.loaded["nupp.mem"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.mem"]=__nuppExports;return __nuppExports
@@ -137001,6 +138434,180 @@ end
 
 const __nuppExportValue= zone ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.profile.zone"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.profile.zone"]=__nuppExports;return __nuppExports
+end
+package.preload["nupp.reflectruntime"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local reflectruntime = { }
+
+
+
+
+
+
+
+local function claim ( namespace , name , fresh )
+local present = rawget ( namespace , name )
+if present ~= nil then
+return present
+end
+rawset ( namespace , name , fresh )
+
+return fresh
+end
+
+
+
+
+
+
+
+
+function reflectruntime . installFieldCodec ( namespace )
+local fieldcodec = claim ( namespace , "fieldcodec" , { } )
+fieldcodec . keyed = function ( fields , fingerprint )
+local Codec = { }
+Codec . __index = Codec
+function Codec : encode ( value )
+if type ( value ) ~= "table" then
+error ( "nupp: keyed codec value must be a table" , 2 )
+end
+local out = { }
+for _ , name in ipairs ( fields ) do
+local field = rawget ( value , name )
+if field ~= nil then
+out [ name ] = field
+end
+end
+
+return out
+end
+
+return setmetatable ( { fingerprint = fingerprint } , Codec )
+end
+end
+
+
+
+function reflectruntime . install ( namespace )
+local reflect = claim ( namespace , "__reflect" , { } )
+local blueprints = reflect . blueprints or setmetatable ( { } , { __mode = "k" } )
+local infos = reflect . infos or setmetatable ( { } , { __mode = "k" } )
+local states = reflect . states or setmetatable ( { } , { __mode = "k" } )
+reflect . blueprints , reflect . infos , reflect . states = blueprints , infos , states
+
+local Info = { }
+
+
+
+
+
+
+
+
+
+
+
+
+function Info : extension ( extension )
+local state = states [ self ]
+if not state then
+error ( "nupp: foreign reflection descriptor" , 2 )
+end
+local cached = state . extensions [ extension ]
+if cached then
+if cached . state == "ready" then
+return cached . value
+end
+if cached . state == "failed" then
+error ( cached . error , 2 )
+end
+error ( "nupp: recursive extension initialization" , 2 )
+end
+cached = { state = "initializing" }
+state . extensions [ extension ] = cached
+local ok , value = pcall ( extension . build , self )
+if not ok then
+cached . state = "failed"
+cached . error = tostring ( value )
+error ( cached . error , 2 )
+end
+cached . state = "ready"
+cached . value = value
+
+return value
+end
+
+
+
+
+Info . __index = function ( info , key )
+if key == "extension" then
+return Info . extension
+end
+local state = states [ info ]
+if key == "type" then
+return state and state . type
+end
+
+return state and state . blueprint [ key ]
+end
+
+Info . __newindex = function ( )
+error ( "nupp: reflection descriptors are immutable" , 2 )
+end
+
+
+
+
+
+
+
+function reflect . register ( typeObject , blueprint )
+blueprints [ typeObject ] = blueprint
+rawset ( typeObject , "reflect" , function ( )
+local prior = infos [ typeObject ]
+if prior then
+return prior
+end
+local declared = blueprints [ typeObject ]
+if not declared then
+error ( "nupp: type has no reflection blueprint" , 2 )
+end
+local info = setmetatable ( { } , Info )
+infos [ typeObject ] = info
+states [ info ] = { type = typeObject , blueprint = declared , extensions = { } }
+
+return info
+end )
+
+return typeObject
+end
+
+reflect . json = reflect . json or { version = "nupp-json-extension-v1" }
+end
+
+const __nuppExportValue= reflectruntime ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.reflectruntime"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.reflectruntime"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.simd"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
@@ -144532,21 +146139,853 @@ end
 
 export = valuebuilder
 ]=],
-["/nupp/derive.nupp"] = [[
+["/nupp/derive.nupp"] = [=[
 module nupp.derive
 
--- The standard derives are ordinary comptime providers.  Their runtime work is
--- deliberately kept in this module too, so a generated member is just an
--- ordinary derive.forward call rather than a compiler operation.
+--[[
+The standard derives, and what they do when they run.
+
+`@derive` is a compiler feature: the checker resolves the contract, the materializer
+folds the recipe, and generation writes the member. Both halves are here. The comptime
+providers below decide what a derived member is; the runtime above them is what that
+member calls, so a generated member is an ordinary `derive.forward` call rather than a
+compiler operation.
+
+`install` is what a program's prologue calls to publish the runtime half under
+`nupp.__derive`, which is where generated code addresses it from.
+]]
 
 local derive = {}
 
 interface derive.JSONContract is nupp.data.json.JSONEncodable
 end
 
+--- One derived type, as the registry holds it.
 record derive.Entry
-    schema: {data: {[string]: any}}
+    --- The recipe fingerprint the entry is filed under.
+    key: string?
+
+    --- The type's runtime table, which is its instances' metatable.
+    mt: any
+
+    --- The recipe's data, plus the JSON field list and unknown-field policy that
+    --- `jsonCodec` folds onto it the first time the type is encoded.
+    schema: {
+        data: {[string]: any},
+        [string]: any
+    }
+
     codec: nupp.reflect.FieldCodec<any>
+
+    --- The JSON decoder, present once the codec has been built.
+    decoder: any
+end
+
+-- Every derived type, keyed by the fingerprint generation stamped onto its metatable.
+-- Named `derived` rather than `types` because a bare `types` resolves to the
+-- compiler's own module under qualified-path lookup; the namespace still publishes it
+-- as `types`, which is the name everything reading the registry already uses.
+local derived: any = {}
+
+-- Set by `install`, and nil until then. The JSON codec is memoized as a reflection
+-- extension rather than a field, so a type whose program never installed reflection
+-- has no JSON either -- which is the same condition the bootstrap already sequenced,
+-- kept here rather than assumed.
+local reflect: any = nil
+
+-- `string.buffer` is required on first use rather than on load: a program that derives
+-- Debug but never renders one should not carry the rock.
+local bufferModule: any = nil
+
+local function newBuffer(): any
+    if bufferModule == nil then
+        bufferModule = require("string.buffer")
+    end
+
+    return bufferModule.new()
+end
+
+--- Copies a field default so two instances never share one table.
+--- @raises when the default refers to itself
+local function copied(value: any, seen: any): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local visiting = seen or {}
+    if visiting[value] then
+        error("nupp: cyclic field default", 3)
+    end
+    visiting[value] = true
+    local out: any = {}
+    for k, v in pairs(value) do
+        out[copied(k, visiting)] = copied(v, visiting)
+    end
+    visiting[value] = nil
+
+    return out
+end
+
+--- The value a field default describes.
+--- @param spec the default the recipe recorded
+--- @return a fresh copy of it
+--- @raises when the default is not a literal
+local function defaultValue(spec: any): any
+    if spec ~= nil and spec.kind == "literal" then
+        return copied(spec.value, nil)
+    end
+    error("nupp: unsupported field default", 3)
+end
+
+-- Debug output is ordered so that two runs of the same program produce the same text,
+-- which `pairs` alone does not promise.
+local function sortedKeys(value: any): {any}
+    local keys: {any} = {}
+    for key in pairs(value) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, function(a: any, b: any): boolean
+        return tostring(a) < tostring(b)
+    end)
+
+    return keys
+end
+
+-- Mutually recursive with the value renderer below, because a field of unknown type
+-- may hold a derived record and a derived record's fields may be of unknown type.
+local debugAny: function(value: any, state: any): string
+local debugValue: function(value: any, spec: any, state: any): string
+-- Named apart from the `debug` it is exported as, because that name is Lua's own
+-- library inside this module and the renderers below call it before it is defined.
+local renderRecord: function(value: any, schema: any, state: any?): string
+
+-- What a value looks like when nothing described it. A derived type still renders as
+-- itself, because the registry finds it from the metatable.
+debugAny = function(value: any, state: any): string
+    local kind = type(value)
+    if kind == "nil" or kind == "boolean" or kind == "number" then
+        return tostring(value)
+    elseif kind == "string" then
+        return string.format("%q", value)
+    elseif kind ~= "table" then
+        return "<" .. kind .. ">"
+    end
+    if state.active[value] then
+        return "<cycle>"
+    end
+    state.active[value] = true
+    local mt = getmetatable(value)
+    local entry = mt ~= nil and derived[rawget(mt as any, "__nuppDeriveKey")] or nil
+    local out: string
+    if entry ~= nil then
+        out = renderRecord(value, entry.schema.data.debug, state)
+    else
+        local parts: {string} = {}
+        for _, key in ipairs(sortedKeys(value)) do
+            parts[#parts + 1] = "[" .. debugAny(key, state) .. "] = " .. debugAny(value[key], state)
+        end
+        out = "{" .. table.concat(parts, ", ") .. "}"
+    end
+    state.active[value] = nil
+
+    return out
+end
+
+-- What a value looks like when the recipe described its type.
+debugValue = function(value: any, spec: any, state: any): string
+    if spec.kind == "optional" then
+        return value == nil and "nil" or debugValue(value, spec.value, state)
+    elseif spec.kind == "customDebug" then
+        return value:debug() as string
+    elseif spec.kind == "record" then
+        local nested = derived[spec.typeKey]
+
+        return nested ~= nil and renderRecord(value, nested.schema.data.debug, state) or "<unloaded>"
+    elseif spec.kind == "any" then
+        return debugAny(value, state)
+    elseif spec.kind == "string" or spec.kind == "literal" and type(value) == "string" then
+        return string.format("%q", value)
+    elseif spec.kind == "nil"
+        or spec.kind == "boolean"
+        or spec.kind == "number"
+        or spec.kind == "integer"
+        or spec.kind == "float"
+        or (
+        spec.kind as string
+    ):match("^u?int") ~= nil or spec.kind == "literal" then
+        return tostring(value)
+    end
+    if type(value) ~= "table" then
+        return "<" .. type(value) .. ">"
+    end
+    if state.active[value] then
+        return "<cycle>"
+    end
+    state.active[value] = true
+    local parts: {string} = {}
+    if spec.kind == "array" then
+        for i = 1, #value do
+            parts[#parts + 1] = debugValue(value[i], spec.value, state)
+        end
+    elseif spec.kind == "tuple" then
+        for i, item in ipairs(spec.items) do
+            parts[#parts + 1] = debugValue(value[i], item, state)
+        end
+    elseif spec.kind == "shape" then
+        for _, field in ipairs(spec.fields) do
+            parts[#parts + 1] = field.name .. " = " .. debugValue(rawget(value, field.name), field.type, state)
+        end
+    elseif spec.kind == "map" then
+        for _, key in ipairs(sortedKeys(value)) do
+            parts[
+                #parts + 1
+            ] = "[" .. debugValue(key, spec.key, state) .. "] = " .. debugValue(value[key], spec.value, state)
+        end
+    end
+    state.active[value] = nil
+
+    return "{" .. table.concat(parts, ", ") .. "}"
+end
+
+--- Renders a derived record the way `@derive(Debug)` promises.
+---
+--- `schema` accepts either the debug schema itself or the registry entry holding one,
+--- because a caller reaching this from the registry has the entry and a caller
+--- reaching it from a field has the schema.
+---
+--- @param value the record to render
+--- @param schema the debug schema, or the entry that carries it
+--- @param state the cycle set, when one is already open
+--- @return the rendered text
+--- @export
+renderRecord = function(value: any, schema: any, state: any?): string
+    local resolved = schema.schema ~= nil and schema.schema.data.debug or schema
+    local open = state or {active = {},}
+    if open.active[value] then
+        return "<cycle>"
+    end
+    open.active[value] = true
+    local parts: {string} = {}
+    for _, field in ipairs(resolved.fields) do
+        if not field.debugSkip then
+            local shown = field.debugRedact and "<redacted>" or debugValue(
+                rawget(value, field.name),
+                field.debugType,
+                open
+            )
+            parts[#parts + 1] = field.name .. " = " .. shown
+        end
+    end
+    open.active[value] = nil
+
+    return resolved.name .. " { " .. table.concat(parts, ", ") .. " }"
+end
+
+-- The two-character escapes JSON defines. Anything else below 32 goes out as \uXXXX.
+local ESCAPES: {
+    [integer]: string
+} = {[8] = "\\b", [9] = "\\t", [10] = "\\n", [12] = "\\f", [13] = "\\r", [34] = '\\"', [92] = "\\\\",}
+
+-- Copied out in runs rather than byte by byte: the common case is a string with
+-- nothing to escape, and that case should be one `put` of the whole thing.
+--
+-- The UTF-8 validation is the encoder's, not the decoder's: a Lua string is bytes, and
+-- writing invalid UTF-8 into a document that claims to be JSON is how a value that
+-- round-tripped locally fails at whoever reads it.
+local function putString(buf: any, text: any, path: string): nil
+    if type(text) ~= "string" then
+        error(path .. ": expected string", 3)
+    end
+    local subject = text as string
+    buf:put('"')
+    local start = 1
+    local i = 1
+    while i <= #subject do
+        local byte = subject:byte(i) as integer
+        local escaped = ESCAPES[byte]
+        if escaped ~= nil or byte < 32 then
+            if i > start then
+                buf:put(subject:sub(start, i - 1))
+            end
+            buf:put(escaped or string.format("\\u%04X", byte))
+            i = i + 1
+            start = i
+        elseif byte < 128 then
+            i = i + 1
+        else
+            local count = byte >= 240 and 4 or byte >= 224 and 3 or byte >= 194 and 2 or 0
+            if count == 0 or i + count - 1 > #subject then
+                error(path .. ": invalid UTF-8", 3)
+            end
+            local b2, b3, b4 = subject:byte(i + 1, i + 3)
+            if not b2 or b2 < 128 or b2 > 191 or count >= 3 and (
+                not b3 or b3 < 128 or b3 > 191
+            ) or count == 4 and (
+                not b4 or b4 < 128 or b4 > 191
+            )
+                or byte == 224
+                and b2 < 160
+                or byte == 237
+                and b2 >= 160
+                or byte == 240
+                and b2 < 144
+                or byte == 244
+                and b2 >= 144
+                or byte > 244 then
+                error(path .. ": invalid UTF-8", 3)
+            end
+            i = i + count
+        end
+    end
+    if start <= #subject then
+        buf:put(subject:sub(start))
+    end
+    buf:put('"')
+end
+
+local function finite(value: number): boolean
+    return value == value and value ~= math.huge and value ~= -math.huge
+end
+
+-- Depth and cycles are both refused rather than truncated: a document that stops
+-- short is worse than one that was never written.
+local function enter(value: any, state: any, path: string): nil
+    if state.depth >= 128 then
+        error(path .. ": JSON nesting exceeds 128 containers", 3)
+    end
+    if state.active[value] then
+        error(path .. ": cyclic JSON value", 3)
+    end
+    state.active[value] = true
+    state.depth = state.depth + 1
+end
+
+local function leave(value: any, state: any): nil
+    state.depth = state.depth - 1
+    state.active[value] = nil
+end
+
+-- Mutually recursive: a field's type may be a shape, and a shape's fields have types.
+local writeValue: function(value: any, spec: any, buf: any, state: any, path: string): nil
+
+-- An object is written from the field list rather than from the value, so a field the
+-- schema does not name never reaches the document however the value came to hold it.
+local function writeObject(value: any, fields: any, unknown: any, buf: any, state: any, path: string): nil
+    if type(value) ~= "table" then
+        error(path .. ": expected object", 3)
+    end
+    enter(value, state, path)
+    buf:put("{")
+    local first = true
+    for _, field in ipairs(fields) do
+        if not field.omit then
+            local item = rawget(value, field.name)
+            local empty = item == nil or item == "" or item == false or type(item) == "table" and next(item) == nil
+            if not (field.omitEmpty and empty) then
+                if not first then
+                    buf:put(",")
+                end
+                first = false
+                local name = field.jsonName or field.name
+                putString(buf, name, path)
+                buf:put(":")
+                writeValue(item, field.jsonType, buf, state, path .. "." .. name)
+            end
+        end
+    end
+    buf:put("}")
+    leave(value, state)
+end
+
+-- Every failure carries the path it happened at, because the value being encoded is
+-- often nested several containers deep and "expected finite number" alone does not say
+-- which field held the NaN.
+writeValue = function(value: any, spec: any, buf: any, state: any, path: string): nil
+    local kind: any = spec and spec.kind
+    if kind == "optional" then
+        if value == nil then
+            buf:put("null")
+        else
+            writeValue(value, spec.value, buf, state, path)
+        end
+
+        return
+    elseif kind == "union" then
+        if type(value) ~= "table" then
+            error(path .. ": expected discriminated object", 3)
+        end
+        local selected = spec.choices[rawget(value, spec.tagField)]
+        if not selected then
+            error(path .. "." .. spec.jsonTag .. ": unknown discriminant", 3)
+        end
+
+        return writeValue(value, selected, buf, state, path)
+    elseif kind == "record" then
+        local nested = derived[spec.typeKey]
+        if not nested then
+            error(path .. ": derived JSON dependency is not loaded", 3)
+        end
+
+        return writeObject(value, nested.schema.fields, nested.schema.unknown, buf, state, path)
+    elseif kind == "string" then
+        return putString(buf, value, path)
+    elseif kind == "boolean" then
+        if type(value) ~= "boolean" then
+            error(path .. ": expected boolean", 3)
+        end
+        buf:put(value and "true" or "false")
+
+        return
+    elseif kind == "literal" then
+        if value ~= spec.value then
+            error(path .. ": literal value does not match", 3)
+        end
+        local base = type(value)
+        if base == "string" then
+            return putString(buf, value, path)
+        elseif base == "boolean" then
+            buf:put(value and "true" or "false")
+
+            return
+        else
+            -- A literal number is written the way any number is, below.
+            kind = "number"
+        end
+    end
+    if kind == "number" or kind == "float" or kind == "integer" then
+        local number = tonumber(value)
+        if not number or not finite(number) then
+            error(path .. ": expected finite number", 3)
+        end
+        if kind == "integer" and (
+            number % 1 ~= 0 or spec.minimum and number < spec.minimum or spec.maximum and number > spec.maximum
+        ) then
+            error(path .. ": integer is out of range", 3)
+        end
+        -- Seventeen significant digits is what round-trips a double, and lowercasing
+        -- normalizes the exponent so two runs on two platforms produce one text.
+        buf:put(string.format("%.17g", number):lower())
+
+        return
+    end
+    if type(value) ~= "table" then
+        error(path .. ": expected table", 3)
+    end
+    if kind == "array" then
+        enter(value, state, path)
+        -- A Lua table with a hole is not a JSON array, and `#` alone will not say so.
+        -- Counting the keys and comparing against the largest is what catches it.
+        local count, maximum = 0, 0
+        for key in pairs(value) do
+            if type(key) ~= "number" or key % 1 ~= 0 or key < 1 then
+                error(path .. ": expected dense array", 3)
+            end
+            count = count + 1
+            if key > maximum then
+                maximum = key
+            end
+        end
+        if count ~= maximum then
+            error(path .. ": expected dense array", 3)
+        end
+        buf:put("[")
+        for i = 1, maximum do
+            if i > 1 then
+                buf:put(",")
+            end
+            writeValue(value[i], spec.value, buf, state, path .. "[" .. i .. "]")
+        end
+        buf:put("]")
+        leave(value, state)
+
+        return
+    elseif kind == "tuple" then
+        enter(value, state, path)
+        for key in pairs(value) do
+            if type(key) ~= "number" or key % 1 ~= 0 or key < 1 or key > #spec.items then
+                error(path .. ": tuple shape does not match", 3)
+            end
+        end
+        buf:put("[")
+        for i, item in ipairs(spec.items) do
+            if i > 1 then
+                buf:put(",")
+            end
+            writeValue(value[i], item, buf, state, path .. "[" .. i .. "]")
+        end
+        buf:put("]")
+        leave(value, state)
+
+        return
+    elseif kind == "map" then
+        enter(value, state, path)
+        buf:put("{")
+        -- Sorted, so the same map encodes to the same bytes twice running.
+        local keys: {string} = {}
+        for key in pairs(value) do
+            if type(key) ~= "string" then
+                error(path .. ": JSON map key is not a string", 3)
+            end
+            keys[#keys + 1] = key
+        end
+        table.sort(keys)
+        for i, key in ipairs(keys) do
+            if i > 1 then
+                buf:put(",")
+            end
+            putString(buf, key, path)
+            buf:put(":")
+            writeValue(value[key], spec.value, buf, state, path .. "." .. key)
+        end
+        buf:put("}")
+        leave(value, state)
+
+        return
+    elseif kind == "shape" then
+        return writeObject(value, spec.fields, spec.unknown, buf, state, path)
+    end
+    error(path .. ": unsupported JSON value", 3)
+end
+
+-- Decoding answers `ok, value, message` rather than raising, because a document that
+-- does not match is an ordinary answer about somebody else's input, not a fault in the
+-- program reading it.
+local decodeValue: function(value: any, spec: any, entry: any, path: string): (boolean, any, string?)
+
+-- Forward-declared because a record-typed field materializes the nested type's codec
+-- before decoding into it, and the codec builder below decodes through this.
+local jsonCodecFor: function(entry: any): any
+
+local function decodeObject(value: any, entry: any, path: string): (boolean, any, string?)
+    if type(value) ~= "table" then
+        return false, nil, path .. ": expected object"
+    end
+    local schema = entry.schema
+    local known: any = {}
+    local out: any = {}
+    for _, field in ipairs(schema.fields) do
+        if not field.omit then
+            local key = field.jsonName or field.name
+            known[key] = true
+            local raw = rawget(value, key)
+            if raw == nil then
+                -- Absent is three different things: a field with a declaration default
+                -- takes it, an optional field stays nil, and anything else is missing.
+                if field.default then
+                    local ok, result = pcall(defaultValue, field.default)
+                    if not ok then
+                        return false, nil, path .. "." .. key .. ": " .. tostring(result)
+                    end
+                    if result ~= nil then
+                        out[field.name] = result
+                    end
+                elseif field.jsonType and field.jsonType.kind == "optional" then
+                else
+                    return false, nil, path .. "." .. key .. ": required field is absent"
+                end
+            else
+                local ok, result, err = decodeValue(raw, field.jsonType, entry, path .. "." .. key)
+                if not ok then
+                    return false, nil, err
+                end
+                if result ~= nil then
+                    out[field.name] = result
+                end
+            end
+        elseif field.default then
+            -- An omitted field never appears in the document, so its default is the
+            -- only value it can have and it is applied without consulting the input.
+            local result = defaultValue(field.default)
+            if result ~= nil then
+                out[field.name] = result
+            end
+        end
+    end
+    if schema.unknown ~= "ignore" then
+        for key in pairs(value) do
+            if not known[key] then
+                return false, nil, path .. ": unknown field " .. string.format("%q", tostring(key))
+            end
+        end
+    end
+
+    return true, setmetatable(out, entry.mt), nil
+end
+
+decodeValue = function(value: any, spec: any, entry: any, path: string): (boolean, any, string?)
+    local kind: any = spec and spec.kind
+    if kind == "optional" then
+        if value == entry.decoder.NULL then
+            return true, nil, nil
+        end
+
+        return decodeValue(value, spec.value, entry, path)
+    elseif value == entry.decoder.NULL then
+        return false, nil, path .. ": null is not allowed"
+    elseif kind == "union" then
+        if type(value) ~= "table" then
+            return false, nil, path .. ": expected discriminated object"
+        end
+        local selected = spec.choices[rawget(value, spec.jsonTag)]
+        if not selected then
+            return false, nil, path .. "." .. spec.jsonTag .. ": unknown discriminant"
+        end
+
+        return decodeValue(value, selected, entry, path)
+    elseif kind == "record" then
+        local nested = derived[spec.typeKey]
+        if not nested then
+            return false, nil, path .. ": derived JSON dependency is not loaded"
+        end
+        -- Materialized for its decoder, which `decodeObject` reads off the entry.
+        jsonCodecFor(nested)
+
+        return decodeObject(value, nested, path)
+    elseif kind == "string" then
+        return type(value) == "string", value, type(value) == "string" and nil or path .. ": expected string"
+    elseif kind == "boolean" then
+        return type(value) == "boolean", value, type(value) == "boolean" and nil or path .. ": expected boolean"
+    elseif kind == "literal" then
+        return value == spec.value, value, value == spec.value and nil or path .. ": literal value does not match"
+    elseif kind == "number" or kind == "float" or kind == "integer" then
+        if type(value) ~= "number" or not finite(value) then
+            return false, nil, path .. ": expected finite number"
+        end
+        if kind == "integer" and (
+            value % 1 ~= 0 or spec.minimum and value < spec.minimum or spec.maximum and value > spec.maximum
+        ) then
+            return false, nil, path .. ": expected integer in range"
+        end
+
+        return true, value, nil
+    end
+    if type(value) ~= "table" then
+        return false, nil, path .. ": expected table"
+    end
+    if kind == "array" then
+        local out: any = {}
+        local count = #value
+        for key in pairs(value) do
+            if type(key) ~= "number" or key % 1 ~= 0 or key < 1 or key > count then
+                return false, nil, path .. ": expected dense array"
+            end
+        end
+        for i = 1, count do
+            local ok, result, err = decodeValue(value[i], spec.value, entry, path .. "[" .. i .. "]")
+            if not ok then
+                return false, nil, err
+            end
+            out[i] = result
+        end
+
+        return true, out, nil
+    elseif kind == "tuple" then
+        if #value ~= #spec.items then
+            return false, nil, path .. ": tuple length does not match"
+        end
+        local out: any = {}
+        for i, item in ipairs(spec.items) do
+            local ok, result, err = decodeValue(value[i], item, entry, path .. "[" .. i .. "]")
+            if not ok then
+                return false, nil, err
+            end
+            out[i] = result
+        end
+
+        return true, out, nil
+    elseif kind == "map" then
+        local out: any = {}
+        for key, item in pairs(value) do
+            if type(key) ~= "string" then
+                return false, nil, path .. ": expected string map key"
+            end
+            local ok, result, err = decodeValue(item, spec.value, entry, path .. "." .. key)
+            if not ok then
+                return false, nil, err
+            end
+            out[key] = result
+        end
+
+        return true, out, nil
+    elseif kind == "shape" then
+        -- A shape is an object with no type of its own, so it borrows the object
+        -- decoder through a stand-in entry and the metatable is taken back off.
+        local standIn = {schema = {fields = spec.fields, unknown = spec.unknown or "reject"}, decoder = entry.decoder}
+        local ok, result, err = decodeObject(value, standIn, path)
+        if ok then
+            setmetatable(result, nil)
+        end
+
+        return ok, result, err
+    end
+
+    return false, nil, path .. ": unsupported JSON value"
+end
+
+--- Records a derived type and answers its registry entry.
+---
+--- The key is stamped onto the metatable as well as used to file the entry, so a value
+--- can be traced back to its entry with nothing but `getmetatable`.
+local function register(key: string, mt: any, schema: any): any
+    local entry = {key = key, mt = mt, schema = schema}
+    rawset(mt, "__nuppDeriveKey", key)
+    local json = schema.data and schema.data.json
+    if json then
+        schema.fields = json.fields
+        schema.unknown = json.unknown
+    end
+    derived[key] = entry
+
+    return entry
+end
+
+--- Builds the JSON codec for a type, or answers the one already built.
+---
+--- Deferred rather than built during `register`, because a program that derives JSON
+--- for a type it never encodes should not load the decoder or walk the schema.
+--- @raises when JSON was not derived for the type
+jsonCodecFor = function(entry: any): any
+    local existing = entry.codec
+    if existing then
+        return existing
+    end
+    local schema = entry.schema
+    local json = schema.data and schema.data.json
+    if not json then
+        error("nupp: JSON was not derived for this type", 3)
+    end
+    schema.fields = json.fields
+    schema.unknown = json.unknown
+    local decoder = require("nupp.data.json")
+    entry.decoder = decoder
+    local codec: any = {fingerprint = "derive-json-v1|emit=1|decode=simdjson|schema=" .. schema.fingerprint,}
+    -- The codec's own encode is the shallow one the field-codec contract asks for: it
+    -- selects and renames fields and stops there. Producing the document is `toJSON`.
+    function codec:encode(value: any): any
+        local out: any = {}
+        for _, field in ipairs(schema.fields) do
+            if not field.omit then
+                local item = rawget(value, field.name)
+                local empty = item == nil or item == "" or item == false or type(item) == "table" and next(item) == nil
+                if item ~= nil and not (field.omitEmpty and empty) then
+                    out[field.jsonName or field.name] = item
+                end
+            end
+        end
+
+        return out
+    end
+
+    function codec:decode(value: any): (any, string?)
+        local ok, result, err = decodeObject(value, entry, "$")
+        if ok then
+            return result, nil
+        end
+
+        return nil, err
+    end
+
+    entry.codec = codec
+
+    return codec
+end
+
+-- Reached through reflection rather than called directly, so that one memoized codec
+-- answers every route to it: the derived members here, `nupp.data.json`'s type-directed
+-- entry points, and a program asking the reflection extension itself.
+local function derivedJSON(entry: any): any
+    return entry.mt:reflect():extension(reflect.json)
+end
+
+--- Renders a derived record the way `@derive(Debug)` promises.
+function derive.debug<T is table>(value: T, entry: derive.Entry): string
+    return renderRecord(value, entry.schema.data.debug, nil)
+end
+
+--- Encodes a derived record as a JSON document.
+function derive.toJSON<T is table>(value: T, entry: derive.Entry): string
+    derivedJSON(entry)
+    local buf = newBuffer()
+    writeObject(value, entry.schema.fields, entry.schema.unknown, buf, {active = {}, depth = 0}, "$")
+
+    return buf:tostring()
+end
+
+--- Decodes a JSON document into a derived record.
+--- @return the record, or nil and what was wrong with the document
+function derive.fromJSON<T is table>(text: string, entry: derive.Entry): (T?, string?)
+    local codec = derivedJSON(entry)
+    local ok, value = pcall(entry.decoder.decode, text, entry.decoder.NULL)
+    if not ok then
+        return nil, tostring(value)
+    end
+    local result, err = codec:decode(value)
+    if not result then
+        return nil, err
+    end
+
+    return result, nil
+end
+
+--- The field codec a derived type's `fieldCodec` static answers.
+function derive.fieldCodec(entry: derive.Entry): nupp.reflect.FieldCodec<any>
+    return derivedJSON(entry)
+end
+
+--- Reads a derived type's registry entry from its type object.
+--- @raises when the type has no derived JSON
+local function jsonEntry(typeObject: any): any
+    local entry = typeObject and derived[rawget(typeObject, "__nuppDeriveKey")]
+    if not entry then
+        error("nupp: JSON was not derived for this type", 3)
+    end
+
+    return entry
+end
+
+--- Fills a program's derive namespace in and wires JSON to reflection.
+---
+--- The second half is conditional because reflection is its own feature. A program
+--- that derives only Debug has no registry of descriptors, and the JSON codec is
+--- memoized as a reflection extension, so what it does not get is JSON.
+--- @export
+function derive.install(namespace: any): nil
+    local runtime = rawget(namespace, "__derive")
+    if runtime == nil then
+        runtime = {}
+        rawset(namespace, "__derive", runtime)
+    end
+    runtime.types = derived
+    runtime.register = register
+    runtime.debug = renderRecord
+    runtime.jsonCodec = jsonCodecFor
+    runtime.toJSON = derive.toJSON
+    runtime.fromJSON = derive.fromJSON
+    runtime.fieldCodec = derive.fieldCodec
+    reflect = rawget(namespace, "__reflect")
+    if reflect == nil then
+        return
+    end
+    reflect.json.build = function(info: any): any
+        local mt = info.type
+        local entry = mt and derived[rawget(mt, "__nuppDeriveKey")]
+        if not entry then
+            error("nupp: JSON was not derived for this type", 2)
+        end
+
+        return jsonCodecFor(entry)
+    end
+    -- `nupp.data.json`'s type-directed entry points are the derived codec seen from
+    -- the other side: the caller names a type rather than holding a derived value.
+    local api = require("nupp.data.json")
+    api.decodeAs = function(typeObject: any, text: string): (any, string?)
+        return derive.fromJSON(text, jsonEntry(typeObject))
+    end
+    api.encodeAs = function(typeObject: any, value: any): string
+        return derive.toJSON(value, jsonEntry(typeObject))
+    end
+    api.encodeRecord = function(value: any): string
+        return derive.toJSON(value, jsonEntry(getmetatable(value)))
+    end
 end
 
 local comptime function option(items, annotationName: string, name: string): any
@@ -144779,26 +147218,6 @@ local comptime function jsonSpec(T: type, contract: type): any
     return nil
 end
 
-function derive.debug<T is table>(value: T, entry: derive.Entry): string
-    return _G.nupp.__derive.debug(value, entry.schema.data.debug)
-end
-
-function derive.toJSON<T is table>(value: T, entry: derive.Entry): string
-    return _G.nupp.__derive.toJSON(value, entry)
-end
-
-function derive.fromJSON<T is table>(text: string, entry: derive.Entry): (T?, string?)
-    return _G.nupp.__derive.fromJSON(text, entry)
-end
-
--- Delegated like its three siblings rather than reading `entry.codec` directly. The
--- codec is materialized on demand and memoized into that field, so reading the field
--- answers nil until something else has already asked for it -- which made this the one
--- member of the four whose answer depended on what had run before it.
-function derive.fieldCodec(entry: derive.Entry): nupp.reflect.FieldCodec<any>
-    return _G.nupp.__derive.fieldCodec(entry)
-end
-
 comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
     if info.kind ~= "record" then
         return nupp.derive.error("Debug can be derived only for records", info.reference, "NUPP2803")
@@ -144919,7 +147338,7 @@ comptime function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.d
 end
 
 export = derive
-]],
+]=],
 ["/nupp/io/file.nupp"] = [=[
 module nupp.io.file
 
@@ -151774,6 +154193,657 @@ end
 
 export = log
 ]=],
+["/nupp/mathruntime.nupp"] = [=[
+@!internal
+
+module nupp.mathruntime
+
+--[[
+What `nupp.math` does when it is not inlined.
+
+Most reads of `nupp.math` never reach here. The compiler recognizes the qualified
+paths -- `nupp.math.i32.wrap`, `nupp.math.u32.popcount`, `nupp.math.f32.narrow` and
+the rest -- and lowers them to operations, and the AOT backend emits them as machine
+instructions. What is left for run time is every other way of getting at one: taking
+it as a value, calling it through a local, or reaching a part that has no operation
+behind it.
+
+So this is the same arithmetic written twice, once as a lowering and once as Lua, and
+the two have to agree bit for bit. The families here are written to that standard
+rather than to what reads well: `mul32` splits its arguments into halves because the
+product of two 32-bit values does not fit a double, and every `f32` result is pushed
+through a union because narrowing is what `float` means.
+
+Programs reach all of it as `nupp.math`, whose declaration stays in the prelude
+because the compiler answers most of it directly. What the bootstrap installs is
+`install`, below.
+]]
+
+local ffi = require("ffi")
+
+const band = bit.band
+const bnot = bit.bnot
+const bor = bit.bor
+const bxor = bit.bxor
+const lshift = bit.lshift
+const rshift = bit.rshift
+const arshift = bit.arshift
+const rol = bit.rol
+const ror = bit.ror
+const tobit = bit.tobit
+
+const pi = math.pi
+const tau = 2 * math.pi
+
+--- Reads a signed 32-bit result as the unsigned number naming the same bits.
+local function ui32(value: number): number
+    local wrapped = tobit(value)
+
+    return wrapped < 0 and wrapped + 4294967296 or wrapped
+end
+
+--- Multiplies two 32-bit values without losing the low half.
+---
+--- The exact product needs up to 64 bits and a double carries 53, so the high half of
+--- one factor is multiplied separately and folded back in already truncated. Only the
+--- low 32 bits survive either way, which is what the operation is defined to answer.
+local function mul32(a: number, c: number): number
+    local al, cl = a % 65536, c % 65536
+    local ah, ch = math.floor(a / 65536), math.floor(c / 65536)
+
+    return tobit(al * cl + ((ah * cl + al * ch) % 65536) * 65536)
+end
+
+--- A float and its bits at one address.
+---
+--- Every narrowing in the `f32` family is a store into `f` and a load out of it, and
+--- every bit pattern is the same trip the other way. One cell is reused rather than
+--- allocated per call because these are called from arithmetic.
+local cell = ffi.new("union {float f;uint32_t u;}[1]") as any
+
+const CANON = 2143289344
+const PINF = 2139095040
+const NINF = 4286578688
+const MAX = 2139095039
+const NMAX = 4286578687
+const SIGN = 2147483648
+
+--- Whether a bit pattern is one of the NaNs rather than a number.
+local function nanbits(bits: number): boolean
+    return band(bits, 2139095040) == 2139095040 and band(bits, 8388607) ~= 0
+end
+
+--- The float a bit pattern names, with every NaN collapsed to one.
+---
+--- A signalling NaN is not preserved. Which NaN an operation produces is not something
+--- a program can depend on, and answering one of them makes the lowering and this
+--- agree without either having to reproduce the other's choice.
+local function putbits(bits: number): number
+    local pattern = nanbits(bits) and CANON or bits
+    cell[0].u = pattern
+
+    return cell[0].f
+end
+
+--- The bit pattern of a value, narrowed to single precision first.
+local function bits32(value: number): number
+    cell[0].f = value
+    local bits = cell[0].u
+    if nanbits(bits) then
+        bits = CANON
+        cell[0].u = bits
+    end
+
+    return bits
+end
+
+--- A value narrowed to single precision, with NaN canonicalized.
+local function round32(value: number): number
+    cell[0].f = value
+    if nanbits(cell[0].u) then
+        cell[0].u = CANON
+    end
+
+    return cell[0].f
+end
+
+--- A value narrowed to single precision, NaN left as it fell.
+local function narrow32(value: number): number
+    cell[0].f = value
+
+    return cell[0].f
+end
+
+--- Compares a double-double against a value: 1, -1 or 0 as it is above, below or on it.
+local function comparedd(hi: number, lo: number, value: number): number
+    local difference = hi - value
+    if difference > -lo then
+        return 1
+    elseif difference < -lo then
+        return -1
+    end
+
+    return 0
+end
+
+--- The next representable float above one, given its bits.
+local function nextup(value: number, bits: number): number, number
+    if bits == PINF then
+        return value, bits
+    end
+    if bits == NINF then
+        return putbits(NMAX), NMAX
+    end
+    local stepped: number
+    if band(bits, SIGN) ~= 0 then
+        if bits == SIGN then
+            return putbits(1), 1
+        end
+        stepped = bits - 1
+    else
+        stepped = bits + 1
+    end
+
+    return putbits(stepped), stepped
+end
+
+--- The next representable float below one, given its bits.
+local function nextdown(value: number, bits: number): number, number
+    if bits == NINF then
+        return value, bits
+    end
+    if bits == PINF then
+        return putbits(MAX), MAX
+    end
+    local stepped: number
+    if band(bits, SIGN) ~= 0 then
+        stepped = bits + 1
+    else
+        if bits == 0 then
+            return putbits(2147483649), 2147483649
+        end
+        stepped = bits - 1
+    end
+
+    return putbits(stepped), stepped
+end
+
+--- Rounds an exact double-double sum to the nearest float, ties to even.
+---
+--- `fma` computes its product and sum in double precision and keeps the part that fell
+--- off as `lo`, so the pair names the exact answer. Narrowing the head alone would
+--- round twice and land on the wrong float whenever the tail decides the tie, which is
+--- the whole reason a fused multiply-add is not a multiply followed by an add.
+local function rounddd(hi: number, lo: number): number
+    local value = round32(hi)
+    local bits = bits32(value)
+    if nanbits(bits) then
+        return putbits(CANON)
+    end
+    -- An overflow to infinity is only real if the exact value is past the last float
+    -- plus half a step; below that the pair rounds back down to the finite maximum.
+    if bits == PINF then
+        return comparedd(hi, lo, 3.4028235677973366e38) < 0 and putbits(MAX) or value
+    elseif bits == NINF then
+        return comparedd(hi, lo, -3.4028235677973366e38) > 0 and putbits(NMAX) or value
+    end
+    local side = comparedd(hi, lo, value)
+    if side == 0 then
+        return value
+    end
+    local step = side > 0 and nextup or nextdown
+    local other, otherbits = step(value, bits)
+    local toward = comparedd(hi, lo, (value + other) * 0.5)
+    if side < 0 then
+        toward = -toward
+    end
+    if toward > 0 or toward == 0 and band(bits, 1) ~= 0 then
+        return putbits(otherbits)
+    end
+
+    return value
+end
+
+--- Signed 32-bit integer arithmetic.
+local i32 = {}
+
+function i32.wrap(a: number): number
+    return tobit(a)
+end
+
+function i32.add(a: number, c: number): number
+    return tobit(a + c)
+end
+
+function i32.sub(a: number, c: number): number
+    return tobit(a - c)
+end
+
+function i32.mul(a: number, c: number): number
+    return mul32(ui32(a), ui32(c))
+end
+
+function i32.andBits(a: number, c: number): number
+    return band(a, c)
+end
+
+function i32.orBits(a: number, c: number): number
+    return bor(a, c)
+end
+
+function i32.xorBits(a: number, c: number): number
+    return bxor(a, c)
+end
+
+function i32.notBits(a: number): number
+    return bnot(a)
+end
+
+function i32.shiftLeft(a: number, c: number): number
+    return lshift(a, band(c, 31))
+end
+
+function i32.shiftRightArithmetic(a: number, c: number): number
+    return arshift(a, band(c, 31))
+end
+
+function i32.rotateLeft(a: number, c: number): number
+    return rol(a, band(c, 31))
+end
+
+function i32.rotateRight(a: number, c: number): number
+    return ror(a, band(c, 31))
+end
+
+function i32.lessThan(a: number, c: number): boolean
+    return tobit(a) < tobit(c)
+end
+
+function i32.lessOrEqual(a: number, c: number): boolean
+    return tobit(a) <= tobit(c)
+end
+
+function i32.fromU32(a: number): number
+    return tobit(a)
+end
+
+function i32.toU32(a: number): number
+    return ui32(a)
+end
+
+--- Unsigned 32-bit integer arithmetic.
+local u32 = {}
+
+function u32.wrap(a: number): number
+    return ui32(a)
+end
+
+function u32.add(a: number, c: number): number
+    return ui32(a + c)
+end
+
+function u32.sub(a: number, c: number): number
+    return ui32(a - c)
+end
+
+function u32.mul(a: number, c: number): number
+    return ui32(mul32(ui32(a), ui32(c)))
+end
+
+function u32.andBits(a: number, c: number): number
+    return ui32(band(a, c))
+end
+
+function u32.orBits(a: number, c: number): number
+    return ui32(bor(a, c))
+end
+
+function u32.xorBits(a: number, c: number): number
+    return ui32(bxor(a, c))
+end
+
+function u32.notBits(a: number): number
+    return ui32(bnot(a))
+end
+
+function u32.shiftLeft(a: number, c: number): number
+    return ui32(lshift(a, band(c, 31)))
+end
+
+function u32.shiftRightLogical(a: number, c: number): number
+    return ui32(rshift(a, band(c, 31)))
+end
+
+function u32.rotateLeft(a: number, c: number): number
+    return ui32(rol(a, band(c, 31)))
+end
+
+function u32.rotateRight(a: number, c: number): number
+    return ui32(ror(a, band(c, 31)))
+end
+
+function u32.lessThan(a: number, c: number): boolean
+    return ui32(a) < ui32(c)
+end
+
+function u32.lessOrEqual(a: number, c: number): boolean
+    return ui32(a) <= ui32(c)
+end
+
+function u32.fromI32(a: number): number
+    return ui32(a)
+end
+
+function u32.toI32(a: number): number
+    return tobit(a)
+end
+
+function u32.popcount(a: number): number
+    local remaining = ui32(a)
+    local count = 0
+    while remaining ~= 0 do
+        remaining = ui32(band(remaining, remaining - 1))
+        count = count + 1
+    end
+
+    return count
+end
+
+function u32.trailingZeros(a: number): number
+    local remaining = ui32(a)
+    if remaining == 0 then
+        return 32
+    end
+    local count = 0
+    while band(remaining, 1) == 0 do
+        remaining = rshift(remaining, 1)
+        count = count + 1
+    end
+
+    return count
+end
+
+function u32.leadingZeros(a: number): number
+    local remaining = ui32(a)
+    if remaining == 0 then
+        return 32
+    end
+    local count = 0
+    local probe = SIGN
+    while band(remaining, probe) == 0 do
+        probe = rshift(probe, 1)
+        count = count + 1
+    end
+
+    return count
+end
+
+--- Single-precision floating point.
+local f32 = {}
+
+function f32.narrow(a: number): number
+    return narrow32(a)
+end
+
+function f32.round(a: number): number
+    return round32(a)
+end
+
+function f32.add(a: number, c: number): number
+    return round32(round32(a) + round32(c))
+end
+
+function f32.sub(a: number, c: number): number
+    return round32(round32(a) - round32(c))
+end
+
+function f32.mul(a: number, c: number): number
+    return round32(round32(a) * round32(c))
+end
+
+function f32.div(a: number, c: number): number
+    return round32(round32(a) / round32(c))
+end
+
+function f32.sqrt(a: number): number
+    return round32(math.sqrt(round32(a)))
+end
+
+--- The smaller of two floats, with -0 smaller than 0 and NaN answered for NaN.
+function f32.min(a: number, c: number): number
+    local left, right = round32(a), round32(c)
+    if left ~= left or right ~= right then
+        return putbits(CANON)
+    end
+    if left == right then
+        if left == 0 and (band(bits32(left), SIGN) ~= 0 or band(bits32(right), SIGN) ~= 0) then
+            return putbits(SIGN)
+        end
+
+        return left
+    end
+
+    return left < right and left or right
+end
+
+--- The larger of two floats, with 0 larger than -0 and NaN answered for NaN.
+function f32.max(a: number, c: number): number
+    local left, right = round32(a), round32(c)
+    if left ~= left or right ~= right then
+        return putbits(CANON)
+    end
+    if left == right then
+        if left == 0 and band(bits32(left), SIGN) ~= 0 and band(bits32(right), SIGN) ~= 0 then
+            return putbits(SIGN)
+        elseif left == 0 then
+            return putbits(0)
+        end
+
+        return left
+    end
+
+    return left > right and left or right
+end
+
+--- A fused multiply-add: one rounding for the whole of `a * c + d`.
+---
+--- The product and the sum are exact in double precision, so the error term recovers
+--- what a plain `+` dropped and the pair is rounded once. A product that is already
+--- infinite or NaN has no error term to recover and is narrowed directly.
+function f32.fma(a: number, c: number, d: number): number
+    local left, right, addend = round32(a), round32(c), round32(d)
+    local product = left * right
+    if product ~= product or product == math.huge or product == -math.huge then
+        return round32(product + addend)
+    end
+    local sum = product + addend
+    local carry = sum - product
+
+    return rounddd(sum, (product - (sum - carry)) + (addend - carry))
+end
+
+function f32.fromBits(bits: number): number
+    return putbits(ui32(bits))
+end
+
+function f32.toBits(value: number): number
+    return bits32(round32(value))
+end
+
+--- Two-dimensional vectors, carried as a pair of numbers rather than a table.
+---
+--- Every operation takes and answers loose components, so a vector never has to be
+--- allocated to be worked with and a caller that keeps its own representation can use
+--- these against it directly.
+local vec2 = {}
+
+function vec2.add(ax: number, ay: number, bx: number, by: number): number, number
+    return ax + bx, ay + by
+end
+
+function vec2.subtract(ax: number, ay: number, bx: number, by: number): number, number
+    return ax - bx, ay - by
+end
+
+function vec2.scale(x: number, y: number, factor: number): number, number
+    return x * factor, y * factor
+end
+
+function vec2.dot(ax: number, ay: number, bx: number, by: number): number
+    return ax * bx + ay * by
+end
+
+function vec2.cross(ax: number, ay: number, bx: number, by: number): number
+    return ax * by - ay * bx
+end
+
+function vec2.lengthSquared(x: number, y: number): number
+    return x * x + y * y
+end
+
+function vec2.length(x: number, y: number): number
+    return math.sqrt(x * x + y * y)
+end
+
+function vec2.distanceSquared(ax: number, ay: number, bx: number, by: number): number
+    local x, y = bx - ax, by - ay
+
+    return x * x + y * y
+end
+
+function vec2.distance(ax: number, ay: number, bx: number, by: number): number
+    return math.sqrt(vec2.distanceSquared(ax, ay, bx, by))
+end
+
+function vec2.normalize(x: number, y: number): number, number
+    local length = vec2.length(x, y)
+    if length == 0 then
+        return 0, 0
+    end
+
+    return x / length, y / length
+end
+
+function vec2.lerp(ax: number, ay: number, bx: number, by: number, t: number): number, number
+    if t == 0 then
+        return ax, ay
+    elseif t == 1 then
+        return bx, by
+    end
+
+    return ax + (bx - ax) * t, ay + (by - ay) * t
+end
+
+--- Steps from one point toward another by at most a given distance.
+function vec2.moveTowards(ax: number, ay: number, bx: number, by: number, distance: number): number, number
+    if distance <= 0 then
+        return ax, ay
+    end
+    local x, y = bx - ax, by - ay
+    local squared = x * x + y * y
+    if squared == 0 or squared <= distance * distance then
+        return bx, by
+    end
+    local factor = distance / math.sqrt(squared)
+
+    return ax + x * factor, ay + y * factor
+end
+
+function vec2.rotate(x: number, y: number, radians: number): number, number
+    local c, s = math.cos(radians), math.sin(radians)
+
+    return x * c - y * s, x * s + y * c
+end
+
+function vec2.angle(x: number, y: number): number
+    if x == 0 and y == 0 then
+        return 0
+    end
+
+    return math.atan2(y, x)
+end
+
+--- The unsigned turn between two vectors, zero when either has no direction.
+function vec2.angleBetween(ax: number, ay: number, bx: number, by: number): number
+    if (ax == 0 and ay == 0) or (bx == 0 and by == 0) then
+        return 0
+    end
+
+    return math.atan2(math.abs(vec2.cross(ax, ay, bx, by)), vec2.dot(ax, ay, bx, by))
+end
+
+--- The signed turn between two vectors, in (-pi, pi].
+function vec2.signedAngleBetween(ax: number, ay: number, bx: number, by: number): number
+    if (ax == 0 and ay == 0) or (bx == 0 and by == 0) then
+        return 0
+    end
+    local turn = math.atan2(vec2.cross(ax, ay, bx, by), vec2.dot(ax, ay, bx, by))
+
+    return turn == pi and -pi or turn
+end
+
+--- The component of one vector along another.
+function vec2.project(x: number, y: number, ox: number, oy: number): number, number
+    local squared = ox * ox + oy * oy
+    if squared == 0 then
+        return 0, 0
+    end
+    local factor = (x * ox + y * oy) / squared
+
+    return ox * factor, oy * factor
+end
+
+--- A vector mirrored across the plane a normal describes.
+function vec2.reflect(x: number, y: number, nx: number, ny: number): number, number
+    local squared = nx * nx + ny * ny
+    if squared == 0 then
+        return x, y
+    end
+    local factor = 2 * (x * nx + y * ny) / squared
+
+    return x - nx * factor, y - ny * factor
+end
+
+--- Interpolates between two numbers.
+---
+--- The endpoints are answered rather than computed, so `lerp(a, b, 1)` is `b` and not
+--- `a + (b - a)`, which is not always the same number.
+local function lerp(from: number, to: number, t: number): number
+    if t == 0 then
+        return from
+    elseif t == 1 then
+        return to
+    end
+
+    return from + (to - from) * t
+end
+
+--- Brings an angle into (-pi, pi].
+local function wrapAngle(radians: number): number
+    return (radians + pi) % tau - pi
+end
+
+--- The shortest signed turn from one angle to another.
+local function deltaAngle(from: number, to: number): number
+    return wrapAngle(to - from)
+end
+
+--- Fills a program's `nupp.math` namespace in.
+---
+--- The bootstrap reserves the table before this module is required, because generated
+--- code addresses it through a local it has already declared, so the members are put
+--- into whatever table it was given rather than a table being handed back.
+--- @export
+export function install(namespace: any): nil
+    namespace.lerp = lerp
+    namespace.wrapAngle = wrapAngle
+    namespace.deltaAngle = deltaAngle
+    namespace.i32 = i32
+    namespace.u32 = u32
+    namespace.f32 = f32
+    namespace.vec2 = vec2
+end
+]=],
 ["/nupp/mem/heap.nupp"] = [=[
 module nupp.mem.heap
 
@@ -155632,6 +158702,179 @@ function zone.leave(token: integer): nil
 end
 
 export = zone
+]=],
+["/nupp/reflectruntime.nupp"] = [=[
+@!internal
+
+module nupp.reflectruntime
+
+--[[
+What reflection is at run time.
+
+The compiler does the describing. A type that is reflected on carries a blueprint the
+checker built from its declaration, and generated code hands that blueprint over with
+`_G.nupp.__reflect.register`. What is left for run time is holding the blueprints,
+answering `reflect()` from one, and running the extensions a program layers on top --
+and, separately, the keyed codec a materialized `nupp.reflect.fieldCodec` calls.
+
+A descriptor is deliberately not the declaration table. A record's declaration stays
+its own metatable, and everything reflection knows lives in weak side tables keyed by
+the type, so reflecting on a type does not change it and a type that goes out of use
+takes its descriptor with it. The descriptor a program sees is an empty table whose
+metatable reads through to that state, which is how it stays immutable without any
+field on it to write over.
+]]
+
+local reflectruntime = {}
+
+--- Reads a namespace member, installing a default when nothing is there yet.
+---
+--- Two programs can share one process and one `_G.nupp`, and either may have been
+--- built by a compiler old enough to install these namespaces itself. Filling in what
+--- is missing rather than replacing what is there leaves whichever arrived first
+--- holding the descriptors both then use.
+local function claim(namespace: any, name: string, fresh: any): any
+    local present = rawget(namespace, name)
+    if present ~= nil then
+        return present
+    end
+    rawset(namespace, name, fresh)
+
+    return fresh
+end
+
+--- Installs the keyed field codec.
+---
+--- A materialized codec calls this with the field names the compiler settled on and
+--- the fingerprint it checked them under, so encoding is a copy of the named fields
+--- and nothing else -- a field that is absent stays absent rather than becoming an
+--- explicit nil, which is what makes the result round-trip.
+--- @export
+function reflectruntime.installFieldCodec(namespace: any): nil
+    local fieldcodec = claim(namespace, "fieldcodec", {})
+    fieldcodec.keyed = function(fields: {string}, fingerprint: string): any
+        local Codec: any = {}
+        Codec.__index = Codec
+        function Codec:encode(value: any): any
+            if type(value) ~= "table" then
+                error("nupp: keyed codec value must be a table", 2)
+            end
+            local out: any = {}
+            for _, name in ipairs(fields) do
+                local field = rawget(value, name)
+                if field ~= nil then
+                    out[name] = field
+                end
+            end
+
+            return out
+        end
+
+        return setmetatable({fingerprint = fingerprint}, Codec)
+    end
+end
+
+--- Installs the reflection registry and the descriptor protocol.
+--- @export
+function reflectruntime.install(namespace: any): nil
+    local reflect = claim(namespace, "__reflect", {})
+    local blueprints = reflect.blueprints or setmetatable({}, {__mode = "k"})
+    local infos = reflect.infos or setmetatable({}, {__mode = "k"})
+    local states = reflect.states or setmetatable({}, {__mode = "k"})
+    reflect.blueprints, reflect.infos, reflect.states = blueprints, infos, states
+
+    local Info: any = {}
+
+    --- Builds an extension over a descriptor, or answers the one already built.
+    ---
+    --- An extension is memoized under the extension itself rather than a name, so two
+    --- extensions that happen to describe the same thing stay separate. The
+    --- in-progress state is kept as well as the finished one: an extension whose
+    --- `build` reflects its way back to the descriptor it is being built for would
+    --- otherwise recur until the stack ran out, and a build that failed once is
+    --- reported the same way every time rather than retried.
+    ---
+    --- @raises when the descriptor is not one of ours, when the extension is already
+    --- being built, or when its `build` did not succeed
+    function Info:extension(extension: any): any
+        local state = states[self]
+        if not state then
+            error("nupp: foreign reflection descriptor", 2)
+        end
+        local cached: any = state.extensions[extension]
+        if cached then
+            if cached.state == "ready" then
+                return cached.value
+            end
+            if cached.state == "failed" then
+                error(cached.error, 2)
+            end
+            error("nupp: recursive extension initialization", 2)
+        end
+        cached = {state = "initializing"} as any
+        state.extensions[extension] = cached
+        local ok, value = pcall(extension.build, self)
+        if not ok then
+            cached.state = "failed"
+            cached.error = tostring(value)
+            error(cached.error, 2)
+        end
+        cached.state = "ready"
+        cached.value = value
+
+        return value
+    end
+
+    -- The descriptor is an empty table, so every read arrives here and is answered
+    -- from the side state. That is what keeps a blueprint from being reachable as a
+    -- field somebody could write over, and why `__newindex` has nothing to allow.
+    Info.__index = function(info: any, key: string): any
+        if key == "extension" then
+            return Info.extension
+        end
+        local state = states[info]
+        if key == "type" then
+            return state and state.type
+        end
+
+        return state and state.blueprint[key]
+    end
+
+    Info.__newindex = function(): nil
+        error("nupp: reflection descriptors are immutable", 2)
+    end
+
+    --- Records a type's blueprint and gives the type its `reflect`.
+    ---
+    --- The descriptor is built on the first call rather than here, because a program
+    --- that never reflects on a type should not pay for one, and the blueprint is
+    --- read again at that point rather than captured so a type registered twice
+    --- describes itself the second way.
+    function reflect.register(typeObject: any, blueprint: any): any
+        blueprints[typeObject] = blueprint
+        rawset(typeObject, "reflect", function(): any
+            local prior = infos[typeObject]
+            if prior then
+                return prior
+            end
+            local declared = blueprints[typeObject]
+            if not declared then
+                error("nupp: type has no reflection blueprint", 2)
+            end
+            local info = setmetatable({}, Info)
+            infos[typeObject] = info
+            states[info] = {type = typeObject, blueprint = declared, extensions = {}}
+
+            return info
+        end)
+
+        return typeObject
+    end
+
+    reflect.json = reflect.json or {version = "nupp-json-extension-v1"}
+end
+
+export = reflectruntime
 ]=],
 ["/nupp/simd.nupp"] = [[
 module nupp.simd
