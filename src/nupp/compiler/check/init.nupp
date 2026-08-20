@@ -31,6 +31,7 @@ local loopclosure = require("nupp.compiler.check.loopclosure")
 local undocumentedraise = require("nupp.compiler.check.undocumentedraise")
 local unused = require("nupp.compiler.check.unused")
 local discard = require("nupp.compiler.check.discard")
+local privateexport = require("nupp.compiler.check.privateexport")
 local nosuspendMod = require("nupp.compiler.check.nosuspend")
 local aotMod = require("nupp.compiler.check.aot")
 local effectregionsMod = require("nupp.compiler.check.effectregions")
@@ -1989,6 +1990,7 @@ function checkMod.check(
     local validateAnnotation = marks.validateAnnotation
 
     c.derives = derive.install(c)
+    c.privateExport = privateexport.install(c)
 
     -- Checking a declaration and publishing what it declares. See
     -- nupp.compiler.check.declare.
@@ -2182,6 +2184,7 @@ function checkMod.check(
             stat.visibility = "module"
             statHandlers[stat.kind](stat)
             local t = stat.resolvedType
+            c.privateExport.exported(stat.name, "types")
             if stat.kind == "recordDecl" and t then
                 exportValue(stat.name, t, stat.name and stat.name.definition, stat, true)
             end
@@ -2205,6 +2208,7 @@ function checkMod.check(
             local nameTok = stat.kind == "localFuncStmt" and stat.name or stat.name and stat.name.base
             local entry = nameTok and c.scope.vars[nameTok.text]
             exportValue(nameTok, entry and entry.t, entry and entry.definition, stat.body, true)
+            c.privateExport.exported(nameTok, "values")
             return
         end
         if stat.kind == "localStmt" and stat.isConst and not stat.pattern then
@@ -2212,6 +2216,7 @@ function checkMod.check(
             for _, nameTok in ipairs(stat.names or {}) do
                 local entry = c.scope.vars[nameTok.text]
                 exportValue(nameTok, entry and entry.t, entry and entry.definition, nil, true)
+                c.privateExport.exported(nameTok, "values")
             end
             return
         end
@@ -2773,6 +2778,7 @@ function checkMod.check(
     own.finalizeCleanupBounds()
     finalizeCallGuarantees(c, effectQueries)
     finalizeBoundary(c)
+    c.privateExport.sweep()
     -- Both of these needed the whole file before they could answer, so they answer here
     -- and their diagnostics are put back in source order with everything else.
     c.unused.sweep()

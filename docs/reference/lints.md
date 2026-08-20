@@ -56,6 +56,7 @@ Every lint has a name and a stable code.
 | `deprecated` | `NUPP2513` | suspicious | warning |
 | `jit-boundary` | `NUPP2514` | suspicious | warning |
 | `jit-loop-closure` | `NUPP2515` | performance | off |
+| `private-export-type` | `NUPP2516` | suspicious | warning |
 
 The name is what you write in configuration and suppressions; the code is what
 survives renaming and what tooling keys on. Either is accepted everywhere.
@@ -546,6 +547,43 @@ help: use current instead
 :::
 
 See [annotations.md](annotations.md#deprecated) for what the annotation accepts.
+
+### `private-export-type`
+
+A private nominal type may cross a module boundary without becoming invalid. A
+caller can infer, inspect, and forward its values, but cannot write its name in
+an annotation or construct one independently. The lint calls out that
+unnameable part of the API in case the missing export was accidental.
+
+::: code-group
+```nupp [src/private-export-type.nupp]
+module geom.shapes
+
+local record Coordinate
+    x: number
+    y: number
+end
+
+export record Point
+    coordinate: Coordinate
+end
+```
+
+```text [nupp check output]
+src/private-export-type.nupp:8:15: warning: NUPP2516 private-export-type: exported "Point" exposes private record "Coordinate" without a public type name
+ 8 | export record Point
+   |               ^~~~~
+src/private-export-type.nupp:3:14: note: private record "Coordinate" is declared here
+ 3 | local record Coordinate
+   |              ^~~~~~~~~~
+help: export Coordinate, or suppress private-export-type when the opacity is intentional
+```
+:::
+
+An exported alias for the nominal also gives callers a public name and silences
+the lint. Transparent aliases such as `local type Coordinate = number` carry no
+nominal identity and do not report it. Private record fields stay outside the
+public surface and are not traversed.
 
 ## Categories
 

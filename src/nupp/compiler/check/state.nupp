@@ -131,6 +131,9 @@ record state.Checker
     --- Closed derive recipe construction for this checking run.
     derives: any
 
+    --- The exported-surface audit for private nominal identities.
+    privateExport: any
+
     --- A project's `lints` table, so a level resolves the same way wherever a lint is
     --- raised.
     lintConfig: any

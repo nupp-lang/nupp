@@ -1156,6 +1156,24 @@ local ENTRIES: {any} = {
         docs = "docs/reference/lints.md",
     },
     {
+        code = "NUPP2516",
+        summary = "An export exposes a private nominal type",
+        rule = "The `private-export-type` lint reports a private record, interface, "
+        .. "or struct reached through an exported field, function signature, "
+        .. "container, generic argument, or other public type position. The boundary "
+        .. "remains valid: callers can infer and forward values of the hidden type, "
+        .. "but cannot name or independently construct it. Export the nominal or an "
+        .. "alias when callers should have a public name, or suppress the lint at the "
+        .. "export when that opacity is intentional. Transparent aliases and private "
+        .. "record fields do not expose a nominal identity.",
+        wrong = "module geom.shapes\n\nlocal record Coordinate\n    x: number\nend\n\n"
+        .. "export record Point\n    coordinate: Coordinate\nend\n",
+        right = "module geom.shapes\n\nexport record Coordinate\n    x: number\nend\n\n"
+        .. "export record Point\n    coordinate: Coordinate\nend\n",
+        related = {"NUPP2004"},
+        docs = "docs/reference/lints.md#private-export-type",
+    },
+    {
         code = "NUPP2208",
         summary = "A constructor does not hold up its declaration",
         rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The "

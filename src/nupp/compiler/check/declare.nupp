@@ -1089,6 +1089,7 @@ function declare.install(
             projectEntry.definition = def or projectEntry.definition
         end
         local visibility = c.visibilityOf(stat)
+        c.privateExport.declared(stat, t, visibility)
         -- An unqualified declaration with no modifier has nowhere to live: plain Lua
         -- would have made the name a global, and a module member has to say which table
         -- it joins. Declaration files are exempt, where a bare declaration is the

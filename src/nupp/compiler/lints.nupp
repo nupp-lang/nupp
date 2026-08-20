@@ -147,6 +147,13 @@ lints.all = {
         level = "off",
         summary = "a loop builds a function and so never compiles"
     ),
+    new lints.Lint(
+        name = "private-export-type",
+        code = "NUPP2516",
+        category = "suspicious",
+        level = "warning",
+        summary = "an export exposes a private nominal type"
+    ),
 }
 
 -- Both spellings reach the same lint: a name is what a person writes, a code is what

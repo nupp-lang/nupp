@@ -1,0 +1,285 @@
+module nupp.compiler.check.privateexport
+
+--[[
+Private nominal types in a module's exported surface.
+
+A private record, interface, or struct may deliberately cross a module boundary:
+callers can infer and forward its values without being able to spell its name. That is
+valid, but it is also easy to do accidentally. This lint walks the finished export
+surface and points out the private identities for which the module published no type
+name.
+
+Judging waits until the whole file is checked. A later exported alias can give an
+earlier private nominal a public name, derives can add members, and boundary
+finalization can replace function types. Suppression, however, belongs to the export
+statement, so it is captured when that statement is checked and carried to the sweep.
+]]
+
+local T = require("nupp.compiler.types")
+local state = require("nupp.compiler.check.state")
+
+local privateexport = {}
+
+type privateexport.Ops = {
+    declared: function(stat: any, t: T.Type, visibility: string),
+    exported: function(tok: any, layer: string),
+    sweep: function()
+}
+
+local function nominalOrigin(t: T.Type): T.Type
+    return t.tag == "nominal" and (t.origin or t) or t
+end
+
+--- The nominal an alias names directly, rather than merely mentioning in a member.
+local function aliasedNominalOrigin(t: T.Type): T.Type?
+    local current = t
+    while current.tag == "genericAlias" do
+        current = current.body
+    end
+
+    return current.tag == "nominal" and nominalOrigin(current) or nil
+end
+
+--- Installs the private-export-type judgement on one checking run.
+---
+--- @param c the run's state
+function privateexport.install(c: state.Checker): privateexport.Ops
+    local ops = {}
+    local localNominals: {[any]: any} = {}
+    local publicNominals: {[any]: boolean} = {}
+    local candidates = {}
+
+    function ops.declared(stat: any, t: T.Type, visibility: string)
+        if t.tag == "nominal" and stat.kind == "recordDecl" then
+            local origin = nominalOrigin(t)
+            localNominals[origin] = {token = stat.name, kind = t.declKind, private = visibility == "local",}
+        end
+        if visibility == "module" then
+            local public = aliasedNominalOrigin(t)
+            if public then
+                publicNominals[public] = true
+            end
+        end
+    end
+
+    function ops.exported(tok: any, layer: string)
+        if not tok then
+            return
+        end
+        candidates[
+            #candidates + 1
+        ] = {token = tok, name = tok.text, layer = layer, allowed = c.suppressed("private-export-type"),}
+    end
+
+    local visitType, visitPack
+
+    local function declarationOrder(a, b)
+        return a.declaration.token.offset < b.declaration.token.offset
+    end
+
+    visitPack = function(pack, expandOrigin, found, seen)
+        if not pack or seen[pack] then
+            return
+        end
+        seen[pack] = true
+        for _, t in ipairs(pack.head or {}) do
+            visitType(t, expandOrigin, found, seen)
+        end
+        if pack.tail and pack.tail.type then
+            visitType(pack.tail.type, expandOrigin, found, seen)
+        end
+        for _, alternative in ipairs(pack.alternatives or {}) do
+            visitPack(alternative, expandOrigin, found, seen)
+        end
+    end
+
+    local function visitList(list, expandOrigin, found, seen)
+        for _, t in ipairs(list or {}) do
+            visitType(t, expandOrigin, found, seen)
+        end
+    end
+
+    local function visitNominal(t, origin, expandOrigin, found, seen)
+        visitList(t.typeArgs, expandOrigin, found, seen)
+        for _, pack in ipairs(t.packArgs or {}) do
+            visitPack(pack, expandOrigin, found, seen)
+        end
+
+        local declaration = localNominals[origin]
+        if declaration and declaration.private and not publicNominals[origin] then
+            found[origin] = declaration
+            return
+        end
+
+        -- An imported nominal owns its own boundary audit. A local public nominal
+        -- reached through another export is already judged at its own declaration;
+        -- expand only the nominal that is itself this exported type candidate.
+        if not declaration or origin ~= expandOrigin then
+            return
+        end
+
+        local privateFields = t.privateFields or {}
+        for name, member in pairs(t.byname or {}) do
+            if not privateFields[name] then
+                visitType(member, expandOrigin, found, seen)
+            end
+        end
+        for name, member in pairs(t.writeByname or {}) do
+            if not privateFields[name] then
+                visitType(member, expandOrigin, found, seen)
+            end
+        end
+        for _, members in ipairs({t.staticByname, t.staticWriteByname, t.metamethods}) do
+            for _, member in pairs(members or {}) do
+                visitType(member, expandOrigin, found, seen)
+            end
+        end
+        visitType(t.indexReadKey, expandOrigin, found, seen)
+        visitType(t.indexReadValue, expandOrigin, found, seen)
+        visitType(t.indexWriteKey, expandOrigin, found, seen)
+        visitType(t.indexWriteValue, expandOrigin, found, seen)
+        visitType(t.arrayOf, expandOrigin, found, seen)
+        visitList(t.supertypes, expandOrigin, found, seen)
+        visitList(t.typeBounds, expandOrigin, found, seen)
+        visitList(t.constructors, expandOrigin, found, seen)
+        for _, requirement in ipairs(t.associatedRequirements or {}) do
+            visitType(requirement.bound, expandOrigin, found, seen)
+        end
+        for _, answer in pairs(t.associatedAnswers or {}) do
+            visitType(answer.type, expandOrigin, found, seen)
+        end
+    end
+
+    visitType = function(t, expandOrigin, found, seen)
+        if not t or seen[t] then
+            return
+        end
+        seen[t] = true
+        local tag = t.tag
+        if tag == "nominal" then
+            visitNominal(t, nominalOrigin(t), expandOrigin, found, seen)
+        elseif tag == "array" or tag == "ptr" or tag == "carray" then
+            visitType(t.elem, expandOrigin, found, seen)
+        elseif tag == "map" then
+            visitType(t.key, expandOrigin, found, seen)
+            visitType(t.value, expandOrigin, found, seen)
+            visitType(t.writeKey, expandOrigin, found, seen)
+            visitType(t.writeValue, expandOrigin, found, seen)
+        elseif tag == "tuple" then
+            visitList(t.elems, expandOrigin, found, seen)
+        elseif tag == "shape" then
+            for _, field in ipairs(t.fields or {}) do
+                visitType(field.read or field.type, expandOrigin, found, seen)
+                visitType(field.write or field.type, expandOrigin, found, seen)
+            end
+            visitType(t.indexReadKey, expandOrigin, found, seen)
+            visitType(t.indexReadValue, expandOrigin, found, seen)
+            visitType(t.indexWriteKey, expandOrigin, found, seen)
+            visitType(t.indexWriteValue, expandOrigin, found, seen)
+        elseif tag == "union" or tag == "intersection" then
+            visitList(t.members, expandOrigin, found, seen)
+        elseif tag == "affine" or tag == "borrowed" or tag == "pinned" or tag == "const" then
+            visitType(t.inner, expandOrigin, found, seen)
+        elseif tag == "ctype" or tag == "metatable" or tag == "typeobject" or tag == "projection" then
+            visitType(t.of, expandOrigin, found, seen)
+        elseif tag == "func" then
+            visitPack(t.paramPack, expandOrigin, found, seen)
+            visitPack(t.retPack, expandOrigin, found, seen)
+            visitPack(t.yieldPack, expandOrigin, found, seen)
+            visitPack(t.resumePack, expandOrigin, found, seen)
+            visitType(t.varargType, expandOrigin, found, seen)
+            visitList(t.typeBounds, expandOrigin, found, seen)
+            if t.predicate then
+                visitType(t.predicate.type, expandOrigin, found, seen)
+            end
+        elseif tag == "literal" then
+            visitType(t.base, expandOrigin, found, seen)
+        elseif tag == "typevar" then
+            visitType(t.bound, expandOrigin, found, seen)
+        elseif tag == "typeHandle" then
+            visitType(t.bound, expandOrigin, found, seen)
+        elseif tag == "packResult" then
+            visitPack(t.pack, expandOrigin, found, seen)
+        elseif tag == "neutral" then
+            visitType(t.subject, expandOrigin, found, seen)
+            visitType(t.key, expandOrigin, found, seen)
+            visitType(t.keys, expandOrigin, found, seen)
+            visitType(t.value, expandOrigin, found, seen)
+            visitType(t.remap, expandOrigin, found, seen)
+            visitType(t.comptimeBound, expandOrigin, found, seen)
+            for _, part in ipairs(t.templateParts or {}) do
+                if type(part) ~= "string" then
+                    visitType(part, expandOrigin, found, seen)
+                end
+            end
+            for _, argument in ipairs(t.comptimeArguments or {}) do
+                if argument.kind == "type" then
+                    visitType(argument.value, expandOrigin, found, seen)
+                elseif argument.kind == "typepack" then
+                    visitPack(argument.value, expandOrigin, found, seen)
+                end
+            end
+        elseif tag == "protocolThread" then
+            visitPack(t.startPack, expandOrigin, found, seen)
+            visitPack(t.resumePack, expandOrigin, found, seen)
+            visitPack(t.yieldPack, expandOrigin, found, seen)
+            visitPack(t.returnPack, expandOrigin, found, seen)
+        elseif tag == "genericAlias" then
+            visitType(t.body, expandOrigin, found, seen)
+            visitList(t.typeBounds, expandOrigin, found, seen)
+        end
+    end
+
+    function ops.sweep()
+        -- An exported alias is a public name for the nominal it resolves to, even when
+        -- the declaration that minted the identity remains local.
+        for _, t in pairs(c.moduleExports.types or {}) do
+            local public = aliasedNominalOrigin(t)
+            if public then
+                publicNominals[public] = true
+            end
+        end
+
+        for _, candidate in ipairs(candidates) do
+            if not candidate.allowed then
+                local exports = c.moduleExports[candidate.layer] or {}
+                local t = exports[candidate.name]
+                if t then
+                    local found = {}
+                    local origin = aliasedNominalOrigin(t)
+                    visitType(t, candidate.layer == "types" and origin or nil, found, {})
+                    local hidden = {}
+                    for nominal, declaration in pairs(found) do
+                        hidden[#hidden + 1] = {nominal = nominal, declaration = declaration}
+                    end
+                    table.sort(hidden, declarationOrder)
+                    for _, item in ipairs(hidden) do
+                        local nominal, declaration = item.nominal, item.declaration
+                        local related = c.related(
+                            declaration.token,
+                            ("private %s %q is declared here"):format(declaration.kind, nominal.name)
+                        )
+                        c.diag(
+                            "private-export-type",
+                            candidate.token,
+                            (
+                                "exported %q exposes private %s %q without a public type name"
+                            ):format(candidate.name, declaration.kind, nominal.name),
+                            nil,
+                            {
+                                help = (
+                                    "export %s, or suppress private-export-type when the opacity is intentional"
+                                ):format(nominal.name),
+                                related = related and {related} or nil,
+                            }
+                        )
+                    end
+                end
+            end
+        end
+    end
+
+    return ops
+end
+
+export = privateexport
