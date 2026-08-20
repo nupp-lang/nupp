@@ -1805,6 +1805,80 @@ return m
     ),
 
     new reference.Section(
+        title = "Waiting and concurrency",
+        codes = {"NUPP2706"},
+        body = [=[
+A suspension-aware call is an ordinary call. There is no `async function`, no
+`await`, no future in a return type, and no asynchronous half of the standard
+library: `client:send(request)` answers a response, and whether it blocked the
+thread or parked a coroutine is the host's business rather than the signature's.
+
+Whether a function may suspend is inferred from `coroutine.yield` and
+propagates through resolved calls and across modules, separately from parameter
+and result types. `nosuspend` refuses that fact rather than consuming it, and
+the Suspension regions section covers it.
+
+`handle suspension with HANDLER do ... end` installs a host's scheduling policy
+for the region and everything called beneath it, per coroutine rather than per
+process. `HANDLER` is an ordinary value satisfying `nupp.suspension.Handler`,
+not a keyword or a global scheduler. Where none is installed a wait drives the
+registered readiness sources on the current thread, which is what a
+command-line program wants. `NUPP2706` rejects a jump into the region, which
+would bypass installation.
+
+`nupp.suspension` runs several zero-argument bodies concurrently, each in its
+own coroutine, and one body parking is what lets the next one run:
+
+- `all` answers every value in input order, raising the first branch error once
+  every branch has settled.
+- `gather` answers values and errors side by side, for a caller handling each.
+- `race` answers the first settled value and its index, then cancels the rest.
+- `batch` is `all` with at most `limit` branches in flight.
+
+These share one LuaJIT state and run one at a time between suspensions, so they
+are concurrency and not CPU parallelism. Cores are `nupp.workers`.
+
+A closure that captures an owner directly cannot be stored, so a body that
+shares one client calls a function holding it rather than closing over it.
+
+See [suspension.md](docs/concepts/suspension.md) for the handler contract,
+cancellation, and the protocol a waiting library subscribes through.
+]=],
+        example = [=[
+local m = {}
+
+local http = require("nupp.io.http")
+local suspension = require("nupp.suspension")
+local uri = require("nupp.io.uri")
+
+function m.statuses(urls: {string}): {integer}
+    local client = assert(http.newClient())
+
+    local function status(url: string): integer
+        local response = assert(client:send(new http.Request(
+            url = assert(uri.new(url))
+        )))
+        local code = response.status
+        response:close()
+
+        return code
+    end
+
+    local bodies: {function(): integer} = {}
+    for index, url in ipairs(urls) do
+        bodies[index] = function(): integer
+            return status(url)
+        end
+    end
+
+    return suspension.all(bodies)
+end
+
+return m
+]=]
+    ),
+
+    new reference.Section(
         title = "Suspension regions",
         codes = {"NUPP2701", "NUPP2702", "NUPP2706"},
         body = [=[

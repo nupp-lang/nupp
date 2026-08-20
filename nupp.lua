@@ -391,7 +391,7 @@ local client = assert(http.newClient())
 
 local function fetch(url: string): integer
     local response = assert(client:send(new http.Request(
-        url = assert(nupp.io.URI.new(url))
+        url = assert(nupp.io.uri.new(url))
     )))
     local status = response.status
     response:close()
