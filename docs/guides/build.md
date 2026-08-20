@@ -553,6 +553,28 @@ are part of the dependency cache key.
 When `bindings.cbindgen` is enabled, the provider runs cbindgen in the crate
 directory before passing its header through `import-c`.
 
+The header describes the ABI, not ownership. A Rust `Box<T>` becomes a raw
+pointer in cbindgen output, so name its policy explicitly when the caller owns
+it. `returns` maps a constructor to its cleanup function and `takes` marks the
+parameter positions that cleanup consumes:
+
+```lua
+bindings = {
+   cbindgen = true,
+   ownership = {
+      returns = { codec_create = "codec_destroy" },
+      takes = { codec_destroy = { 1 } },
+   },
+}
+```
+
+The generated binding represents `codec_create` as
+`affine(Codec*, codec_destroy)`. This changes checking and lexical cleanup, not
+the C ABI. An ownership mapping also asserts the returned pointer is non-null:
+that is correct for `Box<T>`, but not for a nullable factory. `command` can
+override the `cbindgen` executable, for example when a project pins a wrapper
+around a particular cbindgen release.
+
 The copy in `outDir/lib` is named the way a C dependency's library is, so a
 generated binding says `@lib/libtiny_rust.dylib` and a copied or moved output
 tree still finds it. A single-artifact target carries it beside the artifact for

@@ -383,7 +383,7 @@ local DEPENDENCY_KEYS: {
 }
 
 -- The generated FFI binding a C or Cargo dependency asks for by naming a header.
-local BINDING_KEYS = {"header", "library", "out", "bridge", "macros"}
+local BINDING_KEYS = {"header", "library", "out", "bridge", "macros", "cbindgen", "command", "ownership"}
 
 local function validateKeys(value, known, label)
     if type(value) ~= "table" then
@@ -413,6 +413,44 @@ local function validateKeys(value, known, label)
     end
 
     return nil, ("%s has no key %q"):format(label, key)
+end
+
+local function validSymbol(value)
+    return type(value) == "string" and value:match("^[A-Za-z_][A-Za-z0-9_]*$") ~= nil
+end
+
+local function validateOwnership(value, label)
+    if value == nil then
+        return true
+    end
+    if type(value) ~= "table" then
+        return nil, label .. " must be a table"
+    end
+    local valid, err = validateKeys(value, {"returns", "takes"}, label)
+    if not valid then
+        return nil, err
+    end
+    for functionName, cleanup in pairs(value.returns or {}) do
+        if not validSymbol(functionName) or not validSymbol(cleanup) then
+            return nil, label .. ".returns must map C symbols to cleanup C symbols"
+        end
+    end
+    for functionName, positions in pairs(value.takes or {}) do
+        if not validSymbol(functionName) then
+            return nil, label .. ".takes must be keyed by C symbols"
+        end
+        valid, err = validateArray(positions, label .. ".takes." .. functionName, "number")
+        if not valid then
+            return nil, err
+        end
+        for _, position in ipairs(positions) do
+            if position < 1 or position % 1 ~= 0 then
+                return nil, label .. ".takes." .. functionName .. " must contain positive parameter positions"
+            end
+        end
+    end
+
+    return true
 end
 
 local function validateDocsTarget(target, label)
@@ -855,6 +893,18 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             end
             if dep.bindings.bridge ~= nil and type(dep.bindings.bridge) ~= "boolean" then
                 return nil, "dependencies." .. name .. ".bindings.bridge must be a boolean"
+            end
+            if dep.bindings.cbindgen ~= nil and type(dep.bindings.cbindgen) ~= "boolean" then
+                return nil, "dependencies." .. name .. ".bindings.cbindgen must be a boolean"
+            end
+            if dep.bindings.command ~= nil and (
+                type(dep.bindings.command) ~= "string" or dep.bindings.command == ""
+            ) then
+                return nil, "dependencies." .. name .. ".bindings.command must be a non-empty string"
+            end
+            valid, err = validateOwnership(dep.bindings.ownership, "dependencies." .. name .. ".bindings.ownership")
+            if not valid then
+                return nil, err
             end
             if dep.bindings.macros ~= nil then
                 if type(dep.bindings.macros) ~= "table" then

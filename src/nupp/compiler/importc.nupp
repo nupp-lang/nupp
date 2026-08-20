@@ -464,6 +464,13 @@ local function cString(value)
     return '"' .. value:gsub("\\", "\\\\"):gsub('"', '\\"') .. '"'
 end
 
+--- An explicit owning return promises a non-null allocation. C pointers import as
+--- nullable by default, but Rust `Box<T>` cannot be null, and its terminal has to
+--- receive the same representation as the affine result.
+local function ownedPointer(rendered: string): string
+    return rendered:sub(-1) == "?" and rendered:sub(1, -2) or rendered
+end
+
 --- What an import was asked for: the compiler that preprocesses the header, the flags
 --- it needs to find what the header includes, and the library the generated
 --- declarations load from.
@@ -481,6 +488,13 @@ type importc.Options = {
 
     --- Explicit signatures for selected function-like macros.
     readonly macros: {[string]: any}?,
+
+    --- Ownership facts the C header cannot express. A returned pointer may name
+    --- its cleanup, and a function may name the parameter positions it consumes.
+    readonly ownership: {
+        returns: {[string]: string}?,
+        takes: {[string]: {integer}}?
+    }?,
 
     --- Header spelling used by the generated translation unit.
     readonly bridgeInclude: string?
@@ -511,6 +525,13 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
         return nil, {"cannot read " .. headerPath}
     end
     local headerBase = basename(headerPath)
+    local ownership = opts.ownership or {}
+    local returnedOwned = ownership.returns or {}
+    local takenParameters = ownership.takes or {}
+    local cleanupTerminals = {}
+    for _, cleanup in pairs(returnedOwned) do
+        cleanupTerminals[cleanup] = true
+    end
     local cc = opts.cc or "cc"
     local cpp = {cc, "-E"}
     for _, flag in ipairs(opts.cppflags or {}) do
@@ -646,14 +667,21 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
     for _, fn in ipairs(parsed.functions) do
         local params = {}
         local ok = identifier(fn.name) and true or false
+        local takes = {}
+        for _, position in ipairs(takenParameters[fn.name] or {}) do
+            takes[position] = true
+        end
         for index, param in ipairs(fn.params or {}) do
             local rendered = renderType(param.type, knownStructs, true)
             if not rendered then
                 ok = false
                 break
             end
+            if takes[index] and cleanupTerminals[fn.name] then
+                rendered = ownedPointer(rendered)
+            end
             local name = identifier(param.name) and param.name or "arg" .. index
-            params[#params + 1] = name .. ": " .. rendered
+            params[#params + 1] = (takes[index] and "takes " or "") .. name .. ": " .. rendered
         end
         if fn.vararg then
             params[#params + 1] = "..."
@@ -663,6 +691,11 @@ function importc.import(headerPath: string, opts: importc.Options?): string?, {s
             ret = renderType(fn.returns, knownStructs, false)
             if not ret then
                 ok = false
+            else
+                local cleanup = returnedOwned[fn.name]
+                if cleanup then
+                    ret = "affine(" .. ownedPointer(ret) .. ", " .. (cleanup as string) .. ")"
+                end
             end
         end
         if ok then

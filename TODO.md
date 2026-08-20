@@ -38,20 +38,6 @@ work makes sense in.
         The one piece that has to land before then: `scripts/stub-catalog.py`
         has `record` and `catalog` but nothing that turns a published
         `stub-catalog.json` back into `stub_catalog.nupp`
-- [ ] **The `nupp-cargo` helper is a manifest provider now, and what is left of
-      it is two promises it does not keep.** `kind = "cargo"` builds a crate's
-      cdylib into an isolated target directory, forwards `target`, `profile`,
-      `features`, `locked` and `offline`, reads cargo's JSON artifact messages,
-      copies the library into `outDir/lib`, runs cbindgen when
-      `bindings.cbindgen` is set, and passes the header through `import-c`
-      (`src/nupp/compiler/build/deps.nupp:312`, documented in
-      `docs/tooling/build.md`). That was the whole of what a separate command
-      was for, so the command itself is not wanted. What remains is a `Box<T>`
-      return, which ejects as a raw pointer where the design said it should
-      carry `Owned<T*, crate_destroy>` — cbindgen erases the box, so this needs
-      a convention or a per-symbol mapping rather than a port. And the cbindgen
-      path has no test: `tests/projecttest.lua:1351` asserts only that the
-      cdylib was copied, and every binding assertion sits on the C provider.
 - [ ] **Integrate checked `@aot` lowering for Nupp-authored tight loops.** The
       annotation, fixed-width establishment facts, structural subset checker,
       and scalar-source `@aot(simd = true)` contract exist. The spike under

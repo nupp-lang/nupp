@@ -183,6 +183,7 @@ local function generateBinding(root, outDir, name, dep, base, libraryPath, extra
         cppflags = extraCppflags or dep.cppflags,
         bridge = binding.bridge,
         macros = binding.macros,
+        ownership = binding.ownership,
         bridgeInclude = binding.header,
     })
     if not text then
