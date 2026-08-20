@@ -21,12 +21,12 @@ Two sources answer, and which one applies is not a preference:
   function never crosses one;
 - a callee reached through a type -- another module's export, an alias, a
   parameter -- is answered by `noYield` on that type, which is what
-  `docs/neps/0019-suspension.md` S0 put there.
+  `docs/neps/0006-suspension.md` S0 put there.
 
 Neither is a fallback for the other. A local function has no qualified type and
 a foreign one has no summary here.
 
-See `docs/neps/0019-suspension.md`.
+See `docs/neps/0006-suspension.md`.
 ]]
 
 local cst = require("nupp.compiler.cst")

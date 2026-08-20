@@ -112,7 +112,7 @@ local FAMILIES = {
         rule = "Not a problem. A pass saying what it rewrote, or what it looked "
         .. "at and declined to rewrite. Always a note, and never fails a "
         .. "build.",
-        docs = "docs/neps/0026-compiler-optimizations.md"
+        docs = "docs/neps/0011-performance-and-the-jit.md"
     },
 }
 
@@ -1290,7 +1290,7 @@ ENTRIES[
     wrong = "@jit\n@aot\nlocal function hot(scale: number): number\n    return scale * 2.0\nend\n",
     right = "@aot\nlocal function hot(scale: number): number\n    return scale * 2.0\nend\n",
     related = {"NUPP2707", "NUPP2902"},
-    docs = "docs/neps/0028-checked-aot-functions.md",
+    docs = "docs/neps/0012-ahead-of-time-compilation.md",
 }
 
 ENTRIES[
@@ -1309,7 +1309,7 @@ ENTRIES[
     .. "local record Point\n    x: number\n    constructor(self, x: number)\n"
     .. "        self.x = scaled(x)\n    end\nend\n",
     related = {"NUPP2901", "NUPP2903"},
-    docs = "docs/neps/0028-checked-aot-functions.md",
+    docs = "docs/neps/0012-ahead-of-time-compilation.md",
 }
 
 ENTRIES[
@@ -1329,7 +1329,7 @@ ENTRIES[
     right = "local function double(x: number): number\n    return x * 2.0\nend\n\n"
     .. "@aot\nlocal function total(scale: number): number\n    return double(scale)\nend\n",
     related = {"NUPP2901", "NUPP2902"},
-    docs = "docs/neps/0028-checked-aot-functions.md",
+    docs = "docs/neps/0012-ahead-of-time-compilation.md",
 }
 
 ENTRIES[

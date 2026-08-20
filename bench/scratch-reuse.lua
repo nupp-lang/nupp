@@ -4,7 +4,7 @@
 -- The candidate: a table built fresh each iteration and dropped at the end of it
 -- allocates n tables the collector then has to walk, and nupp could hoist it and
 -- clear it instead. That is squarely the GC-pressure thesis in
--- docs/neps/0026-compiler-optimizations.md, and it is what the local-escape query would be built for.
+-- docs/neps/0011-performance-and-the-jit.md, and it is what the local-escape query would be built for.
 --
 -- The question this has to settle first is whether LuaJIT already does it. Allocation
 -- sinking removes an allocation that does not escape its trace, which is exactly the

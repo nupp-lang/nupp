@@ -140,8 +140,52 @@ even though the value type is unchanged. Hot reload must restart or invoke an
 application-owned migration rather than reinterpret live bytes.
 
 Stating this is what keeps a layout change from being silently unsafe under
-[NEP 21](0021-hot-reload.md): the value type is identical, so nothing else in
+[NEP 8](0008-hot-reload.md): the value type is identical, so nothing else in
 the system would notice.
+
+### Pooled element storage
+
+**Not built, and blocked.** A struct is its C layout, which is why the
+compiler's own hottest data cannot be one: a token is six numbers, twenty-three
+flags, two strings, and a dozen sparse references, and the numbers are the
+smallest part of it. Instances would come from a pool owning the block they live
+in, with fields packed into an implicit word, computed on read, or held beside
+the instance.
+
+The blocker is measured. An element reference does not keep its block alive:
+
+```lua
+local held
+do
+  local block = ffi.new("Tok[?]", 64)
+  block[7].offset = 1007
+  held = block[7]
+end
+collectgarbage("collect")            -- block is unreachable; held is not
+print(held.offset)                   --> 0, from reused memory
+```
+
+Not a crash — a read of reused memory returning a plausible value. Chunking
+fixes reallocation and does nothing about this.
+
+Three ways out, none good. A strong registry makes element validity equal pool
+liveness, which is the ownership model applied at the pool rather than the
+element — but use after release is undefined and unchecked, so element access
+becomes an unsafe operation wearing a typed field's clothes. A reference
+carrying its anchor measured at 217 bytes a token against the table's 264,
+because boxing an eight-byte value as cdata costs about 200. Leaving tokens as
+tables saves nothing.
+
+Proving that every structure storing an element also retains its pool — through
+locals, returns, closures, nested nodes, calls, unions, and containers mixing
+pools — is a lifetime system, not a stage.
+
+**And the trade has moved.** The pooled design saves 3.6x on lexing allocation,
+which is 38% of what a build allocates. But the collector is 3–5% of build time,
+where the trace compiler is about half, and the escape analysis other
+optimizations already want attacks that half at no new unsafety. The packed
+booleans and read-computed fields are unaffected and worth building alone.
+
 
 ## Risks and assumptions
 

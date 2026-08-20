@@ -166,7 +166,7 @@ time, so `1`, `1.0` and `1e0` are duplicate cases, as are `0` and `-0.0`. This
 rule is local to switch cases and does not widen Nupp's literal-type or
 const-generic domains.
 
-### `yield` supplies the value; `return` still exits the function
+### Supplying an arm's value
 
 An expression arm supplies its expression implicitly. A block arm uses
 contextual `yield`, which targets the nearest enclosing arm and does not cross a
@@ -188,16 +188,59 @@ string is the switch-result statement.
 This is the general rule for adding words to a superset: a word that would break
 an existing program is not a keyword, it is a shape.
 
-### Placement is restricted until expression normalization exists
+### Placement restrictions
 
 Version 1 admits a switch only where its setup is a semantics-preserving prefix
 of the containing statement. A switch under `and`, `or`, `??`, a ternary arm, or
 safe-navigation gating receives a targeted placement diagnostic.
 
-The alternative was to lower those positions through an immediately invoked
+```nupp
+local label = ready and switch status do    -- rejected today
+    case 200 -> "ok"
+    else -> "other"
+end or "pending"
+```
+
+The alternative was lowering those positions through an immediately invoked
 function, which would have traded the no-closure invariant for syntax
-convenience. The restriction keeps the invariant and defers the general case to
-its own design.
+convenience.
+
+### General expression normalization
+
+**Not built.** The restriction above is a placeholder for a general
+normalization layer: one converting a checked expression and its continuation
+into lexical control flow while preserving evaluation order, conditional
+evaluation, multi-result rules, scopes, ownership, and cleanup.
+
+Conditional evaluation is the hard part. A naive statement prefix evaluates the
+setup unconditionally, which is wrong:
+
+```lua
+local __subject = source        -- wrong: runs even when cached is non-nil
+local __result
+if ... then __result = readFile(__subject.path) else __result = nil end
+local value = cached ~= nil and cached or __result
+```
+
+Normalization puts the setup inside the branch that reaches it:
+
+```lua
+local value = cached
+if value == nil then
+   local __subject = source
+   if __subject.__nuppIs_File then
+      value = readFile(__subject.path)
+   else
+      value = nil
+   end
+end
+```
+
+It is worth solving once rather than once per construct: the same problem
+appears every time a statement-shaped construct wants an expression position.
+Ordinary generation and ahead-of-time lowering would consume the same normalized
+decisions within the value domains each supports.
+
 
 ### A lookup replaces the whole decision or nothing
 
@@ -284,3 +327,12 @@ loop presence is evidence, not a promise. Choosing wrong costs 2.7x where every
 other plan in this area risks a fraction of a nanosecond. It is deferred until a
 profile or another source of hotness exists — not because its benchmark gate is
 unwritten, but because the input that would decide it does not exist.
+
+**An immediately invoked function for lazy placements.** The standard answer to
+a statement-shaped construct in an expression position, and rejected for the
+reason the switch avoids closures generally: it allocates in exactly the
+positions that sit inside expressions inside loops, and it makes a construct's
+cost depend on where it was written.
+
+**Solving placement per construct** rather than generally. One set of ordering
+rules per construct, each with its own bugs.

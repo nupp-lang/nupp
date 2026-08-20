@@ -35,7 +35,7 @@ that matters is the *ready* path -- an await whose subscription completes during
 the call, which is most of the cost of waiting even when waiting really happens.
 That path allocates no park and never wakes a handler.
 
-See `docs/neps/0019-suspension.md`.
+See `docs/neps/0006-suspension.md`.
 ]]
 
 local suspension = {}

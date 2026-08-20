@@ -9,7 +9,7 @@ forms at all. A pass lands only with a LuaJIT-enabled benchmark and a static
 proof that it preserves behavior. Nothing is a promise about timing: thresholds
 are measured implementation details, and every rewrite preserves answers. The
 design catalog is
-[NEP 26](../neps/0026-compiler-optimizations.md).
+[NEP 11](../neps/0011-performance-and-the-jit.md).
 
 ```bash
 nupp build -O1
@@ -343,7 +343,7 @@ instead of an FFI one halves the interpreted penalty and gives up most of the
 compiled margin without removing the cliff. Choosing correctly needs a hotness
 input the cost model does not have, so it is deferred rather than rejected;
 `bench/switch-dispatch.lua` keeps both `ph-ffi` and `ph-lua` baselines, and
-[NEP 4](../neps/0004-switch-expressions.md) records the decision.
+[NEP 3](../neps/0003-switch-expressions.md) records the decision.
 
 ## Optimization passes
 

@@ -20,7 +20,7 @@ here; what it decides to do with the answer does not.
 What this does not answer yet: `escapes` records parameter-rooted paths leaving
 a function, which is the interprocedural half. Whether a local escapes its own
 body -- what table promotion needs -- is a different question and nothing here
-computes it. See docs/neps/0026-compiler-optimizations.md.
+computes it. See docs/neps/0011-performance-and-the-jit.md.
 ]]
 
 local cst = require("nupp.compiler.cst")
@@ -839,9 +839,9 @@ end
 -- predicate over the same summaries.
 --
 -- Hand-rolled proofs are the thing to avoid rather than the duplicated walking. There
--- is no deoptimization here (docs/neps/0026-compiler-optimizations.md), so a proof that
--- is subtly wrong is a miscompilation with no runtime signal, and three of them are
--- three chances. These answer once.
+-- is no deoptimization here (docs/neps/0011-performance-and-the-jit.md), so a proof
+-- that is subtly wrong is a miscompilation with no runtime signal, and three of them
+-- are three chances. These answer once.
 --
 -- Every question answers `true`, or `false` with the reason and the node to point at,
 -- because a pass that declines has to say why: a remark and a lint both need the

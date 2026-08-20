@@ -17,7 +17,7 @@ The constraint is line attribution, not line count: a rewrite may make a line as
 long as it needs to be, but may not move code to a line it was not on. The
 passes here rewrite where they stand, so attribution is unchanged.
 
-See `docs/neps/0026-compiler-optimizations.md`.
+See `docs/neps/0011-performance-and-the-jit.md`.
 ]]
 
 local cst = require("nupp.compiler.cst")

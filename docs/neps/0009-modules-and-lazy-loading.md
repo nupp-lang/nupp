@@ -1,5 +1,5 @@
 ---
-title: Declared modules and qualified namespaces
+title: Modules and lazy loading
 status: Implemented
 created: 2026-08-19
 ---
@@ -96,8 +96,8 @@ local models = require("app.models")
 local user = models.make("ada")
 ```
 
-Selection from a module uses the ordinary binding pattern
-([NEP 3](0003-named-arguments-and-binding-patterns.md)):
+Selection from a module uses the ordinary binding pattern, which is not a
+module feature:
 
 ```nupp
 const {decode, Encoder as JSONEncoder} = require("nupp.data.json")

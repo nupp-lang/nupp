@@ -43485,7 +43485,6 @@ return T . carray ( elemT , count )
 
 
 
-
 elseif calleeName == "layoutof" then
 local args = argExprs
 local subject = args [ 1 ] and c . infer ( args [ 1 ] ) or nil
@@ -54035,7 +54034,7 @@ detail = [[Manifest target options cannot be combined with explicit source files
 Use 'nupp tasks' to discover target names and configuration.
 
 The level is part of the build key, so changing it rebuilds rather than
-mixing artifacts compiled at two different levels. See docs/neps/0026-compiler-optimizations.md.
+mixing artifacts compiled at two different levels. See docs/neps/0011-performance-and-the-jit.md.
 
 --json reports the same diagnostics as 'nupp check --json' alongside what the
 build wrote, so one call answers both what went wrong and what landed. It also
@@ -61418,7 +61417,7 @@ fail (
 "NUPP2411" ,
 node ,
 ( "%s.%s is unavailable at comptime" ) : format ( library , field ) ,
-"the comptime library surface is an allowlist; see docs/neps/0011-comptime.md"
+"the comptime library surface is an allowlist; see docs/neps/0004-comptime.md"
 )
 end
 end
@@ -75906,7 +75905,7 @@ summary = "An optimizer remark" ,
 rule = "Not a problem. A pass saying what it rewrote, or what it looked "
 .. "at and declined to rewrite. Always a note, and never fails a "
 .. "build." ,
-docs = "docs/neps/0026-compiler-optimizations.md"
+docs = "docs/neps/0011-performance-and-the-jit.md"
 } ,
 }
 
@@ -77084,7 +77083,7 @@ rule = "`@jit` promises a function compiles as a LuaJIT trace. `@aot` reserves "
 wrong = "@jit\n@aot\nlocal function hot(scale: number): number\n    return scale * 2.0\nend\n" ,
 right = "@aot\nlocal function hot(scale: number): number\n    return scale * 2.0\nend\n" ,
 related = { "NUPP2707" , "NUPP2902" } ,
-docs = "docs/neps/0028-checked-aot-functions.md" ,
+docs = "docs/neps/0012-ahead-of-time-compilation.md" ,
 }
 
 ENTRIES [
@@ -77103,7 +77102,7 @@ right = "@aot\nlocal function scaled(x: number): number\n    return x * 2.0\nend
 .. "local record Point\n    x: number\n    constructor(self, x: number)\n"
 .. "        self.x = scaled(x)\n    end\nend\n" ,
 related = { "NUPP2901" , "NUPP2903" } ,
-docs = "docs/neps/0028-checked-aot-functions.md" ,
+docs = "docs/neps/0012-ahead-of-time-compilation.md" ,
 }
 
 ENTRIES [
@@ -77123,7 +77122,7 @@ wrong = "@aot\nlocal function total(scale: number): number\n"
 right = "local function double(x: number): number\n    return x * 2.0\nend\n\n"
 .. "@aot\nlocal function total(scale: number): number\n    return double(scale)\nend\n" ,
 related = { "NUPP2901" , "NUPP2902" } ,
-docs = "docs/neps/0028-checked-aot-functions.md" ,
+docs = "docs/neps/0012-ahead-of-time-compilation.md" ,
 }
 
 ENTRIES [
@@ -143141,7 +143140,7 @@ deadline forever, which is precisely the case a deadline is for.
 **A killed child is not immediately reapable.** Terminating takes as long as it
 takes, so closing waits for the exit rather than reaping something still dying.
 
-See `docs/neps/0019-suspension.md`.
+See `docs/neps/0006-suspension.md`.
 ]]
 
 local suspension = require("nupp.suspension")
@@ -148373,7 +148372,7 @@ that matters is the *ready* path -- an await whose subscription completes during
 the call, which is most of the cost of waiting even when waiting really happens.
 That path allocates no park and never wakes a handler.
 
-See `docs/neps/0019-suspension.md`.
+See `docs/neps/0006-suspension.md`.
 ]]
 
 local suspension = {}

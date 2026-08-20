@@ -29,13 +29,13 @@ rather than degraded.
   userdata, or cdata pointers.
 - Killing a worker at an arbitrary instruction.
 - A concurrency capability in the ownership model. See
-  [NEP 17](0017-ownership-capabilities.md).
+  [NEP 5](0005-ownership.md).
 
 ## Motivation
 
 ### Shared memory would invalidate the ownership model
 
-Every proof in [NEP 17](0017-ownership-capabilities.md) — one cleanup, no view
+Every proof in [NEP 5](0005-ownership.md) — one cleanup, no view
 outliving its root, exclusive regions — assumes one thread of access. Sharing a
 heap between threads means either extending the whole capability model with
 isolation and synchronization, or having proofs that are silently false under

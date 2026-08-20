@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Cut the enhancement proposals to fourteen architecture documents. The port
+  produced one proposal per decision, which is one per sub-feature: forty-three
+  documents, several of them re-documenting the type system or the command-line
+  tools that already have pages of their own. A proposal is now a broad
+  architectural slice -- ownership, suspension, comptime, modules, C interop,
+  ahead-of-time compilation -- and each shows the syntax, a usage example, and
+  what the construct lowers to, rather than describing it. More granular ones
+  can arrive when contributors write them.
+
 - Publish the design record on the site as Nupp Enhancement Proposals. `plans/`
   held 71 dated files outside the documentation, and their statuses had stopped
   being true: two described `Owned<T, cleanup>` and `@drop` as implemented after

@@ -4,7 +4,7 @@
 -- Three rewrites look equally good on paper, and are equally standard advice
 -- for hand-written LuaJIT: bind `ffi.C.foo` to a local, cache a ctype with
 -- `ffi.typeof` rather than spelling it at each `ffi.cast`, and the same for
--- `ffi.new`. Measured against the gate in docs/neps/0026-compiler-optimizations.md -- a gain with
+-- `ffi.new`. Measured against the gate in docs/neps/0011-performance-and-the-jit.md -- a gain with
 -- the JIT enabled -- they do not behave alike, which is the reason to keep this
 -- file rather than a note saying "FFI hoisting is worth it".
 --
@@ -133,7 +133,7 @@ local function newCached(n)
    return acc
 end
 
--- `expect` is what docs/neps/0026-compiler-optimizations.md records about each, and what this run
+-- `expect` is what docs/neps/0011-performance-and-the-jit.md records about each, and what this run
 -- has to keep agreeing with. "cold" means the win is the interpreter's alone;
 -- "emitted" means the win is real and codegen already takes it.
 local SCENARIOS = {
@@ -183,7 +183,7 @@ io.write("\n")
 if #stale > 0 then
    io.write((" %s no longer behaves as the catalog records;\n")
       :format(table.concat(stale, ", ")))
-   io.write(" docs/neps/0026-compiler-optimizations.md wants rereading before anything is built\n\n")
+   io.write(" docs/neps/0011-performance-and-the-jit.md wants rereading before anything is built\n\n")
    os.exit(1)
 end
 io.write(" as recorded: caching a ctype is the interpreter's win alone, and\n")
