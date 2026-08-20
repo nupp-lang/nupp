@@ -421,6 +421,45 @@ function M.blockKernelsAppendUnderDominatingCapacityChecks()
       "inspection preserves the checked append relationship: " .. ir)
 end
 
+-- `u32.wrap` takes an `integer`, and a counted-loop index is one. The backend
+-- carries that index as an `i32`, so reaching the conversion means promoting it
+-- to the binary64 the conversion is admitted over -- exact for every 32-bit
+-- integer, and establishing nothing that the conversion does not establish
+-- itself. Without the promotion the one spelling that type-checks was refused
+-- here, and the spellings that were not refused here did not type-check.
+function M.aCountedLoopIndexReachesAnEntryConversion()
+   local dir = project{["positions.nupp"] = replaceOnce(DELIMITERS,
+      "offsets[written + 1] = written", "offsets[written + 1] = nupp.math.u32.wrap(i)")}
+   local ir, code = run(dir, "--emit ir positions.nupp")
+   test.equal(code, 0, ir)
+   assert(ir:find("store offsets[written+1] = numeric_cast(int_to_f64(local:i32 i))", 1, true),
+      "the promotion is written into the IR rather than left to the emitter: " .. ir)
+
+   local c = select(1, run(dir, "--emit c positions.nupp"))
+   assert(c:find("((uint32_t)((double)v", 1, true), "and it reaches the C as one: " .. c)
+end
+
+-- Narrowing is the direction that would invent establishment the source never
+-- performed, and it stays refused.
+function M.anUnestablishedOperandIsStillRefused()
+   local dir = project{["scale.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot(lanes = false)
+local function scale(borrows input: span.Span<float>, exclusive out: span.WriteSpan<float>, k: number): nil
+    for i = 1, #input do
+        out[i] = nupp.math.f32.mul(input[i], k)
+    end
+end
+
+return {scale = scale}
+]]}
+   local out, code = run(dir, "scale.nupp")
+   test.equal(code, 1, out)
+   assert(out:find("number is not established as float", 1, true),
+      "and the checker says so before the backend has to: " .. out)
+end
+
 function M.blockKernelsRejectAnUnguardedAppendCursor()
    local source = DELIMITERS:gsub(
       "            if written < #offsets then\n",

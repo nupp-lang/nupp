@@ -707,6 +707,13 @@ A width changes only at a conversion the IR writes down. An operator never
 changes one, which is what keeps `float` a storage fact rather than an
 arithmetic type.
 
+An entry conversion takes a binary64, so an `int32` or `uint32` reaching one --
+a counted-loop index handed to `nupp.math.u32.wrap`, say -- is promoted to
+binary64 first, and that promotion is written down like any other. It is exact
+for every 32-bit integer and establishes nothing: the conversion it is an
+argument to is what establishes. Nothing narrows on the way in, so an operand
+the source never established is still refused.
+
 ## Verification
 
 Generated C is a backend representation and not the safety boundary. Every span

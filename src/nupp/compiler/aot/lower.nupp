@@ -921,6 +921,16 @@ local function fixedCall(
                     source = argument.source
                 )
             end
+        elseif fixed.operand == "f64" and (argument.type == "i32" or argument.type == "u32") then
+            -- Widening, which is the one direction that invents nothing. Every
+            -- 32-bit integer is exactly a binary64, so promoting one to reach an
+            -- entry conversion loses no value and establishes no refinement --
+            -- the conversion this is an argument to is what does that.
+            --
+            -- Without it `u32.wrap(i)` over a counted-loop index is refused,
+            -- which is `wrap`'s declared `integer` argument arriving as the
+            -- integer the loop index is.
+            args[position] = lower.convert(argument, "f64", argument.source, context)
         elseif argument.type ~= fixed.operand then
             context.reject(
                 source,
