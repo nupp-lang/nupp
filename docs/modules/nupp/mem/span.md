@@ -114,7 +114,7 @@ Use a slice for one subrange and `splitAt` when two disjoint writable regions
 must be live together. Unknown indexes and bounds otherwise conservatively
 overlap.
 
-## One range for several spans
+## Shared range for several spans
 
 `indexed.range(first, last, ...)` checks one inclusive range against every
 trusted Span or SoA view and returns ordinary `first` and `last` integers:

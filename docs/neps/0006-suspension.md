@@ -129,7 +129,7 @@ Where the value comes from is not its business, and the innermost installed
 handler answers. With no handler installed the built-in one blocks, so ordinary
 programs behave exactly as they did.
 
-### One context read at an actual wait
+### Context read at an actual wait
 
 Effect propagation and the forbidding region are compile-time only. An operation
 already ready never reaches the suspension point; one that does reads the

@@ -808,7 +808,7 @@ one operation, and a buffer costs about what two concatenations cost.
 
 ### `OPT-6`, indexed views
 
-[`indexed.range`](../modules/nupp/mem/span.md#one-range-for-several-spans)
+[`indexed.range`](../modules/nupp/mem/span.md#shared-range-for-several-spans)
 checks one inclusive range against every participating trusted Span or SoA view.
 The successful check proves matching indexed reads and writes non-raising inside
 the dominated numeric loop, and that proof is part of checking at every level,

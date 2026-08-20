@@ -29,7 +29,7 @@ interchangeable.
 
 ## Motivation
 
-### One declaration needs both layouts
+### Declaration needs both layouts
 
 The same struct value passed to C, returned from a function, or stored alone
 wants the canonical layout. A large simulation array wants its columns

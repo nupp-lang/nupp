@@ -30,7 +30,7 @@ cancellation behaviour.
 [NEP 6](../neps/0006-suspension.md) has the full record.
 :::
 
-## One call blocks or parks
+## Communicate blocks or parks
 
 `communicate` follows one of three paths:
 

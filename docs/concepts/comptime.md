@@ -93,7 +93,7 @@ that is what this is for.
 `comptime` opens a block only when `do` follows it on the same line. Everywhere
 else it is an ordinary name.
 
-## One value, checked where it lands
+## Block value, checked where it lands
 
 A block returns exactly one value, and that value is checked at the site it
 initializes. A result that does not fit its declared type is the ordinary error
