@@ -127792,6 +127792,35 @@ const HeapBuffer = {} HeapBuffer.__index = HeapBuffer HeapBuffer.capacity = Buff
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const BufferWriter = {} BufferWriter.__index = BufferWriter
 
 
@@ -127857,6 +127886,49 @@ return nil , reason
 end
 
 return taking , nil
+end
+
+
+
+
+function BufferWriter:acceptsRaw()
+local buffer = self . _buffer
+
+return not self . _closed and not buffer : isReleased ( ) and buffer : storage ( ) ~= nil
+end
+
+
+
+
+
+
+
+
+
+
+function BufferWriter:writeRaw(source, count)
+if self . _closed then
+return nil , "the writer is closed"
+end
+local buffer = self . _buffer
+if buffer : isReleased ( ) then
+return nil , "the destination buffer is closed"
+end
+local at = self . _at
+buffer : ensureCapacity ( at + count )
+local raw = buffer : storage ( )
+if raw == nil then
+return nil , "the destination buffer has no storage to write into"
+end
+local old = buffer : length ( )
+if at > old then
+ffi . fill ( raw + old , at - old , 0 )
+end
+ffi . copy ( raw + at , source , count )
+buffer : setLength ( at + count )
+self . _at = at + count
+
+return count , nil
 end
 
 
@@ -129450,6 +129522,39 @@ end
 
 
 
+function FileWriter:acceptsRaw()
+local file = writable ( self )
+
+return file ~= nil
+end
+
+
+
+
+
+
+
+
+
+
+
+
+function FileWriter:writeRaw(source, count)
+local file , reason = writable ( self )
+if file == nil then
+return nil , reason
+end
+local wrote = tonumber ( C . nuppFileWrite ( ( file ) . _handle , source , count ) ) or - 1
+if wrote < 0 then
+return nil , native . error ( )
+end
+
+return wrote , nil
+end
+
+
+
+
 
 
 
@@ -130546,15 +130651,6 @@ end
 
 
 
-
-
-
-
-
-
-
-
-
 const Transfer = {} Transfer.__index = Transfer
 
 
@@ -130665,6 +130761,11 @@ end
 
 
 function Transfer:bodyRead(count, destination, offset)
+
+
+
+
+
 local data = native . ffi . new ( "const uint8_t*[1]" )
 local length = native . ffi . new ( "size_t[1]" )
 local state = native . ffi . new ( "uint32_t[1]" )
@@ -130686,21 +130787,17 @@ return "closed" , nil , "the body is closed"
 end
 local take = math . min ( count , tonumber ( length [ 0 ] ) )
 if destination ~= nil then
-local raw = rawget ( destination , "_data" )
-local capacity = rawget ( destination , "_capacity" )
-if raw ~= nil or capacity ~= nil then
 destination : ensureCapacity ( offset + take )
-raw = rawget ( destination , "_data" )
-local old = rawget ( destination , "_length" )
+local raw = destination : storage ( )
+if raw ~= nil then
 
 
+local old = destination : length ( )
 if offset > old then
 native . ffi . fill ( raw + old , ( offset - old ) , 0 )
 end
 native . ffi . copy ( raw + offset , data [ 0 ] , take )
-if offset + take > old then
-rawset ( destination , "_length" , offset + take )
-end
+destination : setLength ( offset + take )
 if not C . nuppHttpBodyConsume ( self . _body , take ) then
 return "failed" , nil , native . error ( )
 end
@@ -130718,36 +130815,15 @@ end
 
 
 function Transfer:directDestination(destination)
-local buffer = rawget ( destination , "_buffer" )
-if buffer ~= nil and rawget ( destination , "_at" ) ~= nil and rawget ( buffer , "_capacity" ) ~= nil then
-return true
+return destination : acceptsRaw ( )
 end
-local file = rawget ( destination , "_file" )
 
-return file ~= nil and rawget ( file , "_handle" ) ~= nil
-end
+
+
 
 
 
 function Transfer:bodyWrite(destination, count)
-if rawget ( destination , "_closed" ) then
-return "failed" , nil , "the writer is closed"
-end
-local buffer = rawget ( destination , "_buffer" )
-if buffer ~= nil and rawget ( destination , "_at" ) ~= nil and rawget ( buffer , "_capacity" ) ~= nil then
-local at = rawget ( destination , "_at" )
-local state , value , why = self : bodyRead ( count , buffer , at )
-if state == "data" then
-rawset ( destination , "_at" , at + ( value ) )
-end
-
-return state , value , why
-end
-local file = rawget ( destination , "_file" )
-local handle = file and rawget ( file , "_handle" ) or nil
-if handle == nil then
-return "unsupported" , nil , nil
-end
 local data = native . ffi . new ( "const uint8_t*[1]" )
 local length = native . ffi . new ( "size_t[1]" )
 local state = native . ffi . new ( "uint32_t[1]" )
@@ -130768,12 +130844,9 @@ if kind == BODY_CLOSED then
 return "closed" , nil , "the body is closed"
 end
 local take = math . min ( count , tonumber ( length [ 0 ] ) )
-
-
-
-local wrote = tonumber ( C . nuppFileWrite ( handle , data [ 0 ] , take ) )
-if wrote < 0 then
-return "failed" , nil , native . error ( )
+local wrote , why = destination : writeRaw ( data [ 0 ] , take )
+if wrote == nil then
+return "failed" , nil , why
 end
 if not C . nuppHttpBodyConsume ( self . _body , wrote ) then
 return "failed" , nil , native . error ( )
@@ -133099,6 +133172,17 @@ return nil , reason
 end
 
 return wanted
+end
+
+
+
+function process.Writer:acceptsRaw()
+return false
+end
+
+
+function process.Writer:writeRaw(source, count)
+return nil , "a process writer does not take raw bytes"
 end
 
 function process.Writer:flush()
@@ -148861,7 +148945,7 @@ local newReaderOver: function(file: File): affine(FileReader, destroyOwner)
 local newWriterOver: function(file: File): affine(FileWriter, destroyOwner)
 local scratch: function(self: FileReader, count: integer): any
 local usable: function(self: FileReader): (File?, string?)
-local writable: function(self: FileWriter): (File?, string?)
+local writable: function(borrows self: FileWriter): (File?, string?)
 
 --- @raises when value is neither a path nor a string
 local function named(value: any, what: string, level: integer): string
@@ -149251,6 +149335,39 @@ export record FileWriter
         return taking, nil
     end
 
+    --- A file takes bytes by pointer and length, so raw ones need no copy at all.
+    --- @param self this writer
+    --- @return whether the file is still open to write to
+    function acceptsRaw(borrows self): boolean
+        local file = writable(self)
+
+        return file ~= nil
+    end
+
+    --- Writes raw bytes at the file's current position.
+    ---
+    --- This is the shortest path bytes can take out of somebody else's memory and into
+    --- a file: one call, no string, no buffer. A short write is reported as it
+    --- happened rather than retried, because the caller is the one holding the
+    --- storage and knows what is left.
+    --- @param self this writer
+    --- @param source where the bytes are
+    --- @param count how many of them there are
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    function writeRaw(borrows self, source: any, count: integer): (integer?, string?)
+        local file, reason = writable(self)
+        if file == nil then
+            return nil, reason
+        end
+        local wrote = tonumber(C.nuppFileWrite((file as File)._handle, source, count)) or -1
+        if wrote < 0 then
+            return nil, native.error()
+        end
+
+        return wrote as integer, nil
+    end
+
     --- Writes part of a snapshot.
     --- @param self this writer
     --- @param source the snapshot to copy from
@@ -149439,7 +149556,7 @@ usable = function(self: FileReader): (File?, string?)
     return file, nil
 end
 
-writable = function(self: FileWriter): (File?, string?)
+writable = function(borrows self: FileWriter): (File?, string?)
     local state = self as any
     if state._closed then
         return nil, "the writer is closed"
@@ -150347,18 +150464,9 @@ end
 
 --- One request in flight.
 ---
---- Deliberately not declared `is NativeTransfer`, and `Client.send` casts onto that
---- interface instead. Two of these operations write body bytes straight into the
---- caller's destination without a copy, which means reaching the private storage of
---- whichever writer it is -- and a borrow cannot be handed to something that takes it
---- as `any`, which is the rule that keeps a capability from being erased. The cast is
---- where that is admitted. What would remove it is a capability on `io.Writer` saying
---- "here is somewhere to write directly, or nothing", which is a change to a contract
---- three modules implement rather than to this binding.
----
---- `_client` is also loose: the client's own record names this one, so typing the
---- back-pointer would have the two name each other.
-local record Transfer
+--- `_client` is deliberately loose: the client's own record names this one, so typing
+--- the back-pointer would have the two name each other.
+local record Transfer is NativeTransfer
     _client: any
     _handle: any
     _body: any
@@ -150467,7 +150575,12 @@ local record Transfer
     ---
     --- The crate lends the bytes rather than copying them, so this consumes only what
     --- it took and leaves the rest for the next call.
-    function bodyRead(self: Transfer, count: integer, destination: any, offset: integer): (string, any?, string?)
+    function bodyRead(
+        self: Transfer,
+        count: integer,
+        borrows destination: io.Buffer?,
+        offset: integer
+    ): (string, any?, string?)
         local data = native.ffi.new("const uint8_t*[1]")
         local length = native.ffi.new("size_t[1]")
         local state = native.ffi.new("uint32_t[1]")
@@ -150489,21 +150602,17 @@ local record Transfer
         end
         local take = math.min(count, tonumber(length[0]) as integer)
         if destination ~= nil then
-            local raw = rawget(destination, "_data")
-            local capacity = rawget(destination, "_capacity")
-            if raw ~= nil or capacity ~= nil then
-                destination:ensureCapacity(offset + take)
-                raw = rawget(destination, "_data")
-                local old = rawget(destination, "_length")
+            destination:ensureCapacity(offset + take)
+            local raw = destination:storage()
+            if raw ~= nil then
                 -- Writing past the end leaves a gap, which is zeroed rather than left
                 -- holding whatever the buffer grew over.
+                local old = destination:length()
                 if offset > old then
                     native.ffi.fill(raw + old, (offset - old) as integer, 0)
                 end
                 native.ffi.copy(raw + offset, data[0], take)
-                if offset + take > old then
-                    rawset(destination, "_length", offset + take)
-                end
+                destination:setLength(offset + take)
                 if not C.nuppHttpBodyConsume(self._body, take) then
                     return "failed", nil, native.error()
                 end
@@ -150520,37 +150629,16 @@ local record Transfer
     end
 
     --- Whether this destination can take body bytes without a copy through Lua.
-    function directDestination(self: Transfer, destination: any): boolean
-        local buffer = rawget(destination, "_buffer")
-        if buffer ~= nil and rawget(destination, "_at") ~= nil and rawget(buffer, "_capacity") ~= nil then
-            return true
-        end
-        local file = rawget(destination, "_file")
-
-        return file ~= nil and rawget(file, "_handle") ~= nil
+    function directDestination(self: Transfer, borrows destination: io.Writer): boolean
+        return destination:acceptsRaw()
     end
 
-    --- Moves body bytes straight into a writer, when the writer has storage to take
-    --- them; "unsupported" when it does not, so the caller falls back to `bodyRead`.
-    function bodyWrite(self: Transfer, destination: any, count: integer): (string, integer?, string?)
-        if rawget(destination, "_closed") then
-            return "failed", nil, "the writer is closed"
-        end
-        local buffer = rawget(destination, "_buffer")
-        if buffer ~= nil and rawget(destination, "_at") ~= nil and rawget(buffer, "_capacity") ~= nil then
-            local at = rawget(destination, "_at")
-            local state, value, why = self:bodyRead(count, buffer, at)
-            if state == "data" then
-                rawset(destination, "_at", at + (value as integer))
-            end
-
-            return state, value as integer?, why
-        end
-        local file = rawget(destination, "_file")
-        local handle = file and rawget(file, "_handle") or nil
-        if handle == nil then
-            return "unsupported", nil, nil
-        end
+    --- Moves body bytes straight from the crate's storage into a writer.
+    ---
+    --- The crate lends the bytes rather than copying them, and the writer takes them
+    --- by pointer, so a response body reaching a file or a buffer never becomes a Lua
+    --- string on the way. Only what the writer actually took is consumed.
+    function bodyWrite(self: Transfer, borrows destination: io.Writer, count: integer): (string, integer?, string?)
         local data = native.ffi.new("const uint8_t*[1]")
         local length = native.ffi.new("size_t[1]")
         local state = native.ffi.new("uint32_t[1]")
@@ -150571,12 +150659,9 @@ local record Transfer
             return "closed", nil, "the body is closed"
         end
         local take = math.min(count, tonumber(length[0]) as integer)
-        -- `nuppFileWrite` belongs to the files binding. Reaching it here needs no
-        -- declaration of its own, because a writer can only be holding a file handle
-        -- if that module is what made it.
-        local wrote = tonumber(C.nuppFileWrite(handle, data[0], take)) as integer
-        if wrote < 0 then
-            return "failed", nil, native.error()
+        local wrote, why = destination:writeRaw(data[0], take)
+        if wrote == nil then
+            return "failed", nil, why
         end
         if not C.nuppHttpBodyConsume(self._body, wrote) then
             return "failed", nil, native.error()
@@ -150696,7 +150781,7 @@ local record Client is NativeClient
         local transfer = new Transfer(_client = self, _handle = handle, _body = nil, _closed = false)
         self._byHandle[tostring(handle)] = transfer
 
-        return transfer as any as NativeTransfer, nil, nil
+        return transfer, nil, nil
     end
 
     --- Collects readiness events and wakes what they moved.
@@ -152221,6 +152306,35 @@ export interface Writer
     --- @return why it could not, when unsuccessful
     writeView: function(self: Writer, borrows source: ByteView, offset: integer?, count: integer?): (integer?, string?)
 
+    --- Whether this writer can take bytes straight out of foreign storage.
+    ---
+    --- Asked by a caller that holds a pointer rather than a string -- a decoder handing
+    --- over what it just read, say -- so the decision is made once before a copy loop
+    --- rather than at every pass. A writer that answers false is not refusing bytes;
+    --- it is saying they have to arrive as a string.
+    --- @param self this writer
+    --- @return whether `writeRaw` will do anything
+    acceptsRaw: function(borrows self: Writer): boolean
+
+    --- Appends bytes the caller holds as raw storage.
+    ---
+    --- The only unchecked thing in the byte contracts, and deliberately narrow: the
+    --- caller promises `count` readable bytes at `source` for the duration of the
+    --- call, and nothing is retained past it. It exists so bytes that are already in
+    --- memory on one side can reach the other without becoming a Lua string in
+    --- between, which for a large response body is the whole cost of the transfer.
+    ---
+    --- A writer that answered false to `acceptsRaw` says so again here rather than
+    --- doing something partial, so asking without checking is a failure and not a
+    --- corruption.
+    ---
+    --- @param self this writer
+    --- @param source where the bytes are
+    --- @param count how many of them there are
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    writeRaw: function(borrows self: Writer, source: any, count: integer): (integer?, string?)
+
     --- Nothing is buffered behind this writer, so this only reports whether it is open.
     --- @param self this writer
     --- @return whether the writer is open
@@ -152300,6 +152414,49 @@ local record BufferWriter is Writer
         end
 
         return taking, nil
+    end
+
+    --- A buffer holds its bytes in storage of its own, so raw ones can land in it.
+    --- @param self this writer
+    --- @return whether the destination buffer has storage to write into
+    function acceptsRaw(borrows self): boolean
+        local buffer = self._buffer as Buffer
+
+        return not self._closed and not buffer:isReleased() and buffer:storage() ~= nil
+    end
+
+    --- Copies raw bytes into the buffer at this writer's position.
+    ---
+    --- Writing past the end leaves a gap, which is zeroed rather than left holding
+    --- whatever the buffer grew over -- the same guarantee `setString` gives.
+    --- @param self this writer
+    --- @param source where the bytes are
+    --- @param count how many of them there are
+    --- @return how many bytes moved, or nil on failure
+    --- @return why it could not, when unsuccessful
+    function writeRaw(borrows self, source: any, count: integer): (integer?, string?)
+        if self._closed then
+            return nil, "the writer is closed"
+        end
+        local buffer = self._buffer as Buffer
+        if buffer:isReleased() then
+            return nil, "the destination buffer is closed"
+        end
+        local at = self._at
+        buffer:ensureCapacity(at + count)
+        local raw = buffer:storage()
+        if raw == nil then
+            return nil, "the destination buffer has no storage to write into"
+        end
+        local old = buffer:length()
+        if at > old then
+            ffi.fill(raw + old, at - old, 0)
+        end
+        ffi.copy(raw + at, source, count)
+        buffer:setLength(at + count)
+        self._at = at + count
+
+        return count, nil
     end
 
     --- Nothing is buffered behind this writer, so this only reports whether it is open.
@@ -154329,6 +154486,17 @@ record process.Writer is nupp.io.Writer
         end
 
         return wanted
+    end
+
+    --- A pipe is written through the backend, which takes bytes rather than a
+    --- pointer, so raw storage has nowhere to go here without a copy either way.
+    function acceptsRaw(borrows self): boolean
+        return false
+    end
+
+    --- Says no rather than copying, so a caller that skipped `acceptsRaw` learns.
+    function writeRaw(borrows self, source: any, count: integer): (integer?, string?)
+        return nil, "a process writer does not take raw bytes"
     end
 
     function flush(self): (boolean, string?)
