@@ -526,19 +526,20 @@ what this reads.
 Type-check source without emitting Lua
 
 Usage:
-  nupp check [--strict] [--target NAME] [--platform NAME|all] [--format text|json] [file...]
+  nupp check [--strict] [--dialect DIALECT] [--target NAME] [--platform NAME|all] [--format text|json] [file...]
 
 Options:
-  --strict         Treat strict checker rules as errors
-  --target NAME    Check a named manifest target
-  --platform NAME  Check one configured binary platform, or all
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  --schema         Print the JSON Schema of --json output and exit
-  --color[=WHEN]   When to color output: always, never, or auto (default)
-  --no-color       Never color output; the same as --color=never
-  -h, --help       Show this help
+  --strict           Treat strict checker rules as errors
+  --dialect DIALECT  Source-lowering dialect: luajit (default) or lua51
+  --target NAME      Check a named manifest target
+  --platform NAME    Check one configured binary platform, or all
+  --format FORMAT    Output format: text (default) or json
+  --json             Shorthand for --format json
+  --text             Shorthand for --format text
+  --schema           Print the JSON Schema of --json output and exit
+  --color[=WHEN]     When to color output: always, never, or auto (default)
+  --no-color         Never color output; the same as --color=never
+  -h, --help         Show this help
 
 With no files, checks the default target from nupp.lua. Also reports a `timing` object naming how many modules were reused from the cache versus rechecked, and which modules cost the most of the wall-clock time either way -- see docs/reference/diagnostics.md.
 ```
@@ -547,7 +548,8 @@ A file's extension decides the floor it is held to, with `.nupp` strict and
 `.g.nupp`, `.d.nupp` and `.lua` gradual. `--strict` overrides that, holding
 every file to the strict floor whatever it is called: unknown variables are
 errors, and module exports need annotations. `--target` names a manifest target
-and cannot be combined with explicit files.
+and cannot be combined with explicit files. `--dialect` overrides the target's
+source-lowering dialect, or selects one for explicitly named files.
 
 A clean project writes nothing and exits 0. With
 `local shout: number = greet("world")` added to `src/greet.nupp`:
@@ -571,6 +573,7 @@ anchor that [`explain`](#explain) and the reference share:
 ```json [nupp check --json]
 {
   "ok": false,
+  "dialect": "luajit",
   "diagnostics": [
     {
       "code": "NUPP2001",
@@ -608,6 +611,7 @@ that feels slow can be read rather than waited out. It is the shape
 ```json [nupp check --json]
 {
   "ok": true,
+  "dialect": "luajit",
   "diagnostics": [],
   "timing": {
     "totalMs": 8.4,
@@ -728,8 +732,8 @@ See [fmt.md](../guides/fmt.md) for the rules the formatter applies and for the
 Build source files or a configured project target
 
 Usage:
-  nupp build [--strict] [-O<n>] [--target NAME] [--platform NAME|all] [--out-dir DIR] [-q] [--format text|json]
-  nupp build [--strict] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>
+  nupp build [--strict] [--dialect DIALECT] [-O<n>] [--target NAME] [--platform NAME|all] [--out-dir DIR] [-q] [--format text|json]
+  nupp build [--strict] [--dialect DIALECT] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>
 
 Options:
   --target NAME      Build a named manifest target
@@ -737,6 +741,7 @@ Options:
   --out-dir DIR      Override the manifest target's output directory
   -o DIR             Output directory for explicit source-file builds
   --strict           Treat strict checker rules as errors
+  --dialect DIALECT  Source-lowering dialect: luajit (default) or lua51
   -O0, -O1, -O2      Optimization level (default -O0, which rewrites nothing)
   --remarks          Report what the optimizer did and what it declined to do
   --relax=GUARANTEE  Allow optimizations to change one named observable
@@ -845,6 +850,7 @@ data rather than as a report:
 {
   "ok": true,
   "target": "app",
+  "dialect": "luajit",
   "written": ["build/greet.lua", "build/main.lua"],
   "diagnostics": [],
   "materializations": [],

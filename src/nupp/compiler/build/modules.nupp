@@ -587,6 +587,7 @@ local function openSession(
         inc = incremental.new(root, {
             config = envConfig,
             strict = strict,
+            dialect = target.dialect,
             typeRoots = rocks and rocks.typeRoots or {},
             observe = observer,
         }),

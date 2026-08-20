@@ -40,6 +40,10 @@ type project.BuildOptions = {
     --- One configured binary platform, or "all" at the public build boundary.
     platform: string?,
 
+    --- Source-lowering dialect. Overrides the target; absent resolves to its setting
+    --- and then to `luajit`.
+    dialect: string?,
+
     --- Overrides the manifest's own `strict`.
     strict: boolean?,
 
@@ -178,6 +182,16 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         io.stderr:write("nupp: " .. tostring(targetErr) .. "\n");
         return 1
     end
+    local dialectLabel = opts.dialect ~= nil and "--dialect" or "dialect"
+    local dialect, dialectErr = require("nupp.compiler.dialects").resolve(opts.dialect or target.dialect, dialectLabel)
+    if not dialect then
+        io.stderr:write("nupp: " .. tostring(dialectErr) .. "\n")
+        return 1
+    end
+    target.dialect = dialect
+    if opts.produced then
+        opts.produced.dialect = dialect
+    end
     local selectedPlatform = opts.platform
     if target.platforms then
         if selectedPlatform == nil then
@@ -225,6 +239,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     config._target = target
     config._platform = selectedPlatform
+    config._dialect = dialect
     config._strict = strict and true or false
     -- The optimization level belongs to the build key. It reaches the config before the
     -- config is hashed, so changing -O invalidates every artifact built at the old
@@ -411,6 +426,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     if opts.checkOnly then
         if opts.produced then
             opts.produced.target = target.name or opts.target or "default"
+            opts.produced.dialect = dialect
             opts.produced.platform = selectedPlatform
             opts.produced.outputs = cache.jsonArray({})
             opts.produced.timing = report:timing()
@@ -593,6 +609,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- on disk to be discovered. Same shape of favour as opts.diagnostics.
     if opts.produced then
         opts.produced.target = target.name or opts.target or "default"
+        opts.produced.dialect = dialect
         opts.produced.platform = selectedPlatform
         if selectedPlatform == "aarch64-apple-darwin" then
             opts.produced.distributionReady = false
@@ -649,6 +666,7 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
     local aggregate = opts.produced
     if aggregate then
         aggregate.target = target.name or opts.target or "default"
+        aggregate.dialect = nil
         aggregate.outputs = cache.jsonArray({})
         aggregate.platforms = cache.jsonArray({})
         aggregate.backends = cache.jsonArray({})
@@ -667,6 +685,7 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         local code = buildOne(root, childOptions)
         failed = failed or code ~= 0
         if aggregate then
+            aggregate.dialect = produced.dialect or aggregate.dialect
             aggregate.backends = produced.backends or aggregate.backends
             local entry = {
                 platform = selected,

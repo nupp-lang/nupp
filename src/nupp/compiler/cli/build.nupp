@@ -16,9 +16,9 @@ local command = spec.command{
     name = "build",
     summary = "Build source files or a configured project target",
     usage = {
-        "nupp build [--strict] [-O<n>] [--target NAME] [--platform NAME|all] [--out-dir DIR]"
+        "nupp build [--strict] [--dialect DIALECT] [-O<n>] [--target NAME] [--platform NAME|all] [--out-dir DIR]"
         .. " [-q] [--format text|json]",
-        "nupp build [--strict] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>",
+        "nupp build [--strict] [--dialect DIALECT] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>",
     },
     options = optionsMod.join(
         {name = "--target", value = "NAME", help = "Build a named manifest target"},
@@ -34,6 +34,7 @@ local command = spec.command{
         },
         {name = "-o", value = "DIR", key = "outDir", help = "Output directory for explicit source-file builds"},
         optionsMod.strict,
+        optionsMod.dialect,
         optionsMod.optimize(),
         optionsMod.progress(),
         optionsMod.format()
@@ -49,6 +50,11 @@ local command = spec.command{
                 .. "build of explicitly named source files."
             },
             platform = {type = "string", description = "The selected binary platform for a one-platform build."},
+            dialect = {
+                type = "string",
+                enum = require("nupp.compiler.dialects").names(),
+                description = "The resolved source-lowering dialect."
+            },
             distributionReady = {
                 type = "boolean",
                 description = "Whether the selected platform output is ready for public distribution."
@@ -204,7 +210,7 @@ local command = spec.command{
                 description = "Whether the build completed. False when a " .. "diagnostic stopped it."
             },
         },
-        required = {"ok", "diagnostics", "written", "materializations", "derives", "backends"},
+        required = {"ok", "diagnostics", "written", "materializations", "derives", "backends", "dialect"},
     },
     detail = [[Manifest target options cannot be combined with explicit source files.
 Use 'nupp tasks' to discover target names and configuration.
@@ -266,6 +272,7 @@ local function run(parsed: any): integer
     local diagnostics: {any} = {}
     local compile = require("nupp.compiler.cli.compile")
     local settings = compile.settings(values, asJson and diagnostics or nil)
+    local selectedDialect = settings.dialect
     -- The same timing either way, and no narration when the reader is a program: it
     -- gets the numbers in the document it asked for. Naming --progress explicitly
     -- overrules that, which is how somebody watching a --json build sees it move.
@@ -290,6 +297,7 @@ local function run(parsed: any): integer
                 ok = code == 0,
                 diagnostics = reportMod.diagnosticValues(diagnostics),
                 target = builtTarget,
+                dialect = selectedDialect,
                 platform = selectedPlatform,
                 platforms = platformResults,
                 distributionReady = distributionReady,
@@ -312,6 +320,7 @@ local function run(parsed: any): integer
             outDir = projectOutDir,
             target = target,
             platform = values.platform,
+            dialect = values.dialect,
             strict = settings.strict,
             optLevel = settings.optLevel,
             remarks = settings.remarks,
@@ -322,6 +331,7 @@ local function run(parsed: any): integer
             progress = progressMode
         })
         selectedBackends = produced.backends or {}
+        selectedDialect = produced.dialect or selectedDialect
         return finish(
             code,
             produced.target,

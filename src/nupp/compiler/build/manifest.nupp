@@ -15,6 +15,7 @@ local check = require("nupp.compiler.check")
 local fs = require("nupp.compiler.fs")
 local native = require("nupp.compiler.native")
 local backends = require("nupp.compiler.backends")
+local dialects = require("nupp.compiler.dialects")
 
 local join = fs.join
 
@@ -63,6 +64,7 @@ type manifest.Target = {
     --- separate from the machine running the compiler and from a dependency's native
     --- build target.
     layoutTarget: string?,
+    dialect: string?,
     backends: {string}?,
     format: string?,
     title: string?,
@@ -236,6 +238,7 @@ local DOCS_KEYS = {
     "platforms",
     "platformOutputs",
     "nativeFeatures",
+    "dialect",
     "backends",
     "layoutTarget",
 }
@@ -294,6 +297,7 @@ local TARGET_KEYS = {
     "resources",
     "dependencies",
     "nativeFeatures",
+    "dialect",
     "backends",
     "layoutTarget",
     "format",
@@ -626,6 +630,10 @@ local function validateTarget(target, label, dependencies)
                 return nil, label .. ".nativeFeatures." .. name .. " must be true or false"
             end
         end
+    end
+    local _, dialectErr = dialects.resolve(target.dialect, label .. ".dialect")
+    if dialectErr then
+        return nil, dialectErr
     end
     local validBackends, backendErr = backends.validate(target.backends, label .. ".backends")
     if not validBackends then

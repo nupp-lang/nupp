@@ -250,6 +250,53 @@ function M.cliProvidesCommandHelpAndValidatesOptions()
       "unknown options are rejected: " .. unknown)
 end
 
+function M.buildAndCheckResolveTheSameDialectOption()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return {include = {"."}, build = {entries = {"main"}, '
+         .. 'dialect = "lua51"}}\n',
+      ["main.nupp"] = "return 42\n",
+   })
+   local native = require("testjson").decode(captureJson(
+      ("cd '%s' && '%s' build main.nupp --json"):format(dir, NUPP)
+   ))
+   assertEq(native.dialect, "luajit", "an explicit build defaults to LuaJIT")
+   local nativeCode = read(dir .. "/main.lua")
+
+   local explicitNative = require("testjson").decode(captureJson(
+      ("cd '%s' && '%s' build --dialect luajit main.nupp --json"):format(dir, NUPP)
+   ))
+   assertEq(explicitNative.dialect, "luajit", "LuaJIT may be selected explicitly")
+   assertEq(read(dir .. "/main.lua"), nativeCode,
+      "omitted and explicit LuaJIT dialects generate byte-identically")
+
+   local portable = require("testjson").decode(captureJson(
+      ("cd '%s' && '%s' build --dialect lua51 main.nupp --json"):format(dir, NUPP)
+   ))
+   assertEq(portable.dialect, "lua51", "an explicit build reports its dialect")
+   assertEq(read(dir .. "/main.lua"), nativeCode,
+      "selecting a dialect alone adds no runtime wrapper to common source")
+
+   local checked = require("testjson").decode(captureJson(
+      ("cd '%s' && '%s' check --dialect lua51 main.nupp --json"):format(dir, NUPP)
+   ))
+   assertEq(checked.dialect, "lua51", "check reports the same resolved dialect")
+
+   local configuredBuild = require("testjson").decode(captureJson(
+      ("cd '%s' && '%s' build --json"):format(dir, NUPP)
+   ))
+   assertEq(configuredBuild.dialect, "lua51", "build inherits the manifest dialect")
+   local configuredCheck = require("testjson").decode(captureJson(
+      ("cd '%s' && '%s' check --json"):format(dir, NUPP)
+   ))
+   assertEq(configuredCheck.dialect, "lua51", "check inherits the manifest dialect")
+
+   local rejected = capture(("cd '%s' && '%s' check --dialect lua54 main.nupp")
+      :format(dir, NUPP))
+   assert(rejected:find("option --dialect does not take lua54; expected luajit, lua51", 1, true),
+      "the command grammar rejects unsupported dialects: " .. rejected)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.cliProvidesHelpForMainAndEverySubcommand()
    local main = capture(("'%s' --help"):format(NUPP))
    assert(main:find("Usage:\n  nupp <command>", 1, true),

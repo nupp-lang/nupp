@@ -21,9 +21,12 @@ local optionsMod = require("nupp.compiler.cli.options")
 local command = spec.command{
     name = "check",
     summary = "Type-check source without emitting Lua",
-    usage = {"nupp check [--strict] [--target NAME] [--platform NAME|all] [--format text|json] [file...]"},
+    usage = {
+        "nupp check [--strict] [--dialect DIALECT] [--target NAME] [--platform NAME|all] [--format text|json] [file...]"
+    },
     options = optionsMod.join(
         optionsMod.strict,
+        optionsMod.dialect,
         {name = "--target", value = "NAME", help = "Check a named manifest target"},
         {name = "--platform", value = "NAME", help = "Check one configured binary platform, or all"},
         optionsMod.format()
@@ -39,6 +42,11 @@ local command = spec.command{
                 .. "used -- an empty `diagnostics` cannot tell those apart on its own.",
             },
             diagnostics = require("nupp.compiler.cli.report").DIAGNOSTICS,
+            dialect = {
+                type = "string",
+                enum = require("nupp.compiler.dialects").names(),
+                description = "The resolved source-lowering dialect."
+            },
             platform = {type = "string"},
             platforms = {type = "array", items = {type = "object"}},
             timing = {
@@ -81,7 +89,7 @@ local command = spec.command{
                 required = {"totalMs", "compiledModules", "reusedModules", "phases", "slowest"},
             },
         },
-        required = {"ok", "diagnostics"},
+        required = {"ok", "diagnostics", "dialect"},
     },
     detail = "With no files, checks the default target from nupp.lua. Also reports a `timing` object naming how many modules were reused from the cache versus rechecked, and which modules cost the most of the wall-clock time either way -- see docs/reference/diagnostics.md.",
 }
@@ -96,20 +104,28 @@ local function run(parsed: any): integer
     local asJson = values.format == "json"
     local reportMod = require("nupp.compiler.cli.report")
     local diagnostics: {any} = {}
+    local effectiveDialect = assert(require("nupp.compiler.dialects").resolve(values.dialect))
+    local function writeJson(ok: boolean): nil
+        reportMod.write({ok = ok, diagnostics = reportMod.diagnosticValues(diagnostics), dialect = effectiveDialect,})
+    end
+
     if #paths == 0 then
         local project = require("nupp.compiler.build.project")
         local produced: {[string]: any} = {}
         local code = project.check(".", {
             strict = values.strict,
+            dialect = values.dialect,
             target = target,
             platform = values.platform,
             diagnostics = asJson and diagnostics or nil,
             produced = asJson and produced or nil
         })
+        effectiveDialect = produced.dialect or effectiveDialect
         if asJson then
             reportMod.write({
                 ok = code == 0,
                 diagnostics = reportMod.diagnosticValues(diagnostics),
+                dialect = effectiveDialect,
                 platform = produced.platform,
                 platforms = produced.platforms,
                 timing = produced.timing,
@@ -181,12 +197,16 @@ local function run(parsed: any): integer
         if #mine > 0 then
             local project = require("nupp.compiler.build.project")
             local unchecked = {}
+            local produced: {[string]: any} = {}
             local code = project.check(".", {
                 strict = values.strict,
+                dialect = values.dialect,
                 paths = mine,
                 unchecked = unchecked,
                 diagnostics = asJson and diagnostics or nil,
+                produced = produced,
             })
+            effectiveDialect = produced.dialect or effectiveDialect
             if code ~= 0 then
                 failed = true
             end
@@ -207,7 +227,7 @@ local function run(parsed: any): integer
     end
     if #remaining == 0 then
         if asJson then
-            reportMod.json(diagnostics, not failed)
+            writeJson(not failed)
         end
 
         return failed and 1 or 0
@@ -226,7 +246,10 @@ local function run(parsed: any): integer
             end
             failed = true
         else
-            local diags = check.check(result, path, env as {[string]: any}, {strict = values.strict})
+            local diags = check.check(result, path, env as {[string]: any}, {
+                strict = values.strict,
+                dialect = effectiveDialect,
+            })
             if asJson then
                 for _, diagnostic in ipairs(diags) do
                     diagnostics[#diagnostics + 1] = diagnostic
@@ -244,7 +267,7 @@ local function run(parsed: any): integer
     -- itself, the next one should not.
     require("nupp.compiler.env").persist(env)
     if asJson then
-        reportMod.json(diagnostics, not failed)
+        writeJson(not failed)
     end
 
     return failed and 1 or 0

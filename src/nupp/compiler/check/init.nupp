@@ -814,6 +814,11 @@ function checkMod.check(
     opts: state.Options?
 ): {checkMod.Diagnostic}, Type?, state.ModuleExports
     opts = opts or {} as state.Options
+    local selectedDialect, dialectErr = require("nupp.compiler.dialects").resolve(opts.dialect)
+    if not selectedDialect then
+        error(tostring(dialectErr), 2)
+    end
+    opts.dialect = selectedDialect
     if filename and filename:match("%.lua$") then
         require("nupp.compiler.annotatedlua").decorate(result, filename)
     end
@@ -827,6 +832,9 @@ function checkMod.check(
     -- Effects are compiler-recognized runtime requirements. They are not manifest
     -- switches: the build derives its native feature set from them.
     result.effects = {}
+    -- The checker and every later lowering read the same resolved build axis. No
+    -- dialect-specific rule is implied merely by recording it here.
+    result.dialect = selectedDialect
     result.preludeRuntime = env and env.preludeRuntime or nil
     result.moduleName = opts and opts.moduleName or env and env.moduleNameForPath and env.moduleNameForPath(
         env,
