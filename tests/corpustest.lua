@@ -31,11 +31,14 @@ function M.realWorldLuaStaysClean()
    local env = envMod.new(HERE .. "/..")
    -- The corpus is an oracle for accepted Lua, not a style guide for projects
    -- outside this one. Its `else`/`if` chains are legal and intentionally left
-   -- as-written, even though this project's default style warns about them.
+   -- as-written, even though this project's default style warns about them, and
+   -- the same holds for a closure this project would hoist out of its loop: what
+   -- this test proves is that the program is accepted, not that it is fast.
    local lintConfig = {
       ['else-if'] = 'off',
       ['unused-binding'] = 'off',
       ['discarded-result'] = 'off',
+      ['loop-invariant-closure'] = 'off',
    }
    local checked = 0
    for _, path in ipairs(CORPUS) do

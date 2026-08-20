@@ -2183,10 +2183,15 @@ function M.siteMatchesTheNuppdocPageModel()
       "Welcome to the project", 1, true), "home Markdown must follow the hero")
    assert(home:find("nuppdoc%-feature%-showcase"), home)
    assert(home:find("language%-nupp"), home)
-   assert(home:find("Nupp Features", 1, true) < home:find(
-      "nuppdoc%-feature%-showcase"), "feature heading must precede the showcase")
+   -- The showcase sits where the marker was, so it follows the introduction above
+   -- it and precedes whatever the page wrote below. It supplies no heading of its
+   -- own: a home page titles its own sections.
+   assert(not home:find("Nupp Features", 1, true),
+      "the showcase must not emit a heading of its own")
+   assert(home:find("Welcome to the project", 1, true) < home:find(
+      "nuppdoc%-feature%-showcase"), "features must follow the marked home introduction")
    assert(home:find("nuppdoc%-feature%-showcase") < home:find(
-      "More details", 1, true), "features must follow the marked home introduction")
+      "More details", 1, true), "features must precede the rest of the page")
    assert(home:find('class="nuppdoc-logo" src="images/project.svg"',
       1, true), home)
    assert(home:find('src="images/project.svg"', 1, true), home)
