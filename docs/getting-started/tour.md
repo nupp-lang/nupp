@@ -15,7 +15,7 @@ local function scale(p: Point, k: number): Point
 end
 ```
 
-## It starts as Lua
+## Nupp starts as Lua
 
 Every valid LuaJIT program is a valid Nupp program. Rename a `.lua` file to
 `.nupp` and it parses, round-trips byte for byte, and checks with no

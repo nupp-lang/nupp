@@ -1,4 +1,4 @@
-# Reasons to use Nupp
+# Why use Nupp?
 
 Nupp is LuaJIT with types, safer resource handling, and a toolchain in the box.
 It is a superset: your Lua already compiles, and each thing below is something

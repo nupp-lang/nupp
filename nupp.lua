@@ -542,7 +542,7 @@ nupp lsp            # start the language server]],
                },
                {
                   path = "getting-started/why",
-                  title = "Reasons to use Nupp",
+                  title = "Why use Nupp?",
                   source = "docs/getting-started/why.md",
                },
                {

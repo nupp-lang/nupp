@@ -42,7 +42,7 @@ splitting its callers into two populations that cannot share code. The third
 option, taking a policy parameter, pushes the decision onto every caller and
 into every signature between them.
 
-### It had already been built at library scope
+### Mechanism already built at library scope
 
 The motivating consumer had hand-rolled the whole mechanism: a mode query
 answering *blocking* outside a scheduler, *cooperative* inside a task, and

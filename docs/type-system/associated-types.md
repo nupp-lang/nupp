@@ -126,7 +126,7 @@ restating a bound, or stating a requirement outside an interface is
 field may still share the spelling, since fields and types are separate
 namespaces.
 
-## It is not a nested type alias
+## Associated type is not a nested type alias
 
 A declaration body may also hold a plain `type` alias, and the two are different
 members:
