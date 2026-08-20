@@ -3,6 +3,7 @@ local check = require("fragment")
 local envMod = require("nupp.compiler.env")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
+local providers = require("nupp.compiler.providers")
 local optimize = require("nupp.compiler.optimize")
 local gen = require("nupp.compiler.gen")
 
@@ -36,6 +37,123 @@ local function assertClean(src, opts)
 end
 
 local M = {}
+
+function M.runtimeJsonProviderIsOptInLazyAndChecked()
+   local selected = "fixtures.portable_json"
+   local bootstrap = providers.bootstrap({["native.json"] = true}, {json = selected})
+   assert(bootstrap:find(selected, 1, true), "the selected provider is recorded")
+   assertEq(providers.bootstrap({["native.json"] = true}, nil), "",
+      "the default native path emits no provider bootstrap")
+   assertEq(providers.bootstrap({}, {json = selected}), "",
+      "an unreachable provider emits no bootstrap")
+
+   local oldRegistry = rawget(_G, "__nuppRuntimeProviders")
+   local oldNative = package.loaded.jsonNative
+   local oldNativePreload = package.preload.jsonNative
+   local oldProvider = package.loaded[selected]
+   local oldProviderPreload = package.preload[selected]
+   _G.__nuppRuntimeProviders = nil
+   package.loaded.jsonNative = nil
+   package.preload.jsonNative = nil
+   package.loaded[selected] = nil
+   local sentinel = {}
+   package.preload[selected] = function()
+      local function same(value) return value end
+      return {
+         NULL = sentinel,
+         EMPTY_ARRAY = {},
+         EMPTY_OBJECT = {},
+         arrayOf = same,
+         asArray = same,
+         asObject = same,
+         decode = same,
+         encode = same,
+         pull = same,
+         serialize = same,
+         writer = same,
+      }
+   end
+
+   local ok, problem = pcall(function()
+      assert(loadstring(bootstrap))()
+      assertEq(package.loaded[selected], nil, "installing the adapter is lazy")
+      local json = require("jsonNative")
+      assertEq(package.loaded[selected], json, "the boundary loads exactly the selected module")
+      assertEq(json.NULL, sentinel, "the compatible provider is returned unchanged")
+   end)
+
+   _G.__nuppRuntimeProviders = oldRegistry
+   package.loaded.jsonNative = oldNative
+   package.preload.jsonNative = oldNativePreload
+   package.loaded[selected] = oldProvider
+   package.preload[selected] = oldProviderPreload
+   assert(ok, problem)
+end
+
+function M.missingRuntimeJsonProviderNamesTheDependency()
+   local selected = "fixtures.provider_that_is_missing"
+   local oldRegistry = rawget(_G, "__nuppRuntimeProviders")
+   local oldNative = package.loaded.jsonNative
+   local oldNativePreload = package.preload.jsonNative
+   local oldProvider = package.loaded[selected]
+   local oldProviderPreload = package.preload[selected]
+   _G.__nuppRuntimeProviders = nil
+   package.loaded.jsonNative = nil
+   package.preload.jsonNative = nil
+   package.loaded[selected] = nil
+   package.preload[selected] = nil
+
+   local installed, installProblem = pcall(assert(loadstring(providers.bootstrap(
+      {["native.json"] = true},
+      {json = selected}
+   ))))
+   local ok, problem = pcall(function()
+      local json = require("jsonNative")
+      return json.NULL
+   end)
+
+   _G.__nuppRuntimeProviders = oldRegistry
+   package.loaded.jsonNative = oldNative
+   package.preload.jsonNative = oldNativePreload
+   package.loaded[selected] = oldProvider
+   package.preload[selected] = oldProviderPreload
+   assert(installed, installProblem)
+   assert(not ok and tostring(problem):find(selected, 1, true),
+      "the runtime error names the absent provider: " .. tostring(problem))
+   assert(tostring(problem):find("data.json", 1, true),
+      "the runtime error names the standard contract: " .. tostring(problem))
+end
+
+function M.selectedRuntimeProviderSuppressesOnlyItsNativeFeature()
+   local effects = {['native.json'] = true, ['native.sha256'] = true}
+   providers.withoutNative(effects, {json = "fixtures.portable_json"})
+   assert(not effects['native.json'], "the selected JSON adapter replaces native JSON")
+   assert(effects['native.sha256'], "unrelated native features remain selected")
+end
+
+function M.generatedProviderAdapterDoesNotTouchDefaultOutput()
+   local source = "local json = require('nupp.data.json')\nreturn json.encode({answer = 42})"
+   local result = parser.parse(source, "runtime-provider.g.nupp")
+   assertEq(#result.errors, 0, "provider source parses")
+   check.check(result, "runtime-provider.g.nupp", sharedEnv)
+   local ordinary, ordinaryDiags = gen.generate(result, "runtime-provider.g.nupp")
+   local explicitNil, nilDiags = gen.generate(result, "runtime-provider.g.nupp", nil, nil, nil)
+   local portable, portableDiags = gen.generate(
+      result,
+      "runtime-provider.g.nupp",
+      nil,
+      nil,
+      {json = "fixtures.portable_json"}
+   )
+   assertEq(#ordinaryDiags, 0, "ordinary source generates")
+   assertEq(#nilDiags, 0, "explicit native selection generates")
+   assertEq(#portableDiags, 0, "portable selection generates")
+   assertEq(explicitNil, ordinary, "an absent provider is byte-identical")
+   assert(not ordinary:find("__nuppRuntimeProviders", 1, true),
+      "native output contains no compatibility registry")
+   assert(portable:find("fixtures.portable_json", 1, true),
+      "portable output names the selected provider")
+end
 
 function M.stringLibrary()
    assertClean("local s: string = string.format('%d', 3)")
