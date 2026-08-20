@@ -1847,15 +1847,18 @@ function M.cargoCbindgenBindingsPreserveExplicitOwnership()
    local command, cbindgen
    if jit.os == "Windows" then
       command = "cbindgen.cmd"
+      -- One redirect per line rather than one around a block: `cmd` ends a
+      -- parenthesised block at the first unescaped `)`, and every line here has
+      -- one, so the block closed inside the first declaration and the rest went
+      -- to the console instead of the file. Leading redirects also keep the
+      -- space before `>` out of what is written.
       cbindgen = [[
 @echo off
 if not "%1"=="--output" exit /b 2
-(
-echo typedef struct TinyBox { int value; } TinyBox;
-echo void tiny_destroy(TinyBox *value);
-echo TinyBox *tiny_create(int value);
-echo int tiny_drops(void);
-) > "%2"
+> "%2" echo typedef struct TinyBox { int value; } TinyBox;
+>> "%2" echo void tiny_destroy(TinyBox *value);
+>> "%2" echo TinyBox *tiny_create(int value);
+>> "%2" echo int tiny_drops(void);
 ]]
    else
       command = "./cbindgen"
