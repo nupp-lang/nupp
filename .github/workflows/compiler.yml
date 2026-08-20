@@ -26,17 +26,26 @@ jobs:
   compiler:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # A timeout is here to end a hang, so it has to sit above the work rather
+    # than across it. Windows ran 24m48s and 29m36s on its green runs and was
+    # killed at exactly 30 on a slower runner, which reads as a cancelled job
+    # and is really a suite that was still going. A killed job also skips its
+    # post steps, so it never saved the caches above and would have missed
+    # every time.
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: Linux x64
             os: ubuntu-24.04
+            timeout: 30
           - name: macOS arm64
             os: macos-15
+            timeout: 30
           - name: Windows x64
             os: windows-2022
+            timeout: 45
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
