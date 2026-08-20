@@ -982,16 +982,34 @@ function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
       Field = true,
       Entry = true,
       Node = true,
+      SoAField = true,
+      SoAInfo = true,
       Info = true,
       FieldCodecBlueprint = true,
       FieldCodec = true,
       fieldCodec = true,
    }
+   local examples = {
+      AnnotationArgument = true,
+      Field = true,
+      Node = true,
+      SoAInfo = true,
+      Info = true,
+      FieldCodec = true,
+      fieldCodec = true,
+   }
+   local _, moduleExamples = reflect.doc.text:gsub("```nupp", "")
+   assert(moduleExamples >= 2, "nupp.reflect needs root and graph examples")
    for _, member in ipairs(reflect.members) do
       if expected[member.name] then
          assert(member.text ~= "", "nupp.reflect." .. member.name
             .. " has no documentation")
          expected[member.name] = nil
+      end
+      if examples[member.name] then
+         assert(member.text:find("```nupp", 1, true),
+            "nupp.reflect." .. member.name .. " has no source example")
+         examples[member.name] = nil
       end
       if member.name == "fieldCodec" then
          assert(member.comptimeKind == "function",
@@ -1000,6 +1018,9 @@ function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
    end
    for name in pairs(expected) do
       error("the prelude did not document nupp.reflect." .. name)
+   end
+   for name in pairs(examples) do
+      error("the prelude did not keep the nupp.reflect." .. name .. " example")
    end
 end
 
