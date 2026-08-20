@@ -112,21 +112,41 @@ local SCRIPT = [[
     requestAnimationFrame(revealCurrentSidebarPage);
 
     const mobileToggle = document.querySelector("[data-mobile-nav-toggle]");
+    const mobileNavHistoryKey = "nuppMobileNavOpen";
+    const mobileViewport = matchMedia("(max-width: 760px)");
+    const setMobileNavOpen = (open) => {
+        document.body.classList.toggle("is-mobile-nav-open", open);
+        mobileToggle?.setAttribute("aria-expanded", String(open));
+        if (open) requestAnimationFrame(revealCurrentSidebarPage);
+    };
+    const restoreMobileNav = (state = history.state) => {
+        setMobileNavOpen(mobileViewport.matches && state?.[mobileNavHistoryKey] === true);
+    };
     const closeMobileNav = () => {
-        document.body.classList.remove("is-mobile-nav-open");
-        mobileToggle?.setAttribute("aria-expanded", "false");
+        if (!document.body.classList.contains("is-mobile-nav-open")) return;
+        if (history.state?.[mobileNavHistoryKey] === true) {
+            history.back();
+        } else {
+            setMobileNavOpen(false);
+        }
     };
     mobileToggle?.addEventListener("click", () => {
-        const open = !document.body.classList.contains("is-mobile-nav-open");
-        document.body.classList.toggle("is-mobile-nav-open", open);
-        mobileToggle.setAttribute("aria-expanded", String(open));
-        if (open) requestAnimationFrame(revealCurrentSidebarPage);
+        if (document.body.classList.contains("is-mobile-nav-open")) {
+            closeMobileNav();
+            return;
+        }
+        history.pushState(
+            {...history.state, [mobileNavHistoryKey]: true},
+            "",
+            location.href
+        );
+        setMobileNavOpen(true);
     });
+    addEventListener("popstate", (event) => restoreMobileNav(event.state));
+    mobileViewport.addEventListener("change", () => restoreMobileNav());
+    restoreMobileNav();
     document.querySelector("[data-mobile-nav-close]")
         ?.addEventListener("click", closeMobileNav);
-    sidebar?.addEventListener("click", (event) => {
-        if (event.target.closest("a")) closeMobileNav();
-    });
 
     const outlinePanel = document.querySelector(".nuppdoc-outline");
     const mobileOutlineToggle = document.querySelector("[data-mobile-outline-toggle]");

@@ -2488,6 +2488,10 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(script:find('sidebar?.querySelector(\'a[aria-current="page"]\')',
       1, true), script)
    assert(script:find("sidebar.scrollTop +=", 1, true), script)
+   assert(script:find('const mobileNavHistoryKey = "nuppMobileNavOpen"',
+      1, true), script)
+   assert(script:find("history.pushState(", 1, true), script)
+   assert(script:find("addEventListener(\"popstate\"", 1, true), script)
    local css = readFile(dir .. "/site/assets/style.css")
    assert(css:find("is%-mobile%-nav%-open"), css)
    assert(css:find("%-%-nuppdoc%-hero%-glow%-color"), css)
