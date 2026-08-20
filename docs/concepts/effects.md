@@ -27,6 +27,14 @@ external behavior.
 convention. Its consumers are the checker and optimizations that need to know
 whether a call can invalidate a proof.
 
+::: rationale
+A region asks for proof where it matters — a callback, a C boundary, a cleanup —
+rather than requiring an annotation on every function between there and the
+operation. That is why an ordinary signature stays silent about effects, and it
+is the same reason there is no `async` colouring: one call site works with a
+scheduler installed and without one, so a library never splits into two.
+:::
+
 ## Complete upper bounds
 
 An `@effects` contract is a complete upper bound, not a list of interesting

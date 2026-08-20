@@ -22,6 +22,16 @@ const descriptor = User.reflect()
 print(descriptor.name)
 ```
 
+::: rationale
+A caller supplies the declaration and nothing else. Passing a separate type
+witness beside every value would thread it through every generic that forwards
+the call, so a signature with nothing to do with reflection would acquire a
+parameter because something three layers down wanted one. Format-specific
+behaviour is allocated against the descriptor on first request rather than
+generated per declaration, which would pay for every format on every record that
+mentions it whether or not a value is ever encoded.
+:::
+
 ## Type witnesses
 
 Every record has a visible nominal type value. Its declaration name is a

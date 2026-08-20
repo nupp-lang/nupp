@@ -16,6 +16,16 @@ local record Counter
 end
 ```
 
+::: rationale
+A declared contract is checked against the value that fulfils it, because a
+contract nothing enforces is the same defect as one never written down: it is
+rendered, documented, and never read. Installing one on a record's own table is
+legal because that table *is* the metatable its instances carry — it used to be
+refused with the same message a typo received, so the diagnostic could not tell
+the two mistakes apart. Computed metatables stay gradual, since tracking a
+table's shape through arbitrary construction is a different problem.
+:::
+
 ## Declaring a contract
 
 Declare a metamethod inside a record or interface with `metamethod`, its Lua

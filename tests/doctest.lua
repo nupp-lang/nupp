@@ -2615,7 +2615,7 @@ function M.aRationaleAdmonitionRendersCollapsed()
    local out = html.markdownHtml("::: rationale\nBecause **of this**.\n:::", {})
    assert(out:find('<details class="nuppdoc-admonition nuppdoc-admonition-rationale">',
       1, true), out)
-   assert(out:find('<summary class="nuppdoc-admonition-title">Why it is this way</summary>',
+   assert(out:find('<summary class="nuppdoc-admonition-title">Why is it this way?</summary>',
       1, true), out)
    assert(not out:find("<details open", 1, true),
       "a rationale must arrive collapsed")

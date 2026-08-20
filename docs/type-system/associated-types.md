@@ -24,6 +24,16 @@ the type parameter:
 local function collect<T is Reader>(source: T): {T.Item}
 ```
 
+::: rationale
+`associated type` is a separate word from a nested `type` alias because they are
+different things: an alias is a static namespace member resolved where it is
+written, and an associated type is a contract member answered per implementor.
+Sharing one spelling would have changed the meaning of every existing alias the
+moment its declaration was inherited. The workaround this replaces — writing the
+value type as a parameter of the bound — produces no diagnostic and no
+information, because bounds are checked at instantiation rather than solved.
+:::
+
 ## Four declarations
 
 Where the member is written, and which operator it uses, is the whole of what it

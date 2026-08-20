@@ -94,7 +94,7 @@ local ADMONITION_TITLES = {
     tip = "Tip",
     warning = "Warning",
     danger = "Danger",
-    rationale = "Why it is this way",
+    rationale = "Why is it this way?",
 }
 
 -- A rationale is the one admonition a reader chooses to open. It answers a question

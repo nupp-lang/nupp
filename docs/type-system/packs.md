@@ -11,6 +11,14 @@ local function apply<A..., R...>(callback: function(A...): R..., ...: A...): R..
 end
 ```
 
+::: rationale
+Correlation is flow state rather than part of a type, because a type carrying it
+would leak into every signature mentioning a correlated local and make two
+identically typed values non-interchangeable. Keeping it in the flow makes it
+precise where it is observable and absent where it is not — which is why storing
+a result or returning results separately drops it.
+:::
+
 ## Syntax
 
 ```nupp

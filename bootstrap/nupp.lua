@@ -71813,7 +71813,7 @@ info = "Info" ,
 tip = "Tip" ,
 warning = "Warning" ,
 danger = "Danger" ,
-rationale = "Why it is this way" ,
+rationale = "Why is it this way?" ,
 }
 
 

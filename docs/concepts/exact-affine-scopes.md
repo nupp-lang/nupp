@@ -26,6 +26,14 @@ leaves through loop control or an outward `goto`. For writable SoA and span
 views, dropping only ends the exclusive borrow: stores already changed the
 original columns, so the scope performs no flush or copy.
 
+::: rationale
+This survives beside automatic destruction because it guarantees something
+automatic destruction cannot: that the value is inaccessible and cannot escape,
+over one exact extent. It was in fact removed once the general case was covered,
+and then restored — a general feature subsumes a specific one only if it provides
+the specific one's guarantee, not merely its common use case.
+:::
+
 ## Syntax
 
 One acquisition is the common form:

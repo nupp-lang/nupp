@@ -31,6 +31,15 @@ local struct Pixel
 end
 ```
 
+::: rationale
+Choosing between a record and a struct is a declaration rather than an
+optimization the compiler makes, because the two have genuinely different
+runtime meanings: a struct is FFI cdata with a fixed layout and no hash part, and
+a record is a table with a metatable, identity, and dynamism. A compiler that
+picked for you would be choosing your memory representation from a type
+annotation, and would be wrong the first time a value crossed a C boundary.
+:::
+
 ## Records
 
 ```nupp:playground

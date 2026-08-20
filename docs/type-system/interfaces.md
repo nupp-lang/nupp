@@ -13,6 +13,15 @@ Members and indexers may be declared `readonly` and `writeonly` independently.
 This controls both access and variance; see
 [property capabilities](properties.md).
 
+::: rationale
+An interface emits no runtime table, so `is` against one is answered by static
+elision, by a tag its own literal-typed fields already declare, or by a
+`satisfies` test it names. Registering conformance on every declaration was
+designed and verified, then declined: elision and tags already answered every
+case but an untagged interface against a subject whose type does not prove it,
+which is one case against a runtime table on every interface in the language.
+:::
+
 ## Satisfaction is structural
 
 A type satisfies an interface by carrying its members. No declaration is

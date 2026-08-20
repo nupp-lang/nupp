@@ -299,8 +299,9 @@ deleted, not retitled.
 
 `::: rationale` is the third job and renders collapsed, because it answers a
 question the page did not raise. One per page, near the construct it explains:
-why the design is shaped this way, in two to four sentences, ending with a link
-to the [proposal](neps/) that holds the full record.
+why the design is shaped this way, in two to four sentences. Where a
+[proposal](neps/) covers the decision, end with a link to it; most decisions
+have none, and then the block is the whole record.
 
 It carries the *current* design only. A rejected alternative, a superseded
 spelling, or an attempt that was withdrawn belongs in the proposal — this page

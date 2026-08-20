@@ -26,6 +26,14 @@ end
 
 `s is m.Circle` becomes `type(s) == "table" and s.kind == "circle"`.
 
+::: rationale
+A value enters a refinement through an operation rather than an annotation,
+because the annotation alone used to generate exactly the same Lua as writing
+nothing. A name that reads as a guarantee and establishes nothing is worse than
+no name at all: every consumer that wanted the fact could not use it, and every
+reader believed something untrue.
+:::
+
 ## Refinements are functions of the value
 
 It is written as one, in either spelling a function takes anywhere else: the

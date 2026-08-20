@@ -23,6 +23,15 @@ end
 
 `{x, y} = position` means `x = position.x, y = position.y` and nothing more.
 
+::: rationale
+A plucked operand is restricted to a name or a dotted path because that is what
+earns the two properties above it: reads can be unordered only when none can
+observe another's effects, and each path can be evaluated once only because it is
+re-evaluable. The cost of the feature is that parameter names become part of the
+call contract, so renaming one is a source-compatibility question — the same
+bargain Python and Swift make.
+:::
+
 ## Bind fields into locals
 
 The same braces select fields for `local` and `const` declarations. The source

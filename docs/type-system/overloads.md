@@ -21,6 +21,15 @@ const parsed: Ast = decode("name")
 const rebuilt: Ast = decode({"name"})
 ```
 
+::: rationale
+There is no ranking because ranking rules are the part of overloading every
+language regrets: each is defensible, the set is unmemorable, and a reader of a
+call site cannot tell which candidate ran without consulting a table. Requiring
+exactly one acceptance trades expressiveness for the property that a call means
+what it appears to mean, and turns a tie into a message rather than a silent
+choice.
+:::
+
 ## Callable intersections
 
 An intersection containing only function types is an overload contract:
