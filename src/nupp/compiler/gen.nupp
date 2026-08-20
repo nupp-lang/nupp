@@ -5771,7 +5771,14 @@ function gen.generate(
                     cleanupError
                 )
             )
+            -- Only a frame in this same function can be handed the exit. A
+            -- function nested inside an enclosing region sees that region's frame
+            -- on the stack, and forwarding to it would return the completion tag
+            -- out of the nested function instead of the values it produced.
             local parent = cleanupStack[#cleanupStack]
+            if parent and parent.functionDepth ~= ctx.functionDepth then
+                parent = nil
+            end
             e(("if %s==\"return\" then "):format(tag))
             if parent then
                 e(("return \"return\",%s"):format(payload))

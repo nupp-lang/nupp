@@ -597,4 +597,21 @@ function M.automaticLoweringEmitsLoadableCleanupRegions()
    assert(loadstring(code, "@automatic-cleanup-lowering"), code)
 end
 
+function M.aNestedFunctionReturnsValuesThroughItsOwnRegion()
+   local chunk = compile(PRELUDE .. table.concat({
+      "",
+      "local outer = open_resource('o')",
+      "local function inner(): (string, integer)",
+      "   local value = open_resource('i')",
+      "   return value.name, 2",
+      "end",
+      "local name, count = inner()",
+      "return name, count, calls",
+   }, "\n"))
+   local name, count, calls = chunk()
+   assertEq(name, "i")
+   assertEq(count, 2)
+   assertEq(calls, "i")
+end
+
 return M
