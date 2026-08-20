@@ -187,7 +187,7 @@ local function sidebar(modules, current, prefix, pages, currentPath)
         -- An unlisted page is reachable and not navigable: a collection publishes one
         -- index that links its documents, and listing every document beside it would
         -- bury the sections a reader is actually choosing between.
-        if candidate.path ~= "" and not candidate.module and not candidate.unlisted then
+        if candidate.path ~= "" and not candidate.module and not candidate.unlisted and not candidate.api then
             -- A route with no segment after the first still belongs in the section its
             -- name gives, rather than in an "other pages" bucket beside it.
             local key = candidate.path:match("^([^/]+)") or "Pages"
@@ -238,6 +238,20 @@ local function sidebar(modules, current, prefix, pages, currentPath)
         prefix,
         ""
     )
+    -- A library Nupp documents without owning sits beside `nupp` rather than in the
+    -- handwritten sections, because a reader looking a name up does not know which of
+    -- the two libraries declared it until they have found it.
+    for _, candidate in ipairs(pages or {}) do
+        if candidate.api then
+            local active = candidate.path == currentPath and ' aria-current="page"' or ""
+            out[
+                #out + 1
+            ] = '<li><a' .. active .. ' href="' .. pageLink(
+                prefix,
+                candidate.path
+            ) .. '">' .. htmlEscape(candidate.title) .. "</a></li>"
+        end
+    end
     out[#out + 1] = "</ul></details></li></ul></aside>"
 
     return table.concat(out)

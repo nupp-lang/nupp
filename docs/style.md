@@ -31,8 +31,8 @@ Every page opens the same way.
 1. **An H1 that names the subject.** A noun phrase, sentence case, no
    punctuation: `# Records and structs`, `# Explicit resource scopes`,
    `# Effect contracts`.
-2. **One to three sentences of intro.** What it is, and why a reader would
-   reach for it. Not history, not motivation, not a promise about later
+2. **Two sentences of intro, at most.** What it is, and what a reader reaches
+   for it for. Not history, not motivation, not a promise about later
    sections.
 
    Sentences, with a subject and a verb. "How a Nupp program becomes one file
@@ -54,6 +54,14 @@ written the heading and named the module above it. An H1 of its own lands
 directly under that one and says the subject twice, so such a page opens at
 step 2, with the sentence that says what the module is. The generated page
 supplies the heading; the overview supplies everything a generator cannot know.
+
+**A module page does not re-document its submodules.** The generated reference
+already lists every member of every one of them, and each submodule that needs
+prose has an overview page of its own. What a parent module owes a reader is
+the thread running through the whole module: the type its submodules pass
+around, the resource discipline they share, the order they are used in. A
+submodule is named in a sentence and linked, never given a section that repeats
+its surface one level up.
 
 ## Titles
 
@@ -119,7 +127,7 @@ which is the intro's job. Name the subject and stop.
 | --- | --- |
 | Signing, and what macOS does about it | Signing for macOS |
 | Strict floor, and which files hold it | Strict floor |
-| Four declarations, and what each promises | Four declarations |
+| Four declarations, and what each promises | Declaration kinds |
 
 A title listing several subjects is not this. "Writes, shapes, and metatables"
 enumerates what the section covers, and that is what a title is for.
@@ -136,7 +144,20 @@ its section is about. Drop the second half, or say the fact plainly.
 | Conservation, not re-derivation | Preservation conserves capabilities |
 | Operators, not methods | Element access is operators |
 | Two owners, one seam | Compiler and host responsibilities |
-| Six verdicts, each as strong as its evidence | Six verdicts |
+| Six verdicts, each as strong as its evidence | Verdicts |
+
+**A title does not count its contents.** "Three modes", "Six guarantees" and
+"Two places to opt in" put a number where the subject goes. The number is not
+what a reader is scanning for, it says nothing about which section this is, and
+it is wrong the first time a mode is added. Name the thing.
+
+| Banned | Write instead |
+| --- | --- |
+| Three modes | Formatter modes |
+| Six guarantees | Ownership guarantees |
+| Two places to opt in | Opting in |
+| Four declarations | Declaration kinds |
+| Three passes, one order | Pass order |
 
 **A title names its object.** "Configuring one" makes a reader scroll up to
 find out what "one" was, and an outline of them says nothing at all. Name the
@@ -176,12 +197,18 @@ the fact.
 | Where the escape hatches are | Escape hatches |
 | How fast an intrinsic call is | Intrinsic call cost |
 
-Sentence case. No trailing colons or question marks outside an FAQ. A page may
-end with `## FAQ` when several recurring questions need short answers before
-the reader enters the complete reference. Each entry is an H3 containing one
-full question and ending in a question mark. Outside that section, a question
-as a heading is a fact the page has not committed to yet. Stop at H5; reaching
-H6 usually means the page should split.
+Sentence case. No trailing colons or question marks outside an FAQ. Outside
+that section, a question as a heading is a fact the page has not committed to
+yet. Stop at H5; reaching H6 usually means the page should split.
+
+**A page ends with `## FAQ`** when readers keep arriving with questions its own
+order cannot answer: a comparison against the thing they came from, a limit
+they expect to hit, a decision between two constructs the page introduced
+separately. Each entry is an H3 holding one complete question, ending in a
+question mark, answered in two or three sentences and a link. A concept page, a
+type-system page or a guide is where this earns its place. Do not invent
+questions to fill a section: three real ones are a good FAQ and eight invented
+ones are padding.
 
 ## Openings
 
@@ -204,6 +231,28 @@ reader tracks the change, not the cast.
 Order sections so a reader can stop early and still be correct. The common case
 comes first, the escape hatch last. `unsafe do` is at the bottom of the
 ownership page for a reason.
+
+## Section length
+
+A section is one idea, the example that shows it, and the diagnostic that
+catches it being got wrong. Longer than that and it is two sections sharing a
+heading.
+
+- **A long section without an example earns one.** Prose that runs past a
+  screen with no code asks the reader to hold the rule in their head and check
+  it against code that is not there yet. Show the rule instead of describing
+  it.
+- **Cut before splitting.** A section is usually long because it says one thing
+  twice: once as prose and once as a caveat, or once in the intro and once at
+  the end. Delete the second one, and most sections come back under length on
+  their own.
+- **Split what survives into H3s.** Each subsection takes one part of the idea
+  and its own example. The subsection titles follow every rule above: they name
+  their subject, and they do not count themselves.
+- **A wall of code is several examples.** One block that shows five constructs
+  teaches none of them, because nothing in it says which line the paragraph was
+  about. Break it into the smallest program per construct, each one adding one
+  idea to the last.
 
 ## Code examples
 
@@ -257,6 +306,13 @@ Link generously. A page is a node, not a document.
 - Say what is on the other end, as in `See
   [ownership.md](type-system/ownership.md) for the complete contract reference`.
   Never a bare "see here" or a naked URL.
+- **Send the reader; do not describe the destination.** A cross-reference is an
+  instruction, so write it as one: "See [NEP 5](neps/0005-suspension.md) for
+  more information." A sentence about the target instead, as in "NEP 5 has the
+  full record" or "the ownership page covers this", leaves the reader to work
+  out that they were being sent somewhere.
+- A `::: seealso` block collects the links a section would otherwise scatter.
+  See [Admonitions](#see-also) for when one earns its place.
 - Diagnostic codes link to the reference anchor the compiler already emits, so a
   code in prose and a code in terminal output land in the same place.
 - Doc comments in `src/` link the same way. A `---` block that names a concept
@@ -297,19 +353,53 @@ table. A table with one row is a sentence.
 Two per page is a lot. An admonition that restates the prose above it is
 deleted, not retitled.
 
-`::: rationale` is the third job and renders collapsed, because it answers a
-question the page did not raise. One per page, near the construct it explains:
-why the design is shaped this way, in two to four sentences. Where a
-[proposal](neps/) covers the decision, end with a link to it; most decisions
-have none, and then the block is the whole record.
+### See also
 
-It carries the *current* design only. A rejected alternative, a superseded
-spelling, or an attempt that was withdrawn belongs in the proposal — this page
-is rewritten when behaviour changes, and anything about a design that no longer
-exists is rewritten with it. That is the whole reason proposals are separate
-files.
+`::: seealso` renders as an aside titled "See also", in its own color, and
+holds the pages a reader who finished this section goes to next. Each line is
+one link and what is on the other end of it.
 
-A rationale that grows past a few sentences was proposal content. Move it, do
+```markdown
+::: seealso
+- [ownership.md](type-system/ownership.md) for the complete contract reference
+- [c-interop.md](concepts/c-interop.md) for what a C boundary adds to it
+:::
+```
+
+One at the end of a section, or at the end of the page, where the links would
+otherwise be scattered through the prose or missing entirely. A single link a
+sentence can carry is a sentence, not a block, and a `seealso` never repeats a
+link the section already made in passing.
+
+### Dive deeper
+
+`::: deepdive` renders collapsed under "Dive deeper", because it answers a
+question the page did not raise: why the design is shaped the way it is, what
+it was weighed against, and what that cost.
+
+- **It goes under the section that introduces the construct**, not at the top
+  of the page. A reader who has not met the thing yet has no question to
+  answer. A page whose intro is itself the whole introduction to the idea is
+  the one exception.
+- **A clause of prose beats a block.** "To avoid a segfault, Nupp pins the root
+  for the region's lifetime" is the entire explanation, delivered in the
+  sentence that needed it. Open a block when the constraints, the alternatives,
+  or the cost run to several sentences.
+- **Write one only where there is something to say.** A deep dive that restates
+  the paragraph above it is deleted, and a page that has no design decision
+  worth recording has no deep dive.
+- **A code example inside one is fine** where the design is easier to see than
+  to describe.
+
+A deep dive carries the *current* design only. A rejected alternative, a
+superseded form, or an attempt that was withdrawn belongs in the
+[proposal](neps/). This page is rewritten when behavior changes, and anything
+about a design that no longer exists is rewritten with it, which is the whole
+reason proposals are separate files. Where a proposal covers the decision, end
+with a link to it; most decisions have none, and then the block is the whole
+record.
+
+A deep dive that grows past a few paragraphs was proposal content. Move it, do
 not expand it.
 
 ## Voice
@@ -425,12 +515,17 @@ The rest is formatting, and none of it is negotiable per page:
 Before a page lands:
 
 - The H1 names the subject, and no heading below it describes the writing.
-- The intro is three sentences or fewer and a code example is visible without
+- The intro is two sentences or fewer and a code example is visible without
   scrolling.
+- No heading counts its own contents, and no section runs past a screen without
+  an example or a subheading.
 - Every example compiles, and each adds one idea to the one before it.
 - Every concept with a page of its own is linked on first mention, by heading
   where a heading answers it.
 - Diagnostic code lists live on [diagnostics.md](reference/diagnostics.md).
+- Every cross-reference says "see" and says what is on the other end.
+- A deep dive sits under the section that introduced its construct, and says
+  something the prose does not.
 - Tables are Markdown pipe tables; two-column key → value is a list.
 - No "we", no filler, no marketing adjective, no hedge that hides a condition.
 - Prose wraps at 80 columns and untouched paragraphs are unreflowed.

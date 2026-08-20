@@ -24,7 +24,7 @@ anchor, so ordinary Lua pays nothing. Cleanup attaches to a producer rather than
 to a type alone because the same file type covers a handle you must close and
 one you must not — attaching it to the type would close `stdout`.
 
-[NEP 5](../neps/0005-ownership.md) has the full record.
+[NEP 4](../neps/0004-ownership.md) has the full record.
 :::
 
 ## Exact cleanup policies

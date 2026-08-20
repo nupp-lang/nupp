@@ -64,7 +64,7 @@ any option producing a second description of a module's surface was ruled out
 however cheap it was to build, because the second copy is the one that goes
 stale.
 
-[NEP 8](../neps/0008-modules-and-lazy-loading.md) has the full record.
+[NEP 7](../neps/0007-modules-and-lazy-loading.md) has the full record.
 :::
 
 ## Canonical names

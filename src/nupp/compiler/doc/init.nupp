@@ -106,10 +106,13 @@ type doc.Settings = {
 --- A page the compiler generated: the route it asked for, its title, and its markdown.
 --- Both the diagnostic index and the standard library index answer with one of these,
 --- because a page assembled from what the compiler knows is configured by nothing but
---- where it should live.
+--- where it should live. `source` names the handwritten file a generated page opens
+--- with, so a link written against that path still resolves.
 type doc.Generated = {
     markdown: string,
     path: string,
+    redirects: {string}?,
+    source: string?,
     title: string
 }
 
@@ -440,6 +443,18 @@ end
 -- expanding one there produces a fence inside a fence: the inner block's closing line
 -- ends the outer one, and every heading after it is swallowed by the block the leftover
 -- opening starts. This page documents the directive, so it is the case that matters.
+-- YAML front matter is metadata for whatever else reads the file, and the page starts
+-- after it. A document collection reads the same block for its own listing, so removing
+-- it here is a rendering decision rather than a loss.
+local function stripFrontMatter(source: string): string
+    if source:sub(1, 4) ~= "---\n" then
+        return source
+    end
+    local ending = source:find("\n---\n", 5, true)
+
+    return ending and source:sub(ending + 5) or source
+end
+
 local function embedFiles(root, markdown)
     local out, fence = {}, nil
     for line in (markdown .. "\n"):gmatch("(.-)\n") do
@@ -518,13 +533,7 @@ local function configuredPages(root, settings, title)
                 if not source then
                     return nil, err
                 end
-                if source:sub(1, 4) == "---\n" then
-                    local ending = source:find("\n---\n", 5, true)
-                    if ending then
-                        source = source:sub(ending + 5)
-                    end
-                end
-                source, err = embedFiles(root, source)
+                source, err = embedFiles(root, stripFrontMatter(source))
                 if not source then
                     return nil, err
                 end
@@ -547,7 +556,7 @@ local function configuredPages(root, settings, title)
     -- out. The diagnostic codes and the standard library declarations are both the
     -- compiler's own, so a manifest carrying either would be a copy that goes stale the
     -- first time the compiler changed.
-    local function addGenerated(generated: doc.Generated?, what: string): boolean?, string?
+    local function addGenerated(generated: doc.Generated?, what: string, api: boolean?): boolean?, string?
         if not generated then
             return true
         end
@@ -559,16 +568,46 @@ local function configuredPages(root, settings, title)
             return nil, what .. " collides with a configured page: " .. route
         end
         seen[route] = true
-        pages[#pages + 1] = {path = route, title = generated.title, markdown = generated.markdown}
+        pages[#pages + 1] = {
+            path = route,
+            title = generated.title,
+            markdown = generated.markdown,
+            source = generated.source,
+            redirects = generated.redirects,
+            api = api
+        }
 
         return true
     end
 
-    local added, addErr = addGenerated(diagnosticsMod.page(settings.diagnostics, published), "diagnostic index")
+    -- The diagnostics page is one page written two ways: the prose a person wrote about
+    -- what a diagnostic is, and the index the compiler generates from its own codes. A
+    -- reader learning the format and a reader holding a code are the same reader a
+    -- minute apart, so they are not two routes.
+    local diagnosticsSettings = settings.diagnostics
+    if diagnosticsSettings and diagnosticsSettings.source then
+        local prose, proseErr = readFile(join(root, diagnosticsSettings.source))
+        if not prose then
+            return nil, proseErr
+        end
+        prose, proseErr = embedFiles(root, stripFrontMatter(prose))
+        if not prose then
+            return nil, proseErr
+        end
+        diagnosticsSettings = {
+            path = diagnosticsSettings.path,
+            title = diagnosticsSettings.title,
+            source = diagnosticsSettings.source,
+            redirects = diagnosticsSettings.redirects,
+            prose = prose
+        }
+        published[diagnosticsSettings.source] = true
+    end
+    local added, addErr = addGenerated(diagnosticsMod.page(diagnosticsSettings, published), "diagnostic index")
     if not added then
         return nil, addErr
     end
-    added, addErr = addGenerated(stdlibMod.page(settings.stdlib), "standard library index")
+    added, addErr = addGenerated(stdlibMod.page(settings.stdlib), "standard library index", true)
     if not added then
         return nil, addErr
     end

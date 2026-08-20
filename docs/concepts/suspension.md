@@ -27,7 +27,7 @@ coroutine yield, and that permission rests on a trusted handler contract rather
 than a proof: the checker cannot prove anything about an arbitrary scheduler's
 cancellation behaviour.
 
-[NEP 6](../neps/0006-suspension.md) has the full record.
+[NEP 5](../neps/0005-suspension.md) has the full record.
 :::
 
 ## Communicate blocks or parks

@@ -29,6 +29,8 @@ local stdlib = {}
 type stdlib.Page = {
     markdown: string,
     path: string,
+    redirects: {string}?,
+    source: string?,
     title: string
 }
 

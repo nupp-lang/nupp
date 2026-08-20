@@ -227,20 +227,24 @@ return {
             public = "docs/public",
             customCss = "docs/public/nupp.css",
             lexers = "docs/lexers",
-            -- Every diagnostic code on one page, generated from what `nupp explain`
-            -- knows. Listing them here instead would be a copy of the compiler's
-            -- own table, stale the first time a code is added. It sits beside the
-            -- page that says what a diagnostic is, which is what it indexes.
+            -- Every diagnostic code, generated from what `nupp explain` knows and
+            -- appended to the handwritten page that says what a diagnostic is.
+            -- Listing them here instead would be a copy of the compiler's own
+            -- table, stale the first time a code is added.
             diagnostics = {
-               path = "reference/diagnostic-index",
-               title = "Diagnostic index",
+               path = "reference/diagnostics",
+               title = "Diagnostics",
+               source = "docs/reference/diagnostics.md",
+               redirects = { "reference/diagnostic-index" },
             },
             -- The LuaJIT surface on one page, read from the declarations the
             -- checker itself loads. The prelude is public API written in a
             -- private tree, so without this the one library every program uses
-            -- is the one the site never shows.
+            -- is the one the site never shows. It sits in the API reference
+            -- beside `nupp`, because a reader looking a name up does not know
+            -- which of the two libraries declared it until they have found it.
             stdlib = {
-               path = "reference/luajit",
+               path = "modules/luajit",
                title = "LuaJIT standard library",
             },
             pages = {
@@ -561,14 +565,20 @@ nupp lsp            # start the language server]],
                   source = "docs/concepts/calls.md",
                },
                {
+                  path = "concepts/metamethods",
+                  title = "Metamethods",
+                  source = "docs/concepts/metamethods.md",
+               },
+               {
                   path = "concepts/switch-expressions",
                   title = "Switch expressions",
                   source = "docs/concepts/switch-expressions.md",
                },
                {
-                  path = "concepts/declarations",
-                  title = "Declarations and modules",
-                  source = "docs/concepts/declarations.md",
+                  path = "concepts/modules",
+                  title = "Modules",
+                  source = "docs/concepts/modules.md",
+                  redirects = { "concepts/declarations" },
                },
                {
                   path = "concepts/ownership",
@@ -581,6 +591,16 @@ nupp lsp            # start the language server]],
                   source = "docs/concepts/exact-affine-scopes.md",
                },
                {
+                  path = "concepts/comptime",
+                  title = "Comptime",
+                  source = "docs/concepts/comptime.md",
+               },
+               {
+                  path = "concepts/reflection",
+                  title = "Reflection",
+                  source = "docs/concepts/reflection.md",
+               },
+               {
                   path = "concepts/suspension",
                   title = "Suspension",
                   source = "docs/concepts/suspension.md",
@@ -590,11 +610,6 @@ nupp lsp            # start the language server]],
                   path = "concepts/workers",
                   title = "Workers",
                   source = "docs/concepts/workers.md",
-               },
-               {
-                  path = "concepts/effects",
-                  title = "Effect contracts",
-                  source = "docs/concepts/effects.md",
                },
                {
                   path = "concepts/c-interop",
@@ -612,24 +627,9 @@ nupp lsp            # start the language server]],
                   source = "docs/concepts/standard-library.md",
                },
                {
-                  path = "concepts/paths-and-uris",
-                  title = "Paths and URIs",
-                  source = "docs/concepts/paths-and-uris.md",
-               },
-               {
-                  path = "concepts/metamethods",
-                  title = "Metamethods",
-                  source = "docs/concepts/metamethods.md",
-               },
-               {
-                  path = "concepts/comptime",
-                  title = "Comptime",
-                  source = "docs/concepts/comptime.md",
-               },
-               {
-                  path = "concepts/reflection",
-                  title = "Reflection",
-                  source = "docs/concepts/reflection.md",
+                  path = "concepts/effects",
+                  title = "Effect contracts",
+                  source = "docs/concepts/effects.md",
                },
                {
                   path = "getting-started/tooling",
@@ -759,6 +759,17 @@ nupp lsp            # start the language server]],
                   source = "docs/modules/nupp/io.md",
                },
                {
+                  path = "modules/nupp/io/path",
+                  title = "nupp.io.path",
+                  source = "docs/modules/nupp/io/path.md",
+                  redirects = { "concepts/paths-and-uris" },
+               },
+               {
+                  path = "modules/nupp/io/uri",
+                  title = "nupp.io.uri",
+                  source = "docs/modules/nupp/io/uri.md",
+               },
+               {
                   path = "modules/nupp/log",
                   title = "nupp.log",
                   source = "docs/modules/nupp/log.md",
@@ -873,11 +884,6 @@ nupp lsp            # start the language server]],
                   path = "reference/lints",
                   title = "Lints",
                   source = "docs/reference/lints.md",
-               },
-               {
-                  path = "reference/diagnostics",
-                  title = "Diagnostics",
-                  source = "docs/reference/diagnostics.md",
                },
                {
                   path = "reference/distribution",

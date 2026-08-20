@@ -27,7 +27,7 @@ behaviour is then the behaviour of no version of the source. The host owns the
 commit boundary because there is no generally safe moment to swap an
 implementation, and only the program knows which one it is in.
 
-[NEP 7](../neps/0007-hot-reload.md) has the full record.
+[NEP 6](../neps/0006-hot-reload.md) has the full record.
 :::
 
 ## Start, edit, reload

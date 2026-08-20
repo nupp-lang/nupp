@@ -31,7 +31,7 @@ physical facts only: what a call borrows, takes, retains, or releases is not in
 the header, so deriving it would be invention at exactly the boundary where
 invention is most expensive.
 
-[NEP 9](../neps/0009-c-interop-and-embedding.md) has the full record.
+[NEP 8](../neps/0008-c-interop-and-embedding.md) has the full record.
 :::
 
 ## Export ordinary structs to C

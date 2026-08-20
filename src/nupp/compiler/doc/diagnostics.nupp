@@ -9,17 +9,18 @@ rule, shows the program that reports it, and shows the same program corrected.
 That is `nupp explain` rendered as a page rather than said a second time, so the
 two can not disagree.
 
-One page rather than one page per code, because an index is a thing a reader
-searches: the browser's own find reaches every code, rule and program at once,
-and the whole set stays open in one tab. That is also why the programs are
+The index is appended to the handwritten page that says what a diagnostic is,
+which the manifest names as `source`. One page rather than two, because a reader
+learning the format and a reader holding a code are the same reader a minute
+apart. One page rather than one page per code, because an index is a thing a
+reader searches: the browser's own find reaches every code, rule and program at
+once, and the whole set stays open in one tab. That is also why the programs are
 highlighted text rather than embedded editors. Text inside an editor frame is
 not findable, so each carries a link that opens it in the playground instead.
 
 Codes that resolve only through their family are left out. The family answers
 for all of them at once, and a section under a number that adds nothing to it
-would be padding. See
-[docs/reference/diagnostics.md](../../../../docs/reference/diagnostics.md) for
-the families themselves.
+would be padding.
 ]]
 
 local explainMod = require("nupp.compiler.explain")
@@ -28,16 +29,25 @@ local lintsMod = require("nupp.compiler.lints")
 
 local diagnostics = {}
 
---- The generated page: the route it is written to, its title, and its markdown.
+--- The generated page: the route it is written to, its title, its markdown, and the
+--- handwritten file whose prose opens it.
 type diagnostics.Page = {
     markdown: string,
     path: string,
+    redirects: {string}?,
+    source: string?,
     title: string
 }
 
---- Where a manifest asked the index to live, and what to call it.
+--- Where a manifest asked the index to live, what to call it, and the handwritten page
+--- it opens with. `source` is the repository path, which the site uses to resolve links
+--- written against it; `prose` is that file already read, because this module assembles
+--- markdown rather than reading files.
 type diagnostics.Settings = {
     path: string?,
+    prose: string?,
+    redirects: {string}?,
+    source: string?,
     title: string?
 }
 
@@ -45,7 +55,7 @@ type diagnostics.Settings = {
 --- reference a code carries can be linked or only named.
 type diagnostics.Published = {[string]: boolean}
 
--- The heading slug the renderer gives `### NUPP2107`, which is what an in-page
+-- The heading slug the renderer gives `#### NUPP2107`, which is what an in-page
 -- link to that code has to spell.
 local function anchor(code: string): string
     return "#" .. code:lower()
@@ -71,7 +81,7 @@ local function section(
     listed: {[string]: boolean},
     published: diagnostics.Published
 ): {string}
-    local out = {"### " .. code, "", entry.summary .. ".", ""}
+    local out = {"#### " .. code, "", entry.summary .. ".", ""}
     if entry.wrong then
         out[#out + 1] = fence("Reported", entry.wrong)
         out[#out + 1] = ""
@@ -147,18 +157,28 @@ function diagnostics.page(settings: diagnostics.Settings?, published: diagnostic
         listed[code] = true
     end
 
-    local out = {
-        "# " .. title,
-        "",
-        "Every code the compiler reports specifically, with the rule it enforces "
+    local out: {string} = {}
+    if settings.prose then
+        out[#out + 1] = (settings.prose:gsub("%s+$", ""))
+        out[#out + 1] = ""
+    else
+        out[#out + 1] = "# " .. title
+        out[#out + 1] = ""
+    end
+    out[#out + 1] = "## Diagnostic index"
+    out[#out + 1] = ""
+    out[
+        #out + 1
+    ] = "Every code the compiler reports specifically, with the rule it enforces "
         .. "and, where one is known, the program that reports it beside the same "
         .. "program corrected. `nupp explain <code>` prints the same thing in a "
-        .. "terminal.",
-        "",
-        "A code that resolves only through its family is not here. The families "
-        .. "are the leading digit, and each one answers for every code under it.",
-        "",
-    }
+        .. "terminal."
+    out[#out + 1] = ""
+    out[
+        #out + 1
+    ] = "A code that resolves only through its family is not here. The families "
+        .. "are the leading digit, and each one answers for every code under it."
+    out[#out + 1] = ""
     local byFamily: {[string]: {string}} = {}
     local order: {string} = {}
     for _, code in ipairs(codes) do
@@ -171,7 +191,7 @@ function diagnostics.page(settings: diagnostics.Settings?, published: diagnostic
         bucket[#bucket + 1] = code
     end
     for _, family in ipairs(order) do
-        out[#out + 1] = "## " .. family
+        out[#out + 1] = "### " .. family
         out[#out + 1] = ""
         for _, code in ipairs(byFamily[family] or {}) do
             local entry = explainMod.lookup(code)
@@ -183,7 +203,13 @@ function diagnostics.page(settings: diagnostics.Settings?, published: diagnostic
         end
     end
 
-    return {path = settings.path or "diagnostics", title = title, markdown = table.concat(out, "\n")}
+    return {
+        path = settings.path or "diagnostics",
+        title = title,
+        source = settings.source,
+        redirects = settings.redirects,
+        markdown = table.concat(out, "\n")
+    }
 end
 
 export = diagnostics

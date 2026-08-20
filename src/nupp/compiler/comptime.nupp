@@ -18,7 +18,7 @@ and everything outside it is a diagnostic rather than a silent difference.
 
 Nothing here reads the file system, the clock, the environment, or a random
 source, and the library surface is an explicit allowlist rather than a
-description of one. See `docs/neps/0004-comptime.md`.
+description of one. See `docs/neps/0003-comptime.md`.
 ]]
 
 local cst = require("nupp.compiler.cst")
@@ -1051,7 +1051,7 @@ evalExpr = function(state, node)
                     "NUPP2411",
                     node,
                     ("%s.%s is unavailable at comptime"):format(library, field),
-                    "the comptime library surface is an allowlist; see docs/neps/0004-comptime.md"
+                    "the comptime library surface is an allowlist; see docs/neps/0003-comptime.md"
                 )
             end
         end

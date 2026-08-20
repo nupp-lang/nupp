@@ -36,7 +36,7 @@ removing the annotation changes performance and artifacts but never the
 source-level result. There is no silent per-function fallback, because a
 contract that degrades quietly is a comment.
 
-[NEP 10](../neps/0010-ahead-of-time-compilation.md) has the full record.
+[NEP 9](../neps/0009-ahead-of-time-compilation.md) has the full record.
 :::
 
 ## Annotation guarantees
@@ -669,7 +669,7 @@ it for you.
 
 There is no vector type, no mask value, no shuffle, and no way to name a width.
 That is deliberate and it is written down in
-[NEP 12](../neps/0012-simd.md):
+[NEP 11](../neps/0011-simd.md):
 an earlier design exposed `F32x8`, `I32x8` and mask values, and it was removed.
 Scalar source already gets target-selected width, masks and divergent control
 flow, exact scalar tails, one spelling that works with the backend off, and the

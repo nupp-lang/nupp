@@ -262,9 +262,10 @@ local PAGE_KEYS = {
     "features",
 }
 
--- The two generated indexes are configured the same way, because the only thing
--- either takes is where it goes.
-local GENERATED_KEYS = {"path", "title"}
+-- The two generated indexes are configured the same way: where the page goes, what to
+-- call it, the routes it answers to under its former names, and the handwritten file
+-- whose prose it opens with.
+local GENERATED_KEYS = {"path", "redirects", "source", "title"}
 
 local HERO_ACTION_KEYS = {"text", "path", "theme"}
 local FEATURE_KEYS = {"icon", "image", "imageAlt", "title", "details", "code", "codeLanguage"}

@@ -2612,15 +2612,15 @@ end
 
 -- Lunamark does not parse `:::` containers itself. The container is lifted out,
 -- while its body goes through the same Lunamark parser as the surrounding page.
-function M.aRationaleAdmonitionRendersCollapsed()
+function M.aDeepDiveAdmonitionRendersCollapsed()
    local html = require("nupp.compiler.doc.html")
-   local out = html.markdownHtml("::: rationale\nBecause **of this**.\n:::", {})
-   assert(out:find('<details class="nuppdoc-admonition nuppdoc-admonition-rationale">',
+   local out = html.markdownHtml("::: deepdive\nBecause **of this**.\n:::", {})
+   assert(out:find('<details class="nuppdoc-admonition nuppdoc-admonition-deepdive">',
       1, true), out)
-   assert(out:find('<summary class="nuppdoc-admonition-title">Why is it this way?</summary>',
+   assert(out:find('<summary class="nuppdoc-admonition-title">Dive deeper</summary>',
       1, true), out)
    assert(not out:find("<details open", 1, true),
-      "a rationale must arrive collapsed")
+      "a deep dive must arrive collapsed")
    assert(out:find("<strong>of this</strong>", 1, true), out)
 
    -- The other kinds keep their always-open aside.
@@ -2628,7 +2628,12 @@ function M.aRationaleAdmonitionRendersCollapsed()
    assert(note:find("<aside class=", 1, true), note)
    assert(not note:find("<details", 1, true), note)
 
-   local titled = html.markdownHtml("::: rationale Why the floor is a file name\nBecause.\n:::", {})
+   local seeAlso = html.markdownHtml("::: seealso\nElsewhere.\n:::", {})
+   assert(seeAlso:find('<aside class="nuppdoc-admonition nuppdoc-admonition-seealso"',
+      1, true), seeAlso)
+   assert(seeAlso:find(">See also</p>", 1, true), seeAlso)
+
+   local titled = html.markdownHtml("::: deepdive Why the floor is a file name\nBecause.\n:::", {})
    assert(titled:find(">Why the floor is a file name</summary>", 1, true), titled)
 end
 

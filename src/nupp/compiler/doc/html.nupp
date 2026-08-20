@@ -10,8 +10,8 @@ a link whose URL contains a bracket, a `*` inside a code span.
 What is not lunamark's is the fenced blocks and `:::` containers. A fence here
 carries more than a language, taking an optional `[caption]` and `:line-numbers`
 with an optional start, and a `::: code-group` gathers several fences into one tabbed
-widget. Note, info, tip, warning, and danger containers become admonitions whose
-bodies are still rendered by lunamark. A Nupp fence is highlighted text like
+widget. Note, info, tip, warning, danger, see-also, and deep-dive containers
+become admonitions whose bodies are still rendered by lunamark. A Nupp fence is highlighted text like
 every other language until it asks for an editor: `:playground` embeds one, so
 that block checks as the reader types, and `playground` remains the explicit
 spelling for an empty editor or example picker. Editing is what a fence opts
@@ -94,13 +94,14 @@ local ADMONITION_TITLES = {
     tip = "Tip",
     warning = "Warning",
     danger = "Danger",
-    rationale = "Why is it this way?",
+    seealso = "See also",
+    deepdive = "Dive deeper",
 }
 
--- A rationale is the one admonition a reader chooses to open. It answers a question
+-- A deep dive is the one admonition a reader chooses to open. It answers a question
 -- the page did not raise, so it is collapsed: the reader following a task scrolls past
 -- it, and the reader who stopped to wonder gets it in one click.
-local COLLAPSED = {rationale = true}
+local COLLAPSED = {deepdive = true}
 
 -- `:line-numbers` on the fence, optionally `:line-numbers=12` when the excerpt starts
 -- somewhere other than the top of a file.

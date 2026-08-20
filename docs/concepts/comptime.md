@@ -43,7 +43,7 @@ adding a third: that language had its own parser, evaluator, budgets, and
 diagnostics, and the compiler's own format-string declaration was 254 lines of
 recursive type-state machine because type position had no loop.
 
-[NEP 4](../neps/0004-comptime.md) has the full record.
+[NEP 3](../neps/0003-comptime.md) has the full record.
 :::
 
 ## Type functions

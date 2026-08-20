@@ -42,7 +42,7 @@ code that is the same language. Raw pointers into collector-managed values are
 never exposed as a public object ABI, which is the line an embedding API is most
 tempted to cross and the one that would constrain the runtime permanently.
 
-[NEP 9](../neps/0009-c-interop-and-embedding.md) has the full record.
+[NEP 8](../neps/0008-c-interop-and-embedding.md) has the full record.
 :::
 
 ## Complete example
