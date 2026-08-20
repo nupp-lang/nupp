@@ -238,6 +238,15 @@ end
     local compiled = __playground_compile(source, "playground.nupp", "strict=1,optimize=0")
     assert(compiled:find('"code"', 1, true), compiled)
     assert(not compiled:find('"reason"', 1, true), compiled)
+
+    -- A program with nothing to report crosses as an empty JSON array and not
+    -- as an empty object: the editor filters and maps whatever it is handed,
+    -- and an unmarked empty Lua table encodes as {}.
+    local clean = 'print("hi")' .. string.char(10)
+    local quiet = __playground_check(clean, "playground.nupp", "strict=1,optimize=0")
+    assert(quiet:find('"diagnostics":[]', 1, true), quiet)
+    local quietCompile = __playground_compile(clean, "playground.nupp", "strict=1,optimize=0")
+    assert(quietCompile:find('"diagnostics":[]', 1, true), quietCompile)
   `);
   lua.lua_close(L);
 });

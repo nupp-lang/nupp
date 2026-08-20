@@ -223,8 +223,11 @@ local env = require("nupp.compiler.env").new(".", {
 -- for hover, and one debounced check (see app.js) behind besides.
 local lastResult = nil
 
+-- Marked as an array so that a clean program's empty list crosses as [] and
+-- not as {}: an unmarked empty Lua table is indistinguishable from an empty
+-- object, and the JS side filters and maps whatever it is handed.
 local function diagList(diags)
-    local out = {}
+    local out = json.asArray({})
     for i, d in ipairs(diags) do
         out[i] = {
             code = d.code, msg = d.msg, severity = d.severity,
