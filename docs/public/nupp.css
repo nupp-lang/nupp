@@ -343,12 +343,14 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .nuppdoc-content h2 {
+  .nuppdoc-content h2,
+  .nuppdoc-content hr {
     border-top-color: #c7913d;
   }
 }
 
-:root[data-theme="dark"] .nuppdoc-content h2 {
+:root[data-theme="dark"] .nuppdoc-content h2,
+:root[data-theme="dark"] .nuppdoc-content hr {
   border-top-color: #c7913d;
 }
 
