@@ -1,0 +1,649 @@
+@!internal
+
+module nupp.mathruntime
+
+--[[
+What `nupp.math` does when it is not inlined.
+
+Most reads of `nupp.math` never reach here. The compiler recognizes the qualified
+paths -- `nupp.math.i32.wrap`, `nupp.math.u32.popcount`, `nupp.math.f32.narrow` and
+the rest -- and lowers them to operations, and the AOT backend emits them as machine
+instructions. What is left for run time is every other way of getting at one: taking
+it as a value, calling it through a local, or reaching a part that has no operation
+behind it.
+
+So this is the same arithmetic written twice, once as a lowering and once as Lua, and
+the two have to agree bit for bit. The families here are written to that standard
+rather than to what reads well: `mul32` splits its arguments into halves because the
+product of two 32-bit values does not fit a double, and every `f32` result is pushed
+through a union because narrowing is what `float` means.
+
+Programs reach all of it as `nupp.math`, whose declaration stays in the prelude
+because the compiler answers most of it directly. What the bootstrap installs is
+`install`, below.
+]]
+
+local ffi = require("ffi")
+
+const band = bit.band
+const bnot = bit.bnot
+const bor = bit.bor
+const bxor = bit.bxor
+const lshift = bit.lshift
+const rshift = bit.rshift
+const arshift = bit.arshift
+const rol = bit.rol
+const ror = bit.ror
+const tobit = bit.tobit
+
+const pi = math.pi
+const tau = 2 * math.pi
+
+--- Reads a signed 32-bit result as the unsigned number naming the same bits.
+local function ui32(value: number): number
+    local wrapped = tobit(value)
+
+    return wrapped < 0 and wrapped + 4294967296 or wrapped
+end
+
+--- Multiplies two 32-bit values without losing the low half.
+---
+--- The exact product needs up to 64 bits and a double carries 53, so the high half of
+--- one factor is multiplied separately and folded back in already truncated. Only the
+--- low 32 bits survive either way, which is what the operation is defined to answer.
+local function mul32(a: number, c: number): number
+    local al, cl = a % 65536, c % 65536
+    local ah, ch = math.floor(a / 65536), math.floor(c / 65536)
+
+    return tobit(al * cl + ((ah * cl + al * ch) % 65536) * 65536)
+end
+
+--- A float and its bits at one address.
+---
+--- Every narrowing in the `f32` family is a store into `f` and a load out of it, and
+--- every bit pattern is the same trip the other way. One cell is reused rather than
+--- allocated per call because these are called from arithmetic.
+local cell = ffi.new("union {float f;uint32_t u;}[1]") as any
+
+const CANON = 2143289344
+const PINF = 2139095040
+const NINF = 4286578688
+const MAX = 2139095039
+const NMAX = 4286578687
+const SIGN = 2147483648
+
+--- Whether a bit pattern is one of the NaNs rather than a number.
+local function nanbits(bits: number): boolean
+    return band(bits, 2139095040) == 2139095040 and band(bits, 8388607) ~= 0
+end
+
+--- The float a bit pattern names, with every NaN collapsed to one.
+---
+--- A signalling NaN is not preserved. Which NaN an operation produces is not something
+--- a program can depend on, and answering one of them makes the lowering and this
+--- agree without either having to reproduce the other's choice.
+local function putbits(bits: number): number
+    local pattern = nanbits(bits) and CANON or bits
+    cell[0].u = pattern
+
+    return cell[0].f
+end
+
+--- The bit pattern of a value, narrowed to single precision first.
+local function bits32(value: number): number
+    cell[0].f = value
+    local bits = cell[0].u
+    if nanbits(bits) then
+        bits = CANON
+        cell[0].u = bits
+    end
+
+    return bits
+end
+
+--- A value narrowed to single precision, with NaN canonicalized.
+local function round32(value: number): number
+    cell[0].f = value
+    if nanbits(cell[0].u) then
+        cell[0].u = CANON
+    end
+
+    return cell[0].f
+end
+
+--- A value narrowed to single precision, NaN left as it fell.
+local function narrow32(value: number): number
+    cell[0].f = value
+
+    return cell[0].f
+end
+
+--- Compares a double-double against a value: 1, -1 or 0 as it is above, below or on it.
+local function comparedd(hi: number, lo: number, value: number): number
+    local difference = hi - value
+    if difference > -lo then
+        return 1
+    elseif difference < -lo then
+        return -1
+    end
+
+    return 0
+end
+
+--- The next representable float above one, given its bits.
+local function nextup(value: number, bits: number): number, number
+    if bits == PINF then
+        return value, bits
+    end
+    if bits == NINF then
+        return putbits(NMAX), NMAX
+    end
+    local stepped: number
+    if band(bits, SIGN) ~= 0 then
+        if bits == SIGN then
+            return putbits(1), 1
+        end
+        stepped = bits - 1
+    else
+        stepped = bits + 1
+    end
+
+    return putbits(stepped), stepped
+end
+
+--- The next representable float below one, given its bits.
+local function nextdown(value: number, bits: number): number, number
+    if bits == NINF then
+        return value, bits
+    end
+    if bits == PINF then
+        return putbits(MAX), MAX
+    end
+    local stepped: number
+    if band(bits, SIGN) ~= 0 then
+        stepped = bits + 1
+    else
+        if bits == 0 then
+            return putbits(2147483649), 2147483649
+        end
+        stepped = bits - 1
+    end
+
+    return putbits(stepped), stepped
+end
+
+--- Rounds an exact double-double sum to the nearest float, ties to even.
+---
+--- `fma` computes its product and sum in double precision and keeps the part that fell
+--- off as `lo`, so the pair names the exact answer. Narrowing the head alone would
+--- round twice and land on the wrong float whenever the tail decides the tie, which is
+--- the whole reason a fused multiply-add is not a multiply followed by an add.
+local function rounddd(hi: number, lo: number): number
+    local value = round32(hi)
+    local bits = bits32(value)
+    if nanbits(bits) then
+        return putbits(CANON)
+    end
+    -- An overflow to infinity is only real if the exact value is past the last float
+    -- plus half a step; below that the pair rounds back down to the finite maximum.
+    if bits == PINF then
+        return comparedd(hi, lo, 3.4028235677973366e38) < 0 and putbits(MAX) or value
+    elseif bits == NINF then
+        return comparedd(hi, lo, -3.4028235677973366e38) > 0 and putbits(NMAX) or value
+    end
+    local side = comparedd(hi, lo, value)
+    if side == 0 then
+        return value
+    end
+    local step = side > 0 and nextup or nextdown
+    local other, otherbits = step(value, bits)
+    local toward = comparedd(hi, lo, (value + other) * 0.5)
+    if side < 0 then
+        toward = -toward
+    end
+    if toward > 0 or toward == 0 and band(bits, 1) ~= 0 then
+        return putbits(otherbits)
+    end
+
+    return value
+end
+
+--- Signed 32-bit integer arithmetic.
+local i32 = {}
+
+function i32.wrap(a: number): number
+    return tobit(a)
+end
+
+function i32.add(a: number, c: number): number
+    return tobit(a + c)
+end
+
+function i32.sub(a: number, c: number): number
+    return tobit(a - c)
+end
+
+function i32.mul(a: number, c: number): number
+    return mul32(ui32(a), ui32(c))
+end
+
+function i32.andBits(a: number, c: number): number
+    return band(a, c)
+end
+
+function i32.orBits(a: number, c: number): number
+    return bor(a, c)
+end
+
+function i32.xorBits(a: number, c: number): number
+    return bxor(a, c)
+end
+
+function i32.notBits(a: number): number
+    return bnot(a)
+end
+
+function i32.shiftLeft(a: number, c: number): number
+    return lshift(a, band(c, 31))
+end
+
+function i32.shiftRightArithmetic(a: number, c: number): number
+    return arshift(a, band(c, 31))
+end
+
+function i32.rotateLeft(a: number, c: number): number
+    return rol(a, band(c, 31))
+end
+
+function i32.rotateRight(a: number, c: number): number
+    return ror(a, band(c, 31))
+end
+
+function i32.lessThan(a: number, c: number): boolean
+    return tobit(a) < tobit(c)
+end
+
+function i32.lessOrEqual(a: number, c: number): boolean
+    return tobit(a) <= tobit(c)
+end
+
+function i32.fromU32(a: number): number
+    return tobit(a)
+end
+
+function i32.toU32(a: number): number
+    return ui32(a)
+end
+
+--- Unsigned 32-bit integer arithmetic.
+local u32 = {}
+
+function u32.wrap(a: number): number
+    return ui32(a)
+end
+
+function u32.add(a: number, c: number): number
+    return ui32(a + c)
+end
+
+function u32.sub(a: number, c: number): number
+    return ui32(a - c)
+end
+
+function u32.mul(a: number, c: number): number
+    return ui32(mul32(ui32(a), ui32(c)))
+end
+
+function u32.andBits(a: number, c: number): number
+    return ui32(band(a, c))
+end
+
+function u32.orBits(a: number, c: number): number
+    return ui32(bor(a, c))
+end
+
+function u32.xorBits(a: number, c: number): number
+    return ui32(bxor(a, c))
+end
+
+function u32.notBits(a: number): number
+    return ui32(bnot(a))
+end
+
+function u32.shiftLeft(a: number, c: number): number
+    return ui32(lshift(a, band(c, 31)))
+end
+
+function u32.shiftRightLogical(a: number, c: number): number
+    return ui32(rshift(a, band(c, 31)))
+end
+
+function u32.rotateLeft(a: number, c: number): number
+    return ui32(rol(a, band(c, 31)))
+end
+
+function u32.rotateRight(a: number, c: number): number
+    return ui32(ror(a, band(c, 31)))
+end
+
+function u32.lessThan(a: number, c: number): boolean
+    return ui32(a) < ui32(c)
+end
+
+function u32.lessOrEqual(a: number, c: number): boolean
+    return ui32(a) <= ui32(c)
+end
+
+function u32.fromI32(a: number): number
+    return ui32(a)
+end
+
+function u32.toI32(a: number): number
+    return tobit(a)
+end
+
+function u32.popcount(a: number): number
+    local remaining = ui32(a)
+    local count = 0
+    while remaining ~= 0 do
+        remaining = ui32(band(remaining, remaining - 1))
+        count = count + 1
+    end
+
+    return count
+end
+
+function u32.trailingZeros(a: number): number
+    local remaining = ui32(a)
+    if remaining == 0 then
+        return 32
+    end
+    local count = 0
+    while band(remaining, 1) == 0 do
+        remaining = rshift(remaining, 1)
+        count = count + 1
+    end
+
+    return count
+end
+
+function u32.leadingZeros(a: number): number
+    local remaining = ui32(a)
+    if remaining == 0 then
+        return 32
+    end
+    local count = 0
+    local probe = SIGN
+    while band(remaining, probe) == 0 do
+        probe = rshift(probe, 1)
+        count = count + 1
+    end
+
+    return count
+end
+
+--- Single-precision floating point.
+local f32 = {}
+
+function f32.narrow(a: number): number
+    return narrow32(a)
+end
+
+function f32.round(a: number): number
+    return round32(a)
+end
+
+function f32.add(a: number, c: number): number
+    return round32(round32(a) + round32(c))
+end
+
+function f32.sub(a: number, c: number): number
+    return round32(round32(a) - round32(c))
+end
+
+function f32.mul(a: number, c: number): number
+    return round32(round32(a) * round32(c))
+end
+
+function f32.div(a: number, c: number): number
+    return round32(round32(a) / round32(c))
+end
+
+function f32.sqrt(a: number): number
+    return round32(math.sqrt(round32(a)))
+end
+
+--- The smaller of two floats, with -0 smaller than 0 and NaN answered for NaN.
+function f32.min(a: number, c: number): number
+    local left, right = round32(a), round32(c)
+    if left ~= left or right ~= right then
+        return putbits(CANON)
+    end
+    if left == right then
+        if left == 0 and (band(bits32(left), SIGN) ~= 0 or band(bits32(right), SIGN) ~= 0) then
+            return putbits(SIGN)
+        end
+
+        return left
+    end
+
+    return left < right and left or right
+end
+
+--- The larger of two floats, with 0 larger than -0 and NaN answered for NaN.
+function f32.max(a: number, c: number): number
+    local left, right = round32(a), round32(c)
+    if left ~= left or right ~= right then
+        return putbits(CANON)
+    end
+    if left == right then
+        if left == 0 and band(bits32(left), SIGN) ~= 0 and band(bits32(right), SIGN) ~= 0 then
+            return putbits(SIGN)
+        elseif left == 0 then
+            return putbits(0)
+        end
+
+        return left
+    end
+
+    return left > right and left or right
+end
+
+--- A fused multiply-add: one rounding for the whole of `a * c + d`.
+---
+--- The product and the sum are exact in double precision, so the error term recovers
+--- what a plain `+` dropped and the pair is rounded once. A product that is already
+--- infinite or NaN has no error term to recover and is narrowed directly.
+function f32.fma(a: number, c: number, d: number): number
+    local left, right, addend = round32(a), round32(c), round32(d)
+    local product = left * right
+    if product ~= product or product == math.huge or product == -math.huge then
+        return round32(product + addend)
+    end
+    local sum = product + addend
+    local carry = sum - product
+
+    return rounddd(sum, (product - (sum - carry)) + (addend - carry))
+end
+
+function f32.fromBits(bits: number): number
+    return putbits(ui32(bits))
+end
+
+function f32.toBits(value: number): number
+    return bits32(round32(value))
+end
+
+--- Two-dimensional vectors, carried as a pair of numbers rather than a table.
+---
+--- Every operation takes and answers loose components, so a vector never has to be
+--- allocated to be worked with and a caller that keeps its own representation can use
+--- these against it directly.
+local vec2 = {}
+
+function vec2.add(ax: number, ay: number, bx: number, by: number): number, number
+    return ax + bx, ay + by
+end
+
+function vec2.subtract(ax: number, ay: number, bx: number, by: number): number, number
+    return ax - bx, ay - by
+end
+
+function vec2.scale(x: number, y: number, factor: number): number, number
+    return x * factor, y * factor
+end
+
+function vec2.dot(ax: number, ay: number, bx: number, by: number): number
+    return ax * bx + ay * by
+end
+
+function vec2.cross(ax: number, ay: number, bx: number, by: number): number
+    return ax * by - ay * bx
+end
+
+function vec2.lengthSquared(x: number, y: number): number
+    return x * x + y * y
+end
+
+function vec2.length(x: number, y: number): number
+    return math.sqrt(x * x + y * y)
+end
+
+function vec2.distanceSquared(ax: number, ay: number, bx: number, by: number): number
+    local x, y = bx - ax, by - ay
+
+    return x * x + y * y
+end
+
+function vec2.distance(ax: number, ay: number, bx: number, by: number): number
+    return math.sqrt(vec2.distanceSquared(ax, ay, bx, by))
+end
+
+function vec2.normalize(x: number, y: number): number, number
+    local length = vec2.length(x, y)
+    if length == 0 then
+        return 0, 0
+    end
+
+    return x / length, y / length
+end
+
+function vec2.lerp(ax: number, ay: number, bx: number, by: number, t: number): number, number
+    if t == 0 then
+        return ax, ay
+    elseif t == 1 then
+        return bx, by
+    end
+
+    return ax + (bx - ax) * t, ay + (by - ay) * t
+end
+
+--- Steps from one point toward another by at most a given distance.
+function vec2.moveTowards(ax: number, ay: number, bx: number, by: number, distance: number): number, number
+    if distance <= 0 then
+        return ax, ay
+    end
+    local x, y = bx - ax, by - ay
+    local squared = x * x + y * y
+    if squared == 0 or squared <= distance * distance then
+        return bx, by
+    end
+    local factor = distance / math.sqrt(squared)
+
+    return ax + x * factor, ay + y * factor
+end
+
+function vec2.rotate(x: number, y: number, radians: number): number, number
+    local c, s = math.cos(radians), math.sin(radians)
+
+    return x * c - y * s, x * s + y * c
+end
+
+function vec2.angle(x: number, y: number): number
+    if x == 0 and y == 0 then
+        return 0
+    end
+
+    return math.atan2(y, x)
+end
+
+--- The unsigned turn between two vectors, zero when either has no direction.
+function vec2.angleBetween(ax: number, ay: number, bx: number, by: number): number
+    if (ax == 0 and ay == 0) or (bx == 0 and by == 0) then
+        return 0
+    end
+
+    return math.atan2(math.abs(vec2.cross(ax, ay, bx, by)), vec2.dot(ax, ay, bx, by))
+end
+
+--- The signed turn between two vectors, in (-pi, pi].
+function vec2.signedAngleBetween(ax: number, ay: number, bx: number, by: number): number
+    if (ax == 0 and ay == 0) or (bx == 0 and by == 0) then
+        return 0
+    end
+    local turn = math.atan2(vec2.cross(ax, ay, bx, by), vec2.dot(ax, ay, bx, by))
+
+    return turn == pi and -pi or turn
+end
+
+--- The component of one vector along another.
+function vec2.project(x: number, y: number, ox: number, oy: number): number, number
+    local squared = ox * ox + oy * oy
+    if squared == 0 then
+        return 0, 0
+    end
+    local factor = (x * ox + y * oy) / squared
+
+    return ox * factor, oy * factor
+end
+
+--- A vector mirrored across the plane a normal describes.
+function vec2.reflect(x: number, y: number, nx: number, ny: number): number, number
+    local squared = nx * nx + ny * ny
+    if squared == 0 then
+        return x, y
+    end
+    local factor = 2 * (x * nx + y * ny) / squared
+
+    return x - nx * factor, y - ny * factor
+end
+
+--- Interpolates between two numbers.
+---
+--- The endpoints are answered rather than computed, so `lerp(a, b, 1)` is `b` and not
+--- `a + (b - a)`, which is not always the same number.
+local function lerp(from: number, to: number, t: number): number
+    if t == 0 then
+        return from
+    elseif t == 1 then
+        return to
+    end
+
+    return from + (to - from) * t
+end
+
+--- Brings an angle into (-pi, pi].
+local function wrapAngle(radians: number): number
+    return (radians + pi) % tau - pi
+end
+
+--- The shortest signed turn from one angle to another.
+local function deltaAngle(from: number, to: number): number
+    return wrapAngle(to - from)
+end
+
+--- Fills a program's `nupp.math` namespace in.
+---
+--- The bootstrap reserves the table before this module is required, because generated
+--- code addresses it through a local it has already declared, so the members are put
+--- into whatever table it was given rather than a table being handed back.
+--- @export
+export function install(namespace: any): nil
+    namespace.lerp = lerp
+    namespace.wrapAngle = wrapAngle
+    namespace.deltaAngle = deltaAngle
+    namespace.i32 = i32
+    namespace.u32 = u32
+    namespace.f32 = f32
+    namespace.vec2 = vec2
+end

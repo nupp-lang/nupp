@@ -48,7 +48,7 @@ local FEATURES: {[string]: native.Feature} = {
     ["stdlib.fieldcodec"] = {name = "fieldcodec", globals = {"nupp.reflect.fieldCodec"},},
     ["stdlib.derives"] = {name = "derives", globals = {},},
     ["stdlib.io"] = {name = "io", modules = {"nupp.io"},},
-    ["stdlib.math"] = {name = "math", globals = {"nupp.math"},},
+    ["stdlib.math"] = {name = "math", globals = {"nupp.math"}, runtimeModule = "nupp.mathruntime",},
     [
         "native.path"
     ] = {
