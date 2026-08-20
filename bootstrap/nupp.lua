@@ -56199,9 +56199,7 @@ const __nuppExportValue= setmetatable({ spec =  command ,  run =  run }, spec.Ha
  end);if not __nuppOk then package.loaded["nupp.compiler.cli.importc"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.cli.importc"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.compiler.cli.initcommand"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();const __nuppModule = require("nupp.io.files"); const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.io.files#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.files#destroyOwner") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
-
-
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath);\n","@nupp-prelude"))();const __nuppT4={}; const __nuppT5,__nuppT6,__nuppT7,__nuppT8,__nuppT9,__nuppT10,__nuppT11,__nuppT12=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT1(...) return {n=__nuppT9("#",...),...} end; const function __nuppT2(value) return value end; const function __nuppT3(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT10({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT11(v.primary) for _,reason in __nuppT12(v.suppressed) do text=text.."\ncleanup: "..__nuppT11(reason) end return text end}) end; local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.io.files#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io.files#destroyOwner") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -56528,9 +56526,7 @@ end
 
 
 
-do local __nuppT13=0; local  __nuppT19 ; local __nuppT20=false ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT21=__nuppT1( __nuppModule .createTemporaryDirectory (
-{ prefix = "nupp-template-" }
-) ); __nuppT19= __nuppT21[1] ; __nuppT13=1;  __nuppT20=true;  local  owned , scratchErr = __nuppT21[1] , __nuppT21[2] ;
+do local __nuppT13=0; local  __nuppT19 ; local __nuppT20=false ; const __nuppT14,__nuppT15,__nuppT16=__nuppT6(function() do const __nuppT21=__nuppT1( files . createTemporaryDirectory ( { prefix = "nupp-template-" } ) ); __nuppT19= __nuppT21[1] ; __nuppT13=1;  __nuppT20=true;  local  owned , scratchErr = __nuppT21[1] , __nuppT21[2] ;
 if not owned then
 return "return",__nuppT1( fail ( "cannot create a temporary directory: " .. tostring ( scratchErr ) ) )
 end
@@ -56541,7 +56537,7 @@ code = fail ( fetchErr )
 else
 code = scaffold ( source , destination , values , set )
 end
-__nuppModule .remove ( owned : toString ( ) , true )
+files . remove ( owned : toString ( ) , true )
 do (function(__nuppT22,...)  __nuppT20=false;  return __nuppT22:close(...)  end)( owned ) end
 
 return "return",__nuppT1( code ) end; return "normal" end,__nuppT2); const __nuppT17={}; local __nuppT18=0; if __nuppT13>=1 and __nuppT20 and __nuppT19~=nil then  const __nuppT23,__nuppT24=__nuppT5(__nuppCleanup1,__nuppT19);  if not __nuppT23 then __nuppT18=__nuppT18+1; __nuppT17[__nuppT18]=__nuppT24 end; end; if not __nuppT14 then if __nuppT18>0 then __nuppT7(__nuppT3(__nuppT15,__nuppT17,1),0) else __nuppT7(__nuppT15,0) end end; if __nuppT18>0 then if __nuppT18>1 then __nuppT7(__nuppT3(__nuppT17[1],__nuppT17,2),0) else __nuppT7(__nuppT17[1],0) end end; if __nuppT15=="return" then  return __nuppT8(__nuppT16,1,__nuppT16.n)  end; end
