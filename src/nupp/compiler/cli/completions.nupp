@@ -30,7 +30,7 @@ end
 
 --- Every spelling that can be offered for an option.
 ---
---- Pattern options only have an honest spelling when their captured choice is closed:
+--- Pattern options can only be offered when their captured choice is closed:
 --- `-O` itself is not accepted, but `-O0`, `-O1`, and `-O2` are.
 local function spellings(option: spec.Option): {string}
     local choices = option.choices

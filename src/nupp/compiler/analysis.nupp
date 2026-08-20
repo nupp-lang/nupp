@@ -928,8 +928,8 @@ function queries.body(body: any, byDefinition: any): any
     ---
     --- A blunt stand-in for "does this value get out", and deliberately so: the
     --- summaries record escapes for parameter-rooted paths, not for a local's own
-    --- lifetime, so nothing here can answer the real question yet. A count is honest
-    --- about being a proxy in a way a named `escapes` query would not be.
+    --- lifetime, so nothing here can answer the real question yet. A count reads as
+    --- the proxy it is, where a named `escapes` query would read as an answer.
     ---
     --- @param definition the binding to look for
     --- @param region optional, a part of the body to count within

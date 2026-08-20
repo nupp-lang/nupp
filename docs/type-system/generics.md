@@ -149,7 +149,7 @@ Inside the body, the parameter's fields, methods, and metamethods are read from
 its bound, with `self` specialized back to the parameter.
 
 Bounds are checked where a generic is instantiated, not inside the subtyping
-relation. Violating one is **NUPP2116**:
+relation. Violating one is reported at the instantiation:
 
 ```text
 NUPP2116: type argument integer for T: integer is not a Named

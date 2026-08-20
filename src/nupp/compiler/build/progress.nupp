@@ -121,7 +121,7 @@ function progress.now(): number
     return clock()
 end
 
---- A duration as a reader wants it: milliseconds while that is the honest unit, and
+--- A duration as a reader wants it: milliseconds while a duration is short, and
 --- seconds with one decimal once it is not.
 function progress.duration(milliseconds: number): string
     if milliseconds < 1000 then

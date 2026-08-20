@@ -74,7 +74,7 @@ That second part matters: a record declaring `is Component` satisfies
 the same trust boundary as a declaration file or an FFI signature. If nothing
 ever installs them, the program still fails at run time.
 
-Only interfaces may be named after `is`, and anything else reports `NUPP2117`.
+Only interfaces may be named after `is`, and anything else is reported.
 Multiple parents are allowed:
 
 ```nupp
@@ -164,7 +164,7 @@ would be a second answer chosen by whether the fields happened to be literals.
 
 A [`satisfies` declaration](refinements.md) states the test outright, and it
 wins over the tags when both are present. With neither, and against an alias,
-there is nothing to test, and code generation reports `NUPP3001`.
+there is nothing to test, and code generation refuses it.
 
 ::: deepdive
 An interface emits no runtime table, so `is` against one is answered by static

@@ -114,8 +114,8 @@ bag holding `help`, `notes`, and the lint name:
 ignores `data` still shows them. Severity maps `error` to Error, `warning` to
 Warning, and `note` to Information.
 
-One code is deliberately quieter in an editor than in a build:
-`missing-require` (NUPP2120) is an error in a build and a warning here. A file
+One diagnostic is deliberately quieter in an editor than in a build:
+`missing-require` is an error in a build and a warning here. A file
 you are typing into is half-written by definition, and the `require` is usually
 the next thing you add. See [lints.md](../reference/lints.md) for the levels a
 project sets for the rest of them.
@@ -133,12 +133,12 @@ token carrying the diagnostic rather than only at its first byte.
 | ``convert with `nupp.math.i32.wrap` `` | establishing a signed 32-bit integer |
 | ``convert with `nupp.math.u32.wrap` `` | establishing an unsigned 32-bit integer |
 | ``change the type to `number` `` | preserving an unestablished Lua value |
-| `require("module")` | NUPP2120, one fix per candidate module |
+| `require("module")` | an unbound module, one fix per candidate module |
 | `use bound.name` | the module is already bound in this file |
 | `require("m") and use m.name` | the module is not bound yet |
-| ``drop `local` `` | NUPP2119, a qualified name that also states visibility |
-| `mark it local`, `mark it global` | NUPP2119, a declaration with no visibility |
-| `attach it to <moduleLocal>` | NUPP2119, when the module returns a table |
+| ``drop `local` `` | a qualified name that also states visibility |
+| `mark it local`, `mark it global` | a declaration with no visibility |
+| `attach it to <moduleLocal>` | a declaration where the module returns a table |
 
 A spelling fix refuses on a tie rather than picking one, and a missing require
 offers one fix per candidate module rather than guessing between them.

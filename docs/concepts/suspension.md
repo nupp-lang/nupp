@@ -150,9 +150,8 @@ The region is lexical, static, and erased. It adds no runtime lock. An
 unresolved call is refused too, because the checker cannot prove the guarantee
 for a callee it cannot follow.
 
-This call path reaches `coroutine.yield`, so the region reports
-[NUPP2701](../reference/diagnostics.md#diagnostic-index) and names the path from
-the call to the suspension:
+This call path reaches `coroutine.yield`, so the region is reported, and the
+report names the path from the call to the suspension:
 
 ```nupp [pause.nupp]
 local function pause(): nil
@@ -485,8 +484,8 @@ error: NUPP2706: control cannot enter a `handle suspension` region
 
 LuaJIT cannot yield through every C frame. A comparator called by `table.sort`,
 a replacement called by `string.gsub`, and an FFI callback are non-yieldable
-positions. The checker follows those callback bodies and reports **NUPP2702**
-for a call inside one that reaches a suspension:
+positions. The checker follows those callback bodies and reports a call inside
+one that reaches a suspension:
 
 ```nupp [compare.nupp]
 local function pause(): nil

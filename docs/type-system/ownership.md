@@ -160,8 +160,8 @@ local function peek(path: string): string
 end
 ```
 
-Dropping a terminal-less affine value reports `NUPP2602`, since there is
-nothing to call.
+Dropping a terminal-less affine value is reported, since there is nothing to
+call.
 
 Live terminal-bearing owners are destroyed at every lexical exit: fallthrough,
 return, loop exit, outward `goto`, and errors. Bindings are acquired left to
@@ -177,7 +177,7 @@ end -- destroys `sink`, then `source`
 ```
 
 An obligation still live on a path that leaves without discharging it is
-`NUPP2603`.
+reported.
 
 ### Exact extents with `with`
 
@@ -258,7 +258,7 @@ drop file
 
 `T borrows (source)` records provenance on results and declared fields, and it
 is the only way a rooted value leaves the scope that made it. Without it the
-escape reports `NUPP2608`:
+escape is reported:
 
 ```nupp
 local function leak(borrows value: table): table
@@ -349,13 +349,13 @@ retentions move exactly once. Borrow roots and region provenance are reproduced
 on the result instead, because several shared views may name the same root.
 
 An unconstrained `T` may carry a movable capability, so a preserving public
-function writes `takes`, and `borrows` there reports `NUPP2606`. Copyable values
+function writes `takes`, and `borrows` there is reported. Copyable values
 still pass through the same function without becoming affine. Preservation
 follows one unambiguous path through records, tuples, optionals, unions,
 intersections, identity-mapped and projected types, callable records, closures,
 and result packs, and callable assignment keeps the exact result-to-parameter
 relation rather than erasing or inventing one. Where the source type appears in
-two result components, the checker reports `NUPP2606` rather than guessing which
+two result components, the checker reports it rather than guessing which
 component owns the obligation.
 
 ## Regions and loop-carried capabilities
@@ -401,7 +401,7 @@ rather than receiving ownership privilege from method names.
 A loop back edge must re-enter its header with the same obligation, roots,
 access, pin, retention, and live-region shape. Iteration-local borrows end
 before the edge, and consuming an outer owner on a repeating path is
-`NUPP2609`:
+reported:
 
 ```nupp
 local function run(again: boolean): nil
@@ -461,8 +461,8 @@ import side of the same contracts.
 
 ## Dynamic boundaries
 
-A nontrivial capability cannot disappear into `any` or an untyped call, which
-reports `NUPP2611`. Prefer a typed wrapper for a closed backend set. Truly
+A nontrivial capability cannot disappear into `any` or an untyped call, which is
+reported. Prefer a typed wrapper for a closed backend set. Truly
 heterogeneous storage uses `nupp.owners.store`:
 
 ```nupp
@@ -484,7 +484,7 @@ Handles contain store identity, slot, generation, and a stable type-policy key.
 representation witness against the complete stored representation-and-cleanup
 key, and `take` restores the exact stored affine policy. Transfer-only values,
 external borrows, pins, and foreign retentions cannot be enrolled, because store
-destruction could not discharge them, which reports `NUPP2612`.
+destruction could not discharge them, and enrolling one is reported.
 
 ### Stores across a reload
 

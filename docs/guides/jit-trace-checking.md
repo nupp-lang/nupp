@@ -142,7 +142,7 @@ state would change which value each returned function observes.
 ### Configurable source lint
 
 Without `@jit`, a capturing loop closure is
-[`jit-loop-closure`](../reference/lints.md#jit-loop-closure) (`NUPP2515`). It is
+[`jit-loop-closure`](../reference/lints.md#jit-loop-closure). It is
 off by default because the code is correct and some programs accept the
 interpreted loop deliberately. Enable it in `nupp.lua` where this is a project
 policy:
@@ -164,7 +164,7 @@ help: declare one function outside the loop and pass what varies to it
 
 A non-capturing function is more directly repairable, so
 [`loop-invariant-closure`](../reference/lints.md#loop-invariant-closure)
-(`NUPP2505`) remains its automatic diagnostic:
+remains its automatic diagnostic:
 
 ```nupp
 for _, item in ipairs(items) do
@@ -266,8 +266,8 @@ note: trace classification: risk (jit/ffi-vararg-policy)
 help: move the call behind an explicit jit.off boundary when it is not a hot operation
 ```
 
-Under `@jit`, the same site is a non-suppressible `NUPP2707` contract error. A
-clear boundary makes the choice explicit:
+Under `@jit`, the same site is a non-suppressible contract error. A clear
+boundary makes the choice explicit:
 
 ```nupp
 cdef function printf(format: cstring, ...): int32
@@ -328,7 +328,7 @@ jit.off(runCold)
 
 Inside `@jit`, allowing the
 [`jit-callback`](../reference/lints.md#jit-callback) lint does not waive the
-contract. It remains `NUPP2707`.
+contract. It remains a contract error.
 
 ## Dynamic call targets
 

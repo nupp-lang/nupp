@@ -71,7 +71,7 @@ local render: Render = nil as any
 return render(1)
 ```
 
-No surviving member is **NUPP2125**:
+No surviving member is reported at the call:
 
 ```nupp
 -- reports: NUPP2125
@@ -317,8 +317,8 @@ local decoder: Decoder = new LoudDecoder()
 return decoder:decode("ready"), decoder:decode(42)
 ```
 
-Omitting `@override` from the string body is **NUPP2118**. Putting it on a
-parameter pack with no inherited body is **NUPP2118** as well:
+Omitting `@override` from the string body is reported, and putting it on a
+parameter pack with no inherited body is reported as well:
 
 ```nupp
 -- reports: NUPP2118
@@ -453,9 +453,9 @@ return fromNumber.text, fromText.text
 ```
 
 `new Value(...)` applies the same exact-one rule and directly invokes the
-selected constructor body. Duplicate constructor parameter packs are
-**NUPP2208**, and declaring any constructor closes named-field construction for
-that record. See [Records and
+selected constructor body. Duplicate constructor parameter packs are reported,
+and declaring any constructor closes named-field construction for that
+record. See [Records and
 structs](records.md#constructors-and-result-policies) for what a constructor
 may promise.
 
@@ -524,7 +524,8 @@ one takes.
 
 ### Can two overloads differ only by return type?
 
-No, that is **NUPP2118**. The call has to pick a body before there is a result
+No, that is reported as a duplicate. The call has to pick a body before there is
+a result
 to compare, so only parameter packs take part in selection. See [Parameter
 packs select the entry](#parameter-packs-select-the-entry).
 

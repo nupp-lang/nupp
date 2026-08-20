@@ -67,8 +67,7 @@ spelling permanently, so the set stops where a literal does: NaN, the
 infinities, functions, threads, and cdata have no spelling to commit to.
 
 A table the block reaches by two paths is one table while the block runs and
-would be two once quoted, so it is refused rather than quoted twice. The
-checker reports [NUPP2413](../reference/diagnostics.md#diagnostic-index):
+would be two once quoted, so it is refused rather than quoted twice:
 
 ```nupp [shared.nupp]
 local value: {{integer}} = comptime do
@@ -105,7 +104,7 @@ print(PositionCodec)
 ```
 
 Drop the annotation and the result has nowhere to land. An inferred binding, or
-an opaque value nested inside an ordinary table, reports **NUPP2414**:
+an opaque value nested inside an ordinary table, is refused:
 
 ```nupp [codec.nupp]
 local record Position
@@ -143,13 +142,12 @@ See [NEP 3](../neps/0003-comptime.md#quotable-set) for more information.
 ## Compile-time environment
 
 A block reads its own locals and the compile-time environment, and nothing else.
-A runtime local, an upvalue, module state, or a global is **NUPP2410**, and a
+A runtime local, an upvalue, module state, or a global is refused, and a
 block may not write to one either.
 
 The environment is an allowlist: `assert`, `error`, `ipairs`, `pairs`,
 `select`, `tonumber`, `tostring`, `type`, and named members of `math`, `string`,
-`table`, and `bit`. A member the allowlist leaves out is **NUPP2411**, which
-names it. There is no `io`, `os`, `require`, `ffi`, `debug`, `load`, clock, or
+`table`, and `bit`. A member the allowlist leaves out is reported by name. There is no `io`, `os`, `require`, `ffi`, `debug`, `load`, clock, or
 randomness.
 
 Evaluation is deterministic: `pairs` is sorted, platform-varying libm functions

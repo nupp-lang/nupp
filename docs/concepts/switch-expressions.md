@@ -29,59 +29,6 @@ local label = __nuppT2
 See [performance.md](../guides/performance.md#switch-dispatch) for when a static
 switch finishes in one table read instead of that chain.
 
-::: deepdive
-A statement-form switch would have been smaller and more familiar, and it was
-rejected because every use then becomes an assignment to a variable declared
-above it. That is the boilerplate the construct removes, and it gives up the
-guarantee that every path produces exactly one value.
-
-The arrow is shared vocabulary with short functions, not a request to allocate
-one. A switch that built an arm closure could not sit in a hot loop, which would
-make it a syntax for cold code. The rest of the design is arranged around that
-invariant: placement is restricted rather than lowered through an immediately
-invoked function, and an optimized lookup replaces the whole decision or
-nothing.
-:::
-
-## Selectors end with `do`
-
-The `do` after the selector is required. It gives the parser an unambiguous end
-to any selector, including a call, table, string, parenthesized expression, or
-multiline expression, without reserving `switch` as a keyword:
-
-::: code-group
-```nupp [Nupp]
-local a = switch(value)                 -- ordinary call
-local b = switch {value}                -- ordinary call sugar
-local c = switch "value"                -- ordinary call sugar
-
-local selected = switch (value) do      -- switch expression
-    else -> value
-end
-```
-
-```lua [Generated Lua]
-local a = switch(value)
-local b = switch {value}
-local c = switch "value"
-
-local __nuppT1 = (value)
-local __nuppT2
-if true then __nuppT2 = value
-end
-local selected = __nuppT2
-```
-:::
-
-::: deepdive
-A word that would break an existing program is not a keyword, it is a shape.
-`switch` is recognized only by the `do` that terminates its selector, and
-`yield` only by a same-line operand that does not begin with `(`, `{`, or a
-literal string. Every other use of either name stays an ordinary Lua call, so
-the construct takes no name away from a program that already used one. See
-[syntax.md](syntax.md#keywords-are-contextual) for the other contextual words.
-:::
-
 ## Static cases
 
 Static cases use primitive Lua equality. An allowed value is:
@@ -121,11 +68,9 @@ Cases are values rather than source forms. `1`, `1.0`, and `1e0` are the same
 case, and `0` and `-0` are the same case, because a case denotes the finite
 binary64 value LuaJIT compares at run time. That rule is local to switch cases
 and does not widen the literal-type or const-generic domains described in
-[unions.md](../type-system/unions.md#literal-unions-are-enums). Repeating a case
-is [`NUPP2138`](../reference/diagnostics.md#diagnostic-index). Operators, calls,
-indexing, table constructors, cdata literals, and non-finite numbers are not
-static cases (`NUPP2137`). There is no
-Ruby-style `===` hook or user-defined matching protocol.
+[unions.md](../type-system/unions.md#literal-unions-are-enums). Operators,
+calls, indexing, table constructors, cdata literals, and non-finite numbers are
+not static cases.
 
 An exact const name is useful when the name communicates more than its value:
 
@@ -153,26 +98,8 @@ local access = __nuppT6
 ```
 :::
 
-The parentheses are load-bearing today: a bare `case READ ->` does not parse,
+The parentheses are required today: a bare `case READ ->` does not parse,
 because the name and arrow are taken for the start of a short function.
-
-::: deepdive
-Both pattern families are closed on purpose. A user-extensible case protocol,
-as Ruby's and Crystal's `===`, turns a closed decision into an open one and lets
-a case test run arbitrary code, which is incompatible with reordering tests
-during planning. Guards are the first extension asked for and the hardest to
-refuse, because each one looks small on its own. They are considered once the
-closed forms have stable semantics, diagnostics, and performance data, rather
-than refused forever.
-
-The static grammar deliberately does not reuse the `comptime` evaluator. That
-evaluator exists for const generics: it has integer, string, boolean, and
-function domains, admits operators that are unwanted in case position, and has
-neither `nil` nor binary64 number terms. Reusing it would have meant accepting
-arithmetic and calls in a case, or carving an exception out of a shared
-evaluator, and the exception is the same work as a small grammar without the
-coupling. See [comptime.md](comptime.md) for what that evaluator does own.
-:::
 
 ## Type cases, binding, and destructuring
 
@@ -216,7 +143,7 @@ admits `nil`; a selector proved to be entirely records drops it.
 
 All pattern bindings are const and scoped to their arm. `field as alias` changes
 only the local binding name. Destructuring is direct, with no nested object
-patterns, and a missing field or duplicate binding is `NUPP2137`. A binding
+patterns, and a missing field or duplicate binding is reported. A binding
 shares the selector's ownership identity rather than creating a second
 obligation, so no arm can move an affine selector by matching on it.
 
@@ -227,9 +154,9 @@ Runtime identity follows `is`:
 - structs use `ffi.istype`;
 - refined interfaces use their declared runtime predicate.
 
-An interface with no runtime identity cannot be tested (`NUPP3001`). Type cases
-are ordered. A broad case can consume the type a later case needs, making the
-later arm unreachable (`NUPP2139`). See
+An interface with no runtime identity cannot be tested. Type cases are ordered.
+A broad case can consume the type a later case needs, and the later arm is then
+reported as unreachable. See
 [narrowing.md](../type-system/narrowing.md#switch-arm-narrowing) for the facts
 an arm may rely on.
 
@@ -298,7 +225,7 @@ a coroutine.
 
 Every completing path through a block arm must reach one `yield`; a path may
 instead `return` from the enclosing function. Falling through, or placing a
-statement after a switch yield on the same path, is `NUPP2141`.
+statement after a switch yield on the same path, is reported.
 
 ::: deepdive
 Giving `return` the switch-result meaning would have been the smaller grammar,

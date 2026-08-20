@@ -201,9 +201,8 @@ local function use(v: any)
 end
 ```
 
-The body is trusted. The checker verifies that the name is a parameter
-(`NUPP2109`) and that the parameter could hold that type (`NUPP2110`), and takes
-the rest on faith.
+The body is trusted. The checker verifies that the name is a parameter and that
+the parameter could hold that type, and takes the rest on faith.
 
 ::: deepdive
 Proving a predicate would mean deriving `v is Point` from the body's chain of
@@ -257,7 +256,7 @@ end
 `as point` is a const binding of the narrowed whole value. `{x, y as vertical}`
 introduces const locals for direct fields; those names exist only in that arm.
 The original selector remains narrowed too. Type cases are ordered, so a broad
-case before a narrower one can make the latter unreachable (`NUPP2139`).
+case before a narrower one can make the latter unreachable.
 
 See [switch
 expressions](../concepts/switch-expressions.md#type-cases-binding-and-destructuring)

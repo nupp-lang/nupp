@@ -34,7 +34,7 @@ from the gradual one.
 | `.lua` | gradual | plain Lua, and the typed layer is refused in it |
 
 The toolchain requires, builds, and runs a `.lua` file unchanged. An annotation
-written there reports `NUPP1006` rather than being a silently ignored comment,
+written there is reported rather than being a silently ignored comment,
 because the extension has already settled that the file is Lua, so an
 annotation written into it would govern nothing:
 
@@ -49,7 +49,8 @@ error: NUPP1006: a type annotation is not plain Lua
 ```
 
 A `.d.nupp` file is gradual because it describes an interface somebody else
-implements, where `any` is often the honest type: `string.buffer`'s
+implements, where `any` is often the type the interface actually has:
+`string.buffer`'s
 `encode(v: any): string` does take any Lua value, and no annotation written
 here changes what LuaJIT accepts.
 
@@ -69,9 +70,9 @@ See [NEP 2](../neps/0002-gradual-typing.md) for more information.
 
 ## Strict floor rules
 
-The strict floor adds two rules. An unknown variable reports `NUPP2105`
-instead of typing as `any`, and an exported declaration without an annotation
-reports `NUPP2106`, so nothing untyped crosses a module boundary.
+The strict floor adds two rules. An unknown variable is reported instead of
+typing as `any`, and an exported declaration without an annotation is reported
+too, so nothing untyped crosses a module boundary.
 
 ```nupp
 module models

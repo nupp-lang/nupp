@@ -101,8 +101,8 @@ Function parameters remain contravariant and result packs remain covariant. See
 
 ## Provable emptiness
 
-Nupp reports **NUPP2124** when it can prove that no value can satisfy a written
-intersection. Distinct primitive runtime categories, distinct literals, distinct
+Nupp reports a written intersection when it can prove that no value can satisfy
+it. Distinct primitive runtime categories, distinct literals, distinct
 concrete nominal identities, unions whose every arm is disjoint, and
 incompatible required fields are all proofs:
 
@@ -145,8 +145,8 @@ local type Parse = function(text: string): integer & function(text: string, base
 The checker infers the argument pack once, probes every member without moving
 affine arguments or establishing borrows, and applies the one member that
 survives. There is no best-match ranking, declaration order never breaks a tie,
-and selection never adds runtime dispatch. **NUPP2125** means no member accepts
-the pack; **NUPP2126** means several do.
+and selection never adds runtime dispatch. A call is reported when no member
+accepts the pack, and reported differently when several do.
 
 Everything else about overloading has a page of its own. See [Overloads and
 overrides](overloads.md) for repeated method bodies, generic entries,
@@ -168,7 +168,7 @@ is, so `A & B` lowers to whatever the underlying value already was. See [Type
 system](overview.md#strict-floor) for what does and does not survive to run
 time.
 
-### Why does intersecting two records report NUPP2124?
+### Why is intersecting two records empty?
 
 A record is nominal, so a value comes from one declaration or another and never
 from both. Intersect the interfaces those records declare instead, or declare a

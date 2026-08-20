@@ -170,7 +170,7 @@ the field. Privacy applies through generic instantiation and module summaries.
 It is a checked-language abstraction boundary, not a runtime sandbox against
 generated Lua or explicit gradual interop.
 
-Records alone support private fields, and `NUPP2209` says so anywhere else.
+Records alone support private fields, and the checker says so anywhere else.
 Structs expose C layout and interfaces declare public contracts, so both reject
 the modifier.
 
@@ -278,7 +278,7 @@ The field type has to be reifiable, meaning something with a C layout:
 - any pointer `T*`, and the nullable `T*?`;
 - a fixed C array `T[N]`.
 
-Everything GC-managed is refused with `NUPP2201`: `string`, `{T}`, function
+Everything GC-managed is refused: `string`, `{T}`, function
 types, and even `number?`, because an optional needs a representation the C
 layout does not have. `cstring` and `voidptr` are allowed in a `cdef struct` but
 not in a Nupp `struct`, since a GC-managed struct gives them no anchor.
@@ -323,7 +323,7 @@ g.cells[3].b = 9
 ```
 
 `T[?]` is **not** a field. A variable-length array has no size, so a struct
-holding one would have none either; that is `NUPP2201`. Use a pointer and hold
+holding one would have none either, so it is refused. Use a pointer and hold
 the count yourself, which is what C does.
 
 #### Pointing at itself
@@ -344,7 +344,7 @@ print(head.next.value)
 ```
 
 By value it cannot, since `next: Node` would have to contain a copy of itself
-and so has no size. That is `NUPP2201`, and the repair it names is the pointer.
+and so has no size. That is refused, and the repair it names is the pointer.
 
 ### Value or reference
 

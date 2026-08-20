@@ -182,8 +182,8 @@ type spec.Declaration = {
     schema: any?,
     stopAtPositional: boolean?,
 
-    --- False when a command hands its arguments to something else and so cannot
-    --- honestly claim to accept the options every command otherwise takes.
+    --- False when a command hands its arguments to something else and so does not
+    --- accept the options every command otherwise takes.
     universal: boolean?
 }
 
@@ -320,8 +320,8 @@ local UNIVERSAL: {
     {names = {"-h", "--help"}, help = "Show this help"},
 }
 
---- Just `-h, --help`, for the rare command that takes its arguments raw and so cannot
---- honestly claim to accept the rest.
+--- Just `-h, --help`, for the rare command that takes its arguments raw and so does
+--- not accept the rest.
 spec.helpOption = UNIVERSAL[3]
 
 -- Added only to a command that declared a schema, so `--schema` never appears on one

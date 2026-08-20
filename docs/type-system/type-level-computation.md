@@ -167,8 +167,8 @@ local cells: float[12] = grid.values
 
 `grid` holds one array at runtime and carries no dimension fields: the consts
 are checked and then erased. They still tell the two shapes apart, so assigning
-a `Matrix<float, 4, 3>` where a `Matrix<float, 3, 4>` is wanted is `NUPP2001`,
-reported as `have different const argument 1`.
+a `Matrix<float, 4, 3>` where a `Matrix<float, 3, 4>` is wanted is reported as
+`have different const argument 1`.
 
 ## `string.format`
 

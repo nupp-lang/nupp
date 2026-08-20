@@ -144,7 +144,7 @@ print(xs[1])
 
 The field name must be a string literal that resolves to a stored field, which
 is what lets the checker assign the exact element type and field identity. A
-dynamic string or a missing field reports `NUPP2403`.
+dynamic string or a missing field is reported.
 
 ## Slices
 
@@ -315,7 +315,7 @@ boundary uses.
 ### Can a record be stored in an SoA array?
 
 No. A record is a table, so it has no fixed C storage to split into columns,
-and `soa.allocate` reports `NUPP2403` for one. Store a reified `struct`
+and `soa.allocate` reports one. Store a reified `struct`
 instead, and see [Limits](#limits) for the other field types the container
 refuses.
 

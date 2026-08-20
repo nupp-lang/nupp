@@ -141,7 +141,8 @@ says it is. A name the declaration does not have is an ordinary helper, and a
 member the table leaves out may still be assigned afterwards; neither is
 reported.
 
-All of this is `NUPP2123` except the misspelling, which stays `NUPP2118`.
+All of this is reported against the declaration, and the misspelling is reported
+against the name.
 
 Only literals are checked. Nothing here can see what a function returns, so
 `setmetatable(t, buildIt())` stays gradual.

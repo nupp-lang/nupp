@@ -209,8 +209,8 @@ help: add branches for "blue" or add an else clause
 Adding the branch or an `else` clears it. The diagnostic gives help rather than
 an edit, because it cannot invent the body of the branch you are missing.
 
-This is the [`exhaustiveness` lint](../reference/lints.md#exhaustiveness),
-`NUPP2107`, a `correctness` lint at `warning`. A project raises it to `error`
+This is the [`exhaustiveness` lint](../reference/lints.md#exhaustiveness), a
+`correctness` lint at `warning`. A project raises it to `error`
 in `nupp.lua`, and a single deliberate exception writes
 `@allow("exhaustiveness")` on the statement.
 

@@ -238,7 +238,7 @@ It must be the file's first annotation and has no region form.
 
 The formatter guarantees that its output re-lexes to a token sequence identical
 in kind and text to the input. When a rewrite would break that, it returns the
-input untouched and reports `NUPP4001`.
+input untouched and reports the rewrite it refused.
 
 That invariant is why it cannot change a quote style, add or remove a table
 constructor's trailing comma, or rewrite a numeric literal. Those change the
@@ -285,6 +285,6 @@ inside the requested range.
 ::: seealso
 - [lsp.md](lsp.md#lsp-features) for the rest of what the language server answers
 - [editors.md](editors.md) for connecting an editor to it
-- [diagnostics.md](../reference/diagnostics.md#diagnostic-index) for `NUPP4001`
-  and every other code
+- [diagnostics.md](../reference/diagnostics.md#diagnostic-index) for what the
+  formatter reports, and every other code
 :::

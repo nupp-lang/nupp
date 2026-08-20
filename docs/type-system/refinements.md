@@ -91,9 +91,9 @@ establish one.
 A refinement runs wherever `is` is written, so it reads the declaration's own
 fields through `self`: comparisons against literals, `type()` tests, and `and`,
 `or` and `not`. A call, arithmetic, or a name from outside the subject is
-**NUPP2122**.
+reported.
 
-A refinement that always answers the same way is **NUPP2122** as well. Always
+A refinement that always answers the same way is reported as well. Always
 true identifies every value and always false leaves the type uninhabited, and
 neither is a test.
 
@@ -115,7 +115,7 @@ program that may write thousands of them.
 ## Conformance claims are proved
 
 `record C is Shape` is a claim the checker proves, and `Shape`'s refinement is
-what `is Shape` runs. Fields that provably fail it are **NUPP2122**, because
+what `is Shape` runs. Fields that provably fail it are reported, because
 the alternative is a value the checker calls a `Shape` and `is` calls
 otherwise.
 

@@ -85,7 +85,7 @@ local function render(position: Vec3, sprite: Sprite): nil
 end
 ```
 
-A name that is not a field of the operand is `NUPP2004`, carrying a fix when a
+A name that is not a field of the operand is reported, carrying a fix when a
 real field is close enough to be the one meant.
 
 ```nupp
@@ -199,7 +199,7 @@ applied to `require`.
 
 ## Rejected arrangements
 
-A call reports `NUPP2006` when its arguments cannot be arranged into the single
+A call is reported when its arguments cannot be arranged into the single
 positional call they stand for.
 
 ```nupp
@@ -226,12 +226,13 @@ The rest of the arrangements it reports:
 - Named and plucked arguments require a statically known callable, so a call
   through a value typed `any` takes positional arguments only.
 
-Plucking from an owned or borrowed operand is `NUPP2603` instead: an owned or
+Plucking from an owned or borrowed operand is reported instead: an owned or
 borrowed container cannot be plucked from. See [ownership.md](ownership.md) for
 what a capability permits.
 
 ::: seealso
-- [diagnostics.md](../reference/diagnostics.md) for every code this page names
+- [diagnostics.md](../reference/diagnostics.md) for the code behind every
+  arrangement this page refuses
 - [Type cases, binding, and
   destructuring](switch-expressions.md#type-cases-binding-and-destructuring)
   for the brace form a switch arm uses
@@ -252,7 +253,7 @@ behind that bargain.
 ### Can positional and named arguments be mixed in one call?
 
 Yes, positional first. `draw(10, y = 20)` is the arrangement the checker
-accepts; `draw(y = 20, 10)` is `NUPP2006`, because nothing positional may
+accepts; `draw(y = 20, 10)` is refused, because nothing positional may
 follow a name.
 
 ### Do plucked arguments work with methods and constructors?

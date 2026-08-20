@@ -313,8 +313,8 @@ There is nothing to lift and no mechanical edit to suggest, so this is off until
 a project asks for it. The way out, where there is one, is to change what varies
 rather than where the function sits: declare one function above the loop that
 takes the varying part as an argument, so the loop calls it instead of building
-one. Where the closure really has to be built per iteration, the honest answer
-is that the loop runs interpreted, and the choice belongs to whoever wrote it.
+one. Where the closure really has to be built per iteration, the loop runs
+interpreted, and the choice belongs to whoever wrote it.
 
 Two things report it without being asked. Inside an `@jit` function it is the
 non-suppressible `NUPP2707`, because that annotation promised the absence of

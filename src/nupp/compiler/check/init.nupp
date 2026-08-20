@@ -189,7 +189,7 @@ end
 --- The extension is the answer, so a file says what it wants where anyone reading it
 --- will see it. `.g.nupp` asks for the gradual layer. A plain `.lua` file is plain Lua
 --- and was never making a claim. A `.d.nupp` describes an interface somebody else
---- implements, and `any` is frequently the honest type there -- `string.buffer`'s
+--- implements, and `any` is frequently the type it really has -- `string.buffer`'s
 --- `encode(v: any): string` really does take any Lua value, and no annotation this
 --- project writes changes what LuaJIT accepts. Everything else is ordinary Nupp.
 --- `--strict` overrides all of it by passing the answer in.

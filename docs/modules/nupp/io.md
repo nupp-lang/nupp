@@ -154,7 +154,7 @@ what the format said, and there is no partial value to hand back.
 
 ::: deepdive Host byte order
 Both directions read and write host-endian, the only order LuaJIT ships, so
-that is the honest default. A format fixed to one byte order casts and swaps
+that is the default. A format fixed to one byte order casts and swaps
 explicitly, and there are no LE and BE variants here until something needs
 them. Adding a second set without a caller would double the surface and leave
 half of it untested.

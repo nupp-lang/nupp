@@ -41,7 +41,7 @@ end
 
 `@effects()` means no observable effects in the effect model: every list is
 empty and every boolean is false. If the body performs an omitted effect, the
-checker reports `NUPP2112`.
+checker reports the contract.
 
 ```nupp
 @effects()
@@ -124,7 +124,7 @@ is shallow and says nothing about mutation of the module's fields.
 
 Every argument is named, and the contract is closed. An unknown member, a
 repeated member, a list member that is not a literal array of strings, or a
-boolean member that is not literally `true` or `false` is `NUPP2112`.
+boolean member that is not literally `true` or `false` is reported.
 
 ### Path-valued members
 
@@ -181,7 +181,7 @@ noncanonical path, so use the forms above: consumers compare paths exactly, and
 
 That exactness matters for a visible body. Evaluating a parameter is a root
 read, while a recognized operation such as `rawget(value, key)` may
-additionally produce an element read. When `NUPP2112` names a missing path, add
+additionally produce an element read. When the checker names a missing path, add
 that exact fact only if it belongs in the intended public contract.
 
 ### Declaration-only vocabulary
@@ -286,8 +286,8 @@ noalloc do
 end
 ```
 
-A region that can reach a modeled allocation reports `NUPP2710`, and one that
-can reach a catchable error path reports `NUPP2711`.
+A region that can reach a modeled allocation is reported, and so is one that
+can reach a catchable error path.
 
 Visible functions are inferred to a pessimistic fixed point, including their
 automatic cleanup. An exact direct export transports only the positive
@@ -414,7 +414,7 @@ The comparison is set containment. Order and duplicate path strings have no
 semantic effect after normalization, although repeating a named member such as
 two separate `reads = ...` arguments is invalid.
 
-The first missing fact is reported as `NUPP2112`:
+The first missing fact is what the checker names:
 
 ```text
 @effects contract is missing shapes = "values"
@@ -530,9 +530,9 @@ Because this is a `cdef function`, the compiler trusts the declaration. The same
 annotation on a visible Nupp function would be checked as an upper bound on its
 inferred body effects.
 
-## Answering `NUPP2112`
+## Answering a contract failure
 
-When an effect contract reports `NUPP2112`:
+When an effect contract is reported:
 
 1. Read the missing member or the unknown-call explanation literally.
 2. Decide whether the implementation should perform that effect.

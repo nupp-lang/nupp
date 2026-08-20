@@ -213,7 +213,7 @@ local rounded: float = nupp.math.f32.narrow(0.5)
 ```
 
 The erased assertion `as` may claim one of these types but does not establish
-it, and reports `NUPP2011` where the evidence is missing. Ordinary arithmetic
+it, and is reported where the evidence is missing. Ordinary arithmetic
 over them keeps LuaJIT's numeric semantics and produces `number`, so use the
 `nupp.math.f32`, `nupp.math.i32`, and `nupp.math.u32` operations when a
 particular width is part of the calculation. See
@@ -246,7 +246,7 @@ LuaJIT has no `uint8` register, so every narrow load already arrives as a
 32-bit Lua number, and a `uint8` local would be a type describing a
 representation that does not exist at run time. Keeping the narrow names to
 layout positions means the value types are exactly the ones LuaJIT can hold,
-and `NUPP2012` names the wider type to write instead.
+and the diagnostic names the wider type to write instead.
 :::
 
 ### Numeric literals
@@ -380,7 +380,7 @@ local type Handler = function(event: Event): boolean
 
 An alias is transparent, so `Id` and `uint32` are interchangeable. Aliases may
 be generic, and may refer to each other in any order; an alias defined in terms
-of itself reports `NUPP2115`.
+of itself is reported.
 
 ## Function types
 
@@ -417,7 +417,7 @@ end
 ```
 
 In a strict file, an exported function whose signature mentions `any` anywhere
-is treated as unannotated, and reports `NUPP2106`. `any` is the absence of a
+is treated as unannotated, and is reported. `any` is the absence of a
 checked type at that boundary, not a way to satisfy the annotation requirement.
 A function returning nothing still states `: nil`.
 

@@ -313,8 +313,14 @@ Link generously. A page is a node, not a document.
   out that they were being sent somewhere.
 - A `::: seealso` block collects the links a section would otherwise scatter.
   See [Admonitions](#see-also) for when one earns its place.
-- Diagnostic codes link to the reference anchor the compiler already emits, so a
-  code in prose and a code in terminal output land in the same place.
+- **Prose does not name diagnostic codes.** A page says what the rule is and
+  what to write instead; [diagnostics.md](reference/diagnostics.md) and
+  [lints.md](reference/lints.md) say which code reports it. A code inside an
+  example, as the comment on the line that reports it, is part of the example.
+- A link whose text is the file it points at, as
+  [ownership.md](type-system/ownership.md), renders as that page's title. Write
+  the filename and let the site title it; write your own text only when the
+  sentence needs a word the title does not give it.
 - Doc comments in `src/` link the same way. A `---` block that names a concept
   links to its page; a module blurb links to the page that introduces the
   module's subject. Generated API pages are part of the site, not a separate
@@ -409,7 +415,7 @@ the guarantee.
 
 | Write | Not |
 | --- | --- |
-| The checker reports NUPP2112. | You may get an error. |
+| The checker reports a missing effect. | You may get an error. |
 | A scope boundary releases it. | It should get released. |
 | A struct lowers to FFI cdata. | Structs are basically C structs. |
 | This is a compile error. | Unfortunately this won't work. |
@@ -447,7 +453,7 @@ The vocabulary is fixed so a reader meets one word per idea:
   language server, the documentation generator, the profiler. Commands are
   written as `nupp check`, in code style, without the leading `./bin/`.
 - **The checker _reports_** a diagnostic. It does not throw, complain, warn
-  about, or yell. Code _reports_ `NUPP2112`; a program does not "get" it.
+  about, or yell. Code _reports_ a diagnostic; a program does not "get" it.
 - **Typed source _lowers to_** Lua or cdata. It does not compile to, generate,
   or emit anything; lowers to is the one verb, used consistently.
 - **Types are _erased_** when they leave no runtime trace. `@effects` is
@@ -458,6 +464,12 @@ The vocabulary is fixed so a reader meets one word per idea:
   and in code style.
 - Backtick every identifier, filename, extension, flag, and diagnostic code.
   Do not backtick an ordinary English word that happens to also be a keyword.
+- **Never "load-bearing".** Say what depends on the thing and what breaks
+  without it: "a bare `case READ ->` does not parse without the parentheses",
+  not "the parentheses are load-bearing".
+- **Never "honest".** A type, an error, or an API is not honest or dishonest.
+  Say what it does: "the signature names every error it raises", not "an honest
+  signature".
 
 ## Doc comments
 
@@ -522,7 +534,8 @@ Before a page lands:
 - Every example compiles, and each adds one idea to the one before it.
 - Every concept with a page of its own is linked on first mention, by heading
   where a heading answers it.
-- Diagnostic code lists live on [diagnostics.md](reference/diagnostics.md).
+- No diagnostic code appears outside an example; the code lists live on
+  [diagnostics.md](reference/diagnostics.md) and [lints.md](reference/lints.md).
 - Every cross-reference says "see" and says what is on the other end.
 - A deep dive sits under the section that introduced its construct, and says
   something the prose does not.

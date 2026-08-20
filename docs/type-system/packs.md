@@ -43,7 +43,7 @@ local type Pair = Adapter<(number, string), (boolean, integer)>
 ```
 
 A pack is not a value type. Writing one as a field or a local annotation is
-`NUPP2121`. See [generics.md](generics.md) for how a binder is bound at a call
+reported. See [generics.md](generics.md) for how a binder is bound at a call
 site.
 
 ## Lua value-list adjustment
@@ -59,8 +59,7 @@ local a, b = pair(), true -- number, boolean
 
 Missing assignment slots receive `nil`, and surplus slots are truncated. Calls
 apply the same rules before generic inference and argument checking, so
-expanding a two-result call into a one-parameter function still reports
-`NUPP2007`:
+expanding a two-result call into a one-parameter function is still reported:
 
 ```nupp
 local function one(value: number): nil
@@ -118,9 +117,9 @@ Result packs are covariant and function parameter packs are checked
 contravariantly. A complete pack union fits a target only when every arm of it
 fits.
 
-`NUPP2010` reports incompatible heads, tails, alternatives, `select` indices,
-and coroutine transfers. `NUPP2121` reports misplaced binders and packs used
-outside a sequence position.
+Incompatible heads, tails, alternatives, `select` indices, and coroutine
+transfers are reported against the pack, and misplaced binders and packs used
+outside a sequence position are reported against where they were written.
 
 ## Protected calls, selection, and unpacking
 
@@ -147,7 +146,7 @@ end
 ### `select`
 
 `select("#", ...)` returns an integer. A constant positive or negative index
-returns the exact suffix, and an invalid constant index is `NUPP2010`. A
+returns the exact suffix, and an invalid constant index is reported. A
 dynamic index retains a homogeneous union of the possible elements:
 
 ```nupp
@@ -208,7 +207,7 @@ borrowed slot, so forwarding does not let a borrow outlive its owner.
 
 Lua truncation is allowed only for non-affine values. Parenthesizing a
 multi-result call, ignoring a call statement, truncating an assignment or
-argument list, count-only selection, or slicing a pack is `NUPP2605` when any
+argument list, count-only selection, or slicing a pack is reported when any
 discarded slot is owned, pinned, or a still-generic potentially affine slot:
 
 ```nupp
@@ -239,7 +238,7 @@ from.
 `{number, string}` is a tuple table: one value, allocated, indexable, and
 storable in a field. `(number, string)` is two values in a row, which is what a
 Lua function returns and what a call expands into. Only the tuple can be
-annotated on a local, which is what `NUPP2121` says when a pack is written
+annotated on a local, which is what the checker says when a pack is written
 there.
 
 ### Can a pack be stored in a variable?
@@ -251,7 +250,7 @@ tuple table with `{...}` when they need to be held, and expand them again with
 
 ### Does `(f())` drop an owner?
 
-It reports `NUPP2605` when a discarded slot is owned or pinned. Parentheses
+It is reported when a discarded slot is owned or pinned. Parentheses
 take the first value and truncate the rest, which Lua permits and Nupp allows
 only for values carrying no cleanup obligation. See [Ownership and
 provenance](#ownership-and-provenance) for the complete list of adjustments

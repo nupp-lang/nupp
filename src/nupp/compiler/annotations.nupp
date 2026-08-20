@@ -72,8 +72,8 @@ local CATEGORIES = {
 }
 
 --- What a registry offers a caller. The methods are explicit fields as well as
---- `__index` entries, so a shape is the honest description of one: the checker reads
---- the fields it can see rather than following an arbitrary metatable.
+--- `__index` entries, so a shape describes one exactly: the checker reads the fields
+--- it can see rather than following an arbitrary metatable.
 type annotations.Registry = {
     byname: {[string]: any},
     define: function(self: any, spec: any): (any, string?),

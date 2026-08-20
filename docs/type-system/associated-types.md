@@ -127,12 +127,12 @@ end
 local itself: Node = nil as Node.Value
 ```
 
-Leaving a requirement unanswered is `NUPP2127`, as is answering otherwise than
-a `==` fixes it, and as are two contracts defaulting it differently. None of
+Leaving a requirement unanswered is reported, as is answering otherwise than
+a `==` fixes it, and so are two contracts defaulting it differently. None of
 those leaves one answer to take. Answering a name no contract declares,
-restating a bound, or stating a requirement outside an interface is
-`NUPP2128`. Colliding with a nested alias or declaration is `NUPP2129`; a field
-may still carry the same name, since fields and types are separate namespaces.
+restating a bound, or stating a requirement outside an interface is reported
+too, and so is colliding with a nested alias or declaration; a field may still
+carry the same name, since fields and types are separate namespaces.
 
 ## Associated types are not nested aliases
 
@@ -179,7 +179,7 @@ because what it stands for varies by implementor. In a declaration that
 answered it, the bare name resolves, because answering it makes it an alias
 like any other.
 
-A projection that names nothing is `NUPP2134`: an unbounded binder has no
+A projection that names nothing is reported: an unbounded binder has no
 contract to project through, a bounded one may not state the name, and a union
 states it only when every alternative does. A projection takes no type
 arguments.
@@ -261,16 +261,16 @@ settles nothing, because there is nothing for a test to check.
 
 ### Cycles report once per component
 
-A cycle is reported once per component, wherever it is entered from
-(`NUPP2135`). A cyclic default stays latent on the interface that states it and
+A cycle is reported once per component, wherever it is entered from. A cyclic
+default stays latent on the interface that states it and
 surfaces on the first concrete implementor.
 
 ## Gradual projections
 
 A projection whose head inference never worked out is checked as `any`, which
 is the feature declining to say anything rather than saying the call is right.
-That is reported by the `gradual-projection` lint (`NUPP2511`), once per call
-and member, where the erasure happened:
+That is reported by the `gradual-projection` lint, once per call and member,
+where the erasure happened:
 
 ```nupp
 local erased = collect(nil as any) -- warning: gradual-projection

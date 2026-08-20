@@ -305,7 +305,7 @@ end
 --- Checked C declarations keyed independently of source order. Declarations that can
 --- execute while the module initializes are retained runtime bindings. Nested ones
 --- become relevant only when a retained implementation uses them; an unclassified
---- operation keeps the old module digest as a load-bearing fallback.
+--- operation falls back to the old module digest.
 local function cDeclarations(parsed)
     local declarations = {}
     local function visit(node, functionDepth)

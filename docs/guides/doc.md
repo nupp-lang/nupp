@@ -100,8 +100,8 @@ A tag's description continues onto any following indented line. Any other
 Tags are read wherever a function is declared, including the typed bindings and
 function-typed record fields that declaration files are written with, so
 `local ipairs: function<V>(t: {V}): ...` documents its arguments like any other
-function. The checker reports `NUPP1007` when an `@param` name does not match a
-real parameter.
+function. The checker reports an `@param` name that does not match a real
+parameter.
 
 ### Raised errors
 
@@ -207,9 +207,9 @@ newReader: function(self: ByteView): affine(Reader, _)
 ```
 
 The argument is replaced rather than dropped, because `affine(Reader)` is a
-different type: transfer-only, with deliberately no terminal at all. `_` keeps
-the type honest about the obligation the value carries while saying the name
-behind it is not the reader's to write. A cleanup the documentation does
+different type: transfer-only, with deliberately no terminal at all. `_` keeps the
+obligation the value carries in the type while saying the name behind it is not
+the reader's to write. A cleanup the documentation does
 describe prints as written. See
 [ownership.md](../type-system/ownership.md#terminal-contract) for what the
 terminal promises.

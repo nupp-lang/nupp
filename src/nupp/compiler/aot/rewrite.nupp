@@ -928,7 +928,7 @@ end
 --- crosses into another and the value cannot be observed once the lane retires,
 --- so selecting the old value back would only add register pressure.
 ---
---- Branch masks stay load-bearing. Speculating across a branch could change a
+--- Branch masks keep their effect. Speculating across a branch could change a
 --- lane that is still live and did not take it, which is a different thing
 --- entirely from a lane that has already stopped.
 function rewrite.maySpeculate(targetName: string, mask: lane.Expr?, loopContext: rewrite.LoopContext?): boolean

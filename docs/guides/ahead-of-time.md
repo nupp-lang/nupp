@@ -901,7 +901,7 @@ The annotation is optional: scalar-IR verification and lane rewriting may ignore
 it and retain the complete equality chain. Nupp `integer` is normally binary64,
 so those selectors deliberately remain equality branches rather than being
 converted. Strings, type patterns, block arms, and early arm returns report the
-ordinary `NUPP2903` subset boundary. The C compiler chooses the physical native
+ordinary subset boundary. The C compiler chooses the physical native
 dispatch, and Nupp neither forces a jump table nor synthesizes a C perfect hash.
 
 ## Build policy

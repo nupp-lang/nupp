@@ -74,10 +74,10 @@ types do:
 `cstring` and `voidptr` are allowed in a `cdef struct` but rejected in a plain
 Nupp `struct`, because a GC-managed struct gives them no anchor.
 
-A type C cannot represent is reported rather than widened. A pointer to a
-plain `record` is `NUPP3003` in a `cdef` declaration, a record named as a typed
-FFI operation's type argument is `NUPP3004`, and a reified `struct` field the
-generator cannot render, such as an array of pointers, is `NUPP3002`.
+A type C cannot represent is reported rather than widened. A `cdef`
+declaration refuses a pointer to a plain `record`, a typed FFI operation refuses
+a record as its type argument, and a reified `struct` refuses a field the
+generator cannot render, such as an array of pointers.
 
 ## Import a header
 
@@ -515,9 +515,10 @@ local mini = cheader("native/mini.h", "mini")
 print(mini.mini_add(20, 22))
 ```
 
-The path must be a literal, or the checker reports `NUPP2301`. It is searched
+The path must be a literal, or the checker reports it. It is searched
 relative to the file, then as written, then against the project roots, and an
-unreadable path is `NUPP2302`. The second argument names a library to load;
+unreadable path is reported where it is written. The second argument names a
+library to load;
 without it the default namespace is used.
 
 This suits a header that changes often, or one you would rather not vendor a
@@ -545,7 +546,7 @@ local align = ffi.alignof<nativePoint>()
 `ffi.istype<T>` returns `boolean`, and the last two return `integer`. Without a
 type argument the checker still reads a constant string spec through LuaJIT's
 own parser, so `ffi.new("struct Point")` types too; a spec built at run time
-yields `cdata`, and a string naming an undeclared type is `NUPP2304`.
+yields `cdata`, and a string naming an undeclared type is reported.
 
 ### C arrays
 
@@ -558,7 +559,7 @@ points[0].x = 1.0
 ```
 
 `T` must be a reified struct type and the count must be usable as an element
-count, or the call reports `NUPP2401`.
+count, or the call is reported.
 
 For a larger or explicitly native-owned array, use the malloc-backed standard
 library allocation and give it bounds immediately:
@@ -634,10 +635,10 @@ end
 `layoutof` reports `pos` as `float[3]`, twelve bytes wide at offset zero, which
 is what makes a vertex attribute descriptor derivable rather than
 hand-maintained. `T[?]` is not a field: a struct whose size depends on a count
-nobody wrote has no size, so it stays `NUPP2201`.
+nobody wrote has no size, so asking for its layout stays an error.
 
 Only a `struct` has a layout. A `record` is a table, so `layoutof` on one is
-`NUPP2402`. Nothing is emitted for a struct nothing asks about, because the
+reported. Nothing is emitted for a struct nothing asks about, because the
 lowering happens at the call site: a program that never calls `layoutof`
 carries none of this.
 
@@ -755,17 +756,16 @@ parallel header generator.
 ## JIT-sensitive C boundaries
 
 C-derived callback positions are tracked semantically through declarations and
-aliases. Passing a Lua function into one reports `jit-callback` (`NUPP2502`),
-and a variadic C call reports `jit-boundary` (`NUPP2514`). Disable the callback
-or the containing cold function with `jit.off` when the boundary is intentional.
-Annotating a function with `@jit` turns either hazard into the
-non-suppressible `NUPP2707` contract error.
+aliases. Passing a Lua function into one reports `jit-callback`, and a variadic
+C call reports `jit-boundary`. Disable the callback or the containing cold
+function with `jit.off` when the boundary is intentional. Annotating a function
+with `@jit` turns either hazard into a non-suppressible contract error.
 
 A third hazard is not about C at all: LuaJIT cannot record the bytecode that
 builds a function, so a loop containing one never compiles. `@jit` reports that
 as the same contract error, and `jit.off` on the enclosing function silences it
-the same way. Outside `@jit` it is `jit-loop-closure` (`NUPP2515`), off until a
-project asks for it. See [lints.md](../reference/lints.md) for enabling it.
+the same way. Outside `@jit` it is `jit-loop-closure`, off until a project asks
+for it. See [lints.md](../reference/lints.md) for enabling it.
 
 ## Build native dependencies reproducibly
 

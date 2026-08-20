@@ -63,8 +63,9 @@ local type Expanded = {
 ::: deepdive
 Splitting the read type from the write type is what lets a normalizing setter
 be described rather than approximated. A property that accepts `string |
-integer` and stores a `string` has one honest signature, and collapsing the
-pair to a single type has to pick which half to lie about: widening reads makes
+integer` and stores a `string` needs both types written down, and collapsing
+the pair to a single type has to pick which half to misstate: widening reads
+makes
 every consumer test a type the value never has, and narrowing writes rejects
 calls the implementation accepts. Declaration files for untyped Lua hit this on
 almost every setter, which is why the pair is part of the property rather than
@@ -144,8 +145,8 @@ next to them answer different questions:
 
 ## Access diagnostics
 
-**NUPP2009** reports a read through a write-only view or an assignment through
-a read-only view. Compound assignment needs both capabilities, because it first
+A read through a write-only view, and an assignment through a read-only view,
+are both reported. Compound assignment needs both capabilities, because it first
 reads the old value and then writes the result:
 
 ```nupp
@@ -158,9 +159,9 @@ sink.value = 1
 sink.value += 1 -- NUPP2009: `+=` reads `value` through a write-only view
 ```
 
-[**NUPP2118**](../reference/diagnostics.md#diagnostic-index) reports duplicate
-capabilities, an ordinary property combined with a separate capability of the
-same name, and capability properties on structs. Struct fields are fixed C
+Duplicate capabilities are reported, as is an ordinary property combined with a
+separate capability of the same name, and so is a capability property on a
+struct. Struct fields are fixed C
 memory slots, so they remain ordinary invariant fields. See [Records and
 structs](records.md#structs) for what a struct field may hold.
 

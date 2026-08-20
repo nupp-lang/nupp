@@ -144,9 +144,9 @@ type cache.State = {
 
     --- `(source, tier)` identity -> the key its AOT artifact was built under.
     ---
-    --- Never load-bearing. A key that is missing, unreadable or different is a
-    --- regeneration, not an error, and the artifact it describes is checked to
-    --- still exist before it is believed.
+    --- Nothing depends on this being present or correct. A key that is missing,
+    --- unreadable or different is a regeneration, not an error, and the artifact
+    --- it describes is checked to still exist before it is believed.
     aot: {[string]: string}?,
 
     --- The key the linked ahead-of-time library was built under, when a target

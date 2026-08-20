@@ -98,9 +98,9 @@ narrower readings stay one word away.
 
 Strict adds two rules on top of what every file is checked for:
 
-- `NUPP2105`: unknown variable, for a name no project file answers to.
-- `NUPP2106`: an exported declaration needs a type annotation, so nothing
-  untyped crosses a module boundary.
+- An unknown variable is reported, for a name no project file answers to.
+- An exported declaration needs a type annotation, so nothing untyped crosses a
+  module boundary.
 
 Everything else is checked identically either way. Which files hold that floor
 is decided by their extension, so a file says what it is where anyone reading
@@ -240,6 +240,6 @@ See [strictness.md](../concepts/strictness.md) for the two exceptions.
   what adopting the strict floor costs
 - [modules.md](../concepts/modules.md) for where a declaration lives and how
   another module sees it
-- [diagnostics.md](../reference/diagnostics.md) for every code this section
-  names
+- [diagnostics.md](../reference/diagnostics.md) for the code behind every rule
+  this section states
 :::

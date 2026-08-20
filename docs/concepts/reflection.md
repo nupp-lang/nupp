@@ -201,7 +201,7 @@ generated from it is generated again.
 that record's declared present fields with `rawget`. Its compatibility
 fingerprint is `t:` followed by those field names in declaration order, and the
 declared codec type must name the same record. Reflection of a runtime value, an
-unresolved type, or a non-record codec input is **NUPP2418**. See [Opaque
+unresolved type, or a non-record codec input is refused. See [Opaque
 results materialize at a
 declaration](comptime.md#opaque-results-materialize-at-a-declaration) for the
 rule that governs where the result may land.

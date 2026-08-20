@@ -103,8 +103,7 @@ checked against the declared interface. A dynamic name or a locally shadowed
 ### Naming a member from another file
 
 A project file does not put its basename into every other file's scope. Reading
-a member of an unbound module reports
-[`NUPP2120`](../reference/diagnostics.md#diagnostic-index):
+a member of an unbound module is reported:
 
 ```nupp
 local answer: number = mathutil.double(21)
