@@ -133,8 +133,8 @@ local type Token = lexer.Token
 --- both widen to `integer`, and that `float` widens to `number`.
 ---
 --- It matters because a cursor is written `uint32` and then indexes with
---- `cursor + 1`. Calling that sum a `number` made the one form a checked view
---- append is written in a form nothing could accept.
+--- `cursor + 1`. Calling that sum a `number` left a checked view append with no
+--- spelling that both checked and compiled.
 local function integral(t: Type): boolean
     if fixedWidth.isValue(t) then
         return fixedWidth.widenedName(t) == "integer"

@@ -23,9 +23,14 @@ the value.
 
 The establishing conversions are `nupp.math.f32.narrow(number)`,
 `nupp.math.i32.wrap(integer)`, and `nupp.math.u32.wrap(integer)`. Ordinary
-arithmetic keeps LuaJIT's numeric meaning and produces `number`; use the
-`f32`, `i32`, or `u32` namespace when the operation's width is part of its
+arithmetic keeps LuaJIT's numeric meaning, so no refinement survives it; use
+the `f32`, `i32`, or `u32` namespace when the operation's width is part of its
 contract.
+
+What does survive is being whole. `int32` and `uint32` widen to `integer`, so
+ordinary arithmetic over them gives an `integer` -- which is what lets a
+`uint32` cursor index a view as `cursor + 1`. `float` widens to `number` and
+its arithmetic gives one.
 
 ```nupp
 local flags: uint32 = 0x12
