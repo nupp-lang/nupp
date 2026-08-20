@@ -227,6 +227,8 @@ end
 interface Backend
     readonly name: string
     readonly seams: {Seam}
+    install: function(self: Backend): nil
+    test: function(self: Backend): (boolean, string?)
 end
 ```
 
@@ -237,21 +239,24 @@ the selected third-party module and validates its values. `test` invokes the
 compiler-owned behavioral suite against the same implementation. It is not a
 callback a backend author may replace with a test that always passes.
 
-The common `Seam` interface erases the implementation type only after a
-seam-specific factory has checked it. Each compiler-owned seam module exports
-its implementation interface and the only constructor for that seam. The
-constructor attaches the name, contract version, installer and conformance
-suite. `Backend.new` rejects duplicate seam names. This lets one backend bundle
-several facilities without weakening the type of any of them.
+The common `Seam` interface erases contract-specific details only inside a
+compiler-owned seam factory. A compile-bound factory accepts its checked
+implementation interface. A runtime-bound factory accepts an exact module name
+and owns the lazy validator and adapter for that module's values. Both attach
+the seam name, contract version, installer and compiler-owned conformance suite.
+`Backend.new` rejects an empty collection and duplicate seam names. This lets
+one backend bundle several facilities without weakening any seam's contract.
 
 A backend descriptor must also be readable without running it. The exported
 value is therefore restricted to `Backend.new` with a constant name and a
-literal list of compiler-owned seam constructor calls. The implementation
-passed to a constructor remains ordinary checked source and may contain
-functions and requires; only the descriptor is declarative. The checker writes
-the backend and seam identities into the module interface, so `check`, `build`
-and task inspection can resolve a backend without executing its top level or a
-third-party dependency.
+literal list of compiler-owned seam constructor calls. A runtime-bound call
+contains its exact module string. Compile-bound implementation code remains in
+ordinary checked modules; only the descriptor is declarative. Imports naming
+`Backend` and the seam factories are immutable `const` bindings to exact
+`require` strings, so reassignment cannot make the runtime value disagree with
+the static descriptor. The checker writes the backend and seam identities into
+the module interface, so `check`, `build` and task inspection can resolve a
+backend without executing its top level or a third-party dependency.
 
 A capability's implementation contract remains an ordinary `interface`,
 checked by the machinery that already checks every other one:
@@ -276,31 +281,20 @@ end
 ```nupp
 module acme.compat.bitops
 
-local Backend = require("nupp.runtime.backend")
-local Bitops = require("nupp.runtime.seam.bitops")
+const Backend = require("nupp.runtime.backend")
+const Bitops = require("nupp.runtime.seam.bitops")
 
---- Declared by this adapter package and satisfied at run time by its rock.
-local bits = require("thirdparty.bitops")
-
-local implementation: Bitops.Implementation = {
-    band = function(a, b) return bits.band(a, b) end,
-    bor = function(a, b) return bits.bor(a, b) end,
-    bxor = function(a, b) return bits.bxor(a, b) end,
-    bnot = function(a) return bits.bnot(a) end,
-    lshift = function(a, n) return bits.lshift(a, n) end,
-    rshift = function(a, n) return bits.rshift(a, n) end,
-    arshift = function(a, n) return bits.arshift(a, n) end,
-}
-
-export = Backend.new("acme.compat.bitops", {Bitops.seam(implementation)})
+export = Backend.new("acme.compat.bitops", {
+    Bitops.seam("thirdparty.bitops"),
+})
 ```
 
 The adapter owns the declaration for its third-party module and its package
 metadata owns the runtime dependency. It may wrap BitOp or another library; it
-does not reimplement the operations. The checked call to `Bitops.seam` both
-proves the structural shape and attaches the bitops suite. Under `luajit` the
-same seam resolves to native operators and this module is never loaded, never
-bound, and never named in the output.
+does not reimplement the operations. The checked call to `Bitops.seam` records
+the exact runtime module; the seam lazily checks its shape and attaches the
+bitops suite. Under `luajit` the same seam resolves to native operators and this
+module is never loaded, never bound, and never named in the output.
 
 ### Worked example: struct values as tables
 
@@ -480,15 +474,15 @@ factory accepts an exact runtime module name:
 ```nupp
 module acme.compat.json
 
-local Backend = require("nupp.runtime.backend")
-local JSON = require("nupp.runtime.seam.data_json")
+const Backend = require("nupp.runtime.backend")
+const JSON = require("nupp.runtime.seam.json")
 
 export = Backend.new("acme.compat.json", {
-    JSON.runtime("lunajson"),
+    JSON.seam("lunajson"),
 })
 ```
 
-`JSON.runtime` is ordinary checked Nupp source. It owns the lazy require, the
+`JSON.seam` is ordinary checked Nupp source. It owns the lazy require, the
 shape check, the adapter to Nupp's JSON contract and the compiler-owned suite.
 It can be checked and tested in isolation. The generated artifact contains only
 a call that installs `acme.compat.json`; no adapter or fallback implementation

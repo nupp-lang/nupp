@@ -22,7 +22,7 @@ local packaging = require("nupp.compiler.build.package")
 local storeMod = require("nupp.compiler.build.store")
 local native = require("nupp.compiler.build.native")
 local nativeFeatures = require("nupp.compiler.native")
-local runtimeProviders = require("nupp.compiler.providers")
+local backends = require("nupp.compiler.backends")
 local stdlib = require("nupp.compiler.stdlib")
 local materializeObserve = require("nupp.compiler.materialize.observe")
 local progressMod = require("nupp.compiler.build.progress")
@@ -423,7 +423,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
 
     local detectedEffects = native.dependencyEffects(root, config, target, result.effects)
     local resolvedEffects = native.resolve(detectedEffects, target.nativeFeatures)
-    runtimeProviders.withoutNative(resolvedEffects, target.runtimeProviders)
+    backends.withoutNative(resolvedEffects, result.backends)
     if resolvedEffects["native.workers"] and (target.kind ~= "binary" or target.stub ~= "nupp") then
         io.stderr:write(
             "nupp: workers currently require a binary target with stub = \"nupp\"; "
@@ -601,6 +601,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         opts.produced.outputs = mine
         opts.produced.materializations = materializeObserve.public(result.materializations)
         opts.produced.derives = result.derives
+        opts.produced.backends = result.backends and result.backends.modules or cache.jsonArray({})
     end
     report:at("write")
     local ok, stateErr = saveState(statePath, newState)
@@ -650,6 +651,7 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         aggregate.target = target.name or opts.target or "default"
         aggregate.outputs = cache.jsonArray({})
         aggregate.platforms = cache.jsonArray({})
+        aggregate.backends = cache.jsonArray({})
     end
     local failed = false
     for _, selected in ipairs(target.platforms) do
@@ -665,6 +667,7 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         local code = buildOne(root, childOptions)
         failed = failed or code ~= 0
         if aggregate then
+            aggregate.backends = produced.backends or aggregate.backends
             local entry = {
                 platform = selected,
                 status = code == 0 and "built" or "failed",

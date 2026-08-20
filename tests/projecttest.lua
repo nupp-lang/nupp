@@ -748,11 +748,11 @@ return {include = {"src"}, build = {targets = {app = {
       "nativeFeatures.json must be true or false", 1, true), tostring(wrongType))
 end
 
-function M.runtimeProvidersAreValidatedAndReported()
+function M.backendsAreValidatedAndReported()
    local function load(selected)
       local dir = tempProject({["nupp.lua"] = [[
 return {include = {"src"}, build = {targets = {app = {
-   entries = {"main"}, runtimeProviders = ]] .. selected .. [[
+   entries = {"main"}, backends = ]] .. selected .. [[
 }}}}
 ]]})
       local config, err = project.loadManifest(dir)
@@ -761,34 +761,60 @@ return {include = {"src"}, build = {targets = {app = {
       return config, err, task
    end
 
-   local config, err, task = load("{json = 'acme.portable_json'}")
-   assert(config, "a named runtime provider is accepted: " .. tostring(err))
-   assertEq(task.runtimeProviders.json, "acme.portable_json",
-      "task output reports the provider requirement")
+   local config, err, task = load("{'acme.portable'}")
+   assert(config, "a named backend module is accepted: " .. tostring(err))
+   assertEq(task.backends[1], "acme.portable",
+      "task output reports the backend requirement")
 
-   local _, unknown = load("{jsoon = 'acme.portable_json'}")
-   assert(unknown and unknown:find(
-      "runtimeProviders names no provider contract jsoon", 1, true), tostring(unknown))
-   local _, wrongType = load("{json = true}")
+   local _, wrongType = load("{true}")
    assert(wrongType and wrongType:find(
-      "runtimeProviders.json must be a non-empty module name", 1, true), tostring(wrongType))
-   local _, recursive = load("{json = 'jsonNative'}")
-   assert(recursive and recursive:find(
-      "must name an adapter module", 1, true), tostring(recursive))
+      "backends[1] must be a non-empty module name", 1, true), tostring(wrongType))
+   local _, keyed = load("{json = 'acme.portable'}")
+   assert(keyed and keyed:find(
+      "backends must be an array of module names", 1, true), tostring(keyed))
+   local _, duplicate = load("{'acme.portable', 'acme.portable'}")
+   assert(duplicate and duplicate:find(
+      "names backend module acme.portable more than once", 1, true), tostring(duplicate))
+
+   local retired = tempProject({["nupp.lua"] = [[
+return {include = {"src"}, build = {entries = {"main"},
+   runtimeProviders = {json = "acme.portable_json"}}}
+]]})
+   local _, retiredError = project.loadManifest(retired)
+   remove(retired)
+   assert(retiredError and retiredError:find("runtimeProviders", 1, true),
+      "the temporary provider registry is rejected by name: " .. tostring(retiredError))
 end
 
-function M.selectedRuntimeJsonProviderBuildsAndRuns()
+function M.selectedRuntimeBackendBuildsAndRuns()
    local dir = tempProject({
       ["nupp.lua"] = [[
 return {include = {"src"}, build = {outDir = "out", entries = {"main"},
-   runtimeProviders = {json = "portable_json"}}}
+   backends = {"portablebackend"}}}
 ]],
       ["src/main.nupp"] = [[
 local json = require("nupp.data.json")
 return json.encode({answer = 42})
 ]],
+      ["src/portablebackend.nupp"] = [[
+module portablebackend
+
+const Backend = require("nupp.runtime.backend")
+const JSON = require("nupp.runtime.seam.json")
+
+export = Backend.new("portable", {
+   JSON.seam("portable_json"),
+})
+]],
    })
-   assertEq(project.build(dir, {}), 0, "the provider-selected project builds")
+   local produced = {}
+   assertEq(project.build(dir, {produced = produced}), 0, "the backend-selected project builds")
+   assertEq(produced.backends[1].module, "portablebackend",
+      "build output reports the statically resolved backend module")
+   assertEq(produced.backends[1].seams[1].name, "data.json",
+      "build output reports the resolved seam")
+   assertEq(produced.backends[1].seams[1].version, 1,
+      "build output reports the seam contract version")
    write(dir .. "/out/portable_json.lua", [[
 local json = {NULL = {}, EMPTY_ARRAY = {}, EMPTY_OBJECT = {}}
 local function same(value) return value end
@@ -801,13 +827,59 @@ return json
 ]])
 
    local generated = read(dir .. "/out/main.lua")
-   assert(generated:find("portable_json", 1, true),
-      "the reached standard module records the provider")
+   assert(generated:find("portablebackend", 1, true),
+      "the reached standard module installs the selected backend")
+   assert(not generated:find("portable_json", 1, true),
+      "the entry contains no generated adapter or third-party provider detail")
+   local backend = read(dir .. "/out/portablebackend.lua")
+   assert(backend:find("portable_json", 1, true),
+      "the checked backend source owns its exact runtime dependency")
    local script = ("package.path=%q..package.path;io.write(require('main'))")
       :format(dir .. "/out/?.lua;build/?.lua;")
    local status, output = process.capture({"luajit", "-e", script})
-   assertEq(status, 0, "the built artifact loads the runtime provider: " .. tostring(output))
-   assertEq(output, "portable:42", "the standard module delegates to the selected provider")
+   assertEq(status, 0, "the built artifact loads the runtime backend: " .. tostring(output))
+   assertEq(output, "portable:42", "the backend seam delegates to the selected provider")
+   remove(dir)
+end
+
+function M.backendMetadataIsStaticAndInvalidatesGeneratedSelection()
+   local function backendSource(runtimeModule)
+      return ([[
+module portablebackend
+
+const Backend = require("nupp.runtime.backend")
+const JSON = require("nupp.runtime.seam.json")
+
+error("a build must not execute backend source")
+export = Backend.new("portable", {
+   JSON.seam(%q),
+})
+]]):format(runtimeModule)
+   end
+
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {include = {"src"}, build = {outDir = "out", entries = {"main"},
+   backends = {"portablebackend"}}}
+]],
+      ["src/main.nupp"] = [[
+local json = require("nupp.data.json")
+return json.encode({answer = 42})
+]],
+      ["src/portablebackend.nupp"] = backendSource("first_json"),
+   })
+   assertEq(project.build(dir, {}), 0, "static backend metadata builds without execution")
+   local warm = {}
+   assertEq(project.build(dir, {stats = warm}), 0, "the unchanged backend is reusable")
+   assertEq(warm.generatedModules, 0, "the unchanged backend regenerates nothing")
+
+   write(dir .. "/src/portablebackend.nupp", backendSource("second_json"))
+   local changed = {}
+   assertEq(project.build(dir, {stats = changed}), 0, "changed backend metadata rebuilds")
+   assert(changed.generatedModules >= 2,
+      "a descriptor change invalidates generated selection, got " .. tostring(changed.generatedModules))
+   assert(read(dir .. "/out/portablebackend.lua"):find("second_json", 1, true),
+      "the rebuilt backend carries its new exact runtime dependency")
    remove(dir)
 end
 

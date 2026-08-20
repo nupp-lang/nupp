@@ -39,7 +39,7 @@ local cst = require("nupp.compiler.cst")
 local predicate = require("nupp.compiler.predicate")
 local switchplan = require("nupp.compiler.switchplan")
 local stdlib = require("nupp.compiler.stdlib")
-local runtimeProviders = require("nupp.compiler.providers")
+local backends = require("nupp.compiler.backends")
 local cabi = require("nupp.compiler.cabi")
 
 local gen = {}
@@ -394,7 +394,7 @@ function gen.generate(
     filename: string?,
     coverage: (boolean | gen.CoverageRequest)?,
     hot: gen.HotRequest?,
-    providers: {[string]: string}?
+    backendResolution: any?
 ): string, {any}, gen.Coverage?, {[string]: boolean}, gen.HotMetadata?
     local out = {}
     local declaredModuleName = result.declaredModuleName
@@ -6583,7 +6583,7 @@ function gen.generate(
     local runtimeBootstrap = stdlib.bootstrap(
         runtimeEffects,
         hotState ~= nil
-    ) .. runtimeProviders.bootstrap(runtimeEffects, providers)
+    ) .. backends.bootstrap(runtimeEffects, backendResolution)
     if runtimeBootstrap ~= "" then
         code = runtimeBootstrap .. code
     else

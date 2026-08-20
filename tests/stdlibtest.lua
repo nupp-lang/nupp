@@ -3,7 +3,7 @@ local check = require("fragment")
 local envMod = require("nupp.compiler.env")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
-local providers = require("nupp.compiler.providers")
+local backends = require("nupp.compiler.backends")
 local runtimeBackend = require("nupp.runtime.backend")
 local jsonSeam = require("nupp.runtime.seam.json")
 local optimize = require("nupp.compiler.optimize")
@@ -40,29 +40,107 @@ end
 
 local M = {}
 
+local function jsonResolution(backendModule)
+   return {
+      modules = {{name = "portable", module = backendModule}},
+      seams = {['data.json'] = {module = backendModule}},
+      byEffect = {['native.json'] = backendModule},
+   }
+end
+
+function M.backendDescriptorsAreStaticCheckedMetadata()
+   local parsed = parser.parse([[
+module portablebackend
+
+const Backend = require("nupp.runtime.backend")
+const JSON = require("nupp.runtime.seam.json")
+
+error("descriptor extraction executed the backend")
+export = Backend.new("portable", {
+   JSON.seam("portable_json"),
+})
+]], "portablebackend.nupp")
+   assertEq(#parsed.errors, 0, "backend descriptor source parses")
+   sharedEnv.loaded = {}
+   local descriptorDiags = check.check(parsed, "portablebackend.nupp", sharedEnv)
+   assertEq(#descriptorDiags, 0, "backend descriptor source checks")
+   local descriptor, problem = backends.inspect(parsed.root, "portablebackend")
+   assert(descriptor, problem)
+   assertEq(descriptor.name, "portable", "the constant backend name is recorded")
+   assertEq(descriptor.module, "portablebackend", "the selected module identity is recorded")
+   assertEq(descriptor.seams[1].name, "data.json", "the seam identity is recorded")
+   assertEq(descriptor.seams[1].version, 1, "the contract version is recorded")
+   assertEq(descriptor.seams[1].runtimeModule, "portable_json",
+      "the exact runtime dependency is static metadata")
+
+   local second = assert(backends.inspect(parsed.root, "otherbackend"))
+   local selectedByPath = {
+      portablebackend = descriptor,
+      otherbackend = second,
+   }
+   local resolved, conflict = backends.resolve({
+      modulePath = function(name) return name .. ".nupp" end,
+      checkFile = function(path)
+         return {backend = selectedByPath[path:match("^(.*)%.nupp$")]}
+      end,
+   }, {"portablebackend", "otherbackend"})
+   assert(not resolved and tostring(conflict):find(
+      "backend seam conflict for data.json", 1, true),
+      "two selected backends cannot silently compete: " .. tostring(conflict))
+
+   local dynamic = parser.parse([[
+module dynamicbackend
+const Backend = require("nupp.runtime.backend")
+const JSON = require("nupp.runtime.seam.json")
+local name = "portable"
+export = Backend.new(name, {JSON.seam("portable_json")})
+]], "dynamicbackend.nupp")
+   sharedEnv.loaded = {}
+   check.check(dynamic, "dynamicbackend.nupp", sharedEnv)
+   local missing, dynamicProblem = backends.inspect(dynamic.root, "dynamicbackend")
+   assert(not missing and tostring(dynamicProblem):find("constant name", 1, true),
+      "a descriptor cannot depend on executing a binding: " .. tostring(dynamicProblem))
+
+   local shadowed = parser.parse([[
+module shadowedbackend
+local function require(name: string): any
+   return name
+end
+const Backend = require("nupp.runtime.backend")
+const JSON = require("nupp.runtime.seam.json")
+export = Backend.new("portable", {JSON.seam("portable_json")})
+]], "shadowedbackend.nupp")
+   sharedEnv.loaded = {}
+   check.check(shadowed, "shadowedbackend.nupp", sharedEnv)
+   local spoofed = backends.inspect(shadowed.root, "shadowedbackend")
+   assert(not spoofed, "a shadowed function named require is not static module metadata")
+end
+
 function M.runtimeJsonProviderIsOptInLazyAndChecked()
    local selected = "fixtures.portable_json"
-   local bootstrap = providers.bootstrap({["native.json"] = true}, {json = selected})
-   assertEq(bootstrap, ('require(%q).install(require(%q).backend(%q));'):format(
-      runtimeBackend.moduleName,
-      jsonSeam.moduleName,
-      selected
-   ), "generated output contains composition only, not adapter source")
-   assertEq(providers.bootstrap({["native.json"] = true}, nil), "",
-      "the default native path emits no provider bootstrap")
-   assertEq(providers.bootstrap({}, {json = selected}), "",
-      "an unreachable provider emits no bootstrap")
+   local backendModule = "fixtures.portable_backend"
+   local resolution = jsonResolution(backendModule)
+   local bootstrap = backends.bootstrap({["native.json"] = true}, resolution)
+   assertEq(bootstrap, ('(require(%q)):install();'):format(backendModule),
+      "generated output contains composition only, not adapter source")
+   assertEq(backends.bootstrap({["native.json"] = true}, nil), "",
+      "the default native path emits no backend bootstrap")
+   assertEq(backends.bootstrap({}, resolution), "",
+      "an unreachable seam emits no backend bootstrap")
 
    local oldRegistry = rawget(_G, "__nuppRuntimeProviders")
    local oldNative = package.loaded.jsonNative
    local oldNativePreload = package.preload.jsonNative
    local oldProvider = package.loaded[selected]
    local oldProviderPreload = package.preload[selected]
+   local oldBackend = package.loaded[backendModule]
+   local oldBackendPreload = package.preload[backendModule]
    local oldSuite = package.loaded[jsonSeam.suiteModuleName]
    _G.__nuppRuntimeProviders = nil
    package.loaded.jsonNative = nil
    package.preload.jsonNative = nil
    package.loaded[selected] = nil
+   package.loaded[backendModule] = nil
    package.loaded[jsonSeam.suiteModuleName] = nil
    local sentinel = {}
    package.preload[selected] = function()
@@ -81,6 +159,9 @@ function M.runtimeJsonProviderIsOptInLazyAndChecked()
          writer = same,
       }
    end
+   package.preload[backendModule] = function()
+      return jsonSeam.backend(selected)
+   end
 
    local ok, problem = pcall(function()
       assert(loadstring(bootstrap))()
@@ -97,6 +178,8 @@ function M.runtimeJsonProviderIsOptInLazyAndChecked()
    package.preload.jsonNative = oldNativePreload
    package.loaded[selected] = oldProvider
    package.preload[selected] = oldProviderPreload
+   package.loaded[backendModule] = oldBackend
+   package.preload[backendModule] = oldBackendPreload
    package.loaded[jsonSeam.suiteModuleName] = oldSuite
    assert(ok, problem)
 end
@@ -131,10 +214,13 @@ function M.runtimeJsonSeamExposesItsOwnConformanceSuite()
       })
       assert(not unique and tostring(duplicate):find("more than once", 1, true),
          "a backend cannot provide one seam twice")
-      local passed, why = runtimeBackend.test(selected)
+      local nonempty, emptyProblem = pcall(runtimeBackend.new, "empty", {})
+      assert(not nonempty and tostring(emptyProblem):find("at least one seam", 1, true),
+         "a backend must expose at least one seam")
+      local passed, why = selected:test()
       assert(passed, "the native adapter passes the same public suite: " .. tostring(why))
 
-      local rejected, rejection = runtimeBackend.test(jsonSeam.backend(broken))
+      local rejected, rejection = jsonSeam.backend(broken):test()
       assert(not rejected, "behavior, not just member names, is checked")
       assert(tostring(rejection):find("data.json contract 1", 1, true),
          "a failure identifies the seam contract: " .. tostring(rejection))
@@ -149,20 +235,27 @@ end
 
 function M.missingRuntimeJsonProviderNamesTheDependency()
    local selected = "fixtures.provider_that_is_missing"
+   local backendModule = "fixtures.missing_provider_backend"
    local oldRegistry = rawget(_G, "__nuppRuntimeProviders")
    local oldNative = package.loaded.jsonNative
    local oldNativePreload = package.preload.jsonNative
    local oldProvider = package.loaded[selected]
    local oldProviderPreload = package.preload[selected]
+   local oldBackend = package.loaded[backendModule]
+   local oldBackendPreload = package.preload[backendModule]
    _G.__nuppRuntimeProviders = nil
    package.loaded.jsonNative = nil
    package.preload.jsonNative = nil
    package.loaded[selected] = nil
    package.preload[selected] = nil
+   package.loaded[backendModule] = nil
+   package.preload[backendModule] = function()
+      return jsonSeam.backend(selected)
+   end
 
-   local installed, installProblem = pcall(assert(loadstring(providers.bootstrap(
+   local installed, installProblem = pcall(assert(loadstring(backends.bootstrap(
       {["native.json"] = true},
-      {json = selected}
+      jsonResolution(backendModule)
    ))))
    local ok, problem = pcall(function()
       local json = require("jsonNative")
@@ -174,6 +267,8 @@ function M.missingRuntimeJsonProviderNamesTheDependency()
    package.preload.jsonNative = oldNativePreload
    package.loaded[selected] = oldProvider
    package.preload[selected] = oldProviderPreload
+   package.loaded[backendModule] = oldBackend
+   package.preload[backendModule] = oldBackendPreload
    assert(installed, installProblem)
    assert(not ok and tostring(problem):find(selected, 1, true),
       "the runtime error names the absent provider: " .. tostring(problem))
@@ -183,7 +278,7 @@ end
 
 function M.selectedRuntimeProviderSuppressesOnlyItsNativeFeature()
    local effects = {['native.json'] = true, ['native.sha256'] = true}
-   providers.withoutNative(effects, {json = "fixtures.portable_json"})
+   backends.withoutNative(effects, jsonResolution("fixtures.portable_backend"))
    assert(not effects['native.json'], "the selected JSON adapter replaces native JSON")
    assert(effects['native.sha256'], "unrelated native features remain selected")
 end
@@ -200,7 +295,7 @@ function M.generatedBackendSelectionDoesNotTouchDefaultOutput()
       "runtime-provider.g.nupp",
       nil,
       nil,
-      {json = "fixtures.portable_json"}
+      jsonResolution("fixtures.portable_backend")
    )
    assertEq(#ordinaryDiags, 0, "ordinary source generates")
    assertEq(#nilDiags, 0, "explicit native selection generates")
@@ -208,8 +303,8 @@ function M.generatedBackendSelectionDoesNotTouchDefaultOutput()
    assertEq(explicitNil, ordinary, "an absent provider is byte-identical")
    assert(not ordinary:find("__nuppRuntimeProviders", 1, true),
       "native output contains no compatibility registry")
-   assert(portable:find("fixtures.portable_json", 1, true),
-      "portable output names the selected provider")
+   assert(portable:find("fixtures.portable_backend", 1, true),
+      "portable output names the selected backend")
 end
 
 function M.stringLibrary()

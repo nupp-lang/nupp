@@ -141,6 +141,32 @@ local command = spec.command{
                     },
                 },
             },
+            backends = {
+                type = "array",
+                description = "Checked backend descriptors selected without executing their modules.",
+                items = {
+                    type = "object",
+                    properties = {
+                        name = {type = "string"},
+                        module = {type = "string"},
+                        fingerprint = {type = "string"},
+                        seams = {
+                            type = "array",
+                            items = {
+                                type = "object",
+                                properties = {
+                                    name = {type = "string"},
+                                    version = {type = "integer"},
+                                    effect = {type = "string"},
+                                    runtimeModule = {type = "string"},
+                                },
+                                required = {"name", "version", "effect", "runtimeModule"},
+                            },
+                        },
+                    },
+                    required = {"name", "module", "fingerprint", "seams"},
+                },
+            },
             timing = {
                 type = "object",
                 description = "Where the build's wall-clock time went. Absent when a "
@@ -178,7 +204,7 @@ local command = spec.command{
                 description = "Whether the build completed. False when a " .. "diagnostic stopped it."
             },
         },
-        required = {"ok", "diagnostics", "written", "materializations", "derives"},
+        required = {"ok", "diagnostics", "written", "materializations", "derives", "backends"},
     },
     detail = [[Manifest target options cannot be combined with explicit source files.
 Use 'nupp tasks' to discover target names and configuration.
@@ -246,6 +272,7 @@ local function run(parsed: any): integer
     local progressMode = values.progress or (asJson and "never" or nil)
     local materializations: {any} = {}
     local derives: {any} = {}
+    local selectedBackends: {any} = {}
     local function finish(
         code: integer,
         builtTarget: any,
@@ -270,6 +297,7 @@ local function run(parsed: any): integer
                 written = outputs,
                 materializations = observed or materializations,
                 derives = observedDerives or derives,
+                backends = selectedBackends,
                 timing = code == 0 and timing or nil,
             })
         end
@@ -293,6 +321,7 @@ local function run(parsed: any): integer
             produced = asJson and produced or nil,
             progress = progressMode
         })
+        selectedBackends = produced.backends or {}
         return finish(
             code,
             produced.target,

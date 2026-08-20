@@ -48,6 +48,8 @@ type cache.ModuleRecord = {
     sourceHash: string?,
     interfaceHash: string?,
     artifactHash: string?,
+    backendHash: string?,
+    backend: any?,
     dependencies: {string}?,
 
     --- Keyed project declaration lookups made while checking this module. Their
