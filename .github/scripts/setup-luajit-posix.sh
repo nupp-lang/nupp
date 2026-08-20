@@ -18,7 +18,15 @@ simdjson_build="$tool_root/simdjson-build"
 simdjson_install="$tool_root/simdjson-install"
 luarocks_root="$tool_root/luarocks"
 luarocks_install="$tool_root/luarocks-install"
+# Written last, so it is here only when every build below finished. A cache
+# restored from a job that died halfway leaves the parts without the stamp, and
+# this builds again rather than trusting them.
+stamp="$tool_root/.nupp-ci-tools-built"
 
+module_root="$GITHUB_WORKSPACE/.rocks/lib/lua/5.1"
+mkdir -p "$module_root"
+
+if [ ! -f "$stamp" ]; then
 git clone --filter=blob:none https://github.com/LuaJIT/LuaJIT.git "$luajit_root"
 git -C "$luajit_root" checkout --detach "$luajit_commit"
 if [ "$(uname -s)" = Darwin ]; then
@@ -48,9 +56,6 @@ cmake -S "$simdjson_root" -B "$simdjson_build" \
 cmake --build "$simdjson_build" --config Release --parallel 2
 cmake --install "$simdjson_build" --config Release
 
-module_root="$GITHUB_WORKSPACE/.rocks/lib/lua/5.1"
-mkdir -p "$module_root"
-
 git clone --filter=blob:none https://github.com/luarocks/luarocks.git "$luarocks_root"
 git -C "$luarocks_root" checkout --detach "$luarocks_commit"
 (cd "$luarocks_root" && ./configure \
@@ -65,6 +70,12 @@ git -C "$luarocks_root" checkout --detach "$luarocks_commit"
 
 "$luarocks_install/bin/luarocks" install lpeg "$lpeg_version"
 
+: > "$stamp"
+fi
+
+# Always, whether the tools were just built or restored: a cached toolchain is
+# only useful once the environment names it, and the checks at the end are what
+# say the restored copy actually works.
 pkg_config_path="$simdjson_install/lib/pkgconfig:$luajit_install/lib/pkgconfig"
 printf '%s\n' "$luajit_install/bin" "$luarocks_install/bin" >> "$GITHUB_PATH"
 printf 'LUA_PATH=%s/src/?.lua;;\n' "$luajit_root" >> "$GITHUB_ENV"

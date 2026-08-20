@@ -16,7 +16,15 @@ $simdjsonBuild = Join-Path $toolRoot "simdjson-build"
 $simdjsonInstall = Join-Path $toolRoot "simdjson-install"
 $luarocksRoot = Join-Path $toolRoot "luarocks"
 $luarocksInstall = Join-Path $toolRoot "luarocks-install"
+# Written last, so it is here only when every build below finished. A cache
+# restored from a job that died halfway leaves the parts without the stamp, and
+# this builds again rather than trusting them.
+$stamp = Join-Path $toolRoot ".nupp-ci-tools-built"
 
+$moduleRoot = Join-Path $env:GITHUB_WORKSPACE ".rocks\lib\lua\5.1"
+New-Item -ItemType Directory -Force $moduleRoot | Out-Null
+
+if (-not (Test-Path $stamp)) {
 git clone --filter=blob:none https://github.com/LuaJIT/LuaJIT.git $luajitRoot
 git -C $luajitRoot checkout --detach $luajitCommit
 
@@ -55,9 +63,6 @@ cmake -S $simdjsonRoot -B $simdjsonBuild -A x64 `
 cmake --build $simdjsonBuild --config Release --parallel 2
 cmake --install $simdjsonBuild --config Release
 
-$moduleRoot = Join-Path $env:GITHUB_WORKSPACE ".rocks\lib\lua\5.1"
-New-Item -ItemType Directory -Force $moduleRoot | Out-Null
-
 git clone --filter=blob:none https://github.com/luarocks/luarocks.git $luarocksRoot
 git -C $luarocksRoot checkout --detach $luarocksCommit
 $installLuaRocks = Join-Path $toolRoot "install-luarocks.cmd"
@@ -85,6 +90,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "LPeg failed to install"
 }
 
+New-Item -ItemType File -Force $stamp | Out-Null
+}
+
+# Always, whether the tools were just built or restored: a cached toolchain is
+# only useful once the environment names it, and the checks at the end are what
+# say the restored copy actually works.
 $luaJitBin = Join-Path $luajitRoot "src"
 $gitBash = (Get-Command bash.exe).Source
 $gitSh = Join-Path (Split-Path $gitBash) "sh.exe"
