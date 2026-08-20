@@ -5,7 +5,8 @@ Parses URIs and answers new ones from them, over the native library's parser.
 
 A URI is an immutable value over a parsed handle. Every `with` operation answers a
 new URI, and one that would not change anything answers the same one rather than
-reparsing. The handle is released by the collector, so nothing has to be closed.
+reparsing. `newURI` interns normalized URI text in a bounded least-recently-used cache,
+and the handle is released by the collector, so nothing has to be closed.
 
 Reading a component is reading the parse rather than a substring: `host` on a URI
 with no authority is nil, not an empty string, and `port` is a number only when one
@@ -15,6 +16,12 @@ A module rather than an export of [](nupp.io), because a program that wants a by
 buffer should not carry the URI provider to get one. So this is reached as
 `nupp.io.uri`, and the value it answers is a `nupp.io.uri.URI`. See [](nupp.io.path)
 for naming a place on this machine rather than a resource anywhere.
+
+```nupp
+const uri = require("nupp.io.uri")
+
+local endpoint = assert(uri.newURI("https://example.com/api"))
+```
 ]]
 
 const native = require("nupp.native")
@@ -72,17 +79,26 @@ local required: function(value: any, what: string): string
 local withText: function(self: URI, kind: integer, value: string?): URI
 local compose: function(components: any): (string?, string?)
 
+const URI_CACHE_CAPACITY = 1024
+local uriCache: {[string]: any} = {}
+local uriCacheSize = 0
+local uriCacheNewest: any = nil
+local uriCacheOldest: any = nil
+
 --- A parsed URI.
 --- @export
 export record URI
     --- The parsed handle, released by the collector.
     private _handle: any
 
+    --- The normalized complete URI used as the cache key.
+    private _text: string
+
     --- The whole URI as text.
     --- @param self this URI
     --- @return the URI text
     function toString(self): string
-        return part(self, 0) as string
+        return self._text
     end
 
     --- The scheme, without the colon.
@@ -318,7 +334,7 @@ export record URI
     --- Resolve a relative reference:
     ---
     --- ```nupp
-    --- local page = assert(uri.new("https://example.com/docs/a.html"))
+    --- local page = assert(uri.newURI("https://example.com/docs/a.html"))
     --- assert(assert(page:resolve("b.html")):toString()
     ---     == "https://example.com/docs/b.html")
     --- ```
@@ -339,7 +355,54 @@ export record URI
 end
 
 local function adopt(handle: any): URI
-    return new URI(_handle = ffi.gc(handle, C.nuppUriDestroy))
+    local length = ffi.new<uint64[1]>()
+    local bytes = C.nuppUriPart(handle, 0, length)
+    local size = 0
+    unsafe do
+        size = tonumber(length[0]) or 0
+    end
+    local text = ffi.string(bytes, size as integer)
+    local found = uriCache[text]
+    if found ~= nil then
+        C.nuppUriDestroy(handle)
+        if found ~= uriCacheNewest then
+            local older, newer = found.older, found.newer
+            if older ~= nil then
+                older.newer = newer
+            else
+                uriCacheOldest = newer
+            end
+            if newer ~= nil then
+                newer.older = older
+            end
+            found.older = uriCacheNewest
+            found.newer = nil
+            uriCacheNewest.newer = found
+            uriCacheNewest = found
+        end
+
+        return found.value
+    end
+
+    local value = setmetatable({_handle = ffi.gc(handle, C.nuppUriDestroy), _text = text,} as any, URI as any) as URI
+    local entry = {value = value, older = uriCacheNewest, newer = nil}
+    if uriCacheNewest ~= nil then
+        uriCacheNewest.newer = entry
+    else
+        uriCacheOldest = entry
+    end
+    uriCacheNewest = entry
+    uriCache[text] = entry
+    uriCacheSize = uriCacheSize + 1
+    if uriCacheSize > URI_CACHE_CAPACITY then
+        local evicted = uriCacheOldest
+        uriCacheOldest = evicted.newer
+        uriCacheOldest.older = nil
+        uriCache[evicted.value:toString()] = nil
+        uriCacheSize = uriCacheSize - 1
+    end
+
+    return value
 end
 
 -- A parse that failed answers nil and the reason, because bad input is an ordinary
@@ -400,7 +463,7 @@ end
 -- valid rather than two.
 compose = function(components: any): (string?, string?)
     if type(components) ~= "table" then
-        return nil, "nupp: io.URI.new needs absolute text or URI components"
+        return nil, "nupp: io.URI.newURI needs absolute text or URI components"
     end
     local scheme = components.scheme
     if type(scheme) ~= "string" or scheme == "" then
@@ -460,14 +523,14 @@ end
 --- ```nupp
 --- const uri = require("nupp.io.uri")
 ---
---- local address = assert(uri.new("https://example.com/a?b=1"))
+--- local address = assert(uri.newURI("https://example.com/a?b=1"))
 --- assert(address:host() == "example.com" and address:query() == "b=1")
 --- ```
 ---
 --- Assemble one from components rather than writing the text out:
 ---
 --- ```nupp
---- local endpoint = assert(uri.new({
+--- local endpoint = assert(uri.newURI({
 ---     scheme = "https",
 ---     host = "example.com",
 ---     path = "/a",
@@ -478,7 +541,7 @@ end
 --- @return the URI, or nil when it could not be parsed
 --- @return a failure reason, when unsuccessful
 --- @export
-export function new(value: string | Components): (URI?, string?)
+export function newURI(value: string | Components): (URI?, string?)
     local text: string? = nil
     if type(value) == "string" then
         text = value as string

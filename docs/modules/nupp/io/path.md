@@ -6,7 +6,7 @@ one.
 ```nupp:playground
 const path = require("nupp.io.path")
 
-local source = path.of("src", "app", "..", "main.nupp"):normalize()
+local source = path.newPath("src", "app", "..", "main.nupp"):normalize()
 assert(source:toString() == "src" .. path.separator() .. "main.nupp")
 assert(source:fileName() == "main.nupp")
 ```
@@ -25,15 +25,15 @@ for how a reached module selects the feature it needs.
 
 ## Building a path
 
-`path.of(first, parts...)` joins its components using the current platform's
+`path.newPath(first, parts...)` joins its components using the current platform's
 rules. `join` appends more to a path already built, and both accept a string or
-another path. `Path` has no public constructor; creation goes through `of`,
+another path. `Path` has no public constructor; creation goes through `newPath`,
 which interns recent paths in a bounded LRU cache.
 
 ```nupp
 const path = require("nupp.io.path")
 
-local native = path.of("out"):join("lib", "native")
+local native = path.newPath("out"):join("lib", "native")
 assert(native:fileName() == "native")
 ```
 
@@ -57,7 +57,7 @@ filesystem, so it answers even for a path that does not exist:
 ```nupp
 const path = require("nupp.io.path")
 
-assert(path.of("src", "app", "..", "main.nupp"):normalize():stem() == "main")
+assert(path.newPath("src", "app", "..", "main.nupp"):normalize():stem() == "main")
 ```
 
 The four operations that consult the process or the filesystem can fail, and
@@ -73,7 +73,7 @@ each answers nil with a reason when it does.
 ```nupp
 const path = require("nupp.io.path")
 
-local real, reason = path.of("src"):canonicalize()
+local real, reason = path.newPath("src"):canonicalize()
 assert(real, reason)
 assert(real:isAbsolute())
 ```
@@ -87,7 +87,7 @@ without its dot:
 ```nupp
 const path = require("nupp.io.path")
 
-local source = path.of("src", "main.nupp")
+local source = path.newPath("src", "main.nupp")
 assert(source:fileName() == "main.nupp")
 assert(source:stem() == "main")
 assert(source:extension() == "nupp")
@@ -102,7 +102,7 @@ path it would have produced:
 ```nupp
 const path = require("nupp.io.path")
 
-local report = path.of("out", "report.tmp"):withExtension("json")
+local report = path.newPath("out", "report.tmp"):withExtension("json")
 assert(report:fileName() == "report.json")
 ```
 

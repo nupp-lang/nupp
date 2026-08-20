@@ -10,7 +10,7 @@ local uri = require("nupp.io.uri")
 
 local client = new http.Client()
 local response = assert(client:send(new http.Request(
-    url = assert(uri.new("https://example.com/"))
+    url = assert(uri.newURI("https://example.com/"))
 )))
 print(response.status)
 response:close()
@@ -35,7 +35,7 @@ local client = new http.Client()
 
 local function status(url: string): integer
     local response = assert(client:send(new http.Request(
-        url = assert(uri.new(url))
+        url = assert(uri.newURI(url))
     )))
     local code = response.status
     response:close()
@@ -861,7 +861,7 @@ type http.RequestBody = string | io.ByteView | io.Buffer | http.ReaderBody | htt
 ---
 --- ```nupp
 --- local request = new http.Request(
----     url = assert(uri.new("https://example.com/upload")),
+---     url = assert(uri.newURI("https://example.com/upload")),
 ---     method = "POST",
 ---     headers = {["content-type"] = "application/json"},
 ---     body = document
@@ -928,7 +928,7 @@ local function canonicalHost(text: string, level: integer): string
         error("nupp: HTTP insecureHosts entries must be exact host names or IP literals", level)
     end
     local spelling = text:sub(-1) == "." and text:sub(1, -2) or text
-    local uri = uri.new("https://" .. spelling .. "/")
+    local uri = uri.newURI("https://" .. spelling .. "/")
     if uri == nil or uri:username() ~= "" or uri:password() ~= nil or uri:port() ~= nil or uri:path() ~= "/" then
         error("nupp: HTTP insecureHosts entries must not contain a scheme, port, path, or user information", level)
     end
@@ -1662,7 +1662,7 @@ end
 --- ```nupp
 --- do
 ---     local response, reason = client:send(new http.Request(
----         url = assert(uri.new("https://example.com/data.json"))
+---         url = assert(uri.newURI("https://example.com/data.json"))
 ---     ))
 ---     assert(response, reason)
 ---     local text = assert(response.body:read(1 << 20))
@@ -1933,7 +1933,7 @@ function http.Client:send(request: http.Request): (affine(http.Response?, destro
         transfer:close()
         return nil, bodyReason
     end
-    local effective = head.url == nil and given.url or uri.new(head.url)
+    local effective = head.url == nil and given.url or uri.newURI(head.url)
     if effective == nil then
         transfer:close()
         return nil, "the HTTP provider returned an invalid effective URL"

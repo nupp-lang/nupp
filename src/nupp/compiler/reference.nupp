@@ -1871,7 +1871,7 @@ function m.statuses(urls: {string}): {integer}
 
     local function status(url: string): integer
         local response = assert(client:send(new http.Request(
-            url = assert(uri.new(url))
+            url = assert(uri.newURI(url))
         )))
         local code = response.status
         response:close()

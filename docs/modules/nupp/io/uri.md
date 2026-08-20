@@ -5,7 +5,7 @@ program routes, rewrites or inspects a resource identifier.
 ```nupp
 const uri = require("nupp.io.uri")
 
-local endpoint, reason = uri.new("https://user@example.com:8443/api?q=1#top")
+local endpoint, reason = uri.newURI("https://user@example.com:8443/api?q=1#top")
 assert(endpoint, reason)
 assert(endpoint:scheme() == "https")
 assert(endpoint:host() == "example.com")
@@ -15,6 +15,11 @@ assert(endpoint:port() == 8443)
 Two URIs are equal when their normalized text is, so a host or scheme written in
 another case does not make one URI unequal to an otherwise identical one. The
 parsed handle is released by the collector, so nothing has to be closed.
+
+`URI` has no public constructor. Creation goes through `uri.newURI`, which interns
+the 1024 most recently used normalized URIs. Repeated parsing and URI-producing
+operations therefore reuse the same immutable value while retention stays
+bounded.
 
 ## Reading components
 
@@ -26,7 +31,7 @@ it:
 ```nupp
 const uri = require("nupp.io.uri")
 
-local plain = assert(uri.new("mailto:someone@example.com"))
+local plain = assert(uri.newURI("mailto:someone@example.com"))
 assert(plain:host() == nil)
 assert(plain:port() == nil)
 assert(plain:path() == "someone@example.com")
@@ -38,7 +43,7 @@ is the same call.
 
 ## Validating untrusted text
 
-`uri.new` answers nil and a reason for malformed input, because bad text is an
+`uri.newURI` answers nil and a reason for malformed input, because bad text is an
 ordinary answer. `uri.validate` asks the same question without retaining an
 object, and `uri.isURI` separates a URI from a string or a record:
 
@@ -55,7 +60,7 @@ A parse takes text from somewhere else, so failure is data and the caller is
 handed it. A `with` operation starts from a URI that already parsed, so a
 failure means the caller asked for something the grammar cannot express, which
 is a mistake at the call site rather than a bad input. Text that came from
-outside the program therefore goes through `uri.new`, `uri.validate` or
+outside the program therefore goes through `uri.newURI`, `uri.validate` or
 `resolve`, all of which answer a reason.
 :::
 
@@ -68,7 +73,7 @@ receiver itself rather than reparsing:
 ```nupp
 const uri = require("nupp.io.uri")
 
-local endpoint = assert(uri.new("https://user:pass@example.com:8443/api?q=1"))
+local endpoint = assert(uri.newURI("https://user:pass@example.com:8443/api?q=1"))
 local production = endpoint:withUserInfo(nil):withHost("api.example.com")
 assert(production:userInfo() == nil)
 assert(production:host() == "api.example.com")
@@ -85,7 +90,7 @@ raises.
 ```nupp
 const uri = require("nupp.io.uri")
 
-local api = assert(uri.new("https://api.example.com/v1"))
+local api = assert(uri.newURI("https://api.example.com/v1"))
 assert(api:concatPath("users"):path() == "/v1/users")
 ```
 
@@ -102,7 +107,7 @@ cannot be resolved:
 ```nupp
 const uri = require("nupp.io.uri")
 
-local page = assert(uri.new("https://example.com/docs/guide/index.html"))
+local page = assert(uri.newURI("https://example.com/docs/guide/index.html"))
 local image, reason = page:resolve("../images/avatar.png")
 assert(image, reason)
 assert(image:path() == "/docs/images/avatar.png")
@@ -110,13 +115,13 @@ assert(image:path() == "/docs/images/avatar.png")
 
 ## Building from components
 
-`uri.new` also accepts a `nupp.io.uri.Components` record. The components are
+`uri.newURI` also accepts a `nupp.io.uri.Components` record. The components are
 assembled into text and then parsed, so one grammar decides what is valid:
 
 ```nupp
 const uri = require("nupp.io.uri")
 
-local status = assert(uri.new({
+local status = assert(uri.newURI({
     scheme = "https",
     userInfo = "reader:secret",
     host = "example.com",

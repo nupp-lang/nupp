@@ -11,12 +11,12 @@ for identifying a resource that may be somewhere else.
 
 A module rather than an export of [](nupp.io), because a program that wants a byte
 buffer should not carry the path provider to get one. So this is reached as
-`nupp.io.path`, and `of` interns paths in a bounded least-recently-used cache:
+`nupp.io.path`, and `newPath` interns paths in a bounded least-recently-used cache:
 
 ```nupp
 const path = require("nupp.io.path")
 
-local source = path.of("src", "main.nupp")
+local source = path.newPath("src", "main.nupp")
 ```
 
 `currentDirectory` and `separator` are functions here beside the record, because
@@ -258,7 +258,7 @@ raw = function(text: string): Path
 end
 
 -- Joins one leading component with `count` more, using the platform's rules. Shared by
--- `of` and by `join`, which differ only in where the first component comes from.
+-- `newPath` and by `join`, which differ only in where the first component comes from.
 joined = function(first: string | Path, count: integer, ...: string | Path): string
     local views = ffi.new<NuppStringView[?]>(count + 1)
     local keep = {textOf(first),}
@@ -317,13 +317,13 @@ end
 ---
 --- ```nupp
 --- const path = require("nupp.io.path")
---- local source = path.of("src", "main.nupp")
+--- local source = path.newPath("src", "main.nupp")
 --- ```
 --- @param first the first path component
 --- @param ... the remaining path components
 --- @return the joined path
 --- @export
-export function of(first: string | Path, ...: string | Path): Path
+export function newPath(first: string | Path, ...: string | Path): Path
     return raw(joined(first, select("#", ...), ...))
 end
 

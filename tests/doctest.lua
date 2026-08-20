@@ -840,11 +840,11 @@ function M.standardIOApiHasCompleteDocumentation()
       },
       ["src/nupp/io/path.nupp"] = {
          types = {Path = true,},
-         functions = {of = true, currentDirectory = true, separator = true,},
+         functions = {newPath = true, currentDirectory = true, separator = true,},
       },
       ["src/nupp/io/uri.nupp"] = {
          types = {URI = true, Components = true,},
-         functions = {new = true, validate = true, isURI = true,},
+         functions = {newURI = true, validate = true, isURI = true,},
       },
       ["src/nupp/io/files.nupp"] = {
          types = {File = true, TemporaryPath = true, Info = true, Entry = true,},
@@ -880,17 +880,30 @@ function M.standardIOApiHasCompleteDocumentation()
       end
    end
 
-   -- Paths are interned by `of`; direct construction is intentionally unavailable.
+   -- Paths are interned by `newPath`; direct construction is intentionally unavailable.
    local path = assert(readFile(HERE .. "/../src/nupp/io/path.nupp"))
    local module = assert(doc.extract(path, "src/nupp/io/path.nupp", "nupp.io.path"))
    local factory
    for _, item in ipairs(module.items) do
-      if item.name == "of" then factory = item end
+      if item.name == "newPath" then factory = item end
    end
-   assert(factory, "nupp.io.path did not document of")
-   assert(factory.doc.text:find("#### Examples", 1, true), "path.of has no examples")
-   assert(factory.doc.text:find('path.of("src", "main.nupp")', 1, true),
-      "path.of has no component-joining example")
+   assert(factory, "nupp.io.path did not document newPath")
+   assert(factory.doc.text:find("#### Examples", 1, true), "path.newPath has no examples")
+   assert(factory.doc.text:find('path.newPath("src", "main.nupp")', 1, true),
+      "path.newPath has no component-joining example")
+
+   -- URIs are likewise interned by `newURI`; their exported record is a value type,
+   -- not a public construction surface.
+   local uri = assert(readFile(HERE .. "/../src/nupp/io/uri.nupp"))
+   local uriModule = assert(doc.extract(uri, "src/nupp/io/uri.nupp", "nupp.io.uri"))
+   local uriFactory
+   for _, item in ipairs(uriModule.items) do
+      if item.name == "newURI" then uriFactory = item end
+   end
+   assert(uriFactory, "nupp.io.uri did not document newURI")
+   assert(uriFactory.doc.text:find("#### Examples", 1, true), "uri.newURI has no examples")
+   assert(uriFactory.doc.text:find('uri.newURI("https://example.com/a?b=1")', 1, true),
+      "uri.newURI has no parsing example")
 end
 
 function M.standardPegApiDocumentsItsTypesExpressionsAndExamples()

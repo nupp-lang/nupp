@@ -197,7 +197,7 @@ function M.nativeFeaturesAreResolvedEffects()
       ["nupp.math.lerp(10, 20, 0.25)"] = "stdlib.math",
       ["nupp.math.vec2.length(3, 4)"] = "stdlib.math",
       ["nupp.io.path.separator()"] = "native.path",
-      ["nupp.io.uri.new('https://example.com')"] = "native.uri",
+      ["nupp.io.uri.newURI('https://example.com')"] = "native.uri",
       ["nupp.data.uuid7()"] = "native.uuid",
       ["nupp.data.sha256('hello')"] = "native.sha256",
    }
@@ -211,12 +211,12 @@ function M.nativeFeaturesAreResolvedEffects()
 
    assertClean(table.concat({
       "const {Path} = require('nupp.io.path')",
-      "local source: nupp.io.path.Path = nupp.io.path.of('src', 'main.nupp')",
+      "local source: nupp.io.path.Path = nupp.io.path.newPath('src', 'main.nupp')",
       "local components: nupp.io.uri.Components = nil as any",
-      "local newURI: function(",
+      "local URIOf: function(",
       "    value: string | nupp.io.uri.Components",
-      "): (nupp.io.uri.URI?, string?) = nupp.io.uri.new",
-      "local address: nupp.io.uri.URI? = newURI(components)",
+      "): (nupp.io.uri.URI?, string?) = nupp.io.uri.newURI",
+      "local address: nupp.io.uri.URI? = URIOf(components)",
       "print(source, address)",
    }, "\n"))
 
@@ -481,7 +481,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
 
    assertClean(table.concat({
       "const path = require('nupp.io.path')",
-      "local source: path.Path = path.of('src', 'main.nupp')",
+      "local source: path.Path = path.newPath('src', 'main.nupp')",
       "print(source)",
    }, "\n"))
    assertEq((diagsOf(table.concat({
@@ -490,14 +490,38 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
    }, "\n"))), "NUPP2209:2")
 
    local path = require("nupp.io.path")
-   local first = path.of("cache", "first")
-   assert(rawequal(first, path.of("cache", "first")), "path.of interns equal path text")
+   local first = path.newPath("cache", "first")
+   assert(rawequal(first, path.newPath("cache", "first")), "path.newPath interns equal path text")
    assert(path.Path.__nuppCtor1 == nil, "Path exposes no generated constructor")
    for index = 1, 1024 do
-      path.of("cache", tostring(index))
+      path.newPath("cache", tostring(index))
    end
-   assert(not rawequal(first, path.of("cache", "first")),
-      "path.of evicts the least recently used path after 1024 entries")
+   assert(not rawequal(first, path.newPath("cache", "first")),
+      "path.newPath evicts the least recently used path after 1024 entries")
+
+   assertClean(table.concat({
+      "const uri = require('nupp.io.uri')",
+      "local endpoint: uri.URI = assert(uri.newURI('https://example.com/api'))",
+      "print(endpoint)",
+   }, "\n"))
+   assertEq((diagsOf(table.concat({
+      "const uri = require('nupp.io.uri')",
+      "local value = new uri.URI()",
+   }, "\n"))), "NUPP2209:2")
+
+   local uri = require("nupp.io.uri")
+   local firstURI = assert(uri.newURI("https://example.com/cache/first"))
+   assert(rawequal(firstURI, assert(uri.newURI("https://example.com/cache/first"))),
+      "uri.newURI interns equal normalized URI text")
+   assert(uri.URI.__nuppCtor1 == nil, "URI exposes no generated constructor")
+   local base = assert(uri.newURI("https://example.com/base"))
+   assert(rawequal(base:withPath("/derived"), assert(uri.newURI("https://example.com/derived"))),
+      "URI-producing operations share the uri.newURI cache")
+   for index = 1, 1024 do
+      assert(uri.newURI("https://example.com/cache/" .. tostring(index)))
+   end
+   assert(not rawequal(firstURI, assert(uri.newURI("https://example.com/cache/first"))),
+      "uri.newURI evicts the least recently used URI after 1024 entries")
 end
 
 function M.bufferAppendsInAmortizedConstantTime()
