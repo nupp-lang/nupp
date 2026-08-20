@@ -188,6 +188,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     local env = envMod.new(rootDir, opts)
     -- Left nil when nothing forced it, so each file's extension decides.
     local strict = opts.strict
+    local dialect = assert(require("nupp.compiler.dialects").resolve(opts.dialect))
     local traceInspection = opts.traceInspection == true
     local q = query.new()
     local inc = new incremental.Inc(env = env, q = q)
@@ -571,6 +572,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
                 -- A dependency owns the judgement of its declaration surface. A
                 -- consumer's `--strict` must not reinterpret that foreign contract.
                 strict = external and false or strict,
+                dialect = dialect,
                 traceInspection = traceInspection,
                 initialExports = seeded,
             }

@@ -21,6 +21,9 @@ record compile.Settings
     --- not the same as false.
     strict: boolean?
 
+    --- The resolved source-lowering dialect.
+    dialect: string
+
     --- 0 is the promise that -O0 rewrites nothing. Optimization is opt-in until a
     --- benchmark says which passes have earned being on by default.
     optLevel: integer
@@ -60,6 +63,7 @@ local LEVELS: {[string]: integer} = {["0"] = 0, ["1"] = 1, ["2"] = 2}
 function compile.settings(values: {[string]: any}, collected: {any}?): compile.Settings
     return new compile.Settings(
         strict = values.strict,
+        dialect = assert(require("nupp.compiler.dialects").resolve(values.dialect)),
         optLevel = LEVELS[values.optLevel] or 0,
         remarks = values.remarks and true or false,
         disabled = values.disabled or {},
@@ -117,7 +121,7 @@ function compile.module(path: string, env: table, settings: compile.Settings): s
         return nil, "syntax errors"
     end
     local check = require("nupp.compiler.check")
-    local diags = check.check(result, path, env, {strict = settings.strict})
+    local diags = check.check(result, path, env, {strict = settings.strict, dialect = settings.dialect,})
     if settings.materializations then
         local observations = require(
             "nupp.compiler.materialize.observe"

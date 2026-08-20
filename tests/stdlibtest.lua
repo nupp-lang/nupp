@@ -40,6 +40,16 @@ end
 
 local M = {}
 
+function M.checkerRecordsTheResolvedDialect()
+   local default = parser.parse("return 42\n", "default.nupp")
+   check.check(default, "default.nupp", sharedEnv)
+   assertEq(default.dialect, "luajit", "the checker defaults to the native dialect")
+
+   local portable = parser.parse("return 42\n", "portable.nupp")
+   check.check(portable, "portable.nupp", sharedEnv, {dialect = "lua51"})
+   assertEq(portable.dialect, "lua51", "the checker records the selected dialect")
+end
+
 local function jsonResolution(backendModule)
    return {
       modules = {{name = "portable", module = backendModule}},

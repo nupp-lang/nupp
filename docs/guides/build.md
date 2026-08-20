@@ -65,6 +65,32 @@ build = {
 Entries may be module names or `.nupp` paths. Generated Lua preserves module
 paths beneath `outDir`, so `app.main` becomes `build/app/main.lua`.
 
+### Dialect selection
+
+Every target resolves one source-lowering dialect. `luajit` is the default;
+`lua51` may be selected on the build table, inherited by its targets, or
+overridden by one target:
+
+```lua
+build = {
+   dialect = "lua51",
+   targets = {
+      portable = { entries = { "lib.main" } },
+      native = { entries = { "app.main" }, dialect = "luajit" },
+   },
+}
+```
+
+`nupp build --dialect lua51` and `nupp check --dialect lua51` override the
+selected target for that invocation and also work with explicitly named source
+files. The resolved value appears in build and check JSON and in `nupp tasks`.
+It is part of the cache key, so artifacts and checks from different dialects
+cannot satisfy one another.
+
+Dialect selection is currently plumbing for the lowering policy. Selecting
+`lua51` by itself does not yet certify that output is portable: the capability
+checks and syntax lowerings that provide that guarantee are separate work.
+
 A target's `dependencies` are names, declared once at the top level of the
 manifest and shared by every target that lists them:
 
@@ -115,8 +141,8 @@ resources = {
 The manifest is validated before builds, checks, tests, and task queries.
 Validation covers dense string arrays, required target inputs, supported
 dependency kinds, named target and dependency references, and dependency
-cycles. Configuration errors name the invalid field before any build work
-starts.
+cycles. A target's `dialect` is `"luajit"` or `"lua51"`. Configuration errors
+name the invalid field before any build work starts.
 
 Every table in the manifest takes a closed set of keys, and one that is not in
 it is refused by name, with the nearest spelling when there is one:

@@ -57,6 +57,7 @@ local command = spec.command{
                     resources = {type = "array", items = {type = "string"}},
                     dependencies = {type = "array", items = {type = "string"}},
                     nativeFeatures = {type = "object", additionalProperties = {type = "boolean"}},
+                    dialect = {type = "string", enum = require("nupp.compiler.dialects").names()},
                     backends = {type = "array", items = {type = "string"}},
                     layoutTarget = {type = "string"},
                     platforms = {type = "array", items = {type = "string"}},
@@ -100,6 +101,7 @@ local function writeTask(out: {string}, style: any, task: any)
     end
     field("Output directory", task.outDir)
     field("Build target", task.buildTarget)
+    field("Dialect", task.dialect)
     field("Layout target", task.layoutTarget)
     if task.platforms and #task.platforms > 0 then
         writeItems(out, style, "Platforms", task.platforms)

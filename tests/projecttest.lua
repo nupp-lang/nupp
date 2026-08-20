@@ -748,6 +748,68 @@ return {include = {"src"}, build = {targets = {app = {
       "nativeFeatures.json must be true or false", 1, true), tostring(wrongType))
 end
 
+function M.dialectsAreValidatedInheritedReportedAndCacheSeparately()
+   local function load(dialect)
+      local dir = tempProject({["nupp.lua"] = [[
+return {include = {"src"}, build = {targets = {app = {
+   entries = {"main"}, dialect = ]] .. dialect .. [[
+}}}}
+]]})
+      local config, err = project.loadManifest(dir)
+      remove(dir)
+      return config, err
+   end
+
+   assert(load('"luajit"'), "the native dialect is accepted")
+   assert(load('"lua51"'), "the portable dialect is accepted")
+   local _, unsupported = load('"lua54"')
+   assert(unsupported and unsupported:find(
+      'build.targets.app.dialect must be "luajit" or "lua51"', 1, true),
+      tostring(unsupported))
+   local _, wrongType = load("true")
+   assert(wrongType and wrongType:find(
+      'build.targets.app.dialect must be "luajit" or "lua51"', 1, true),
+      tostring(wrongType))
+
+   local inherited = tempProject({["nupp.lua"] = [[
+return {build = {dialect = "lua51", targets = {
+   portable = {entries = {"main"}},
+   native = {entries = {"main"}, dialect = "luajit"},
+}}}
+]]})
+   local portableTask = assert(project.describeTasks(inherited, "portable"))
+   local nativeTask = assert(project.describeTasks(inherited, "native"))
+   assertEq(portableTask.dialect, "lua51", "a target inherits the build dialect")
+   assertEq(nativeTask.dialect, "luajit", "a target overrides the build dialect")
+   remove(inherited)
+
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {include = {"src"}, build = {outDir = "out", entries = {"main"},
+   dialect = "lua51"}}
+]],
+      ["src/main.nupp"] = "return 42\n",
+   })
+   local produced = {}
+   assertEq(project.build(dir, {produced = produced}), 0, "the configured dialect builds")
+   assertEq(produced.dialect, "lua51", "build reporting names the manifest dialect")
+   local warm = {}
+   assertEq(project.build(dir, {stats = warm}), 0, "the same dialect reuses its build")
+   assertEq(warm.generatedModules, 0, "an unchanged dialect regenerates nothing")
+
+   local changed, overridden = {}, {}
+   assertEq(project.build(dir, {dialect = "luajit", stats = changed, produced = overridden}), 0,
+      "a command-level dialect overrides the manifest")
+   assertEq(overridden.dialect, "luajit", "build reporting names the override")
+   assert(changed.generatedModules > 0, "changing dialect invalidates generated artifacts")
+
+   local checked = {}
+   assertEq(project.check(dir, {dialect = "lua51", produced = checked}), 0,
+      "check accepts the same dialect axis")
+   assertEq(checked.dialect, "lua51", "check reporting names its resolved dialect")
+   remove(dir)
+end
+
 function M.backendsAreValidatedAndReported()
    local function load(selected)
       local dir = tempProject({["nupp.lua"] = [[
