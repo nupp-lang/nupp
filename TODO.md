@@ -23,22 +23,6 @@ work makes sense in.
       damages a stamped binary twenty ways, feeds its language server nine
       malformed sessions, and replays a recorded editor session through it
       against the same session through `bin/nupp`. What remains:
-  - [x] keep the sources pinned-and-fetched without committing archive blobs;
-        `NUPP_HOST_SOURCE_DIR` supplies existing verified archives,
-        `NUPP_HOST_SOURCE_BASE_URL` selects a mirror, output-directory archives
-        are reused, and `NUPP_HOST_OFFLINE` forbids a network fallback
-  - [x] strict JSON numbers and explicit empty array/object semantics are set
-        per call site on the Nupp side, not in the host. The host never set
-        them: `host/build.rs` compiles lua-cjson with no policy defines, for the
-        reason its own comment gives about `ENABLE_CJSON_GLOBAL`. The Nupp side
-        was the half-finished part -- eight of the sixteen files holding a codec
-        inherited whichever cjson the interpreter had loaded.
-        The one that matters is `decode_invalid_numbers`, which defaults to
-        accepting `NaN` and `Infinity` where encoding refuses them, so a
-        document could be read in and then fail to be written back out.
-        `tests/jsonpolicytest.lua` walks the sources and fails naming any codec
-        that leaves a setting to the default, so a codec added later is held to
-        the same rule on the run that adds it
   - [ ] shipped per-platform stubs
         ([plan](docs/neps/0041-cross-target-binaries.md)). Selection is built: `platforms`
         is a validated binary-target field, `--platform NAME|all` is on `build`,
@@ -68,32 +52,6 @@ work makes sense in.
       a convention or a per-symbol mapping rather than a port. And the cbindgen
       path has no test: `tests/projecttest.lua:1351` asserts only that the
       cdylib was copied, and every binding assertion sits on the C provider.
-- [x] **Hot reload is the one part of the compiler that runs untyped.** Both
-      files are `.nupp` now and hold to the strict floor, so nothing under `src`
-      opts out of it. `--strict` named six exports rather than the five recorded
-      here -- `policy` was missing from the list -- and each has a real signature.
-      `nupp.HotReload.poll` answers `nupp.HotReloadPoll`, whose docblock says
-      which of the four `kind` values carries which fields, so a host branches on
-      a documented answer instead of on `any`.
-      The specified types were written where the code puts them rather than where
-      the plan guessed: `prepare` answers `Prepared | Rejected | Restart |
-      Unchanged` as specified, but `Restart` also carries the `reason` naming the
-      boundary that refused the change, `initial` tags its result `kind =
-      "initial"`, and `loaded` and `committed` answer with the unverified-library
-      notices rather than nothing. `plans/036-hot-reload.md:106` is now behind the
-      code on all four points.
-      Two things stayed `any` on purpose and one had to. The slot vectors are
-      `{hotreload.Implementation}` where an implementation is
-      `function(...: any): any`, because generated code writes them and generated
-      code calls them; the loaded patch chunk and `debug.upvaluejoin` are
-      untypeable by nature; and a manifest is plain data the generator alone
-      decides the shape of, so typing it here would be claiming a shape this
-      module does not own.
-      The public poll result is a record with optional fields rather than a union
-      of four records. A union would be better, and the reason it is not is that
-      a prelude record is not nameable as a type from another module -- referring
-      to `nupp.HotReloadPrepared` from `cli/run.nupp` reports NUPP2101. Worth
-      revisiting when prelude types can be named across modules.
 - [ ] **Integrate checked `@aot` lowering for Nupp-authored tight loops.** The
       annotation, fixed-width establishment facts, structural subset checker,
       and scalar-source `@aot(simd = true)` contract exist. The spike under
@@ -168,12 +126,6 @@ work makes sense in.
       binary32 Mandelbrot runs at about 119 MPix/s against 72 for the binary64
       body and 35 for forced-scalar C, which is the same for both kernels --
       the gain is lane density, not cheaper arithmetic. What is unfinished:
-  - [x] withdraw `@aot(simd = true)`. Done: the annotation is gone from the
-        language, the lane pass runs on every `@aot` function whose shape admits
-        it, `lanes = true` and `lanes = false` override the estimate in either
-        direction, and `nupp aot --check` exits 1 for a map loop that lowered
-        scalar, naming the construct that stopped it.
-        The original entry follows.
   - [ ] withdraw `@aot(simd = true)`. Decided; the reasoning and its cost are
         recorded in [portable-vectors.md](docs/neps/0032-aot-block-kernels-and-simd.md). The
         annotation was justified as asserting iteration independence, and in the
@@ -186,24 +138,6 @@ work makes sense in.
         1 for an `@aot` map loop that lowered scalar, naming the construct that
         stopped it. Needs an inverted marker for a deliberately scalar loop, and
         the one-top-level-map-loop shape stops being an error.
-  - [x] **No gang fits x86-64 below AVX.** Closed by giving the backend a target
-      model: a triple and a CPU feature tier decide which gangs exist, x86-64
-      defaults to the baseline tier and therefore to no gang, and a target with
-      none refuses by name rather than going quietly scalar. `nupp aot --target`
-      and `--features` select one. What is still open is the 16-byte gang itself,
-      which would give the x86-64 baseline lanes rather than a refusal, and the
-      choice between pinning one baseline at build time and multiversioning with
-      runtime dispatch.
-      The original entry follows.
-- [x] **No gang fits x86-64 below AVX.** Closed. The shapes come in 16 and 32
-      bytes now, a target takes every one that fits its widest register class,
-      and plain x86-64 runs two binary64 lanes or four 32-bit ones instead of
-      refusing. `aotFeatures` on a target selects a wider tier, and the tier is
-      part of the artifact key. CI runs the differential at the baseline with no
-      `-mavx2`, which is the combination most users get and the one that found
-      the mask type nobody had given a C spelling.
-      What is left of it is multiversioning, below.
-      The original entry follows.
 - [ ] **No gang fits x86-64 below AVX.** Both shapes are 32 bytes, which is one
       AVX register and two NEON registers. Below AVX on x86-64 a 32-byte vector
       has no register class: it compiles, because the compiler splits it, but it
@@ -219,51 +153,6 @@ work makes sense in.
       cache key to carry: a 16-byte gang for the x86-64 baseline, or a stated
       refusal to compile `@aot` lanes below AVX. `crosscheck.sh` targets the AVX
       tier on x86-64 in the meantime and lets a forced lower one warn.
-- [x] mixed-width gangs. The rounding half is done; the lane-count half is not,
-        and is now known to be the smaller of the two.
-        `mixed4` and `mixed2` replace the binary64 gangs and carry each value at
-        its own element width, so an explicit binary32 operation is a native
-        single-precision instruction rather than a wide one rounded back. A
-        widening became a real conversion, a comparison produces a mask as wide
-        as what it compared, and the mask algebra stays at one width and converts
-        at comparisons and selects.
-        `bench/kernel-subset-spike/mixedwidth.sh` builds one loop three ways and
-        reports each against its own forced-scalar body:
-
-            mixedwidth      mixed4   1.06x -> 2.57x
-            mixedwidth_f64  mixed4   2.46x -> 2.45x
-            mixedwidth_f32  f32x8    4.72x -> 4.72x
-
-        The kernel that mixes widths now runs at what the same loop runs at with
-        nothing to round. Of the 4.5x the all-or-nothing rule had been costing,
-        rounding was 2.3x and the lane count 1.9x -- so the larger half is closed
-        and the plan's phrase "gang sizing" named the smaller one.
-        What remains is eight lanes with a binary64 value in the loop, and the
-        way to get there is now known to be narrower than it looked. A binary64
-        value needs 64-bit lanes whatever else the loop holds, so eight of them
-        is a 64-byte vector.
-
-        Letting one value span two registers does not work. Clang refuses a
-        64-byte vector on x86-64 at both feature tiers:
-
-            AVX vector return of type 'f64x8' (vector of 8 'double' values)
-            without 'avx512f' enabled changes the ABI [-Wpsabi]
-
-        and it says so at the call site of a `static inline` helper, so the
-        reasoning the target model rested on -- that inline helpers never cross
-        an ABI boundary -- does not hold for the diagnostic. arm64 compiles the
-        same file clean, which is the blind spot that hid the 32-byte version of
-        this until a native x86-64 run reported it.
-
-        So this wants an `avx512f` tier whose register class is 64 bytes, and a
-        gang that exists only there. That extends the rule the target model
-        already enforces rather than making an exception to it: a vector wider
-        than the register class is not a gang. It also means the eight-lane
-        binary64 gang is AVX-512 hardware or nothing, which is a much smaller
-        claim than "a wider register file or two registers per value" -- and one
-        no machine in CI can currently execute, so admitting it needs a way to
-        check it that is not "it compiled".
-        The original entry follows.
 - [ ] mixed-width gangs. Half of this is done and the half that is left is
         smaller than it was.
         The sharp edge was not lane count: a loop mixing explicit binary32 with
@@ -308,21 +197,6 @@ work makes sense in.
         works and a feature in use fail differently, and only the second says
         whether the admitted subset is the right subset -- whether `@aot`
         refuses things people actually write.
-  - [x] **Name a `kind = "c"` dependency's library relative to its module.**
-        Done. A dependency's binding names a library the build produced the way
-        `@aot` code names its own: `@lib/libtiny.dylib`, resolved against the
-        module that loads it. A library the build did not put in the output tree
-        -- a `load` naming something installed, a `pkgConfig` package, a
-        `bindings.library` override, an `out` pointing elsewhere -- is left
-        exactly as it was, because none of them travel with the build and there
-        is nothing to name them relative to.
-        The half that was not obvious from the mechanism: a `bundle`, `binary` or
-        `component` target is one file someone carries somewhere, so the build
-        now copies the dependency's library beside the artifact the same way it
-        already did for compiled `@aot` code. Without that, marking the reference
-        would have moved the failure rather than fixed it for exactly the targets
-        that most need it fixed.
-        The original entry follows.
   - [ ] **Name a `kind = "c"` dependency's library relative to its module.**
         Compiled `@aot` code travels: the wrapper names its library with a
         leading `@`, resolved against the chunk that loads it, so a copied output
@@ -336,23 +210,6 @@ work makes sense in.
         `nupp.math` implementations canonicalize NaNs and compensate rounding in
         ways `fmin`, `fmax` and `fmadd` may not match. Each owes a differential
         test over signed zero, NaN payloads, and subnormals before it enters.
-  - [x] account for the gap to the historical explicit-vector result. There is
-        no gap: the model was wrong, not the lowering. `divergence.lua` read each
-        pixel's reported iteration count, but the kernel's interior test sets
-        that to the cap and then runs the loop zero times, so the whole cardioid
-        counted as maximally expensive. Since the cardioid is contiguous, that
-        made every gang touching it look equally slow at four lanes and at
-        eight, and hid exactly the divergence widening introduces. Costing an
-        interior pixel at zero, the eight-lane ceiling is 1.81x at cap 64, 1.68x
-        at 256, 1.60x at 1024 and 1.58x at 4096 -- against measured ratios of
-        1.72, 1.60, 1.52 and 1.42. The lowering runs at 90 to 95 percent of what
-        the algorithm allows, and the remainder is the per-pixel gather and
-        scatter, which costs the same however many lanes share it.
-        Replacing the lane-extract-and-or in `ks_any` with
-        `__builtin_reduce_or` was tried and is not worth it: Clang already
-        lowers the extract chain, and the generated function grew from 225 to
-        232 instructions.
-
 ## Dialect interop (`import-tl`)
 
 - [ ] source translator CLI (eject model, visible residue comments, `any`
