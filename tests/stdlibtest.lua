@@ -7,6 +7,14 @@ local backends = require("nupp.compiler.backends")
 local runtimeBackend = require("nupp.runtime.backend")
 local jsonSeam = require("nupp.runtime.seam.json")
 local bitopsSeam = require("nupp.runtime.seam.bitops")
+local structvalueSeam = require("nupp.runtime.seam.structvalue")
+local standardsurface = require("nupp.compiler.standardsurface")
+local utf8Seam = require("nupp.runtime.seam.utf8")
+local hashSeam = require("nupp.runtime.seam.hash")
+local sha256Seam = require("nupp.runtime.seam.sha256")
+local uuidSeam = require("nupp.runtime.seam.uuid")
+local bitsetSeam = require("nupp.runtime.seam.bitset")
+local suspensionSeam = require("nupp.runtime.seam.suspension")
 local optimize = require("nupp.compiler.optimize")
 local gen = require("nupp.compiler.gen")
 
@@ -68,6 +76,212 @@ local function bitopsResolution(backendModule)
       }},
       byEffect = {['runtime.bitops'] = backendModule},
    }
+end
+
+local function structResolution(backendModule)
+   return {
+      modules = {{name = "portable", module = backendModule, fingerprint = "checked-digest", seams = {
+         {name = "representation.structvalue", version = 1, effect = "runtime.structvalue", effects = {"runtime.structvalue"}, binding = "compile", runtimeModule = "nupp.runtime.provider.tablestruct"},
+      }}},
+      seams = {['representation.structvalue'] = {name = "representation.structvalue", version = 1, effect = "runtime.structvalue", module = backendModule}},
+      byEffect = {['runtime.structvalue'] = backendModule},
+   }
+end
+
+local function int64Resolution(backendModule)
+   return {
+      modules = {{name = "wide", module = backendModule, fingerprint = "wide-digest", seams = {
+         {name = "numeric.int64", version = 1, effect = "runtime.int64", effects = {"runtime.int64"}, binding = "compile", runtimeModule = "thirdparty.int64"},
+      }}},
+      seams = {['numeric.int64'] = {name = "numeric.int64", version = 1, effect = "runtime.int64", module = backendModule}},
+      byEffect = {['runtime.int64'] = backendModule},
+   }
+end
+
+local function dataResolution(backendModule)
+   local seams, byEffect = {}, {}
+   for _, item in ipairs({
+      {"data.hash", "runtime.data_hash"},
+      {"data.sha256", "native.sha256"},
+      {"data.uuid", "native.uuid"},
+      {"data.bitset", "runtime.data_bitset"},
+   }) do
+      seams[item[1]] = {name = item[1], version = 1, effect = item[2], module = backendModule}
+      byEffect[item[2]] = backendModule
+   end
+   return {modules = {{name = "data", module = backendModule}}, seams = seams, byEffect = byEffect}
+end
+
+function M.portableWideIntegersLowerThroughOneCompleteSeam()
+   local source = [[
+local a: int64 = 9223372036854775807LL
+local b: int64 = 2LL
+local c = (a + b) * b
+return c < a, c >> 1LL, ~c
+]]
+   local nativeTree = parser.parse(source, "native-int64.nupp")
+   assertEq(#check.check(nativeTree, "native-int64.nupp", sharedEnv), 0, "native int64 checks")
+   local nativeCode = gen.generate(nativeTree, "native-int64.nupp")
+   assert(nativeCode:find("9223372036854775807LL", 1, true), "native output keeps cdata literals")
+   assert(not nativeCode:find("__nuppInt64", 1, true), "native output has no adapter")
+
+   local resolution = int64Resolution("fixtures.int64_backend")
+   local portableTree = parser.parse(source, "portable-int64.nupp")
+   assertEq(#check.check(portableTree, "portable-int64.nupp", sharedEnv, {dialect = "lua51", backendResolution = resolution}), 0, "portable int64 checks")
+   local code, diags = gen.generate(portableTree, "portable-int64.nupp", nil, nil, resolution)
+   assertEq(#diags, 0, "portable int64 lowers")
+   for _, operation in ipairs({"int64", "add", "mul", "compare", "rshift", "bnot"}) do
+      assert(code:find("__nuppInt64." .. operation, 1, true), "wide operation lowers through " .. operation)
+   end
+   assert(not code:find("LL", 1, true), "portable output has no LuaJIT cdata suffix")
+end
+
+function M.portableStructsUseTheCheckedRepresentationSeam()
+   local source = [[
+local struct Point
+   x: float
+   bits: uint8
+end
+local p = new Point(16777217, 258)
+return p
+]]
+   local nativeTree = parser.parse(source, "native-struct.nupp")
+   assertEq(#check.check(nativeTree, "native-struct.nupp", sharedEnv), 0, "native struct checks")
+   local nativeCode = gen.generate(nativeTree, "native-struct.nupp")
+   assert(nativeCode:find("require(\"ffi\")", 1, true), "native output keeps direct FFI representation")
+   assert(not nativeCode:find("__nuppStructvalue", 1, true), "native output pays no seam lookup")
+
+   local resolution = structResolution("fixtures.struct_backend")
+   local portableTree = parser.parse(source, "portable-struct.nupp")
+   assertEq(#check.check(portableTree, "portable-struct.nupp", sharedEnv, {dialect = "lua51", backendResolution = resolution}), 0, "portable struct checks with its seam")
+   local portableCode, diags = gen.generate(portableTree, "portable-struct.nupp", nil, nil, resolution)
+   assertEq(#diags, 0, "portable struct lowers")
+   assert(portableCode:find("__nuppStructvalue.define", 1, true), "declaration uses the checked implementation")
+   assert(not portableCode:find("require(\"ffi\")", 1, true), "portable struct output carries no FFI")
+   assert(portableCode:find("nupp%-backends: resolved=representation.structvalue", 1), "artifact records the reached seam")
+   assert(not portableCode:find("%z"), "artifact metadata contains a printable backend digest")
+end
+
+function M.tableStructProviderPassesItsIsolatedContract()
+   local passed, why = structvalueSeam.backend("nupp.runtime.provider.tablestruct"):test()
+   assert(passed, "table struct provider passes its checked suite: " .. tostring(why))
+end
+
+function M.bundledSuspensionPassesTheReplaceableSeamContract()
+   local passed, why = suspensionSeam.backend("nupp.suspension"):test()
+   assert(passed, "the bundled suspension policy passes the public seam suite: " .. tostring(why))
+end
+
+function M.standardSurfaceRequiresExactPortableSeams()
+   local missing = diagsOf("local json = require('nupp.data.json')", {dialect = "lua51"})
+   assertEq(missing, "NUPP3012:1", "a reached standard facility needs its exact seam")
+   local missingMember = diagsOf("return nupp.data.sha256('abc')", {dialect = "lua51"})
+   assertEq(missingMember, "NUPP3012:1", "a mixed module member needs only its owning seam")
+   local selected = dataResolution("fixtures.data_backend")
+   assertClean(table.concat({
+      "local data = require('nupp.data')",
+      "return data.fnv1a64('hello'), data.crc32('123456789'),",
+      "   data.sha256('abc'), data.uuid4(), data.uuid7(), data.WORD_BITS",
+   }, "\n"), {dialect = "lua51", backendResolution = selected})
+   local classified = standardsurface.all()
+   for _, name in ipairs({"nupp.data.json", "nupp.data.utf8", "nupp.io.files", "nupp.io.http", "nupp.io.process", "nupp.io.path", "nupp.io.uri", "nupp.mem", "nupp.native", "nupp.simd", "nupp.workers"}) do
+      assert(classified[name], "public standard module is classified: " .. name)
+   end
+end
+
+
+function M.mixedDataSeamsComposeOneLazyPublicModule()
+   local backendName = "fixtures.mixed_data_backend"
+   local providerNames = {
+      hash = "fixtures.portable_hash",
+      sha = "fixtures.portable_sha",
+      uuid = "fixtures.portable_uuid",
+      bitset = "fixtures.portable_bitset",
+   }
+   local publicName = "nupp.data"
+   local oldLoaded, oldPreload = {}, {}
+   for _, name in pairs(providerNames) do
+      oldLoaded[name], oldPreload[name] = package.loaded[name], package.preload[name]
+      package.loaded[name] = nil
+   end
+   oldLoaded[publicName], oldPreload[publicName] = package.loaded[publicName], package.preload[publicName]
+   package.loaded[publicName] = nil
+   local oldProviders = rawget(_G, "__nuppRuntimeProviders")
+   local oldModules = rawget(_G, "__nuppRuntimeModules")
+   local oldBindings = {
+      rawget(_G, "__nuppHash"), rawget(_G, "__nuppSha256"),
+      rawget(_G, "__nuppUuid"), rawget(_G, "__nuppBitset"),
+   }
+   _G.__nuppRuntimeProviders, _G.__nuppRuntimeModules = nil, nil
+   _G.__nuppHash, _G.__nuppSha256, _G.__nuppUuid, _G.__nuppBitset = nil, nil, nil, nil
+
+   local values = {
+      hash = {fnv1a64 = function() return "hash" end, crc32 = function() return 7 end},
+      sha = {sha256 = function() return "sha" end},
+      uuid = {uuid4 = function() return "four" end, uuid7 = function() return "seven" end},
+      bitset = {Bitset = {__nuppCtor1 = function() return {} end}, WORD_BITS = 32},
+   }
+   for key, name in pairs(providerNames) do
+      local provider = values[key]
+      package.preload[name] = function() return provider end
+   end
+
+   local ok, problem = pcall(function()
+      runtimeBackend.new(backendName, {
+         hashSeam.seam(providerNames.hash),
+         sha256Seam.seam(providerNames.sha),
+         uuidSeam.seam(providerNames.uuid),
+         bitsetSeam.seam(providerNames.bitset),
+      }):install()
+      for _, name in pairs(providerNames) do
+         assertEq(package.loaded[name], nil, "installing the mixed module remains lazy")
+      end
+      local data = require(publicName)
+      assertEq(data.fnv1a64, values.hash.fnv1a64, "hash is a direct provider function")
+      assertEq(data.sha256, values.sha.sha256, "SHA is a direct provider function")
+      assertEq(data.uuid7, values.uuid.uuid7, "UUID is a direct provider function")
+      assertEq(data.Bitset, values.bitset.Bitset, "Bitset is the direct provider type")
+      assertEq(data.WORD_BITS, 32, "the module projects provider values")
+   end)
+
+   for _, name in pairs(providerNames) do
+      package.loaded[name], package.preload[name] = oldLoaded[name], oldPreload[name]
+   end
+   package.loaded[publicName], package.preload[publicName] = oldLoaded[publicName], oldPreload[publicName]
+   _G.__nuppRuntimeProviders, _G.__nuppRuntimeModules = oldProviders, oldModules
+   _G.__nuppHash, _G.__nuppSha256, _G.__nuppUuid, _G.__nuppBitset = unpack(oldBindings)
+   assert(ok, problem)
+end
+
+function M.runtimeStandardSeamsReplaceExactPublicModulesLazily()
+   local providerName, publicName = "fixtures.portable_utf8", "nupp.data.utf8"
+   local oldProvider, oldProviderPreload = package.loaded[providerName], package.preload[providerName]
+   local oldPublic, oldPublicPreload = package.loaded[publicName], package.preload[publicName]
+   local oldRegistry, oldBinding = rawget(_G, "__nuppRuntimeProviders"), rawget(_G, "__nuppUtf8")
+   package.loaded[providerName], package.loaded[publicName] = nil, nil
+   _G.__nuppRuntimeProviders, _G.__nuppUtf8 = nil, nil
+   local replacement = {
+      decodeAt = function() return 65, 2 end,
+      decodeBefore = function() return 65, 1 end,
+      encode = string.char,
+      isValid = function() return true end,
+      length = string.len,
+      truncate = function(value) return value end,
+      validPrefixLength = string.len,
+   }
+   package.preload[providerName] = function() return replacement end
+
+   local ok, problem = pcall(function()
+      utf8Seam.backend(providerName):install()
+      assertEq(package.loaded[providerName], nil, "installing a runtime seam remains lazy")
+      assertEq(require(publicName), replacement, "the exact public module resolves to the selected adapter")
+      assertEq(package.loaded[providerName], replacement, "only reaching the public module loads its provider")
+   end)
+
+   package.loaded[providerName], package.preload[providerName] = oldProvider, oldProviderPreload
+   package.loaded[publicName], package.preload[publicName] = oldPublic, oldPublicPreload
+   _G.__nuppRuntimeProviders, _G.__nuppUtf8 = oldRegistry, oldBinding
+   assert(ok, problem)
 end
 
 function M.bitopsCapabilityIsNativeOrRequiresItsClosedSeam()

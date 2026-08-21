@@ -619,6 +619,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         opts.produced.materializations = materializeObserve.public(result.materializations)
         opts.produced.derives = result.derives
         opts.produced.backends = result.backends and result.backends.modules or cache.jsonArray({})
+        opts.produced.backendResolution = require("nupp.compiler.backends").reached(result.effects, result.backends)
     end
     report:at("write")
     local ok, stateErr = saveState(statePath, newState)

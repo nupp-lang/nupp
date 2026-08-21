@@ -93,7 +93,7 @@ end
 
 --- Supplies the versioned `numeric.bitops` seam for one BitOp-compatible module.
 function bitopsSeam.seam(moduleName: string): runtimeBackend.Seam
-    local seam: any = {name = "numeric.bitops", version = 1,}
+    local seam: any = {name = "numeric.bitops", version = 1, binding = "compile",}
     function seam:install(): nil
         bitopsSeam.install(moduleName)
     end

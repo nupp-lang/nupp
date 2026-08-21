@@ -131,6 +131,10 @@ end
 --- @raises when called without AOT intrinsic lowering
 --- @export
 function simd.preferredU8(): simd.SpeciesU8
+    local provider = rawget(_G, "__nuppSimd")
+    if provider ~= nil then
+        return provider.preferredU8()
+    end
     error("nupp.simd values exist only inside an @aot function", 2)
 end
 
@@ -138,6 +142,10 @@ end
 --- @raises when called without AOT intrinsic lowering
 --- @export
 function simd.maskBits64(low: uint32, high: uint32): simd.MaskBits64
+    local provider = rawget(_G, "__nuppSimd")
+    if provider ~= nil then
+        return provider.maskBits64(low, high)
+    end
     error("nupp.simd values exist only inside an @aot function", 2)
 end
 
@@ -162,6 +170,10 @@ function simd.tableU8x16(
     b14: uint32,
     b15: uint32
 ): simd.TableU8x16
+    local provider = rawget(_G, "__nuppSimd")
+    if provider ~= nil then
+        return provider.tableU8x16(b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15)
+    end
     error("nupp.simd values exist only inside an @aot function", 2)
 end
 
@@ -171,6 +183,10 @@ end
 --- @raises when called without AOT intrinsic lowering
 --- @export
 function simd.alignBytes(previous: simd.VectorU8, current: simd.VectorU8, offset: uint32): simd.VectorU8
+    local provider = rawget(_G, "__nuppSimd")
+    if provider ~= nil then
+        return provider.alignBytes(previous, current, offset)
+    end
     error("nupp.simd values exist only inside an @aot function", 2)
 end
 
@@ -178,6 +194,10 @@ end
 --- @raises when called without AOT intrinsic lowering
 --- @export
 function simd.paddedStringU8(source: string): simd.PaddedStringU8
+    local provider = rawget(_G, "__nuppSimd")
+    if provider ~= nil then
+        return provider.paddedStringU8(source)
+    end
     error("nupp.simd values exist only inside an @aot function", 2)
 end
 

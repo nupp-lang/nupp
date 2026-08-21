@@ -877,6 +877,12 @@ export = Backend.new("portable", {
       "build output reports the resolved seam")
    assertEq(produced.backends[1].seams[1].version, 1,
       "build output reports the seam contract version")
+   assertEq(#produced.backendResolution, 1,
+      "build output reports only the reached seam resolution")
+   assertEq(produced.backendResolution[1].name, "data.json",
+      "the reached resolution names its exact seam")
+   assertEq(produced.backendResolution[1].binding, "runtime",
+      "the reached resolution records when its module binds")
    write(dir .. "/out/portable_json.lua", [[
 local json = {NULL = {}, EMPTY_ARRAY = {}, EMPTY_OBJECT = {}}
 local function same(value) return value end
@@ -891,8 +897,13 @@ return json
    local generated = read(dir .. "/out/main.lua")
    assert(generated:find("portablebackend", 1, true),
       "the reached standard module installs the selected backend")
-   assert(not generated:find("portable_json", 1, true),
-      "the entry contains no generated adapter or third-party provider detail")
+   assert(generated:find("nupp%-backends: resolved=data.json", 1),
+      "the artifact itself records the same reached seam")
+   assert(not generated:find("%z"), "artifact metadata contains a printable source digest")
+   assert(generated:find("portable_json", 1, true),
+      "artifact metadata records the exact third-party runtime module")
+   assert(not generated:find("JSON.seam", 1, true),
+      "the entry contains no generated adapter implementation")
    local backend = read(dir .. "/out/portablebackend.lua")
    assert(backend:find("portable_json", 1, true),
       "the checked backend source owns its exact runtime dependency")

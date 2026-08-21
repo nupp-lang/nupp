@@ -178,9 +178,12 @@ end
 function M.everyRegisteredCommandHasAGrammarAndHelp()
    local names = cli.names()
    assert(#names >= 14, "every command is registered: " .. #names)
+   local hasBackend = false
    for _, name in ipairs(names) do
       assert(name ~= "", "a command has a name")
+      hasBackend = hasBackend or name == "backend"
    end
+   assert(hasBackend, "the backend conformance command is registered")
 end
 
 function M.completionsAreRenderedFromTheRegisteredCommandGrammar()

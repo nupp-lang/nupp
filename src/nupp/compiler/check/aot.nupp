@@ -150,6 +150,7 @@ function aot.install(c: state.Checker): aot.Ops
                     and selected.aot == "off"
                     and exact ~= nil
                     and exact.identity == "nupp.simd.preferredU8"
+                    and c.opts.dialect ~= "lua51"
                 then
                     c.diag(
                         "NUPP2903",

@@ -461,12 +461,12 @@ Nupp.
 
 The smallest independently selected standard contract is a runtime seam. A
 backend can contain one or many of `data.json`, `data.sha256`, `data.utf8`,
-`data.uuid`, `data.bitset`, `io` and `peg`. Those names are contracts, not
-blessed packages. A seam may be a thin adapter over `lunajson`, BitOp, a
-SHA-256 or UUID rock, LPeg, or any other implementation. Its checked source
-must use the compiler-owned seam factory. Nupp may publish small adapters for
-common module APIs, but the proposal does not require Nupp to own their
-algorithms.
+`data.uuid`, `data.hash`, `data.bitset`, `io`, `peg` and `suspension`. Those
+names are contracts, not blessed packages. A seam may be a thin adapter over
+`lunajson`, BitOp, a SHA-256 or UUID rock, LPeg, a scheduler or any other
+implementation. Its checked source must use the compiler-owned seam factory.
+Nupp may publish small adapters for common module APIs, but the proposal does
+not require Nupp to own their algorithms.
 
 For a dependency that is intentionally unavailable while building, the seam
 factory accepts an exact runtime module name:
@@ -503,6 +503,15 @@ processes, HTTP, secure entropy and clocks may have host seams. A seam is
 allowed to be unavailable on a host; it is not allowed to replace secure
 UUID entropy with `math.random` or otherwise weaken the documented contract.
 
+Suspension policy is independently replaceable. The `suspension` seam supplies
+the complete `nupp.suspension` protocol, including source polling, handler
+installation, cancellation, coroutine inheritance and the `all`, `gather`,
+`race` and `batch` combinators. A scheduler or event-loop adapter must pass that
+whole behavioral suite; it may not replace only parking while inheriting
+unverified cancellation or handler-scope behavior. The bundled implementation
+is the default when no backend overrides this seam, so a program that reaches
+no selected suspension backend keeps the existing direct module.
+
 The portable standard surface is accounted for by kind:
 
 | Surface | Portable answer |
@@ -512,6 +521,7 @@ The portable standard surface is accounted for by kind:
 | JSON, UTF-8, hashes, checksums, UUID and bitsets | selected runtime seam per independently reached contract |
 | byte buffers, readers, writers and typed scalar codecs | selected `io` seam |
 | PEG | selected runtime seam, commonly an adapter over LPeg |
+| suspension, scheduling and event-loop integration | bundled protocol or selected complete `suspension` seam |
 | lexical URI and path operations | selected runtime seam or existing portable source |
 | files, processes, HTTP, entropy, clocks and workers | selected host seam |
 | `nupp.native`, raw heaps, C-array spans, C-layout SoA and pointer projection | unavailable without `cstorage` or `cinterop` |
@@ -668,9 +678,9 @@ step does not compensate for a failure in an earlier one.
    Ordinary vectorizable loops remain scalar when vectorization is unavailable.
 8. **Standard and host accounting.** Classify every public standard member,
    adding checked runtime seam adapters for JSON, SHA, UTF-8, UUID, bitsets,
-   PEG and host facilities as projects need them. These adapters may perform
-   runtime checks for third-party modules; this step does not add duplicate
-   algorithms to Nupp.
+   PEG, suspension and host facilities as projects need them. These adapters
+   may perform runtime checks for third-party modules; this step does not add
+   duplicate algorithms to Nupp.
 9. **Backend test command and artifact audit.** Expose isolated all-seam and
    focused runs, report versions, runtime and digests, and verify the artifact
    records exactly the reached resolution without claiming certification.

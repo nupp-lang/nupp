@@ -1,0 +1,18 @@
+@!internal
+module nupp.runtime.seam.sha256suite
+local suite = {}
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        assert(
+            provider.sha256("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            "sha256 must return the lowercase hexadecimal SHA-256 digest"
+        )
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

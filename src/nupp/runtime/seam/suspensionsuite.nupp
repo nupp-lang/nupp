@@ -1,0 +1,54 @@
+@!internal
+module nupp.runtime.seam.suspensionsuite
+
+--[[Behavioral vectors shared by scheduler and event-loop adapters.]]
+
+local suite = {}
+
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        assert(not provider.handled(), "the isolated provider must begin without an installed handler")
+        assert(provider.canSuspend(), "the unhandled blocking driver must permit suspension")
+
+        local ready = provider.suspend("contract.ready", function(resume: function(string)): nil
+            resume("ready")
+        end)
+        assert(ready == "ready", "a synchronous subscription must not park")
+
+        local polled = 0
+        local source = provider.source("contract.source", 1, function(): integer
+            polled = polled + 1
+
+            return 1
+        end)
+        assert(provider.poll() == 1 and polled == 1, "poll must drive registered readiness sources")
+        source:release()
+        assert(provider.poll() == 0 and polled == 1, "released sources must not run")
+
+        local values = provider.all({
+            function(): integer
+                return 1
+            end,
+            function(): integer
+                return 2
+            end,
+        })
+        assert(values[1] == 1 and values[2] == 2, "all must preserve branch order")
+        local gathered, errors = provider.gather({
+            function(): integer
+                return 3
+            end,
+            function(): integer
+                error("contract failure")
+            end,
+        })
+        assert(gathered[1] == 3 and errors[1] == nil and errors[2] ~= nil, "gather must isolate branch failures")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

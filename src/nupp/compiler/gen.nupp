@@ -464,7 +464,26 @@ function gen.generate(
     local capabilityResolution = capabilities.resolve(result.dialect or "luajit", backendResolution)
     local bitopsCapability = capabilities.get(capabilityResolution, "bitops")
     local portableBitops = bitopsCapability.kind == "seam"
+    local structvalueCapability = capabilities.get(capabilityResolution, "structvalue")
+    local portableStructvalue = structvalueCapability.kind == "seam"
+    local int64Capability = capabilities.get(capabilityResolution, "int64")
+    local portableInt64 = int64Capability.kind == "seam"
     local BITOP_METHOD = {
+        ["&"] = "band",
+        ["|"] = "bor",
+        ["~"] = "bxor",
+        ["<<"] = "lshift",
+        [">>"] = "rshift",
+        ["~>>"] = "arshift",
+    }
+    local INT64_METHOD = {
+        ["+"] = "add",
+        ["-"] = "sub",
+        ["*"] = "mul",
+        ["/"] = "div",
+        ["//"] = "div",
+        ["%"] = "mod",
+        ["^"] = "pow",
         ["&"] = "band",
         ["|"] = "bor",
         ["~"] = "bxor",
@@ -710,6 +729,8 @@ function gen.generate(
     end
 
     local bitopsName = portableBitops and reservedName("__nuppBitops") or nil
+    local structvalueName = portableStructvalue and reservedName("__nuppStructvalue") or nil
+    local int64Name = portableInt64 and reservedName("__nuppInt64") or nil
 
     emitDepth.exportTableName = declaredModuleName and reservedName("__nuppExports") or nil
     if declaredModuleName and cst.exportAssignment(result.root) then
@@ -1673,6 +1694,16 @@ function gen.generate(
             effect = bitopsCapability.effect,
             methods = BITOP_METHOD,
             name = bitopsName,
+        },
+        structvalue = {enabled = portableStructvalue, name = structvalueName, effect = "runtime.structvalue",},
+        int64 = {
+            enabled = portableInt64,
+            name = int64Name,
+            effect = "runtime.int64",
+            methods = INT64_METHOD,
+            isWide = function(t)
+                return t ~= nil and (t.tag == "int64" or t.tag == "uint64")
+            end,
         },
     }
 
@@ -3795,6 +3826,17 @@ function gen.generate(
             e(x.comptimeValue, sourceLine(x))
             return
         end
+        if pluck.int64.enabled and kind == "number" and x.token then
+            local spelling = x.token.text:gsub("_", "")
+            local lower = spelling:lower()
+            if lower:sub(-3) == "ull" or lower:sub(-2) == "ll" then
+                needRuntimeEffect(pluck.int64.effect)
+                local unsigned = lower:sub(-3) == "ull"
+                local digits = spelling:sub(1, unsigned and -4 or -3)
+                e(("%s.%s(%q)"):format(pluck.int64.name, unsigned and "uint64" or "int64", digits), x.token.line)
+                return
+            end
+        end
         if x.materializedIR then
             local materializeIR = require("nupp.compiler.materialize.ir")
             local rendered, failure = materializeIR.render(x.materializedIR)
@@ -3811,6 +3853,51 @@ function gen.generate(
         if x.folded then
             e(x.folded, sourceLine(x))
             return
+        end
+        if pluck.int64.enabled and kind == "unop" and x.op and x.operand and pluck.int64.isWide(x.inferredType) then
+            needRuntimeEffect(pluck.int64.effect)
+            e(("%s.%s("):format(pluck.int64.name, x.op.kind == "-" and "neg" or "bnot"), x.op.line)
+            emit(x.operand)
+            e(")")
+            return
+        end
+        if pluck.int64.enabled and kind == "binop" and x.op and x.lhs and x.rhs then
+            local wide = pluck.int64.isWide(
+                x.inferredType
+            ) or pluck.int64.isWide(x.lhs.inferredType) or pluck.int64.isWide(x.rhs.inferredType)
+            local method = wide and pluck.int64.methods[x.op.kind] or nil
+            if method then
+                needRuntimeEffect(pluck.int64.effect)
+                e(("%s.%s("):format(pluck.int64.name, method), x.op.line)
+                emit(x.lhs);
+                e(",");
+                emit(x.rhs);
+                e(")")
+                return
+            elseif wide and (
+                x.op.kind == "=="
+                or x.op.kind == "~="
+                or x.op.kind == "<"
+                or x.op.kind == "<="
+                or x.op.kind == ">"
+                or x.op.kind == ">="
+            ) then
+                needRuntimeEffect(pluck.int64.effect)
+                e(("(%s.compare("):format(pluck.int64.name), x.op.line)
+                emit(x.lhs);
+                e(",");
+                emit(x.rhs)
+                local comparison = ({
+                    ["=="] = "==0",
+                    ["~="] = "~=0",
+                    ["<"] = "<0",
+                    ["<="] = "<=0",
+                    [">"] = ">0",
+                    [">="] = ">=0",
+                })[x.op.kind]
+                e(")" .. comparison .. ")")
+                return
+            end
         end
         if pluck.bitops.portable and kind == "unop" and x.op and x.op.kind == "~" and x.operand then
             needRuntimeEffect(pluck.bitops.effect)
@@ -4182,6 +4269,77 @@ function gen.generate(
         end
 
         if kind == "recordDecl" and x.declKind == "struct" then
+            if pluck.structvalue.enabled then
+                needRuntimeEffect(pluck.structvalue.effect)
+                local first = x[1]
+                local line = first and cst.isToken(first) and first.line or nil
+                local path = declPath(x)
+                local storage = path and "" or x.visibility == "global" and "" or "local "
+                local mt = "__nuppMt_" .. x.name.text
+                local fields = {}
+                local function fixedType(t: any): string?
+                    if t.kind == "topt" then
+                        t = t.inner
+                    end
+                    if t.kind == "tname" and C_PRIM[t.base.text] then
+                        return ("%s.scalar(%q)"):format(pluck.structvalue.name, t.base.text)
+                    elseif t.kind == "tname" then
+                        return (t.reified or cst.textOf(t)) as string
+                    elseif t.kind == "tcarray" and t.count then
+                        local element = fixedType(t.element)
+                        if element then
+                            return ("%s.array(%s,%s)"):format(pluck.structvalue.name, element, cst.textOf(t.count))
+                        end
+                    end
+
+                    return nil
+                end
+
+                for _, entry in ipairs(x.entries or {}) do
+                    if entry.kind == "fieldDecl" then
+                        local t = entry.type
+                        if t.kind == "topt" then
+                            t = t.inner
+                        end
+                        if t.kind == "tname" and C_PRIM[t.base.text] then
+                            fields[#fields + 1] = ("{name=%q,kind=%q}"):format(entry.name.text, t.base.text)
+                        else
+                            local fixed = fixedType(t)
+                            if fixed then
+                                fields[#fields + 1] = ("{name=%q,type=%s}"):format(entry.name.text, fixed)
+                            else
+                                emitDepth.diag(
+                                    entry.name,
+                                    "NUPP3006",
+                                    "portable struct fields need scalar, struct, or fixed-array storage"
+                                )
+                            end
+                        end
+                    end
+                end
+                e(
+                    (
+                        "local %s={__index={}} %s%s=%s.define({name=%q,fields={%s}},%s)"
+                    ):format(
+                        mt,
+                        storage,
+                        path or x.name.text,
+                        pluck.structvalue.name,
+                        x.name.text,
+                        table.concat(fields, ","),
+                        mt
+                    ),
+                    line
+                )
+                for _, entry in ipairs(x.entries or {}) do
+                    if entry.kind == "inlineMethod" then
+                        entry.inlineRuntimeOwner = mt .. ".__index"
+                        emit(entry)
+                    end
+                end
+                emitInheritedDefaults(x, mt .. ".__index")
+                return
+            end
             -- struct S { a: float, b: OtherStruct, p: S* } lowers to const S =
             -- __nuppFfi.typeof("struct { float a; $ b; $ *p; }", OtherStruct,
             -- S_is_forward_error)
@@ -4523,6 +4681,11 @@ function gen.generate(
                 e("( getmetatable(", firstTok and firstTok.line)
                 emit(x.expr)
                 e(")?.__index == " .. t.recordName .. " )")
+            elseif t.reified and pluck.structvalue.enabled then
+                needRuntimeEffect(pluck.structvalue.effect)
+                e(t.reified .. ":isa(", firstTok and firstTok.line)
+                emit(x.expr)
+                e(")")
             elseif t.reified then
                 -- struct target: real runtime identity via ffi.istype
                 needsFfi = true
@@ -4684,7 +4847,12 @@ function gen.generate(
             -- first: `obj.f += v` must not re-run whatever produced obj.
             local base = x.op.kind:sub(1, -2)
             local bitMethod = pluck.bitops.portable and pluck.bitops.methods[base] or nil
-            if bitMethod then
+            local wideMethod = pluck.int64.enabled and pluck.int64.isWide(
+                x.target.inferredType
+            ) and pluck.int64.methods[base] or nil
+            if wideMethod then
+                needRuntimeEffect(pluck.int64.effect)
+            elseif bitMethod then
                 needRuntimeEffect(pluck.bitops.effect)
             end
             local target = x.target
@@ -4703,6 +4871,10 @@ function gen.generate(
                     e(("%s = math.floor((%s) / ("):format(slot, slot), at)
                     emit(x.value)
                     e("))")
+                elseif wideMethod then
+                    e(("%s=%s.%s(%s,"):format(slot, pluck.int64.name, wideMethod, slot), at)
+                    emit(x.value)
+                    e(")")
                 elseif bitMethod then
                     e(("%s=%s.%s(%s,"):format(slot, pluck.bitops.name, bitMethod, slot), at)
                     emit(x.value)
@@ -6835,7 +7007,9 @@ function gen.generate(
         end
     end
 
-    planStructTags()
+    if not pluck.portable then
+        planStructTags()
+    end
     if hotState and hotState.mode == "patch" then
         local captured = {}
         for _, planned in ipairs(hotState.functions) do
@@ -6996,12 +7170,23 @@ function gen.generate(
             "const %s = require(\"nupp.log\").forModule(%q); "
         ):format(compilerModules["nupp.log"], result.moduleName or filename or "?") .. code
     end
+    local nativeRuntimeEffects = {}
+    for effect, reached in pairs(runtimeEffects) do
+        nativeRuntimeEffects[effect] = reached
+    end
+    backends.withoutNative(nativeRuntimeEffects, backendResolution)
     local runtimeBootstrap = stdlib.bootstrap(
-        runtimeEffects,
+        nativeRuntimeEffects,
         hotState ~= nil
     ) .. backends.bootstrap(runtimeEffects, backendResolution)
     if runtimeEffects[pluck.bitops.effect] then
         runtimeBootstrap = runtimeBootstrap .. ("local %s=_G.__nuppBitops;"):format(pluck.bitops.name)
+    end
+    if portableStructvalue and runtimeEffects["runtime.structvalue"] then
+        runtimeBootstrap = runtimeBootstrap .. ("local %s=_G.__nuppStructvalue;"):format(structvalueName)
+    end
+    if portableInt64 and runtimeEffects["runtime.int64"] then
+        runtimeBootstrap = runtimeBootstrap .. ("local %s=_G.__nuppInt64;"):format(int64Name)
     end
     if runtimeBootstrap ~= "" then
         code = runtimeBootstrap .. code
@@ -7294,6 +7479,10 @@ function gen.generate(
         -- compatibility floor lexical avoids mutating the process global table and
         -- leaves a same-spelled source local free to shadow it normally.
         code = "local unpack=unpack or table.unpack;local loadstring=loadstring or load;" .. code
+    end
+    local backendArtifact = backends.artifact(runtimeEffects, backendResolution)
+    if backendArtifact ~= "" then
+        code = backendArtifact .. code
     end
 
     -- Prelude implementation bodies are ordinary checked and generated Nupp. Execute

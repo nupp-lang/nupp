@@ -21,6 +21,7 @@ local fixedWidth = require("nupp.compiler.fixedwidth")
 local native = require("nupp.compiler.native")
 local indexedViews = require("nupp.compiler.indexedviews")
 local runtimeSurface = require("nupp.compiler.runtimesurface")
+local standardSurface = require("nupp.compiler.standardsurface")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
@@ -157,7 +158,14 @@ function index.install(c: state.Checker): state.ExprHandlers
                 -- native library a module stands on stops being carried.
                 local moduleEffect = suffix[
                     1
-                ] and native.forModuleMember(candidate, suffix[1]) or native.forModule(candidate)
+                ] and (
+                    standardSurface.requireMember(
+                        c,
+                        candidate,
+                        suffix[1],
+                        node.name or node
+                    ) or native.forModuleMember(candidate, suffix[1])
+                ) or native.forModule(candidate)
                 if moduleEffect and c.recordEffect then
                     (node as any).compilerFeatureEffect = moduleEffect
                     c.recordEffect(moduleEffect)
@@ -551,7 +559,12 @@ function index.install(c: state.Checker): state.ExprHandlers
         if not effect and target.kind == "name" and target.token then
             local holder = c.lookupEntry(target.token.text)
             if holder and holder.requiredModule then
-                effect = native.forModuleMember(holder.requiredModule, memberName)
+                effect = standardSurface.requireMember(
+                    c,
+                    holder.requiredModule,
+                    memberName,
+                    member
+                ) or native.forModuleMember(holder.requiredModule, memberName)
             end
         end
         if effect and c.recordEffect then

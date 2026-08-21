@@ -396,6 +396,10 @@ function operators.install(c: state.Checker): state.ExprHandlers
                 return c.applyContract(mm, {t}, {operand}, node, "__unm")
             end
             c.numericOperand(t, node, op)
+            if t.tag == "int64" or t.tag == "uint64" then
+                capabilities.require(c, "int64", opTok)
+                return t
+            end
             if t.tag == "literal" and type(t.constant) == "number" then
                 local value = -(t.constant as number)
                 c.fixedWidth.markLiteral(node, value)
@@ -403,9 +407,10 @@ function operators.install(c: state.Checker): state.ExprHandlers
             end
             return (t == T.any or fixedWidth.isValue(t)) and T.number or t
         elseif op == "~" then
-            capabilities.require(c, "bitops", opTok)
+            local wide = t.tag == "int64" or t.tag == "uint64"
+            capabilities.require(c, wide and "int64" or "bitops", opTok)
             c.numericOperand(t, node, op)
-            return T.integer
+            return wide and t or T.integer
         elseif op == "#" then
             local origin = lpegPattern(t)
             if origin then
@@ -488,6 +493,19 @@ function operators.install(c: state.Checker): state.ExprHandlers
             end
             c.numericOperand(lt, lhs, op)
             c.numericOperand(rt, rhs, op)
+            local wide = lt.tag == "int64"
+                and lt
+                or lt.tag == "uint64"
+                and lt
+                or rt.tag == "int64"
+                and rt
+                or rt.tag == "uint64"
+                and rt
+                or nil
+            if wide then
+                capabilities.require(c, "int64", opTok)
+                return wide
+            end
             if op == "/" or op == "^" then
                 return T.number
             end
@@ -521,11 +539,23 @@ function operators.install(c: state.Checker): state.ExprHandlers
             node.plainConcat = plain
             return T.string
         elseif operators.bitops[op] then
-            capabilities.require(c, "bitops", opTok)
+            local wide = lt.tag == "int64"
+                and lt
+                or lt.tag == "uint64"
+                and lt
+                or rt.tag == "int64"
+                and rt
+                or rt.tag == "uint64"
+                and rt
+                or nil
+            capabilities.require(c, wide and "int64" or "bitops", opTok)
             c.numericOperand(lt, lhs, op)
             c.numericOperand(rt, rhs, op)
-            return T.integer
+            return wide or T.integer
         elseif operators.compare[op] then
+            if lt.tag == "int64" or lt.tag == "uint64" or rt.tag == "int64" or rt.tag == "uint64" then
+                capabilities.require(c, "int64", opTok)
+            end
             if op ~= "==" and op ~= "~=" then
                 local mmName = (op == "<" or op == ">") and "__lt" or "__le"
                 local left, right = lt, rt
