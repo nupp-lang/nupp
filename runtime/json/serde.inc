@@ -608,7 +608,7 @@ bool pushSerdeNode(
 ) {
     if (depth > 1024) { *failure = "nesting is too deep"; return false; }
     const auto &node = schema.nodes[nodeId];
-    simdjson::error_code error;
+    simdjson::error_code error = simdjson::SUCCESS;
     switch (node.kind) {
         case serdeKind::STRING: {
             std::string_view result;
