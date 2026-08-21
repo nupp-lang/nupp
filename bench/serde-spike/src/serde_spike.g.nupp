@@ -66,23 +66,15 @@ local record JsonSerializer is Serializer
 end
 
 local function member(index: integer, name: string, kind: FieldKind): Member
-    return new Member(
-        index = index,
-        name = name,
-        kind = kind,
-        jsonKey = json.encodedString(name)
-    )
+    return new Member(index = index, name = name, kind = kind, jsonKey = json.encodedString(name))
 end
 
 local function schema(members: {Member}): Schema
     local fields: {any} = {}
     for index, item in ipairs(members) do
-        fields[index] = {
-            name = item.name,
-            wire = item.name,
-            kind = item.kind,
-        }
+        fields[index] = {name = item.name, wire = item.name, kind = item.kind,}
     end
+
     return new Schema(members = members, native = native.compile(fields))
 end
 
@@ -112,14 +104,11 @@ local function genericEncode(value: any, description: Schema, slots: boolean): s
         end
     end
     target:endStruct()
+
     return target:finish()
 end
 
-local smallMembers = {
-    member(1, "id", "integer"),
-    member(2, "active", "boolean"),
-    member(3, "name", "string"),
-}
+local smallMembers = {member(1, "id", "integer"), member(2, "active", "boolean"), member(3, "name", "string"),}
 local smallSchema = schema(smallMembers)
 
 @derive(nupp.derive.JSON, nupp.derive.Serde)
@@ -203,10 +192,7 @@ local mediumValue = new Medium(
     retries = 3,
     cached = true
 )
-local mediumSlots: {any} = {
-    41, true, "Ada", 1701, 98.25, "us-east-1", false, 7, 0.625,
-    "example-owner", 3, true,
-}
+local mediumSlots: {any} = {41, true, "Ada", 1701, 98.25, "us-east-1", false, 7, 0.625, "example-owner", 3, true,}
 
 local productionCodec = serde.json{unknownMembers = "ignore"}
 local preparedSmall = productionCodec:prepare(serde.of(Small))
@@ -221,6 +207,29 @@ end
 local preparedPayload = productionCodec:prepare(serde.of(Payload))
 local payload4KiB = new Payload(data = string.rep("x", 4 * 1024))
 local payload64KiB = new Payload(data = string.rep("x", 64 * 1024))
+
+@derive(nupp.derive.JSON, nupp.derive.Serde)
+local record NestedChild
+    label: string
+    scores: {integer}
+end
+
+@derive(nupp.derive.JSON, nupp.derive.Serde)
+local record NestedEnvelope
+    id: integer
+    child: NestedChild
+    children: {NestedChild}
+    labels: {[string]: string}
+end
+
+local nestedValue = new NestedEnvelope(
+    id = 41,
+    child = new NestedChild(label = "primary", scores = {1, 2, 3}),
+    children = {new NestedChild(label = "first", scores = {4, 5}), new NestedChild(label = "second", scores = {6, 7}),},
+    labels = {region = "us-east-1", owner = "example"}
+)
+local preparedNested = productionCodec:prepare(serde.of(NestedEnvelope))
+local nestedJson = preparedNested:encode(nestedValue)
 
 function m.currentEncodeSmall(): string
     return json.encodeAs(Small, smallValue)
@@ -238,6 +247,7 @@ function m.directEncodeSmall(): string
     target.writer:key(smallMembers[3].jsonKey):write(smallValue.name)
     target.writer:endObject()
     target.writer:close()
+
     return target.out:tostring()
 end
 
@@ -271,6 +281,19 @@ function m.preparedWriteSmall(): integer
     preparedOutput:reset()
     preparedSmall:write(smallValue, preparedOutput)
     return #preparedOutput
+end
+
+function m.preparedWriterSmall(): integer
+    preparedOutput:reset()
+    local writer = json.writer(preparedOutput)
+    preparedSmall:write(smallValue, writer)
+    writer:close()
+
+    return #preparedOutput
+end
+
+function m.coldPreparedEncodeSmall(): string
+    return serde.json{unknownMembers = "ignore"}:prepare(serde.of(Small)):encode(smallValue)
 end
 
 function m.preparedCopiedWriteSmall(): integer
@@ -365,8 +388,57 @@ function m.preparedWritePayload64KiB(): integer
     return #preparedOutput
 end
 
+function m.preparedWriterPayload64KiB(): integer
+    preparedOutput:reset()
+    local writer = json.writer(preparedOutput)
+    preparedPayload:write(payload64KiB, writer)
+    writer:close()
+
+    return #preparedOutput
+end
+
+function m.currentEncodeNested(): string
+    return json.encodeAs(NestedEnvelope, nestedValue)
+end
+
+function m.preparedEncodeNested(): string
+    return preparedNested:encode(nestedValue)
+end
+
+function m.preparedWriteNested(): integer
+    preparedOutput:reset()
+    preparedNested:write(nestedValue, preparedOutput)
+    return #preparedOutput
+end
+
+function m.preparedWriterNested(): integer
+    preparedOutput:reset()
+    local writer = json.writer(preparedOutput)
+    preparedNested:write(nestedValue, writer)
+    writer:close()
+
+    return #preparedOutput
+end
+
+function m.currentDecodeNested(): NestedEnvelope
+    return assert(NestedEnvelope.fromJSON(nestedJson))
+end
+
+function m.preparedDecodeNested(): NestedEnvelope
+    return assert(preparedNested:decode(nestedJson))
+end
+
 local smallJson = m.nativeEncodeSmall()
 local mediumJson = m.nativeEncodeMedium()
+local payload64KiBJson = preparedPayload:encode(payload64KiB)
+local smallInput = buffer.new()
+smallInput:put(smallJson)
+local mediumInput = buffer.new()
+mediumInput:put(mediumJson)
+local nestedInput = buffer.new()
+nestedInput:put(nestedJson)
+local payload64KiBInput = buffer.new()
+payload64KiBInput:put(payload64KiBJson)
 local mediumReverseJson = [[{"cached":true,"retries":3,"owner":"example-owner","ratio":0.625,"version":7,"enabled":false,"region":"us-east-1","score":98.25,"count":1701,"name":"Ada","active":true,"id":41}]]
 local mediumUnknownJson = [[{"ignored":{"nested":[1,2,3]},"id":41,"active":true,"name":"Ada","count":1701,"score":98.25,"region":"us-east-1","enabled":false,"version":7,"ratio":0.625,"owner":"example-owner","retries":3,"cached":true}]]
 
@@ -390,6 +462,10 @@ function m.preparedDecodeSmall(): Small
     return assert(preparedSmall:decode(smallJson))
 end
 
+function m.preparedDecodeSmallBuffer(): Small
+    return assert(preparedSmall:decodeBuffer(smallInput))
+end
+
 function m.currentDecodeMedium(): Medium
     return assert(Medium.fromJSON(mediumJson))
 end
@@ -410,10 +486,29 @@ function m.preparedDecodeMedium(): Medium
     return assert(preparedMedium:decode(mediumJson))
 end
 
+function m.preparedDecodeMediumBuffer(): Medium
+    return assert(preparedMedium:decodeBuffer(mediumInput))
+end
+
+function m.preparedDecodeNestedBuffer(): NestedEnvelope
+    return assert(preparedNested:decodeBuffer(nestedInput))
+end
+
+function m.currentDecodePayload64KiB(): Payload
+    return assert(Payload.fromJSON(payload64KiBJson))
+end
+
+function m.preparedDecodePayload64KiB(): Payload
+    return assert(preparedPayload:decode(payload64KiBJson))
+end
+
+function m.preparedDecodePayload64KiBBuffer(): Payload
+    return assert(preparedPayload:decodeBuffer(payload64KiBInput))
+end
+
 function m.nativeDecodeMediumReverse(): Medium
     return native.decodeRecord(mediumSchema.native, mediumReverseJson, Medium) as Medium
 end
-
 
 function m.preparedDecodeMediumReverse(): Medium
     return assert(preparedMedium:decode(mediumReverseJson))
@@ -422,7 +517,6 @@ end
 function m.nativeDecodeMediumUnknown(): Medium
     return native.decodeRecord(mediumSchema.native, mediumUnknownJson, Medium) as Medium
 end
-
 
 function m.preparedDecodeMediumUnknown(): Medium
     return assert(preparedMedium:decode(mediumUnknownJson))

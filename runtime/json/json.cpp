@@ -9,6 +9,7 @@
 #include <new>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -18,8 +19,6 @@ extern "C" {
 #include <lua.h>
 }
 #include <simdjson.h>
-
-#include "serde.inc"
 
 struct nuppSimdjsonParser {
     simdjson::dom::parser dom;
@@ -1266,6 +1265,8 @@ static int luaWriterClose(lua_State *L) {
     clearWriterEnvironment(L, 1);
     return 0;
 }
+
+#include "serde.inc"
 
 static int luaDecode(lua_State *L) {
     size_t length = 0;

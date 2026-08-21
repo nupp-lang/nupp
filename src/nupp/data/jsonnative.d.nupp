@@ -142,29 +142,26 @@ record json
     --- @return a new writer
     writer: function(exclusive out: string.buffer.Buffer, nullValue: any?): Writer
 
-    --- Compiles the immutable scalar structure plan used by prepared serde JSON.
-    compileSerde: function(fields: {any}, unknownMembers: string): any
+    --- Compiles one immutable recursive plan used by prepared serde JSON.
+    compileSerde: function(plan: any, unknownMembers: string): any
 
-    --- Encodes a record or struct in one prepared native traversal.
-    encodeSerdeRecord: function(schema: any, value: any): string
+    --- Encodes a value in one prepared native traversal.
+    encodeSerde: function(schema: any, value: any): string
 
-    --- Encodes indexed dynamic slots in one prepared native traversal.
-    encodeSerdeSlots: function(schema: any, value: {any}): string
+    --- Encodes a value into reserved caller-owned storage.
+    encodeSerdeInto: function(schema: any, value: any, borrows destination: uint8[?], capacity: uint64): uint64
 
-    --- Encodes a record or struct into reserved caller-owned storage.
-    encodeSerdeRecordInto: function(schema: any, value: any, borrows destination: uint8[?], capacity: uint64): uint64
-
-    --- Encodes indexed dynamic slots into reserved caller-owned storage.
-    encodeSerdeSlotsInto: function(schema: any, value: {any}, borrows destination: uint8[?], capacity: uint64): uint64
+    --- Streams a prepared value through a checked JSON writer.
+    writeSerde: function(schema: any, value: any, exclusive out: any): nil
 
     --- Copies the last encoding after its first reservation was too small.
     copySerdeEncoding: function(borrows destination: uint8[?], capacity: uint64): nil
 
-    --- Decodes directly into a record or struct.
-    decodeSerdeRecord: function(schema: any, text: string, type: any): any
+    --- Decodes directly into the prepared binding representation.
+    decodeSerde: function(schema: any, text: string): (any?, string?)
 
-    --- Decodes directly into indexed dynamic slots.
-    decodeSerdeSlots: function(schema: any, text: string): {any}
+    --- Decodes directly from caller-owned padded buffer storage.
+    decodeSerdeBuffer: function(schema: any, exclusive input: string.buffer.Buffer): (any?, string?)
 
     --- Decodes JSON into the nominal record named by its one type witness.
     --- @param type the record's type witness, naming what to decode into

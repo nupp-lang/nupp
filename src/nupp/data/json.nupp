@@ -87,6 +87,10 @@ identity is single-use; after close, only its native builder, frame capacity,
 and temporary buffers return to a pool. Untyped stale references therefore
 remain closed and cannot affect a later document.
 
+A prepared `nupp.data.serde` JSON traversal can write at the current value
+position. Its recursive native walk drains completed fields and list members at
+the same threshold, so a large root does not need to exist as one staged string.
+
 `encoded(value)` performs ordinary encoding once. `verified(text)` instead
 validates an existing immutable JSON string without decoding or re-encoding it.
 Both return a value that `write` appends without another walk or validation.

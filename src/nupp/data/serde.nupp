@@ -37,22 +37,21 @@ local value = binding:bind{id = 41, name = "Ada"}
 
 local extensions = require("nupp.extensions")
 -- The bootstrap compiler carries the previous host declaration until fixpoint
--- refreshes it, so the newly added native prepared entry points stay behind this
--- private dynamic boundary. No ownership capability crosses it.
+-- refreshes it, so newly added native prepared entry points stay behind this
+-- private typed boundary. No ownership capability crosses an untyped call.
 local native: any = require("jsonNative")
-local encodeSerdeRecordInto = native.encodeSerdeRecordInto as function(
+local encodeSerdeInto = native.encodeSerdeInto as function(
     schema: any,
     value: any,
     borrows destination: uint8[?],
     capacity: uint64
 ): uint64
-local encodeSerdeSlotsInto = native.encodeSerdeSlotsInto as function(
-    schema: any,
-    value: {any},
-    borrows destination: uint8[?],
-    capacity: uint64
-): uint64
 local copySerdeEncoding = native.copySerdeEncoding as function(borrows destination: uint8[?], capacity: uint64): nil
+local writeSerde = native.writeSerde as function(schema: any, value: any, exclusive out: nupp.data.json.Writer): nil
+local decodeSerdeBuffer = native.decodeSerdeBuffer as function(
+    schema: any,
+    exclusive input: string.buffer.Buffer
+): (any?, string?)
 
 local SERDE_WRITE_RESERVE: integer = 256
 
@@ -602,6 +601,10 @@ export record JsonProfile
 end
 
 --- A prepared JSON traversal for one binding and profile.
+---
+--- The recursive native plan handles structures, lists, string-keyed maps,
+--- optionals, scalar constraints, defaults, literals, and document members. It
+--- caches wire keys and raw-byte lookup once for the binding/profile pair.
 --- @export
 export sealed interface Prepared<T>
     encode: function(self, value: T): string
@@ -611,8 +614,16 @@ export sealed interface Prepared<T>
     --- Prepared native layouts avoid constructing a complete intermediate Lua
     --- string. The portable fallback retains encode-then-append semantics.
     write: function(self, value: T, exclusive out: string.buffer.Buffer): nil
+        & function(self, value: T, exclusive out: nupp.data.json.Writer): nil
 
     decode: function(self, text: string): (T?, string?)
+
+    --- Decodes directly from caller-owned padded storage.
+    ---
+    --- This avoids both a final Lua string and the staging copy required for an
+    --- immutable string input. Small inputs may still favor `decode` because buffer
+    --- access has a fixed cost.
+    decodeBuffer: function(self, exclusive input: string.buffer.Buffer): (T?, string?)
 end
 
 local preparedStates: any = setmetatable({}, {__mode = "k"})
@@ -629,23 +640,6 @@ local function wireName(profile: JsonProfile, member: Member): string
     return name as string
 end
 
-local function nativeKind(schema: Schema): string?
-    if schema.kind == "string" then
-        return "string"
-    elseif schema.kind == "integer" or schema.kind == "unsigned" then
-        return "integer"
-    elseif schema.kind == "number" then
-        return "number"
-    elseif schema.kind == "boolean" then
-        return "boolean"
-    elseif schema.kind == "optional" then
-        local element = schema:element()
-        return element and nativeKind(element) or nil
-    else
-        return nil
-    end
-end
-
 local layoutHoldersKey = extensions.key(function(): any
     return setmetatable({}, {__mode = "k"})
 end)
@@ -654,29 +648,47 @@ local accessKey = extensions.key(function(binding: any): any
     return bindingStates[binding]
 end)
 
+local preparedHoldersKey = extensions.key(function(): any
+    return setmetatable({}, {__mode = "k"})
+end)
+
 local function layoutFor(schema: Schema, profile: JsonProfile): any
     local holders = schema:extension(layoutHoldersKey)
     local prior = holders[profile]
     if prior ~= nil then
         return prior
     end
-    local fields, supported = {}, schema.kind == "structure"
-    for index, member in ipairs(schema.members) do
-        local kind = nativeKind(member.target)
-        local target = member.target as Schema
-        if kind == nil or member.hasDefault or target.state.hasLiteral then
-            supported = false
+    -- Publish a placeholder before walking children. Recursive declarations then
+    -- share this same immutable node instead of rebuilding the graph.
+    local layout: any = {
+        schema = schema,
+        kind = schema.kind,
+        minimum = schema.state.minimum,
+        maximum = schema.state.maximum,
+        hasLiteral = schema.state.hasLiteral == true,
+        literalValue = schema.state.literalValue,
+    }
+    holders[profile] = layout
+    if schema.kind == "optional" or schema.kind == "list" then
+        layout.element = layoutFor(schema:element() as Schema, profile)
+    elseif schema.kind == "map" then
+        layout.key = layoutFor(schema:key() as Schema, profile)
+        layout.value = layoutFor(schema:value() as Schema, profile)
+    end
+    local fields: any = {}
+    if schema.kind == "structure" then
+        for index, member in ipairs(schema.members) do
+            fields[
+                index
+            ] = {
+                name = member.name,
+                wire = wireName(profile, member),
+                target = layoutFor(member.target as Schema, profile),
+                required = member.required,
+                hasDefault = member.hasDefault,
+                defaultValue = member.defaultValue,
+            }
         end
-        fields[
-            index
-        ] = {
-            name = member.name,
-            wire = wireName(profile, member),
-            kind = kind or "document",
-            required = member.required,
-            minimum = target.state.minimum,
-            maximum = target.state.maximum,
-        }
     end
     local byWire: any = {}
     for index, field in ipairs(fields) do
@@ -685,14 +697,114 @@ local function layoutFor(schema: Schema, profile: JsonProfile): any
         end
         byWire[field.wire] = index
     end
-    local layout = {
-        fields = fields,
-        byWire = byWire,
-        native = supported and native.compileSerde(fields, profile.unknownMembers) or nil,
-    }
-    holders[profile] = layout
+    layout.fields = fields
+    layout.byWire = byWire
 
     return layout
+end
+
+local function nativePlanFor(layout: any, access: any, seen: any): any
+    local kind = layout.kind
+    if kind == "unit"
+        or kind == "null"
+        or kind == "decimal"
+        or kind == "bytes"
+        or kind == "timestamp"
+        or kind == "union"
+        or kind == "stringEnum"
+        or kind == "integerEnum"
+    then
+        return nil
+    end
+    if kind == "structure" then
+        if access ~= nil and access.kind == "dynamic" then
+            access = {kind = "dynamic", schema = layout.schema}
+        elseif access == nil or access.schema ~= layout.schema then
+            access = defaultSchemaBindings[layout.schema]
+        end
+    end
+    local prior = seen[layout]
+    if prior ~= nil then
+        return prior
+    end
+    local plan: any = {
+        kind = kind,
+        minimum = layout.minimum,
+        maximum = layout.maximum,
+        hasLiteral = layout.hasLiteral,
+        literalValue = layout.literalValue,
+    }
+    seen[layout] = plan
+    if kind == "optional" or kind == "list" then
+        plan.element = nativePlanFor(layout.element, access, seen)
+        if plan.element == nil then
+            return nil
+        end
+    elseif kind == "map" then
+        if layout.key.kind ~= "string" then
+            return nil
+        end
+        plan.value = nativePlanFor(layout.value, access, seen)
+        if plan.value == nil then
+            return nil
+        end
+    elseif kind == "structure" then
+        if access == nil then
+            return nil
+        end
+        plan.access = access.kind
+        plan.typeObject = access.typeObject
+        plan.schema = access.schema
+        plan.fields = {}
+        for index, field in ipairs(layout.fields) do
+            local childAccess: any = access
+            local target = nativePlanFor(field.target, childAccess, seen)
+            if target == nil then
+                return nil
+            end
+            plan.fields[
+                index
+            ] = {
+                name = field.name,
+                wire = field.wire,
+                target = target,
+                required = field.required,
+                hasDefault = field.hasDefault,
+                defaultValue = field.defaultValue,
+            }
+        end
+    end
+
+    return plan
+end
+
+local function dynamicFromNative(value: any, layout: any): any
+    if value == nil then
+        return nil
+    elseif layout.kind == "optional" then
+        return dynamicFromNative(value, layout.element)
+    elseif layout.kind == "list" then
+        for index, item in ipairs(value) do
+            value[index] = dynamicFromNative(item, layout.element)
+        end
+        return value
+    elseif layout.kind == "map" then
+        for key, item in pairs(value) do
+            value[key] = dynamicFromNative(item, layout.value)
+        end
+        return value
+    elseif layout.kind ~= "structure" then
+        return value
+    end
+    local slots, present = value, {}
+    for index, field in ipairs(layout.fields) do
+        if slots[index] ~= nil then
+            slots[index] = dynamicFromNative(slots[index], field.target)
+            present[index] = true
+        end
+    end
+
+    return new DynamicValue(token = {schema = layout.schema, values = slots, present = present})
 end
 
 local record PreparedImpl<T> is Prepared<T>
@@ -700,12 +812,8 @@ local record PreparedImpl<T> is Prepared<T>
 
     function encode(self, value: T): string
         local state = preparedStates[self]
-        local access = state.access
-        if state.layout.native ~= nil then
-            if access.kind == "dynamic" then
-                return native.encodeSerdeSlots(state.layout.native, (value as DynamicValue).token.values) as string
-            end
-            return native.encodeSerdeRecord(state.layout.native, value) as string
+        if state.native ~= nil then
+            return native.encodeSerde(state.native, value) as string
         end
 
         return state.fallbackEncode(value) as string
@@ -713,23 +821,13 @@ local record PreparedImpl<T> is Prepared<T>
 
     function write(self, value: T, exclusive out: string.buffer.Buffer): nil
         local state = preparedStates[self]
-        local access = state.access
-        if state.layout.native ~= nil then
+        if state.native ~= nil then
             local used: uint64
             local available: uint64
             do
                 local destination, reserved = out:reserve(SERDE_WRITE_RESERVE)
                 available = reserved
-                if access.kind == "dynamic" then
-                    used = encodeSerdeSlotsInto(
-                        state.layout.native,
-                        (value as DynamicValue).token.values,
-                        destination,
-                        available
-                    )
-                else
-                    used = encodeSerdeRecordInto(state.layout.native, value, destination, available)
-                end
+                used = encodeSerdeInto(state.native, value, destination, available)
             end
             if used > available then
                 do
@@ -743,31 +841,52 @@ local record PreparedImpl<T> is Prepared<T>
         out:put(state.fallbackEncode(value))
     end
 
+    function write(self, value: T, exclusive out: nupp.data.json.Writer): nil
+        local state = preparedStates[self]
+        if state.native ~= nil then
+            writeSerde(state.native, value, out)
+            return
+        end
+        local json = require("nupp.data.json")
+        out:write(json.verified(state.fallbackEncode(value)))
+    end
+
     function decode(self, text: string): (T?, string?)
         local state = preparedStates[self]
         local access = state.access
-        local ok, value = pcall(function(): any
-            if state.layout.native ~= nil then
-                if access.kind == "dynamic" then
-                    local slots = native.decodeSerdeSlots(state.layout.native, text)
-                    local present: any = {}
-                    for index = 1, #access.schema.members do
-                        if slots[index] ~= nil then
-                            present[index] = true
-                        end
-                    end
-                    return new DynamicValue(token = {schema = access.schema, values = slots, present = present})
-                end
-                return native.decodeSerdeRecord(state.layout.native, text, access.typeObject)
+        if state.native ~= nil then
+            local value, problem = native.decodeSerde(state.native, text)
+            if value == nil then
+                return nil, problem as string
             end
-
-            return state.fallbackDecode(text)
-        end)
+            if access.kind == "dynamic" then
+                return dynamicFromNative(value, state.layout) as T, nil
+            end
+            return value as T, nil
+        end
+        local ok, value = pcall(state.fallbackDecode, text)
         if not ok then
             return nil, tostring(value)
         end
 
         return value as T, nil
+    end
+
+    function decodeBuffer(self, exclusive input: string.buffer.Buffer): (T?, string?)
+        local state = preparedStates[self]
+        local access = state.access
+        if state.native ~= nil then
+            local value, problem = decodeSerdeBuffer(state.native, input)
+            if value == nil then
+                return nil, problem as string
+            end
+            if access.kind == "dynamic" then
+                return dynamicFromNative(value, state.layout) as T, nil
+            end
+            return value as T, nil
+        end
+
+        return self:decode(input:tostring())
     end
 end
 
@@ -881,22 +1000,24 @@ end
 --- @export
 export record JsonCodec
     readonly profile: JsonProfile
-    private readonly prepared: any
 
     --- Prepares and memoizes a fused traversal.
     function prepare<T>(self, binding: Binding<T>): Prepared<T>
-        local prior = self.prepared[binding]
+        local holders = binding:extension(preparedHoldersKey)
+        local prior = holders[self.profile]
         if prior ~= nil then
             return prior as Prepared<T>
         end
         local schema = binding:schema()
         local access = binding:extension(accessKey)
         local layout = layoutFor(schema, self.profile)
+        local nativePlan = nativePlanFor(layout, access, {})
         local json = require("nupp.data.json")
         local prepared = new PreparedImpl(token = binding)
         preparedStates[prepared] = {
             access = access,
             layout = layout,
+            native = nativePlan and native.compileSerde(nativePlan, self.profile.unknownMembers) or nil,
             fallbackEncode = function(value: any): string
                 return json.encode(toDocument(value, schema, self.profile, access)) as string
             end,
@@ -905,7 +1026,7 @@ export record JsonCodec
                 return fromDocument(decoded, schema, self.profile, access)
             end,
         }
-        self.prepared[binding] = prepared
+        holders[self.profile] = prepared
 
         return prepared
     end
@@ -919,10 +1040,22 @@ export record JsonCodec
         self:prepare(binding):write(value, out)
     end
 
+    --- Streams one prepared value at the writer's current value position.
+    function write<T>(self, binding: Binding<T>, value: T, exclusive out: nupp.data.json.Writer): nil
+        self:prepare(binding):write(value, out)
+    end
+
     function decode<T>(self, binding: Binding<T>, text: string): (T?, string?)
         return self:prepare(binding):decode(text)
     end
+
+    --- Decodes from caller-owned storage without materializing a final string.
+    function decodeBuffer<T>(self, binding: Binding<T>, exclusive input: string.buffer.Buffer): (T?, string?)
+        return self:prepare(binding):decodeBuffer(input)
+    end
 end
+
+local canonicalJsonProfiles: any = {}
 
 --- Creates an immutable-profile JSON codec.
 ---
@@ -936,8 +1069,18 @@ export function json(options: any?): JsonCodec
     if unknown ~= "reject" and unknown ~= "ignore" then
         error("nupp: unknownMembers must be reject or ignore", 2)
     end
-    local profile = new JsonProfile(unknownMembers = unknown, fieldNames = value.fieldNames)
-    extensions.host(profile)
+    local profile: JsonProfile
+    if value.fieldNames == nil then
+        profile = canonicalJsonProfiles[unknown]
+        if profile == nil then
+            profile = new JsonProfile(unknownMembers = unknown, fieldNames = nil)
+            extensions.host(profile)
+            canonicalJsonProfiles[unknown] = profile
+        end
+    else
+        profile = new JsonProfile(unknownMembers = unknown, fieldNames = value.fieldNames)
+        extensions.host(profile)
+    end
 
-    return new JsonCodec(profile = profile, prepared = setmetatable({}, {__mode = "k"}))
+    return new JsonCodec(profile = profile)
 end

@@ -51,7 +51,19 @@ local large = string.rep("x", 4096)
 local largeOutput = string.buffer.new()
 largeOutput:put("prefix:")
 prepared:write(new User(id = 43, active = true, name = large), largeOutput)
+local streamed = string.buffer.new()
+local writer = nupp.data.json.writer(streamed)
+prepared:write(new User(id = 44, active = true, name = "streamed"), writer)
+writer:close()
+local largeStreamed = string.buffer.new()
+local largeWriter = nupp.data.json.writer(largeStreamed)
+prepared:write(new User(id = 45, active = true, name = string.rep("y", 128 * 1024)), largeWriter)
+local stagedLength = #largeStreamed
+largeWriter:close()
 local restored, problem = prepared:decode(text)
+local input = string.buffer.new()
+input:put(text)
+local bufferedRestored, bufferedProblem = prepared:decodeBuffer(input)
 local rejected, rejection = prepared:decode(
     [[{"id":41,"active":true,"name":"Ada","extra":{"nested":[1,2]}}]]
 )
@@ -63,7 +75,12 @@ return {
     text = text,
     buffered = output:tostring(),
     largeBuffered = largeOutput:tostring(),
+    streamed = streamed:tostring(),
+    largeStreamedLength = #largeStreamed,
+    stagedLength = stagedLength,
     id = restored and restored.id,
+    bufferedId = bufferedRestored and bufferedRestored.id,
+    bufferedProblem = bufferedProblem,
     name = restored and restored.name,
     problem = problem,
     rejected = rejected,
@@ -77,8 +94,14 @@ return {
    assert(result.buffered == '{"id":42,"active":false}', result.buffered)
    assert(result.largeBuffered == 'prefix:{"id":43,"active":true,"name":"'
       .. string.rep("x", 4096) .. '"}', "large prepared write did not append exactly")
+   assert(result.streamed == '{"id":44,"active":true,"name":"streamed"}',
+      "prepared writer traversal did not append exactly")
+   assert(result.stagedLength > 128 * 1024 and result.largeStreamedLength == result.stagedLength + 1,
+      "prepared writer did not threshold-flush during a large root")
    assert(result.id == 41 and result.name == "Ada" and result.problem == nil,
       "prepared record did not round-trip")
+   assert(result.bufferedId == 41 and result.bufferedProblem == nil,
+      "prepared buffer decode did not round-trip")
    assert(result.rejected == nil and result.rejection:find("extra", 1, true),
       "strict raw-key decoding accepted an unknown member")
 end
@@ -165,6 +188,33 @@ return {
       "prepared native decode accepted an out-of-range integer")
 end
 
+function M.documentMembersStayInsideThePreparedTraversal()
+   local result = run([=[
+const serde = nupp.data.serde
+local builder = new serde.SchemaBuilder()
+builder:structure("example.Envelope")
+builder:required("id", serde.uint32)
+builder:optional("payload", serde.document)
+local binding = serde.dynamic(builder:freeze())
+local prepared = serde.json():prepare(binding)
+local text = prepared:encode(binding:bind{
+    id = 9,
+    payload = {items = {1, 2}, enabled = true},
+})
+local value, problem = prepared:decode(text)
+local payload = value and value:get("payload")
+return {
+    text = text,
+    second = payload and payload.items[2],
+    enabled = payload and payload.enabled,
+    problem = problem,
+}
+]=])
+   assert(result.text:find('"payload":', 1, true), result.text)
+   assert(result.second == 2 and result.enabled == true and result.problem == nil,
+      "document member did not round-trip through prepared serde")
+end
+
 function M.structsShareTheTypedWitnessAndCodec()
    local result, code = run([=[
 @derive(nupp.derive.Serde)
@@ -195,26 +245,33 @@ end
 @derive(nupp.derive.Serde)
 local record Parent
     child: Child
+    children: {Child}
     values: {integer}
 end
 local binding = nupp.data.serde.of(Parent)
 local childSchema = binding:schema():expectMember("child").target as nupp.data.serde.Schema
 local prepared = nupp.data.serde.json():prepare(binding)
 local text = prepared:encode(
-    new Parent(child = new Child(label = "nested"), values = {1, 2})
+    new Parent(
+        child = new Child(label = "nested"),
+        children = {new Child(label = "listed")},
+        values = {1, 2}
+    )
 )
 local value, problem = prepared:decode(text)
 return {
     childKind = childSchema.kind,
     childName = childSchema.name,
     label = value and value.child.label,
+    listed = value and value.children[1].label,
     second = value and value.values[2],
     problem = problem,
 }
 ]=])
    assert(result.childKind == "structure" and result.childName == "Child",
       "nested declaration became an untyped document")
-   assert(result.label == "nested" and result.second == 2 and result.problem == nil,
+   assert(result.label == "nested" and result.listed == "listed"
+      and result.second == 2 and result.problem == nil,
       "nested prepared fallback did not preserve nominal values")
 end
 
@@ -227,6 +284,7 @@ end
 @derive(nupp.derive.Serde)
 local record Parent
     child: Child
+    children: {Child}
     values: {integer}
 end
 const serde = nupp.data.serde
@@ -238,10 +296,15 @@ local codec = serde.json()
 local nominalPrepared = codec:prepare(nominal)
 local dynamicPrepared = codec:prepare(dynamicParent)
 local nominalText = nominalPrepared:encode(
-    new Parent(child = new Child(label = "nominal"), values = {1, 2})
+    new Parent(
+        child = new Child(label = "nominal"),
+        children = {new Child(label = "nominal-list")},
+        values = {1, 2}
+    )
 )
 local dynamicText = dynamicPrepared:encode(dynamicParent:bind{
     child = dynamicChild:bind{label = "dynamic"},
+    children = {dynamicChild:bind{label = "dynamic-list"}},
     values = {3, 4},
 })
 local nominalValue = assert(nominalPrepared:decode(nominalText))
@@ -250,10 +313,12 @@ local child = dynamicValue:get("child") as nupp.data.serde.DynamicValue
 return {
     nominal = nominalValue.child.label,
     dynamic = child:get("label"),
+    dynamicList = (dynamicValue:get("children")[1] as nupp.data.serde.DynamicValue):get("label"),
     second = dynamicValue:get("values")[2],
 }
 ]=])
-   assert(result.nominal == "nominal" and result.dynamic == "dynamic" and result.second == 4,
+   assert(result.nominal == "nominal" and result.dynamic == "dynamic"
+      and result.dynamicList == "dynamic-list" and result.second == 4,
       "one logical schema did not preserve its separate physical bindings")
 end
 

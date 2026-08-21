@@ -22,6 +22,10 @@ local cases = {
    { group = "encodeSmall", name = "preparedSerde", call = "preparedEncodeSmall", result = "#value" },
    { group = "encodeSmall", name = "preparedSerdeCopied", call = "preparedCopiedWriteSmall", result = "value" },
    { group = "encodeSmall", name = "preparedSerdeBuffered", call = "preparedWriteSmall", result = "value" },
+   { group = "encodeSmall", name = "preparedSerdeWriter", call = "preparedWriterSmall", result = "value" },
+
+   { group = "prepareAndEncodeSmall", name = "currentDerived", call = "currentEncodeSmall", result = "#value" },
+   { group = "prepareAndEncodeSmall", name = "coldPreparedSerde", call = "coldPreparedEncodeSmall", result = "#value" },
 
    { group = "encodeMedium", name = "currentDerived", call = "currentEncodeMedium", result = "#value" },
    { group = "encodeMedium", name = "document", call = "documentEncodeMedium", result = "#value" },
@@ -43,18 +47,26 @@ local cases = {
    { group = "encodePayload64KiB", name = "preparedSerde", call = "preparedEncodePayload64KiB", result = "#value" },
    { group = "encodePayload64KiB", name = "preparedSerdeCopied", call = "preparedCopiedWritePayload64KiB", result = "value" },
    { group = "encodePayload64KiB", name = "preparedSerdeBuffered", call = "preparedWritePayload64KiB", result = "value" },
+   { group = "encodePayload64KiB", name = "preparedSerdeWriter", call = "preparedWriterPayload64KiB", result = "value" },
+
+   { group = "encodeNested", name = "currentDerived", call = "currentEncodeNested", result = "#value" },
+   { group = "encodeNested", name = "preparedSerde", call = "preparedEncodeNested", result = "#value" },
+   { group = "encodeNested", name = "preparedSerdeBuffered", call = "preparedWriteNested", result = "value" },
+   { group = "encodeNested", name = "preparedSerdeWriter", call = "preparedWriterNested", result = "value" },
 
    { group = "decodeSmall", name = "currentDerived", call = "currentDecodeSmall", result = "value.id" },
    { group = "decodeSmall", name = "document", call = "documentDecodeSmall", result = "value.id" },
    { group = "decodeSmall", name = "nativeSchemaRecord", call = "nativeDecodeSmall", result = "value.id" },
    { group = "decodeSmall", name = "nativeSchemaSlots", call = "nativeDynamicDecodeSmall", result = "value[1]" },
    { group = "decodeSmall", name = "preparedSerde", call = "preparedDecodeSmall", result = "value.id" },
+   { group = "decodeSmall", name = "preparedSerdeBuffer", call = "preparedDecodeSmallBuffer", result = "value.id" },
 
    { group = "decodeMediumOrdered", name = "currentDerived", call = "currentDecodeMedium", result = "value.id" },
    { group = "decodeMediumOrdered", name = "document", call = "documentDecodeMedium", result = "value.id" },
    { group = "decodeMediumOrdered", name = "nativeSchemaRecord", call = "nativeDecodeMedium", result = "value.id" },
    { group = "decodeMediumOrdered", name = "nativeSchemaSlots", call = "nativeDynamicDecodeMedium", result = "value[1]" },
    { group = "decodeMediumOrdered", name = "preparedSerde", call = "preparedDecodeMedium", result = "value.id" },
+   { group = "decodeMediumOrdered", name = "preparedSerdeBuffer", call = "preparedDecodeMediumBuffer", result = "value.id" },
 
    { group = "decodeMediumReverse", name = "currentDerived", call = "currentDecodeMediumReverse", result = "value.id" },
    { group = "decodeMediumReverse", name = "nativeSchemaRecord", call = "nativeDecodeMediumReverse", result = "value.id" },
@@ -63,6 +75,14 @@ local cases = {
    { group = "decodeMediumUnknown", name = "currentDerived", call = "currentDecodeMediumUnknown", result = "value.id" },
    { group = "decodeMediumUnknown", name = "nativeSchemaRecord", call = "nativeDecodeMediumUnknown", result = "value.id" },
    { group = "decodeMediumUnknown", name = "preparedSerde", call = "preparedDecodeMediumUnknown", result = "value.id" },
+
+   { group = "decodeNested", name = "currentDerived", call = "currentDecodeNested", result = "value.id" },
+   { group = "decodeNested", name = "preparedSerde", call = "preparedDecodeNested", result = "value.id" },
+   { group = "decodeNested", name = "preparedSerdeBuffer", call = "preparedDecodeNestedBuffer", result = "value.id" },
+
+   { group = "decodePayload64KiB", name = "currentDerived", call = "currentDecodePayload64KiB", result = "#value.data" },
+   { group = "decodePayload64KiB", name = "preparedSerde", call = "preparedDecodePayload64KiB", result = "#value.data" },
+   { group = "decodePayload64KiB", name = "preparedSerdeBuffer", call = "preparedDecodePayload64KiBBuffer", result = "#value.data" },
 }
 
 local function compileRunner(case)
@@ -222,9 +242,9 @@ if jsonOutput then
    end
 else
    local order = {
-      "encodeSmall", "encodeMedium", "encodePayload4KiB", "encodePayload64KiB",
+      "encodeSmall", "prepareAndEncodeSmall", "encodeMedium", "encodePayload4KiB", "encodePayload64KiB", "encodeNested",
       "decodeSmall", "decodeMediumOrdered",
-      "decodeMediumReverse", "decodeMediumUnknown",
+      "decodeMediumReverse", "decodeMediumUnknown", "decodeNested", "decodePayload64KiB",
    }
    for _, group in ipairs(order) do
       print(("\n%s"):format(group))

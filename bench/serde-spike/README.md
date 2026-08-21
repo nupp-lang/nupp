@@ -132,3 +132,48 @@ storage is too small, the native encoder retains its pooled scratch result,
 the buffer grows to the exact size, and a second native entry copies the result
 without traversing the value again. Reused buffers normally retain enough
 capacity and stay on the one-entry path.
+
+## Complete recursive prepared result
+
+The retained `results/arm64-macos-complete.json` run has 15 samples per case.
+It exercises the production recursive plan rather than the flat
+benchmark-only codec: nested nominal records, lists of records, maps,
+optionals, defaults, documents, dynamic slots, cold preparation, pooled
+writer output, raw buffer input, reverse-order fields, and unknown nested
+values all use the same validation and error surface.
+
+| Scenario | Compatibility derive | Prepared path | Relative throughput (95% CI) |
+| --- | ---: | ---: | ---: |
+| Encode, 3 fields | 2,506 ns | 171 ns | 14.69x (14.50–15.68x) |
+| Encode, 12 fields | 5,420 ns | 568 ns | 9.47x (9.30–9.55x) |
+| Encode, recursive containers | 7,012 ns | 744 ns | 9.24x (9.09–10.21x) |
+| Encode, recursive containers, pooled writer | 7,012 ns | 1,772 ns | 3.83x (3.51–3.89x) |
+| Encode, 64 KiB string, caller buffer | 20,651 ns | 6,393 ns | 3.16x (3.13–3.25x) |
+| Encode, 64 KiB string, pooled writer | 20,651 ns | 9,347 ns | 2.23x (2.20–2.28x) |
+| Decode, 3 fields | 637 ns | 298 ns | 2.14x (2.06–2.14x) |
+| Decode, 12 ordered fields | 1,725 ns | 709 ns | 2.47x (2.42–2.53x) |
+| Decode, 12 reverse fields | 1,731 ns | 782 ns | 2.23x (2.22–2.29x) |
+| Decode, unknown nested value | 2,086 ns | 747 ns | 2.74x (2.72–2.80x) |
+| Decode, recursive containers | 3,266 ns | 1,405 ns | 2.42x (2.33–2.44x) |
+| Decode, 64 KiB string, caller buffer | 15,053 ns | 12,994 ns | 1.16x (1.16–1.19x) |
+| Fresh codec, prepare and encode | 2,524 ns | 417 ns | 6.10x (5.95–7.21x) |
+
+The caller-buffer decoder reserves simdjson padding in the existing buffer and
+parses its bytes directly. Its two buffer method calls cost more than copying a
+tiny document, which is why the ordinary string path remains faster for the
+small and medium cases. At 64 KiB, avoiding the staging copy makes the buffer
+path the faster prepared decode. The API exposes both paths rather than hiding
+that size-dependent tradeoff.
+
+Compared with the prior retained buffered implementation, flat prepared decode
+falls from 425 to 298 ns for three fields and from 775 to 709 ns for twelve.
+The former successful-decode `pcall` wrapper is gone. Flat reserved encoding is
+essentially unchanged, while the 64 KiB caller-buffer case falls from 7,124 to
+6,393 ns. Recursive values no longer take the intermediate-document fallback.
+
+The pooled writer is intentionally measured separately from direct caller
+buffer output. It creates and closes an affine public writer for every root,
+reuses its native backing, and threshold-flushes during recursive traversal.
+That lifecycle costs throughput, but bounds staged output to the flush
+threshold plus the largest scalar token and lets a prepared value occupy any
+value position in a larger streamed document.
