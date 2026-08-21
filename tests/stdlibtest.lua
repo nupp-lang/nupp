@@ -467,8 +467,16 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
 
    assertClean(table.concat({
       "const http = require('nupp.io.http')",
+      "const io = require('nupp.io')",
+      "const uri = require('nupp.io.uri')",
       "const process = require('nupp.io.process')",
       "do local client = new http.Client() end",
+      "do",
+      "    local request = new http.Request(",
+      "        url = assert(uri.newURI('https://example.com')),",
+      "        body = http.reader(io.newStringReader('body'), 4, nil)",
+      "    )",
+      "end",
       "do local child = new process.Process({args = {'true'}} as process.Options) end",
    }, "\n"))
    assertEq((diagsOf(table.concat({

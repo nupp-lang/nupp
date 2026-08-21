@@ -70,8 +70,9 @@ requests are in flight at all.
 
 ## Ownership
 
-A client, a response and its body are all owners, so each closes at its lexical
-boundary unless it is transferred.
+A client, request, response and response body are all owners, so each closes at
+its lexical boundary unless it is transferred. Closing a request also closes a
+reader body transferred into it.
 
 ::: seealso
 - [ownership.md](docs/type-system/ownership.md) for the complete contract
@@ -790,14 +791,16 @@ record http.FileBody
     contentType: string?
 end
 
---- Everything a request body may be: bytes held in memory, or one of the two
---- streamed forms.
-type http.RequestBody = string | io.ByteView | io.Buffer | http.ReaderBody | http.FileBody
+--- Everything a typed request body may own: immutable bytes, a reader stream, or a
+--- file path. Convert a Buffer or ByteView with `getString()` so the request owns an
+--- immutable snapshot rather than borrowing mutable storage.
+type http.RequestBody = string | http.ReaderBody | http.FileBody
 
 --- One request, as `http.Client:send` takes it.
 ---
 --- Only `url` is required, and it must be `http` or `https`. The three limits
---- here override the client's for this request alone.
+--- here override the client's for this request alone. A request is an affine owner;
+--- closing it closes a streaming reader body, and otherwise has no external work.
 ---
 --- ```nupp
 --- local request = new http.Request(
@@ -807,7 +810,7 @@ type http.RequestBody = string | io.ByteView | io.Buffer | http.ReaderBody | htt
 ---     body = document
 --- )
 --- ```
-record http.Request
+record http.Request is Closeable
     --- Where the request goes.
     url: uri.URI
 
@@ -828,6 +831,18 @@ record http.Request
 
     --- How many response bytes this request may take, or the client's limit.
     maxBytes: integer?
+
+    _redirected: boolean?
+    _redirects: integer?
+    _deadline: number?
+
+    --- Closes the request and any streaming reader it owns.
+    --- @param self this request, spent by the call
+    function close(takes self): nil
+        if self.body is http.ReaderBody then
+            self.body:close()
+        end
+    end
 end
 
 local READ_SIZE: integer = 64 * 1024
@@ -1578,15 +1593,17 @@ end
 --- end
 --- ```
 ---
---- @param request what to send
+--- The request is borrowed for the transfer. Its owner may close it explicitly or
+--- let its lexical scope close it, including any streaming body it owns.
+--- @param request what to send, borrowed for the call
 --- @return the response, owned by the caller, or nil on failure
 --- @return a failure reason, when unsuccessful
 --- @raises when the request names no `http` or `https` URL
-function http.Client:send(request: http.Request): (http.Response?, string?)
+function http.Client:send(borrows request: http.Request): (http.Response?, string?)
+    local given = request
     if self._closed then
         return nil, "the HTTP client is closed"
     end
-    local given: any = request
     if given == nil or given.url == nil or type(given.url.toString) ~= "function" then
         error("nupp: HTTP request url must be a URI", 2)
     end
@@ -1621,7 +1638,7 @@ function http.Client:send(request: http.Request): (http.Response?, string?)
             contentType = concrete.contentType
         elseif type(body) == "string" then
             bodyKind = BODY_INLINE
-            bodyLength = #body
+            bodyLength = #(body as string)
         elseif type(concrete.length) == "function" and type(concrete.getString) == "function" then
             bodyKind = BODY_INLINE
             bodyLength = concrete:length()
@@ -1824,7 +1841,7 @@ function http.Client:send(request: http.Request): (http.Response?, string?)
                 end
             end
             transfer:close()
-            local redirected: any = {
+            local redirected = new http.Request(
                 url = target,
                 method = nextMethod,
                 headers = merged,
@@ -1834,9 +1851,9 @@ function http.Client:send(request: http.Request): (http.Response?, string?)
                 maxBytes = given.maxBytes,
                 _redirected = true,
                 _redirects = followed + 1,
-                _deadline = deadline,
-            }
-            return self:send(redirected as http.Request)
+                _deadline = deadline
+            )
+            return self:send(redirected)
         end
     end
     local bodyReady, bodyReason = transfer:takeBody()
