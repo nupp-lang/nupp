@@ -43,7 +43,8 @@ record explain.Entry
     --- Codes worth reading beside it.
     related: {string}
 
-    --- The reference section that covers it, as a path and anchor.
+    --- The reference section that covers it, as a documentation path and anchor, or
+    --- as a module name and anchor where that module's own documentation covers it.
     docs: string
 
     --- Whether this came from the code's own entry or from its family.
@@ -280,7 +281,7 @@ local ENTRIES: {any} = {
         wrong = "local input: number = 0.1\nlocal value: float = input as float\nreturn value\n",
         right = "local input: number = 0.1\nlocal value: float = nupp.math.f32.narrow(input)\nreturn value\n",
         related = {"NUPP2001", "NUPP2002", "NUPP2006", "NUPP2012"},
-        docs = "docs/modules/nupp/math.md#fixed-width-arithmetic",
+        docs = "nupp.math#fixed-width-arithmetic",
     },
     {
         code = "NUPP2012",
@@ -1844,7 +1845,7 @@ ENTRIES[
     wrong = "const Bad: nupp.peg.Peg<integer> = comptime do\n    return nupp.peg.compile(\"('')*\")\nend\nreturn Bad\n",
     right = "const Good: nupp.peg.Peg<integer> = comptime do\n    return nupp.peg.compile(\"('x')*\")\nend\nreturn Good\n",
     related = {"NUPP2415", "NUPP2416"},
-    docs = "docs/modules/nupp/peg.md#repetition",
+    docs = "nupp.peg#repetition",
 }
 
 ENTRIES[

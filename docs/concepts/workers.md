@@ -171,8 +171,7 @@ copy on the way in, so a write on one side is invisible to the other. See
 
 No. Closing wakes an entry that is waiting on its inbox, and nothing interrupts
 a worker that is busy in its own code, so `stop` waits for it. Use
-[`nupp.io.process`](../modules/nupp/io.md) for work that has to
-be terminated on demand.
+[](nupp.io.process) for work that has to be terminated on demand.
 
 ### Should concurrent work go to a worker or to a combinator?
 

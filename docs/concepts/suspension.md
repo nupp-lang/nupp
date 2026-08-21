@@ -31,7 +31,7 @@ does not intercept other calls.
 
 The library describes the wait. The handler owns scheduling policy, and the
 caller's result remains `process.Result` on every path. See [Child
-processes](../modules/nupp/io.md) for the operation itself.
+processes](nupp.io) for the operation itself.
 
 ## Hosts supply scheduling policy
 
@@ -532,8 +532,7 @@ so affine files, locks, and native allocations do not become stranded.
 
 ::: seealso
 - [workers.md](workers.md) for CPU parallelism on native threads
-- [io.md](../modules/nupp/io.md) for the library these examples
-  wait on
+- [](nupp.io) for the library these examples wait on
 - [ownership.md](ownership.md) for the cleanup a cancelled park unwinds
 - [NEP 5](../neps/0005-suspension.md) for the record of the design
 :::

@@ -931,11 +931,11 @@ function M.standardPegApiDocumentsItsTypesExpressionsAndExamples()
       if item.name == "peg" then peg = item end
    end
    assert(peg, "the prelude did not document nupp.peg")
-   assert(peg.doc.text:find("Expression quick reference", 1, true),
+   assert(peg.doc.text:find("## Expression syntax", 1, true),
       "nupp.peg has no expression guide")
-   assert(peg.doc.text:find("const Identifier: nupp.peg.Peg<integer>", 1, true),
+   assert(peg.doc.text:find("const Identifier = comptime do", 1, true),
       "nupp.peg has no static matcher example")
-   assert(peg.doc.text:find("function(NumberDefinitions): nupp.peg.Peg<integer>", 1, true),
+   assert(peg.doc.text:find("function(Definitions): nupp.peg.Peg<integer>", 1, true),
       "nupp.peg has no definition factory example")
 
    local expected = {

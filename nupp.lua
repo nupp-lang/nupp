@@ -725,75 +725,23 @@ nupp lsp            # start the language server]],
                   source = "docs/type-system/narrowing.md",
                },
 
-               -- The same handwritten pages, again as overviews on the
-               -- @namespace-synthesized module routes, so a reader who
-               -- follows a cross-reference into the API reference finds
-               -- the same prose above the generated field list.
-               {
-                  path = "modules/nupp/io/files",
-                  title = "Filesystem metadata",
-                  source = "docs/modules/nupp/io/files.md",
-               },
-               {
-                  path = "modules/nupp/data",
-                  title = "nupp.data",
-                  source = "docs/modules/nupp/data.md",
-               },
-               {
-                  path = "modules/nupp/data/json",
-                  title = "nupp.data.json",
-                  source = "docs/modules/nupp/data/json.md",
-               },
-               {
-                  path = "modules/nupp/data/utf8",
-                  title = "nupp.data.utf8",
-                  source = "docs/modules/nupp/data/utf8.md",
-               },
+               -- What deriving adds to a declaration reads as one page
+               -- whether a reader arrives from the reference or from the
+               -- module route, so the reference page is also the overview
+               -- above `nupp.derive`'s generated field list. Every other
+               -- standard module says what it has to say in its own blurb.
                {
                   path = "modules/nupp/derive",
                   title = "nupp.derive",
                   source = "docs/reference/derives.md",
                },
-               {
-                  path = "modules/nupp/io",
-                  title = "nupp.io",
-                  source = "docs/modules/nupp/io.md",
-               },
-               {
-                  path = "modules/nupp/io/http",
-                  title = "nupp.io.http",
-                  source = "docs/modules/nupp/io/http.md",
-               },
+               -- `nupp.io.path` answered at a handwritten route before it was
+               -- filed under the module, and that address is not this site's
+               -- to stop answering.
                {
                   path = "modules/nupp/io/path",
                   title = "nupp.io.path",
-                  source = "docs/modules/nupp/io/path.md",
                   redirects = { "concepts/paths-and-uris" },
-               },
-               {
-                  path = "modules/nupp/io/uri",
-                  title = "nupp.io.uri",
-                  source = "docs/modules/nupp/io/uri.md",
-               },
-               {
-                  path = "modules/nupp/log",
-                  title = "nupp.log",
-                  source = "docs/modules/nupp/log.md",
-               },
-               {
-                  path = "modules/nupp/math",
-                  title = "nupp.math",
-                  source = "docs/modules/nupp/math.md",
-               },
-               {
-                  path = "modules/nupp/mem/span",
-                  title = "nupp.mem.span",
-                  source = "docs/modules/nupp/mem/span.md",
-               },
-               {
-                  path = "modules/nupp/peg",
-                  title = "nupp.peg",
-                  source = "docs/modules/nupp/peg.md",
                },
                {
                   path = "guides/build",

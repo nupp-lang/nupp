@@ -21,7 +21,7 @@ its own metatable. That is deliberate and load-bearing: `match` reads an upvalue
 a shared record method would read a field, and matching is the hot path. So the factory
 below is written as it runs rather than as it would be typed.
 
-See [peg.md](docs/modules/nupp/peg.md) for the surface a program actually writes.
+See [](nupp.peg) for the surface a program actually writes.
 ]]
 
 -- The backtrack stack limit is not raised here. LPeg's default of 400 frames is too

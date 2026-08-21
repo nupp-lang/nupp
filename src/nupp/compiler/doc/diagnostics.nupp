@@ -128,6 +128,10 @@ local function section(
     local target = entry.docs:match("^([^#]+)") or entry.docs
     if published[target] then
         trail[#trail + 1] = "Reference: [" .. entry.docs .. "](" .. entry.docs .. ")."
+    elseif not target:find("/", 1, true) then
+        -- A module name rather than a page path: the rule is written in that module's
+        -- own blurb, and the symbol index is what turns the name into its page.
+        trail[#trail + 1] = "Reference: [](" .. entry.docs .. ")."
     else
         trail[#trail + 1] = "Reference: `" .. entry.docs .. "` in the repository."
     end

@@ -150,12 +150,12 @@ that page:
 | Annotations | [annotations.md](annotations.md) | `NUPP2108`, `NUPP2112`, `NUPP2113`, `NUPP2119`, `NUPP2707`, `NUPP2901`, `NUPP2902`, `NUPP2903` |
 | Associated types | [associated-types.md](../type-system/associated-types.md) | `NUPP2127`, `NUPP2128`, `NUPP2129`, `NUPP2134`, `NUPP2135`, `NUPP2511` |
 | C interop | [c-interop.md](../concepts/c-interop.md) | `NUPP2201`, `NUPP2402`, `NUPP2403` |
-| Checked spans | [span.md](../modules/nupp/mem/span.md) | `NUPP2001`, `NUPP2004`, `NUPP2602`, `NUPP2604` |
+| Checked spans | [](nupp.mem.span) | `NUPP2001`, `NUPP2004`, `NUPP2602`, `NUPP2604` |
 | Comptime | [comptime.md](../concepts/comptime.md) | `NUPP2410` through `NUPP2416`, `NUPP2419`, `NUPP2420`, `NUPP2421` |
 | Comptime types | [type-level-computation.md](../type-system/type-level-computation.md) | `NUPP2001` |
 | Derives | [derives.md](derives.md) | `NUPP2810` |
 | Effect contracts | [effects.md](../concepts/effects.md) | `NUPP2112`, `NUPP2710`, `NUPP2711` |
-| Files | [files.md](../modules/nupp/io/files.md) | `NUPP2701` |
+| Files | [](nupp.io.files) | `NUPP2701` |
 | Formatter | [fmt.md](../guides/fmt.md) | `NUPP4001` |
 | Generics | [generics.md](../type-system/generics.md) | `NUPP2003`, `NUPP2116`, `NUPP2122` |
 | Gradual typing | [strictness.md](../concepts/strictness.md) | `NUPP1006`, `NUPP1008`, `NUPP2105`, `NUPP2106` |
@@ -163,9 +163,9 @@ that page:
 | Interfaces | [interfaces.md](../type-system/interfaces.md) | `NUPP2116`, `NUPP2117`, `NUPP2118`, `NUPP2136`, `NUPP3001` |
 | Intersections and overloads | [intersections.md](../type-system/intersections.md) | `NUPP2124`, `NUPP2125`, `NUPP2126`, `NUPP2208` |
 | Lints | [lints.md](lints.md) | `NUPP2107`, `NUPP2120`, `NUPP2501`, `NUPP2502`, `NUPP2504` through `NUPP2515` |
-| Logging | [log.md](../modules/nupp/log.md) | `NUPP2006` |
+| Logging | [](nupp.log) | `NUPP2006` |
 | LuaJIT trace checking | [jit-trace-checking.md](../guides/jit-trace-checking.md) | `NUPP2502`, `NUPP2505`, `NUPP2514`, `NUPP2515`, `NUPP2707` |
-| Math | [math.md](../modules/nupp/math.md) | `NUPP2011`, `NUPP2012` |
+| Math | [](nupp.math) | `NUPP2011`, `NUPP2012` |
 | Metamethods | [metamethods.md](../concepts/metamethods.md) | `NUPP2003`, `NUPP2005`, `NUPP2006`, `NUPP2007`, `NUPP2116`, `NUPP2117`, `NUPP2118` |
 | Modules | [modules.md](../concepts/modules.md) | `NUPP1002`, `NUPP2004`, `NUPP2101`, `NUPP2105`, `NUPP2119` |
 | Named and plucked arguments | [calls.md](../concepts/calls.md) | `NUPP2004`, `NUPP2006`, `NUPP2125` |

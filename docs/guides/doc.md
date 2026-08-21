@@ -64,6 +64,16 @@ Prose here is rendered as Markdown.
 ]]
 ```
 
+It is the same Markdown a page is written in, so headings, cross-references,
+admonitions and code groups all work, and its headings join the module page's
+outline. A module documented in sections says them here, beside what they
+describe, rather than in a file next to the source. Write `--[==[` when the
+prose itself contains `]]`.
+
+A link in a doc comment names a repository path rather than a relative one,
+because a comment is written in a source file and rendered on a page routed
+somewhere else: `[ownership](docs/type-system/ownership.md)`.
+
 **A run of `---` line comments** immediately above a declaration documents it:
 
 ```nupp
@@ -496,6 +506,7 @@ and it works the same in a handwritten page, a module blurb, and a `---` run:
 [the zone module](nupp.profile.zone)
 [](nupp.profile.zone.Zone)
 [the guard's field](nupp.profile.zone.Zone.active)
+[](nupp.mem.span#writable-spans)
 ```
 
 Empty link text stands for the target, so `[](nupp.profile.zone)` renders that
@@ -506,13 +517,15 @@ the module being rendered resolves to that module first. A name two modules
 both export resolves to neither, because guessing between them would silently
 point at the wrong one.
 
-A target that reads as a URL, has a slash, or carries a fragment is left alone,
-so ordinary links are never captured. A name nothing documents is left alone
-too, except that empty link text still renders the name, so a reference to
-something that has moved reads as the name it used to have rather than as an
-invisible link. References inside a code block are code. A highlighted Nupp
-block can link names into the API reference; a `:playground` block treats them
-only as program text.
+A fragment rides along: the name resolves and the anchor is kept, which is how
+one page names a section of a module page written in that module's own blurb.
+
+A target that reads as a URL or has a slash is left alone, so ordinary links are
+never captured. A name nothing documents is left alone too, except that empty
+link text still renders the name, so a reference to something that has moved
+reads as the name it used to have rather than as an invisible link. References
+inside a code block are code. A highlighted Nupp block can link names into the
+API reference; a `:playground` block treats them only as program text.
 
 In `markdown` output the same references resolve to anchors within the
 document. A module's own `llms.txt` holds one module, so a reference to a
@@ -547,13 +560,19 @@ rendered above the generated API rather than as a second page beside it:
 { path = "modules/engine", title = "Engine", source = "docs/engine.md" },
 ```
 
-The route is `modules/` followed by the module name with its dots as slashes.
-This is where prose longer than a blurb belongs, being a page a doc comment
-would have to hold. It is ordinary page Markdown, so cross-references, links to
+The route is `modules/` followed by the module name with its dots as slashes. A
+module's own prose belongs in its blurb, beside what it describes; an overview
+is for a page that is somebody else's as well, filed at the module route so a
+reader arriving from either direction reads one page rather than two accounts of
+the same thing. It is ordinary page Markdown, so cross-references, links to
 other pages, code groups, and admonitions all work, and its headings join the
-page outline above the generated ones. `title` overrides the generated
-`Module:` or `Namespace:` one. A module with both an overview and a blurb shows
-the overview first.
+page outline above the generated ones. `title` overrides the generated `Module:`
+or `Namespace:` one. A module with both an overview and a blurb shows the
+overview first.
+
+An entry naming no `source` renders nothing of its own. That is how a module
+route keeps answering at an address a handwritten page used to have, by carrying
+`redirects` and leaving the blurb to say what the module is.
 
 ## Output
 

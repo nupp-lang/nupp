@@ -150,8 +150,8 @@ assert(restored and restored.id == 7)
 own metatable. `writeAs` and `decodeAs` take the `Type<T>` witness explicitly,
 which is what an API boundary wants, or code that runs before a value exists.
 See [Declaration derives](../reference/derives.md#json) for the options, wire
-format, and validation rules, and [JSON](../modules/nupp/data/json.md) for the
-generic encoder underneath them.
+format, and validation rules, and [JSON](nupp.data.json) for the generic encoder
+underneath them.
 
 ## Comptime reflection
 

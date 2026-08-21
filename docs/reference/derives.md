@@ -239,12 +239,10 @@ preserves null with `nupp.data.json.NULL` while it validates the raw value.
 The JSON field codec is allocated lazily as a runtime reflection extension. Use
 `nupp.data.json.writeRecord`, `writeAs(User, value, writer)`, and
 `decodeAs(User, text)` when a type-witness API fits better than generated
-members. The
-allocating `encodeRecord` and `encodeAs` wrappers remain available when a
-complete string is specifically required. See
+members. The allocating `encodeRecord` and `encodeAs` wrappers remain available
+when a complete string is specifically required. See
 [reflection.md](../concepts/reflection.md#runtime-reflection) for the witness
-and allocation model, and [json.md](../modules/nupp/data/json.md) for the rest
-of the codec.
+and allocation model, and [](nupp.data.json) for the rest of the codec.
 
 ## Package providers
 

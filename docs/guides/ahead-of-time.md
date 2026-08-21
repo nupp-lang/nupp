@@ -56,8 +56,8 @@ See [NEP 9](../neps/0009-ahead-of-time-compilation.md) for more information.
 ## Worked example
 
 This is `bench/kernel-subset-spike/mandelbrot.nupp`, trimmed to its shape. It is
-ordinary Nupp: [spans](../modules/nupp/mem/span.md),
-[structs](../type-system/records.md), a `while` loop with a `break`.
+ordinary Nupp: [spans](nupp.mem.span), [structs](../type-system/records.md), a
+`while` loop with a `break`.
 
 ```nupp
 local span = require("nupp.mem.span")
@@ -908,13 +908,12 @@ The 64-byte shape is AVX-512-only. Compiling the same source for AVX2 reports
 promises instructions the target did not name.
 
 The fourth lever is the source itself, and it is the strongest one. On the
-baseline and AVX2 tiers, writing the arithmetic through
-[`nupp.math.f32`](../modules/nupp/math.md#fixed-width-arithmetic) doubles the
-lane count, because it tells the backend the values are genuinely 32-bit rather
-than binary64 values that happen to be small. AVX-512 carries eight of either,
-using the narrower shape when every value is 32-bit. That source choice changes
-the program's meaning, giving different roundings and different results, which
-is exactly why the compiler will not make it for you.
+baseline and AVX2 tiers, writing the arithmetic through [](nupp.math.f32)
+doubles the lane count, because it tells the backend the values are genuinely
+32-bit rather than binary64 values that happen to be small. AVX-512 carries
+eight of either, using the narrower shape when every value is 32-bit. That
+source choice changes the program's meaning, giving different roundings and
+different results, which is exactly why the compiler will not make it for you.
 
 `mixedwidth.nupp` carries one binary64 running total and one binary64 step
 counter. `mixedwidth_f32.nupp` is the same loop with both narrowed, so nothing
@@ -1474,7 +1473,7 @@ compiles C, so validating `@aot` source needs no toolchain at all. See
 - [jit-trace-checking.md](jit-trace-checking.md) for deciding whether LuaJIT
   can compile the loop you were about to annotate
 - [performance.md](performance.md) for the rewrites applied to ordinary Nupp
-- [span.md](../modules/nupp/mem/span.md) for the span types a kernel takes
+- [](nupp.mem.span) for the span types a kernel takes
 - [NEP 9](../neps/0009-ahead-of-time-compilation.md) and
   [NEP 11](../neps/0011-simd.md) for the design records
 :::

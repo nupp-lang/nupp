@@ -213,11 +213,11 @@ local rounded: float = nupp.math.f32.narrow(0.5)
 ```
 
 The erased assertion `as` may claim one of these types but does not establish
-it, and is reported where the evidence is missing. Ordinary arithmetic
-over them keeps LuaJIT's numeric semantics and produces `number`, so use the
+it, and is reported where the evidence is missing. Ordinary arithmetic over them
+keeps LuaJIT's numeric semantics and produces `number`, so use the
 `nupp.math.f32`, `nupp.math.i32`, and `nupp.math.u32` operations when a
-particular width is part of the calculation. See
-[nupp.math](../modules/nupp/math.md) for the complete operation set.
+particular width is part of the calculation. See [](nupp.math) for the complete
+operation set.
 
 ### Storage-only widths
 
@@ -433,8 +433,8 @@ integrality is not re-tested at run time.
 
 When the wrapping matters. `integer` says the value is whole, while `int32`,
 `uint32`, and `float` say it belongs to a fixed-width set, which is what lets
-the `nupp.math` operations wrap and narrow the way C does. See
-[nupp.math](../modules/nupp/math.md) for those operations.
+the `nupp.math` operations wrap and narrow the way C does. See [](nupp.math) for
+those operations.
 
 ### Can `unknown` replace `any` everywhere?
 

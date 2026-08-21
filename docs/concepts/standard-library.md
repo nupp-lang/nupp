@@ -51,24 +51,19 @@ table: the members a file names are the members that get emitted.
 The standard surface is deliberately small. These pages cover both the
 intrinsic namespaces and the declared modules:
 
-- [`nupp.data`](../modules/nupp/data.md) owns JSON, UTF-8, identifiers, hashes
-  and checksums.
-- [`nupp.io`](../modules/nupp/io.md) owns byte buffers, readers, writers, and
-  typed scalar reads and writes over them.
-- [`nupp.io.files`](../modules/nupp/io/files.md) owns filesystem metadata and
-  directories.
-- [`nupp.io.path`](../modules/nupp/io/path.md) models filesystem paths, and
-  [`nupp.io.uri`](../modules/nupp/io/uri.md) models resource names.
-- [`nupp.log`](../modules/nupp/log.md) owns leveled logging over a swappable
-  destination.
-- [`nupp.math`](../modules/nupp/math.md) owns scalar and two-dimensional vector
-  helpers.
-- [`nupp.mem.span`](../modules/nupp/mem/span.md) owns rooted, bounds-checked
-  shared and writable C array views.
+- [](nupp.data) owns JSON, UTF-8, identifiers, hashes and checksums.
+- [](nupp.io) owns byte buffers, readers, writers, and typed scalar reads and
+  writes over them.
+- [](nupp.io.files) owns filesystem metadata and directories.
+- [](nupp.io.path) models filesystem paths, and [](nupp.io.uri) models resource
+  names.
+- [](nupp.log) owns leveled logging over a swappable destination.
+- [](nupp.math) owns scalar and two-dimensional vector helpers.
+- [](nupp.mem.span) owns rooted, bounds-checked shared and writable C array
+  views.
 - [`nupp.mem.soa`](structure-of-arrays.md) stores every top-level field of a
   reified struct in its own column.
-- [`nupp.peg`](../modules/nupp/peg.md) compiles byte-oriented
-  parsing-expression grammars.
+- [](nupp.peg) compiles byte-oriented parsing-expression grammars.
 
 ## Availability, detection and lazy loading
 
@@ -151,7 +146,7 @@ from one, so the two differ by one on every call. Convert at the boundary, and
 see [Byte positions](#byte-positions) for which convention an API uses.
 
 ::: seealso
-- [io.md](../modules/nupp/io.md) for buffers, readers, writers, and byte views
+- [](nupp.io) for buffers, readers, writers, and byte views
 - [ownership.md](ownership.md) for the affine results these modules return
 - [build.md](../guides/build.md#compiler-native-features) for native feature
   detection and its override

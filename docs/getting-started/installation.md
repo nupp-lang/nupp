@@ -81,9 +81,8 @@ content-validated compiler caches and the test runner's last suite timings.
 Generated outputs remain local to each worktree.
 
 The crates a build stages for a project are the compiler's rather than the
-project's, both the native providers behind
-[`nupp.io.files`](../modules/nupp/io/files.md) and its siblings and the
-executable a binary target is stamped into, so cargo keeps their target
+project's, both the native providers behind [](nupp.io.files) and its siblings
+and the executable a binary target is stamped into, so cargo keeps their target
 directories in that same repository cache rather than under each project's
 output directory. `NUPP_NATIVE_CACHE_DIR` names its root.
 

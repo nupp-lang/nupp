@@ -1469,7 +1469,7 @@ access to direct rooted FFI indexing after the one range check. Arbitrary
 indexes, held frames, and accesses outside the same-function witness stay
 checked.
 
-See [span.md](docs/modules/nupp/mem/span.md) for the complete span contracts.
+See the `nupp.mem.span` module reference for the complete span contracts.
 ]=],
         example = [=[
 local span = require("nupp.mem.span")
@@ -2200,7 +2200,7 @@ backend comparisons. A runtime textual grammar compiles through LPeg's `re`
 module without `loadstring` and is cached by grammar. The expression syntax is
 LPeg 1.1 `re`.
 
-See [peg.md](docs/modules/nupp/peg.md) for the complete operation contracts,
+See the `nupp.peg` module reference for the complete operation contracts,
 native result packs, and explicit table captures.
 ]=],
         example = [=[

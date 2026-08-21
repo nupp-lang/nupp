@@ -94,6 +94,10 @@ end
 --- a path is left alone, and so is a name nothing answers to, so an ordinary link is
 --- never captured by accident.
 ---
+--- A fragment rides along: `[](nupp.mem.span#writable-spans)` resolves the name and
+--- keeps the anchor, which is how one page names a section of a module page written in
+--- that module's own blurb.
+---
 --- Empty link text stands for the target itself, which is what makes a reference cheap
 --- enough to write in passing: `[](nupp.profile.zone)` renders that name as code and
 --- links it. A name that resolves to nothing still renders, so a reference to something
@@ -110,19 +114,21 @@ end
 local function rewriteSymbolLinks(markdown: string, resolve: function(string): string?): string
     local function rewrite(prose: string): string
         return (prose:gsub("%[([^%[%]]*)%]%(([^%s%(%)]+)%)", function(text: string, target: string): string
-            if target:match("^[%w+.-]+:") or target:find("[/#]") then
+            local name, fragment = target:match("^([^#]*)(#.*)$")
+            name, fragment = name or target, fragment or ""
+            if target:match("^[%w+.-]+:") or name == "" or name:find("/", 1, true) then
                 return "[" .. text .. "](" .. target .. ")"
             end
-            local url = resolve(target)
+            local url = resolve(name)
             local named = text:match("^%s*$") ~= nil
             if not url and not named then
                 -- Nothing answers to it and the author wrote their own text, so this is
                 -- an ordinary relative link that happens to have no slash in it.
                 return "[" .. text .. "](" .. target .. ")"
             end
-            local label = named and "`" .. target .. "`" or text
+            local label = named and "`" .. name .. "`" or text
 
-            return url and url ~= "" and "[" .. label .. "](" .. url .. ")" or label
+            return url and url ~= "" and "[" .. label .. "](" .. url .. fragment .. ")" or label
         end))
     end
 

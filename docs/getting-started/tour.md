@@ -379,7 +379,7 @@ function-like macros.
 - [describe lifetime
   behavior](../concepts/c-interop.md#describe-lifetime-behavior) for what each
   parameter mode promises
-- [span.md](../modules/nupp/mem/span.md) for bounds-checked views over C storage
+- [](nupp.mem.span) for bounds-checked views over C storage
 :::
 
 ## Tooling in one binary

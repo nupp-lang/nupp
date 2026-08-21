@@ -104,12 +104,11 @@ value shows it.
 ::: deepdive
 The discriminant costs a field, which a nominal sum type would not spend. What
 it buys is that the value stays a plain Lua table with no hidden header: it
-serializes through [`nupp.data.json`](../modules/nupp/data/json.md), compares
-field by field, prints readably, and crosses a boundary to untyped Lua without
-a wrapper. A nominal encoding would have to hide the tag somewhere the runtime
-can still find it, which means either a metatable, and then a decoded table is
-not one of these, or a reserved key, and then the cost is the same field under
-a name nobody chose.
+serializes through [](nupp.data.json), compares field by field, prints readably,
+and crosses a boundary to untyped Lua without a wrapper. A nominal encoding
+would have to hide the tag somewhere the runtime can still find it, which means
+either a metatable, and then a decoded table is not one of these, or a reserved
+key, and then the cost is the same field under a name nobody chose.
 :::
 
 A tag copied into a local is still a tag:

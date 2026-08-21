@@ -122,9 +122,9 @@ NUPP2009: SoA shared rows are read-only
 
 ## Field spans
 
-`field("name")` projects one resolved field as a normal typed
-[`nupp.mem.span`](../modules/nupp/mem/span.md) view. A shared row view returns
-`span.Span<Field>`, and an exclusive row view returns `span.Writable<Field>`.
+`field("name")` projects one resolved field as a normal typed [](nupp.mem.span)
+view. A shared row view returns `span.Span<Field>`, and an exclusive row view
+returns `span.Writable<Field>`.
 
 ```nupp
 local span = require("nupp.mem.span")
@@ -309,8 +309,7 @@ layout](#containers-select-the-layout) for the two layouts side by side.
 
 Project it with `field("name")` and pass the resulting span, which is the only
 typed contiguous handle on a column. The container itself never yields a column
-pointer. See [span.md](../modules/nupp/mem/span.md) for the span operations a C
-boundary uses.
+pointer. See [](nupp.mem.span) for the span operations a C boundary uses.
 
 ### Can a record be stored in an SoA array?
 
@@ -320,7 +319,7 @@ instead, and see [Limits](#limits) for the other field types the container
 refuses.
 
 ::: seealso
-- [span.md](../modules/nupp/mem/span.md) for the views `field` projects
+- [](nupp.mem.span) for the views `field` projects
 - [performance.md](../guides/performance.md#opt-6-indexed-views) for the
   indexed-view lowering
 - [reflection.md](reflection.md) for the comptime description of a struct

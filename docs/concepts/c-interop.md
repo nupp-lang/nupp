@@ -710,9 +710,9 @@ mapped pointer whose count is zero.
 A const pointer becomes a shared span and a mutable pointer becomes a writable
 span. A counted pointer must use `borrows`, and a count currently uses plain
 `uint64`. Strides, byte counts, capacities, prefixes, sentinel termination,
-output pointers, and retained pointers require handwritten `ref()` wrappers.
-See [span.md](../modules/nupp/mem/span.md) for construction, slicing,
-partitioning, and shared-range validation.
+output pointers, and retained pointers require handwritten `ref()` wrappers. See
+[](nupp.mem.span) for construction, slicing, partitioning, and shared-range
+validation.
 
 ## Export ordinary structs to C
 
@@ -805,8 +805,7 @@ of the pointer and count.
 
 ::: seealso
 - [ownership.md](ownership.md) for the resource workflow a C boundary joins
-- [span.md](../modules/nupp/mem/span.md) for the views a counted pointer
-  projects
+- [](nupp.mem.span) for the views a counted pointer projects
 - [build.md](../guides/build.md#c-dependencies) for C and Cargo provider
   configuration
 - [embedding.md](../guides/embedding.md) for calling Nupp from a C host

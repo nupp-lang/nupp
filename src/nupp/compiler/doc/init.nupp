@@ -855,8 +855,11 @@ local function renderSite(root, outDir, modules, title, settings)
         if candidate.module then
             local module = candidate.module
             local children = childModules(modules, module.name)
+            local overview = candidate.overview or ""
             current = module.name
-            appendOutline(items, candidate.overview)
+            -- A module's blurb is the page's own prose wherever no overview replaces
+            -- it, so whichever of the two is rendered is the one the outline lists.
+            appendOutline(items, overview ~= "" and overview or module.text)
             if #children > 0 then
                 items[#items + 1] = {path = "modules", name = "Submodules"}
             end
@@ -873,7 +876,6 @@ local function renderSite(root, outDir, modules, title, settings)
                     items[#items + 1] = {path = group.path, name = group.title, items = entries}
                 end
             end
-            local overview = candidate.overview or ""
             markdown = doc.markdown({module}, nil, modules, overview, settings.constructorPattern)
             local links = symbolLinks(linkIndex, module, relativePrefix(file))
             body[#body + 1] = '<h1><code>' .. htmlEscape(module.name) .. '</code></h1>'
@@ -888,10 +890,10 @@ local function renderSite(root, outDir, modules, title, settings)
                     module.name
                 ) .. '</code>. Nothing is required by this name itself.</p>'
             elseif module.text ~= "" then
-                body[#body + 1] = markdownHtml(module.text, links)
+                body[#body + 1] = markdownHtml(module.text, links, 0)
             end
             if overview ~= "" and module.text ~= "" then
-                body[#body + 1] = markdownHtml(module.text, links)
+                body[#body + 1] = markdownHtml(module.text, links, 0)
             end
             body[#body + 1] = nestedModules(children, relativePrefix(file), modules)
             if #module.items == 0 then

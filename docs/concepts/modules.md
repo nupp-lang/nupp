@@ -170,8 +170,8 @@ end
 The compiler resolves the longest registered module prefix. The remaining
 segments must be exported members; a miss is diagnosed rather than falling back
 to `any`. The facility is generic, so dependency roots such as
-`tecs.world.query.each(...)` work the same way as `nupp`. See
-[span.md](../modules/nupp/mem/span.md) for the module the example names.
+`tecs.world.query.each(...)` work the same way as `nupp`. See [](nupp.mem.span)
+for the module the example names.
 
 A lexical binding wins:
 

@@ -174,13 +174,12 @@ option without a target is refused.
 
 Compiler-provided native APIs do not appear in `dependencies`. Their resolved
 uses record effects while Nupp checks the target's complete source set, and the
-build stages the matching providers automatically. For example,
-[`nupp.io.path`](../modules/nupp/io/path.md) records `native.path` and builds
-the compiler-owned Rust bridge into `build/lib/nupp_native` with that feature
-compiled in; a target with no resolved native use does not build or retain the
-library at all. The global [`nupp` standard-library
-namespace](../concepts/standard-library.md) itself is always created by
-generated code.
+build stages the matching providers automatically. For example, [](nupp.io.path)
+records `native.path` and builds the compiler-owned Rust bridge into
+`build/lib/nupp_native` with that feature compiled in; a target with no resolved
+native use does not build or retain the library at all. The global [`nupp`
+standard-library namespace](../concepts/standard-library.md) itself is always
+created by generated code.
 
 Nested members use the same exact resolution. `nupp.data.sha256(...)` selects
 SHA-256, while an alias such as `local data = nupp.data` followed by

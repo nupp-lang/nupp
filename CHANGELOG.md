@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Move the standard library's documentation into the modules themselves. Twelve
+  pages under `docs/modules/` said what a module is, next to none of the source
+  that says what it does, so a change to one had to remember the other. Each is
+  now that module's blurb: `nupp.data.json` in `src/nupp/data/json.nupp`,
+  `nupp.math` and `nupp.peg` in the prelude declarations that describe them. A
+  blurb renders as a module page's own prose, its headings join the page
+  outline, and a reference to a module may carry an anchor into it, as
+  `[](nupp.mem.span#writable-spans)`.
+
 - Write incremental and derived JSON through one checked, buffer-backed writer.
   `EncodedValue` and the interned `EncodedString` retain bytes encoded or
   verified once, letting `write` and `key` append them without another walk,

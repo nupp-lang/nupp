@@ -24,9 +24,9 @@ end
 
 The hidden owner is dropped when the body falls through, returns, raises, or
 leaves through loop control or an outward `goto`. For writable
-[SoA](structure-of-arrays.md) and [span](../modules/nupp/mem/span.md) views,
-dropping only ends the exclusive borrow: stores already changed the original
-columns, so the scope performs no flush or copy.
+[SoA](structure-of-arrays.md) and [span](nupp.mem.span) views, dropping only
+ends the exclusive borrow: stores already changed the original columns, so the
+scope performs no flush or copy.
 
 ## Syntax
 

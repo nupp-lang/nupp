@@ -39,8 +39,8 @@
 - [Standard library](concepts/standard-library.md): JSON, UTF-8, buffers,
   readers, writers, paths, URIs, identifiers, hashes, checksums, math, and
   vectors.
-- [Checked spans](modules/nupp/mem/span.md): rooted, bounds-checked shared and
-  writable views over contiguous C storage.
+- [Checked spans](nupp.mem.span): rooted, bounds-checked shared and writable
+  views over contiguous C storage.
 
 ## Performance and profiling
 
