@@ -43,7 +43,7 @@ lib.ks_advance(lanes, velocities, 1, count, 0.5, count)
 lib.ks_advance_forced_scalar(scalar, velocities, 1, count, 0.5, count)
 local writer = spans.writeCarray(fallback, count)
 ordinary.advance(writer, spans.fromCarray(velocities, count), 1, count, 0.5)
-writer:commit()
+writer:drop()
 
 for index = 0, count - 1 do
    assert(lanes[index].x == fallback[index].x and lanes[index].y == fallback[index].y,

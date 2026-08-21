@@ -300,34 +300,50 @@ measurement at 1024x768 and 256 iterations, with about 5% run-to-run spread:
  Body                          contract   MPix/s   Note
  ────────────────────────────  ────────   ──────   ───────────────────────
  SPMD f32x8, explicit f32      yes         ~122    answers move again
- SPMD f32x8, explicit f32      no          ~115    checked against its own
- SPMD f64x4, ordinary Nupp     yes          ~69
+ SPMD f32x8, explicit f32      no          ~117    checked against its own
+ SPMD f64x4, ordinary Nupp     yes          ~70
  SPMD f64x4, ordinary Nupp     no           ~67    exact agreement
  forced-scalar C, any kernel   either       ~35    de-vectorized oracle
- LuaJIT, ordinary Nupp                      ~1.6
- LuaJIT, explicit f32                       ~0.1   every rounding is an FFI trip
+ LuaJIT, ordinary Nupp                      ~1.9
+ LuaJIT, explicit f32                       ~3.3   sampled, see below
 ```
 
 Three things in that table are the point of it. Forced-scalar C is the same
 speed for every kernel, so the whole binary32 gain is lane density rather than
-anything about single-precision arithmetic being cheaper. The explicitly
-binary32 program's ordinary fallback is roughly sixteen times slower than the
-binary64 one, because LuaJIT has to perform each rounding the source asked for.
-And contraction is worth only a few percent here, against the 2.38x it is worth
-to the scalar kernel that `docs/neps/0009-ahead-of-time-compilation.md` measured -- once the loop
-is lane-parallel, fusing a multiply-add stops being where the time goes.
+anything about single-precision arithmetic being cheaper. Both LuaJIT rows are
+ten to forty times off every compiled one, which is the gap AOT exists to close
+and the reason a kernel of this shape is worth annotating at all. And
+contraction is worth only a few percent here, against the 2.38x it is worth to
+the scalar kernel that `docs/neps/0009-ahead-of-time-compilation.md` measured --
+once the loop is lane-parallel, fusing a multiply-add stops being where the time
+goes.
+
+The two LuaJIT rows are not a like-for-like comparison of each other. The
+binary64 body runs the whole grid; the binary32 one performs every rounding its
+source asks for as a store and a load through an FFI union cell, so it is timed
+over a sample and reported as a per-pixel rate. Run on one grid small enough for
+both to sweep whole, the binary32 fallback comes out about twice as fast as the
+binary64 one rather than slower -- LuaJIT compiles that union round trip into a
+real single-precision narrowing rather than a call. Why it then beats the plain
+double body is not established here.
 
 Comparing the exact bodies, eight binary32 lanes are about 1.7x four binary64
 ones. Splitting that by varying the iteration cap separates a fixed per-group
 cost from the iteration loop: the per-group work (loads, the interior test,
 stores, the scalar tail) gets about 1.92x, and the iteration loop about 1.54x.
-`divergence.lua` measures why the second is not 2x and finds that it mostly is
-not the reason: a gang runs until its slowest lane retires, and on this grid
-eight lanes execute only 1.027x the lane-iterations four do, so the ceiling is
-about 1.95x rather than 2x. The remaining shortfall is unexplained. It is not
-the emitted idioms -- a masked select compiles to one `bsl` per register in both
-shapes, and the horizontal live-lane test costs the wide gang two extra scalar
-instructions rather than eight lane extracts.
+`divergence.lua` measures why the second is not 2x and finds that this is most
+of the reason: a gang runs until its slowest lane retires, so a wider gang takes
+that maximum over more pixels. On this grid eight lanes execute 1.223x the
+lane-iterations four do at the cap the split ends at, which puts the iteration
+loop's ceiling at 1.63x rather than 2x. The measured 1.54x is about 94 percent
+of that, and what is left is not the emitted idioms -- a masked select compiles
+to one `bsl` per register in both shapes, and the horizontal live-lane test costs
+the wide gang two extra scalar instructions rather than eight lane extracts.
+
+The ceiling moves with the cap, because a higher cap is more room for lanes to
+retire at different times: `divergence.lua` reports 1.88x at 32, 1.68x at 256,
+and 1.63x at 512. So a gang width is worth reading against the cap the workload
+actually runs, not against a number from a different one.
 
 The binary64 row establishes the lane rewrite's value and agrees with ordinary
 Nupp exactly; it does not claim to beat whatever a normal optimizing C compiler
@@ -335,15 +351,29 @@ could infer from the scalar body. The binary32 row is a different program with
 different escape counts, checked against its own ordinary Nupp body and an
 independent Lua `nupp.math.f32` recurrence rather than against the binary64
 answers. Because that oracle is slow, the two generated bodies are compared on
-every pixel and the semantic oracles on a bounded prefix, which the run prints
+every pixel and the semantic oracles over a bounded budget, which the run prints
 rather than assumes; `MANDELBROT_ORACLE_LIMIT` raises it.
 
-That prefix is a real blind spot rather than a conservative one. The contracted
-binary32 body agrees with its oracle over the first four thousand pixels and
-still produces a different checksum over the whole grid, which is exactly the
-reproducibility that `@relax` exists to trade away -- but it means a bounded
-sweep can pass a body that is wrong outside the prefix. A sampled sweep should
-be stratified across the grid, or the oracle made fast enough to run whole.
+That budget is spread rather than spent as a prefix. The first pixels of the
+grid are its top-left corner, which escapes in a handful of iterations, so a
+prefix exercises neither the interior nor the boundary where the escape count is
+decided -- and those are where a rounding difference changes an answer. The
+ordinary Nupp body runs over blocks placed evenly down the grid and the Lua
+recurrence strides across every row, so both cross the whole view.
+
+### Contraction is not held to an exact oracle
+
+A kernel carrying `@relax("fp-contract")` performs one rounding where its source
+wrote two, so it computes something the exact recurrence does not, and requiring
+the two to agree would be requiring the relaxation to have no effect. The run
+counts and prints how many of the sampled comparisons diverge instead. What
+stays a gate is the whole-grid comparison of the two generated bodies, which is
+where a backend change that moved an answer would show.
+
+On this view `mandelbrot` diverges nowhere and `mandelbrot_f32fma` in about 77
+of forty thousand samples. The difference is headroom rather than correctness:
+one fused multiply-add is under an ulp either way, and binary64 has enough of
+them left that on this view no escape test landed on the other side of four.
 
 ## Checked boundary
 

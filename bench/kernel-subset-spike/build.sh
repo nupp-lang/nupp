@@ -9,8 +9,8 @@ MODE=${NUPP_NATIVE_MODE:-require}
 
 build_fallback() {
     ./bin/nupp build -O2 -o "$OUT/fallback" "$SPIKE/kernels.nupp"
-    mkdir -p "$OUT/fallback/nupp"
-    ./bin/nupp build -O2 -o "$OUT/fallback/nupp" src/nupp/span.nupp
+    mkdir -p "$OUT/fallback/nupp/mem"
+    ./bin/nupp build -O2 -o "$OUT/fallback/nupp/mem" src/nupp/mem/span.nupp
 }
 
 # `kernel_compiler.lua` deliberately consumes Nupp's real parser rather than a
@@ -83,8 +83,8 @@ ln -sf "$(basename "$LIB")" "$OUT/libkernel_subset_spike"
 # checked one-call wrapper rather than a handwritten FFI facade.
 ./bin/nupp check "$OUT/checked.nupp"
 ./bin/nupp build -O2 -o "$OUT/nupp" "$OUT/checked.nupp"
-mkdir -p "$OUT/nupp/nupp"
-./bin/nupp build -O2 -o "$OUT/nupp/nupp" src/nupp/span.nupp
+mkdir -p "$OUT/nupp/nupp/mem"
+./bin/nupp build -O2 -o "$OUT/nupp/nupp/mem" src/nupp/mem/span.nupp
 
 # Keep the ordinary lowering of the exact annotated source as the semantic
 # oracle and as the artifact selected by NUPP_NATIVE_MODE=off.

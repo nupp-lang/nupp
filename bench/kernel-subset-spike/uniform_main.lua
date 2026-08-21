@@ -57,7 +57,7 @@ lib.ks_integrate_forced_scalar(scalar, bodies, 1, COUNT, STEPS, INTERVAL, COUNT)
 
 local writer = spans.writeCarray(interpreted, COUNT)
 ordinary.integrate(writer, spans.fromCarray(bodies, COUNT), 1, COUNT, STEPS, INTERVAL)
-writer:commit()
+writer:drop()
 
 --- The bits of one binary32, so a comparison is exact rather than approximate.
 local scratch = ffi.new("float[1]")

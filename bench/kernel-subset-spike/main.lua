@@ -86,8 +86,8 @@ local function checkRange(count, first, last)
    sameBytes("raw LuaJIT", ordinaryTransforms, rawTransforms, count)
    sameBytes("forced scalar C", ordinaryTransforms, scalarTransforms, count)
    sameBytes("optimized C", ordinaryTransforms, nativeTransforms, count)
-   ordinaryWriter:commit()
-   nativeWriter:commit()
+   ordinaryWriter:drop()
+   nativeWriter:drop()
 end
 
 for count = 0, 33 do
@@ -102,7 +102,7 @@ do
    local writable = spans.writeCarray(transforms, 3)
    local ok, problem = pcall(checked.advance, writable, spans.fromCarray(motions, 2), 1, 2, 0.125, 1)
    assert(not ok and tostring(problem):find("incompatible lengths", 1, true), "wrapper lost length check")
-   writable:commit()
+   writable:drop()
 end
 
 do
@@ -111,7 +111,7 @@ do
    local writable = spans.writeCarray(transforms, 3)
    local ok, problem = pcall(checked.advance, writable, spans.fromCarray(motions, 3), 0, 3, 0.125, 1)
    assert(not ok and tostring(problem):find("range out of bounds", 1, true), "wrapper lost range check")
-   writable:commit()
+   writable:drop()
 end
 
 local function median(samples)
@@ -166,6 +166,6 @@ for _, count in ipairs(counts) do
       io.write(("%-14d %-24s %12.1f %18.1f\n"):format(count, path[1], seconds * 1e9, count / seconds / 1e6))
    end
    io.write("\n")
-   ordinaryWriter:commit()
-   checkedWriter:commit()
+   ordinaryWriter:drop()
+   checkedWriter:drop()
 end

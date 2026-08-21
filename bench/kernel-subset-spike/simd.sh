@@ -23,7 +23,7 @@ ${NUPP_NATIVE_CC:-clang} -std=c11 -O3 -ffp-contract=off -fno-fast-math \
     "$OUT/kernel.c" -o "$LIB"
 
 ./bin/nupp build -O2 -o "$OUT/fallback" "$SPIKE/lanedemo.nupp"
-mkdir -p "$OUT/fallback/nupp"
-./bin/nupp build -O2 -o "$OUT/fallback/nupp" src/nupp/span.nupp
+mkdir -p "$OUT/fallback/nupp/mem"
+./bin/nupp build -O2 -o "$OUT/fallback/nupp/mem" src/nupp/mem/span.nupp
 
 luajit "$SPIKE/simd_test.lua"

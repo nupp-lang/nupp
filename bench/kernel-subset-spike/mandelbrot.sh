@@ -39,5 +39,9 @@ ${NUPP_NATIVE_CC:-clang} -std=c11 -O3 -ffp-contract=off -fno-fast-math \
 ./bin/nupp build -O2 -o "$OUT/fallback" "$SPIKE/$SOURCE.nupp"
 mkdir -p "$OUT/fallback/nupp/mem"
 ./bin/nupp build -O2 -o "$OUT/fallback/nupp/mem" src/nupp/mem/span.nupp
+# A kernel written in explicit binary32 reaches `nupp.math.f32`, which the
+# ordinary body performs through the math runtime rather than inline. The
+# generated module requires it by name, so the fallback tree has to hold it.
+./bin/nupp build -O2 -o "$OUT/fallback/nupp" src/nupp/mathruntime.nupp
 
 echo "$LIB"

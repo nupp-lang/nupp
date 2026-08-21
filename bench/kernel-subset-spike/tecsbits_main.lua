@@ -61,7 +61,7 @@ for _, mask in ipairs(MASKS) do
    lib.ks_advance_forced_scalar(scalar, motions, 1, count, 0.5, mask, count)
    local writer = spans.writeCarray(fallback, count)
    ordinary.advance(writer, spans.fromCarray(motions, count), 1, count, 0.5, mask)
-   writer:commit()
+   writer:drop()
    for index = 0, count - 1 do
       for _, field in ipairs({"x", "y", "rotation", "layer", "flags"}) do
          local want = fallback[index][field]

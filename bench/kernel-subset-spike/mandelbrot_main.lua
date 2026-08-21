@@ -124,6 +124,18 @@ local function inCardioidF32(cx, cy)
 end
 
 local binary32 = KERNEL:find("f32", 1, true) ~= nil
+-- Whether the kernel asked for fused multiply-add. A contracted body performs
+-- one rounding where the source wrote two, so it is a different computation from
+-- the recurrence below and cannot be required to agree with it -- that is
+-- precisely what `@relax("fp-contract")` trades away, and both oracles here are
+-- exact. The source is read rather than the kernel's name matched, so a body
+-- that gains or loses the line is classified by what it then is.
+local contracted = false
+do
+   local source = assert(io.open(here .. KERNEL .. ".nupp", "rb"))
+   contracted = source:read("*a"):find('@relax("fp-contract")', 1, true) ~= nil
+   source:close()
+end
 -- Reported rather than assumed: the gang width is the backend's choice from the
 -- loop's own lane types, so a run says which one it actually got.
 SHAPE = binary32 and "f32x8" or "f64x4"
@@ -176,13 +188,42 @@ end
 local ORACLE_LIMIT = tonumber(os.getenv("MANDELBROT_ORACLE_LIMIT") or (binary32 and 20000 or count))
 local oracleCount = math.min(count, ORACLE_LIMIT)
 
+-- How far a contracted body drifted from the exact recurrence. An exact body has
+-- no licence to drift at all, so any mismatch is a failure there; a contracted
+-- one is counted and reported instead, because the check that a backend change
+-- moved an answer is the whole-grid comparison of the two generated bodies above
+-- and that one still holds either way.
+local diverged = 0
+
+local function differs(got, wantIterations, wantEscaped)
+   return got.iterations ~= wantIterations or got.escaped ~= wantEscaped
+end
+
 local function compare(label, index, got)
    local wantIterations, wantEscaped = oracle(points[index].re, points[index].im)
-   if got.iterations ~= wantIterations or got.escaped ~= wantEscaped then
-      error(("%s pixel %d (row %d, column %d): want %d/%d, got %d/%d"):format(
-         label, index, math.floor(index / WIDTH), index % WIDTH,
-         wantIterations, wantEscaped, got.iterations, got.escaped))
+   if not differs(got, wantIterations, wantEscaped) then
+      return
    end
+   if contracted then
+      diverged = diverged + 1
+      return
+   end
+   error(("%s pixel %d (row %d, column %d): want %d/%d, got %d/%d"):format(
+      label, index, math.floor(index / WIDTH), index % WIDTH,
+      wantIterations, wantEscaped, got.iterations, got.escaped))
+end
+
+--- The tail shapes hold the generated bodies against the ordinary Nupp one,
+--- which is exact for the same reason the oracles are.
+local function compareTail(label, prefix, got, want)
+   if not differs(got, want.iterations, want.escaped) then
+      return
+   end
+   if contracted then
+      diverged = diverged + 1
+      return
+   end
+   error(("%s tail differs at count %d"):format(label, prefix))
 end
 
 local BLOCKS = 32
@@ -197,7 +238,7 @@ for block = 0, BLOCKS - 1 do
    local first = math.floor(block * (count - blockSize) / math.max(1, BLOCKS - 1))
    local writer = spans.writeCarray(fallback, blockSize)
    ordinary.mandelbrot(writer, spans.fromCarray(points + first, blockSize), 1, blockSize, MAX_ITERATIONS)
-   writer:commit()
+   writer:drop()
    for offset = 0, blockSize - 1 do
       compare("ordinary Nupp", first + offset, fallback[offset])
       compare("SPMD C", first + offset, optimized[first + offset])
@@ -227,16 +268,12 @@ for _, prefix in ipairs({0, 1, 3, 4, 5, 7, 8, 9, 15, 16, 17, 33}) do
       local lanes = ffi.new("KsEscape[?]", capacity)
       local writer = spans.writeCarray(expected, prefix)
       ordinary.mandelbrot(writer, spans.fromCarray(points, prefix), 1, prefix, MAX_ITERATIONS)
-      writer:commit()
+      writer:drop()
       lib.ks_mandelbrot_forced_scalar(forced, points, 1, prefix, MAX_ITERATIONS, prefix)
       lib.ks_mandelbrot(lanes, points, 1, prefix, MAX_ITERATIONS, prefix)
       for index = 0, prefix - 1 do
-         assert(forced[index].iterations == expected[index].iterations
-            and forced[index].escaped == expected[index].escaped,
-            "forced scalar tail differs at count " .. prefix)
-         assert(lanes[index].iterations == expected[index].iterations
-            and lanes[index].escaped == expected[index].escaped,
-            "SPMD tail differs at count " .. prefix)
+         compareTail("forced scalar", prefix, forced[index], expected[index])
+         compareTail("SPMD", prefix, lanes[index], expected[index])
       end
    end
 end
@@ -246,8 +283,14 @@ for index = 0, count - 1 do
 end
 io.write(("mandelbrot: %dx%d, %d max iterations, checksum %d\n")
    :format(WIDTH, HEIGHT, MAX_ITERATIONS, checksum))
-io.write(("%d pixels agree between scalar C and SPMD C; %d in %d blocks also agree with ordinary Nupp, and %d strided across every row agree with the Lua oracle\n\n")
-   :format(count, checkedByBlocks, BLOCKS, checkedByStride))
+local verb = contracted and "were compared with" or "agree with"
+io.write(("%d pixels agree between scalar C and SPMD C; %d in %d blocks also %s ordinary Nupp, and %d strided across every row %s the Lua oracle\n")
+   :format(count, checkedByBlocks, BLOCKS, verb, checkedByStride, verb))
+if contracted then
+   io.write(("this kernel asks for fused multiply-add, so it computes something the exact oracles do not: %d of those comparisons diverge\n")
+      :format(diverged))
+end
+io.write("\n")
 if os.getenv("MANDELBROT_QUIET") then
    local function bench(name, run)
       for _ = 1, 3 do run() end
@@ -271,7 +314,7 @@ if os.getenv("MANDELBROT_QUIET") then
    bench("LuaJIT", function()
       local writer = spans.writeCarray(interpreted, count)
       ordinary.mandelbrot(writer, spans.fromCarray(points, count), 1, count, MAX_ITERATIONS)
-      writer:commit()
+      writer:drop()
    end)
    os.exit(0)
 end
@@ -320,13 +363,32 @@ end)
 -- view, and would report LuaJIT as slower than it is.
 --
 -- The ordinary body for the binary32 program performs every rounding point
--- through an FFI store and load, so it is timed over a prefix and reported as a
+-- through an FFI store and load, so it is timed over a sample and reported as a
 -- per-pixel rate. That cost is the price of the explicitly binary32 source, not
 -- an artifact of measuring it: it is what this program costs with AOT off.
+--
+-- The sample is spread the way the oracle sweep is, and for the same reason. A
+-- prefix of this grid is its top-left corner, where every pixel escapes in a
+-- handful of iterations, so a rate measured there is one the rest of the grid
+-- never sees -- about three times the spread one. The ordinary body takes a
+-- contiguous range, so the sample is blocks placed evenly down the grid rather
+-- than a stride.
+local LUA_BLOCKS = 32
 local luaPixels = binary32 and math.min(count, 20000) or count
+local luaBlock, luaStarts = count, {0}
+if luaPixels < count then
+   luaBlock = math.max(1, math.floor(luaPixels / LUA_BLOCKS))
+   luaStarts = {}
+   for block = 0, LUA_BLOCKS - 1 do
+      luaStarts[#luaStarts + 1] =
+         math.floor(block * (count - luaBlock) / math.max(1, LUA_BLOCKS - 1))
+   end
+end
 timed("LuaJIT", function()
-   local writer = spans.writeCarray(interpreted, luaPixels)
-   ordinary.mandelbrot(writer, spans.fromCarray(points, luaPixels), 1, luaPixels, MAX_ITERATIONS)
-   writer:commit()
-end, luaPixels)
+   for _, first in ipairs(luaStarts) do
+      local writer = spans.writeCarray(interpreted, luaBlock)
+      ordinary.mandelbrot(writer, spans.fromCarray(points + first, luaBlock), 1, luaBlock, MAX_ITERATIONS)
+      writer:drop()
+   end
+end, #luaStarts * luaBlock)
 io.write("\n")

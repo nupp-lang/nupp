@@ -51,7 +51,7 @@ for _, count in ipairs({0, 1, 3, 4, 5, 7, 8, 33, 1000}) do
 
    local writer = spans.writeCarray(expected, count)
    ordinary.advance(writer, spans.fromCarray(source, count), dt)
-   writer:commit()
+   writer:drop()
    lib.ks_advance_forced_scalar(scalar, source, dt, count)
    lib.ks_advance(vector, source, dt, count)
 
