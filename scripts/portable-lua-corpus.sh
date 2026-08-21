@@ -11,9 +11,19 @@ if [ "$#" -eq 0 ]; then
     set -- lua5.1 lua5.2 lua5.3 lua5.4 luajit
 fi
 
+allow_missing=0
+if [ "${1-}" = "--available" ]; then
+    allow_missing=1
+    shift
+fi
+
 ran=0
 for runtime in "$@"; do
     if ! command -v "$runtime" >/dev/null 2>&1; then
+        if [ "$allow_missing" -eq 1 ]; then
+            echo "portable corpus: $runtime unavailable"
+            continue
+        fi
         echo "portable corpus: required runtime is missing: $runtime" >&2
         exit 1
     fi
