@@ -500,9 +500,11 @@ module. A build does not execute the backend, and an absent runtime rock is
 therefore a runtime dependency error rather than a compiler execution side
 effect.
 
-The runtime provider may be shipped by a target dependency. The checked
-backend remains in the project's source set, while a portable target can
-select its crypto rock without making it a dependency of the native target:
+The runtime provider and checked backend may be shipped by a target dependency.
+Dependency resolution precedes backend resolution, so the rock's versioned
+`nupp/` root participates in checked module lookup only for the target that
+selected it. A portable target can therefore select its crypto rock without
+making it a dependency of the native target:
 
 ```lua
 dependencies = {
@@ -526,13 +528,13 @@ build = {targets = {
 }}
 ```
 
-The project source implements `acme.crypto.backend`; the rockspec installs its
-exact provider module and may pull HMAC, SHA, TLS or HTTP libraries
-transitively. The backend records that adapter module name. It does not run
-LuaRocks or probe installed alternatives during checking. Resolving the
-checked backend itself from a rock's `nupp/` directory is future work:
-dependency type roots are not currently available early enough for backend
-discovery.
+The rockspec installs `acme.crypto.backend` as checked `.nupp` source and its
+exact provider module, and may pull HMAC, SHA, TLS or HTTP libraries
+transitively. The consumer compiles that selected backend source for its own
+dialect and writes the compiler-owned runtime support it reaches as ordinary
+Lua modules beside the artifact. Nothing depends on the compiler checkout's
+runtime path. The backend records the adapter module name; it does not run
+LuaRocks or probe installed alternatives during checking.
 
 Facilities with environmental authority use the same rule. Filesystem access,
 processes, HTTP, secure entropy and clocks may have host seams. A seam is
@@ -579,10 +581,12 @@ candidates, because there is never more than one.
 way an artifact already records the ahead-of-time policy it was built under. A
 backend entry carries the module name and digest of the checked `Backend`
 value. Each reached seam entry carries its name, contract version and whether
-it binds at compile time or runtime, so changing a checked backend cannot leave
-an artifact claiming it resolved the old one. Code behind an exact third-party
-runtime module name is deliberately not hashed: it may be supplied by a rock or
-a host after the artifact was built.
+it binds at compile time or runtime. When a selected target dependency installs
+the exact runtime module, the entry also carries that dependency's package and
+pinned version. Changing a checked backend cannot leave an artifact claiming it
+resolved the old one. Code behind an exact third-party runtime module name is
+deliberately not hashed: it may be supplied by a rock or a host after the
+artifact was built, while the package lock accounts for the selected artifact.
 
 ### Missing capability reports at the use site
 
@@ -644,15 +648,17 @@ nupp backend test acme.compat.portable --dialect lua51
 ```
 
 compiles the backend under that dialect and runs each of its seams in an
-isolated worker. A seam can also be selected by name for a focused run. The
-command reports the seam name and contract version, backend source digest, and
-runtime that ran it, and exits unsuccessfully on the first mismatch. Native
-seams run these same suites, making them the reference implementation without
-giving them a private test path. It is an explicit command for backend authors,
-package CI, and consumers auditing a dependency. `check` and `build` never run
-it implicitly, never execute a module only because `nupp.lua` named it, and
-never turn a cached result into a proof. The artifact records identities and
-digests, not a certification claim.
+isolated worker. `--runtime lua5.1` writes the checked closure as real Lua files
+and launches that interpreter, so a portable suite is not accidentally tested
+inside the LuaJIT compiler process. A seam can also be selected by name for a
+focused run. The command reports the seam name and contract version, backend
+source digest, and runtime that ran it, and exits unsuccessfully on the first
+mismatch. Native seams run these same suites, making them the reference
+implementation without giving them a private test path. It is an explicit
+command for backend authors, package CI, and consumers auditing a dependency.
+`check` and `build` never run it implicitly, never execute a module only because
+`nupp.lua` named it, and never turn a cached result into a proof. The artifact
+records identities and digests, not a certification claim.
 
 ### Portability floor
 
@@ -718,8 +724,11 @@ step does not compensate for a failure in an earlier one.
    may perform runtime checks for third-party modules; this step does not add
    duplicate algorithms to Nupp.
 9. **Backend test command and artifact audit.** Expose isolated all-seam and
-   focused runs, report versions, runtime and digests, and verify the artifact
-   records exactly the reached resolution without claiming certification.
+   focused runs on an explicitly requested Lua executable, report versions,
+   runtime and digests, and verify the artifact records exactly the reached
+   resolution and dependency package without claiming certification. Finish
+   with one same-source library whose LuaJIT artifact retains direct operators
+   and FFI representation while its Lua 5.1 artifact uses checked adapters.
 
 ## Risks and assumptions
 

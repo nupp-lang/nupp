@@ -58,7 +58,7 @@ function M.realCorpusRunsUnderStockLuaAndLuaJIT()
 end
 
 function M.explicitNativeDialectChangesNoGeneratedByte()
-   local source = read(ROOT .. "/tests/portable-corpus/main.nupp")
+   local source = read(ROOT .. "/tests/portable-corpus/src/main.nupp")
    local default, defaultDiags = checked(source, nil)
    local native, nativeDiags = checked(source, "luajit")
    assertEq(#defaultDiags, 0, "default corpus checks")

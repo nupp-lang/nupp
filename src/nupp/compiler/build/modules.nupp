@@ -629,11 +629,115 @@ local function buildModules(root: string, outDir: string, config: Config, target
         substituted[at] = text
         inc.openDocument(at, text)
     end
-    local backendResolution, backendErr = backends.resolve(inc, target.backends)
+    local backendResolution, backendErr, backendFailure = backends.resolve(inc, target.backends)
     if not backendResolution then
-        return nil, backendErr
+        local diagnostic = {
+            filename = backendFailure and backendFailure.path or join(root, "nupp.lua"),
+            line = 1,
+            col = 1,
+            offset = 0,
+            length = 1,
+            code = "NUPP3008",
+            msg = backendErr,
+            help = "select a checked module exporting one declarative Backend.new value",
+            docs = "docs/neps/0013-dialects-and-capability-backends.md",
+        }
+        if diagnostics ~= nil then
+            diagnostics[#diagnostics + 1] = diagnostic
+        else
+            require("nupp.compiler.diagnostics").report({diagnostic})
+        end
+
+        return nil, "project has errors"
+    end
+    for _, descriptor in ipairs(backendResolution.modules or {}) do
+        for _, seam in ipairs(descriptor.seams or {}) do
+            local owner = deps.runtimeModuleOwner(root, config, target, newState.dependencies, seam.runtimeModule)
+            seam.runtimeDependency = owner
+            if backendResolution.seams[seam.name] then
+                backendResolution.seams[seam.name].runtimeDependency = owner
+            end
+        end
     end
     inc.setBackendResolution(backendResolution)
+
+    -- A selected backend is executable runtime support, including when its checked
+    -- source came from a rock's versioned `nupp/` root. Compile that source for this
+    -- target and materialize the compiler-owned factories it requires as ordinary Lua
+    -- files beside the application. The staging tree contains real `.nupp` source and
+    -- is never part of the artifact; it exists only because bundled compiler sources
+    -- have no project path of their own.
+    local linkedModules: {[string]: boolean} = {}
+    local stagedRoot = join(root, join(outDir, "cache/backend-runtime-source"))
+    local hasBackends = #(backendResolution.modules or {}) > 0
+    if hasBackends then
+        nupp.io.files.remove(stagedRoot, true)
+        assert(fs.mkdir(stagedRoot), "cannot create backend runtime source staging tree")
+        inc.env.roots[#inc.env.roots + 1] = stagedRoot
+    end
+    local function stageBundled(name: string): string?
+        local existing = inc.modulePath(name)
+        if existing ~= nil then
+            return existing
+        end
+        local resource = "/" .. name:gsub("%.", "/") .. ".nupp"
+        local source = require("nupp.compiler.bundled").source(resource)
+        if source == nil then
+            resource = "/" .. name:gsub("%.", "/") .. "/init.nupp"
+            source = require("nupp.compiler.bundled").source(resource)
+        end
+        if source == nil then
+            return nil
+        end
+        local path = join(stagedRoot, name:gsub("%.", "/") .. ".nupp")
+        local wrote, problem = writeFile(path, source)
+        assert(wrote, problem)
+        inc.openDocument(path, source)
+
+        return path
+    end
+
+    -- A checked standard-library facade reached through a selected seam is runtime
+    -- support too. Its source is normally an external compiler type root, but an
+    -- artifact cannot depend on the compiler's own build tree. Link each real source
+    -- dependency of a module that reaches a selected effect, then let the ordinary
+    -- dependency walk close over it. Declaration-only `.d.nupp` modules still describe
+    -- third-party runtime modules and therefore remain external.
+    local function linkSelectedDependencies(name: string, names: any, effects: any): nil
+        local selected = linkedModules[name] == true
+        for _, effect in ipairs(effects) do
+            selected = selected or backendResolution.byEffect[effect] ~= nil
+        end
+        if not selected then
+            return
+        end
+        for _, dependency in ipairs(names) do
+            local path = inc.modulePath(dependency) or stageBundled(dependency)
+            if path ~= nil and not path:match("%.d%.nupp$") then
+                linkedModules[dependency] = true
+            end
+        end
+    end
+
+    if hasBackends then
+        for _, name in ipairs({"nupp.runtime.backend", "nupp.runtime.seam.registry", "nupp.runtime.seam.module",}) do
+            linkedModules[name] = true
+            stageBundled(name)
+        end
+    end
+    for _, descriptor in ipairs(backendResolution.modules or {}) do
+        linkedModules[descriptor.module] = true
+        for _, seam in ipairs(descriptor.seams or {}) do
+            linkedModules[seam.factoryModule] = true
+            stageBundled(seam.factoryModule)
+            local providerPath = inc.modulePath(seam.runtimeModule)
+            if providerPath and providerPath:match("%.nupp$") then
+                linkedModules[seam.runtimeModule] = true
+            elseif providerPath == nil and stageBundled(seam.runtimeModule) ~= nil then
+                linkedModules[seam.runtimeModule] = true
+            end
+        end
+    end
 
     --- What a module's record is keyed on: its substitute when it has one, and
     --- the file otherwise. Hashing the file while compiling something else would
@@ -731,6 +835,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 seed(name, path)
             end
         end
+        for name in pairs(linkedModules) do
+            local path = inc.modulePath(name)
+            if path ~= nil then
+                seed(name, path)
+            end
+        end
     end
 
     local records, reused, codeFor, paths = {}, {}, {}, {}
@@ -777,7 +887,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
 
     local function compile(name, path, sourceHash)
-        local external = envMod.isDependencyTypePath(inc.env, path)
+        local external = envMod.isDependencyTypePath(inc.env, path) and not linkedModules[name]
         local result = inc.checkFile(path)
         stats.checkedModules = stats.checkedModules + 1
         local mine = {}
@@ -877,7 +987,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
         }
         codeFor[name] = code
         reused[name] = nil
+        linkSelectedDependencies(name, depNames, effectNames)
         for _, depName in ipairs(depNames) do
+            if linkedModules[name] then
+                linkedModules[depName] = true
+                stageBundled(depName)
+            end
             enqueue(depName)
         end
     end
@@ -898,7 +1013,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 report:step(item.name)
                 local sourceHash = sourceContentHash(path)
                 local previous = oldState.modules[item.name]
-                local external = envMod.isDependencyTypePath(inc.env, path)
+                local external = envMod.isDependencyTypePath(inc.env, path) and not linkedModules[item.name]
                 local output = external and nil or join(root, join(outDir, item.name:gsub("%.", "/") .. ".lua"))
                 -- A build has to find the artifact it would have written still sitting
                 -- there and still what it wrote; a check writes no artifact and so has
@@ -954,6 +1069,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     -- "nothing changed" rather than "nothing is wrong", and the second
                     -- run over a project with an error in it would pass.
                     said[item.name] = previous.diags
+                    linkSelectedDependencies(item.name, previous.dependencies or {}, previous.effects or {})
                     for _, depName in ipairs(previous.dependencies or {}) do
                         enqueue(depName)
                     end

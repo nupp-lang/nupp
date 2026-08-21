@@ -1,0 +1,89 @@
+module portable.bitops
+
+--[[Arithmetic reference adapter used only by the portable runtime matrix. A
+production Lua 5.1 target should select a native BitOp-compatible rock.]]
+
+local bitops = {}
+local TWO32 = 4294967296
+local TWO31 = 2147483648
+
+local function unsigned(value: number): number
+    value = value % TWO32
+    if value < 0 then
+        value = value + TWO32
+    end
+
+    return value
+end
+
+
+local function signed(value: number): integer
+    value = unsigned(value)
+
+    return math.floor(value >= TWO31 and value - TWO32 or value)
+end
+
+
+local function binary(left: number, right: number, operation: string): integer
+    left, right = unsigned(left), unsigned(right)
+    local place, result = 1, 0
+    for _ = 1, 32 do
+        local a, b = left % 2, right % 2
+        if operation == "and" and a == 1 and b == 1
+            or operation == "or" and (a == 1 or b == 1)
+            or operation == "xor" and a ~= b
+        then
+            result = result + place
+        end
+        left, right = math.floor(left / 2), math.floor(right / 2)
+        place = place * 2
+    end
+
+    return signed(result)
+end
+
+
+function bitops.band(a: integer, b: integer): integer
+    return binary(a, b, "and")
+end
+
+function bitops.bor(a: integer, b: integer): integer
+    return binary(a, b, "or")
+end
+
+function bitops.bxor(a: integer, b: integer): integer
+    return binary(a, b, "xor")
+end
+
+function bitops.bnot(value: integer): integer
+    return signed(TWO32 - 1 - unsigned(value))
+end
+
+function bitops.lshift(value: integer, count: integer): integer
+    local shifted = unsigned(value)
+    for _ = 1, count % 32 do
+        shifted = (shifted * 2) % TWO32
+    end
+
+    return signed(shifted)
+end
+
+function bitops.rshift(value: integer, count: integer): integer
+    local shifted = unsigned(value)
+    for _ = 1, count % 32 do
+        shifted = math.floor(shifted / 2)
+    end
+
+    return signed(shifted)
+end
+
+function bitops.arshift(value: integer, count: integer): integer
+    local shifted = signed(value)
+    for _ = 1, count % 32 do
+        shifted = math.floor(shifted / 2)
+    end
+
+    return signed(shifted)
+end
+
+export = bitops

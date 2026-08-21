@@ -100,6 +100,14 @@ local RESOURCES = {
       output = "nupp/compiler/nupp/runtime/backend.nupp",
    },
    {
+      source = "src/nupp/runtime/provider/tablestruct.nupp",
+      output = "nupp/compiler/nupp/runtime/provider/tablestruct.nupp",
+   },
+   {
+      source = "src/nupp/runtime/provider/scalarsimd.nupp",
+      output = "nupp/compiler/nupp/runtime/provider/scalarsimd.nupp",
+   },
+   {
       source = "src/nupp/runtime/seam/json.nupp",
       output = "nupp/compiler/nupp/runtime/seam/json.nupp",
    },
@@ -144,6 +152,17 @@ for _, name in ipairs(SEAM_FACTORY_RESOURCES) do
    RESOURCES[#RESOURCES + 1] = {
       source = "src/nupp/runtime/seam/" .. name .. ".nupp",
       output = "nupp/compiler/nupp/runtime/seam/" .. name .. ".nupp",
+   }
+end
+local SEAM_SUITE_RESOURCES = {
+   "bitset", "files", "hash", "hmacsha256", "http", "int64", "iobytes",
+   "path", "peg", "process", "sha256", "simd", "structvalue", "suspension",
+   "uri", "utf8", "uuid", "workers",
+}
+for _, name in ipairs(SEAM_SUITE_RESOURCES) do
+   RESOURCES[#RESOURCES + 1] = {
+      source = "src/nupp/runtime/seam/" .. name .. "suite.nupp",
+      output = "nupp/compiler/nupp/runtime/seam/" .. name .. "suite.nupp",
    }
 end
 for _, relative in ipairs(TEMPLATE_FILES) do

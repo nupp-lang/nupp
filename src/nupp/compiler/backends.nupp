@@ -149,6 +149,8 @@ function backends.inspect(root: any, moduleName: string?): any?, string?
             effect = contract.effect,
             effects = contract.effects or {contract.effect},
             binding = contract.binding or "runtime",
+            factoryModule = factoryModule,
+            suiteModule = contract.suiteModule,
             runtimeModule = runtimeModule,
         }
     end
@@ -189,13 +191,13 @@ function backends.validate(selected: any, label: string): boolean?, string?
 end
 
 --- Resolves checked backend modules from their static interface metadata.
-function backends.resolve(inc: any, selected: {string}?): any?, string?
+function backends.resolve(inc: any, selected: {string}?): any?, string?, any?
     local resolved = {modules = {}, seams = {}, byEffect = {},}
     local fingerprints = {}
     for _, moduleName in ipairs(selected or {}) do
         local path = inc.modulePath(moduleName)
         if not path then
-            return nil, "backend module not found: " .. moduleName
+            return nil, "backend module not found: " .. moduleName, {module = moduleName}
         end
         local checked = inc.checkFile(path)
         local descriptor = checked and checked.backend or nil
@@ -203,7 +205,7 @@ function backends.resolve(inc: any, selected: {string}?): any?, string?
         if not descriptor then
             return nil, "backend module " .. moduleName .. ": " .. (
                 problem or "must export a declarative Backend.new value"
-            )
+            ), {module = moduleName, path = path}
         end
         descriptor.module = moduleName
         local source = require("nupp.compiler.fs").readFile(path)
@@ -215,13 +217,23 @@ function backends.resolve(inc: any, selected: {string}?): any?, string?
         for _, seam in ipairs(descriptor.seams) do
             local prior = resolved.seams[seam.name]
             if prior then
-                return nil, "backend seam conflict for " .. seam.name .. ": " .. prior.module .. " and " .. moduleName
+                return nil, "backend seam conflict for "
+                    .. seam.name
+                    .. ": "
+                    .. prior.module
+                    .. " and "
+                    .. moduleName, {
+                    module = moduleName,
+                    path = path,
+                }
             end
             local selectedSeam = {
                 name = seam.name,
                 version = seam.version,
                 effect = seam.effect,
                 binding = seam.binding or "runtime",
+                factoryModule = seam.factoryModule,
+                suiteModule = seam.suiteModule,
                 runtimeModule = seam.runtimeModule,
                 backend = descriptor.name,
                 module = moduleName,
@@ -264,6 +276,7 @@ function backends.reached(effects: {[string]: any}?, resolved: any?): {any}
                                     "nupp.compiler.build.hash"
                                 ).digest(descriptor.fingerprint or ""),
                                 runtimeModule = seam.runtimeModule,
+                                runtimeDependency = seam.runtimeDependency,
                             }
                         end
                     end
@@ -282,10 +295,20 @@ end
 function backends.artifact(effects: {[string]: any}?, resolved: any?): string
     local parts = {}
     for _, seam in ipairs(backends.reached(effects, resolved)) do
+        local owner = seam.runtimeDependency
         parts[
             #parts + 1
         ] = table.concat(
-            {seam.name, tostring(seam.version), seam.binding, seam.backend, seam.backendDigest, seam.runtimeModule,},
+            {
+                seam.name,
+                tostring(seam.version),
+                seam.binding,
+                seam.backend,
+                seam.backendDigest,
+                seam.runtimeModule,
+                owner and owner.package or "",
+                owner and owner.version or "",
+            },
             "|"
         )
     end

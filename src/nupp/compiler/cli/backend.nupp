@@ -7,16 +7,233 @@ local spec = require("nupp.compiler.cli.spec")
 local command = spec.command{
     name = "backend",
     summary = "Run checked backend conformance suites",
-    usage = {"nupp backend test <module> [--dialect luajit|lua51] [--seam NAME] [--json]"},
+    usage = {"nupp backend test <module> [--dialect luajit|lua51] [--runtime LUA] [--seam NAME] [--json]"},
     universal = false,
     options = {{name = "-h", names = {"-h", "--help"}, help = "Show this help"}},
     positionals = {},
-    detail = "The command checks and compiles the backend without executing it, then runs all or one of its compiler-owned seam suites in this isolated CLI process. It reports resolution evidence, not a cached certification claim.",
+    schema = {
+        type = "object",
+        properties = {
+            ok = {type = "boolean"},
+            backend = {type = "string"},
+            module = {type = "string"},
+            digest = {type = "string"},
+            dialect = {type = "string", enum = {"luajit", "lua51"}},
+            runtime = {type = "string"},
+            seams = {
+                type = "array",
+                items = {
+                    type = "object",
+                    properties = {
+                        name = {type = "string"},
+                        version = {type = "integer"},
+                        binding = {type = "string", enum = {"compile", "runtime"}},
+                        ok = {type = "boolean"},
+                        problem = {type = "string"},
+                    },
+                    required = {"name", "version", "binding", "ok"},
+                },
+            },
+        },
+        required = {"ok", "backend", "module", "digest", "dialect", "runtime", "seams"},
+    },
+    detail = "The command checks and compiles the backend without executing it, then runs all or one of its compiler-owned seam suites. --runtime writes the checked modules as real Lua files and executes them with that interpreter; without it the isolated CLI process is used. It reports resolution evidence, not a cached certification claim.",
 }
 
 local function fail(message: string): integer
     io.stderr:write("nupp: " .. message .. "\n")
     return 2
+end
+
+local function moduleOutput(root: string, name: string): string
+    return root .. "/" .. name:gsub("%.", "/") .. ".lua"
+end
+
+--- Finds a real source file, falling back to the compiler's bundled source. The
+--- fallback is written to a `.nupp` file before compilation; executable fallback
+--- code is never assembled inside a Lua string in the runner.
+--- @raises when the temporary bundled source cannot be written
+local function moduleSource(env: any, scratch: string, name: string): string?
+    local path = require("nupp.compiler.env").findRuntimeModulePath(env, name)
+    if path ~= nil then
+        return path
+    end
+    local bundled = require("nupp.compiler.bundled")
+    local relative = "/" .. name:gsub("%.", "/") .. ".nupp"
+    local source = bundled.source(relative)
+    if source == nil then
+        relative = "/" .. name:gsub("%.", "/") .. "/init.nupp"
+        source = bundled.source(relative)
+    end
+    if source == nil then
+        return nil
+    end
+    local path = scratch .. "/source/" .. name:gsub("%.", "/") .. ".nupp"
+    local wrote, problem = require("nupp.compiler.fs").writeFile(path, source)
+    if not wrote then
+        error(problem, 0)
+    end
+
+    return path
+end
+
+--- Compiles the transitive constant-require closure into a standalone Lua tree.
+local function compileRuntimeTree(env: any, scratch: string, roots: {string}, settings: any): boolean, string?
+    local parser = require("nupp.compiler.parser")
+    local header = require("nupp.compiler.header")
+    local fs = require("nupp.compiler.fs")
+    local compile = require("nupp.compiler.cli.compile")
+    local pending, seen = {}, {}
+    for _, name in ipairs(roots) do
+        pending[#pending + 1] = name
+    end
+    while #pending > 0 do
+        local name = table.remove(pending) as string
+        if not seen[name] then
+            seen[name] = true
+            local path = moduleSource(env, scratch, name)
+            if path ~= nil then
+                local source, readProblem = fs.readFile(path)
+                if source == nil then
+                    return false, readProblem
+                end
+                local code = source
+                if not path:match("%.lua$") or path:match("%.nupp$") then
+                    local parsed = parser.parse(source, path)
+                    if #parsed.errors > 0 then
+                        require("nupp.compiler.diagnostics").report(parsed.errors)
+                        return false, "syntax errors in " .. name
+                    end
+                    local dependencies = header.of(path, name, parsed).dependencies
+                    for _, dependency in ipairs(dependencies or {}) do
+                        pending[#pending + 1] = dependency
+                    end
+                    local generated, compileProblem = compile.module(path, env, settings)
+                    if generated == nil then
+                        return false, compileProblem
+                    end
+                    code = generated
+                end
+                local wrote, writeProblem = fs.writeFile(moduleOutput(scratch .. "/lua", name), code)
+                if not wrote then
+                    return false, writeProblem
+                end
+            end
+        end
+    end
+
+    return true
+end
+
+local function decodeQuoted(value: string): string?
+    if value == "nil" then
+        return nil
+    end
+    local chunk = loadstring("return " .. value)
+    if chunk == nil then
+        return value
+    end
+    local ok, decoded = pcall(chunk)
+
+    return ok and decoded or value
+end
+
+local function runOnRuntime(
+    runtime: string,
+    env: any,
+    moduleName: string,
+    descriptor: any,
+    focused: string?,
+    settings: any
+): {any}?, string?, string?
+    local fs = require("nupp.compiler.fs")
+    local scratch = os.tmpname()
+    os.remove(scratch)
+    if not fs.mkdir(scratch) then
+        return nil, nil, "cannot create backend test directory " .. scratch
+    end
+    local roots = {moduleName}
+    for _, selected in ipairs(descriptor.seams or {}) do
+        roots[#roots + 1] = selected.runtimeModule
+        roots[#roots + 1] = selected.factoryModule
+        roots[#roots + 1] = selected.suiteModule
+    end
+    local compiled, compileProblem = compileRuntimeTree(env, scratch, roots, settings)
+    if not compiled then
+        nupp.io.files.remove(scratch, true)
+        return nil, nil, compileProblem
+    end
+    local runner = (
+        [[
+local selected = require(%q)
+selected:install()
+local focused = %s
+local found = false
+local failed = false
+for _, seam in ipairs(selected.seams or {}) do
+    if focused == nil or focused == seam.name then
+        found = true
+        local ok, problem = seam:test()
+        failed = failed or not ok
+        io.write(table.concat({seam.name, tostring(seam.version), seam.binding or "runtime",
+            ok and "true" or "false", problem == nil and "nil" or string.format("%%q", tostring(problem))}, "\t"), "\n")
+    end
+end
+if not found then error("backend does not supply focused seam", 0) end
+io.write("@runtime\t", _VERSION, jit and " / " .. jit.version or "", "\n")
+if failed then os.exit(1) end
+]]
+    ):format(moduleName, focused == nil and "nil" or string.format("%q", focused))
+    local runnerPath = scratch .. "/runner.lua"
+    local wrote, writeProblem = fs.writeFile(runnerPath, runner)
+    if not wrote then
+        nupp.io.files.remove(scratch, true)
+        return nil, nil, writeProblem
+    end
+    local rockPaths = require(
+        "nupp.compiler.build.deps"
+    ).rockPaths(".", env.config, env.config._target or require("nupp.compiler.build.tasks").targetConfig(env.config))
+    local luaPath = scratch .. "/lua/?.lua;" .. scratch .. "/lua/?/init.lua;" .. (
+        rockPaths and rockPaths.path or ""
+    ) .. ";;"
+    local code, output = require("nupp.compiler.build.process").capture({runtime, runnerPath}, {
+        env = {LUA_PATH = luaPath, LUA_CPATH = (rockPaths and rockPaths.cpath or "") .. ";;"}
+    })
+    nupp.io.files.remove(scratch, true)
+    local results, runtimeLabel = {}, nil
+    for line in output:gmatch("[^\r\n]+") do
+        local label = line:match("^@runtime\t(.+)$")
+        if label then
+            runtimeLabel = label
+        else
+            local name, version, binding, ok, problem = line:match("^([^\t]+)\t(%d+)\t([^\t]+)\t([^\t]+)\t(.*)$")
+            if name then
+                results[
+                    #results + 1
+                ] = {
+                    name = name,
+                    version = tonumber(version),
+                    binding = binding,
+                    ok = ok == "true",
+                    problem = decodeQuoted(problem),
+                }
+            end
+        end
+    end
+    if runtimeLabel == nil then
+        return nil, nil, "runtime " .. runtime .. " could not execute the checked backend: " .. output
+    end
+    if code ~= 0 then
+        local hasFailure = false
+        for _, result in ipairs(results) do
+            hasFailure = hasFailure or not result.ok
+        end
+        if not hasFailure then
+            return nil, runtimeLabel, output
+        end
+    end
+
+    return results, runtimeLabel, nil
 end
 
 local function run(argv: {string}): integer
@@ -28,7 +245,7 @@ local function run(argv: {string}): integer
         return fail("backend expects `test <module>`; see `nupp help backend`")
     end
     local moduleName = argv[2]
-    local dialect, focused, asJson = "luajit", nil, false
+    local dialect, focused, runtime, asJson = "luajit", nil, nil, false
     local at: integer = 3
     while at <= #argv do
         local value = argv[at]
@@ -39,6 +256,11 @@ local function run(argv: {string}): integer
             at = at + 1
         elseif value:match("^%-%-dialect=") then
             dialect = value:sub(11)
+        elseif value == "--runtime" and argv[at + 1] ~= nil then
+            runtime = argv[at + 1]
+            at = at + 1
+        elseif value:match("^%-%-runtime=") then
+            runtime = value:sub(11)
         elseif value == "--seam" and argv[at + 1] ~= nil then
             focused = argv[at + 1]
             at = at + 1
@@ -77,6 +299,55 @@ local function run(argv: {string}): integer
 
     local compile = require("nupp.compiler.cli.compile")
     local settings = compile.settings({strict = true, dialect = dialect})
+    if runtime ~= nil then
+        local results, runtimeLabel, runtimeProblem = runOnRuntime(
+            runtime,
+            env,
+            moduleName,
+            descriptor,
+            focused,
+            settings
+        )
+        if results == nil then
+            return fail(tostring(runtimeProblem))
+        end
+        local failed = false
+        for _, result in ipairs(results) do
+            failed = failed or not result.ok
+        end
+        local digest = require("nupp.compiler.build.hash").digest(source)
+        if asJson then
+            require("nupp.compiler.cli.report").write({
+                ok = not failed,
+                backend = descriptor.name,
+                module = moduleName,
+                digest = digest,
+                dialect = dialect,
+                runtime = runtimeLabel,
+                seams = results,
+            })
+        else
+            for _, result in ipairs(results) do
+                io.write(
+                    (
+                        "%s %d (%s): %s\n"
+                    ):format(
+                        result.name,
+                        result.version,
+                        result.binding,
+                        result.ok and "passed" or "failed: " .. tostring(result.problem)
+                    )
+                )
+            end
+            io.write(
+                (
+                    "backend %s digest %s; dialect %s; runtime %s\n"
+                ):format(moduleName, digest, dialect, tostring(runtimeLabel))
+            )
+        end
+
+        return failed and 1 or 0
+    end
     local function preloadChecked(name: string, candidate: string): boolean
         local code = compile.module(candidate, env, settings)
         if code == nil then

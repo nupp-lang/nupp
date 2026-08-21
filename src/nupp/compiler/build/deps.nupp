@@ -591,6 +591,15 @@ local function declaredVersion(rockspec)
     return text:match("[\r\n]version%s*=%s*[\"']([^\"']+)[\"']") or text:match("^version%s*=%s*[\"']([^\"']+)[\"']")
 end
 
+local function declaredPackage(rockspec): string?
+    local text = rockspec and readFile(rockspec)
+    if not text then
+        return nil
+    end
+
+    return text:match("[\r\n]package%s*=%s*[\"']([^\"']+)[\"']") or text:match("^package%s*=%s*[\"']([^\"']+)[\"']")
+end
+
 -- One listing per tree per run, and one version per LuaRocks. Nothing but this process
 -- installs into the tree while it runs, so asking twice would start a second subprocess
 -- to be told what the first one said.
@@ -666,12 +675,18 @@ local function rockSourceFiles(dir)
 end
 
 local function buildRock(root, outDir, name, dep, previous)
-    local rock = dep.rock or name
     local tree, luaVersion = rockTree(root, dep)
     local source = dep.path and absolute(join(root, dep.path)) or nil
     local rockspec = dep.rockspec and absolute(join(root, dep.rockspec)) or nil
     if rockspec and not exists(rockspec) then
         return nil, "dependency " .. name .. " names a rockspec that is not " .. "there: " .. dep.rockspec
+    end
+    local declaredRock = declaredPackage(rockspec)
+    local rock = dep.rock or declaredRock or name
+    if dep.rock and declaredRock and dep.rock ~= declaredRock then
+        return nil, (
+            "dependency %s names rock %s, and %s declares package %s"
+        ):format(name, dep.rock, dep.rockspec, declaredRock)
     end
     local declared = declaredVersion(rockspec)
     if dep.version and declared and declared ~= dep.version then
@@ -797,8 +812,12 @@ local function rockPaths(
                 cpaths[#cpaths + 1] = entries.cpath
             end
             local record = records and records[name] or nil
-            local rock = dep.rock or name
+            -- A manifest dependency name is only a local key. The installed rock may
+            -- have a different package name, and the completed dependency record is
+            -- authoritative even when the manifest omitted `rock` and named a
+            -- rockspec whose package field supplied it.
             local rockspec = dep.rockspec and absolute(join(root, dep.rockspec)) or nil
+            local rock = record and record.rock or dep.rock or declaredPackage(rockspec) or name
             local version = record and record.version or dep.version or declaredVersion(rockspec)
             local typeRoot = record and record.typeRoot or rockTypeRoot(tree, luaVersion, rock, version)
             if typeRoot then
@@ -811,6 +830,46 @@ local function rockPaths(
     end
 
     return {path = table.concat(paths, ";"), cpath = table.concat(cpaths, ";"), typeRoots = typeRoots,}
+end
+
+--- Identifies the selected target dependency that installs one exact runtime
+--- module. This is artifact accounting, not provider discovery: the backend has
+--- already selected the module by name.
+local function runtimeModuleOwner(
+    root: string,
+    config: Config,
+    target: Target?,
+    records: {[string]: cache.DependencyRecord}?,
+    moduleName: string
+): any?
+    local relative = moduleName:gsub("%.", "/")
+    for _, name in ipairs(target and target.dependencies or {}) do
+        local dep = (config.dependencies or {})[name] as manifest.Dependency
+        local record = records and records[name] or nil
+        if type(dep) == "table" and dep.kind == "luarocks" then
+            local tree, luaVersion = rockTree(root, dep)
+            local candidates = {
+                join(tree, "share/lua/" .. luaVersion .. "/" .. relative .. ".lua"),
+                join(tree, "share/lua/" .. luaVersion .. "/" .. relative .. "/init.lua"),
+                join(tree, "lib/lua/" .. luaVersion .. "/" .. relative .. ".so"),
+                join(tree, "lib/lua/" .. luaVersion .. "/" .. relative .. ".dll"),
+                join(tree, "lib/lua/" .. luaVersion .. "/" .. relative .. ".dylib"),
+            }
+            for _, candidate in ipairs(candidates) do
+                if exists(candidate) then
+                    local rockspec = dep.rockspec and absolute(join(root, dep.rockspec)) or nil
+
+                    return {
+                        dependency = name,
+                        package = record and record.rock or dep.rock or declaredPackage(rockspec) or name,
+                        version = record and record.version or dep.version or declaredVersion(rockspec),
+                    }
+                end
+            end
+        end
+    end
+
+    return nil
 end
 
 --- The rock modules a target asks a bundle to carry, as name -> file.
@@ -913,6 +972,7 @@ end
 deps.expandGlob = expandGlob
 deps.build = buildDependencies
 deps.rockPaths = rockPaths
+deps.runtimeModuleOwner = runtimeModuleOwner
 deps.rockModules = rockModules
 
 export = deps

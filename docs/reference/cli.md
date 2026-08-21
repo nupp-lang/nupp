@@ -19,6 +19,7 @@ The commands, in the order `nupp help` lists them:
 - [`check`](#check): type-check source without emitting Lua
 - [`fmt`](#fmt): format Nupp source
 - [`build`](#build): build source files or a configured project target
+- [`backend`](#backend): run checked backend conformance suites
 - [`clean`](#clean): remove build outputs configured in `nupp.lua`
 - [`tasks`](#tasks): list or inspect project tasks from `nupp.lua`
 - [`lints`](#lints): list the lints and the level each runs at
@@ -79,7 +80,7 @@ nupp check --json
 nupp check --schema
 ```
 
-`init`, `ast`, `aot`, `bc`, `check`, `fmt`, `build`, `clean`, `tasks`, `lints`,
+`init`, `ast`, `aot`, `bc`, `check`, `fmt`, `build`, `backend`, `clean`, `tasks`, `lints`,
 `ownership-audit`, `explain`, `doc`, `fixpoint`, `import-c` and `export-c` take
 all three, and so does every `lsp` operation. `reference` names its
 formats `markdown`, `skill` and `json` instead. `coverage`, `test` and `run`
@@ -872,6 +873,33 @@ versions.
 - [distribution.md](distribution.md) for turning a built target into something
   to ship
 :::
+
+### `backend`
+
+```text [nupp backend --help]
+Run checked backend conformance suites
+
+Usage:
+  nupp backend test <module> [--dialect luajit|lua51] [--runtime LUA] [--seam NAME] [--json]
+
+Options:
+  -h, --help  Show this help
+  --schema    Print the JSON Schema of --json output and exit
+
+The command checks and compiles the backend without executing it, then runs all or one of its compiler-owned seam suites. --runtime writes the checked modules as real Lua files and executes them with that interpreter; without it the isolated CLI process is used. It reports resolution evidence, not a cached certification claim.
+```
+
+The backend module and every seam suite are checked source. Passing
+`--runtime` compiles that source into an isolated Lua module tree before the
+named executable runs it, so a Lua 5.1 compatibility result does not come from
+the compiler's LuaJIT process:
+
+```bash
+nupp backend test acme.portable --dialect lua51 --runtime lua5.1
+```
+
+The command reports evidence from that run. It does not modify a manifest,
+discover providers, or record a certification for later builds.
 
 ### `clean`
 
@@ -1992,6 +2020,7 @@ Commands:
   check            Type-check source without emitting Lua
   fmt              Format Nupp source
   build            Build source files or a configured project target
+  backend          Run checked backend conformance suites
   clean            Remove build outputs configured in nupp.lua
   tasks            List or inspect project tasks from nupp.lua
   lints            List the lints and the level each runs at

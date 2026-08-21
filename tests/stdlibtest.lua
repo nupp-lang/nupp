@@ -648,6 +648,7 @@ end
 
 function M.stringLibrary()
    assertClean("local s: string = string.format('%d', 3)")
+   assertClean("local s: string = string.format('%d', 3)\nreturn string.rep(s, 2)", {dialect = "lua51"})
    assertEq((diagsOf("local n: number = string.format('%d', 3)")),
       "NUPP2001:1")
    assertEq((diagsOf("string.formt('%d', 3)")), "NUPP2004:1")

@@ -1221,6 +1221,13 @@ local ENTRIES: {any} = {
         docs = "docs/neps/0013-dialects-and-capability-backends.md",
     },
     {
+        code = "NUPP3008",
+        summary = "A selected backend module is missing or has an invalid descriptor",
+        rule = "A target names backend modules explicitly. Each selected module must be available from project source or a selected dependency's checked Nupp root, pass ordinary checking, and export one declarative Backend.new value containing complete compiler-owned seam constructors. Fix the named module or remove it from the target; Nupp does not execute backend top levels to discover metadata.",
+        related = {"NUPP3006", "NUPP3012"},
+        docs = "docs/neps/0013-dialects-and-capability-backends.md",
+    },
+    {
         code = "NUPP3009",
         summary = "The portable dialect cannot lower an authored jump",
         rule = "An authored label or `goto` can jump across arbitrary lexical regions. Lowering a function containing one to Lua 5.1 would require a state machine, changing stack frames and error sites. Use structured control flow instead. Compiler-generated cleanup and `continue` transfers are structured and are lowered separately.",
