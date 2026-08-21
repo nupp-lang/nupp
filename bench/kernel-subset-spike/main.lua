@@ -3,6 +3,7 @@
 local ffi = require("ffi")
 local bit = require("bit")
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
+local now = dofile(here .. "wallclock.lua")
 package.path = here .. "build/fallback/?.lua;" .. here .. "build/fallback/?/init.lua;"
    .. here .. "build/nupp/?.lua;" .. here .. "build/nupp/?/init.lua;" .. package.path
 
@@ -123,10 +124,10 @@ local function measure(fn, passes)
    local samples = {}
    for _ = 1, 4 do fn() end
    for sample = 1, 7 do
-      local started = os.clock()
+      local started = now()
       local value = 0
       for _ = 1, passes do value = value + fn() end
-      samples[sample] = (os.clock() - started) / passes
+      samples[sample] = (now() - started) / passes
       if value == math.huge then error("unreachable") end
    end
    return median(samples)

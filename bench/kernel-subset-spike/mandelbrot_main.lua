@@ -9,6 +9,7 @@
 local ffi = require("ffi")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
+local now = dofile(here .. "wallclock.lua")
 -- Which kernel to run. `mandelbrot` is the ordinary binary64 one; `mandelbrot_f32`
 -- is the same algorithm written in explicit binary32, which is a different
 -- program with different escape counts and is checked against its own oracle.
@@ -294,13 +295,13 @@ io.write("\n")
 if os.getenv("MANDELBROT_QUIET") then
    local function bench(name, run)
       for _ = 1, 3 do run() end
-      local started = os.clock()
+      local started = now()
       local passes = 0
-      while os.clock() - started < 1.0 do
+      while now() - started < 1.0 do
          run()
          passes = passes + 1
       end
-      local elapsed = (os.clock() - started) / passes
+      local elapsed = (now() - started) / passes
       io.write(("%-12s %12.0f ns/frame %10.2f MPix/s\n")
          :format(name, elapsed * 1e9, count / elapsed / 1e6))
    end
@@ -339,13 +340,13 @@ end
 local function timed(name, run, pixels)
    pixels = pixels or count
    for _ = 1, 3 do run() end
-   local started = os.clock()
+   local started = now()
    local passes = 0
-   while os.clock() - started < 0.25 do
+   while now() - started < 0.25 do
       run()
       passes = passes + 1
    end
-   local elapsed = (os.clock() - started) / passes
+   local elapsed = (now() - started) / passes
    io.write(("\n%-22s %8.3f ms  %10.1f Mpixel/s%s")
       :format(name, elapsed * 1000, pixels / elapsed / 1e6,
          pixels ~= count and (" (over %d pixels)"):format(pixels) or ""))

@@ -5,6 +5,7 @@
 local ffi = require("ffi")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
+local now = dofile(here .. "wallclock.lua")
 local OUT = here .. "build/columns/"
 package.path = OUT .. "fallback/?.lua;" .. OUT .. "fallback/?/init.lua;" .. package.path
 
@@ -55,13 +56,13 @@ end
 local function timed(name, run)
    local target = fresh()
    for _ = 1, 3 do run(target) end
-   local started = os.clock()
+   local started = now()
    local passes = 0
-   while os.clock() - started < 0.5 do
+   while now() - started < 0.5 do
       run(target)
       passes = passes + 1
    end
-   local elapsed = (os.clock() - started) / passes
+   local elapsed = (now() - started) / passes
    io.write(("%-24s %10.0f ns %12.1f MB/s\n")
       :format(name, elapsed * 1e9, count * 16 / elapsed / 1e6))
 end
