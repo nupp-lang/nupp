@@ -142,7 +142,7 @@ const styles = `
   position: relative;
   display: block;
   overflow: visible;
-  margin: 1.75rem 0 .75rem;
+  margin: 1.875rem 0 .75rem;
   color: var(--pg-text);
   font-family: var(--pg-font);
 }
@@ -150,7 +150,7 @@ const styles = `
 .toolbar {
   position: absolute;
   z-index: 2;
-  top: -1.75rem;
+  top: -1.875rem;
   right: 0;
   left: 0;
   display: flex;
@@ -164,7 +164,7 @@ const styles = `
 :host([data-grouped]) .toolbar {
   position: static;
   height: 2rem;
-  padding: 0 0 .2rem;
+  padding: 0 0 .4rem;
 }
 :host([data-grouped]) .editor {
   border: 0;
