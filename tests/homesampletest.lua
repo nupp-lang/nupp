@@ -26,6 +26,22 @@ local NUPP = ROOT .. "/bin/nupp"
 
 local M = {}
 
+function M.crlfFencesKeepTheirLanguage()
+   local parsed = home.features(table.concat({
+      "## Portable",
+      "",
+      "The checkout decides its line endings.",
+      "",
+      "```nupp",
+      "local answer: number = 42",
+      "```",
+   }, "\r\n"))
+
+   assert(#parsed == 1)
+   assert(parsed[1].codeLanguage == "nupp", parsed[1].codeLanguage)
+   assert(parsed[1].code == "local answer: number = 42", parsed[1].code)
+end
+
 --- The home page's feature cards, read from the page they are written on.
 local function features()
    local file = assert(io.open(ROOT .. "/docs/index.md", "rb"), "the home page")

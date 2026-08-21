@@ -131,6 +131,10 @@ end
 --- A card that fences nothing and shows an image shows that instead, which is what the
 --- showcase does with the two it is given.
 function home.features(text: string): {pageMod.Feature}
+    -- Git may check Markdown out with CRLF on Windows. Normalize the region before
+    -- recognizing line-oriented fences so their language never retains a trailing
+    -- carriage return.
+    text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
     local found: {pageMod.Feature} = {}
     -- Split on headings rather than scanning line by line, so a `##` inside a fenced
     -- sample cannot open a card. The fences are stripped first for exactly that reason.
