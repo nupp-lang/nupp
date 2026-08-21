@@ -29,6 +29,30 @@ function suite.test(provider: any): (boolean, string?)
         local arrayCopy = Points:copy(values)
         arrayCopy[0].bits = 9
         assert(values[0].bits == 2, "fixed arrays must copy their elements")
+        assert(
+            not pcall(function()
+                return point.missing
+            end),
+            "undeclared struct reads must fail"
+        )
+        assert(
+            not pcall(function()
+                point.missing = 1
+            end),
+            "undeclared struct writes must fail"
+        )
+        assert(
+            not pcall(function()
+                return values[2]
+            end),
+            "out-of-bounds array reads must fail"
+        )
+        assert(
+            not pcall(function()
+                values[-1] = point
+            end),
+            "out-of-bounds array writes must fail"
+        )
     end)
     if not ok then
         return false, tostring(problem)

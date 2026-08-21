@@ -3,22 +3,30 @@ module nupp.compiler.standardsurface
 --[[Closed portable classification for public standard-library facilities.]]
 
 local surface = {}
+local seamRegistry = require("nupp.runtime.seam.registry")
+
+local function selected(kind: string, name: string, allDialects: boolean?): any
+    local seam = seamRegistry.get(name)
+
+    return {kind = kind, seam = seam.name, effect = seam.effect, allDialects = allDialects,}
+end
 
 -- This registry is deliberately positive. Adding a public module requires an
 -- explicit classification before `lua51` can claim it is portable.
 local MODULES = {
     ["nupp"] = {kind = "common"},
     ["nupp.data"] = {kind = "members"},
-    ["nupp.data.json"] = {kind = "runtime", seam = "data.json", effect = "native.json"},
-    ["nupp.data.utf8"] = {kind = "runtime", seam = "data.utf8", effect = "native.lua_utf8"},
+    ["nupp.data.json"] = selected("runtime", "data.json"),
+    ["nupp.data.hmac"] = selected("runtime", "crypto.hmac_sha256", true),
+    ["nupp.data.utf8"] = selected("runtime", "data.utf8"),
     ["nupp.derive"] = {kind = "compiler"},
     ["nupp.hotreload"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.io"] = {kind = "runtime", seam = "io", effect = "stdlib.io"},
-    ["nupp.io.files"] = {kind = "host", seam = "host", effect = "native.files"},
-    ["nupp.io.http"] = {kind = "host", seam = "host", effect = "native.http"},
-    ["nupp.io.path"] = {kind = "runtime", seam = "io", effect = "native.path"},
-    ["nupp.io.process"] = {kind = "host", seam = "host", effect = "native.process"},
-    ["nupp.io.uri"] = {kind = "runtime", seam = "io", effect = "native.uri"},
+    ["nupp.io"] = selected("runtime", "io.bytes"),
+    ["nupp.io.files"] = selected("host", "host.files"),
+    ["nupp.io.http"] = selected("host", "host.http"),
+    ["nupp.io.path"] = selected("runtime", "io.path"),
+    ["nupp.io.process"] = selected("host", "host.process"),
+    ["nupp.io.uri"] = selected("runtime", "io.uri"),
     ["nupp.log"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.mathruntime"] = {kind = "compiler"},
     ["nupp.mem"] = {kind = "unavailable", capability = "cstorage"},
@@ -28,21 +36,21 @@ local MODULES = {
     ["nupp.mem.span"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.native"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.owners"] = {kind = "common"},
-    ["nupp.pegruntime"] = {kind = "runtime", seam = "peg", effect = "stdlib.peg"},
+    ["nupp.pegruntime"] = selected("runtime", "peg"),
     ["nupp.profile"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.profile.trace"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.profile.zone"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.reflectruntime"] = {kind = "compiler"},
-    ["nupp.simd"] = {kind = "compile", seam = "numeric.simd", effect = "runtime.simd"},
+    ["nupp.simd"] = selected("compile", "numeric.simd"),
     ["nupp.suspension"] = {kind = "common"},
-    ["nupp.workers"] = {kind = "host", seam = "host", effect = "native.workers"},
+    ["nupp.workers"] = selected("host", "host.workers"),
 }
 
 local FACILITIES = {
-    ["data.hash"] = {kind = "runtime", seam = "data.hash", effect = "runtime.data_hash"},
-    ["data.sha256"] = {kind = "runtime", seam = "data.sha256", effect = "native.sha256"},
-    ["data.uuid"] = {kind = "runtime", seam = "data.uuid", effect = "native.uuid"},
-    ["data.bitset"] = {kind = "runtime", seam = "data.bitset", effect = "runtime.data_bitset"},
+    ["data.hash"] = selected("runtime", "data.hash"),
+    ["data.sha256"] = selected("runtime", "data.sha256"),
+    ["data.uuid"] = selected("runtime", "data.uuid"),
+    ["data.bitset"] = selected("runtime", "data.bitset"),
 }
 
 local MODULE_MEMBERS = {
@@ -82,10 +90,10 @@ function surface.facilities(): {[string]: any}
 end
 
 function surface.requireModule(checker: any, moduleName: string, at: any): string?
-    if checker.opts.dialect ~= "lua51" then
+    local classification = MODULES[moduleName]
+    if checker.opts.dialect ~= "lua51" and not (classification and classification.allDialects) then
         return nil
     end
-    local classification = MODULES[moduleName]
     if classification == nil
         or classification.kind == "common"
         or classification.kind == "compiler"

@@ -69,8 +69,11 @@ function bitopsSeam.install(moduleName: string): nil
         _G,
         "__nuppBitops",
         setmetatable({}, {
-            __index = function(_, name)
-                return provider()[name]
+            __index = function(self, name)
+                local value = provider()[name]
+                rawset(self, name, value)
+
+                return value
             end,
         })
     )
@@ -93,7 +96,8 @@ end
 
 --- Supplies the versioned `numeric.bitops` seam for one BitOp-compatible module.
 function bitopsSeam.seam(moduleName: string): runtimeBackend.Seam
-    local seam: any = {name = "numeric.bitops", version = 1, binding = "compile",}
+    local identity = require("nupp.runtime.seam.registry").get("numeric.bitops")
+    local seam: any = {name = identity.name, version = identity.version, binding = identity.binding,}
     function seam:install(): nil
         bitopsSeam.install(moduleName)
     end

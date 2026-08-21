@@ -17,7 +17,7 @@ for runtime in "$@"; do
         echo "portable corpus: required runtime is missing: $runtime" >&2
         exit 1
     fi
-    actual=$("$runtime" "$corpus/build/main.lua")
+    actual=$(LUA_PATH="$corpus/build/?.lua;$root/build/?.lua;;" "$runtime" "$corpus/build/main.lua")
     if [ "$actual" != "$expected" ]; then
         echo "portable corpus: $runtime returned: $actual" >&2
         echo "portable corpus: expected: $expected" >&2

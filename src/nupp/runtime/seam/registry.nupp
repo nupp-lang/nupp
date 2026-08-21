@@ -1,0 +1,97 @@
+@!internal
+module nupp.runtime.seam.registry
+
+--[[Single source of seam identity, version, binding, effects and factory module.]]
+
+local registry = {}
+
+local CONTRACTS: {
+    any
+} = {
+    {name = "data.json", effect = "native.json", binding = "runtime", factoryModule = "nupp.runtime.seam.json"},
+    {
+        name = "numeric.bitops",
+        effect = "runtime.bitops",
+        binding = "compile",
+        factoryModule = "nupp.runtime.seam.bitops"
+    },
+    {
+        name = "representation.structvalue",
+        effect = "runtime.structvalue",
+        binding = "compile",
+        factoryModule = "nupp.runtime.seam.structvalue"
+    },
+    {name = "numeric.int64", effect = "runtime.int64", binding = "compile", factoryModule = "nupp.runtime.seam.int64"},
+    {name = "numeric.simd", effect = "runtime.simd", binding = "compile", factoryModule = "nupp.runtime.seam.simd"},
+    {
+        name = "suspension",
+        effect = "runtime.suspension",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.suspension"
+    },
+    {name = "data.sha256", effect = "native.sha256", binding = "runtime", factoryModule = "nupp.runtime.seam.sha256"},
+    {name = "data.hash", effect = "runtime.data_hash", binding = "runtime", factoryModule = "nupp.runtime.seam.hash"},
+    {name = "data.utf8", effect = "native.lua_utf8", binding = "runtime", factoryModule = "nupp.runtime.seam.utf8"},
+    {name = "data.uuid", effect = "native.uuid", binding = "runtime", factoryModule = "nupp.runtime.seam.uuid"},
+    {
+        name = "data.bitset",
+        effect = "runtime.data_bitset",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.bitset"
+    },
+    {
+        name = "peg",
+        effect = "native.lpeg",
+        effects = {"native.lpeg", "stdlib.lpeg.re", "stdlib.peg", "stdlib.peg.compile"},
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.peg",
+    },
+    {name = "io.bytes", effect = "stdlib.io", binding = "runtime", factoryModule = "nupp.runtime.seam.iobytes"},
+    {name = "io.path", effect = "native.path", binding = "runtime", factoryModule = "nupp.runtime.seam.path"},
+    {name = "io.uri", effect = "native.uri", binding = "runtime", factoryModule = "nupp.runtime.seam.uri"},
+    {name = "host.files", effect = "native.files", binding = "runtime", factoryModule = "nupp.runtime.seam.files"},
+    {name = "host.http", effect = "native.http", binding = "runtime", factoryModule = "nupp.runtime.seam.http"},
+    {
+        name = "host.process",
+        effect = "native.process",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.process"
+    },
+    {
+        name = "host.workers",
+        effect = "native.workers",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.workers"
+    },
+    {
+        name = "crypto.hmac_sha256",
+        effect = "runtime.hmac_sha256",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.hmacsha256"
+    },
+}
+
+local byName, byFactory = {}, {}
+for _, untyped in ipairs(CONTRACTS) do
+    local contract: any = untyped
+    contract.version = 1
+    contract.effects = contract.effects or {contract.effect}
+    assert(byName[contract.name] == nil, "duplicate seam contract " .. contract.name)
+    assert(byFactory[contract.factoryModule] == nil, "duplicate seam factory " .. contract.factoryModule)
+    byName[contract.name] = contract
+    byFactory[contract.factoryModule] = contract
+end
+
+function registry.get(name: string): any
+    return assert(byName[name], "unknown seam contract " .. name)
+end
+
+function registry.forFactory(moduleName: string): any?
+    return byFactory[moduleName]
+end
+
+function registry.all(): {any}
+    return CONTRACTS
+end
+
+export = registry

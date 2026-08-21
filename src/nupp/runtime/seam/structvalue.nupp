@@ -9,15 +9,12 @@ local structvalue = {}
 structvalue.moduleName = "nupp.runtime.seam.structvalue"
 structvalue.suiteModuleName = "nupp.runtime.seam.structvaluesuite"
 
-local CONTRACT: common.Contract = {
-    name = "representation.structvalue",
-    version = 1,
-    binding = "compile",
+local CONTRACT = common.contract("representation.structvalue", {
     globalName = "__nuppStructvalue",
     requiredFunctions = {"define", "array", "scalar"},
     requiredValues = {"referenceValued"},
     suiteModule = structvalue.suiteModuleName,
-}
+})
 
 function structvalue.validate(value: any): string?
     return common.validate(CONTRACT, value)

@@ -1,0 +1,26 @@
+module nupp.runtime.seam.workers
+
+local common = require("nupp.runtime.seam.module")
+local runtimeBackend = require("nupp.runtime.backend")
+local seam = {moduleName = "nupp.runtime.seam.workers", suiteModuleName = "nupp.runtime.seam.workerssuite",}
+local CONTRACT = common.contract("host.workers", {
+    globalName = "__nuppWorkers",
+    requiredFunctions = {"current", "destroyWorker", "spawn"},
+    requiredValues = {"Exit", "Self", "Worker"},
+    suiteModule = seam.suiteModuleName,
+    modules = {["nupp.workers"] = "",},
+})
+
+function seam.validate(value: any): string?
+    return common.validate(CONTRACT, value)
+end
+
+function seam.seam(moduleName: string): runtimeBackend.Seam
+    return common.seam(CONTRACT, moduleName)
+end
+
+function seam.backend(moduleName: string): runtimeBackend.Backend
+    return runtimeBackend.new("host-workers:" .. moduleName, {seam.seam(moduleName)})
+end
+
+export = seam

@@ -1,0 +1,26 @@
+module nupp.runtime.seam.process
+
+local common = require("nupp.runtime.seam.module")
+local runtimeBackend = require("nupp.runtime.backend")
+local seam = {moduleName = "nupp.runtime.seam.process", suiteModuleName = "nupp.runtime.seam.processsuite",}
+local CONTRACT = common.contract("host.process", {
+    globalName = "__nuppProcess",
+    requiredFunctions = {"asReader", "asWriter", "exited", "spawnOn", "useBackend"},
+    requiredValues = {"Backend", "Exit", "Interest", "Process", "Reader", "Result", "Writer"},
+    suiteModule = seam.suiteModuleName,
+    modules = {["nupp.io.process"] = "",},
+})
+
+function seam.validate(value: any): string?
+    return common.validate(CONTRACT, value)
+end
+
+function seam.seam(moduleName: string): runtimeBackend.Seam
+    return common.seam(CONTRACT, moduleName)
+end
+
+function seam.backend(moduleName: string): runtimeBackend.Backend
+    return runtimeBackend.new("host-process:" .. moduleName, {seam.seam(moduleName)})
+end
+
+export = seam

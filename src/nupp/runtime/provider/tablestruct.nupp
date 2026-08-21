@@ -123,15 +123,14 @@ function provider.define(layout: any, methods: table): any
                 return method
             end
 
+            assert(byName[name] ~= nil, "nupp: " .. layout.name .. " has no field " .. tostring(name))
+
             return rawget(self, identity)[name]
         end,
         __newindex = function(self, name, value)
             local field = byName[name]
-            if field == nil then
-                rawset(self, name, value)
-            else
-                rawget(self, identity)[name] = stored(field, value)
-            end
+            assert(field ~= nil, "nupp: " .. layout.name .. " has no field " .. tostring(name))
+            rawget(self, identity)[name] = stored(field, value)
         end,
     }
     local fixed: any = {name = layout.name,}
@@ -188,6 +187,8 @@ function provider.array(element: any, count: integer): any
     local identity = {}
     local values = {
         __index = function(self, index)
+            assert(type(index) == "number" and index >= 0 and index < count, "fixed-array index out of bounds")
+
             return rawget(self, identity)[index]
         end,
         __newindex = function(self, index, value)

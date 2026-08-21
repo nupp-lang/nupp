@@ -1,0 +1,27 @@
+@!internal
+module nupp.runtime.seam.urisuite
+
+local suite = {}
+
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        local value, reason = provider.newURI("https://example.com/a?b=1")
+        assert(value ~= nil, "newURI must parse an absolute URI: " .. tostring(reason))
+        assert(
+            provider.isURI(value) and value:scheme() == "https" and value:host() == "example.com",
+            "URI identity and authority must agree"
+        )
+        assert(value:path() == "/a" and value:query() == "b=1", "URI components must be preserved")
+        assert(
+            provider.validate("https://example.com/") and not provider.validate("not a URI"),
+            "validate must distinguish URI text"
+        )
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

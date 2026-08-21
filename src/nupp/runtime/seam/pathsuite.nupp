@@ -1,0 +1,22 @@
+@!internal
+module nupp.runtime.seam.pathsuite
+
+local suite = {}
+
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        local separator = provider.separator()
+        assert(separator == "/" or separator == "\\", "separator must describe the host path syntax")
+        local joined = provider.newPath("one", "two")
+        assert(joined:toString() == "one" .. separator .. "two", "newPath must join components")
+        local current, reason = provider.currentDirectory()
+        assert(current ~= nil, "currentDirectory must resolve during conformance: " .. tostring(reason))
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

@@ -2389,6 +2389,79 @@ return {answer = answer}
    remove(dir)
 end
 
+function M.targetDependencyCanSupplyAnHmacProvider()
+   local rockspec = [[
+rockspec_format = "3.0"
+package = "acme-crypto"
+version = "1.0-1"
+source = { url = "file://provider.lua" }
+description = { summary = "Target-selected crypto backend fixture." }
+dependencies = { "lua >= 5.1" }
+build = {
+   type = "builtin",
+   modules = {
+      ["acme.hmac_sha256"] = "provider.lua",
+   },
+}
+]]
+   local provider = [[
+local expected = "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"
+local function hex(key, message)
+   if key == "key" and message == "The quick brown fox jumps over the lazy dog" then
+      return expected
+   end
+   assert(key == "" and message == "")
+   return "b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad"
+end
+local function digest(key, message)
+   local encoded = hex(key, message)
+   return encoded:gsub("..", function(byte) return string.char(tonumber(byte, 16)) end)
+end
+return {digest = digest, hex = hex}
+]]
+   local declaration = [[
+module acme.cryptobackend
+const Backend = require("nupp.runtime.backend")
+const Hmac = require("nupp.runtime.seam.hmacsha256")
+export = Backend.new("acme.crypto", {Hmac.seam("acme.hmac_sha256")})
+]]
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {crypto = {kind = "luarocks", path = "vendor/crypto",
+      rockspec = "vendor/crypto/acme-crypto-1.0-1.rockspec"}},
+   build = {targets = {
+      portable = {outDir = "out", entries = {"main"}, dialect = "lua51",
+         dependencies = {"crypto"}, backends = {"acme.cryptobackend"}},
+      native = {outDir = "native", entries = {"main"}, dialect = "luajit"},
+   }},
+}
+]],
+      ["src/main.nupp"] = [[
+local hmac = require("nupp.data.hmac")
+return hmac.hex("key", "The quick brown fox jumps over the lazy dog")
+]],
+      ["vendor/crypto/acme-crypto-1.0-1.rockspec"] = rockspec,
+      ["vendor/crypto/provider.lua"] = provider,
+      ["src/acme/cryptobackend.nupp"] = declaration,
+   })
+   local task = assert(project.describeTasks(dir, "portable"))
+   assertEq(task.dependencies[1], "crypto", "the portable target owns its crypto rock")
+   assertEq(task.backends[1], "acme.cryptobackend", "the same target owns its backend")
+   local produced = {}
+   assertEq(project.build(dir, {target = "portable", produced = produced}), 0,
+      "a checked backend can name a provider from its target dependency")
+   assertEq(produced.backendResolution[1].name, "crypto.hmac_sha256",
+      "requiring HMAC reaches the dependency-backed seam")
+   local script = ("package.path=%q..package.path;io.write(require('main'))")
+      :format(dir .. "/out/?.lua;" .. dir .. "/.rocks/share/lua/5.1/?.lua;build/?.lua;")
+   local status, output = process.capture({"luajit", "-e", script})
+   assertEq(status, 0, "the dependency-backed artifact loads its target rock: " .. tostring(output))
+   assertEq(output, "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8")
+   remove(dir)
+end
+
 function M.rockDependenciesAreRefusedUnlessTheyArePinned()
    local loose = tempProject({
       ["nupp.lua"] = [[

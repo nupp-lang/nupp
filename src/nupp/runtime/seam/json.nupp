@@ -99,7 +99,8 @@ end
 
 --- Supplies the versioned `data.json` seam for one adapter module.
 function jsonSeam.seam(moduleName: string): runtimeBackend.Seam
-    local seam: any = {name = "data.json", version = 1,}
+    local identity = require("nupp.runtime.seam.registry").get("data.json")
+    local seam: any = {name = identity.name, version = identity.version, binding = identity.binding,}
     function seam:install(): nil
         jsonSeam.install(moduleName)
     end

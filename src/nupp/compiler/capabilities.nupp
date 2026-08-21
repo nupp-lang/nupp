@@ -9,27 +9,22 @@ new capability or change the native meaning of an existing one.
 ]]
 
 local capabilities = {}
+local seamRegistry = require("nupp.runtime.seam.registry")
+
+local function requirement(name: string): any
+    local seam = seamRegistry.get(name)
+
+    return {name = seam.name, version = seam.version, effect = seam.effect,}
+end
 
 local CONTRACTS = {
-    bitops = {
-        native = {luajit = true},
-        seams = {lua51 = {name = "numeric.bitops", version = 1, effect = "runtime.bitops",},},
-    },
-    int64 = {
-        native = {luajit = true},
-        seams = {lua51 = {name = "numeric.int64", version = 1, effect = "runtime.int64",},},
-    },
+    bitops = {native = {luajit = true}, seams = {lua51 = requirement("numeric.bitops"),},},
+    int64 = {native = {luajit = true}, seams = {lua51 = requirement("numeric.int64"),},},
     cinterop = {native = {luajit = true}, seams = {},},
-    structvalue = {
-        native = {luajit = true},
-        seams = {lua51 = {name = "representation.structvalue", version = 1, effect = "runtime.structvalue",},},
-    },
+    structvalue = {native = {luajit = true}, seams = {lua51 = requirement("representation.structvalue"),},},
     cstorage = {native = {luajit = true}, seams = {},},
     presize = {native = {luajit = true}, compiler = {lua51 = true}, seams = {},},
-    simd = {
-        native = {luajit = true},
-        seams = {lua51 = {name = "numeric.simd", version = 1, effect = "runtime.simd",},},
-    },
+    simd = {native = {luajit = true}, seams = {lua51 = requirement("numeric.simd"),},},
 }
 
 --- Resolves every closed capability for one dialect and selected backend set.
@@ -80,7 +75,11 @@ end
 
 --- Reports a missing capability at the source construct that requires it.
 function capabilities.require(checker: any, name: string, at: any): boolean
-    local resolved = capabilities.resolve(checker.opts.dialect, checker.opts.backendResolution)
+    local resolved = checker.opts._capabilityResolution
+    if resolved == nil then
+        resolved = capabilities.resolve(checker.opts.dialect, checker.opts.backendResolution)
+        checker.opts._capabilityResolution = resolved
+    end
     local capability = capabilities.get(resolved, name)
     if capability.kind ~= "missing" then
         return true
