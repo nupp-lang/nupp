@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add schema-driven serde for records, fixed-layout structs, and run-time
+  dynamic values. `@derive(nupp.derive.Serde)` produces one format-neutral
+  schema and binding; prepared JSON profiles cache encoded keys and raw-byte
+  lookup, traverse flat scalar structures in one native call, and reuse
+  per-thread encoder and decoder scratch. Dynamic bindings resolve names once
+  into checked dense slots, and typed extensions now provide the shared lazy
+  cache boundary for reflection descriptors, schemas, and bindings.
+
 - Publish the documentation site by convention rather than by inventory. A page
   entry names a `glob`, and every Markdown file it matches is published at the
   route its path gives, under the title its heading gives; what a path cannot

@@ -686,6 +686,30 @@ export function encodeRecord<T>(borrows value: T): string
     error("nupp: JSON was not derived for this type", 2)
 end
 
+--- Creates a schema-driven JSON codec with one immutable wire profile.
+---
+--- The codec prepares a `nupp.data.serde.Binding<T>` once and then performs each
+--- complete scalar structure traversal in one native call. Format-owning JSON derives
+--- remain available as compatibility APIs.
+---
+--- ```nupp
+--- @derive(nupp.derive.Serde)
+--- local record User
+---     id: uint32
+--- end
+---
+--- local codec = nupp.data.json.newCodec()
+--- local prepared = codec:prepare(nupp.data.serde.of(User))
+--- assert(prepared:encode(new User(id = 41)) == [[{"id":41}]])
+--- ```
+--- @param options fieldNames and unknownMembers profile policy
+--- @return the schema-driven codec
+--- @raises when the profile is invalid
+--- @export
+export function newCodec(options: any?): any
+    return _G.require("nupp.data.serde").json(options)
+end
+
 --- Sentinel that decodes from and encodes as JSON null.
 --- @export
 export const NULL: any = native.NULL

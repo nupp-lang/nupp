@@ -775,14 +775,15 @@ function M.standardJsonApiHasCompleteDocumentation()
       arrayOf = true, asArray = true, asObject = true, encode = true,
       serialize = true, encoded = true, encodedString = true, verified = true,
       verifiedString = true, writer = true, decodeAs = true, encodeAs = true,
-      encodeRecord = true, writeAs = true, writeRecord = true, NULL = true,
+      encodeRecord = true, writeAs = true, writeRecord = true, newCodec = true,
+      NULL = true,
       EMPTY_ARRAY = true, EMPTY_OBJECT = true,
    }
    local callable = {
       decode = true, pull = true, arrayOf = true, asArray = true, asObject = true,
       encode = true, serialize = true, encoded = true, encodedString = true,
       verified = true, verifiedString = true, writer = true, decodeAs = true, encodeAs = true,
-      encodeRecord = true, writeAs = true, writeRecord = true,
+      encodeRecord = true, writeAs = true, writeRecord = true, newCodec = true,
    }
    local writer
    for _, item in ipairs(module.items) do

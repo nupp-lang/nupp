@@ -1,6 +1,7 @@
 local m = {}
 
 local json = require("nupp.data.json")
+local serde = require("nupp.data.serde")
 local native = require("serde_spike_native")
 local buffer = require("string.buffer")
 
@@ -30,7 +31,9 @@ end
 
 local record JsonSerializer is Serializer
     out: string.buffer.Buffer
-    writer: nupp.data.json.Writer
+    -- This benchmark keeps its pre-Closeable callback harness intentionally
+    -- untyped; the production prepared path below uses the affine API normally.
+    writer: any
 
     function beginStruct(self, schema: Schema): nil
         self.writer:startObject()
@@ -53,11 +56,11 @@ local record JsonSerializer is Serializer
     end
 
     function endStruct(self): nil
-        self.writer:close()
+        self.writer:endObject()
     end
 
     function finish(self): string
-        self.writer:finish()
+        self.writer:close()
         return self.out:tostring()
     end
 end
@@ -119,7 +122,7 @@ local smallMembers = {
 }
 local smallSchema = schema(smallMembers)
 
-@derive(nupp.derive.JSON)
+@derive(nupp.derive.JSON, nupp.derive.Serde)
 local record Small
     id: integer
     active: boolean
@@ -150,7 +153,7 @@ local mediumMembers = {
 }
 local mediumSchema = schema(mediumMembers)
 
-@derive(nupp.derive.JSON)
+@derive(nupp.derive.JSON, nupp.derive.Serde)
 @json(unknown = "ignore")
 local record Medium
     id: integer
@@ -205,6 +208,11 @@ local mediumSlots: {any} = {
     "example-owner", 3, true,
 }
 
+local productionCodec = serde.json{unknownMembers = "ignore"}
+local preparedSmall = productionCodec:prepare(serde.of(Small))
+local preparedMedium = productionCodec:prepare(serde.of(Medium))
+local preparedOutput = buffer.new()
+
 function m.currentEncodeSmall(): string
     return json.encodeAs(Small, smallValue)
 end
@@ -219,7 +227,8 @@ function m.directEncodeSmall(): string
     target.writer:key(smallMembers[1].jsonKey):write(smallValue.id)
     target.writer:key(smallMembers[2].jsonKey):write(smallValue.active)
     target.writer:key(smallMembers[3].jsonKey):write(smallValue.name)
-    target.writer:close():finish()
+    target.writer:endObject()
+    target.writer:close()
     return target.out:tostring()
 end
 
@@ -243,6 +252,16 @@ end
 
 function m.nativeDynamicEncodeSmall(): string
     return native.encodeSlots(smallSchema.native, smallSlots) as string
+end
+
+function m.preparedEncodeSmall(): string
+    return preparedSmall:encode(smallValue)
+end
+
+function m.preparedWriteSmall(): integer
+    preparedOutput:reset()
+    preparedSmall:write(smallValue, preparedOutput)
+    return #preparedOutput
 end
 
 function m.currentEncodeMedium(): string
@@ -275,6 +294,16 @@ function m.nativeDynamicEncodeMedium(): string
     return native.encodeSlots(mediumSchema.native, mediumSlots) as string
 end
 
+function m.preparedEncodeMedium(): string
+    return preparedMedium:encode(mediumValue)
+end
+
+function m.preparedWriteMedium(): integer
+    preparedOutput:reset()
+    preparedMedium:write(mediumValue, preparedOutput)
+    return #preparedOutput
+end
+
 local smallJson = m.nativeEncodeSmall()
 local mediumJson = m.nativeEncodeMedium()
 local mediumReverseJson = [[{"cached":true,"retries":3,"owner":"example-owner","ratio":0.625,"version":7,"enabled":false,"region":"us-east-1","score":98.25,"count":1701,"name":"Ada","active":true,"id":41}]]
@@ -296,6 +325,10 @@ function m.nativeDynamicDecodeSmall(): any
     return native.decodeSlots(smallSchema.native, smallJson)
 end
 
+function m.preparedDecodeSmall(): Small
+    return assert(preparedSmall:decode(smallJson))
+end
+
 function m.currentDecodeMedium(): Medium
     return assert(Medium.fromJSON(mediumJson))
 end
@@ -312,12 +345,26 @@ function m.nativeDynamicDecodeMedium(): any
     return native.decodeSlots(mediumSchema.native, mediumJson)
 end
 
+function m.preparedDecodeMedium(): Medium
+    return assert(preparedMedium:decode(mediumJson))
+end
+
 function m.nativeDecodeMediumReverse(): Medium
     return native.decodeRecord(mediumSchema.native, mediumReverseJson, Medium) as Medium
 end
 
+
+function m.preparedDecodeMediumReverse(): Medium
+    return assert(preparedMedium:decode(mediumReverseJson))
+end
+
 function m.nativeDecodeMediumUnknown(): Medium
     return native.decodeRecord(mediumSchema.native, mediumUnknownJson, Medium) as Medium
+end
+
+
+function m.preparedDecodeMediumUnknown(): Medium
+    return assert(preparedMedium:decode(mediumUnknownJson))
 end
 
 function m.currentDecodeMediumReverse(): Medium

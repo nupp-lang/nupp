@@ -19,6 +19,8 @@ local cases = {
    { group = "encodeSmall", name = "schemaWalkSlots", call = "dynamicEncodeSmall", result = "#value" },
    { group = "encodeSmall", name = "nativeSchemaRecord", call = "nativeEncodeSmall", result = "#value" },
    { group = "encodeSmall", name = "nativeSchemaSlots", call = "nativeDynamicEncodeSmall", result = "#value" },
+   { group = "encodeSmall", name = "preparedSerde", call = "preparedEncodeSmall", result = "#value" },
+   { group = "encodeSmall", name = "preparedSerdeBuffered", call = "preparedWriteSmall", result = "value" },
 
    { group = "encodeMedium", name = "currentDerived", call = "currentEncodeMedium", result = "#value" },
    { group = "encodeMedium", name = "document", call = "documentEncodeMedium", result = "#value" },
@@ -27,22 +29,28 @@ local cases = {
    { group = "encodeMedium", name = "schemaWalkSlots", call = "dynamicEncodeMedium", result = "#value" },
    { group = "encodeMedium", name = "nativeSchemaRecord", call = "nativeEncodeMedium", result = "#value" },
    { group = "encodeMedium", name = "nativeSchemaSlots", call = "nativeDynamicEncodeMedium", result = "#value" },
+   { group = "encodeMedium", name = "preparedSerde", call = "preparedEncodeMedium", result = "#value" },
+   { group = "encodeMedium", name = "preparedSerdeBuffered", call = "preparedWriteMedium", result = "value" },
 
    { group = "decodeSmall", name = "currentDerived", call = "currentDecodeSmall", result = "value.id" },
    { group = "decodeSmall", name = "document", call = "documentDecodeSmall", result = "value.id" },
    { group = "decodeSmall", name = "nativeSchemaRecord", call = "nativeDecodeSmall", result = "value.id" },
    { group = "decodeSmall", name = "nativeSchemaSlots", call = "nativeDynamicDecodeSmall", result = "value[1]" },
+   { group = "decodeSmall", name = "preparedSerde", call = "preparedDecodeSmall", result = "value.id" },
 
    { group = "decodeMediumOrdered", name = "currentDerived", call = "currentDecodeMedium", result = "value.id" },
    { group = "decodeMediumOrdered", name = "document", call = "documentDecodeMedium", result = "value.id" },
    { group = "decodeMediumOrdered", name = "nativeSchemaRecord", call = "nativeDecodeMedium", result = "value.id" },
    { group = "decodeMediumOrdered", name = "nativeSchemaSlots", call = "nativeDynamicDecodeMedium", result = "value[1]" },
+   { group = "decodeMediumOrdered", name = "preparedSerde", call = "preparedDecodeMedium", result = "value.id" },
 
    { group = "decodeMediumReverse", name = "currentDerived", call = "currentDecodeMediumReverse", result = "value.id" },
    { group = "decodeMediumReverse", name = "nativeSchemaRecord", call = "nativeDecodeMediumReverse", result = "value.id" },
+   { group = "decodeMediumReverse", name = "preparedSerde", call = "preparedDecodeMediumReverse", result = "value.id" },
 
    { group = "decodeMediumUnknown", name = "currentDerived", call = "currentDecodeMediumUnknown", result = "value.id" },
    { group = "decodeMediumUnknown", name = "nativeSchemaRecord", call = "nativeDecodeMediumUnknown", result = "value.id" },
+   { group = "decodeMediumUnknown", name = "preparedSerde", call = "preparedDecodeMediumUnknown", result = "value.id" },
 }
 
 local function compileRunner(case)

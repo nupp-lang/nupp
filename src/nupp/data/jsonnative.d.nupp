@@ -142,6 +142,21 @@ record json
     --- @return a new writer
     writer: function(exclusive out: string.buffer.Buffer, nullValue: any?): Writer
 
+    --- Compiles the immutable scalar structure plan used by prepared serde JSON.
+    compileSerde: function(fields: {any}, unknownMembers: string): any
+
+    --- Encodes a record or struct in one prepared native traversal.
+    encodeSerdeRecord: function(schema: any, value: any): string
+
+    --- Encodes indexed dynamic slots in one prepared native traversal.
+    encodeSerdeSlots: function(schema: any, value: {any}): string
+
+    --- Decodes directly into a record or struct.
+    decodeSerdeRecord: function(schema: any, text: string, type: any): any
+
+    --- Decodes directly into indexed dynamic slots.
+    decodeSerdeSlots: function(schema: any, text: string): {any}
+
     --- Decodes JSON into the nominal record named by its one type witness.
     --- @param type the record's type witness, naming what to decode into
     --- @param text the JSON document to decode
@@ -170,6 +185,9 @@ record json
     --- @param value the record to encode
     --- @return the encoded JSON document
     encodeRecord: function<T>(value: T): string
+
+    --- Creates the schema-driven JSON codec.
+    newCodec: function(options: any?): any
 
     --- Sentinel that decodes from and encodes as JSON null.
     NULL: any

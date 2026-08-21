@@ -16,7 +16,7 @@ return {
          cc = "c++",
          path = "../..",
          sources = { "runtime/json/json.cpp" },
-         headers = { "runtime/json/json.h" },
+         headers = { "runtime/json/json.h", "runtime/json/serde.inc" },
          cflags = {
             "-std=c++17", "-O3", "-DNDEBUG", "-Wall", "-Wextra", "-Werror",
          },
@@ -36,4 +36,3 @@ return {
       },
    },
 }
-

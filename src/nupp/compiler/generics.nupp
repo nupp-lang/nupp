@@ -1800,6 +1800,12 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
     elseif tag == "typeobject" then
         if arg.tag == "typeobject" then
             generics.unify(param.of, arg.of, map)
+        elseif arg.tag == "nominal" and arg.declKind == "struct" then
+            -- A struct declaration is represented by its callable ctype rather than
+            -- a record table, but it is still the one declaration witness for that
+            -- nominal type. This lets Type<T>-directed APIs serve both records and
+            -- structs without erasing T.
+            generics.unify(param.of, arg, map)
         end
     elseif tag == "map" then
         if arg.tag == "map" then

@@ -488,8 +488,8 @@ end
 --- nameable types, and it observes no tokens, source positions, comments, or another
 --- provider's output.
 ---
---- Two providers ship with the compiler and cross the same boundary a package
---- provider does: `Debug` and `JSON`.
+--- Three providers ship with the compiler and cross the same boundary a package
+--- provider does: `Debug`, `JSON`, and `Serde`.
 ---
 --- #### Derive the shipped providers
 ---
@@ -621,6 +621,21 @@ record nupp.derive
     --- assert(decoded == nil and failure == '$.user_id: required field is absent')
     --- ```
     JSON: Provider
+
+    --- Derives one format-neutral schema and physical binding for a record or struct.
+    --- It generates no per-format methods; codecs prepare and cache the binding.
+    ---
+    --- ```nupp
+    --- @derive(nupp.derive.Serde)
+    --- local record User
+    ---     id: uint32
+    ---     name: string?
+    --- end
+    ---
+    --- local prepared = nupp.data.serde.json():prepare(nupp.data.serde.of(User))
+    --- local text = prepared:encode(new User(id = 7, name = "ada"))
+    --- ```
+    Serde: Provider
 
     --- Semantic configuration visible to providers as `Info` annotations.
     ---

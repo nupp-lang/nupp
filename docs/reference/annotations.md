@@ -251,7 +251,7 @@ any of their names.
 | `@partition` | two result field names | sealed interface field |
 | `@effects` | named effect members | function, c-function, local-binding |
 | `@relax` | guarantee names | function |
-| `@derive` | qualified comptime providers | record |
+| `@derive` | qualified comptime providers | record, struct |
 | `@json` | JSON record or field options | record, field |
 | `@debug` | `skip` or `redact` | field in a derived record |
 | `@deprecated` | optional reason and replacement | declaration, field, c-declaration |
@@ -333,9 +333,9 @@ contracts a public signature is allowed to carry.
 
 ### `@derive`
 
-`@derive` accepts `nupp.derive.Debug`, `nupp.derive.JSON`, or an exported
-comptime provider, and adds checked members without exposing source or AST
-macros:
+`@derive` accepts `nupp.derive.Debug`, `nupp.derive.JSON`,
+`nupp.derive.Serde`, or an exported comptime provider, and adds checked members
+or format-neutral materialization data without exposing source or AST macros:
 
 ```nupp
 @derive(nupp.derive.Debug)
@@ -345,8 +345,10 @@ local record Point
 end
 ```
 
-`@json` and `@debug` configure what the two bundled providers generate. All
-three are reserved semantic names, and their values are visible through a
+`Debug` and `JSON` admit records. `Serde` admits records and structs. A package
+provider declares its result contract and decides which target it accepts.
+`@json` and `@debug` configure their corresponding format and renderer; Serde
+itself is format-neutral. The reserved annotations are visible through a
 provider's `Info`. See [Declaration derives](derives.md) for the recipe
 capabilities, generated methods, JSON policies, and failure rules.
 

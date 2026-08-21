@@ -1021,6 +1021,14 @@ local function check(a: Type, b: Type): boolean, string?
             return true
         end
         return fail(a, b)
+    elseif btag == "typeobject" then
+        -- Record declarations carry an explicit Type<T> wrapper. A struct's runtime
+        -- declaration value is already its ctype, represented by the nominal here;
+        -- both are declaration witnesses and therefore fit Type<T> for the same T.
+        if atag == "nominal" and a.declKind == "struct" and a == b.of then
+            return true
+        end
+        return fail(a, b)
     end
 
     if atag == "array" and btag == "array" then

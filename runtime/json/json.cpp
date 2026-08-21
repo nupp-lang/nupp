@@ -19,6 +19,8 @@ extern "C" {
 }
 #include <simdjson.h>
 
+#include "serde.inc"
+
 struct nuppSimdjsonParser {
     simdjson::dom::parser dom;
     simdjson::ondemand::parser ondemand;
@@ -1704,6 +1706,7 @@ extern "C" NUPP_SIMDJSON_EXPORT int luaopen_simdjson_bench_native(lua_State *L) 
     setFunction(L, "verified", luaVerified);
     setFunction(L, "verifiedString", luaVerifiedString);
     setFunction(L, "writer", luaNewWriter);
+    nuppInstallJsonSerde(L, moduleIndex);
     installMarker(L, moduleIndex, &NULL_KEY, "NULL");
     installMarker(L, moduleIndex, &EMPTY_ARRAY_KEY, "EMPTY_ARRAY");
     installMarker(L, moduleIndex, &EMPTY_OBJECT_KEY, "EMPTY_OBJECT");

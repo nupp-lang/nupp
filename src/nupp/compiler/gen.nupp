@@ -1217,7 +1217,7 @@ function gen.generate(
         end
     end
 
-    local function emitDerivedMembers(x, runtimeName)
+    local function emitDerivedMembers(x, runtimeName, memberRuntimeName)
         local recipe = x.deriveRecipe
         if not recipe then
             return
@@ -1267,6 +1267,7 @@ function gen.generate(
             error("unknown derived forwarding argument " .. tostring(argument.kind))
         end
 
+        local memberOwner = memberRuntimeName or runtimeName
         for _, member in ipairs(recipe.members or {}) do
             if member.operation == "forward.v1" then
                 local names, parameters = {}, {}
@@ -1296,7 +1297,7 @@ function gen.generate(
                 e(
                     (
                         ";%s[%q]=function(%s)return %s(%s)end"
-                    ):format(runtimeName, member.name, table.concat(names, ","), helper, table.concat(arguments, ","))
+                    ):format(memberOwner, member.name, table.concat(names, ","), helper, table.concat(arguments, ","))
                 )
             else
                 error("unknown derived member operation " .. tostring(member.operation))
@@ -3941,6 +3942,11 @@ function gen.generate(
             -- cdata routes through exactly that table, which is what makes the call
             -- work at all.
             emitInheritedDefaults(x, mt .. ".__index")
+            -- The derive registry is keyed by the ctype witness, while generated
+            -- instance members live on the metatype index table. Keeping those two
+            -- targets explicit lets a provider such as Serde register data for a
+            -- struct without pretending the ctype is a mutable Lua table.
+            pluck.emitDerivedMembers(x, path or x.name.text, mt .. ".__index")
             return
         end
 

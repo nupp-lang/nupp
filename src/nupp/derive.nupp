@@ -40,6 +40,7 @@ end
 -- compiler's own module under qualified-path lookup; the namespace still publishes it
 -- as `types`, which is the name everything reading the registry already uses.
 local derived: any = {}
+local derivedByType: any = setmetatable({}, {__mode = "k"})
 
 -- Set by `install`, and nil until then. The JSON codec is memoized as a reflection
 -- extension rather than a field, so a type whose program never installed reflection
@@ -630,7 +631,13 @@ end
 --- can be traced back to its entry with nothing but `getmetatable`.
 local function register(key: string, mt: any, schema: any): any
     local entry = {key = key, mt = mt, schema = schema}
-    rawset(mt, "__nuppDeriveKey", key)
+    -- Record witnesses are tables and keep the historical fast stamp. Struct
+    -- witnesses are LuaJIT ctypes, which cannot be rawset; the identity side table is
+    -- the uniform route used by serde.of(Type).
+    if type(mt) == "table" then
+        rawset(mt, "__nuppDeriveKey", key)
+    end
+    derivedByType[mt] = entry
     local json = schema.data and schema.data.json
     if json then
         schema.fields = json.fields
@@ -639,6 +646,12 @@ local function register(key: string, mt: any, schema: any): any
     derived[key] = entry
 
     return entry
+end
+
+--- Reads the derive entry registered for a type witness.
+--- @internal
+function derive.entry(typeObject: any): derive.Entry?
+    return derivedByType[typeObject]
 end
 
 --- Builds the JSON codec for a type, or answers the one already built.
@@ -797,7 +810,9 @@ function derive.install(namespace: any): nil
         rawset(namespace, "__derive", runtime)
     end
     runtime.types = derived
+    runtime.byType = derivedByType
     runtime.register = register
+    runtime.entry = derive.entry
     runtime.debug = renderRecord
     runtime.jsonCodec = jsonCodecFor
     runtime.writeJSON = derive.writeJSON
@@ -1067,6 +1082,50 @@ local comptime function jsonSpec(T: type, contract: type): any
     return nil
 end
 
+-- The serde recipe preserves semantic scalar widths and contains no JSON member
+-- policy. Unsupported topology is refused instead of being weakened to `document`.
+local comptime function serdeSpec(T: type, contract: type): any
+    local inner = optional(T)
+    if inner ~= nil then
+        local item = serdeSpec(inner, contract)
+        return item and {kind = "optional", value = item} or nil
+    end
+    local value = detail(T)
+    if value.kind == "literal" then
+        return {kind = "literal", value = value.value}
+    elseif value.kind == "primitive" then
+        if value.name == "nil"
+            or value.name == "boolean"
+            or value.name == "string"
+            or value.name == "number"
+            or value.name == "float"
+            or value.name == "integer"
+            or value.name == "int8"
+            or value.name == "int16"
+            or value.name == "int32"
+            or value.name == "uint8"
+            or value.name == "uint16"
+            or value.name == "uint32"
+        then
+            return {kind = value.name}
+        end
+    elseif value.kind == "array" then
+        local item = serdeSpec(value.element, contract)
+        return item and {kind = "array", value = item} or nil
+    elseif value.kind == "map" then
+        local key = detail(value.readKey)
+        local item = key.name == "string" and serdeSpec(value.readValue, contract) or nil
+        return item and {kind = "map", value = item} or nil
+    elseif value.kind == "reference" and value.nominal and value.nominal.deriveKey and nupp.derive.claims(
+        T,
+        contract
+    ) then
+        return {kind = "record", typeKey = value.nominal.deriveKey}
+    end
+
+    return nil
+end
+
 comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
     if info.kind ~= "record" then
         return nupp.derive.error("Debug can be derived only for records", info.reference, "NUPP2803")
@@ -1184,6 +1243,35 @@ comptime function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.d
         data = {json = {fields = fields, unknown = option(info.annotations, "json", "unknown") or "reject"}},
         effects = {"native.json"},
     }
+end
+
+--- Derives one format-neutral schema and physical binding blueprint.
+---
+--- Unlike `JSON`, this provider admits both records and fixed-layout structs and
+--- generates no per-format traversal methods.
+comptime function derive.Serde(info: nupp.derive.Info): nupp.derive.Result<nupp.data.serde.Serializable>
+    if info.kind ~= "record" and info.kind ~= "struct" then
+        return nupp.derive.error("Serde can be derived only for records or structs", info.reference, "NUPP2803")
+    end
+    local fields = {}
+    for index, field in ipairs(info.fields) do
+        local spec = serdeSpec(field.readType, info.interfaceType)
+        if not spec then
+            return nupp.derive.error("type is not supported by Serde", field.reference, "NUPP2803")
+        end
+        local defaultField = field as any
+        fields[
+            index
+        ] = {
+            index = index,
+            name = field.name,
+            serdeType = spec,
+            required = optional(field.readType) == nil and not defaultField.hasDefault,
+            default = defaultField.hasDefault and {kind = "literal", value = defaultField.defaultValue} or nil,
+        }
+    end
+
+    return nupp.derive.implement{data = {serde = {name = info.name, representation = info.kind, fields = fields,},},}
 end
 
 export = derive

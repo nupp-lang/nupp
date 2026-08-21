@@ -23,6 +23,7 @@ See [reflection.md](docs/concepts/reflection.md) for what a program does with a 
 ]]
 
 local reflectruntime = {}
+local extensions = require("nupp.extensions")
 
 --- Reads a namespace member, installing a default when nothing is there yet.
 ---
@@ -98,28 +99,8 @@ function reflectruntime.install(namespace: any): nil
         if not state then
             error("nupp: foreign reflection descriptor", 2)
         end
-        local cached: any = state.extensions[extension]
-        if cached then
-            if cached.state == "ready" then
-                return cached.value
-            end
-            if cached.state == "failed" then
-                error(cached.error, 2)
-            end
-            error("nupp: recursive extension initialization", 2)
-        end
-        cached = {state = "initializing"} as any
-        state.extensions[extension] = cached
-        local ok, value = pcall(extension.build, self)
-        if not ok then
-            cached.state = "failed"
-            cached.error = tostring(value)
-            error(cached.error, 2)
-        end
-        cached.state = "ready"
-        cached.value = value
 
-        return value
+        return extensions.resolve(self, extension as any)
     end
 
     -- The descriptor is an empty table, so every read arrives here and is answered
@@ -160,7 +141,8 @@ function reflectruntime.install(namespace: any): nil
             end
             local info = setmetatable({}, Info)
             infos[typeObject] = info
-            states[info] = {type = typeObject, blueprint = declared, extensions = {}}
+            states[info] = {type = typeObject, blueprint = declared}
+            extensions.host(info)
 
             return info
         end)

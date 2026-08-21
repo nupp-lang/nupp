@@ -1,6 +1,6 @@
 ---
 title: Schema-driven serialization and deserialization
-status: Draft
+status: Implemented
 created: 2026-08-21
 ---
 

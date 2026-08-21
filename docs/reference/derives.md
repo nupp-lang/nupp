@@ -3,9 +3,10 @@ order: 680
 title: Declaration derives
 ---
 
-`nupp.derive` holds the two bundled derive providers and the recipe API a
-package uses to publish its own. `@derive` names a provider on a record
-declaration and adds the closed set of checked members that provider returns.
+`nupp.derive` holds the three bundled derive providers and the recipe API a
+package uses to publish its own. `@derive` names a provider on a record or
+struct declaration. The provider decides which targets it admits and adds the
+closed set of checked members or data that it returns.
 
 ```nupp:playground
 @derive(nupp.derive.Debug, nupp.derive.JSON)
@@ -28,13 +29,15 @@ print(user:debug(), out:tostring())
 
 Applying a provider is a declaration-augmentation phase, not a text macro: it
 cannot add imports, top-level declarations, modules, records, interfaces, or
-independently nameable types. The two bundled providers are:
+independently nameable types. The bundled providers are:
 
 - [`nupp.derive.Debug`](#debug): `debug(self): string` and `nupp.Debug`
   conformance.
 - [`nupp.derive.JSON`](#json): `writeJSON(writer)`, a static `fromJSON`,
   `fieldCodec`, and
   `nupp.data.json.JSONEncodable` conformance.
+- [`nupp.derive.Serde`](#serde): one format-neutral schema and physical binding
+  for a record or struct, with no generated format methods.
 
 Generated members participate in normal member lookup, generic inference, and
 interface checking. A written member of the same name is a compile-time
@@ -116,6 +119,49 @@ print(c:debug())
 ```text
 Credentials { user = "ada", password = <redacted> }
 ```
+
+## Serde
+
+`Serde` derives one logical `nupp.data.serde.Schema` and one
+`nupp.data.serde.Binding<T>`. It applies to records and fixed-layout structs,
+and generates no `writeJSON`, `fromJSON`, XML, or CBOR methods. A codec prepares
+the binding separately and caches its format-specific data.
+
+```nupp
+@derive(nupp.derive.Serde)
+local record User
+    id: uint32
+    name: string?
+end
+
+local binding = nupp.data.serde.of(User)
+local prepared = nupp.data.serde.json():prepare(binding)
+local text = prepared:encode(new User(id = 7, name = "ada"))
+local restored, problem = prepared:decode(text)
+
+assert(problem == nil)
+assert(restored and restored.id == 7)
+```
+
+The same type witness works for a struct:
+
+```nupp
+@derive(nupp.derive.Serde)
+local struct Vec3
+    x: float
+    y: float
+    z: float
+end
+
+local binding: nupp.data.serde.Binding<Vec3> = nupp.data.serde.of(Vec3)
+```
+
+Derived fields currently admit booleans, strings, finite numbers, integers
+through 32 bits, optionals, arrays, string-keyed maps, and other declarations
+that also derive `Serde`. Pointer-bearing struct fields are rejected because a
+pointer does not describe its extent or ownership. See [Schema-driven
+serde](../concepts/serde.md) for dynamic schemas, profiles, extensions, and the
+prepared JSON path.
 
 ## JSON
 

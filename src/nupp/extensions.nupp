@@ -1,0 +1,70 @@
+module nupp.extensions
+
+--[[
+Typed, lazy derived data for immutable run-time descriptors.
+
+An extension key owns the provider and its result type. Hosts keep the cache in a
+side table, so neither the provider nor its process-local result becomes a public
+field on the host. Schema and binding use this directly; reflection delegates to the
+same state machine while retaining its existing public descriptor surface.
+]]
+
+local extensions = {}
+local states: any = setmetatable({}, {__mode = "k"})
+
+--- A typed identity and provider for lazily derived host data.
+--- @export
+record extensions.Key<T>
+    private readonly build: function(host: any): T
+end
+
+--- Creates a typed extension key.
+--- @export
+function extensions.key<T>(build: function(host: any): T): extensions.Key<T>
+    return new extensions.Key(build = build)
+end
+
+--- Registers an immutable object as an extension host.
+--- @internal
+function extensions.host(value: any): any
+    if states[value] == nil then
+        states[value] = {values = {}}
+    end
+    return value
+end
+
+--- Computes a typed extension once or answers the cached result.
+---
+--- Failures are cached too. Re-entering the same key while it is initializing is an
+--- error rather than unbounded recursion.
+--- @raises when the host is foreign, initialization recurs, or the provider fails
+--- @internal
+function extensions.resolve<T>(host: any, key: extensions.Key<T>): T
+    local state = states[host]
+    if state == nil then
+        error("nupp: value is not an extension host", 2)
+    end
+    local cached: any = state.values[key]
+    if cached ~= nil then
+        if cached.state == "ready" then
+            return cached.value as T
+        elseif cached.state == "failed" then
+            error(cached.error, 2)
+        end
+        error("nupp: recursive extension initialization", 2)
+    end
+    local initializing: any = {state = "initializing"}
+    state.values[key] = initializing
+    local ok, value = pcall((key as any).build, host)
+    if not ok then
+        initializing.state = "failed"
+        initializing.error = tostring(value)
+        error(initializing.error, 2)
+    end
+    initializing.state = "ready"
+    initializing.value = value
+
+    return value as T
+end
+
+export = extensions

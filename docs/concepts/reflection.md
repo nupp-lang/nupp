@@ -56,12 +56,12 @@ pulls in neither the data nor the registry.
 
 ### Extensions
 
-`info:extension(extension)` is the cache boundary for work derived from a
-descriptor. An extension is a table with a `build` function; the first call
-builds it against that descriptor, and every later call with the same extension
-returns what was built. Memoization is under the extension itself rather than
-under a name, so two extensions that happen to describe the same thing stay
-separate.
+`info:extension(key)` is the cache boundary for work derived from a descriptor.
+`nupp.extensions.key` creates a typed key with a provider; the first call builds
+it against that descriptor, and every later call with the same key returns what
+was built. Memoization is under key identity rather than a name, so two
+extensions that happen to describe the same thing stay separate. Schemas and
+serde bindings use the same facility.
 
 The state of a build in progress is kept as well as the finished one. An
 extension whose `build` reflects its way back to the descriptor it is being
@@ -69,11 +69,11 @@ built for is reported as a recursive initialization instead of recurring until
 the stack runs out, and a build that failed once is reported the same way every
 time rather than retried.
 
-The JSON derive is the mechanism's first user: its decoder and field codec are
+The JSON derive was the mechanism's first user: its decoder and field codec are
 not built when the record is declared, and the JSON extension builds them the
-first time JSON is used. Extension registration is a runtime implementation API
-for Nupp's own libraries rather than a public user-defined extension API, so
-programs use the JSON and derive members below rather than `_G.nupp`.
+first time JSON is used. An application may define its own typed key.
+Registering arbitrary hosts remains internal; reflection descriptors, schemas,
+and serde bindings are the public hosts.
 
 ::: deepdive
 Format-specific behavior is allocated against the descriptor on first request
@@ -87,10 +87,11 @@ See [NEP 3](../neps/0003-comptime.md) for more information.
 
 ## Type witnesses
 
-Every record has a visible nominal type value: its declaration name is a
-`Type<Record>`, distinct from an instance of that record. It is still the
-record's ordinary runtime table, so constructors, static members, and method
-dispatch keep their Lua behavior. See [Names hold their
+Every record and struct has a visible nominal type value: its declaration name
+is a `Type<T>`, distinct from an instance. A record witness remains the
+record's ordinary runtime table, while a struct witness is its LuaJIT ctype.
+Constructors, static members, and method dispatch keep their runtime behavior.
+See [Names hold their
 table](../type-system/records.md#names-hold-their-table) for how the two stand
 apart in the type system.
 
@@ -107,9 +108,9 @@ assert(witness == User)
 assert(User ~= user)
 ```
 
-An API that accepts a declared record takes `Type<T>`. A record name is never a
-`metatable<T>`, which remains for an explicit table passed to Lua's metatable
-functions.
+An API that accepts a declared record or struct takes `Type<T>`. A record name
+is never a `metatable<T>`, which remains for an explicit table passed to Lua's
+metatable functions.
 
 ::: deepdive
 A caller supplies the declaration and nothing else. Passing a separate type

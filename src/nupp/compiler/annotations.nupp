@@ -260,9 +260,9 @@ local BUILTINS = {
     {
         name = "derive",
         arguments = "names",
-        targets = {"record"},
+        targets = {"record", "struct"},
         builtin = true,
-        doc = "Runs a closed comptime recipe, e.g. `nupp.derive.Debug` or `.JSON`, that adds checked members without exposing source or AST macros.",
+        doc = "Runs a closed comptime recipe, e.g. `nupp.derive.Serde`, that adds checked members or data without exposing source or AST macros.",
         docsPath = "reference/derives",
     },
     {

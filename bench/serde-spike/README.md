@@ -1,8 +1,8 @@
 # Serde architecture spike
 
 This benchmark tests whether a format-neutral, schema-driven serde layer can
-replace `derive.JSON` without sacrificing its hot paths. It is a mechanism
-spike, not a proposed public API.
+replace `derive.JSON` without sacrificing its hot paths. It retains both the
+original mechanism spike and the production prepared-codec implementation.
 
 The Nupp module compares the current derived implementation with:
 
@@ -79,3 +79,27 @@ and booleans. It does not yet cover recursive structures, optionals, unions,
 lists, maps, defaults, streaming values, or the complete validation and error
 surface of the current derive. Those cases must be added before replacing the
 public derive.
+
+## Prepared implementation result
+
+The retained production run is `results/arm64-macos-prepared.json`, with 15
+samples per case on Apple arm64 and LuaJIT. `preparedSerde` includes ordinary
+`serde.of`, codec preparation before timing, and the public `Prepared<T>` call;
+it is not a direct call to the benchmark-only native module.
+
+| Scenario | Current `derive.JSON` | Prepared serde | Speedup (95% CI) |
+| --- | ---: | ---: | ---: |
+| Encode, 3 fields | 2,465 ns | 149 ns | 16.52x (16.45–16.53x) |
+| Encode, 3 fields, caller buffer | 2,465 ns | 184 ns | 13.37x (13.32–13.43x) |
+| Encode, 12 fields | 5,179 ns | 540 ns | 9.60x (9.53–9.62x) |
+| Encode, 12 fields, caller buffer | 5,179 ns | 575 ns | 9.02x (8.86–9.06x) |
+| Decode, 3 fields | 613 ns | 431 ns | 1.42x (1.41–1.43x) |
+| Decode, 12 ordered fields | 1,633 ns | 790 ns | 2.07x (2.05–2.15x) |
+| Decode, 12 reverse fields | 1,643 ns | 846 ns | 1.94x (1.92–1.95x) |
+| Decode, unknown nested field | 1,932 ns | 840 ns | 2.30x (2.29–2.32x) |
+
+The small gap between the prepared path and the benchmark-only native upper
+bound is the public binding and prepared-object dispatch. Encoding keeps most
+of the spike's gain. Decode remains faster than the compatibility derive while
+also performing raw-byte member matching, duplicate detection, required-member
+checks, scalar conversion, and unknown-value skipping.
